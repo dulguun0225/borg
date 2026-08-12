@@ -25,7 +25,8 @@ Non-exhaustive owner's list. The factory does everything else.
 
 **Verify against intent** — the candidate permanent touchpoints:
 
-6. Check that the unit tests conform to the functional requirements.
+6. Confirm the acceptance criteria are the right ones. Unit tests are today's encoding of
+   them; what a human is checking is the criteria, not the test code.
 7. Perform UAT.
 
 **Set the rules** — permanent, not shrinking:
@@ -42,6 +43,24 @@ Non-exhaustive owner's list. The factory does everything else.
 
 ## How humans do it
 
+### One pipeline
+
+Everything goes through it. A human-authored change, an AI-authored change, and one the
+two write together take the same stages, the same gates, and the same score. Authorship
+is an attribute of each stage, not a mode on the item: an item can have an AI spec, a
+co-authored plan, and a human implementation, and it is still one thread.
+
+Backstop duties (11, 12) are this and nothing more — the pen changes hands for a stage.
+Taking over is not leaving the factory.
+
+A bug the factory finds and fixes itself is an item like any other. It appears in Work,
+takes the same stages, and is auto-passed only where the score allows. There is no
+second, invisible path, and nothing ships that the trust number cannot see.
+
+There is no bypass, including for incidents. A human standing at a gate is not a delay:
+the emergency lever is approve now, not skip. A change that should not have shipped is
+caught by the canary, not by a faster route around the pipeline.
+
 ### Gates
 
 A gate sits after every stage: spec, implementation plan, tasks, implementation, and
@@ -55,11 +74,9 @@ pinning a gate always-on or pinning a strategy, and can veto after the fact.
 A failing canary rolls back on its own — no human in the loop, no waiting. The rollback
 is reported, not requested.
 
-The score is learned, not fixed. Every bad call feeds back and refines it: an auto-passed
-change that a human vetoes, a low-risk change whose canary rolled back, a gate the factory
-would have passed but a human rejected. Outcome feedback is the sharpest signal but not
-the only one — any source that improves the score is admissible, and the input set stays
-open by design.
+Veto after the fact assumes the change can still be undone, and that assumption decays
+as later work builds on it. Reversibility is a scored dimension, and the veto window is
+bounded by it.
 
 Actions available at each gate:
 
@@ -70,10 +87,57 @@ Actions available at each gate:
 | Tasks | Approve · Reject with feedback · Edit in place |
 | Implementation | Approve · Reject with feedback |
 
-Artifacts are editable by hand. Code is not.
+At a gate, artifacts are editable by hand. Code is not: a gate approves or rejects an
+implementation, it never hand-patches one. A human who wants different code authors it
+upstream and sends it back through the pipeline.
 
-**Deployments** — at least UAT and prod, more definable per project. UAT is where human
-UAT (7) happens.
+### Risk score
+
+A vector of named factors, reduced to one number by a published formula. Both halves
+matter — the number is what a gate compares against a threshold, the vector is what a
+human reads when they disagree with the number. A score nobody can argue with is a score
+nobody will trust.
+
+Factors, at least:
+
+- **The change** — size, blast radius, area churn, test coverage, reversibility.
+- **Authorship** — a prior, per human and per AI model, carried from that author's own
+  history of vetoes and rollbacks. It starts wide for an author the factory has not seen
+  and narrows with evidence, which is also how a new model version earns its way in.
+- **Context** — what this change touches in this customer's business. The same diff is a
+  different animal in a payments path than on a marketing page.
+
+Likelihood and impact stay separate until the last step. They answer different questions
+and drive different responses: likely-wrong but cheap to undo should ship and let
+rollback handle it; unlikely but catastrophic should be gated regardless. This is also
+why one score drives two decisions — the gate reads mostly likelihood against impact,
+the rollout strategy reads mostly impact against reversibility and how fast a problem
+would surface.
+
+The score is learned, not fixed. Every bad call feeds back and refines it: an auto-passed
+change that a human vetoes, a low-risk change whose canary rolled back, a gate the factory
+would have passed but a human rejected. Outcome feedback is the sharpest signal but not
+the only one — any source that improves the score is admissible, and the input set stays
+open by design.
+
+Scoring on authorship feeds itself if left alone: a distrusted author is gated more,
+gated work draws more scrutiny, more scrutiny finds more faults, and the distrust is
+confirmed. The factory holds out a random sample — occasionally auto-passing what it
+would have gated, under canary protection — to keep unbiased signal on the authors and
+areas it has stopped trusting.
+
+### Environments
+
+Environments are records, not names in code. Each carries its own gate policy, strategy
+defaults, credentials, and history of deploys, incidents, and rollbacks. At least UAT and
+prod exist everywhere; customers define more per project.
+
+The graph is not uniform. Up to UAT, deploys are plain and what moves is a candidate.
+UAT is production-like, and it is where human UAT (7) happens. Passing UAT is where a
+change becomes a version, and everything past that point is machine: versioning, strategy
+selection, rollout, monitoring, rollback.
+
+So UAT is the last human touchpoint before the factory runs unattended.
 
 ### Surfaces
 
@@ -115,7 +179,35 @@ Factory carries one number that governs trust: how much the factory auto-approve
 how often that was later vetoed or rolled back. Humans decide how much rope to give from
 that number, and it is the same signal the risk score learns from.
 
+## Deferred, but not designed out
+
+Security comes last. The factory should be free and easy to play with at the start and
+tighten as the human world demands it. That is a sequencing decision, not permission to
+build something that cannot be secured later.
+
+Four seams are nearly free now and expensive to retrofit:
+
+1. **An actor on every record** — every gate decision, edit, approval, veto. No
+   authentication, no enforcement, just the field, always populated. Identity cannot be
+   added to a history that was written without it.
+2. **One append-only decision log.** It is the audit trail and the risk score's training
+   data at once, and it must not become two systems.
+3. **Secrets by reference.** Artifacts and specs carry names, never values — they get
+   copied, diffed, and handed to agents. The resolver can be a file on disk today.
+4. **A named seam between agents and deploy targets.** However it is implemented, an
+   agent reaches an environment through a small set of named operations. That seam is
+   where policy attaches later; without it, prod access is diffused through the codebase.
+
+One pipeline is the strongest of these and was chosen for coherence rather than safety:
+a single path is a single place to put policy.
+
 ## Open
 
-- What shape does the risk score take — one number, or per-dimension (blast radius,
-  reversibility, test coverage, area churn)?
+- Does a version hold one work item or several? If UAT batches, rollout is version-scoped
+  while everything before it is item-scoped — the single thread forks, and vetoing one
+  change out of ten that shipped together becomes the expensive case. One item per version
+  keeps the thread intact and costs a UAT per item.
+- Is UAT permanently human? If it is, nothing reaches prod unattended — including the bugs
+  the factory finds and fixes itself — and throughput is capped by human testing. The
+  alternatives: score-gate UAT like every other gate, or split it, permanent for
+  human-originated features and auto-passable for factory-originated fixes.
