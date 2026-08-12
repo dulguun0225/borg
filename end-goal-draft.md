@@ -5,8 +5,10 @@ A draft. Everything here is open to revision.
 ## What the factory does
 
 A **fully autonomous software factory and operations**: it refines intent, produces the
-software, deploys it, monitors it, finds issues, and fixes bugs, on its own. The factory
-is a product — each customer runs their own isolated, self-hosted setup.
+software, deploys it, monitors it, finds issues, and fixes bugs, on its own. It also
+runs itself: it decomposes intent into items, dispatches its own agents onto them, gates
+its own output against a score it learns, and escalates what it cannot finish. The
+factory is a product — each customer runs their own isolated, self-hosted setup.
 
 **Tight integration is key.** One system, not a bundle of tools with connectors between
 them. Intent, spec, change, gate decision, deploy, incident, and score are one graph.
@@ -379,7 +381,8 @@ to the control it should change.
   environments, agent fleet — and the same page carries the readout: throughput, rework
   rate, gate rejection rate, cost per feature, what each agent is doing and how well.
   Not stage definition: the stages are the factory's own.
-- **People** — humans, roles, who gates what, who does UAT.
+- **People** — humans, roles, who gates what, who does UAT. Declared, not enforced: the
+  model routes work today, and is the seam authentication attaches to later.
 
 Three properties the surfaces have to carry:
 
