@@ -70,11 +70,15 @@ There is no bypass, including for incidents. A human standing at a gate is not a
 the emergency lever is approve now, not skip. A change that should not have shipped is
 caught by the canary, not by a faster route around the pipeline.
 
+Waiting for the UAT slot is the other place a queue forms, and its order is settable —
+an urgent item goes to the front. That is not a bypass. Reordering a queue changes when
+an item reaches the gates; it does not change which gates it passes through.
+
 ### Gates
 
-A gate sits after every stage: spec, implementation plan, tasks, implementation, and
-each promotion between environments. The mechanism is permanent — it does not fade as
-the factory improves.
+A gate sits after every stage: spec, implementation plan, tasks, implementation, each
+merge, and each deploy. The mechanism is permanent — it does not fade as the factory
+improves.
 
 The factory scores each change and auto-passes what it judges low risk. The same score
 picks the rollout strategy: A/B, canary, blue-green, straight. Humans override by
@@ -85,7 +89,8 @@ is reported, not requested.
 
 Veto after the fact assumes the change can still be undone, and that assumption decays
 as later work builds on it. Reversibility is a scored dimension, and the veto window is
-bounded by it.
+bounded by it. It decays that way and no other: with one item per release, a change is
+never harder to undo because it happened to ship alongside nine others.
 
 Actions available at each gate:
 
@@ -95,10 +100,35 @@ Actions available at each gate:
 | Implementation plan | Approve · Reject with feedback · Edit in place |
 | Tasks | Approve · Reject with feedback · Edit in place |
 | Implementation | Approve · Reject with feedback |
+| Merge to UAT branch | Approve · Reject with feedback |
+| Deploy to UAT | Approve · Hold · Reject with feedback |
+| Merge to master | Approve · Reject with feedback |
+| Deploy to production | Approve · Hold · Pin strategy |
 
 At a gate, artifacts are editable by hand. Code is not: a gate approves or rejects an
 implementation, it never hand-patches one. A human who wants different code authors it
 upstream and sends it back through the pipeline.
+
+Merge and deploy gates edit nothing at all — what they hold is an event, not a document.
+Reject sends the change back up the pipeline; hold leaves it queued at the gate, for a
+window or a dependency, with the change still good. The two are different answers and
+have to stay distinguishable: the score learns from a reject and should learn nothing
+from a hold.
+
+Merge to master is the release event — where a candidate becomes a numbered release —
+and it is also where human UAT's verdict lands. Approving it is passing UAT; rejecting
+it is failing UAT, which sends the item back up the pipeline and empties the UAT slot
+for whatever is waiting.
+
+Production deploy is the exception to reject, which is why that row does not offer it. By
+the time a change stands there the merge has happened and the number is spent; hold is
+the only way to stop it, and undoing it is a revert, which is a new item. That is veto
+after the fact under another name.
+
+The last two gates are the factory's own steady state. Both exist, both are scored, and
+both are auto-passed by default — that is what "unattended past UAT" means. Pinning
+either one puts a human back in prod's path without inventing a new mechanism, which is
+why they are gates and not an exemption from gating.
 
 ### Risk score
 
@@ -113,8 +143,9 @@ Factors, at least:
 - **Authorship** — a prior, per human and per AI model, carried from that author's own
   history of vetoes and rollbacks. It starts wide for an author the factory has not seen
   and narrows with evidence, which is also how a new model version earns its way in.
-- **Context** — what this change touches in this customer's business. The same diff is a
-  different animal in a payments path than on a marketing page.
+- **Context** — what this change touches in this customer's business, and which sibling
+  services consume what it publishes. The same diff is a different animal in a payments
+  path than on a marketing page.
 
 Likelihood and impact stay separate until the last step. They answer different questions
 and drive different responses: likely-wrong but cheap to undo should ship and let
@@ -141,12 +172,112 @@ Environments are records, not names in code. Each carries its own gate policy, s
 defaults, credentials, and history of deploys, incidents, and rollbacks. At least UAT and
 prod exist everywhere; customers define more per project.
 
+Two long-lived branches back each service's promotion path: a UAT branch and master.
+Merging and deploying are separate events and so are separate gates — a merge admits a
+change to a branch, a deploy puts a branch on an environment, and either can happen
+without the other. A deploy can be rerun; a merge cannot be unmerged the same way.
+
+The UAT branch is a slot, not a queue. It is reset to master, takes exactly one item,
+gets deployed and tested, merges, and resets. A second item that is ready waits. A reject
+empties the slot at once and the item rejoins the queue: a candidate being repaired must
+not hold the branch shut behind it.
+
+The slot is per service, so a twelve-service project can have twelve items in UAT at
+once. That is only safe because no item may break a contract, and it settles what a
+candidate is tested against — the current releases of its dependencies, never another
+service's candidate. A UAT environment is composed for the candidate standing in it.
+
 The graph is not uniform. Up to UAT, deploys are plain and what moves is a candidate.
 UAT is production-like, and it is where human UAT (7) happens. Passing UAT is where a
-change becomes a version, and everything past that point is machine: versioning, strategy
-selection, rollout, monitoring, rollback.
+candidate becomes releasable; merge to master is where it becomes a release and gets its
+number. Everything from there is machine: numbering, strategy selection, rollout,
+monitoring, rollback.
 
-So UAT is the last human touchpoint before the factory runs unattended.
+So UAT is the last human touchpoint before the factory runs unattended — by default, and
+by score, not because the gates downstream of it are missing.
+
+### Releases
+
+**One item per release. Always, at every stage, permanently.** The single thread of an
+item never forks: rollout stays item-scoped like everything before it, and a veto is the
+rollback of exactly one item rather than a surgical extraction from a bundle of ten. The
+cost is a human UAT per item, taken serially within a service, and it is the throughput
+ceiling left open below. A dev/alpha channel added later inherits the rule rather than
+renegotiating it.
+
+A release is a record, and it is where the graph joins. It holds the item that caused it,
+the build and commit it is made of, the gate decisions that let it through, the contract
+versions it publishes, and every deploy of it to every environment. Ask anything about a
+shipped change — from what intent, on whose approval, under which policy, running where,
+rolled back when — and the answer is a walk out from the release record. Traceability is
+not bolted to this; it is what the record is for.
+
+Before it is a release it is a **candidate**, identified by its item and its build. That
+is identity enough to deploy, test, and reject, and a rejected candidate never needed a
+number. A build wears one label and no more: on the UAT branch it is **beta**, on master
+it is a **release**. A customer who defines five pre-prod environments still has two
+labels and one build collecting five deploy records — maturity does not multiply with
+places to stand.
+
+The number is an ordinal, per service, assigned at merge to master. It orders builds and
+names rollback targets, and that is the whole of its job; compatibility is the contract's
+business, not the release's. Numbers are never reused. A release that is rolled back
+keeps its number, and the fix that follows takes the next one.
+
+A numbered release that has never run anywhere is normal, not an anomaly. The number is
+minted at merge, one gate before production, so it records that a change was accepted —
+not that it is live. A hold at the production deploy gate produces exactly this. Where a
+release is running is a deploy record and never the number.
+
+Because master's only inbound path is the UAT branch, and the branch holds one item,
+master cannot move while an item is in UAT. The merge is therefore always a fast-forward
+and the commit that passed UAT is the commit on master. What was tested is what ships —
+a structural property of the slot, not a discipline anyone has to keep.
+
+Rollback is a deploy event, not a version event: it puts the previous release build back
+on the environment and writes a deploy record, minting and retiring nothing. Undoing a
+release that has already shipped is not that. Master keeps it, and the correction is a
+revert — a new item, its own thread, its own number. That is what veto after the fact
+(10) actually costs.
+
+### Contracts
+
+A project's software is one or more services, and they reach each other through published
+interfaces — REST under OpenAPI, gRPC under protobuf, Kafka under topic schemas. Those
+interfaces have consumers, and the consumers are other services in the same factory.
+
+So there are two versioned things and they must not be collapsed into one. A release
+number orders the builds of a single service. A contract version is a compatibility
+promise to whoever calls it, and semver is precisely what that is for: major means a
+consumer breaks. One service can publish several contracts — an API, a gRPC service,
+three topics — and they move at their own rates. A single number per service cannot carry
+several independent promises, and a promise that moves for unrelated reasons stops being
+read. Most releases publish no new contract version at all.
+
+**No single item may break a contract.** A breaking change is three items: the producer
+adds the new form beside the old, each consumer migrates, the producer removes the old.
+Each ships alone, passes its own UAT, and is independently reversible. This is the same
+discipline no-batching already forces — an item that cannot ship by itself was cut
+wrong — and the two rules hold each other up. Where a change genuinely cannot be
+decomposed, that is an escalation (12), not a licence to batch.
+
+The rule is mechanical rather than a judgment call. The factory diffs the contract a
+candidate publishes against the one in production: additive passes, and a breaking diff
+without the migration already in front of it is a rejection at the merge gate. The same
+graph answers who is affected — the factory knows which services consume which contracts,
+so "what does this break" is a query rather than an estimate, and it feeds the context
+factor of the risk score directly.
+
+Deprecation is an obligation the contract carries, not a note someone leaves. When the
+producer adds the new form, the old one is marked with its consumers attached; as each
+migrates the list shortens, and when it empties the factory raises the removal item
+itself. Nobody has to remember step three.
+
+Work that spans services needs no new noun. One request can produce four items in four
+services, and the intent is what joins them — every item already walks back to the intent
+that caused it, so "everything that came from this request" is a query that works today.
+The three items of a contract migration are the same shape: one intent, three items,
+three releases.
 
 ### Surfaces
 
@@ -158,13 +289,14 @@ to the control it should change.
   assignments (7), the factory's interview questions (3), and escalations where the
   factory admits it is stuck (11, 12). Carries the badge count. This is the home screen,
   because answering the factory is the daily job.
-- **Work** — one item is one thread. Intent, spec, plan, tasks, implementation, and
-  rollout on a single timeline, with each gate shown inline at the point it sits.
-  Features and bugs are the same kind of item. A project is a grouping of work, not a
-  separate place. Board and list views answer "where is it stuck".
-- **Ops** — deployed software per environment: health, incidents, in-flight rollouts.
-  An acting surface, not watch-only: roll back, page, and exercise veto after the
-  fact (10).
+- **Work** — one item is one thread. Intent, spec, plan, tasks, implementation, rollout,
+  and the numbered release it ends in, on a single timeline, with each gate shown inline
+  at the point it sits. Features and bugs are the same kind of item. A project is a
+  grouping of work, not a separate place. Board and list views answer "where is it
+  stuck" — which now includes the UAT slot: who holds it, who is waiting, in what order.
+- **Ops** — deployed software per environment: which release of each service is running,
+  what contracts it publishes, health, incidents, in-flight rollouts. An acting surface,
+  not watch-only: roll back, page, and exercise veto after the fact (10).
 - **Factory** — the machine itself. Gate and risk policy, thresholds, strategy pins,
   environments, agent fleet — and the same page carries the readout: throughput, rework
   rate, gate rejection rate, cost per feature, what each agent is doing and how well.
@@ -212,11 +344,19 @@ a single path is a single place to put policy.
 
 ## Open
 
-- Does a version hold one work item or several? If UAT batches, rollout is version-scoped
-  while everything before it is item-scoped — the single thread forks, and vetoing one
-  change out of ten that shipped together becomes the expensive case. One item per version
-  keeps the thread intact and costs a UAT per item.
 - Is UAT permanently human? If it is, nothing reaches prod unattended — including the bugs
-  the factory finds and fixes itself — and throughput is capped by human testing. The
-  alternatives: score-gate UAT like every other gate, or split it, permanent for
-  human-originated features and auto-passable for factory-originated fixes.
+  the factory finds and fixes itself. This is the only ceiling left on throughput and it
+  is serial: releases do not batch and a service's slot holds one item, so each service
+  moves at one human UAT per item. Per-service slots widen that; batching would have
+  absorbed it and batching is deliberately gone. The alternatives: score-gate UAT like
+  every other gate, or split it, permanent for human-originated features and auto-passable
+  for factory-originated fixes.
+- Does an additive diff prove nothing breaks? It proves the schema still holds, not that
+  callers survive — a field that quietly stops being populated breaks a consumer without
+  breaking a contract. The honest version is consumer-driven: replay each known consumer's
+  actual usage against the candidate before it releases. That needs every consumer's usage
+  recorded as a first-class thing, which is a large build and is not costed here.
+- Who owns a contract? It changes inside an item belonging to one service, but it binds
+  services that item never touches. Whether a contract is an artifact with its own thread
+  and its own gate, or only ever a property of the releases that publish it, decides where
+  a consumer's objection gets filed and who may reject a change on their behalf.
