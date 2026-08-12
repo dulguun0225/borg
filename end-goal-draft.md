@@ -8,6 +8,15 @@ A **fully autonomous software factory and operations**: it refines intent, produ
 software, deploys it, monitors it, finds issues, and fixes bugs, on its own. The factory
 is a product — each customer runs their own isolated, self-hosted setup.
 
+**Tight integration is key.** One system, not a bundle of tools with connectors between
+them. Intent, spec, change, gate decision, deploy, incident, and score are one graph.
+
+**Traceability is key**, and is the testable form of it: every artifact walks back to the
+intent that caused it and forward to what it produced, under the policy and score that
+were in force at the time.
+
+_Both to expand._
+
 ## What humans do
 
 Non-exhaustive owner's list. The factory does everything else.
