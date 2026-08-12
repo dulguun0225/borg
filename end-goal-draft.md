@@ -32,7 +32,7 @@ Non-exhaustive owner's list. The factory does everything else.
 4. Report bugs.
 5. Complain ("this button is too slow").
 
-**Verify against intent** — the candidate permanent touchpoints:
+**Verify against intent** — at a gate, so as often as the score or a pin (9) says:
 
 6. Confirm the acceptance criteria are the right ones. Unit tests are today's encoding of
    them; what a human is checking is the criteria, not the test code.
@@ -140,9 +140,10 @@ confirms them (6). What is confirmed is the criteria; a test encoding them is do
 of that approval, not the object of it.
 
 Merge to master is the release event — where a candidate becomes a numbered release —
-and it is also where human UAT's verdict lands. Approving it is passing UAT; rejecting
-it is failing UAT, which sends the item back up the pipeline and empties the UAT slot
-for whatever is waiting.
+and it is also where the UAT verdict lands. Approving it is passing UAT; rejecting it is
+failing UAT, which sends the item back up the pipeline and empties the UAT slot for
+whatever is waiting. The verdict is a human's when the score or a pin puts one there and
+the factory's own otherwise — UAT is scored like every gate around it.
 
 Production deploy is the exception to reject, which is why that row does not offer it. By
 the time a change stands there the merge has happened and the number is spent; hold is
@@ -150,9 +151,9 @@ the only way to stop it, and undoing it is a revert, which is a new item. That i
 after the fact under another name.
 
 The last two gates are the factory's own steady state. Both exist, both are scored, and
-both are auto-passed by default — that is what "unattended past UAT" means. Pinning
-either one puts a human back in prod's path without inventing a new mechanism, which is
-why they are gates and not an exemption from gating.
+both are auto-passed by default, as is every gate above them. Pinning either one puts a
+human back in prod's path without inventing a new mechanism, which is why they are gates
+and not an exemption from gating.
 
 ### Risk score
 
@@ -212,22 +213,34 @@ candidate is tested against — the current releases of its dependencies, never 
 service's candidate. A UAT environment is composed for the candidate standing in it.
 
 The graph is not uniform. Up to UAT, deploys are plain and what moves is a candidate.
-UAT is production-like, and it is where human UAT (7) happens. Passing UAT is where a
-candidate becomes releasable; merge to master is where it becomes a release and gets its
-number. Everything from there is machine: numbering, strategy selection, rollout,
+UAT is production-like, and it is where the candidate is tested (7). Passing UAT is where
+a candidate becomes releasable; merge to master is where it becomes a release and gets
+its number. Everything from there is machine: numbering, strategy selection, rollout,
 monitoring, rollback.
 
-So UAT is the last human touchpoint before the factory runs unattended — by default, and
-by score, not because the gates downstream of it are missing.
+UAT is score-gated like every other gate, so it is not the last human touchpoint and
+there is no last one: the same score decides at each gate whether a human stands there,
+and a pin (9) puts one back. Where it auto-passes, the verdict on the candidate is the
+factory's own, taken on a production-like environment against acceptance criteria a human
+already confirmed (6).
+
+The alternative was to split UAT by origin — permanent for human-originated features,
+auto-passable for factory-originated fixes — and that is the second, invisible path the
+pipeline forbids, sorted by a worse predictor than the score's own factors. Scoring it
+costs this: a change can reach production with nobody having watched it run. What then
+catches a factory that built the wrong thing is the criteria confirmed at the Spec gate,
+the canary, and veto after the fact (10) — and an owner who wants more buys it back per
+service or per area with a pin.
 
 ### Releases
 
 **One item per release. Always, at every stage, permanently.** The single thread of an
 item never forks: rollout stays item-scoped like everything before it, and a veto is the
 rollback of exactly one item rather than a surgical extraction from a bundle of ten. The
-cost is a human UAT per item, taken serially within a service, and it is the throughput
-ceiling left open below. A dev/alpha channel added later inherits the rule rather than
-renegotiating it.
+cost is one trip through the UAT slot per item, taken serially within a service. Where
+the score or a pin puts a human in that slot, the service moves at one human UAT per
+item — a ceiling that is bought rather than structural. A dev/alpha channel added later
+inherits the rule rather than renegotiating it.
 
 A release is a record, and it is where the graph joins. It holds the item that caused it,
 the build and commit it is made of, the gate decisions that let it through, the contract
@@ -308,8 +321,8 @@ obligation an old interface carries.
 Enforcement costs nothing new: the factory diffs the schema a candidate carries against
 the one in production, and a destructive diff without the migration already in front of
 it is a rejection at the merge gate. The cost lands on small work — renaming a column is
-three items and three UATs. What it buys is the rollback in Releases, which is otherwise
-a promise about code made over data that has already moved on.
+three items and three trips through the slot. What it buys is the rollback in Releases,
+which is otherwise a promise about code made over data that has already moved on.
 
 Work that spans services needs no new noun. One request can produce four items in four
 services, and the intent is what joins them — every item already walks back to the intent
@@ -409,13 +422,6 @@ a single path is a single place to put policy.
 
 ## Open
 
-- Is UAT permanently human? If it is, nothing reaches prod unattended — including the bugs
-  the factory finds and fixes itself. This is the only ceiling left on throughput and it
-  is serial: releases do not batch and a service's slot holds one item, so each service
-  moves at one human UAT per item. Per-service slots widen that; batching would have
-  absorbed it and batching is deliberately gone. The alternatives: score-gate UAT like
-  every other gate, or split it, permanent for human-originated features and auto-passable
-  for factory-originated fixes.
 - Does an additive diff prove nothing breaks? It proves the schema still holds, not that
   callers survive — a field that quietly stops being populated breaks a consumer without
   breaking a contract. The honest version is consumer-driven: replay each known consumer's
