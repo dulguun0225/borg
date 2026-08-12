@@ -54,10 +54,15 @@ Non-exhaustive owner's list. The factory does everything else.
 
 ### One pipeline
 
-Everything goes through it. A human-authored change, an AI-authored change, and one the
-two write together take the same stages, the same gates, and the same score. Authorship
-is an attribute of each stage, not a mode on the item: an item can have an AI spec, a
-co-authored plan, and a human implementation, and it is still one thread.
+An **item** is the unit the factory moves: one request-shaped thing, one thread, one
+release. An **agent** is a worker the factory runs — a model in a role, with a scope.
+Two agents on the same model share one authorship prior: the score is kept per model, not
+per role.
+
+Every item goes through the pipeline. A human-authored change, an AI-authored change, and
+one the two write together take the same stages, the same gates, and the same score.
+Authorship is an attribute of each stage, not a mode on the item: an item can have an AI
+spec, a co-authored plan, and a human implementation, and it is still one thread.
 
 Backstop duties (11, 12) are this and nothing more — the pen changes hands for a stage.
 Taking over is not leaving the factory.
@@ -105,6 +110,12 @@ Actions available at each gate:
 | Merge to master | Approve · Reject with feedback |
 | Deploy to production | Approve · Hold · Pin strategy |
 
+Those eight rows are the default path, not the whole set. A gate sits after every deploy,
+so a customer that defines more environments gets a row for each, carrying the actions
+Deploy to UAT carries. It gets no more merge rows: two branches back the promotion path,
+so the extra environments are deploy targets. Production stays the only deploy without
+Reject.
+
 At a gate, artifacts are editable by hand. Code is not: a gate approves or rejects an
 implementation, it never hand-patches one. A human who wants different code authors it
 upstream and sends it back through the pipeline.
@@ -114,6 +125,19 @@ Reject sends the change back up the pipeline; hold leaves it queued at the gate,
 window or a dependency, with the change still good. The two are different answers and
 have to stay distinguishable: the score learns from a reject and should learn nothing
 from a hold.
+
+A stage also carries an attempt bound, authored with the rest of gate policy (8). An item
+that exceeds it stops being retried and stands in Inbox as an escalation (12) — the
+factory saying it cannot do this one. Holds do not count against the bound; a hold is not
+a failed attempt, for the same reason the score does not learn from one. The bound costs
+something wherever it is set: low turns solvable work into human work, high burns spend
+before anyone sees the item.
+
+The Spec gate carries two duties. The interview (3) refines intent and the spec is what
+it produces, so approving the spec ratifies that refinement — there is no interview gate
+and none is missing. The spec also states the acceptance criteria, so approving it
+confirms them (6). What is confirmed is the criteria; a test encoding them is downstream
+of that approval, not the object of it.
 
 Merge to master is the release event — where a candidate becomes a numbered release —
 and it is also where human UAT's verdict lands. Approving it is passing UAT; rejecting
@@ -235,10 +259,11 @@ and the commit that passed UAT is the commit on master. What was tested is what 
 a structural property of the slot, not a discipline anyone has to keep.
 
 Rollback is a deploy event, not a version event: it puts the previous release build back
-on the environment and writes a deploy record, minting and retiring nothing. Undoing a
-release that has already shipped is not that. Master keeps it, and the correction is a
-revert — a new item, its own thread, its own number. That is what veto after the fact
-(10) actually costs.
+on the environment and writes a deploy record, minting and retiring nothing. That the old
+build still runs is not luck: no item may break the store it stands on, so what it finds
+there is what it can read. Undoing a release that has already shipped is not that. Master
+keeps it, and the correction is a revert — a new item, its own thread, its own number.
+That is what veto after the fact (10) actually costs.
 
 ### Contracts
 
@@ -273,11 +298,51 @@ producer adds the new form, the old one is marked with its consumers attached; a
 migrates the list shortens, and when it empties the factory raises the removal item
 itself. Nobody has to remember step three.
 
+A service's store is a contract too, and its consumer is the service's own past — the
+release that was running a minute ago, which a rollback can put back. The rule holds
+there unchanged: **no single item may break the store.** A breaking schema change is
+three items — the store gains the new form beside the old, the code migrates onto it,
+the old form is dropped — and while it stands, the old form carries the same deprecation
+obligation an old interface carries.
+
+Enforcement costs nothing new: the factory diffs the schema a candidate carries against
+the one in production, and a destructive diff without the migration already in front of
+it is a rejection at the merge gate. The cost lands on small work — renaming a column is
+three items and three UATs. What it buys is the rollback in Releases, which is otherwise
+a promise about code made over data that has already moved on.
+
 Work that spans services needs no new noun. One request can produce four items in four
 services, and the intent is what joins them — every item already walks back to the intent
 that caused it, so "everything that came from this request" is a query that works today.
 The three items of a contract migration are the same shape: one intent, three items,
 three releases.
+
+### Operations
+
+A deploy record says which release runs where, so the factory always knows what it is
+looking at. It watches that release against the one it replaced — error rate, latency,
+throughput, on comparable traffic — and that comparison is the health signal. Nothing has
+to be authored for a new service to have one.
+
+A canary fails when the comparison crosses the line, and the rollback follows on its own.
+The baseline is only as good as the release it is drawn from, which is the case for
+pinning: an owner can pin explicit thresholds for a service the way they pin a gate or a
+strategy, and a service whose normal behaviour is already bad is where that earns its
+keep.
+
+The comparison keeps running after the rollout finishes. What it finds then is not a
+rollback candidate — the change has been live for a week and the build it replaced is
+long gone. It is an unrefined item in Work, the same shape as an end-user complaint
+(4, 5), taking the same stages and the same gates. That is the whole of "finds issues
+and fixes bugs": detection writes an item, and the pipeline does the rest.
+
+An incident is a record on the environment. It points at the deploy, the deploy at the
+release, the release at its item and its intent — so what caused an incident is a walk
+out of it, the same walk the release record answers from the other end.
+
+The factory works the item it raised under the attempt bound like any other. Hitting that
+bound turns it into an escalation (12), the same Inbox row a stuck feature produces: a
+bug the factory cannot fix is not a different kind of stuck.
 
 ### Surfaces
 
@@ -355,7 +420,10 @@ a single path is a single place to put policy.
   callers survive — a field that quietly stops being populated breaks a consumer without
   breaking a contract. The honest version is consumer-driven: replay each known consumer's
   actual usage against the candidate before it releases. That needs every consumer's usage
-  recorded as a first-class thing, which is a large build and is not costed here.
+  recorded as a first-class thing, which is a large build and is not costed here. The
+  store has the same hole from the other side: an additive schema diff proves the old form
+  still exists, not that the build being rolled back to can read what the new one wrote
+  into it.
 - Who owns a contract? It changes inside an item belonging to one service, but it binds
   services that item never touches. Whether a contract is an artifact with its own thread
   and its own gate, or only ever a property of the releases that publish it, decides where
