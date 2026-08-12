@@ -95,5 +95,8 @@ production, an ordinal attached at merge, contracts versioned alongside it.
 
 ## Commits
 
+Commit straight to `main`. The project is early; branches start when it is ready for
+them, and not before. Do not create one unasked. (Owner rule, 2026-08-13.)
+
 `docs: <imperative summary>`. The body says what the change resolved and names what stays
 open — see `98b5430` for the shape. Include the `Co-Authored-By` trailer.
