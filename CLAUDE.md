@@ -18,7 +18,7 @@ what-the-factory-does.md
 what-humans-do.md               # the twelve numbered duties
 how-humans-do-it/
   README.md                     # the dependency-order table, and only that
-  01-one-pipeline.md … 09-surfaces.md
+  01-one-pipeline.md … 10-surfaces.md
 deferred.md
 open.md
 next.md                         # the work list, not part of the document
@@ -66,7 +66,8 @@ slot, and there is no slot to hold.
 decision happens) → Risk score (what decides whether a human stands at one) → Environments
 (the branch, the per-candidate environment, the merge queue) → Releases (what travels) →
 Contracts (what binds services to each other) → Operations (the control, the watch window,
-K, the veto window) → Surfaces (where a human sees it). A concept should be defined before
+K, the veto window) → Gate policy (everything an owner authors, gathered from the sections
+that define each parameter) → Surfaces (where a human sees it). A concept should be defined before
 the section that leans on it. The numeric filename prefixes under `how-humans-do-it/` are
 that order and nothing else — reordering means renaming files and fixing the links that
 point at them.
@@ -151,7 +152,7 @@ commit contradicted. (Owner rule, 2026-08-13.)
 There are no tests. After editing, run the consistency pass:
 
 ```bash
-grep -rn "^| " --include='*.md' . | grep -v CLAUDE.md          # seven tables: tree index, sections, gate actions, criterion patterns, build names, modes, window exits
+grep -rn "^| " --include='*.md' . | grep -v CLAUDE.md          # eight tables: tree index, sections, gate actions, criterion patterns, build names, modes, window exits, gate policy
 grep -rno "([0-9, ]*)" --include='*.md' . | grep -v CLAUDE.md  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' . | grep -v CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^#" --include='*.md' . | grep -v CLAUDE.md           # one "# " per file, and nothing deeper than "### "
@@ -169,7 +170,7 @@ the tree rather than against the target file's own, so it catches a renamed head
 a link pointed at the wrong file.
 
 Then read One pipeline → Intent into items → Gates → Risk score → Environments → Releases →
-Contracts → Operations → Surfaces straight through and confirm one identity survives end to end: item
+Contracts → Operations → Gate policy → Surfaces straight through and confirm one identity survives end to end: item
 plus build as a candidate, the same build in production, an ordinal attached at merge,
 contracts versioned alongside it.
 

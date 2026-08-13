@@ -12,4 +12,5 @@ The sections run in dependency order — each leans on the ones before it. The n
 | [Releases](06-releases.md) | What travels, and what it is called at each point |
 | [Contracts](07-contracts.md) | What binds services to each other, and to their own past |
 | [Operations](08-operations.md) | What happens after the deploy |
-| [Surfaces](09-surfaces.md) | Where a human sees any of it |
+| [Gate policy](09-gate-policy.md) | Everything an owner authors, and what the score supplies where they do not |
+| [Surfaces](10-surfaces.md) | Where a human sees any of it |

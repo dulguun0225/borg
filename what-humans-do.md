@@ -20,7 +20,7 @@ Non-exhaustive owner's list. The factory does everything else. It is a list of d
 
 **Set the rules** — permanent, not shrinking:
 
-8. Author gate policy and risk thresholds.
+8. Author gate policy and risk thresholds. One line, eight parameters — [_Gate policy_](how-humans-do-it/09-gate-policy.md) is the set, and none of it has to be authored for the factory to run: what an owner leaves alone, the score supplies.
 9. Pin a gate always-on for a stage, project, or area. An **area** is an owner-declared grouping of the software — coarser than a file, free to cut across services — and it is what names "the payments path" wherever a pin, a score factor, or a bought-back gate has to be narrower than a project.
 10. Veto after the fact — undo a change the factory auto-approved: a rollback while its control still stands, a revert after.
 
