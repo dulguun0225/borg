@@ -54,7 +54,10 @@ are a separate axis — semver, one per published interface, because compatibili
 contract's job and not the release's. Do not let a fifth name for any of these appear.
 Upstream of all of it is the **intent** — what intake writes, what the cut turns into
 items, and what everything walks back to. An uncut intent is not an item: it was called an
-unrefined item in two places until 2026-08-13, and both now say intent.
+unrefined item in two places until 2026-08-13, and both now say intent. **Current
+release** is not a fifth name either — it is which release a service is running, a fact of
+the production deploy record, and every cross-service check reads it rather than the
+newest number.
 `beta` was one and was dropped on 2026-08-13 — it named the build holding the shared UAT
 slot, and there is no slot to hold.
 
@@ -80,7 +83,9 @@ The second: Intent into items describes a stage with a **gate** on it and a **sc
 deciding who stands there, both defined after it. It sits where it does because the cut is
 how items come to exist and every later section is about an item — moving it below Risk
 score would put the front of the pipeline fourth. Same treatment: a link forward at first
-use.
+use. **Current release** is the same shape at smaller scale — defined in Releases beside
+the deploy record it is a fact of, leaned on by Environments one section earlier, linked
+there at first use.
 
 **Never cross-reference by position.** "The second open question" broke the moment a
 bullet was resolved and removed. Refer to things by name. A link's path may carry a

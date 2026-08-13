@@ -27,6 +27,8 @@ The number is an ordinal, per service, assigned at merge to master. It orders bu
 
 A numbered release that has never run anywhere is normal, not an anomaly. The number is minted at merge, one gate before production, so it records that a change was accepted — not that it is live. A hold at the production deploy gate produces exactly this. Where a release is running is a deploy record and never the number.
 
+A service's **current release** is the one its production deploy record names — what is running, not what is newest. Merged-and-never-deployed being normal is exactly what makes those different facts, and every cross-service check reads the current one: an environment composed from its dependencies stands on what runs, and a promise is kept by what serves it.
+
 Master's only inbound path is [_The merge queue_](05-environments.md#the-merge-queue), and a candidate fast-forwards only after re-verifying against the master it will actually land on. The commit that was verified is the commit on master. What was tested is what ships — a structural property of the queue, not a discipline anyone has to keep.
 
 ## Rollback

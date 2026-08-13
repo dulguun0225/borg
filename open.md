@@ -1,5 +1,11 @@
 # Open
 
+## Should the Decomposition gate fan out?
+
+One intent can land items in four services with four different holders, and the gate takes one verdict on the whole cut. Fanning it out — one verdict per service touched, each holder reading the whole intent and deciding only the items that land in theirs — is where a service's owner would get to say "not in ours, not that way" before anything is authored. What it costs is the shape [_Who owns a contract_](how-humans-do-it/07-contracts.md#who-owns-a-contract) refused once already: a producer-side block is not the consumer veto that section rejected, but four approvals standing at one gate rebuild the same wait, and the attempt bound turns a long enough wait into escalations (12).
+
+Three things settle with it, and none is obvious. Whether an approval survives a re-cut that left that holder's slice untouched, or everyone decides again. Who takes the row where a service has no declared holder, People being declared and not enforced. And what bounds a holder who never answers — a silent one is closer to a hold than to a failed attempt, so the bound does not reach them.
+
 ## What bounds the interview?
 
 The factory ends the interview when it has enough to author, so an intent an owner has stopped answering for waits indefinitely — the one wait in the factory that no bound touches. The attempt bound does not reach it: a question nobody answered is not a failed attempt, the same reason a hold is not one. What could bound it is a count of rounds, an elapsed time, or the factory drafting on what it has and letting the Spec gate catch the thinness. The first two turn an unanswered question into an escalation (12) an owner has to clear anyway; the third spends a full pipeline run to ask the question again in the shape of a bad spec.

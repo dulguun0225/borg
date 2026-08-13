@@ -33,7 +33,7 @@ What a new row carries follows from what feeds it, not from which row it was cop
 
 At a gate, artifacts are editable by hand. Code is not: a gate approves or rejects an implementation, it never hand-patches one. A human who wants different code authors it upstream and sends it back through the pipeline.
 
-Merge and deploy gates edit nothing at all — what they decide is an event, not a document. Reject sends the change back up the pipeline; hold leaves the event queued with the change still good, which is why only the deploy rows offer it. What a hold waits on differs by gate: at the production deploy gate a window, or a rollback standing in front of the revert; at the candidate deploy gate a dependency — the producing release of a contract migration, since a candidate environment stands on its dependencies' current releases and never another service's candidate. The two are different answers and have to stay distinguishable: the score learns from a reject and should learn nothing from a hold.
+Merge and deploy gates edit nothing at all — what they decide is an event, not a document. Reject sends the change back up the pipeline; hold leaves the event queued with the change still good, which is why only the deploy rows offer it. What a hold waits on differs by gate: at the production deploy gate a window, a rollback standing in front of the revert, or a declared dependency that is not live; at the candidate deploy gate a dependency that is not live yet — the producing release of a contract migration, since a candidate environment stands on its dependencies' current releases and never another service's candidate. The two are different answers and have to stay distinguishable: the score learns from a reject and should learn nothing from a hold.
 
 ## The attempt bound
 
@@ -86,7 +86,7 @@ It is also the one artifact gate with no Edit in place, for the reason [_What a 
 
 ### Deploy to candidate environment
 
-The dependency its hold waits on was declared at the cut, so what this gate is waiting for is known before the item was ever built — nothing has to be discovered at deploy time. It is the only hold that waits on work upstream of the item; the production gate's waits on what a deploy has already done.
+The dependency its hold waits on was declared at the cut, so what this gate is waiting for is known before the item was ever built — nothing has to be discovered at deploy time. Here the wait is for that dependency to become live at all, since the environment is composed from it. The same dependency is checked once more at the production deploy gate, where the question is whether it is live still.
 
 Nothing else attaches to this row — no strategy, no rollout, no watch window — for the reason [_What the candidate environment decides_](05-environments.md#what-the-candidate-environment-decides) gives. What the deploy buys is the criteria.
 
@@ -97,6 +97,10 @@ The release event — where a candidate becomes a numbered release — and also 
 ### Deploy to production
 
 The default path's exception to reject, which is why that row does not offer it. By the time a change stands there the merge has happened and the number is spent, so hold is the only way to stop it. Once it deploys, undoing it is veto after the fact — a rollback while its control stands, a revert after, which is a new item.
+
+Its hold also fires on the factory's own account, like the one a rollback leaves standing. A dependency declared at the cut that is not its service's [_current release_](06-releases.md#the-number) when this gate fires holds the deploy, and the check runs at the moment of firing — the rule the two contract baselines already keep — because a producer that was live when its consumer verified can be rolled back before that consumer lands. Nothing is decided and nobody is paged; the hold lifts when the dependency is current again. A human can approve through it, as through every hold the factory sets, and what approving buys is the break the hold was standing in front of.
+
+What it does not cover is the consumer already in production when its producer rolls back. A deploy gate stops deploys, and by then there is nothing left to stop — what surfaces that one is the consumer's own error rate raising an item, the same answer the factory gives to every consumer break it cannot see from the producer's side.
 
 ### Why those last two are gates
 

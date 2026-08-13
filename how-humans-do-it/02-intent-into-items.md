@@ -20,11 +20,17 @@ The cost is that an owner cannot shorten it. An intent whose questions go unansw
 
 One intent becomes one item or several — one per service the work lands in, three where a contract migration is what the work is. The cut is where [_No single item may break a contract_](07-contracts.md#no-single-item-may-break-a-contract) is applied rather than discovered: "an item that cannot ship by itself was cut wrong" is a statement about this stage, and until decomposition became one, nothing stood where the cut is made.
 
-The cut also records the order. Where one item cannot be verified until another has shipped — the producing release of a migration — that dependency is declared here, and it is what the hold at [_Deploy to candidate environment_](03-gates.md#deploy-to-candidate-environment) later waits on.
+The cut also records the order. Where one item cannot be verified until another has shipped — the producing release of a migration — that dependency is declared here, and both deploy gates hold on it: [_Deploy to candidate environment_](03-gates.md#deploy-to-candidate-environment) until the dependency is live, [_Deploy to production_](03-gates.md#deploy-to-production) if it has stopped being. Ordering is a property of the cut, not something discovered at deploy time.
 
 Decomposition is a stage with a gate of its own, scored like every other. What is approved is the set: how many items, where each lands, and what waits on what. A rejection re-cuts the set rather than sending one item back, because the unit standing at this gate is the cut and not an item. Edit in place is a human re-cutting by hand.
 
 The Spec gate cannot do this job — it is per item, so approving one item's spec never ratifies the decomposition that produced four. Without a gate here, a wrong cut surfaces several specs later and re-cutting means abandoning items that were already approved. The cost is a stage in front of every intent, including the single-item cut that most of them are, and it is carried the way every gate's cost is carried: [_Risk score_](04-risk-score.md) auto-passes what it judges low risk, here as everywhere.
+
+## A partial intent
+
+An intent whose items did not all ship is a **partial intent**, and it is an outcome rather than a fault: one item hits the attempt bound and stands as an escalation (12), or a human vetoes it, while its siblings are already live. The shipped ones stand. Each was cut to ship by itself and is worth something by itself — and where it is not, the cut was wrong, which is what the gate above exists to catch. Undoing the whole thing is one revert item per shipped sibling, joined by the same intent, and never a single undo.
+
+The declared order is what keeps that survivable. An item that dies takes only its dependents with it: whatever it depended on shipped before it, and whatever depended on it was still held at a deploy gate. So a partial intent is a feature half delivered, not a production half broken.
 
 ## Dispatch
 
