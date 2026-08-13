@@ -92,7 +92,7 @@ information the document is deliberately carrying.
 There are no tests. After editing, run the consistency pass:
 
 ```bash
-grep -n "^| " end-goal-draft.md                 # four tables: sections, gate actions, build names, modes
+grep -n "^| " end-goal-draft.md                 # five tables: sections, gate actions, criterion patterns, build names, modes
 grep -no "([0-9, ]*)" end-goal-draft.md         # duty refs — every one must be 1–12
 grep -n "open question\|see Open" end-goal-draft.md   # positional cross-refs — expect none
 grep -n "^#" end-goal-draft.md                  # section order
