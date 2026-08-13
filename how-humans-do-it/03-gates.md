@@ -4,11 +4,24 @@
 
 A gate sits at every stage boundary: after the cut into items, the spec, implementation plan, tasks, and implementation are authored, and before each merge and each deploy — an event gate decides whether the event happens, which is what makes hold a stop rather than an undo. The mechanism is permanent — it does not fade as the factory improves.
 
-The factory scores each change and auto-passes what it judges low risk. The same score picks the rollout strategy: A/B, canary, blue-green, straight. Humans override by pinning a gate always-on or pinning a strategy, and can veto after the fact.
+The factory scores each change and auto-passes what it judges low risk. The same score picks the [_rollout strategy_](#the-rollout-strategy). Humans override by pinning a gate always-on or pinning a strategy, and can veto after the fact.
 
 A failing rollout rolls back on its own, inside its [_watch window_](08-operations.md#the-watch-window) — no human in the loop, no waiting. The rollback is reported, not requested.
 
-Veto after the fact assumes the change can still be undone, and what a human may do decays as later work builds on it: a rollback while the release's control still stands, a revert once it does not. Reversibility is a scored dimension and the veto window is bounded by it, through the strategy it picks and the control that strategy pays for. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others. What overlapping watch windows add is not difficulty but reach — a rollback takes every release above its target, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows), which is the one bundle the factory ships and is bounded by the number itself.
+Veto after the fact assumes the change can still be undone, and what a human may do decays as later work builds on it: a rollback while the release's control still stands, a revert once it does not. Reversibility is a scored dimension and the veto window is bounded by it, through the strategy it picks and the [_control_](08-operations.md#the-health-signal) that strategy pays for. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others. What overlapping watch windows add is not difficulty but reach — a rollback takes every release above its target, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows), which is the one bundle the factory ships and is bounded by the number itself.
+
+## The rollout strategy
+
+A **rollout strategy** is how a release takes live traffic from the build it replaces. It attaches to a deploy fed from master and not to a candidate one, for the reason [_Deploy to candidate environment_](#deploy-to-candidate-environment) gives.
+
+| Strategy | How the release takes traffic |
+|---|---|
+| **canary** | a slice, widened as the comparison holds, with the build it replaces serving the rest |
+| **A/B** | a share held fixed while the two are compared, both builds serving throughout |
+| **blue-green** | all of it at once, cut over to a second copy standing complete beside the one it replaces, which stays up |
+| **straight** | all of it, in place, with nothing of the build it replaces left standing |
+
+They differ on one axis everything downstream reads: whether the build being replaced is still serving while the release does. That is what a [_control_](08-operations.md#the-health-signal) costs, and what veto after the fact (10) reaches for while it stands — a straight deploy buys neither.
 
 ## Actions at each gate
 

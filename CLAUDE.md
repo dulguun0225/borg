@@ -171,7 +171,7 @@ commit contradicted. (Owner rule, 2026-08-13.)
 There are no tests. After editing, run the consistency pass:
 
 ```bash
-grep -rn "^| " --include='*.md' . | grep -v CLAUDE.md          # eight tables: tree index, sections, gate actions, criterion patterns, build names, modes, window exits, gate policy
+grep -rn "^| " --include='*.md' . | grep -v CLAUDE.md          # nine tables: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, modes, window exits, gate policy
 grep -rno "([0-9, ]*)" --include='*.md' . | grep -v CLAUDE.md  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' . | grep -v CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^#" --include='*.md' . | grep -v CLAUDE.md           # one "# " per file, and nothing deeper than "### "

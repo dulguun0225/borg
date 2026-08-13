@@ -29,4 +29,4 @@ Everything an owner authors (8), in one place. Each parameter is defined beside 
 
 Three things sit next to gate policy and are not it. **The score.** An owner authors what the number is compared against, never how it is computed — the formula is published so a human can disagree with it, and the vector behind it is learned from outcomes. **The stages.** A gate is where policy lands; what the gates sit between is the factory's own. **The form a criterion takes.** The six patterns are a closed set and the factory holds the form, which is what lets it end the interview — an owner confirms criteria (6) and does not author the shape one may have.
 
-A strategy default rides on the environment record beside gate policy, and pinning a strategy is (9). Neither is authored here.
+A [_strategy_](03-gates.md#the-rollout-strategy) default rides on the environment record beside gate policy, and pinning a strategy is (9). Neither is authored here.
