@@ -275,8 +275,9 @@ a structural property of the slot, not a discipline anyone has to keep.
 
 Rollback is a deploy event, not a version event: it puts the previous release build back
 on the environment and writes a deploy record, minting and retiring nothing. That the old
-build still runs is not luck: no item may break the store it stands on, so what it finds
-there is what it can read. Undoing a release that has already shipped is not that. Master
+build still runs is not luck: no item may break the store it stands on, and that rule runs
+in both directions — what the newer release wrote while it was live is still readable by
+the one coming back. Undoing a release that has already shipped is not that. Master
 keeps it, and the correction is a revert — a new item, its own thread, its own number.
 That is what veto after the fact (10) actually costs.
 
@@ -302,11 +303,30 @@ wrong — and the two rules hold each other up. Where a change genuinely cannot 
 decomposed, that is an escalation (12), not a licence to batch.
 
 The rule is mechanical rather than a judgment call. The factory diffs the contract a
-candidate publishes against the one in production: additive passes, and a breaking diff
-without the migration already in front of it is a rejection at the merge gate. The same
-graph answers who is affected — the factory knows which services consume which contracts,
-so "what does this break" is a query rather than an estimate, and it feeds the context
-factor of the risk score directly.
+candidate publishes against the one in production: a diff the contract's mode allows
+passes, and a breaking diff without the migration already in front of it is a rejection
+at the merge gate. The same graph answers who is affected — the factory knows which
+services consume which contracts, so "what does this break" is a query rather than an
+estimate, and it feeds the context factor of the risk score directly.
+
+Every contract carries a **compatibility mode**, declared by the service that publishes
+it and enforced on every diff after that. Backward — the new build reads what the old one
+wrote — is the default, and is what a consumer of an interface needs. Forward is the
+opposite promise, and it is what a rollback rests on: the release coming back has to read
+what the release being pulled wrote while it ran. Full is both, and costs both. The mode
+belongs to each contract rather than to the factory, because an interface nobody rolls
+back and a store every rollback reads do not need the same promise.
+
+A contract belongs to the service that publishes it, and changes only inside that
+service's items. It gets no thread of its own: a promise is only real when something
+serves it, so the authority to accept a change to one belongs where there is a build to
+check it against. What a consumer owns is the mode, declared once, not a seat at every
+gate the producer stands at. The alternative was a per-change consumer veto, and it
+deadlocks — in a graph where nearly every service is somebody's consumer, items wait on
+each other until the attempt bound turns the pile into escalations (12), which is the
+human load the factory exists to remove. An objection raised after the fact is an item
+against the producer, joined to the original by intent, like any bug, and an owner who
+wants a human on a particular contract buys one with a pin (9).
 
 Deprecation is an obligation the contract carries, not a note someone leaves. When the
 producer adds the new form, the old one is marked with its consumers attached; as each
@@ -314,11 +334,12 @@ migrates the list shortens, and when it empties the factory raises the removal i
 itself. Nobody has to remember step three.
 
 A service's store is a contract too, and its consumer is the service's own past — the
-release that was running a minute ago, which a rollback can put back. The rule holds
-there unchanged: **no single item may break the store.** A breaking schema change is
-three items — the store gains the new form beside the old, the code migrates onto it,
-the old form is dropped — and while it stands, the old form carries the same deprecation
-obligation an old interface carries.
+release that was running a minute ago, which a rollback can put back. That consumer is
+why a store's mode is **full**: every rollback reads across the change in the direction
+backward alone does not cover. The rule holds there unchanged: **no single item may break
+the store.** A breaking schema change is three items — the store gains the new form beside
+the old, the code migrates onto it, the old form is dropped — and while it stands, the old
+form carries the same deprecation obligation an old interface carries.
 
 Enforcement costs nothing new: the factory diffs the schema a candidate carries against
 the one in production, and a destructive diff without the migration already in front of
@@ -425,15 +446,20 @@ a single path is a single place to put policy.
 
 ## Open
 
-- Does an additive diff prove nothing breaks? It proves the schema still holds, not that
-  callers survive — a field that quietly stops being populated breaks a consumer without
-  breaking a contract. The honest version is consumer-driven: replay each known consumer's
-  actual usage against the candidate before it releases. That needs every consumer's usage
-  recorded as a first-class thing, which is a large build and is not costed here. The
-  store has the same hole from the other side: an additive schema diff proves the old form
-  still exists, not that the build being rolled back to can read what the new one wrote
-  into it.
-- Who owns a contract? It changes inside an item belonging to one service, but it binds
-  services that item never touches. Whether a contract is an artifact with its own thread
-  and its own gate, or only ever a property of the releases that publish it, decides where
-  a consumer's objection gets filed and who may reject a change on their behalf.
+- What proves nothing breaks, when a diff cannot see meaning? A diff proves the shape
+  still holds, not that callers survive — a field that quietly stops being populated, or
+  that keeps its name and its type and changes its units, breaks a consumer without
+  breaking a contract. No mode catches this: a mode is checked against the schema, and the
+  damage is in the semantics. The honest version is consumer-driven — replay each known
+  consumer's actual usage against the candidate before it releases — and that needs every
+  consumer's usage recorded as a first-class thing, which is a large build and is not
+  costed here. Recorded usage also covers only what has run: a consumer on a monthly path
+  falls outside any window worth keeping.
+- How long must a canary watch? The factory leans on it three times — as what catches a
+  change that should not have shipped, as what it bought by scoring UAT instead of pinning
+  it, and as the protection under the random sample it auto-passes to keep the score
+  unbiased. A producer's own faults surface in the comparison quickly; a consumer's
+  surface on the consumer's schedule, and a service that runs nightly proves nothing an
+  hour after the rollout finished. Whether the factory can learn the interval per contract
+  from its own consumer graph, or whether it is a floor an owner sets like a threshold, is
+  undecided.
