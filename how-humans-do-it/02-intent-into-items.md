@@ -24,6 +24,8 @@ The cut also records the order. Where one item cannot be verified until another 
 
 Decomposition is a stage with a gate of its own, scored like every other. What is approved is the set: how many items, where each lands, and what waits on what. A rejection re-cuts the set rather than sending one item back, because the unit standing at this gate is the cut and not an item. Edit in place is a human re-cutting by hand.
 
+One verdict covers the whole cut, however many services it lands in. Fanning it out — one verdict per service, each holder deciding only the items landing in theirs — rebuilds here the wait [_Who owns a contract_](07-contracts.md#who-owns-a-contract) refused: approvals that must all arrive before anything moves, in a graph where a four-service cut is ordinary, and the attempt bound turning a long enough wait into escalations (12). A holder who wants to stand at the cut for their own service buys it with a pin (9) on their area, which is what a pin buys everywhere else. The cost is that they first meet the work one stage down, with authoring already paid for — never blind, since the item walks back to its intent and Work shows the sibling threads under the same decision, but reading a spec rather than a proposal.
+
 The Spec gate cannot do this job — it is per item, so approving one item's spec never ratifies the decomposition that produced four. Without a gate here, a wrong cut surfaces several specs later and re-cutting means abandoning items that were already approved. The cost is a stage in front of every intent, including the single-item cut that most of them are, and it is carried the way every gate's cost is carried: [_Risk score_](04-risk-score.md) auto-passes what it judges low risk, here as everywhere.
 
 ## A partial intent
