@@ -1,6 +1,6 @@
 # One pipeline
 
-**Item and agent.** An **item** is the unit the factory moves: one request-shaped thing, one thread, one release. An **agent** is a worker the factory runs — a model in a role, with a scope. Two agents on the same model share one authorship prior: the score is kept per model, not per role.
+**Item and agent.** An **item** is the unit the factory moves: one thing that can ship by itself, one thread, one release. An **agent** is a worker the factory runs — a model in a role, with a scope. Two agents on the same model share one authorship prior: the score is kept per model, not per role.
 
 **Authorship is per stage.** Every item goes through the pipeline. A human-authored change, an AI-authored change, and one the two write together take the same stages, the same gates, and the same score. Authorship is an attribute of each stage, not a mode on the item: an item can have an AI spec, a co-authored plan, and a human implementation, and it is still one thread.
 
@@ -8,6 +8,6 @@
 
 **Self-raised work.** A bug the factory finds and fixes itself is an item like any other. It appears in Work, takes the same stages, and is auto-passed only where the score allows. There is no second, invisible path, and nothing ships that the trust number cannot see.
 
-**Emergencies.** There is no bypass, including for incidents. A human standing at a gate is not a delay: the emergency lever is approve now, not skip. A change that should not have shipped is caught by the watch window, not by a faster route around the pipeline.
+**Emergencies.** There is no bypass, including for incidents. A human standing at a gate is not a delay: the emergency lever is approve now, not skip. A change that should not have shipped is caught by the [_watch window_](07-operations.md#the-watch-window), not by a faster route around the pipeline.
 
-**Queue order.** Waiting in the merge queue is one place a queue forms, and its order is settable — an urgent item goes to the front. That is not a bypass. Reordering a queue changes when an item reaches the gates; it does not change which gates it passes through. Numbered releases are the other queue, and it forms only where something is holding deploys — the service already has its K windows open, a rollback is standing in front of the revert, or a human is holding at the production deploy gate. That one's order is not settable: the number orders builds, so they leave for production in it.
+**Queue order.** Waiting in the merge queue is one place a queue forms, and its order is settable — an urgent item goes to the front. That is not a bypass. Reordering a queue changes when an item reaches the gates; it does not change which gates it passes through. Numbered releases are the other queue, and it forms only where something is holding deploys — the service already has its windows open up to the K of [_Overlapping windows_](07-operations.md#overlapping-windows), a rollback is standing in front of the revert, or a human is holding at the production deploy gate. That one's order is not settable: the number orders builds, so they leave for production in it.

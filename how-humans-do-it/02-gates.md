@@ -6,7 +6,7 @@ A gate sits at every stage boundary: after the spec, implementation plan, tasks,
 
 The factory scores each change and auto-passes what it judges low risk. The same score picks the rollout strategy: A/B, canary, blue-green, straight. Humans override by pinning a gate always-on or pinning a strategy, and can veto after the fact.
 
-A failing rollout rolls back on its own, inside its watch window — no human in the loop, no waiting. The rollback is reported, not requested.
+A failing rollout rolls back on its own, inside its [_watch window_](07-operations.md#the-watch-window) — no human in the loop, no waiting. The rollback is reported, not requested.
 
 Veto after the fact assumes the change can still be undone, and what a human may do decays as later work builds on it: a rollback while the release's control still stands, a revert once it does not. Reversibility is a scored dimension and the veto window is bounded by it, through the strategy it picks and the control that strategy pays for. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others. What overlapping watch windows add is not difficulty but reach — a rollback takes every release above its target, up to the K of [_Overlapping windows_](07-operations.md#overlapping-windows), which is the one bundle the factory ships and is bounded by the number itself.
 
@@ -44,7 +44,7 @@ A stage also carries an attempt bound, authored with the rest of gate policy (8)
 
 Two duties. The interview (3) refines intent and the spec is what it produces, so approving the spec ratifies that refinement — there is no interview gate and none is missing. The spec also states the acceptance criteria, so approving it confirms them (6). What is confirmed is the criteria; a test encoding them is downstream of that approval, not the object of it.
 
-Criteria are predicates, not prose, for the reason a consumer's declaration is: what cannot be decided against an observed run is checked by nobody, and in the steady state that is most of them — the factory drafts its own criteria and a human reads them only where the score or a pin (9) puts one there. Each states one testable behaviour in one of a closed set of sentence patterns, six of them under EARS.
+Criteria are predicates, not prose, for the reason a consumer's declaration is: what cannot be decided against an observed run is checked by nobody, and in the steady state that is most of them — the factory drafts its own criteria and a human reads them only where the score or a pin (9) puts one there. Each states one testable behaviour in one of a closed set of six sentence patterns, drawn from EARS.
 
 | Pattern | The sentence it makes |
 |---|---|

@@ -4,6 +4,8 @@
 
 Environments are records, not names in code. Each carries its own gate policy, strategy defaults, credentials, and history of deploys, incidents, and rollbacks. Production exists everywhere, every candidate gets one of its own, and customers define more per project.
 
+An environment holds a project — every service in it — while a release, a number, a master branch, and a watch window are all per service. A deploy puts one service's build on one environment, so an environment fed by a twelve-service project carries twelve independent promotion paths through it. The gate row a customer's environment adds describes that environment; what fires is one decision per deploy into it.
+
 One long-lived branch backs each service's promotion path: master. A candidate lives on a branch of its own until it merges or is dropped. Merging and deploying are separate events and so are separate gates — a merge admits a change to master, a deploy puts a build on an environment, and either can happen without the other. A deploy can be rerun; a merge cannot be unmerged the same way.
 
 ## An environment per candidate
@@ -24,7 +26,7 @@ Its order is settable, like the queue at any gate. Reordering changes when a can
 
 ## What the candidate environment decides
 
-The graph is not uniform. Up to the merge, what moves is a candidate and deploys are plain — no strategy, no rollout, and no watch window, because a candidate environment has no organic traffic and a comparison drawn from one human exercising a screen is noise in the shape of evidence. What the environment decides is the criteria: the candidate runs on production-like infrastructure against the current releases of its dependencies, and every consumer's declarations are checked against it there.
+The graph is not uniform. Up to the merge, what moves is a candidate and deploys are plain — no strategy, no rollout, and no [_watch window_](07-operations.md#the-watch-window), because a candidate environment has no organic traffic and a comparison drawn from one human exercising a screen is noise in the shape of evidence. What the environment decides is the criteria: the candidate runs on production-like infrastructure against the current releases of its dependencies, and every consumer's declarations are checked against it there.
 
 Merge to master is where a candidate becomes a release and gets its number. Everything from there is machine: numbering, strategy selection, rollout, monitoring, rollback.
 
