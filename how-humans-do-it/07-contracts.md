@@ -8,7 +8,7 @@ So there are two versioned things and they must not be collapsed into one. A rel
 
 ## No single item may break a contract
 
-**No single item may break a contract.** A breaking change is three items: the producer adds the new form beside the old, each consumer migrates, the producer removes the old. Each ships alone, is verified on an environment of its own, and is independently reversible. This is the same discipline no-batching already forces — an item that cannot ship by itself was cut wrong — and the two rules hold each other up. Where a change genuinely cannot be decomposed, that is an escalation (12), not a licence to batch — and taking it over grants a human no power the factory lacks, since the pen changing hands changes the author and not the stages, the gates, or this rule. What the escalation asks for is a re-scope, not a co-deploy built by hand.
+**No single item may break a contract.** A breaking change is three items: the producer adds the new form beside the old, each consumer migrates, the producer removes the old. Each ships alone, is verified on an environment of its own, and is independently reversible. This is the same discipline no-batching already forces — an item that cannot ship by itself was cut wrong — and the two rules hold each other up. Where a change genuinely cannot be decomposed, that is an escalation (12), not a licence to batch — and taking it over grants a human no power the factory lacks, since the pen changing hands changes the author and not the stages, the gates, or this rule. What the escalation asks for is a re-cut, not a co-deploy built by hand.
 
 ## Compatibility mode
 

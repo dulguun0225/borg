@@ -2,6 +2,10 @@
 
 **Item and agent.** An **item** is the unit the factory moves: one thing that can ship by itself, one thread, one release. An **agent** is a worker the factory runs — a model in a role, with a scope. Two agents on the same model share one authorship prior: the score is kept per model, not per role.
 
+**Role and scope.** A **role** is what an agent is put on, a **scope** is where it may be put. A role names the work of one stage — the artifact it authors, or the environment it reaches through seam 4 of [_Deferred, but not designed out_](../deferred.md) — so an owner composing a fleet entry chooses among roles and never invents one, the stages being the factory's own. It is not a duty: a human holds one of the numbered twelve, an agent holds a role, and nothing about a role is scored, because the prior is the model's. A scope is cut on the lines a pin (9) is — a project, an area — and bounds which items an entry may be put on and which environments it may reach.
+
+**Dispatch is a match, not a judgment.** The item's stage against the role, where the item lands against the scope. That is why [_Dispatch_](02-intent-into-items.md#dispatch) can stand with no gate: nothing there is decided that a later gate does not see, since everything the match produces stands at one. What a scope costs is that it binds nothing yet — dispatch honours it and no mechanism stops an agent reaching past it. It is stated now because a policy attaching at the seam needs a subject already named, which is what every deferred seam buys and this is the fleet entry's half of.
+
 **Authorship is per stage.** Every item goes through the pipeline. A human-authored change, an AI-authored change, and one the two write together take the same stages, the same gates, and the same score. Authorship is an attribute of each stage, not a mode on the item: an item can have an AI spec, a co-authored plan, and a human implementation, and it is still one thread.
 
 **Taking over.** Backstop duties (11, 12) are this and nothing more — the pen changes hands for a stage. Taking over is not leaving the factory.
