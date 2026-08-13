@@ -16,6 +16,8 @@ Questions land in Inbox and are answered there. The spec is the artifact, so the
 
 The cost is that an owner cannot shorten it. An intent whose questions go unanswered does not move, and the end condition sitting with the factory is what makes that wait the owner's to end.
 
+Two things go wrong with an interview, and only one of them is spend. An owner who stops answering spends nothing — no build, no environment, no agent is running — so no bound reaches that wait and none should: a bound would turn their silence into an escalation (12) they have to clear anyway, which is the human load the factory exists to remove. An interview that is answered and still never reaches enough to author is spend, round after round, and it carries [_the attempt bound_](03-gates.md#the-attempt-bound) like any other stretch of work the factory can fail at — authored with gate policy (8), counting rounds. Exceeding it stands in Inbox as an escalation (12), the factory saying it cannot refine this one; it still takes no gate, for the reason above. What that costs is a bound low enough to catch a circling interview cutting off one that was about to converge.
+
 ## The cut
 
 One intent becomes one item or several — one per service the work lands in, three where a contract migration is what the work is. The cut is where [_No single item may break a contract_](07-contracts.md#no-single-item-may-break-a-contract) is applied rather than discovered: "an item that cannot ship by itself was cut wrong" is a statement about this stage, and until decomposition became one, nothing stood where the cut is made.

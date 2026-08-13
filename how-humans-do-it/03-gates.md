@@ -37,7 +37,7 @@ Merge and deploy gates edit nothing at all — what they decide is an event, not
 
 ## The attempt bound
 
-A stage also carries an attempt bound, authored with the rest of gate policy (8). An item that exceeds it stops being retried and stands in Inbox as an escalation (12) — the factory saying it cannot do this one. Holds do not count against the bound; a hold is not a failed attempt, for the same reason the score does not learn from one. The bound costs something wherever it is set: low turns solvable work into human work, high burns spend before anyone sees the item.
+A stage also carries an attempt bound, authored with the rest of gate policy (8). An item that exceeds it stops being retried and stands in Inbox as an escalation (12) — the factory saying it cannot do this one. [_The interview_](02-intent-into-items.md#the-interview) carries one too, counting rounds, though it is upstream of the first stage and has no gate of its own. Holds do not count against the bound; a hold is not a failed attempt, for the same reason the score does not learn from one. The bound costs something wherever it is set: low turns solvable work into human work, high burns spend before anyone sees the item.
 
 ## What particular gates carry
 

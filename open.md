@@ -1,9 +1,5 @@
 # Open
 
-## What bounds the interview?
-
-The factory ends the interview when it has enough to author, so an intent an owner has stopped answering for waits indefinitely — the one wait in the factory that no bound touches. The attempt bound does not reach it: a question nobody answered is not a failed attempt, the same reason a hold is not one. What could bound it is a count of rounds, an elapsed time, or the factory drafting on what it has and letting the Spec gate catch the thinness. The first two turn an unanswered question into an escalation (12) an owner has to clear anyway; the third spends a full pipeline run to ask the question again in the shape of a bad spec.
-
 ## What sizes an item?
 
 "It can ship by itself" is a floor, not a size. It admits an item that touches forty files and one that changes a string, and nothing in the cut says which the factory should prefer. Cutting small pays per item — an environment, a spec, four gates, a release number — and cutting large raises the odds of the attempt bound turning the item into an escalation (12), with everything already spent on it thrown away. The score reads size as a factor at every gate below the cut, so the cost of a bad size is visible after the fact; what is missing is the basis for choosing one before.
