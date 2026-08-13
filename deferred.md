@@ -5,8 +5,10 @@ Security comes last. The factory should be free and easy to play with at the sta
 Four seams are nearly free now and expensive to retrofit:
 
 1. **An actor on every record** — every gate decision, edit, approval, veto. No authentication, no enforcement, just the field, always populated. Identity cannot be added to a history that was written without it.
-2. **One append-only decision log.** It is the audit trail and the risk score's training data at once, and it must not become two systems.
+2. **One append-only decision log, each record chaining its predecessor.** It is the audit trail and the risk score's training data at once, and it must not become two systems. Append-only is a promise its writer makes about itself, and the chain is what makes it evidence instead — one field, populated from the first record. Where the head is anchored and who reads it can wait; the field cannot, because a chain laid over history written without one starts at the retrofit.
 3. **Secrets by reference.** Artifacts and specs carry names, never values — they get copied, diffed, and handed to agents. The resolver can be a file on disk today.
 4. **A named seam between agents and deploy targets.** However it is implemented, an agent reaches an environment through a small set of named operations. That seam is where policy attaches later; without it, prod access is diffused through the codebase.
 
-One pipeline is the strongest of these and was chosen for coherence rather than safety: a single path is a single place to put policy.
+One pipeline is not a fifth seam — it is the architecture the four attach to, and it was chosen for coherence rather than safety: a single path is a single place to put policy. What makes that place hold is that nothing routes around it, including incidents — the emergency lever [_One pipeline_](how-humans-do-it/01-one-pipeline.md) sets is approve now, not skip, so a rushed yes is a yes with an actor on it and not a hole. That is where most single-path designs come apart.
+
+The cost is that a single path is a single blast radius. Nothing outside the pipeline disagrees with the pipeline, so a subverted one ships a change through the front door carrying a valid approval. What stands in for the second path is all downstream of the deploy: the log for detection, the actor for attribution, and veto after the fact (10) inside the [_watch window_](how-humans-do-it/08-operations.md#the-watch-window) for the undo.
