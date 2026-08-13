@@ -14,12 +14,12 @@ _Both to expand._
 
 ## What humans do
 
-Non-exhaustive owner's list. The factory does everything else.
+Non-exhaustive owner's list. The factory does everything else. It is a list of duties, not of people: an owner may hold all twelve or delegate any of them, and People is where each attaches to a named human — a designer holding (2) and (11), a compliance officer holding (2) and a pin (9) over a regulated area. Whoever holds a duty gets its gate rows and its UAT assignments (7) in their own Inbox.
 
 **Originate intent** — the factory cannot know what is wanted until told:
 
 1. Request features.
-2. Supply constraints: laws and regulations, and raw documents that refine the intent.
+2. Supply constraints, of two kinds. A **standing** one binds every item from then on — laws and regulations, a design system — and is permanent in the way the rules (8) are: the factory works inside it and never earns its way out. A **per-item** document refines one request and is spent with it. Nothing prunes the standing kind: it binds until it is withdrawn, so an owner who never withdraws one has the factory building against it years later.
 3. Sit for the factory's interview — grilled — until the intent is refined.
 
 **Feed back as end users** — routine, in end-user terms, not engineering terms:
@@ -40,7 +40,7 @@ Non-exhaustive owner's list. The factory does everything else.
 
 **Backstop the factory** — only where it falls short, shrinking as it improves:
 
-11. Help with spec generation when the factory cannot do it properly — up to creating the spec together with the AI.
+11. Help author a spec or an implementation plan when the factory cannot do it properly — up to writing it together with the AI.
 12. Take over issues the factory cannot fix on its own.
 
 ## How humans do it
@@ -327,7 +327,7 @@ One product, five surfaces. They are split by what a human is trying to do, not 
 
 #### Three properties the surfaces have to carry
 
-**Two audiences.** Everything above serves the owner. Duties 4 and 5 — report a bug, complain — belong to end users, who never open this product. Their intake is thin and embedded in the deployed software; what they send lands in Work as an unrefined item.
+**Two audiences.** Everything above serves whoever holds a duty from the owner's list, however many people that is. Duties 4 and 5 — report a bug, complain — belong to end users, who never open this product. Their intake is thin and embedded in the deployed software; what they send lands in Work as an unrefined item.
 
 **Designed for silence.** When the factory is working, there is nothing to do and the screens are empty. Empty must not read as dead: Inbox at zero shows a digest of what the factory shipped, decided, and auto-approved while nobody was looking.
 
@@ -349,3 +349,11 @@ Four seams are nearly free now and expensive to retrofit:
 4. **A named seam between agents and deploy targets.** However it is implemented, an agent reaches an environment through a small set of named operations. That seam is where policy attaches later; without it, prod access is diffused through the codebase.
 
 One pipeline is the strongest of these and was chosen for coherence rather than safety: a single path is a single place to put policy.
+
+## Open
+
+### Is a design system a contract, or only a standing constraint?
+
+A design system the factory builds is a published thing with consumers inside the factory, and a token renamed or a spacing scale rescaled breaks them the way a schema change breaks a caller. That is the contract machinery exactly — a compatibility mode, a breaking diff caught at the merge gate, the three items of a migration, an old form carrying its own deprecation list. Calling it a contract costs one stretched word: _Two versioned things_ scopes consumers to other services and _Who owns a contract_ gives a contract to the service that publishes it, and a package of tokens is not obviously either. Leaving it a constraint (2) costs the enforcement — the factory checks nothing, and one token change breaks forty screens with no gate standing in front of it.
+
+A design system supplied as a document rather than as code is the constraint case whichever way this settles, because there is no build to diff. What that in turn costs, and whether an owner should be pushed to supply code instead, is open with it.
