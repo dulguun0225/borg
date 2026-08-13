@@ -36,6 +36,8 @@ The cost is availability, and it is the price of starting before there is an org
 
 ## What the fleet is not
 
+**It is not a duty.** Supplying a credential is not work done with the factory — it is the substrate the factory runs on, like the host the owner already provides, and it stays outside the twelve for the reason standing up [_The reconciler_](08-operations.md#the-reconciler) does. Routing needs a holder rather than a duty number: the row reaches whoever People records as having lent the credential, and the owner where that is who withdrew it or where nobody has lent one yet, which is where a [_page_](08-operations.md#pages) already widens to. What it costs is that nothing scores the obligation — the availability [_Withdrawal_](#withdrawal) prices rests on goodwill, and no duty and no parameter reaches it.
+
 **It is not gate policy.** A credential reference rides on the fleet entry the way a strategy default rides on the environment record, and [_Gate policy_](09-gate-policy.md#what-is-not-in-it) stays at its eight rows. Who lent which credential is a People declaration, enforced by nothing, like the rotation a [_page_](08-operations.md#pages) follows.
 
 **It is not a spend ceiling.** Two of gate policy's parameters state their cost in spend and Factory reads cost per feature off what the factory spent, but neither bounds anything. What actually stops an agent on a personal account is that account's own quota, set at the provider by whoever owns it — a number the factory neither sets nor reads.
