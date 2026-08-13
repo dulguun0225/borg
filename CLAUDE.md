@@ -136,6 +136,16 @@ phrased as the question and what turns on it. Do not resolve an open question by
 asserting an answer in the body — the split between what is decided and what is not is
 information the document is deliberately carrying.
 
+Two kinds of question do not earn a place there. One the document can already answer by
+applying a pattern it holds is not open — apply the pattern and fold it. A pin (9) buys a
+human at a gate, an owner authors a parameter with gate policy (8) and the score supplies
+the default, and the score learns from outcomes: those three were reached for late three
+times rather than at the time. Nor is a loose end a session noticed on its way past —
+the subject has to raise it, and an owner has to be who decides it. Six questions
+accumulated by that second route before 2026-08-13, each spun off in a trailing `Open:`
+line by a commit doing something else, and one asserted a premise the body of that same
+commit contradicted. (Owner rule, 2026-08-13.)
+
 ## Verification
 
 There are no tests. After editing, run the consistency pass:
