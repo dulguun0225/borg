@@ -7,7 +7,7 @@ A draft. Everything here is open to revision.
 | [What the factory does](what-the-factory-does.md) | The product, and the two properties it is built around |
 | [What humans do](what-humans-do.md) | Twelve owner duties, numbered — the rest of the tree cites them as bare numbers |
 | [How humans do it](how-humans-do-it/README.md) | Eleven sections in dependency order, one file each |
-| [Deferred, but not designed out](deferred.md) | Security last, and the four seams that cost nothing now |
+| [Deferred, but not designed out](deferred.md) | Security last, adoption later, and the four seams that cost nothing now |
 | [Open](open.md) | What is not settled, phrased as the question and what turns on it |
 | [Next](next.md) | The work list — what is decided but unwritten, and what is still to write. Not a section of the document |
 
