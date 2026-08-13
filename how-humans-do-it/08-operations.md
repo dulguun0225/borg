@@ -75,3 +75,23 @@ The comparison keeps running after the window closes. What it finds then is not 
 An incident is a record on the environment. It points at the deploy, the deploy at the release, the release at its item and its intent — so what caused an incident is a walk out of it, the same walk the release record answers from the other end.
 
 The factory works the item it raised under the attempt bound like any other. Hitting that bound turns it into an escalation (12), the same Inbox row a stuck feature produces: a bug the factory cannot fix is not a different kind of stuck.
+
+## Pages
+
+Mail and chat carry everything waiting on a human out of the product. A **page** is the narrow channel: what earns one is a wait where the deployed software is worse until a human ends it, and nothing else fires one.
+
+That bar is already the document's, and two refusals above fall out of it rather than being added to it. A declared dependency that is not its service's current release holds the production deploy, nothing is decided, and the hold lifts itself when the dependency is current again — there is no wait for a human to end. An owner's silence at [_The interview_](02-intent-into-items.md#the-interview) spends nothing, which is why no bound reaches that wait; a page would be the same mistake made louder.
+
+Two things earn one. An escalation (12) on an item the factory raised from an incident — the factory saying it cannot fix a defect that is live. And a human standing at a gate on a revert while the rollback that pulled the defect still holds: the service is running the build that came back, master still carries the defect, and nothing ships past that human. In both, production is worse than it should be and no mechanism the factory has will improve it.
+
+A rollback the factory performed on its own is reported, not requested, and reporting is not paging — **the factory does not page to inform.** Nothing else waiting on a human clears the bar either: a UAT assignment (7) costs its own item's environment and its own item's latency, an escalation on a feature item has nothing live to be worse, and a deploy behind its service's K open windows is waiting on the factory. Those are Inbox rows, and mail or chat is what carries them out.
+
+A page has no duty of its own — inventing a thirteenth would be a mechanism where routing already exists. It reaches whoever holds the duty the row belongs to, the same routing that put the row in their Inbox.
+
+A duty may be held by more than one human, and a **rotation** is which of them a page reaches now. It is declared in People with the rest of who holds what, and enforced by nothing. Unanswered, a page widens — every holder of the duty, then the owner — so a stale rotation costs a delay and never a lost page. What that buys is paid for in the other direction: a page nobody answers becomes a page everybody gets.
+
+An unanswered page never makes the factory act alone, because what it is paging out of is stable. The service runs the last release whose window closed without harm, not the one just condemned, so what the wait holds up is the fix and never the recovery.
+
+A human may fire one on their own say, from Ops, which is the parallel veto after the fact (10) already has: the rollback the factory would perform, on a human's judgment instead of the comparison's. Nothing scores it and no bound reaches it. What holds it honest is that a page nobody needed makes its recipient slower to the next one.
+
+A page is an event on the row it belongs to — who was reached, when it widened, who answered — each carrying an actor, which is seam 1 of [_Deferred, but not designed out_](../deferred.md) and nothing new. None of it is authored: the rotation is a People declaration and the widening is the factory's own, so gate policy stays at the eight rows it has.
