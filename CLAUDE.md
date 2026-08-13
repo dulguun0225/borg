@@ -12,6 +12,9 @@ There is no code, build, test suite, or linter. Do not go looking for one. Every
 here is an edit to a design document, and the document says of itself that everything in
 it is open to revision.
 
+It will be split into separate files later — one per `###` section is the expected shape.
+Keep each section able to stand on its own, and keep cross-section references by name.
+
 ## The document is a graph, and edits break it in predictable ways
 
 The value of the doc is that its claims interlock. Most damage comes from editing one
@@ -64,7 +67,13 @@ Two habits follow. Rules arrive with their cost attached — no-batching is stat
 with the human-UAT ceiling it creates. Em-dash asides carry qualifications instead of
 spawning sentences.
 
-Prose wraps at about 88 columns and never exceeds 92.
+**Structure for a reader.** The document is read by humans, not only parsed. A long run of
+uniform paragraphs gets `####` subheadings; a set of parallel facts gets a table. When a
+table carries a definition, the prose around it must not restate the table — trim the
+prose to what the table cannot hold.
+
+No hard wrap. One paragraph is one line; the renderer does the rest. (Owner rule,
+2026-08-13, replacing the 88-column wrap.)
 
 ## Resolved questions get folded, not deleted
 
@@ -83,7 +92,7 @@ information the document is deliberately carrying.
 There are no tests. After editing, run the consistency pass:
 
 ```bash
-grep -n "^| " end-goal-draft.md                 # gate table rows
+grep -n "^| " end-goal-draft.md                 # four tables: sections, gate actions, build names, modes
 grep -no "([0-9, ]*)" end-goal-draft.md         # duty refs — every one must be 1–12
 grep -n "open question\|see Open" end-goal-draft.md   # positional cross-refs — expect none
 grep -n "^#" end-goal-draft.md                  # section order
