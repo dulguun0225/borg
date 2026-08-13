@@ -68,9 +68,9 @@ The sections run in dependency order — each leans on the ones before it.
 
 **Self-raised work.** A bug the factory finds and fixes itself is an item like any other. It appears in Work, takes the same stages, and is auto-passed only where the score allows. There is no second, invisible path, and nothing ships that the trust number cannot see.
 
-**Emergencies.** There is no bypass, including for incidents. A human standing at a gate is not a delay: the emergency lever is approve now, not skip. A change that should not have shipped is caught by the canary, not by a faster route around the pipeline.
+**Emergencies.** There is no bypass, including for incidents. A human standing at a gate is not a delay: the emergency lever is approve now, not skip. A change that should not have shipped is caught by the watch window, not by a faster route around the pipeline.
 
-**Queue order.** Waiting for the UAT slot is the other place a queue forms, and its order is settable — an urgent item goes to the front. That is not a bypass. Reordering a queue changes when an item reaches the gates; it does not change which gates it passes through.
+**Queue order.** Waiting for the UAT slot is one place a queue forms, and its order is settable — an urgent item goes to the front. That is not a bypass. Reordering a queue changes when an item reaches the gates; it does not change which gates it passes through. Numbered releases waiting on an open watch window are the other queue, and that one's order is not settable: the number orders builds, so they leave for production in it.
 
 ### Gates
 
@@ -80,7 +80,7 @@ A gate sits at every stage boundary: after the spec, implementation plan, tasks,
 
 The factory scores each change and auto-passes what it judges low risk. The same score picks the rollout strategy: A/B, canary, blue-green, straight. Humans override by pinning a gate always-on or pinning a strategy, and can veto after the fact.
 
-A failing canary rolls back on its own — no human in the loop, no waiting. The rollback is reported, not requested.
+A failing rollout rolls back on its own, inside its watch window — no human in the loop, no waiting. The rollback is reported, not requested.
 
 Veto after the fact assumes the change can still be undone, and that assumption decays as later work builds on it. Reversibility is a scored dimension, and the veto window is bounded by it. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others.
 
@@ -135,9 +135,9 @@ Likelihood and impact stay separate until the last step. They answer different q
 
 #### How it learns
 
-The score is learned, not fixed. Every bad call feeds back and refines it: an auto-passed change that a human vetoes, a low-risk change whose canary rolled back, a gate the factory would have passed but a human rejected. Outcome feedback is the sharpest signal but not the only one — any source that improves the score is admissible, and the input set stays open by design.
+The score is learned, not fixed. Every bad call feeds back and refines it: an auto-passed change that a human vetoes, a low-risk change its watch window rolled back, a gate the factory would have passed but a human rejected. Outcome feedback is the sharpest signal but not the only one — any source that improves the score is admissible, and the input set stays open by design.
 
-Scoring on authorship feeds itself if left alone: a distrusted author is gated more, gated work draws more scrutiny, more scrutiny finds more faults, and the distrust is confirmed. The factory holds out a random sample — occasionally auto-passing what it would have gated, under canary protection — to keep unbiased signal on the authors and areas it has stopped trusting.
+Scoring on authorship feeds itself if left alone: a distrusted author is gated more, gated work draws more scrutiny, more scrutiny finds more faults, and the distrust is confirmed. The factory holds out a random sample — occasionally auto-passing what it would have gated, under the longest watch window there is — to keep unbiased signal on the authors and areas it has stopped trusting.
 
 ### Environments
 
@@ -159,7 +159,7 @@ The graph is not uniform. Up to UAT, deploys are plain and what moves is a candi
 
 UAT is score-gated like every other gate, so it is not the last human touchpoint and there is no last one: the same score decides at each gate whether a human stands there, and a pin (9) puts one back. Where it auto-passes, the verdict on the candidate is the factory's own, taken on a production-like environment against acceptance criteria a human already confirmed (6).
 
-The alternative was to split UAT by origin — permanent for human-originated features, auto-passable for factory-originated fixes — and that is the second, invisible path the pipeline forbids, sorted by a worse predictor than the score's own factors. Scoring it costs this: a change can reach production with nobody having watched it run. What then catches a factory that built the wrong thing is the criteria confirmed at the Spec gate, the canary, and veto after the fact (10) — and an owner who wants more buys it back per service or per area with a pin.
+The alternative was to split UAT by origin — permanent for human-originated features, auto-passable for factory-originated fixes — and that is the second, invisible path the pipeline forbids, sorted by a worse predictor than the score's own factors. Scoring it costs this: a change can reach production with nobody having watched it run. The watch window covers half of that and says so: it catches a change that misbehaves, never one that behaves perfectly and is the wrong thing. What catches a wrong thing built well is the criteria confirmed at the Spec gate, end users (4, 5), and veto after the fact (10) — and an owner who wants more buys it back per service or per area with a pin.
 
 ### Releases
 
@@ -253,11 +253,33 @@ Work that spans services needs no new noun. One request can produce four items i
 
 A deploy record says which release runs where, so the factory always knows what it is looking at. It watches that release against the one it replaced — error rate, latency, throughput, on comparable traffic — and that comparison is the health signal. Nothing has to be authored for a new service to have one.
 
-A canary fails when the comparison crosses the line, and the rollback follows on its own. The baseline is only as good as the release it is drawn from, which is the case for pinning: an owner can pin explicit thresholds for a service the way they pin a gate or a strategy, and a service whose normal behaviour is already bad is where that earns its keep.
+A rollout fails when the comparison crosses the line, and the rollback follows on its own. That is not the canary's alone — the comparison runs after every deploy, and the strategy decides only how the factory acts on it: a canary sheds its traffic back, an A/B split collapses to the incumbent, blue-green cuts to the old side, a straight deploy puts the previous build on. The baseline is only as good as the release it is drawn from, which is the case for pinning: an owner can pin explicit thresholds for a service the way they pin a gate or a strategy, and a service whose normal behaviour is already bad is where that earns its keep.
 
-#### After the rollout
+#### The watch window
 
-The comparison keeps running after the rollout finishes. What it finds then is not a rollback candidate — the change has been live for a week and the build it replaced is long gone. It is an unrefined item in Work, the same shape as an end-user complaint (4, 5), taking the same stages and the same gates. That is the whole of "finds issues and fixes bugs": detection writes an item, and the pipeline does the rest.
+The **watch window** is how long the factory may act on the comparison alone. Inside it, crossing the line rolls the release back with no human in the loop; outside it, the same crossing raises an item. It is not the veto window: the watch window is the factory's own authority and is bounded by evidence, the veto window is a human's and is bounded by reversibility. A rollback deploy opens no window of its own: the build coming back was the baseline, and a fresh window would compare it against the release just condemned and put that one back.
+
+The window is a volume condition, not a clock. It closes when the comparison has seen enough comparable traffic to detect a regression of the size worth catching — minutes on a busy path, hours on a quiet one. That size is the parameter, and the duration is only what it costs to reach: an owner authors it with the rest of gate policy (8) and pins it per service the way they pin explicit thresholds, and where they author nothing the score supplies it. Without a stated effect size, "long enough" is a judgment call where the rest of the factory is mechanical.
+
+A cap bounds it, authored the same way, and a service too quiet to reach that much traffic ends at the cap every time. There the window is thin protection and reads as thin: a service called twice a night is not made safe by watching it until lunchtime. The sample the score holds out takes the cap rather than the window its own traffic would close — auto-passing a change the score wanted gated is where the factory is most openly guessing, so it buys the longest watch there is, which on a quiet service is not much.
+
+The window reads the producer's own signal and nothing else. A consumer that breaks does so in its own error rate, on its own schedule, and what surfaces it is that service's own comparison raising an item — after the producer's window closed, with nothing rolling back on its own. Reading a sibling's signal would need every consumer's calls recorded and attributed across services, which is the recorded-usage build that _What proves nothing breaks, when a diff cannot see meaning?_ declines to cost; the window inherits that refusal rather than reopening it. The item is what stands in for it, alongside the contract rules that make the schema half mechanical and veto after the fact (10) while the change is still undoable.
+
+The parameter is learned; the duration is derived and never set. How fast a problem would surface is already what the score reads to pick a strategy, and the same evidence sets the effect size wherever an owner has not. Only a rollback or veto traceable to the health signal counts as that evidence — a change vetoed for being the wrong feature says nothing about what the comparison should have caught, and feeding those back would shrink the effect size for owners who changed their minds and lengthen every window with it. The score learns from the signal it could have seen, the same way it learns from a reject and not from a hold.
+
+#### What an open window holds
+
+An open window holds that service's production deploys and nothing else. The next item still builds, still takes the UAT slot, still merges, and still mints its number. Only the deploy waits, as a hold for a window.
+
+Two live releases of one service would make two definitions ambiguous at once. Rollback puts the previous release build back and there is exactly one of those; the comparison watches a release against the one it replaced, and a second deploy mid-window makes the first the second's baseline — so a regression the first introduced is absorbed into the baseline and never surfaces again. The hold keeps both single-valued. The cost is throughput, and it lands hardest on the fully auto-passed, high-frequency service, whose UAT cycle is minutes while its window is not; where a pin puts a human in the UAT slot, the hold rarely bites at all.
+
+A rollback holds it longer. Master keeps the change that was rolled back and the next item was built on master, so shipping it would redeliver the defect just pulled. The hold stands until the revert item ships, and does not hold the revert — a dependency hold that caught its own dependency would never lift. Without it the mechanism lets go exactly when it is needed.
+
+A human can approve through either hold. Both are the factory's own, and the emergency lever is approve now, not skip; the production deploy gate offers Approve regardless of what placed the hold. Through a window hold, what is bought is the deploy and what is paid is the baseline. Through a rollback hold, what is paid is the defect that was just pulled — the more expensive of the two, and the one more likely to be reached for mid-incident.
+
+#### After the window
+
+The comparison keeps running after the window closes. What it finds then is not a rollback candidate — the change has been live for a week and the window's authority is long spent. It is an unrefined item in Work, the same shape as an end-user complaint (4, 5), taking the same stages and the same gates. That is the whole of "finds issues and fixes bugs": detection writes an item, and the pipeline does the rest.
 
 #### Incidents
 
@@ -272,7 +294,7 @@ One product, five surfaces. They are split by what a human is trying to do, not 
 #### Inbox, Work, Ops, Factory, People
 
 - **Inbox** — everything waiting on a human, in one queue: pending gates, UAT assignments (7), the factory's interview questions (3), and escalations where the factory admits it is stuck (11, 12). Carries the badge count. This is the home screen, because answering the factory is the daily job.
-- **Work** — one item is one thread. Intent, spec, plan, tasks, implementation, rollout, and the numbered release it ends in, on a single timeline, with each gate shown inline at the point it sits. Features and bugs are the same kind of item. A project is a grouping of work, not a separate place. Board and list views answer "where is it stuck" — which now includes the UAT slot: who holds it, who is waiting, in what order.
+- **Work** — one item is one thread. Intent, spec, plan, tasks, implementation, rollout, and the numbered release it ends in, on a single timeline, with each gate shown inline at the point it sits. Features and bugs are the same kind of item. A project is a grouping of work, not a separate place. Board and list views answer "where is it stuck" — which now includes the UAT slot and the numbered releases held behind an open watch window: who holds each, who is waiting, in what order.
 - **Ops** — deployed software per environment: which release of each service is running, what contracts it publishes, health, incidents, in-flight rollouts. An acting surface, not watch-only: roll back, page, and exercise veto after the fact (10).
 - **Factory** — the machine itself. Gate and risk policy, thresholds, strategy pins, environments, agent fleet — and the same page carries the readout: throughput, rework rate, gate rejection rate, cost per feature, what each agent is doing and how well. Not stage definition: the stages are the factory's own.
 - **People** — humans, roles, who gates what, who does UAT. Declared, not enforced: the model routes work today, and is the seam authentication attaches to later.
@@ -308,10 +330,4 @@ One pipeline is the strongest of these and was chosen for coherence rather than 
 
 A diff proves the shape still holds, not that callers survive — a field that quietly stops being populated, or that keeps its name and its type and changes its units, breaks a consumer without breaking a contract. No mode catches this: a mode is checked against the schema, and the damage is in the semantics.
 
-The honest version is consumer-driven — replay each known consumer's actual usage against the candidate before it releases — and that needs every consumer's usage recorded as a first-class thing, which is a large build and is not costed here. Recorded usage also covers only what has run: a consumer on a monthly path falls outside any window worth keeping.
-
-### How long must a canary watch?
-
-The factory leans on it three times — as what catches a change that should not have shipped, as what it bought by scoring UAT instead of pinning it, and as the protection under the random sample it auto-passes to keep the score unbiased.
-
-A producer's own faults surface in the comparison quickly; a consumer's surface on the consumer's schedule, and a service that runs nightly proves nothing an hour after the rollout finished. Whether the factory can learn the interval per contract from its own consumer graph, or whether it is a floor an owner sets like a threshold, is undecided.
+The honest version is consumer-driven — replay each known consumer's actual usage against the candidate before it releases — and that needs every consumer's usage recorded as a first-class thing, which is a large build and is not costed here. Recorded usage also covers only what has run: a consumer on a monthly path falls outside any retention window worth keeping.
