@@ -42,7 +42,7 @@ The parameters are learned. How fast a problem would surface is already what the
 
 ## Overlapping windows
 
-An open window holds nothing. The next item builds, verifies on its own environment, merges, mints its number, and deploys while the window before it is still open — up to **K** of them at once per service, K authored with the rest of gate policy (8).
+An open window holds nothing. The next item builds, verifies on its own environment, merges, mints its number, and deploys while the window before it is still open — up to **K** of them at once per service. K is authored with the rest of gate policy (8), and where an owner authors nothing the score supplies it, the same division the window's own size and confidence run on. A pinned K is a ceiling on blast radius — the score may ask for fewer open windows, never more — so a pin can only add safety here too. The cost of authoring it arrives late: the number is silent until the first rollback, where it is the size of the bundle.
 
 That is what a built control buys. A found baseline made concurrency incoherent: with the comparison drawn against the release it replaced, a second deploy mid-window made the first the second's baseline, so a regression the first introduced was absorbed into the ground it was measured from and never surfaced again. Serializing was the only way to keep that single-valued. A control is stood up per release and never moves, so two open windows are two independent comparisons and neither is the other's ground.
 
