@@ -20,13 +20,15 @@ The cost is infrastructure per item in flight rather than one shared environment
 
 Candidates verified in parallel cannot all fast-forward, because each was built on a master that has since moved. So merging is a queue: a candidate entering it re-verifies against master plus every candidate ahead of it, and fast-forwards only if that passes. A failure invalidates the speculation behind it, and those candidates re-verify against the master that actually resulted.
 
+A candidate that fails its own re-verification — against the master that actually resulted, not against a speculation ahead of it — failed on its merits, and the queue rejects it: the item goes back up the pipeline, burns an attempt against [_the bound_](03-gates.md#the-attempt-bound), and the score learns from it the way it learns from a reject and not from a hold. That is the verdict the merge gate can no longer give, having already approved, and without it a candidate failing here would have no path at all. Candidates behind a failure burn nothing, for the same reason they re-verify for free: they failed on someone else's account.
+
 The queue restores what one shared environment used to give for free — the commit that was verified is the commit that lands. It pays in compute on speculative runs a failure ahead throws away, which is the trade worth making: the shared environment charged the same serialization in human latency, and this charges it in machine time.
 
 Its order is settable, like the queue at any gate. Reordering changes when a candidate re-verifies, never what it has to pass.
 
 ## What the candidate environment decides
 
-The graph is not uniform. Up to the merge, what moves is a candidate and deploys are plain — no strategy, no rollout, and no [_watch window_](07-operations.md#the-watch-window), because a candidate environment has no organic traffic and a comparison drawn from one human exercising a screen is noise in the shape of evidence. What the environment decides is the criteria: the candidate runs on production-like infrastructure against the current releases of its dependencies, and every consumer's declarations are checked against it there.
+The graph is not uniform. Up to the merge, what moves is a candidate and deploys are plain — no strategy, no rollout, and no [_watch window_](08-operations.md#the-watch-window), because a candidate environment has no organic traffic and a comparison drawn from one human exercising a screen is noise in the shape of evidence. What the environment decides is the criteria: the candidate runs on production-like infrastructure against the current releases of its dependencies, and every consumer's declarations are checked against it there.
 
 Merge to master is where a candidate becomes a release and gets its number. Everything from there is machine: numbering, strategy selection, rollout, monitoring, rollback.
 

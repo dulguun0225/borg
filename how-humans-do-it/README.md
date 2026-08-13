@@ -5,10 +5,11 @@ The sections run in dependency order — each leans on the ones before it. The n
 | Section | What it settles |
 |---|---|
 | [One pipeline](01-one-pipeline.md) | The unit of work, and that there is only one path |
-| [Gates](02-gates.md) | Where a decision happens, and what may be decided there |
-| [Risk score](03-risk-score.md) | What decides whether a human stands at a gate at all |
-| [Environments](04-environments.md) | Where software runs, and how a change reaches it |
-| [Releases](05-releases.md) | What travels, and what it is called at each point |
-| [Contracts](06-contracts.md) | What binds services to each other, and to their own past |
-| [Operations](07-operations.md) | What happens after the deploy |
-| [Surfaces](08-surfaces.md) | Where a human sees any of it |
+| [Intent into items](02-intent-into-items.md) | How a request becomes items, and what stands in front of the cut |
+| [Gates](03-gates.md) | Where a decision happens, and what may be decided there |
+| [Risk score](04-risk-score.md) | What decides whether a human stands at a gate at all |
+| [Environments](05-environments.md) | Where software runs, and how a change reaches it |
+| [Releases](06-releases.md) | What travels, and what it is called at each point |
+| [Contracts](07-contracts.md) | What binds services to each other, and to their own past |
+| [Operations](08-operations.md) | What happens after the deploy |
+| [Surfaces](09-surfaces.md) | Where a human sees any of it |

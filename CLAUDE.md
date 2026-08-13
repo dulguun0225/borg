@@ -18,7 +18,7 @@ what-the-factory-does.md
 what-humans-do.md               # the twelve numbered duties
 how-humans-do-it/
   README.md                     # the dependency-order table, and only that
-  01-one-pipeline.md … 08-surfaces.md
+  01-one-pipeline.md … 09-surfaces.md
 deferred.md
 open.md
 next.md                         # the work list, not part of the document
@@ -52,10 +52,14 @@ is identified by item plus build and stands on an environment of its own; at mer
 master it becomes a **release** with an ordinal number, per service. Contract versions
 are a separate axis — semver, one per published interface, because compatibility is the
 contract's job and not the release's. Do not let a fifth name for any of these appear.
+Upstream of all of it is the **intent** — what intake writes, what the cut turns into
+items, and what everything walks back to. An uncut intent is not an item: it was called an
+unrefined item in two places until 2026-08-13, and both now say intent.
 `beta` was one and was dropped on 2026-08-13 — it named the build holding the shared UAT
 slot, and there is no slot to hold.
 
-**Section order encodes dependency.** One pipeline (the unit of work) → Gates (where a
+**Section order encodes dependency.** One pipeline (the unit of work) → Intent into items
+(how a request becomes items, and the cut) → Gates (where a
 decision happens) → Risk score (what decides whether a human stands at one) → Environments
 (the branch, the per-candidate environment, the merge queue) → Releases (what travels) →
 Contracts (what binds services to each other) → Operations (the control, the watch window,
@@ -64,13 +68,19 @@ the section that leans on it. The numeric filename prefixes under `how-humans-do
 that order and nothing else — reordering means renaming files and fixing the links that
 point at them.
 
-One exception, known and left standing: the **watch window** and **K** are defined in
+Two exceptions, known and left standing. The first: the **watch window** and **K** are defined in
 Operations and leaned on by Gates, Risk score, Environments, and Releases. Operations has
 to follow Releases and Contracts — what happens after a deploy needs what travels and what
 binds it — so the forward reference is cheaper than the reordering that would remove it.
 Every file that leans on either term before Operations carries a link into Operations near
 its first use, so a reader meeting the term early can reach the definition. A new early use
 is expected to keep that true.
+
+The second: Intent into items describes a stage with a **gate** on it and a **score**
+deciding who stands there, both defined after it. It sits where it does because the cut is
+how items come to exist and every later section is about an item — moving it below Risk
+score would put the front of the pipeline fourth. Same treatment: a link forward at first
+use.
 
 **Never cross-reference by position.** "The second open question" broke the moment a
 bullet was resolved and removed. Refer to things by name. A link's path may carry a
@@ -143,8 +153,8 @@ is why the anchor check is separate. That one matches an anchor against every he
 the tree rather than against the target file's own, so it catches a renamed heading and not
 a link pointed at the wrong file.
 
-Then read One pipeline → Gates → Risk score → Environments → Releases → Contracts →
-Operations → Surfaces straight through and confirm one identity survives end to end: item
+Then read One pipeline → Intent into items → Gates → Risk score → Environments → Releases →
+Contracts → Operations → Surfaces straight through and confirm one identity survives end to end: item
 plus build as a candidate, the same build in production, an ordinal attached at merge,
 contracts versioned alongside it.
 

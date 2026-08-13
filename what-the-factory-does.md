@@ -1,6 +1,6 @@
 # What the factory does
 
-A **fully autonomous software factory and operations**: it refines intent, produces the software, deploys it, monitors it, finds issues, and fixes bugs, on its own. It also runs itself: it decomposes intent into items, dispatches its own agents onto them, gates its own output against a score it learns, and escalates what it cannot finish. The factory is a product — each customer runs their own isolated, self-hosted setup.
+A **fully autonomous software factory and operations**: it refines intent, produces the software, deploys it, monitors it, finds issues, and fixes bugs, on its own. It also runs itself: it decomposes intent into items, dispatches its own agents onto them, gates its own output against a score it learns, and escalates what it cannot finish. The factory is a product — each customer runs their own isolated, self-hosted setup. There is no tenancy: no shared install, no multi-tenant model, and nothing about one customer's data that another's factory could reach. The absence is a decision, not a gap left to fill.
 
 **Tight integration is key.** One system, not a bundle of tools with connectors between them. Intent, spec, change, gate decision, deploy, incident, and score are one graph.
 
