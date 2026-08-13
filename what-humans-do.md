@@ -1,6 +1,6 @@
 # What humans do
 
-Non-exhaustive owner's list. The factory does everything else. It is a list of duties, not of people: an owner may hold all twelve or delegate any of them, and People is where each attaches to a named human — a designer holding (2) and (11), a compliance officer holding (2) and a pin (9) over a regulated area. Whoever holds a duty gets its gate rows and its UAT assignments (7) in their own Inbox.
+Non-exhaustive owner's list. The factory does everything else. It is a list of duties, not of people: an owner may hold all twelve or delegate any of them, and People is where each attaches to a named human — a designer holding (2), (6), and (11), a compliance officer holding (2) and a pin (9) over a regulated area. Whoever holds a duty gets its gate rows and its UAT assignments (7) in their own Inbox.
 
 **Originate intent** — the factory cannot know what is wanted until told:
 

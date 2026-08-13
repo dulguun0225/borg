@@ -32,7 +32,7 @@ What a new row carries follows from what feeds it, not from which row it was cop
 
 At a gate, artifacts are editable by hand. Code is not: a gate approves or rejects an implementation, it never hand-patches one. A human who wants different code authors it upstream and sends it back through the pipeline.
 
-Merge and deploy gates edit nothing at all — what they hold is an event, not a document. Reject sends the change back up the pipeline; hold leaves it queued at the gate, for a window or a dependency, with the change still good. The two are different answers and have to stay distinguishable: the score learns from a reject and should learn nothing from a hold.
+Merge and deploy gates edit nothing at all — what they decide is an event, not a document. Reject sends the change back up the pipeline; hold leaves the event queued with the change still good, which is why only the deploy rows offer it. What a hold waits on differs by gate: at the production deploy gate a window, or a rollback standing in front of the revert; at the candidate deploy gate a dependency — the producing release of a contract migration, since a candidate environment stands on its dependencies' current releases and never another service's candidate. The two are different answers and have to stay distinguishable: the score learns from a reject and should learn nothing from a hold.
 
 ## The attempt bound
 
