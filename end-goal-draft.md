@@ -76,7 +76,7 @@ The sections run in dependency order — each leans on the ones before it.
 
 #### Where a gate sits, and what decides it
 
-A gate sits after every stage: spec, implementation plan, tasks, implementation, each merge, and each deploy. The mechanism is permanent — it does not fade as the factory improves.
+A gate sits at every stage boundary: after the spec, implementation plan, tasks, and implementation are authored, and before each merge and each deploy — an event gate decides whether the event happens, which is what makes hold a stop rather than an undo. The mechanism is permanent — it does not fade as the factory improves.
 
 The factory scores each change and auto-passes what it judges low risk. The same score picks the rollout strategy: A/B, canary, blue-green, straight. Humans override by pinning a gate always-on or pinning a strategy, and can veto after the fact.
 
@@ -97,7 +97,9 @@ Veto after the fact assumes the change can still be undone, and that assumption 
 | Merge to master | Approve · Reject with feedback |
 | Deploy to production | Approve · Hold · Pin strategy |
 
-Those eight rows are the default path, not the whole set. A gate sits after every deploy, so a customer that defines more environments gets a row for each, carrying the actions Deploy to UAT carries. It gets no more merge rows: two branches back the promotion path, so the extra environments are deploy targets. Production stays the only deploy without Reject.
+Those eight rows are the default path, not the whole set. A gate sits before every deploy, so a customer that defines more environments gets a row for each. It gets no more merge rows: two branches back the promotion path, so the extra environments are deploy targets.
+
+What a new row carries follows from the branch that feeds it, not from which row it was copied off. An environment fed from the UAT branch carries what Deploy to UAT carries — the change is still a candidate, so Reject sends it back up the pipeline. An environment fed from master carries what Deploy to production carries: the merge has happened and the number is spent, so hold is the only stop and undoing is a revert. Reject is available up to the merge to master and nowhere after it.
 
 #### What a gate may change
 
@@ -115,7 +117,7 @@ A stage also carries an attempt bound, authored with the rest of gate policy (8)
 
 **Merge to master** is the release event — where a candidate becomes a numbered release — and it is also where the UAT verdict lands. Approving it is passing UAT; rejecting it is failing UAT, which sends the item back up the pipeline and empties the UAT slot for whatever is waiting. The verdict is a human's when the score or a pin puts one there and the factory's own otherwise — UAT is scored like every gate around it.
 
-**Deploy to production** is the exception to reject, which is why that row does not offer it. By the time a change stands there the merge has happened and the number is spent; hold is the only way to stop it, and undoing it is a revert, which is a new item. That is veto after the fact under another name.
+**Deploy to production** is the default path's exception to reject, which is why that row does not offer it. By the time a change stands there the merge has happened and the number is spent; hold is the only way to stop it, and undoing it is a revert, which is a new item. That is veto after the fact under another name.
 
 Those last two gates are the factory's own steady state. Both exist, both are scored, and both are auto-passed by default, as is every gate above them. Pinning either one puts a human back in prod's path without inventing a new mechanism, which is why they are gates and not an exemption from gating.
 
