@@ -72,7 +72,7 @@ the section that leans on it. The numeric filename prefixes under `how-humans-do
 that order and nothing else — reordering means renaming files and fixing the links that
 point at them.
 
-Three exceptions, known and left standing. The first: the **watch window** and **K** are defined in
+Four exceptions, known and left standing. The first: the **watch window** and **K** are defined in
 Operations and leaned on by Gates, Risk score, Environments, and Releases. Operations has
 to follow Releases and Contracts — what happens after a deploy needs what travels and what
 binds it — so the forward reference is cheaper than the reordering that would remove it.
@@ -93,6 +93,12 @@ where the deployed software is worse until a human ends it — and Gates refuses
 sections earlier, saying no page fires for a hold that lifts itself. It rides the first
 exception's treatment, a link forward at that use. Surfaces names it twice and is after
 Operations, so those two are references and not exceptions.
+
+The fourth: the **reconciler** is defined in Operations, where the record it checks and the
+page it fires both already live, and One pipeline and Gates each name the hold it sets
+before that. Same treatment, a link forward at each use. It is the only thing outside the
+pipeline that disagrees with the pipeline, so a section claiming nothing does — _Deferred_
+and _What the factory does_ both did — has to carry the exception.
 
 **Never cross-reference by position.** "The second open question" broke the moment a
 bullet was resolved and removed. Refer to things by name. A link's path may carry a

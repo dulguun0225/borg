@@ -6,11 +6,11 @@ A **fully autonomous software factory and operations**: it refines intent, produ
 
 **Tight integration is key.** One system, not a bundle of tools with connectors between them. Intent, spec, change, gate decision, deploy, incident, and score are one graph.
 
-What one graph buys is that the questions connectors answer by reconciliation are walks instead. Which services consume a contract, so [what a change breaks](how-humans-do-it/07-contracts.md#enforcement) is a query rather than an estimate. Which items came from one request, so [work that spans services](how-humans-do-it/07-contracts.md#work-that-spans-services) needs no noun of its own. Which release each service is running, so a candidate's environment stands on the [current releases](how-humans-do-it/06-releases.md#the-number) of its dependencies.
+What one graph buys is that the questions connectors answer by stitching records together are walks instead. Which services consume a contract, so [what a change breaks](how-humans-do-it/07-contracts.md#enforcement) is a query rather than an estimate. Which items came from one request, so [work that spans services](how-humans-do-it/07-contracts.md#work-that-spans-services) needs no noun of its own. Which release each service is running, so a candidate's environment stands on the [current releases](how-humans-do-it/06-releases.md#the-number) of its dependencies.
 
 A bundle of tools can report all of that. What one graph does is act on it, with no human carrying a fact from one system into another: what a consumer assumes is [derived from its build](how-humans-do-it/07-contracts.md#what-a-consumer-declares) rather than filed, a comparison that finds something [after its window closed](how-humans-do-it/08-operations.md#after-the-watch-window) writes an intent into the front of the pipeline, and the score learns from the same log that is [the audit trail](deferred.md).
 
-The cost is that one graph is one trust domain. Every check the factory makes reads a record the factory wrote: [_One pipeline_](how-humans-do-it/01-one-pipeline.md) is a single blast radius in the path, and one graph is that radius over the records. What could supply a fact the factory did not write is [_Open_](open.md).
+The cost is that one graph is one trust domain. Almost every check the factory makes reads a record the factory wrote: [_One pipeline_](how-humans-do-it/01-one-pipeline.md) is a single blast radius in the path, and one graph is that radius over the records. The one exception is [_The reconciler_](how-humans-do-it/08-operations.md#the-reconciler), which reads what is actually running rather than what was recorded — one fact, held against the record that claims it.
 
 ## Traceability
 
