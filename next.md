@@ -4,7 +4,7 @@ The work list, not a section of the document. Each entry carries what has alread
 
 ## Still to write
 
-**What gate policy (8) contains.** Enumerated only by accretion across five files: the attempt bound, the predicate catalog, K, and the watch window's size, confidence, and cap. Duty 8 reads far smaller than it is, and an owner cannot see what authoring it involves.
+**What gate policy (8) contains.** Enumerated only by accretion across five files: the attempt bound and the interview's round bound, the predicate catalog, K, the item-size target, and the watch window's size, confidence, and cap. Duty 8 reads far smaller than it is, and an owner cannot see what authoring it involves.
 
 **`page`.** An Ops action and a push channel, named twice, with no on-call concept behind it — no target, no rotation, no statement of what earns one.
 

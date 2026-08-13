@@ -1,9 +1,5 @@
 # Open
 
-## What sizes an item?
-
-"It can ship by itself" is a floor, not a size. It admits an item that touches forty files and one that changes a string, and nothing in the cut says which the factory should prefer. Cutting small pays per item — an environment, a spec, four gates, a release number — and cutting large raises the odds of the attempt bound turning the item into an escalation (12), with everything already spent on it thrown away. The score reads size as a factor at every gate below the cut, so the cost of a bad size is visible after the fact; what is missing is the basis for choosing one before.
-
 ## Is a design system a contract, or only a standing constraint?
 
 A design system the factory builds is a published thing with consumers inside the factory, and a token renamed or a spacing scale rescaled breaks them the way a schema change breaks a caller. That is the contract machinery exactly — a compatibility mode, a breaking diff caught at the merge gate, the three items of a migration, an old form carrying its own deprecation list. Calling it a contract costs one stretched word: _Two versioned things_ scopes consumers to other services and _Who owns a contract_ gives a contract to the service that publishes it, and a package of tokens is not obviously either. Leaving it a constraint (2) costs the enforcement — the factory checks nothing, and one token change breaks forty screens with no gate standing in front of it.
