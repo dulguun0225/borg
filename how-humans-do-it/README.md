@@ -13,4 +13,5 @@ The sections run in dependency order — each leans on the ones before it. The n
 | [Contracts](07-contracts.md) | What binds services to each other, and to their own past |
 | [Operations](08-operations.md) | What happens after the deploy |
 | [Gate policy](09-gate-policy.md) | Everything an owner authors, and what the score supplies where they do not |
-| [Surfaces](10-surfaces.md) | Where a human sees any of it |
+| [The fleet](10-fleet.md) | What stands behind an agent, and what a borrowed account costs |
+| [Surfaces](11-surfaces.md) | Where a human sees any of it |

@@ -48,4 +48,4 @@ With the cut approved, the factory puts its own agents onto the items — a mode
 
 What bounds how many items move at once is infrastructure — an environment per candidate — and that cost is the factory's rather than a human's. Where a human takes the pen for a stage (11, 12), nothing about dispatch changes: authorship is an attribute of the stage, and the item is still one thread.
 
-Factory is where an owner watches this: the fleet, what each agent is doing, and how well.
+Factory is where an owner watches this: [_the fleet_](10-fleet.md), what each agent is doing, and how well.
