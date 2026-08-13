@@ -21,6 +21,7 @@ how-humans-do-it/
   01-one-pipeline.md … 08-surfaces.md
 deferred.md
 open.md
+next.md                         # the work list, not part of the document
 ```
 
 One file per section, split on 2026-08-13. Each file's own heading is `#`, its
