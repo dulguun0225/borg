@@ -18,14 +18,13 @@ Veto after the fact assumes the change can still be undone, and that assumption 
 | Implementation plan | Approve · Reject with feedback · Edit in place |
 | Tasks | Approve · Reject with feedback · Edit in place |
 | Implementation | Approve · Reject with feedback |
-| Merge to UAT branch | Approve · Reject with feedback |
-| Deploy to UAT | Approve · Hold · Reject with feedback |
+| Deploy to candidate environment | Approve · Hold · Reject with feedback |
 | Merge to master | Approve · Reject with feedback |
 | Deploy to production | Approve · Hold · Pin strategy |
 
-Those eight rows are the default path, not the whole set. A gate sits before every deploy, so a customer that defines more environments gets a row for each. It gets no more merge rows: two branches back the promotion path, so the extra environments are deploy targets.
+Those seven rows are the default path, not the whole set. A gate sits before every deploy, so a customer that defines more environments gets a row for each. It gets no more merge rows: one long-lived branch backs the promotion path, so the extra environments are deploy targets.
 
-What a new row carries follows from the branch that feeds it, not from which row it was copied off. An environment fed from the UAT branch carries what Deploy to UAT carries — the change is still a candidate, so Reject sends it back up the pipeline. An environment fed from master carries what Deploy to production carries: the merge has happened and the number is spent, so hold is the only stop and undoing is a revert. Reject is available up to the merge to master and nowhere after it.
+What a new row carries follows from what feeds it, not from which row it was copied off. An environment fed from a candidate build carries what Deploy to candidate environment carries — the change is still a candidate, so Reject sends it back up the pipeline. An environment fed from master carries what Deploy to production carries: the merge has happened and the number is spent, so hold is the only stop and undoing is a revert. Reject is available up to the merge to master and nowhere after it.
 
 ## What a gate may change
 
@@ -64,7 +63,7 @@ The cost is the authoring, the same cost declared meaning carries in [_What a di
 
 ### Merge to master
 
-The release event — where a candidate becomes a numbered release — and also where the UAT verdict lands. Approving it is passing UAT; rejecting it is failing UAT, which sends the item back up the pipeline and empties the UAT slot for whatever is waiting. The verdict is a human's when the score or a pin puts one there and the factory's own otherwise — UAT is scored like every gate around it.
+The release event — where a candidate becomes a numbered release — and also where the verdict on the candidate lands. Approving it admits the candidate to the merge queue, which re-verifies it against the master it will actually land on; rejecting it sends the item back up the pipeline, and nothing waits on the environment it held, which is torn down with it. The verdict is a human's when the score or a pin puts one there and the factory's own otherwise, and a human standing there is performing UAT (7).
 
 ### Deploy to production
 

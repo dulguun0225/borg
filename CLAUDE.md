@@ -46,12 +46,15 @@ deliberately has no Reject: by then the merge has happened and the number is spe
 hold is the only stop and undoing is a revert.
 
 **The lifecycle vocabulary.** It must run unbroken across four sections. A **candidate**
-is identified by item plus build and wears the label `beta` on the UAT branch; at merge
-to master it becomes a **release** with an ordinal number, per service. Contract versions
+is identified by item plus build and stands on an environment of its own; at merge to
+master it becomes a **release** with an ordinal number, per service. Contract versions
 are a separate axis — semver, one per published interface, because compatibility is the
 contract's job and not the release's. Do not let a fifth name for any of these appear.
+`beta` was one and was dropped on 2026-08-13 — it named the build holding the shared UAT
+slot, and there is no slot to hold.
 
-**Section order encodes dependency.** Environments (branches, the UAT slot) → Releases
+**Section order encodes dependency.** Environments (the branch, the per-candidate
+environment, the merge queue) → Releases
 (what travels) → Contracts (what binds services to each other) → Surfaces (where a human
 sees it). A concept should be defined before the section that leans on it. The numeric
 filename prefixes under `how-humans-do-it/` are that order and nothing else — reordering
@@ -111,7 +114,7 @@ information the document is deliberately carrying.
 There are no tests. After editing, run the consistency pass:
 
 ```bash
-grep -rn "^| " --include='*.md' . | grep -v CLAUDE.md          # six tables: tree index, sections, gate actions, criterion patterns, build names, modes
+grep -rn "^| " --include='*.md' . | grep -v CLAUDE.md          # seven tables: tree index, sections, gate actions, criterion patterns, build names, modes, window exits
 grep -rno "([0-9, ]*)" --include='*.md' . | grep -v CLAUDE.md  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' . | grep -v CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^#" --include='*.md' . | grep -v CLAUDE.md           # one "# " per file, and nothing deeper than "### "

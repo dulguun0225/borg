@@ -8,7 +8,7 @@ So there are two versioned things and they must not be collapsed into one. A rel
 
 ## No single item may break a contract
 
-**No single item may break a contract.** A breaking change is three items: the producer adds the new form beside the old, each consumer migrates, the producer removes the old. Each ships alone, passes its own UAT, and is independently reversible. This is the same discipline no-batching already forces — an item that cannot ship by itself was cut wrong — and the two rules hold each other up. Where a change genuinely cannot be decomposed, that is an escalation (12), not a licence to batch.
+**No single item may break a contract.** A breaking change is three items: the producer adds the new form beside the old, each consumer migrates, the producer removes the old. Each ships alone, is verified on an environment of its own, and is independently reversible. This is the same discipline no-batching already forces — an item that cannot ship by itself was cut wrong — and the two rules hold each other up. Where a change genuinely cannot be decomposed, that is an escalation (12), not a licence to batch.
 
 ## Compatibility mode
 
@@ -34,7 +34,7 @@ A diff proves the shape still holds, not that callers survive. A field that quie
 
 **The producer compares its own observables.** Per field, on the producer's own traffic: population rate, the spread of enum values, the distribution of numbers, each against the release this one replaced. A field populated 99.9% of the time for a year that drops to 80% is invisible to a schema check and loud in a profile, and a unit swapped for one a thousand times finer moves every number by a thousand. What it does with a finding is raise an item and feed the context factor of the risk score; it rejects nothing, because a statistical call is arguable where a schema diff is not, and enforcement stays mechanical by not admitting one. Every number in it is the producer's own, so nothing has to be recorded or attributed across services. An owner who wants explicit thresholds pins them (9).
 
-**A consumer's assumptions are checked against the candidate.** The factory already knows who consumes what, so the candidate standing in the UAT slot is checked against every consumer's declaration, and a failure is a rejection at the merge gate like any breaking diff. No window bounds it — a consumer called once a month is covered exactly as well as one on a hot path. [_What a consumer declares_](#what-a-consumer-declares) sets out what may be declared, where a declaration comes from, and what it costs.
+**A consumer's assumptions are checked against the candidate.** The factory already knows who consumes what, so the candidate standing on its own environment is checked against every consumer's declaration, and a failure is a rejection at the merge gate like any breaking diff. No window bounds it — a consumer called once a month is covered exactly as well as one on a hot path. [_What a consumer declares_](#what-a-consumer-declares) sets out what may be declared, where a declaration comes from, and what it costs.
 
 Replaying each consumer's recorded actual usage is the layer that is not built, and not for its size. What a recording proves is bounded by what ran inside its retention window, so the expensive option is also the one with the hole: a consumer on a monthly path falls outside any window worth keeping. A declaration buys the same protection without the recording.
 
@@ -68,7 +68,7 @@ A service's store is a contract too, and its consumer is the service's own past 
 
 The rule holds there unchanged: **no single item may break the store.** A breaking schema change is three items — the store gains the new form beside the old, the code migrates onto it, the old form is dropped — and while it stands, the old form carries the same deprecation obligation an old interface carries.
 
-Enforcement costs nothing new: the factory diffs the schema a candidate carries against the one in production, and a destructive diff without the migration already in front of it is a rejection at the merge gate. The cost lands on small work — renaming a column is three items and three trips through the slot. What it buys is the rollback in Releases, which is otherwise a promise about code made over data that has already moved on.
+Enforcement costs nothing new: the factory diffs the schema a candidate carries against the one in production, and a destructive diff without the migration already in front of it is a rejection at the merge gate. The cost lands on small work — renaming a column is three items and three trips through the pipeline. What it buys is the rollback in Releases, which is otherwise a promise about code made over data that has already moved on.
 
 ## Work that spans services
 
