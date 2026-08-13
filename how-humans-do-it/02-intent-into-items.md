@@ -6,6 +6,10 @@ What arrives is an **intent**: a request from an owner (1), a bug or a complaint
 
 Constraints (2) arrive here too and are not intents: they are never cut into items and never ship. A standing one attaches to the factory and binds every item from then on; a per-item document arrives with one request and is spent with it. What the difference decides is what the factory reads when it drafts — every standing constraint in force, plus whatever rode in with this intent.
 
+A design system is the standing constraint a project with a user interface always has, and it is chosen as much as supplied: the project takes one the factory carries or one an owner uploads. What the upload is decides what can ever be checked against it. As code — tokens and components with a build — it is diffable, and a screen departing from it fails mechanically. As a document — an export, a page of rules — there is no build, nothing checks the result, and what enforces it is a pin (9) putting a human at the gate. Nothing about that is particular to design: no standing constraint is checked mechanically unless it arrives in a form a machine can read, which is why the compliance officer holding (2) over a regulated area holds a pin with it.
+
+So a designer's say survives past the gate they stood at unevenly, and the split is worth naming. The screen's state flow confirmed at [_Spec_](03-gates.md#spec) (6) is authored as a machine and enforced at [_Implementation_](03-gates.md#implementation); what the screen looks like is checked by nobody unless the design system came as code. The cheap form costs a human at a pinned gate for as long as the pin stands; the enforceable one costs a designer producing code.
+
 The intent is what the graph joins on. Every item walks back to it, which is why one request producing four items in four services needs no noun of its own — the point [_Work that spans services_](07-contracts.md#work-that-spans-services) makes from the far end.
 
 ## The interview

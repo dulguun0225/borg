@@ -66,7 +66,7 @@ The form is the whole of what this buys, and buying it makes one failure worse: 
 
 Where the item has a user interface, its state flow is part of those criteria — the states a screen can hold, the events that move it between them, and what each state forbids, empty and loading and failed among them. It is authored as a machine rather than a sketch, which is what makes it enforceable at [_Implementation_](#implementation) — and what gives a designer holding (6) a say that survives past the gate they stood at.
 
-The cost is the authoring, the same cost declared meaning carries in [_What a diff cannot see_](07-contracts.md#what-a-diff-cannot-see) — a sketch is cheaper and checks nothing. What the screen looks like is not here: that is the design system supplied as a standing constraint (2), and, where the system does not answer, [_Implementation plan_](#implementation-plan).
+The cost is the authoring, the same cost declared meaning carries in [_What a diff cannot see_](07-contracts.md#what-a-diff-cannot-see) — a sketch is cheaper and checks nothing. What the screen looks like is not here: that is the design system the project chose as a standing constraint (2), a screen design where one rode in with the request as a per-item one, and, where neither answers, [_Implementation plan_](#implementation-plan).
 
 ### Implementation plan
 

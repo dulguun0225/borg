@@ -5,7 +5,7 @@ Non-exhaustive owner's list. The factory does everything else. It is a list of d
 **Originate intent** — the factory cannot know what is wanted until told:
 
 1. Request features.
-2. Supply constraints, of two kinds. A **standing** one binds every item from then on — laws and regulations, a design system — and is permanent in the way the rules (8) are: the factory works inside it and never earns its way out. A **per-item** document refines one request and is spent with it. Nothing prunes the standing kind: it binds until it is withdrawn, so an owner who never withdraws one has the factory building against it years later.
+2. Supply constraints, of two kinds. A **standing** one binds every item from then on and is permanent in the way the rules (8) are: the factory works inside it and never earns its way out. Laws and regulations are standing; so is a **design system** — the reusable decisions every screen is built from, its tokens, its components and the states each may hold, and the rules for using them, which is neither artwork nor the tool the artwork is drawn in — and an owner supplies one or picks from the ones the factory carries. A **per-item** document refines one request and is spent with it, a screen design for a single request among them. Nothing prunes the standing kind: it binds until it is withdrawn, so an owner who never withdraws one has the factory building against it years later.
 3. Sit for the factory's interview — grilled — until the intent is refined.
 
 **Feed back as end users** — routine, in end-user terms, not engineering terms:
