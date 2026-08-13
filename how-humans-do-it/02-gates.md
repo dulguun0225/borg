@@ -8,7 +8,7 @@ The factory scores each change and auto-passes what it judges low risk. The same
 
 A failing rollout rolls back on its own, inside its watch window — no human in the loop, no waiting. The rollback is reported, not requested.
 
-Veto after the fact assumes the change can still be undone, and that assumption decays as later work builds on it. Reversibility is a scored dimension, and the veto window is bounded by it. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others.
+Veto after the fact assumes the change can still be undone, and what a human may do decays as later work builds on it: a rollback while the release's control still stands, a revert once it does not. Reversibility is a scored dimension and the veto window is bounded by it, through the strategy it picks and the control that strategy pays for. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others. What overlapping watch windows add is not difficulty but reach — a rollback takes every release above its target, up to the K of [_Overlapping windows_](07-operations.md#overlapping-windows), which is the one bundle the factory ships and is bounded by the number itself.
 
 ## Actions at each gate
 
@@ -67,7 +67,7 @@ The release event — where a candidate becomes a numbered release — and also 
 
 ### Deploy to production
 
-The default path's exception to reject, which is why that row does not offer it. By the time a change stands there the merge has happened and the number is spent; hold is the only way to stop it, and undoing it is a revert, which is a new item. That is veto after the fact under another name.
+The default path's exception to reject, which is why that row does not offer it. By the time a change stands there the merge has happened and the number is spent, so hold is the only way to stop it. Once it deploys, undoing it is veto after the fact — a rollback while its control stands, a revert after, which is a new item.
 
 ### Why those last two are gates
 

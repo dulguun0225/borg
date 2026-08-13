@@ -18,7 +18,7 @@ The baseline is only as good as the build it runs, which is the case for pinning
 
 ## The watch window
 
-The **watch window** is how long the factory may act on the comparison alone. Inside it, crossing the line rolls the release back with no human in the loop; outside it, the same crossing raises an item. It is not the veto window: the watch window is the factory's own authority and is bounded by evidence, the veto window is a human's and is bounded by reversibility. A rollback deploy opens no window of its own: the build coming back was the control, and a fresh window would compare it against the release just condemned and put that one back.
+The **watch window** is how long the factory may act on the comparison alone. Inside it, crossing the line rolls the release back with no human in the loop; outside it, the same crossing raises an item. It is not [_The veto window_](#the-veto-window): the watch window is the factory's own authority and is bounded by evidence, the veto window is a human's and is bounded by reversibility. A rollback deploy opens no window of its own: the build coming back was the control, and a fresh window would compare it against the release just condemned and put that one back.
 
 The window is a volume condition, not a clock — and not a volume computed in advance either. The comparison is evaluated as traffic arrives, against a boundary that holds at every point it is read. That much is forced by what the factory already does: a threshold set for one look at a fixed sample is not the threshold for a thousand looks at a growing one, and reading a fixed-horizon test continuously is how a factory rolls back healthy releases all day. The boundary is what makes continuous reading legitimate rather than a fault nobody attributes.
 
@@ -56,7 +56,15 @@ A rollback still holds, and is now the only thing that does. Master keeps the ch
 
 A human can approve through it. The hold is the factory's own and the emergency lever is approve now, not skip; the production deploy gate offers Approve regardless. What is paid is the defect that was just pulled — the most expensive thing in the factory to approve through, and the one most likely to be reached for mid-incident.
 
-## After the window
+## The veto window
+
+Veto after the fact (10) is a human undoing a shipped change on judgment, where the watch window is the factory undoing one on the comparison. The two overlap in time and differ in what bounds them, which is why they are two windows and not one.
+
+A veto has two phases, and what separates them is whether anything is still standing to go back to. While a control is up it is a rollback — the same traffic shift the factory would perform, on a human's say instead of the comparison's, taking up to K releases with it for the reason [_Overlapping windows_](#overlapping-windows) gives. Once the window closes the control goes with it, and the remedy is a revert: a new item, its own thread, its own number, and the whole pipeline to pay for it.
+
+That is what bounds the veto window, and it is how reversibility bounds it. The score reads reversibility to pick a strategy, the strategy decides whether a control is paid for, and the control is what leaves a human something to reach for. So the lever sits where it is wanted: a change the score gave a control to — the one it wanted to watch closely — has a rollback phase, and one it sent out on a straight deploy has only the revert, which is what a change judged cheap to undo can afford. The window decays by no rule of its own; it ends where the thing it acts on ends.
+
+## After the watch window
 
 The comparison keeps running after the window closes. What it finds then is not a rollback candidate — the change has been live for a week and the window's authority is long spent. It is an unrefined item in Work, the same shape as an end-user complaint (4, 5), taking the same stages and the same gates. That is the whole of "finds issues and fixes bugs": detection writes an item, and the pipeline does the rest.
 

@@ -22,7 +22,7 @@ Non-exhaustive owner's list. The factory does everything else. It is a list of d
 
 8. Author gate policy and risk thresholds.
 9. Pin a gate always-on for a stage, project, or area.
-10. Veto after the fact — roll back a change the factory auto-approved.
+10. Veto after the fact — undo a change the factory auto-approved: a rollback while its control still stands, a revert after.
 
 **Backstop the factory** — only where it falls short, shrinking as it improves:
 
