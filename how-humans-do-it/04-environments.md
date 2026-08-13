@@ -8,7 +8,7 @@ One long-lived branch backs each service's promotion path: master. A candidate l
 
 ## An environment per candidate
 
-Every candidate gets an environment of its own, stood up from master plus that candidate and torn down when the item merges or is dropped. Nothing is shared, so nothing queues behind anything: a candidate under repair holds nobody up, and a candidate waiting on a human holds up only itself.
+Every candidate gets an environment of its own, stood up from master plus that candidate and torn down when the item merges or is dropped. Nothing is shared, so nothing queues behind anything: a candidate under repair holds nobody up, and a candidate waiting on a human holds up only itself. Nothing shares because nothing else is candidate-fed — the environments a customer defines are deploy targets for master, so no persistent slot exists for candidates to take turns on.
 
 The environment is composed for the candidate standing in it — the current releases of its dependencies, never another service's candidate. That is what makes a twelve-service project testing twelve items at once safe, and it is only safe because no item may break a contract.
 

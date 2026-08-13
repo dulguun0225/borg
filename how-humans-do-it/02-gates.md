@@ -24,7 +24,9 @@ Veto after the fact assumes the change can still be undone, and what a human may
 
 Those seven rows are the default path, not the whole set. A gate sits before every deploy, so a customer that defines more environments gets a row for each. It gets no more merge rows: one long-lived branch backs the promotion path, so the extra environments are deploy targets.
 
-What a new row carries follows from what feeds it, not from which row it was copied off. An environment fed from a candidate build carries what Deploy to candidate environment carries — the change is still a candidate, so Reject sends it back up the pipeline. An environment fed from master carries what Deploy to production carries: the merge has happened and the number is spent, so hold is the only stop and undoing is a revert. Reject is available up to the merge to master and nowhere after it.
+They are fed from master, and the candidate-fed row stays the factory's own. A customer environment persists, and a persistent one fed from candidate builds is a slot two candidates take turns on — the shared environment [_An environment per candidate_](04-environments.md#an-environment-per-candidate) exists to remove, charging one item's wait to everything behind it. A human who wants a pre-merge change in front of them gets it on that candidate's own environment, where a pin (9) puts them and the wait is that item's alone. What it costs is that there is no long-lived box to keep one standing in.
+
+What a new row carries follows from what feeds it, not from which row it was copied off. Fed from master, every new row carries what Deploy to production carries: the merge has happened and the number is spent, so hold is the only stop and undoing is veto after the fact. Reject is available up to the merge to master and nowhere after it.
 
 ## What a gate may change
 
