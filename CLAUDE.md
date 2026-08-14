@@ -9,8 +9,11 @@ the design document under `end-goal/` and the record of building toward it under
 currently does.
 
 **Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** It has its own
-editing rules, its own writing style, and a consistency pass to run after every edit,
-which govern that directory alone and say nothing about code.
+editing rules and a consistency pass to run after every edit, which govern that directory
+alone and say nothing about code. Its **Writing style** section is the exception: it
+governs prose everywhere in this repository — this file, `bootstrap/`, commit bodies, and
+what an agent writes in a reply. What it added on 2026-08-14 is a ban on figurative and
+business speech, because a metaphor reads as precision and is not.
 
 **Read [`bootstrap/README.md`](bootstrap/README.md) before starting work.** It carries the
 plan and where the work has got to, and it is the only place that says what is in flight.

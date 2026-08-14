@@ -92,7 +92,8 @@ number; its text never does.
 ## Writing style
 
 **Precise, then concise, then simple.** The order is the rule — it only does work when
-the three conflict. This governs the document and anything written about it.
+the three conflict. This governs the document, every other file in the repository, and
+anything written about them.
 
 **Precise beats concise.** If cutting a qualification blurs the claim, keep it: "a
 breaking diff without the migration already in front of it" is not "a bad diff." Name the
@@ -107,12 +108,22 @@ missing."
 no restating the heading, no summarizing what is about to be said. State reasons rather
 than announcing them — `This is the reason:` was cut for exactly that.
 
-Simple is last, not absent: plain words and short sentences wherever they cost nothing.
-Because it yields, an idiom that lands a precise point in few words stays.
+Simple is last, not absent: plain words and short sentences wherever they take nothing
+away.
 
-Two habits follow. Rules arrive with their cost attached — no-batching is stated together
-with the human-UAT ceiling it creates. Em-dash asides carry qualifications instead of
-spawning sentences.
+**No figurative speech and no business speech.** Name the thing and say what happens to
+it, literally. A record does not carry, hold, walk, stand, ride, or land — a component
+writes it, reads it, or points at it. Nothing is bought, spent, or paid for unless money
+or a quota actually moves. Metaphor reads as precision and is not: *an intent carries a
+project* leaves a reader choosing between a field on the record, a link to another record,
+and something a later stage looks up. Where the literal sentence is longer, write the
+longer one — precise still beats concise. (Owner rule, 2026-08-14, replacing the licence
+for idiom that stood here. It binds every file in the repository and every reply written
+about one.)
+
+Two habits follow. A rule is stated together with the downside it creates — no-batching
+with the human-UAT ceiling it creates. A qualification goes in an em-dash aside rather
+than a sentence of its own.
 
 **Structure for a reader.** The document is read by humans, not only parsed. A long run of
 uniform paragraphs gets `###` subheadings; a set of parallel facts gets a table. When a
