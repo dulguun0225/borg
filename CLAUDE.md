@@ -2,14 +2,20 @@
 
 ## What this repository is
 
-A monorepo for building the software factory [README.md](README.md) describes. Today it
-holds one thing: the design document under `end-goal/`. Code lands beside that directory
-as it arrives, never inside it — `end-goal/` is the state the repository is built toward,
-not a record of what it currently does.
+A monorepo for building the software factory [README.md](README.md) describes. It holds
+the design document under `end-goal/` and the record of building toward it under
+`bootstrap/`. Code lands beside those two as it arrives, never inside either —
+`end-goal/` is the state the repository is built toward, not a record of what it
+currently does.
 
 **Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** It has its own
 editing rules, its own writing style, and a consistency pass to run after every edit,
 which govern that directory alone and say nothing about code.
+
+**Read [`bootstrap/README.md`](bootstrap/README.md) before starting work.** It carries the
+plan and where the work has got to, and it is the only place that says what is in flight.
+A decision reached while working folds into the `end-goal/` file that owns the subject and
+never into `bootstrap/`, which holds process and not design.
 
 ## Commits
 
