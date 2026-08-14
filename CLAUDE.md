@@ -18,6 +18,21 @@ directory alone and say nothing about code.
 Commit straight to `main`. The project is early; branches start when it is ready for
 them, and not before. Do not create one unasked. (Owner rule, 2026-08-13.)
 
+## How a change to the end goal is recorded
+
+Change `end-goal/` directly. The commit is the record: the edit lands in the file that
+owns the subject, and the body says what moved and why, which is the shape
+`end-goal/CLAUDE.md` already sets. That is a record of what happened and nothing that
+binds what comes next.
+
+No ADRs until the project has proved itself. A record claiming authority over future work
+is what made an earlier attempt unchangeable — the pile grew, an agent could always find
+one to cite and answer a change with a wall of text, and pruning the ones that had stopped
+being true was archaeology nobody did. The design document is a target, revised whenever
+something is learned; an ADR is a claim on the future, and nothing here has earned one
+yet. They start when the factory is proved and holding settled ground still is worth more
+than staying cheap to change. (Owner decision, 2026-08-14.)
+
 ## graphify
 
 Removed from this project on 2026-08-14 — the index, the ignore entry, the parked hooks,
