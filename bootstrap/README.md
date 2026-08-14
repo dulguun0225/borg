@@ -26,8 +26,31 @@ Neither of those is here. This file holds the plan, the constraints the cut has 
 
 **The reconciler can never be an item.** It reads what is actually running against what the factory recorded, and a reconciler the factory deployed would sit inside the trust domain it exists to check — which a factory building itself makes sharper rather than softer, the thing being shipped now being the checker. It stays hand-built and hand-deployed permanently. [_The reconciler_](../end-goal/how-humans-do-it/08-operations.md#the-reconciler) sets out what it is and why it stands outside.
 
+## The interview, in ten sittings
+
+What the interview has to reach is enough to cut, which is the document's own end condition — it asks until there is enough to cut the intent and author a spec per item, not until the design is exhaustive. For this intent that means what the factory is made of: the cut lands one item per service the work touches, and the document describes services as a property of a customer's software rather than of the factory itself.
+
+So a sitting settles records rather than sections. Records are the nodes of the one graph the product is built around, and the cut's whole input falls out of them — who writes a record is a component boundary, who reads it is a dependency edge. Slicing by section would re-tread the interlocking claims that are the tree's value, each sitting reopening what an earlier one settled.
+
+Per record: who writes it and at which event, who reads it, and the fields that decide who owns it. Not an exhaustive field list, and not the score's formula, the window's test, storage, wire formats, or how a declaration is derived per toolchain — none of those move a boundary, so they are the spec stage's.
+
+| # | Sitting | Records |
+|---|---|---|
+| 1 | The traceability spine | intent · item · candidate · release record · deploy record · the number, a field of the release · current release, a fact of the production deploy record |
+| 2 | In front of the cut | constraint, standing and per-item · design system · interview question · the cut decision · declared item order · partial intent · area · project |
+| 3 | Artifacts of an item | spec · implementation plan · tasks · implementation · acceptance criterion · criterion encoding · a screen's state flow |
+| 4 | Decisions and policy | gate decision · gate policy's seven parameters · pin · decision-log record · actor · policy version |
+| 5 | The score | the factor vector · authorship prior · score version · the held-out sample · the trust number |
+| 6 | Where software runs | service · environment record · master branch · candidate branch · candidate environment · merge queue · build and commit |
+| 7 | Contracts | contract · contract version · consumer declaration · predicate catalog · deprecation list · the producer's own observables · store schema |
+| 8 | The watch | control · health signal · watch window and its four exits · K · recovery target · explicit health threshold |
+| 9 | Undo and trouble | rollback · revert item · incident · page event · the reconciler's mismatch and the hold it sets |
+| 10 | The substrate | fleet entry · provider account · credential reference · People declaration · duty · the deploy-target seam |
+
+Sitting 1 goes first, naming what every other one references, and sitting 10 last, nothing reading the substrate. The eight between are taken in whatever order a sitting allows. What makes that safe is the tree's own habit — six forward references stand deliberately, each with a link forward at its early use — so a sitting may name a record a later one defines rather than blocking on it.
+
+The interview ends, and the cut can run, when every record above has a named writer and named readers, and no record is written by two components with no seam declared between them.
+
 ## Where we are
 
-The interview has not started. Nothing is cut and no item exists.
-
-What the interview has to reach is enough to cut. For this intent that means what the factory is made of — the cut lands one item per service the work touches, and the document describes services as a property of a customer's software rather than of the factory itself. That answer is design and belongs in `end-goal/` when it arrives, not here.
+Nothing taken yet. Sitting 1 is next.
