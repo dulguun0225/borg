@@ -2,7 +2,7 @@
 
 Non-exhaustive owner's list. The factory does everything else. It is a list of duties, not of people: an owner may hold all twelve or delegate any of them, and People is where each attaches to a named human — a designer holding (2), (6), and (11), a compliance officer holding (2) and a pin (9) over a regulated area. Whoever holds a duty gets its gate rows and its UAT assignments (7) in their own view of Work.
 
-What falls outside is substrate rather than work, and the tree names three: hosting the factory, standing up [_The reconciler_](how-humans-do-it/08-operations.md#the-reconciler) beside it, and supplying the credentials [_The fleet_](how-humans-do-it/10-fleet.md) runs on. None of the three is something a human does with an item, a rule, or a running system, which is what the twelve are. Each is still an obligation, and nothing here scores one.
+What falls outside is substrate rather than work, and the tree names three: hosting the factory, standing up [_The reconciler_](how-humans-do-it/08-operations.md#the-reconciler) beside it, and supplying the credentials [_The fleet_](how-humans-do-it/10-fleet.md) runs on. None of the three is something a human does with an item, a rule, or a running system, which is what the twelve are. Each is still an obligation, and nothing here scores one. Upgrading the factory is part of hosting it and not a fourth: a self-hosted product is brought up to date by whoever runs it, which is the same hand and the same kind of obligation.
 
 **Originate intent** — the factory cannot know what is wanted until told:
 

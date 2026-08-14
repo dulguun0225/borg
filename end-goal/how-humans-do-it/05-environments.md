@@ -28,7 +28,7 @@ Its order is settable, like the queue at any gate. Reordering changes when a can
 
 ## What the candidate environment decides
 
-The graph is not uniform. Up to the merge, what moves is a candidate and deploys are plain — no strategy, no rollout, and no [_watch window_](08-operations.md#the-watch-window), because a candidate environment has no organic traffic and a comparison drawn from one human exercising a screen is noise in the shape of evidence. What the environment decides is the criteria: the candidate runs on production-like infrastructure against the current releases of its dependencies, and every consumer's declarations are checked against it there.
+The graph is not uniform. Up to the merge, what moves is a candidate and deploys are plain — no strategy, no rollout, and no [_watch window_](08-operations.md#the-watch-window), because a candidate environment has no organic traffic and a comparison drawn from one human exercising a screen is noise in the shape of evidence. What the environment decides is the criteria: the candidate runs on production-like infrastructure against the current releases of its dependencies, and every consumer's declarations are checked against it there. Deciding them is running the encoding [_Implementation_](03-gates.md#implementation) authored beside the code, and a criterion that fails is a rejection at the merge gate on the same terms a consumer's declaration failing there is.
 
 Merge to master is where a candidate becomes a release and gets its number. Everything from there is machine: numbering, strategy selection, rollout, monitoring, rollback.
 

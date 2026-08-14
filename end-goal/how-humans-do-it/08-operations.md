@@ -2,7 +2,7 @@
 
 ## The health signal
 
-A deploy record says which release runs where, so the factory always knows what it is looking at. It watches that release against a **control** — an instance set running the build already in production, brought up alongside the release and taking comparable traffic — and that comparison is the health signal. Nothing has to be authored for a new service to have one.
+A deploy record says which release runs where, so the factory always knows what it is looking at. It watches that release against a **control** — an instance set running the build already in production, brought up alongside the release and taking comparable traffic — and that comparison is the health signal. Nothing has to be authored for a service to have one, once there is a build in production to stand it against.
 
 The control is built rather than found, because a new process and a long-lived one differ before either serves a request: cold caches, empty pools, a compiler that has not yet seen the workload. Measured against the instances it is replacing, a release pays for being new, and the factory reads that bill as a regression. Measured against a control of its own age, what is left is the change. **Baseline** stays the name for what the comparison is drawn against; what moved is that the factory now stands one up instead of pointing at what is already running.
 
@@ -15,6 +15,8 @@ A rollout fails when the comparison crosses the boundary, and the rollback follo
 A control costs the old build still serving, which is precisely what a straight deploy refuses. So the real comparison comes with the strategy that keeps one, and a straight deploy falls back to reading the release against its predecessor's own recent history — the confound above, unanswered, which is what makes that fallback the weak one. This is the second thing the score buys when it picks a strategy: the cheapest rollout is also the one that sees least, and where the score wants to see, it picks a shape that pays for a control.
 
 The baseline is only as good as the build it runs, which is the case for pinning: an owner can pin explicit thresholds for a service the way they pin a gate or a strategy, and a service whose normal behaviour is already bad is where that earns its keep. An explicit threshold is absolute where the comparison is relative, and it stands beside the comparison rather than instead of it — the release clears both or neither, so a pin here can only add, like every other.
+
+A service's first release has no build in production to stand anything against, and the weak fallback is no answer there either: reading a release against its predecessor's own recent history wants a predecessor. So the absolute reading is the only one left, standing alone rather than beside a comparison for the one release where there is nothing to compare — and where an owner has pinned no threshold, the first release is unmeasured and nothing about it is discovered by watching. A control arrives with the second release, and the signal is whole from there. An adopted service is the same shape with one difference, priced in [_Deferred, but not designed out_](../deferred.md): software is already running, so its first release has the weak fallback even though it has no control.
 
 ## The watch window
 

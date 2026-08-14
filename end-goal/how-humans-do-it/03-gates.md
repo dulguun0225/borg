@@ -21,6 +21,8 @@ A **rollout strategy** is how a release takes live traffic from the build it rep
 
 Two rows and not four, because they differ on one axis and everything downstream reads that axis alone: whether the build being replaced is still serving while the release does. That is what a [_control_](08-operations.md#the-health-signal) costs, and what veto after the fact (10) reaches for while it stands — a straight deploy buys neither. The schedule is an attribute of the first row rather than a strategy of its own. Canary, A/B, and blue-green are the three a builder arrives already knowing, and they are that row at three schedules; what it costs to fold them in is that a name a builder brings with them is now a value on a field instead of a row to implement.
 
+A service's first release is straight whatever the score would prefer. There is no build being replaced, so nothing can go on serving beside it and there is no control to stand — the choice opens at the second release, and what the first one is measured against instead is in [_The health signal_](08-operations.md#the-health-signal).
+
 ## Actions at each gate
 
 | Gate | Actions |
@@ -50,7 +52,7 @@ Merge and deploy gates edit nothing at all — what they decide is an event, not
 
 ## The attempt bound
 
-A stage also carries an attempt bound, authored with the rest of gate policy (8). An item that exceeds it stops being retried and stands in Work as an escalation (12) — the factory saying it cannot do this one. It is one parameter and not two: [_The interview_](02-intent-into-items.md#the-interview) counts rounds against the same bound, though it is upstream of the first stage and has no gate of its own, because what a second row would buy is a different number on the same mechanism and what it costs is a row every builder implements twice. Holds do not count against the bound; a hold is not a failed attempt, for the same reason the score does not learn from one. The bound costs something wherever it is set: low turns solvable work into human work and cuts off an interview that was about to converge, high burns spend before anyone sees the item.
+A stage also carries an attempt bound, authored with the rest of gate policy (8). An item that exceeds it stops being retried and stands in Work as an escalation (12) — the factory saying it cannot do this one. It is one parameter and not two: [_The interview_](02-intent-into-items.md#the-interview) counts rounds against the same bound, though it is upstream of the first stage and has no gate of its own, because what a second row would buy is a different number on the same mechanism and what it costs is a row every builder implements twice. Holds do not count against the bound; a hold is not a failed attempt, for the same reason the score does not learn from one. The bound costs something wherever it is set: low turns solvable work into human work and cuts off an interview that was about to converge, high burns spend before anyone sees the item. What that spend runs into is the quota on the provider account behind the agent, and nothing else is coming — [_The fleet_](10-fleet.md#what-the-fleet-is-not) refuses a ceiling of the factory's own, which leaves this bound the only one the factory holds and it counts attempts rather than money.
 
 ## What particular gates carry
 
@@ -60,7 +62,7 @@ The one gate where approving admits several threads at once; everything below it
 
 ### Spec
 
-Two duties. [_The interview_](02-intent-into-items.md#the-interview) (3) refines intent and the spec is what it produces, so approving the spec ratifies that refinement — there is no interview gate and none is missing. The spec also states the acceptance criteria, so approving it confirms them (6). What is confirmed is the criteria; a test encoding them is downstream of that approval, not the object of it.
+Two duties. [_The interview_](02-intent-into-items.md#the-interview) (3) refines intent and the spec is what it produces, so approving the spec ratifies that refinement — there is no interview gate and none is missing. The spec also states the acceptance criteria, so approving it confirms them (6). What is confirmed is the criteria; the encoding that decides them against an observed run is authored at [_Implementation_](#implementation) and is downstream of this approval, not the object of it.
 
 Criteria are predicates, not prose, for the reason a consumer's declaration is: what cannot be decided against an observed run is checked by nobody, and in the steady state that is most of them — the factory drafts its own criteria and a human reads them only where the score or a pin (9) puts one there. Each states one testable behaviour in one of a closed set of six sentence patterns, drawn from EARS.
 
@@ -97,6 +99,10 @@ Where the state machine the spec authored is enforced. An implementation that ad
 
 It is also the one artifact gate with no Edit in place, for the reason [_What a gate may change_](#what-a-gate-may-change) gives. The actions are the narrowest in the table: approve what was built, or send the item back up the pipeline to have it built differently.
 
+The encoding of the acceptance criteria is authored here as well. A criterion is a predicate and something has to decide it against an observed run — unit tests are today's form of that — so the encoding is written with the code it checks and stands at this gate as an artifact of the item. It runs where there is a run to observe, on [_the candidate environment_](05-environments.md#what-the-candidate-environment-decides), and what it produces is read at [_Merge to master_](#merge-to-master).
+
+Its authority comes from the gate rather than from the encoding being faithful, the shape [_What a consumer declares_](07-contracts.md#what-a-consumer-declares) already uses for an artifact the factory derived. What that costs is that an agent which misread a criterion can encode its misreading and pass what it wrote. Standing against that is the criterion a human confirmed (6) one gate up: it is unchanged, it is still the thing being checked, and an encoding that departs from it is rejected here like any other artifact that does not do what it was authored from.
+
 ### Deploy to candidate environment
 
 The dependency its hold waits on was declared at the cut, so what this gate is waiting for is known before the item was ever built — nothing has to be discovered at deploy time. Here the wait is for that dependency to become live at all, since the environment is composed from it. The same dependency is checked once more at the production deploy gate, where the question is whether it is live still.
@@ -105,7 +111,7 @@ Nothing else attaches to this row — no strategy, no rollout, no watch window �
 
 ### Merge to master
 
-The release event — where a candidate becomes a numbered release — and also where the verdict on the candidate lands. Approving it admits the candidate to the merge queue, which re-verifies it against the master it will actually land on and rejects it there on the same terms if that fails; rejecting it here sends the item back up the pipeline, and nothing waits on the environment it held, which is torn down with it. The verdict is a human's when the score or a pin puts one there and the factory's own otherwise, and a human standing there is performing UAT (7).
+The release event — where a candidate becomes a numbered release — and also where the verdict on the candidate lands. Approving it admits the candidate to the merge queue, which re-verifies it against the master it will actually land on and rejects it there on the same terms if that fails; rejecting it here sends the item back up the pipeline, and nothing waits on the environment it held, which is torn down with it. The verdict is a human's when the score or a pin puts one there and the factory's own otherwise, and a human standing there is performing UAT (7). What either reads is the candidate's own run: the acceptance criteria decided against it, every consumer's declaration checked against it, and the producer's own contract diff — each rejecting on its own terms before the verdict is anyone's to give.
 
 ### Deploy to production
 
