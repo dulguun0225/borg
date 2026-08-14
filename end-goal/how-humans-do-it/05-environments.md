@@ -14,7 +14,7 @@ Every candidate gets an environment of its own, created from master plus that ca
 
 The environment is composed for the candidate running in it — the [_current releases_](06-releases.md#the-number) of its dependencies, what is running rather than what is newest, never another service's candidate. That is what makes a twelve-service project testing twelve items at once safe, and it is only safe because no item may break a contract.
 
-The cost is infrastructure per item in flight rather than one shared environment per service. It is the factory's cost and not a human's, and it is the whole of what removes the queue: where the score or a pin puts a human on a candidate, that human's delay is that item's alone, where a single shared environment would have imposed it on every item behind them.
+The cost is infrastructure per item in progress rather than one shared environment per service. It is the factory's cost and not a human's, and it is the whole of what removes the queue: where the score or a pin puts a human on a candidate, that human's delay is that item's alone, where a single shared environment would have imposed it on every item behind them.
 
 ## The merge queue
 
@@ -32,6 +32,6 @@ The graph is not uniform. Up to the merge, what moves is a candidate and deploys
 
 Merge to master is where a candidate becomes a release and gets its number. Everything from there is machine: numbering, strategy selection, rollout, monitoring, rollback.
 
-The verdict is score-gated like every other gate, so it is not the last human touchpoint and there is no last one: the same score decides at each gate whether a human decides there, and a pin (9) puts one back. Where one is there, what they are doing is UAT (7) — the environment is no longer named for it, because in the steady state nobody is there. Where it auto-passes, the verdict is the factory's own, taken against acceptance criteria a human already confirmed (6).
+The verdict is score-gated like every other gate, so it is not the last place a human decides and there is no last one: the same score decides at each gate whether a human decides there, and a pin (9) puts one back. Where one is there, what they are doing is UAT (7) — the environment is no longer named for it, because in the steady state nobody is there. Where it auto-passes, the verdict is the factory's own, taken against acceptance criteria a human already confirmed (6).
 
 The alternative was to separate that verdict by origin — permanent for human-originated features, auto-passable for factory-originated fixes — and that is the second, invisible path the pipeline forbids, separated by a worse predictor than the score's own factors. Scoring it costs this: a change can reach production with nobody having watched it run. The watch window covers half of that and says so: it catches a change that misbehaves, never one that behaves perfectly and is the wrong thing. What catches a wrong thing built well is the criteria confirmed at the Spec gate, end users (4, 5), and veto after the fact (10) — and an owner who wants more adds it back per service or per area with a pin.

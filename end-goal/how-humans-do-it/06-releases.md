@@ -4,7 +4,7 @@
 
 **One item per release. Always, at every stage, permanently.** The single thread of an item never splits: rollout stays item-scoped like everything before it, and a veto is the rollback of exactly one item rather than extracting one change from a set of ten. One exception, limited and named: master is linear, so where watch windows overlap a rollback undoes every release above its target, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows). What ships is still one item, and what one rollback undoes is at most K.
 
-The cost is [an environment per item in flight](05-environments.md#an-environment-per-candidate), stated there. An environment added later follows the rule rather than changing it.
+The cost is [an environment per item in progress](05-environments.md#an-environment-per-candidate), stated there. An environment added later follows the rule rather than changing it.
 
 ## The release record
 

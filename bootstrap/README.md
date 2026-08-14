@@ -14,7 +14,7 @@ What does not transfer is that a compiler's output is inert. A stage-2 compiler 
 
 It ends where the factory can adopt a codebase it did not build, because by then the hand-built factory is exactly such a codebase. Self-hosting needs nothing designed for it: adoption pointed at the factory itself is the whole of it. What that milestone requires is the five things [_Adopting an existing codebase_](../end-goal/deferred.md#adopting-an-existing-codebase) says a first run does not have — a deploy record for what is already running, declared meaning on the interfaces, a design system a machine can read, a build to start a control from, and history behind the learned parameters. All five apply to the factory adopting itself, so that list is the requirement set for this phase ending.
 
-The handoff is gradual and not a switch. Adoption creates the records; it does not make an agent good enough to write factory code. What covers the gap is already designed — the backstop duties (11, 12) are a human authoring a stage instead of an agent, only where it falls short and shrinking as it improves — so the milestone is the factory running its own pipeline with humans backstopping the stages it cannot do yet, and the backstop shrinking from there.
+The transfer is gradual and not a switch. Adoption creates the records; it does not make an agent good enough to write factory code. What covers the gap is already designed — the backstop duties (11, 12) are a human authoring a stage instead of an agent, only where it falls short and shrinking as it improves — so the milestone is the factory running its own pipeline with humans backstopping the stages it cannot do yet, and the backstop shrinking from there.
 
 ## What this holds, and what it does not
 

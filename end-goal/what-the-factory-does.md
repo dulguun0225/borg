@@ -4,7 +4,7 @@ A **fully autonomous software factory and operations**: it refines intent, produ
 
 ## Tight integration
 
-**Tight integration is key.** One system, not a bundle of tools with connectors between them. Intent, spec, change, gate decision, deploy, incident, and score are records in one graph, linked to each other.
+**Tight integration is the first of the two.** One system, not a bundle of tools with connectors between them. Intent, spec, change, gate decision, deploy, incident, and score are records in one graph, linked to each other.
 
 Because they are linked, a question that connectors answer by matching records across systems is answered here by following links. Which services consume a contract, so [what a change breaks](how-humans-do-it/07-contracts.md#enforcement) is a query rather than an estimate. Which items came from one request, so [work that spans services](how-humans-do-it/07-contracts.md#work-that-spans-services) needs no record type of its own. Which release each service is running, so a candidate's environment is composed from the [current releases](how-humans-do-it/06-releases.md#the-number) of its dependencies.
 
@@ -14,7 +14,7 @@ The downside is that one graph is one trust domain. Almost every check the facto
 
 ## Traceability
 
-**Traceability is key**, and is the testable form of it: every artifact links back to the intent that caused it and forward to what it produced, under the policy and score that were in force at the time.
+**Traceability is the second**, and is the testable form of the first: every artifact links back to the intent that caused it and forward to what it produced, under the policy and score that were in force at the time.
 
 Testable is what keeps it from being a discipline anyone has to keep: it holds where a question is answered by following links, and fails where an answer has to be reconstructed. Two records supply those links — the [intent](how-humans-do-it/02-intent-into-items.md#intake) every item points back to, and the [release record](how-humans-do-it/06-releases.md#the-release-record) linking the item, the build, the gate decisions, the contract versions, and every deploy. An [incident](how-humans-do-it/08-operations.md#incidents) is the same set of links followed from the other end.
 

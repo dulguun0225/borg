@@ -91,47 +91,9 @@ number; its text never does.
 
 ## Writing style
 
-**Precise, then concise, then simple.** The order is the rule — it only does work when
-the three conflict. This governs the document, every other file in the repository, and
-anything written about them.
-
-**Precise beats concise.** If cutting a qualification blurs the claim, keep it: "a
-breaking diff without the migration already shipped ahead of it" is not "a bad diff." Name the
-scope — *per service*, *at merge to master*. One name per concept, held constant across
-sections.
-
-**Precise beats simple.** A true statement that needs a caveat gets the caveat: "the last
-human touchpoint — by default, and by score, not because the gates downstream of it are
-missing."
-
-**Concise beats simple.** The short true sentence over the longer gentle one. No preamble,
-no restating the heading, no summarizing what is about to be said. State reasons rather
-than announcing them — `This is the reason:` was cut for exactly that.
-
-Simple is last, not absent: plain words and short sentences wherever they take nothing
-away.
-
-**No figurative speech and no business speech.** Name the thing and say what happens to
-it, literally. A record does not carry, hold, walk, stand, ride, or land — a component
-writes it, reads it, or points at it. Nothing is bought, spent, or paid for unless money
-or a quota actually moves. Metaphor reads as precision and is not: *an intent carries a
-project* leaves a reader choosing between a field on the record, a link to another record,
-and something a later stage looks up. Where the literal sentence is longer, write the
-longer one — precise still beats concise. (Owner rule, 2026-08-14, replacing the licence
-for idiom that stood here. It binds every file in the repository and every reply written
-about one.)
-
-Two habits follow. A rule is stated together with the downside it creates — no-batching
-with the human-UAT ceiling it creates. A qualification goes in an em-dash aside rather
-than a sentence of its own.
-
-**Structure for a reader.** The document is read by humans, not only parsed. A long run of
-uniform paragraphs gets `###` subheadings; a set of parallel facts gets a table. When a
-table contains a definition, the prose around it must not restate the table — trim the
-prose to what the table cannot express.
-
-No hard wrap. One paragraph is one line; the renderer does the rest. (Owner rule,
-2026-08-13, replacing the 88-column wrap.)
+Moved to the repository root `CLAUDE.md` on 2026-08-14, unchanged. It always governed
+every file here and not this directory alone, and a rule over the whole repository belongs
+where the repository's rules are. The no-hard-wrap rule for this tree went with it.
 
 ## Resolved questions get folded, not deleted
 
