@@ -14,7 +14,7 @@ Every candidate gets an environment of its own, stood up from master plus that c
 
 The environment is composed for the candidate standing in it — the [_current releases_](06-releases.md#the-number) of its dependencies, what is running rather than what is newest, never another service's candidate. That is what makes a twelve-service project testing twelve items at once safe, and it is only safe because no item may break a contract.
 
-The cost is infrastructure per item in flight rather than one shared environment per service. It is the factory's cost and not a human's, and it is the whole of what buys the absence of a queue.
+The cost is infrastructure per item in flight rather than one shared environment per service. It is the factory's cost and not a human's, and it is the whole of what buys the absence of a queue: where the score or a pin puts a human on a candidate, that human's latency is that item's own, where a single shared environment would have charged it to every item behind them.
 
 ## The merge queue
 

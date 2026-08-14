@@ -9,8 +9,5 @@ A draft. Everything here is open to revision.
 | [How humans do it](how-humans-do-it/README.md) | Eleven sections in dependency order, one file each |
 | [Deferred, but not designed out](deferred.md) | Security last, adoption later, and the four seams that cost nothing now |
 | [Open](open.md) | What is not settled, phrased as the question and what turns on it |
-| [Next](next.md) | The work list — what is decided but unwritten, and what is still to write. Not a section of the document |
 
 Read _What humans do_ before anything under `how-humans-do-it/`: a bare `(7)` or `(11, 12)` anywhere in the tree is a duty number from that list.
-
-This was one file, `end-goal-draft.md`, until 2026-08-13, when it outgrew the point where a reader could find a section — or an editor touch one — without carrying all of it. Nothing was cut in the split; the files above are that document.

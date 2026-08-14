@@ -1,6 +1,6 @@
 # What humans do
 
-Non-exhaustive owner's list. The factory does everything else. It is a list of duties, not of people: an owner may hold all twelve or delegate any of them, and People is where each attaches to a named human — a designer holding (2), (6), and (11), a compliance officer holding (2) and a pin (9) over a regulated area. Whoever holds a duty gets its gate rows and its UAT assignments (7) in their own Inbox.
+Non-exhaustive owner's list. The factory does everything else. It is a list of duties, not of people: an owner may hold all twelve or delegate any of them, and People is where each attaches to a named human — a designer holding (2), (6), and (11), a compliance officer holding (2) and a pin (9) over a regulated area. Whoever holds a duty gets its gate rows and its UAT assignments (7) in their own view of Work.
 
 What falls outside is substrate rather than work, and the tree names three: hosting the factory, standing up [_The reconciler_](how-humans-do-it/08-operations.md#the-reconciler) beside it, and supplying the credentials [_The fleet_](how-humans-do-it/10-fleet.md) runs on. None of the three is something a human does with an item, a rule, or a running system, which is what the twelve are. Each is still an obligation, and nothing here scores one.
 
@@ -22,7 +22,7 @@ What falls outside is substrate rather than work, and the tree names three: host
 
 **Set the rules** — permanent, not shrinking:
 
-8. Author gate policy and risk thresholds. One line, eight parameters — [_Gate policy_](how-humans-do-it/09-gate-policy.md) is the set, and none of it has to be authored for the factory to run: what an owner leaves alone, the score supplies.
+8. Author gate policy and risk thresholds. One line, seven parameters — [_Gate policy_](how-humans-do-it/09-gate-policy.md) is the set, and none of it has to be authored for the factory to run: what an owner leaves alone, the score supplies.
 9. Pin a gate always-on for a stage, project, or area. An **area** is an owner-declared grouping of the software — coarser than a file, free to cut across services — and it is what names "the payments path" wherever a pin, a score factor, or a bought-back gate has to be narrower than a project.
 10. Veto after the fact — undo a change the factory auto-approved: a rollback while its control still stands, a revert after.
 

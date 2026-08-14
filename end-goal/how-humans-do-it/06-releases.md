@@ -4,7 +4,7 @@
 
 **One item per release. Always, at every stage, permanently.** The single thread of an item never forks: rollout stays item-scoped like everything before it, and a veto is the rollback of exactly one item rather than a surgical extraction from a bundle of ten. One exception, bounded and named: master is linear, so where watch windows overlap a rollback takes every release above its target with it, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows). What ships is still one item, and what one rollback undoes is at most K.
 
-The cost is an environment per item in flight, paid in infrastructure. What it buys is that nothing queues behind anything: where the score or a pin puts a human on a candidate, that human's latency is that item's own, where a single shared environment would have charged it to every item behind them. An environment added later inherits the rule rather than renegotiating it.
+The cost is [an environment per item in flight](05-environments.md#an-environment-per-candidate), priced there. An environment added later inherits the rule rather than renegotiating it.
 
 ## The release record
 
@@ -16,10 +16,9 @@ A release is a record, and it is where the graph joins. It holds the item that c
 |---|---|---|
 | **candidate** | an item plus its build — identity enough to deploy, test, and reject | from build until merge to master |
 | **release** | the label a build wears on master | from merge to master onward |
-| **number** | an ordinal, per service — orders builds, names rollback targets | minted at merge to master, never reused |
 | **contract version** | semver, one per published interface — a compatibility promise | moves only when that interface's promise moves |
 
-A rejected candidate never needed a number. A build wears one label at a time and the vocabulary stays at two, however many places it stands: a customer who defines five pre-production environments still has candidate and release, one build, and five deploy records — maturity does not multiply with places to stand.
+A rejected candidate never needed a number, and the number is not a third row here: it is a field of the release, minted at the same event, and [_The number_](#the-number) is where it is set out. A build wears one label at a time and the vocabulary stays at two, however many places it stands: a customer who defines five pre-production environments still has candidate and release, one build, and five deploy records — maturity does not multiply with places to stand.
 
 ## The number
 

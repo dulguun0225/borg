@@ -8,20 +8,18 @@ The factory scores each change and auto-passes what it judges low risk. The same
 
 A failing rollout rolls back on its own, inside its [_watch window_](08-operations.md#the-watch-window) — no human in the loop, no waiting. The rollback is reported, not requested.
 
-Veto after the fact assumes the change can still be undone, and what a human may do decays as later work builds on it: a rollback while the release's control still stands, a revert once it does not. Reversibility is a scored dimension and the veto window is bounded by it, through the strategy it picks and the [_control_](08-operations.md#the-health-signal) that strategy pays for. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others. What overlapping watch windows add is not difficulty but reach — a rollback takes every release above its target, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows), which is the one bundle the factory ships and is bounded by the number itself.
+Veto after the fact assumes the change can still be undone, and what a human may do decays as later work builds on it: a rollback while the release's control still stands, a revert once it does not. Reversibility is a scored dimension and what a human may still do is bounded by it, through the strategy it picks and the [_control_](08-operations.md#the-health-signal) that strategy pays for. It decays that way and no other: with one item per release, a change is never harder to undo because it happened to ship alongside nine others. What overlapping watch windows add is not difficulty but reach — a rollback takes every release above its target, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows), which is the one bundle the factory ships and is bounded by the number itself.
 
 ## The rollout strategy
 
-A **rollout strategy** is how a release takes live traffic from the build it replaces. It attaches to a deploy fed from master and not to a candidate one, for the reason [_Deploy to candidate environment_](#deploy-to-candidate-environment) gives.
+A **rollout strategy** is how a release takes live traffic from the build it replaces. It attaches to a production deploy and to no other, which is a narrower line than master-fed: what a strategy decides is whether a control stands, a control is instances a comparison is drawn against, and that comparison is production's alone because organic traffic is. A customer's master-fed pre-production environment has no more of it than a candidate one, so a strategy there would decide nothing anything reads. That is the line [_The health signal_](08-operations.md#the-health-signal) was already cut on.
 
 | Strategy | How the release takes traffic |
 |---|---|
-| **canary** | a slice, widened as the comparison holds, with the build it replaces serving the rest |
-| **A/B** | a share held fixed while the two are compared, both builds serving throughout |
-| **blue-green** | all of it at once, cut over to a second copy standing complete beside the one it replaces, which stays up |
+| **with a control** | on a schedule, with the build it replaces serving the rest throughout — a slice widened as the comparison holds, a share held fixed while the two are compared, or all of it at once cut over to a second copy standing complete beside the one it replaces |
 | **straight** | all of it, in place, with nothing of the build it replaces left standing |
 
-They differ on one axis everything downstream reads: whether the build being replaced is still serving while the release does. That is what a [_control_](08-operations.md#the-health-signal) costs, and what veto after the fact (10) reaches for while it stands — a straight deploy buys neither.
+Two rows and not four, because they differ on one axis and everything downstream reads that axis alone: whether the build being replaced is still serving while the release does. That is what a [_control_](08-operations.md#the-health-signal) costs, and what veto after the fact (10) reaches for while it stands — a straight deploy buys neither. The schedule is an attribute of the first row rather than a strategy of its own. Canary, A/B, and blue-green are the three a builder arrives already knowing, and they are that row at three schedules; what it costs to fold them in is that a name a builder brings with them is now a value on a field instead of a row to implement.
 
 ## Actions at each gate
 
@@ -42,6 +40,8 @@ They are fed from master, and the candidate-fed row stays the factory's own. A c
 
 What a new row carries follows from what feeds it, not from which row it was copied off. Fed from master, every new row carries what Deploy to production carries: the merge has happened and the number is spent, so hold is the only stop and undoing is veto after the fact. Reject is available up to the merge to master and nowhere after it.
 
+That is the actions and only the actions. The [_strategy_](#the-rollout-strategy) and the [_watch window_](08-operations.md#the-watch-window) follow production rather than master, so a new row fed from master gets neither — what is spent is the number, and what a control is worth is organic traffic the row does not have.
+
 ## What a gate may change
 
 At a gate, artifacts are editable by hand. Code is not: a gate approves or rejects an implementation, it never hand-patches one. A human who wants different code authors it upstream and sends it back through the pipeline.
@@ -50,13 +50,13 @@ Merge and deploy gates edit nothing at all — what they decide is an event, not
 
 ## The attempt bound
 
-A stage also carries an attempt bound, authored with the rest of gate policy (8). An item that exceeds it stops being retried and stands in Inbox as an escalation (12) — the factory saying it cannot do this one. [_The interview_](02-intent-into-items.md#the-interview) carries one too, counting rounds, though it is upstream of the first stage and has no gate of its own. Holds do not count against the bound; a hold is not a failed attempt, for the same reason the score does not learn from one. The bound costs something wherever it is set: low turns solvable work into human work, high burns spend before anyone sees the item.
+A stage also carries an attempt bound, authored with the rest of gate policy (8). An item that exceeds it stops being retried and stands in Work as an escalation (12) — the factory saying it cannot do this one. It is one parameter and not two: [_The interview_](02-intent-into-items.md#the-interview) counts rounds against the same bound, though it is upstream of the first stage and has no gate of its own, because what a second row would buy is a different number on the same mechanism and what it costs is a row every builder implements twice. Holds do not count against the bound; a hold is not a failed attempt, for the same reason the score does not learn from one. The bound costs something wherever it is set: low turns solvable work into human work and cuts off an interview that was about to converge, high burns spend before anyone sees the item.
 
 ## What particular gates carry
 
 ### Decomposition
 
-The set is what stands here — how many items, where each lands, and what waits on what — so a rejection re-cuts the set rather than sending an item back, there being no item yet to send anywhere. Edit in place is a human re-cutting by hand. It is the one gate where approving admits several threads at once; everything below it is per item. [_The cut_](02-intent-into-items.md#the-cut) sets out the stage and what a gate on it costs.
+The one gate where approving admits several threads at once; everything below it is per item, and it fires only where the cut yielded more than one. [_The cut_](02-intent-into-items.md#the-cut) sets out the stage, what stands at it, and what firing it conditionally costs.
 
 ### Spec
 
@@ -89,7 +89,7 @@ How the item will be built, and the decisions no standing constraint (2) answers
 
 A task is an internal step of one item and never a unit that ships: one item is one release, and a task has no build, no number, and no environment of its own. The factory authors them from the approved plan — the plan is how the item will be built, the tasks are that cut into work an agent picks up — and they are spent when the implementation lands.
 
-What the gate buys is a look at the breakdown before agents run on it, and Edit in place is where a human resequences or splits one without touching the plan above it. A task that cannot be finished escalates nothing by itself: the attempt bound is per stage, so what stands in Inbox (12) is the item.
+What the gate buys is a look at the breakdown before agents run on it, and Edit in place is where a human resequences or splits one without touching the plan above it. A task that cannot be finished escalates nothing by itself: the attempt bound is per stage, so what stands in Work (12) is the item.
 
 ### Implementation
 
@@ -116,7 +116,3 @@ Its hold also fires on the factory's own account, like the one a rollback leaves
 The hold [_The reconciler_](08-operations.md#the-reconciler) sets is the other shape and the only one of it: what the factory recorded about this service is not what is running, so nothing here can be decided on the record, and no evidence the factory can gather lifts it. That one pages, for the reason the dependency hold does not — it waits on a human and on nothing else. Approving through is still offered, and here it is the human saying the record is wrong and the deploy should go anyway.
 
 What it does not cover is the consumer already in production when its producer rolls back. A deploy gate stops deploys, and by then there is nothing left to stop — what surfaces that one is the consumer's own error rate raising an item, the same answer the factory gives to every consumer break it cannot see from the producer's side.
-
-### Why those last two are gates
-
-They are the factory's own steady state. Both exist, both are scored, and both are auto-passed by default, as is every gate above them. Pinning either one puts a human back in prod's path without inventing a new mechanism.

@@ -24,8 +24,13 @@ how-humans-do-it/
   01-one-pipeline.md … 11-surfaces.md
 deferred.md
 open.md
-next.md                         # the work list, not part of the document
 ```
+
+There is no work list. `next.md` held one until 2026-08-14, when its two lists were spent: the
+eight decided-but-unwritten entries were folded into the files that own their subjects, which
+is where a decision belongs, and the fifteen cut candidates were each taken or refused with
+the reason written into the same files. A list of answers kept outside the sections that own
+them is the shape `open.md`'s own rule refuses, and it was that shape.
 
 One file per section, split on 2026-08-13. Each file's own heading is `#`, its
 subsections `##` and `###` — a section standing on its own owns the top level. A new
@@ -69,46 +74,20 @@ slot, and there is no slot to hold.
 decision happens) → Risk score (what decides whether a human stands at one) → Environments
 (the branch, the per-candidate environment, the merge queue) → Releases (what travels) →
 Contracts (what binds services to each other) → Operations (the control, the watch window,
-K, the veto window, the page) → Gate policy (everything an owner authors, gathered from the sections
+K, the page) → Gate policy (everything an owner authors, gathered from the sections
 that define each parameter) → The fleet (what stands behind an agent, and what a borrowed
 account costs) → Surfaces (where a human sees it). A concept should be defined before
 the section that leans on it. The numeric filename prefixes under `how-humans-do-it/` are
 that order and nothing else — reordering means renaming files and fixing the links that
 point at them.
 
-Five exceptions, known and left standing. The first: the **watch window** and **K** are defined in
-Operations and leaned on by Gates, Risk score, Environments, and Releases. Operations has
-to follow Releases and Contracts — what happens after a deploy needs what travels and what
-binds it — so the forward reference is cheaper than the reordering that would remove it.
-Every file that leans on either term before Operations carries a link into Operations near
-its first use, so a reader meeting the term early can reach the definition. A new early use
-is expected to keep that true.
-
-The second: Intent into items describes a stage with a **gate** on it and a **score**
-deciding who stands there, both defined after it. It sits where it does because the cut is
-how items come to exist and every later section is about an item — moving it below Risk
-score would put the front of the pipeline fourth. Same treatment: a link forward at first
-use. **Current release** is the same shape at smaller scale — defined in Releases beside
-the deploy record it is a fact of, leaned on by Environments one section earlier, linked
-there at first use.
-
-The third: the **page** is defined in Operations, where what earns one is priced — a wait
-where the deployed software is worse until a human ends it — and Gates refuses one five
-sections earlier, saying no page fires for a hold that lifts itself. It rides the first
-exception's treatment, a link forward at that use. Surfaces names it twice and is after
-Operations, so those two are references and not exceptions.
-
-The fourth: the **reconciler** is defined in Operations, where the record it checks and the
-page it fires both already live, and One pipeline and Gates each name the hold it sets
-before that. Same treatment, a link forward at each use. It is the only thing outside the
-pipeline that disagrees with the pipeline, so a section claiming nothing does — _Deferred_
-and _What the factory does_ both did — has to carry the exception.
-
-The fifth: **the fleet** is defined in The fleet and named earlier twice — by Intent into
-items at Dispatch, and by Operations at Pages, refusing one for a fleet entry that has no
-credential to reach. Position does not remove this one: the section leans on the attempt
-bound from Gates and the authorship prior from Risk score, so it cannot sit above either, and
-Dispatch is above both. Same treatment, a link forward at each use.
+Five forward references are known and left standing, each defined below a section that
+leans on it because moving the definition up would put something more load-bearing out of
+order: the **watch window** and **K**; the **gate** and the **score** that Intent into items
+leans on, with **current release** the same shape at smaller scale; the **page**; the
+**reconciler**; and **the fleet**. One treatment covers all five — a link forward at each
+early use, so a reader meeting the term there can reach the definition — and a new early
+use is expected to keep that true.
 
 **Never cross-reference by position.** "The second open question" broke the moment a
 bullet was resolved and removed. Refer to things by name. A link's path may carry a
@@ -176,7 +155,7 @@ There are no tests. After editing, run the consistency pass. Every command is sc
 swept into a check written for this one:
 
 ```bash
-grep -rn "^| " --include='*.md' end-goal/ | grep -v CLAUDE.md          # nine tables: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, modes, window exits, gate policy
+grep -rn "^| " --include='*.md' end-goal/ | grep -v CLAUDE.md          # eight tables: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
 grep -rno "([0-9, ]*)" --include='*.md' end-goal/ | grep -v CLAUDE.md  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ | grep -v CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^#" --include='*.md' end-goal/ | grep -v CLAUDE.md           # one "# " per file, and nothing deeper than "### "
