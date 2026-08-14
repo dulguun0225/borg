@@ -20,7 +20,9 @@ The transfer is gradual and not a switch. Adoption creates the records; it does 
 
 **A decision goes to the file that owns the subject.** Anything settled about what the factory is folds into `end-goal/` immediately, with its reason and its cost. Anything genuinely unsettled about it is a question in [_Open_](../end-goal/open.md), phrased as the question and what turns on it.
 
-Neither of those is here. This file holds the plan, the constraints the cut has to apply, and where the work has got to — process rather than design. A list of answers kept outside the sections that own them is what retired `next.md` on 2026-08-14, and this directory is close enough to that shape to say so out loud. What the split costs is two places to look while an interview is running.
+**A per-item artifact goes to [`items/`](../items/README.md).** A spec, an implementation plan, and a set of tasks are what a stage writes about one item, and there is one directory per item to hold them. What stays here is the item list the cut produced and its declared order, because that is the plan rather than a statement about any one item.
+
+None of those is here. This file holds the plan, the constraints the cut has to apply, and where the work has got to — process rather than design. A list of answers kept outside the sections that own them is what retired `next.md` on 2026-08-14, and this directory is close enough to that shape to say so out loud. What the split costs is two places to look while an interview is running, and three once items exist.
 
 ## Constraints on the cut
 

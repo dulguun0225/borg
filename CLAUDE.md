@@ -3,10 +3,10 @@
 ## What this repository is
 
 A monorepo for building the software factory [README.md](README.md) describes. It holds
-the design document under `end-goal/` and the record of building toward it under
-`bootstrap/`. Code is added beside those two as it arrives, never inside either —
-`end-goal/` is the state the repository is built toward, not a record of what it
-currently does.
+the design document under `end-goal/`, the record of building toward it under
+`bootstrap/`, and the artifacts each stage writes for one item under `items/`. Code is
+added beside those three as it arrives, never inside any of them — `end-goal/` is the
+state the repository is built toward, not a record of what it currently does.
 
 **Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** It has its own
 editing rules and a consistency pass to run after every edit, which govern that directory
@@ -16,7 +16,9 @@ everywhere, that directory included; it sat in `end-goal/CLAUDE.md` until 2026-0
 **Read [`bootstrap/README.md`](bootstrap/README.md) before starting work.** It has the
 plan and where the work has got to, and it is the only place that says what work is under
 way. A decision reached while working folds into the `end-goal/` file that owns the
-subject and never into `bootstrap/`, which holds process and not design.
+subject and never into `bootstrap/`, which holds process and not design. A spec, an
+implementation plan, or a set of tasks goes under [`items/`](items/README.md) instead,
+one directory per item. (Owner decision, 2026-08-14.)
 
 ## Writing style
 
@@ -73,7 +75,7 @@ uniform paragraphs gets `###` subheadings; a set of parallel facts gets a table.
 table contains a definition, the prose around it must not restate the table — trim the
 prose to what the table cannot express.
 
-No hard wrap in the design tree or in `bootstrap/`: one paragraph is one line, and the
+No hard wrap anywhere but the instruction files: one paragraph is one line, and the
 renderer does the rest. (Owner rule, 2026-08-13, replacing the 88-column wrap.) The
 instruction files — this one, `end-goal/CLAUDE.md`, and the root `README.md` — stay
 wrapped, which is how all three are written today.
