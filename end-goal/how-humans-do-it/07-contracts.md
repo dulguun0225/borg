@@ -10,6 +10,8 @@ So there are two versioned things and they must not be collapsed into one. A rel
 
 **No single item may break a contract.** A breaking change is three items: the producer adds the new form beside the old, each consumer migrates, the producer removes the old. Each ships alone, is verified on an environment of its own, and is independently reversible. This is the same discipline no-batching already forces — an item that cannot ship by itself was cut wrong — and the two rules hold each other up. Where a change genuinely cannot be decomposed, that is an escalation (12), not a licence to batch — and taking it over grants a human no power the factory lacks, since the pen changing hands changes the author and not the stages, the gates, or this rule. What the escalation asks for is a re-cut, not a co-deploy built by hand.
 
+The three items are also where the version moves, and it moves twice: the addition is a minor, each consumer's migration leaves it where it is, and the removal is the major. Inside the factory that major warns nobody — the list [_Deprecation_](#deprecation) keeps is what emptied to raise the removal item, so every consumer the factory can read had already migrated — and what it records is that the old form is gone. Its promise is kept for the consumer the factory cannot read, which is the one case where major means what semver says it does.
+
 ## What a contract promises
 
 Every contract promises **backward** compatibility — the new build reads what the old one wrote — which is what a consumer of an interface needs. A store promises **forward** as well: the build coming back reads what the newer one wrote. Both are enforced on every diff after that.
@@ -57,6 +59,8 @@ What a consumer gets is the promise its producer's kind of contract carries, and
 ## Deprecation
 
 Deprecation is an obligation the contract carries, not a note someone leaves. When the producer adds the new form, the old one is marked with its consumers attached; as each migrates the list shortens, and when it empties the factory raises the removal item itself. Nobody has to remember step three.
+
+The list holds the consumers the factory can derive, so a consumer outside the factory is on it only where an owner pinned a predicate standing in for that consumer's declaration — the blind case [_What a consumer declares_](#what-a-consumer-declares) sets out, and blocking the removal item is what the pin buys here. Unpinned, it is not on the list at all: the list empties while that consumer still reads the old form, and the factory raises the removal on schedule. What that costs is that the only warning an outside consumer gets is the major version, and nothing here holds the removal back for it.
 
 ## The store is a contract too
 

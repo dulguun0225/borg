@@ -81,13 +81,17 @@ the section that leans on it. The numeric filename prefixes under `how-humans-do
 that order and nothing else — reordering means renaming files and fixing the links that
 point at them.
 
-Five forward references are known and left standing, each defined below a section that
+Six forward references are known and left standing, each defined below a section that
 leans on it because moving the definition up would put something more load-bearing out of
 order: the **watch window** and **K**; the **gate** and the **score** that Intent into items
 leans on, with **current release** the same shape at smaller scale; the **page**; the
-**reconciler**; and **the fleet**. One treatment covers all five — a link forward at each
-early use, so a reader meeting the term there can reach the definition — and a new early
-use is expected to keep that true.
+**reconciler**; **the fleet**; and the four surfaces — **Work**, **Ops**, **Factory**,
+**People** — which _What humans do_ leans on and _Surfaces_ defines last. One treatment
+covers the first five — a link forward at each early use, so a reader meeting the term
+there can reach the definition — and a new early use is expected to keep that true. The
+surfaces take that treatment at the first use of each name in a file rather than at every
+use: the four recur as ordinary nouns in nearly every file, and a link on each would put
+one in most paragraphs.
 
 **Never cross-reference by position.** "The second open question" broke the moment a
 bullet was resolved and removed. Refer to things by name. A link's path may carry a

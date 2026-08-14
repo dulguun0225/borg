@@ -10,7 +10,7 @@
 
 **Taking over.** Backstop duties (11, 12) are this and nothing more — the pen changes hands for a stage. Taking over is not leaving the factory.
 
-**Self-raised work.** A bug the factory finds and fixes itself is an item like any other. It appears in Work, takes the same stages, and is auto-passed only where the score allows. There is no second, invisible path, and nothing ships that the trust number cannot see.
+**Self-raised work.** A bug the factory finds and fixes itself is an item like any other. It appears in [_Work_](11-surfaces.md#work-ops-factory-people), takes the same stages, and is auto-passed only where the score allows. There is no second, invisible path, and nothing ships that the trust number cannot see.
 
 **Emergencies.** There is no bypass, including for incidents. A human standing at a gate is not a delay: the emergency lever is approve now, not skip. A change that should not have shipped is caught by the [_watch window_](08-operations.md#the-watch-window), not by a faster route around the pipeline.
 

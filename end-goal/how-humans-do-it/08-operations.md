@@ -65,7 +65,7 @@ A human can approve through it. The hold is the factory's own and the emergency 
 
 ## After the watch window
 
-The comparison keeps running after the window closes. What it finds then is not a rollback candidate — the change has been live for a week and the window's authority is long spent. It is an unrefined intent in Work, the same shape as an end-user complaint (4, 5), taking the same stages and the same gates. That is the whole of "finds issues and fixes bugs": detection writes an intent, and the pipeline does the rest.
+The comparison keeps running after the window closes. What it finds then is not a rollback candidate — the change has been live for a week and the window's authority is long spent. It is an unrefined intent in [_Work_](11-surfaces.md#work-ops-factory-people), the same shape as an end-user complaint (4, 5), taking the same stages and the same gates. That is the whole of "finds issues and fixes bugs": detection writes an intent, and the pipeline does the rest.
 
 ## Incidents
 
@@ -87,13 +87,13 @@ A rollback the factory performed on its own is reported, not requested, and repo
 
 A page has no duty of its own — inventing a thirteenth would be a mechanism where routing already exists. It reaches whoever holds the duty the row belongs to, the same routing that put the row in front of them in Work.
 
-Not every row belongs to one. A mismatch [_The reconciler_](#the-reconciler) found holds the production deploy gate, which none of the twelve owns: confirming criteria (6) and performing UAT (7) are the duties at a gate, and [_What the candidate environment decides_](05-environments.md#what-the-candidate-environment-decides) puts the UAT one at the merge gate. Standing the reconciler up is substrate outside the twelve, so the page reaches whoever People records as having stood it up, and widens to the owner where nobody is recorded. That is the shape [_What the fleet is not_](10-fleet.md#what-the-fleet-is-not) already uses for a lent credential — routing needs a holder rather than a duty number — and it is why a thirteenth duty stays refused: a duty would score an obligation the twelve deliberately leave unscored, where a holder only has to be reachable.
+Not every row belongs to one. A mismatch [_The reconciler_](#the-reconciler) found holds the production deploy gate, which none of the twelve owns: confirming criteria (6) and performing UAT (7) are the duties at a gate, and [_What the candidate environment decides_](05-environments.md#what-the-candidate-environment-decides) puts the UAT one at the merge gate. Standing the reconciler up is substrate outside the twelve, so the page reaches whoever [_People_](11-surfaces.md#work-ops-factory-people) records as having stood it up, and widens to the owner where nobody is recorded. That is the shape [_What the fleet is not_](10-fleet.md#what-the-fleet-is-not) already uses for a lent credential — routing needs a holder rather than a duty number — and it is why a thirteenth duty stays refused: a duty would score an obligation the twelve deliberately leave unscored, where a holder only has to be reachable.
 
 A duty may be held by more than one human, and a page reaches all of them at once. There is no rotation naming which one it reaches first: a rotation would be a People declaration enforced by nothing, and what a stale one does — widen to every holder — is what happens here without it. The knob's failure mode is the behaviour, so the knob is the thing that can be dropped. Unanswered, a page widens once more, to the owner. What that costs is a page nobody needed reaching everybody, paid to never lose one.
 
 An unanswered page never makes the factory act alone, because what it is paging out of is stable. The service runs the last release whose window closed without harm, not the one just condemned, so what the wait holds up is the fix and never the recovery.
 
-A human may fire one on their own say, from Ops, which is the parallel veto after the fact (10) already has: the rollback the factory would perform, on a human's judgment instead of the comparison's. Nothing scores it and no bound reaches it. What holds it honest is that a page nobody needed makes its recipient slower to the next one.
+A human may fire one on their own say, from [_Ops_](11-surfaces.md#work-ops-factory-people), which is the parallel veto after the fact (10) already has: the rollback the factory would perform, on a human's judgment instead of the comparison's. Nothing scores it and no bound reaches it. What holds it honest is that a page nobody needed makes its recipient slower to the next one.
 
 A page is an event on the row it belongs to — who was reached, when it widened, who answered — each carrying an actor, which is seam 1 of [_Deferred, but not designed out_](../deferred.md) and nothing new. None of it is authored: who holds a duty is a People declaration and the widening is the factory's own, so gate policy stays at the rows it has.
 
