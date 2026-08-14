@@ -97,16 +97,3 @@ being true was work nobody did. The design document is a target, revised wheneve
 something is learned; an ADR binds what comes next, and nothing here has earned that yet.
 They start when the factory is proved and keeping a decision fixed is worth more than
 staying cheap to change. (Owner decision, 2026-08-14.)
-
-## graphify
-
-Removed from this project on 2026-08-14 — the index, the ignore entry, the parked hooks,
-and the rules that pointed at them. It stays installed on the machine and is not the
-thing being refused; what is refused is running it here. An AST index is only as useful
-as the code it indexes, and this repository is still all prose, where graphify takes its
-other extraction path and pays LLM subagents for it: a `--update` over the twenty-file
-design tree spent 64k tokens on one of two chunks before the run was cut, to answer worse
-than the greps in `end-goal/CLAUDE.md`, which answer exactly and in milliseconds.
-Reconsider when code is added beside `end-goal/`, scoped to the code paths and never to
-the prose.
-(Owner decision, 2026-08-14, superseding the keep of earlier the same day.)
