@@ -2,6 +2,8 @@
 
 The work list, not a section of the document. Each entry carries what has already been decided about it, so the next session starts from the decision instead of rediscovering it.
 
+Two lists, and they are different kinds. _Still to write_ is decided and unwritten. _Cut candidates_ is undecided — each is a proposal to remove something, and an owner has not agreed to any of them.
+
 ## Still to write
 
 Eight gaps, found by reading the tree straight through on 2026-08-14. None belongs in [_Open_](open.md): each is a place the document already holds the pattern that answers it, or holds a claim it has not carried all the way, so what is missing is the writing and not a decision an owner has to make. They are ordered by what a reader loses to each.
@@ -14,3 +16,36 @@ Eight gaps, found by reading the tree straight through on 2026-08-14. None belon
 - **The line the rollout strategy is cut on.** [_The rollout strategy_](how-humans-do-it/03-gates.md#the-rollout-strategy) attaches to a deploy fed from master and not to a candidate one, and the reason it reaches for is that a candidate environment has no organic traffic — which a customer's master-fed pre-production environment has none of either, while [_The health signal_](how-humans-do-it/08-operations.md#the-health-signal) is production's alone. What a strategy decides is whether a control stands, and a control is instances a comparison is drawn against, so on a master-fed environment that is not production it decides nothing anything can read. Decided: what a new row carries follows what feeds it for the actions alone — hold, and no reject once the number is spent — and the strategy and the window follow production rather than master, which is the line the health signal was already cut on.
 - **A fourth exit for the releases a rollback takes with it.** [_The watch window_](how-humans-do-it/08-operations.md#the-watch-window) tables three exits — harm, clean, cap — and [_Overlapping windows_](how-humans-do-it/08-operations.md#overlapping-windows) has a rollback undo every release above its target, up to K. Those releases were never condemned and are no longer running, so their comparisons stop and their windows end by a route the table does not hold. Decided: it lands downstream on the recovery target, which is the last release whose window closed without harm and where closing at the cap already counts — so what this exit is called decides whether a bystander stays a release the factory can go back to.
 - **Whether the score's held-out sample may pass a pinned gate.** [_How it learns_](how-humans-do-it/04-risk-score.md#how-it-learns) occasionally auto-passes what the factory would have gated, which is the only mechanism in the tree that takes a human off a gate, and [_One shape across all of them_](how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them) says a pin (9) can only add. Decided: a pin can only add, so the sample is the score's own to hold out of and reaches nothing an owner pinned; what is unwritten is that exclusion, at the one place a reader would otherwise read the sample as the exception to it.
+
+## Cut candidates
+
+Fifteen, from an over-engineering audit of the whole tree on 2026-08-14. None is decided: each names a mechanism or a passage that pays for itself twice or not at all, and rejecting one is as much an outcome as taking it — the reason goes into the file that owns the subject either way. `delete:` remove it, nothing replaces it. `yagni:` an abstraction with one implementation, or a parameter nobody sets. `shrink:` same claim, fewer lines.
+
+The document is a blueprint, so it is built by people who were not here, and that is what sorts these. Every named mechanism is one more thing each of them has to implement identically, and every rule stated twice is two places to drift — so the first group below buys tightness and the second spends it. Both are what the tree already does when it refuses a fifth lifecycle name, a thirteenth duty, and a noun for work that spans services; these are that refusal pointed at strategies, modes, and parameters.
+
+Idiom echoes across files — "approve now, not skip", "a reject and not a hold" — were left alone: each file standing on its own is a rule of the tree, so only paragraph-level restatement is listed here.
+
+### Removes a place to drift
+
+Each is one claim held in two places, or a passage the tree already carries elsewhere. Taking these costs no distinction.
+
+- `delete:` **the `number` row in `What a build is called, and when`**. The paragraph under the table says the vocabulary stays at two; a number is a field of a release minted at the same event. The table and the paragraph under it disagree today.
+- `shrink:` **Gates' `Decomposition`**, which restates `The cut` near-verbatim and then links to it. Keep the link.
+- `yagni:` **the veto window as a named window**: no parameter, no bound of its own, and its own closing line says it ends where the control ends. Its one sentence is carried in three files.
+- `delete:` **`Why those last two are gates`**, which says the last two gates are gates, scored and auto-passed like every gate above them.
+- `shrink:` **the environment-per-item cost**, argued twice in the same words by Releases and Environments.
+- `shrink:` **the five forward-reference exceptions in CLAUDE.md**, five paragraphs each re-deriving one treatment. One rule and a list of the five terms.
+- `yagni:` **_Still to write_ above**, eight entries each ending in `Decided:` — the answers exist outside the sections that own them, which is the shape `open.md`'s own rule refuses. Fold each into its file and the list goes.
+- `delete:` **the split-history paragraph in `README.md`** — git records the rename and that nothing was cut.
+
+### Removes a distinction the document carries
+
+Each buys fewer moving parts and pays in something the tree is deliberately holding. These are the owner's to decide, and a refusal is written where the subject lives.
+
+- `yagni:` **four rollout strategies**, where `The rollout strategy` says they differ on one axis everything downstream reads. canary, A/B, and blue-green are one thing at three traffic schedules; only straight changes what anything reads. Two rows — with a control, without — and the schedule an attribute. Against it: three of the four are industry vocabulary a builder arrives already knowing.
+- `yagni:` **compatibility mode's three values**. `full` is backward plus forward, a store is always full, an interface is always backward, and forward alone has no named user. Derive it from whether the thing is a store. Against it: a declared mode is checkable where a derived one is assumed.
+- `yagni:` **the Decomposition gate on a single-item cut** — a stage in front of every intent, defended by the score auto-passing it. Fire it only where the cut yields more than one item.
+- `yagni:` **the rotation**, declared in People, enforced by nothing, and the widening already reaches every holder then the owner — a knob whose failure mode is the correct default.
+- `yagni:` **Inbox as a fifth surface**. Everything in it is item-attached and Work already answers where a thing is stuck. Work filtered to waiting-on-a-human, as the home view.
+- `yagni:` **the interview's round bound as a row of its own**. Same semantics as the attempt bound, and seven rows rather than eight. Refused already: _Still to write_ decides they are two parameters, because the attempt bound is per stage and the interview is upstream of the first stage with no gate of its own. Listed only so the audit does not read as having missed it — reopening it takes an owner, and the count of eight rests on it.
+- `yagni:` **graphify-out/**, a derived index kept to hold the tree coherent. The job is real and is the only job this repo has; what is in question is whether the index pays for it, and of the two charges the audit first brought only one survives. Measured on 2026-08-14: "which files cite duty 7" returned 101 nodes truncated to 49 for ~2000 tokens and did not answer, where the grep answers in 7 lines and 5ms; `explain "watch window"` returned `After the watch window`. The five load-bearing links CLAUDE.md names are exact-match checks, which the greps already do, and what the index adds on top is community structure and inferred relations, which none of the five needs. The staleness charge is withdrawn: after the move into `end-goal/`, `graphify update .` re-derived 138 nodes and 201 edges at zero token cost, so a refresh is free and only community naming spends a model at all. What is left of the case is query quality, which bites only where a reader would query rather than read — and this tree is small enough to read straight through. Already gitignored, so keeping it costs local disk and the CLAUDE.md section describing it.

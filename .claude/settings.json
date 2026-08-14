@@ -1,0 +1,25 @@
+{
+  "_why_no_hooks": "The graphify PreToolUse hooks were removed on 2026-08-14. They fired on every Read/Glob and Bash/Grep, and this repository is entirely prose under end-goal/, where graphify answered worse than the greps in end-goal/CLAUDE.md: a duty-reference query returned 101 nodes truncated to 49 and answered neither half, where the grep answers in 7 lines and 5ms. Refreshing the index is not the objection — `graphify update .` re-derived 138 nodes and 201 edges at zero token cost. Restore the hooks when code lands beside end-goal/, scoped with each hook's 'if' field to the code paths (e.g. \"if\": \"Read(services/**)\") — permission-rule syntax matches positively and cannot say 'everything except end-goal/', which is why scoping was not the fix today. The commands below are bare so they resolve on any contributor's PATH; if a hook fails to find graphify, the environment it runs in is thin and the command needs the absolute path to the binary.",
+  "_removed_hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "graphify hook-guard search"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "graphify hook-guard read"
+          }
+        ]
+      }
+    ]
+  }
+}
