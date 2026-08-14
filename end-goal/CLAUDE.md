@@ -10,7 +10,7 @@ factory — a product each customer self-hosts, which refines intent, builds, de
 monitors, and fixes software on its own.
 
 The repository around it is the monorepo that will build that thing. This directory is
-the state it is built toward, so code lands beside it and never in it. There is no
+the state it is built toward, so code is added beside it and never in it. There is no
 build, test suite, or linter for this directory. Do not go looking for one. Every task
 here is an edit to a design document, and the document says of itself that everything in
 it is open to revision.
@@ -25,56 +25,56 @@ the reason written into the same files. A list of answers kept outside the secti
 them is the shape `open.md`'s own rule refuses, and it was that shape.
 
 One file per section, split on 2026-08-13. Each file's own heading is `#`, its
-subsections `##` and `###` — a section standing on its own owns the top level. A new
+subsections `##` and `###` — a section that is its own file owns the top level. A new
 part of the document is a new file in this directory; a new section of _How humans do
 it_ is a new numbered file plus a row in that directory's table.
 
-Keep each file able to stand on its own, and keep cross-section references by name — as a
+Keep each file readable on its own, and keep cross-section references by name — as a
 link where the name points at another file, with the name as the link text.
 
 ## The document is a graph, and edits break it in predictable ways
 
 The value of the doc is that its claims interlock. Most damage comes from editing one
-section and leaving another asserting the opposite. The load-bearing links:
+section and leaving another asserting the opposite. The links most easily broken:
 
 **The numbered duty list.** `what-humans-do.md` numbers twelve owner duties, and the rest
 of the tree cites them as bare numbers — `(7)`, `(10)`, `(11, 12)`. Inserting, removing,
 or reordering a duty silently repoints every reference in every other file.
 
-**The gate table against the prose.** Every gate named in prose needs a row, and the
-actions in a row must be honorable at that point in the lifecycle. `Deploy to production`
-deliberately has no Reject: by then the merge has happened and the number is spent, so
-hold is the only stop, and undoing it once it deploys is veto after the fact — a rollback
-while its control stands, a revert after.
+**The gate table against the prose.** Every gate named in prose needs a row, and every
+action in a row must be possible at that point in the lifecycle. `Deploy to production`
+deliberately has no Reject: by then the merge has happened and the number is already
+assigned, so hold is the only stop, and undoing it once it deploys is veto after the fact
+— a rollback while its control is still running, a revert after.
 
 **The lifecycle vocabulary.** It must run unbroken end to end. A **candidate**
-is identified by item plus build and stands on an environment of its own; at merge to
+is identified by item plus build and runs on an environment of its own; at merge to
 master it becomes a **release** with an ordinal number, per service. Contract versions
 are a separate axis — semver, one per published interface, because compatibility is the
 contract's job and not the release's. Do not let a fifth name for any of these appear.
 Upstream of all of it is the **intent** — what intake writes, what the cut turns into
-items, and what everything walks back to. An uncut intent is not an item: it was called an
+items, and what everything links back to. An uncut intent is not an item: it was called an
 unrefined item in two places until 2026-08-13, and both now say intent. **Current
 release** is not a fifth name either — it is which release a service is running, a fact of
 the production deploy record, and every cross-service check reads it rather than the
 newest number.
-`beta` was one and was dropped on 2026-08-13 — it named the build holding the shared UAT
-slot, and there is no slot to hold.
+`beta` was one and was dropped on 2026-08-13 — it named the build occupying the shared UAT
+slot, and there is no such slot.
 
 **Section order encodes dependency.** One pipeline (the unit of work) → Intent into items
 (how a request becomes items, and the cut) → Gates (where a
-decision happens) → Risk score (what decides whether a human stands at one) → Environments
+decision happens) → Risk score (what decides whether a human decides at one) → Environments
 (the branch, the per-candidate environment, the merge queue) → Releases (what travels) →
 Contracts (what binds services to each other) → Operations (the control, the watch window,
 K, the page) → Gate policy (everything an owner authors, gathered from the sections
-that define each parameter) → The fleet (what stands behind an agent, and what a borrowed
+that define each parameter) → The fleet (what an agent runs on, and what a borrowed
 account costs) → Surfaces (where a human sees it). A concept should be defined before
 the section that leans on it. The numeric filename prefixes under `how-humans-do-it/` are
 that order and nothing else — reordering means renaming files and fixing the links that
 point at them.
 
-Six forward references are known and left standing, each defined below a section that
-leans on it because moving the definition up would put something more load-bearing out of
+Six forward references are known and left in place, each defined below a section that
+depends on it because moving the definition up would put something more depended-on out of
 order: the **watch window** and **K**; the **gate** and the **score** that Intent into items
 leans on, with **current release** the same shape at smaller scale; the **page**; the
 **reconciler**; **the fleet**; and the four surfaces — **Work**, **Ops**, **Factory**,
@@ -86,7 +86,7 @@ use: the four recur as ordinary nouns in nearly every file, and a link on each w
 one in most paragraphs.
 
 **Never cross-reference by position.** "The second open question" broke the moment a
-bullet was resolved and removed. Refer to things by name. A link's path may carry a
+bullet was resolved and removed. Refer to things by name. A link's path may contain a
 number; its text never does.
 
 ## Writing style
@@ -96,7 +96,7 @@ the three conflict. This governs the document, every other file in the repositor
 anything written about them.
 
 **Precise beats concise.** If cutting a qualification blurs the claim, keep it: "a
-breaking diff without the migration already in front of it" is not "a bad diff." Name the
+breaking diff without the migration already shipped ahead of it" is not "a bad diff." Name the
 scope — *per service*, *at merge to master*. One name per concept, held constant across
 sections.
 
@@ -127,8 +127,8 @@ than a sentence of its own.
 
 **Structure for a reader.** The document is read by humans, not only parsed. A long run of
 uniform paragraphs gets `###` subheadings; a set of parallel facts gets a table. When a
-table carries a definition, the prose around it must not restate the table — trim the
-prose to what the table cannot hold.
+table contains a definition, the prose around it must not restate the table — trim the
+prose to what the table cannot express.
 
 No hard wrap. One paragraph is one line; the renderer does the rest. (Owner rule,
 2026-08-13, replacing the 88-column wrap.)
@@ -137,20 +137,20 @@ No hard wrap. One paragraph is one line; the renderer does the rest. (Owner rule
 
 When a question in `open.md` is answered, move the decision into the file that owns the
 subject **with its reason and its cost**, then delete the question. Deleting it alone
-strands the reasoning in git history where nobody will look. This follows the owner's
+leaves the reasoning in git history where nobody will look. This follows the owner's
 standing rule on abandoning a unit of work and the precedent in commit `98b5430`.
 
 The inverse matters as much: material that is genuinely unsettled belongs in `open.md`,
 phrased as the question and what turns on it. Do not resolve an open question by
 asserting an answer in the body — the split between what is decided and what is not is
-information the document is deliberately carrying.
+information the document deliberately records.
 
 Two kinds of question do not earn a place there. One the document can already answer by
-applying a pattern it holds is not open — apply the pattern and fold it. A pin (9) buys a
+applying a pattern it holds is not open — apply the pattern and fold it. A pin (9) adds a
 human at a gate, an owner authors a parameter with gate policy (8) and the score supplies
 the default, and the score learns from outcomes: those three were reached for late three
-times rather than at the time. Nor is a loose end a session noticed on its way past —
-the subject has to raise it, and an owner has to be who decides it. Six questions
+times rather than at the time. Nor is a loose end a session noticed while doing something
+else — the subject has to raise it, and an owner has to be who decides it. Six questions
 accumulated by that second route before 2026-08-13, each spun off in a trailing `Open:`
 line by a commit doing something else, and one asserted a premise the body of that same
 commit contradicted. (Owner rule, 2026-08-13.)
@@ -158,8 +158,8 @@ commit contradicted. (Owner rule, 2026-08-13.)
 ## Verification
 
 There are no tests. After editing, run the consistency pass. Every command is scoped to
-`end-goal/` and run from the repository root, so nothing a sibling directory holds is
-swept into a check written for this one:
+`end-goal/` and run from the repository root, so nothing in a sibling directory is
+included in a check written for this one:
 
 ```bash
 grep -rh "^|---" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l          # expect 8: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
