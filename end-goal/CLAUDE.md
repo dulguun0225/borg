@@ -15,16 +15,8 @@ build, test suite, or linter for this directory. Do not go looking for one. Ever
 here is an edit to a design document, and the document says of itself that everything in
 it is open to revision.
 
-```
-README.md                       # title, the draft caveat, index of the tree
-what-the-factory-does.md
-what-humans-do.md               # the twelve numbered duties
-how-humans-do-it/
-  README.md                     # the dependency-order table, and only that
-  01-one-pipeline.md … 11-surfaces.md
-deferred.md
-open.md
-```
+`README.md` indexes the tree; `how-humans-do-it/README.md` is the dependency-order table
+and only that.
 
 There is no work list. `next.md` held one until 2026-08-14, when its two lists were spent: the
 eight decided-but-unwritten entries were folded into the files that own their subjects, which
@@ -34,8 +26,8 @@ them is the shape `open.md`'s own rule refuses, and it was that shape.
 
 One file per section, split on 2026-08-13. Each file's own heading is `#`, its
 subsections `##` and `###` — a section standing on its own owns the top level. A new
-`##`-level part of the document is a new file in this directory; a new `###` under _How
-humans do it_ is a new numbered file plus a row in that directory's table.
+part of the document is a new file in this directory; a new section of _How humans do
+it_ is a new numbered file plus a row in that directory's table.
 
 Keep each file able to stand on its own, and keep cross-section references by name — as a
 link where the name points at another file, with the name as the link text.
@@ -123,7 +115,7 @@ with the human-UAT ceiling it creates. Em-dash asides carry qualifications inste
 spawning sentences.
 
 **Structure for a reader.** The document is read by humans, not only parsed. A long run of
-uniform paragraphs gets `####` subheadings; a set of parallel facts gets a table. When a
+uniform paragraphs gets `###` subheadings; a set of parallel facts gets a table. When a
 table carries a definition, the prose around it must not restate the table — trim the
 prose to what the table cannot hold.
 
@@ -159,15 +151,16 @@ There are no tests. After editing, run the consistency pass. Every command is sc
 swept into a check written for this one:
 
 ```bash
-grep -rn "^| " --include='*.md' end-goal/ | grep -v CLAUDE.md          # eight tables: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
-grep -rno "([0-9, ]*)" --include='*.md' end-goal/ | grep -v CLAUDE.md  # duty refs — every one must be 1–12
-grep -rn "open question\|see Open" --include='*.md' end-goal/ | grep -v CLAUDE.md   # positional cross-refs — expect none
-grep -rn "^#" --include='*.md' end-goal/ | grep -v CLAUDE.md           # one "# " per file, and nothing deeper than "### "
+grep -rh "^|---" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l          # expect 8: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
+grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
+grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
+grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
+grep -rc "^# " --include='*.md' end-goal/ --exclude=CLAUDE.md | grep -v ':1$'    # one "# " per file — expect none
 # every link resolves — expect no output
-grep -rho "](\([^)#]*\)[^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/](//; s/[)#].*//' | sort -u \
+grep -rho "]([^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/](//; s/[)#].*//' | sort -u \
   | while read -r p; do [ -z "$p" ] || [ -e "end-goal/$p" ] || [ -e "end-goal/how-humans-do-it/$p" ] || echo "dangling: $p"; done
 # every anchor matches a heading — expect no output
-comm -23 <(grep -rho "](\([^)]*\)#[a-z0-9-]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
+comm -23 <(grep -rho "]([^)]*#[a-z0-9-]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
          <(grep -rh "^#\{1,3\} " --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/^#* //; s/[^A-Za-z0-9 -]//g; s/ /-/g' | tr 'A-Z' 'a-z' | sort -u)
 ```
 

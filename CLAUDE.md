@@ -2,16 +2,14 @@
 
 ## What this repository is
 
-A monorepo for building a fully autonomous software factory. Today it holds one thing:
-the design document describing what is to be built, under `end-goal/`. Code lands beside
-that directory as it arrives, never inside it — `end-goal/` is the state the repository
-is built toward, not a record of what it currently does.
+A monorepo for building the software factory [README.md](README.md) describes. Today it
+holds one thing: the design document under `end-goal/`. Code lands beside that directory
+as it arrives, never inside it — `end-goal/` is the state the repository is built toward,
+not a record of what it currently does.
 
-**Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** That document
-is a graph of interlocking claims, and it has its own editing rules, its own writing
-style, and a consistency pass to run after every edit. Editing it without them breaks
-duty references, links, and vocabulary that other files lean on. Those rules govern that
-directory alone and say nothing about code.
+**Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** It has its own
+editing rules, its own writing style, and a consistency pass to run after every edit,
+which govern that directory alone and say nothing about code.
 
 ## Commits
 
