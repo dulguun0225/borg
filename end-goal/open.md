@@ -1,8 +1,6 @@
 # Open
 
-Six questions, all from sitting 1 of the interview. Each is deleted from here when it is folded into the file that owns its subject.
-
-**Is a candidate a record, or a name for an item plus a build?** Identity is item plus build, so a rebuild after a repair is a different pair while the branch and the environment persist across it. Is something written at an event — branch creation, build start, first successful build — or do the deploy, the criteria results, and the reject all point at the pair? Turns on: what a criteria result attaches to, and whether a rejected candidate leaves a record naming the rejection or only an attempt counted against [_the bound_](how-humans-do-it/03-gates.md#the-attempt-bound).
+Five questions, all from sitting 1 of the interview. Each is deleted from here when it is folded into the file that owns its subject.
 
 **Who writes the release record, and who mints the number?** Both happen at merge to master. Is [_The merge queue_](how-humans-do-it/05-environments.md#the-merge-queue) the writer of both, or does something else react to master moving? Turns on: whether release identity lives inside the queue's component, and where the per-service serialization sits that stops two merges taking one number.
 

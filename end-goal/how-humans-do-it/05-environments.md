@@ -8,6 +8,8 @@ An environment contains a project — every service in it — while a release, a
 
 One long-lived branch is each service's promotion path: master. A candidate has a branch of its own until it merges or is dropped. Merging and deploying are separate events and so are separate gates — a merge admits a change to master, a deploy puts a build on an environment, and either can happen without the other. A deploy can be rerun; a merge cannot be unmerged the same way.
 
+A candidate is not a record. It names an item and a build, and a build on a candidate branch belongs to one item, so the pair and the build pick out the same thing — a record per pair would repeat what the build and the item say already. The criteria results and the candidate deploy attach to the build. The branch and the environment are the item's and persist across a rebuild, the environment being a record already. What that costs is that [_The merge queue_](#the-merge-queue)'s rejection has no record of its own: it is written where a decision is written, with the queue as the actor, and counted as an attempt against [_the bound_](03-gates.md#the-attempt-bound).
+
 ## An environment per candidate
 
 Every candidate gets an environment of its own, created from master plus that candidate and torn down when the item merges or is dropped. Nothing is shared, so nothing queues behind anything: a candidate being repaired delays nobody, and a candidate waiting on a human delays only itself. Nothing shares because nothing else is candidate-fed — the environments a customer defines are deploy targets for master, so no persistent slot exists for candidates to take turns on.
