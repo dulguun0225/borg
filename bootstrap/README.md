@@ -10,7 +10,7 @@ What does not transfer is that a compiler's output is inert. A stage-2 compiler 
 
 ## The plan
 
-`end-goal/` is the intent. It goes through the factory's own stages, performed by hand: the interview, the cut, then a spec, an implementation plan, tasks, and an implementation per item. The chain repeats rather than running once — every item takes it again — which is why each pass has to stay cheap to repeat rather than ceremonious.
+`end-goal/` is the intent. It goes the way the factory takes one, performed by hand: the interview that refines it, the cut, then a spec, an implementation plan, tasks, and an implementation per item — the interview being the state the intent is in rather than a stage of its own, which is [_The interview_](../end-goal/how-humans-do-it/02-intent-into-items.md#the-interview)'s own account of itself. The chain repeats rather than running once — every item takes it again — which is why each pass has to stay cheap to repeat rather than ceremonious.
 
 It ends where the factory can adopt a codebase it did not build, because by then the hand-built factory is exactly such a codebase. Self-hosting needs nothing designed for it: adoption pointed at the factory itself is the whole of it. What that milestone requires is the five things [_Adopting an existing codebase_](../end-goal/deferred.md#adopting-an-existing-codebase) says a first run does not have — a deploy record for what is already running, declared meaning on the interfaces, a design system a machine can read, a build to start a control from, and history behind the learned parameters. All five apply to the factory adopting itself, so that list is the requirement set for this phase ending.
 
@@ -38,7 +38,7 @@ Per record: who writes it and at which event, who reads it, and the fields that 
 
 | # | Sitting | Records |
 |---|---|---|
-| 1 | The traceability records | intent · item · candidate · release record · deploy record · the number, a field of the release · current release, a fact of the production deploy record |
+| 1 | The traceability records | intent and its state · the end-user report and its grouping · item · candidate · release record · deploy record · the number, a field of the release · current release, a fact of the production deploy record |
 | 2 | Before the cut | constraint, standing and per-item · design system · interview question · the cut decision · declared item order · partial intent · area · project |
 | 3 | Artifacts of an item | spec · implementation plan · tasks · implementation · acceptance criterion · criterion encoding · a screen's state flow |
 | 4 | Decisions and policy | gate decision · gate policy's seven parameters · pin · decision-log record · actor · policy version |
@@ -55,4 +55,6 @@ The interview ends, and the cut can run, when every record above has a named wri
 
 ## Where we are
 
-Sitting 1 is running. Its questions are asked and unanswered.
+Sitting 1 is running. Two of its questions are answered and folded into [_Intent into items_](../end-goal/how-humans-do-it/02-intent-into-items.md): who writes an intent and at which event, and what the interview leaves on the intent. A record the sitting did not plan for arrived with the first — the end-user report — and its row above now names it, because a record found while a sitting runs still needs a named writer and named readers before that sitting can end.
+
+Nine questions are open. Next is whether items are written before or after the decomposition gate; then what says which stage an item is at and who writes it; what dispatch and a pin read off an item; whether a candidate is a record or a name for an item plus a build; who writes the release record and mints the number; which of that record's links it holds and which are inbound edges; when a deploy record is written and how many one rollout produces; what a deploy record is keyed by; and whether current release is derived or stored, with what a dependent's environment composes from while a rollout runs.
