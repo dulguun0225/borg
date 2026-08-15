@@ -1,8 +1,10 @@
 # Releases
 
+What ships, what it is called at each point, and how it is undone.
+
 ## One item per release
 
-**One item per release. Always, at every stage, permanently.** The single thread of an item never splits: rollout stays item-scoped like everything before it, and a veto is the rollback of exactly one item rather than extracting one change from a set of ten. One exception, limited and named, and it runs in both directions: master is linear, so where watch windows overlap a rollback undoes every release above its target, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows) — and the revert release that follows redelivers the ones that were only swept, which were never condemned and whose code is still on master. One deploy then carries several items' changes, measured by one window against the restored build. What ships is still one item, and both halves of the exception are limited by K.
+**One item per release. Always, at every stage, permanently.** The single thread of an item never splits: rollout stays item-scoped like everything before it, and a veto is the rollback of exactly one item rather than extracting one change from a set of ten. One exception, limited and named, and it runs in both directions: master is linear, so where watch windows overlap a rollback undoes every release above its target, up to the K of [_Overlapping windows_](08-operations.md#overlapping-windows) — and the revert release that follows redelivers the ones that were only swept, which were never condemned and whose code is still on master. One deploy then delivers several items' changes, measured by one window against the restored build. What ships is still one item, and both halves of the exception are limited by K.
 
 The cost is [an environment per item in progress](05-environments.md#an-environment-per-candidate), stated there. An environment added later follows the rule rather than changing it.
 

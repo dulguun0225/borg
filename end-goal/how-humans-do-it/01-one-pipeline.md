@@ -1,5 +1,7 @@
 # One pipeline
 
+One path, taken by everything the factory builds: what moves along it, who authors each step, and why there is no second path.
+
 **Item and agent.** An **item** is the unit the factory moves: one thing that can ship by itself, one thread, one release. An **agent** is a worker the factory runs — a model in a role, with a scope. Two agents on the same model share one authorship prior: the score is kept per model, not per role.
 
 **Role and scope.** A **role** is what an agent is put on, a **scope** is where it may be put. A role names the work of one stage — the artifact it authors, or the environment it reaches through seam 4 of [_Deferred, but not designed out_](../deferred.md) — so an owner composing a fleet entry chooses among roles and never invents one, the stages being the factory's own. It is not a duty: a human holds one of the numbered twelve, an agent holds a role, and nothing about a role is scored, because the prior is the model's. A scope is drawn on the same lines a pin (9) is — a project, an area — and limits which items an entry may be put on and which environments it may reach.

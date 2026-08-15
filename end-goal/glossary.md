@@ -1,9 +1,10 @@
 # Glossary
 
-Every term the document uses as though already defined, with one line saying what it is and a link to the section that defines it. It is an index and not a second place decisions live: the line here says what the term names, the section says what follows from it, and where the two could differ the section is right. That is what keeps it clear of `CLAUDE.md`'s rule against a list of answers kept outside the sections that own them — a resolved question is folded into its section and never restated here.
+Every term the document uses as though already defined, with one line saying what it is and a link to the section that defines it. It is an index and not a second place a decision is written: the line here says what the term names, the section says what follows from it, and where the two could differ the section is right. That is what keeps it clear of `CLAUDE.md`'s rule against a list of answers kept outside the sections that own them — a resolved question is folded into its section and never restated here.
 
 Read it when a sentence uses a name you cannot place. Nothing depends on reading it first.
 
+- **acceptance criterion** — a record of the service stating one testable behaviour in one of six sentence patterns, introduced and withdrawn by spec versions and decided against a run by the encoding written beside the code. [Spec](how-humans-do-it/03-gates.md#spec)
 - **actor** — the human or component recorded as having done a thing, on every record that records one; seam 1. [Deferred, but not designed out](deferred.md)
 - **agent** — a worker the factory runs: a model in a role, with a scope. [One pipeline](how-humans-do-it/01-one-pipeline.md)
 - **area** — an owner-declared grouping of the software (9), coarser than a file and free to cut across services; areas form a chain rooted at a project. [What humans do](what-humans-do.md)
@@ -43,6 +44,7 @@ Read it when a sentence uses a name you cannot place. Nothing depends on reading
 - **gate** — a decision point at every stage boundary and before every merge and every deploy, where the score decides whether a human decides. [Where a gate is, and what decides it](how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it)
 - **gate policy** — the seven parameters an owner authors (8), gathered in one place from the sections that define each. [Gate policy](how-humans-do-it/09-gate-policy.md)
 - **harm** — the watch window exit where the comparison crossed the boundary against the release; it is rolled back with no human involved. [The watch window](how-humans-do-it/08-operations.md#the-watch-window)
+- **health signal** — the comparison of a release against its control, which is what the factory reads to decide whether a rollout is failing. [The health signal](how-humans-do-it/08-operations.md#the-health-signal)
 - **held out** — the score's record that it selected this item for the random sample, auto-passing every gate it would have gated. [How it learns](how-humans-do-it/04-risk-score.md#how-it-learns)
 - **hold** — a stop that leaves the event queued with the change still good, offered at the deploy rows alone. Three kinds, and only a human's is written as a decision. [What a gate may change](how-humans-do-it/03-gates.md#what-a-gate-may-change)
 - **incident** — a record on a production environment, written by the comparison at a crossing against the release running there. [Incidents](how-humans-do-it/08-operations.md#incidents)
@@ -67,6 +69,7 @@ Read it when a sentence uses a name you cannot place. Nothing depends on reading
 - **per-intent** — the narrowest constraint reach: one that arrived with a single request and binds every item cut from it. [Constraints and the design system](how-humans-do-it/02-intent-into-items.md#constraints-and-the-design-system)
 - **the pipeline** — the one path every item takes: the stages that author it and the gate at each boundary. There is no second path and no bypass. [One pipeline](how-humans-do-it/01-one-pipeline.md)
 - **pin** — an owner's addition (9) — a human at a gate, or a bound on a parameter — that can only add protection and never remove it. It is a record. [One shape across all of them](how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them)
+- **policy version** — which version of gate policy was in force at a decision, named on that decision beside the score version, because a decision read back against today's values is not the decision that was made. [Traceability](what-the-factory-does.md#traceability)
 - **predicate catalog** — the kinds of assertion a consumer's declaration may draw from; one list the factory owns and an owner extends. [What a consumer declares](how-humans-do-it/07-contracts.md#what-a-consumer-declares)
 - **project** — a grouping of work. A service is in exactly one, and an item reaches its project through its service. [Work, Ops, Factory, People](how-humans-do-it/11-surfaces.md#work-ops-factory-people)
 - **provider account** — what an agent reaches its model through, stored as a reference to a credential rather than the credential itself. Not a record. [What an agent runs on](how-humans-do-it/10-fleet.md#what-an-agent-runs-on)
@@ -82,10 +85,11 @@ Read it when a sentence uses a name you cannot place. Nothing depends on reading
 - **rollback's target** — computed for one rollback: the newest release below the one being rolled back whose window closed clean or at the cap. [Overlapping windows](how-humans-do-it/08-operations.md#overlapping-windows)
 - **rollout strategy** — how a release takes live traffic from the build it replaces: with a control, or straight. It attaches to a production deploy and to no other. [The rollout strategy](how-humans-do-it/03-gates.md#the-rollout-strategy)
 - **scope** — where an agent may be put: a project or an area, drawn on the same lines a pin is. [One pipeline](how-humans-do-it/01-one-pipeline.md)
-- **score version** — the score's own append-only record holding the published formula, the factor set, and every value the score supplies. Every decision names the version in force. [Factors, at least](how-humans-do-it/04-risk-score.md#factors-at-least)
+- **score version** — the score's own append-only record naming the published formula, the factor set, and every value the score supplies. Every decision names the version in force. [Factors, at least](how-humans-do-it/04-risk-score.md#factors-at-least)
 - **seam** — one of the four places [_Deferred, but not designed out_](deferred.md) leaves an interface for something not designed yet: the actor, the log, the credential resolver, and reaching a substrate. [Deferred, but not designed out](deferred.md)
 - **service** — one repository with one long-lived branch, and no repository holds two. Master, the number, and the queue's ordering are all per service. [The cut](how-humans-do-it/02-intent-into-items.md#the-cut)
 - **source** — the field naming what caused a record: on an intent, which of the three raised it; on a rollback, the comparison or the named human. [Intake](how-humans-do-it/02-intent-into-items.md#intake)
+- **stage** — one step of the pipeline, authoring one artifact of an item, with a gate at its boundary; the stages are the factory's own and a role names the work of one. [One pipeline](how-humans-do-it/01-one-pipeline.md)
 - **standing** — the three widest constraint reaches together: the factory, a project, an area. A standing constraint is permanent the way the rules (8) are. [What humans do](what-humans-do.md)
 - **state flow** — a screen's states, the events that move it between them, and what each state forbids; authored as a state machine at Spec and enforced at Implementation. [Spec](how-humans-do-it/03-gates.md#spec)
 - **store** — a contract whose consumer is the service's own past, which is why it promises forward as well as backward. [The store is a contract too](how-humans-do-it/07-contracts.md#the-store-is-a-contract-too)

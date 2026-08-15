@@ -1,5 +1,7 @@
 # Gates
 
+Where a decision about a change happens, what may be decided there, and what decides whether a human decides at all.
+
 ## Where a gate is, and what decides it
 
 There is a gate at every stage boundary: after the cut into items, and after the spec, implementation plan, tasks, and implementation are authored, and before each merge and each deploy — an event gate decides whether the event happens, which is what makes hold a stop rather than an undo. The mechanism is permanent — it does not weaken as the factory improves.
@@ -60,6 +62,8 @@ Every stage also has an attempt bound, authored with the rest of gate policy (8)
 
 ## What particular gates decide
 
+What each of the eight rows decides, taken one at a time.
+
 ### Decomposition
 
 The one gate where approving admits several threads at once; everything below it is per item, and it fires only where the cut yielded more than one. [_The cut_](02-intent-into-items.md#the-cut) sets out the stage, what is decided at it, and the drawback of firing it conditionally.
@@ -87,7 +91,7 @@ The form is the whole of what this provides, and having it makes one failure wor
 
 Where the item has a user interface, the spec version introduces a screen's **state flow** — the states a screen can be in, the events that move it between them, and what each state forbids, empty and loading and failed among them. It is part of what a human confirms here (6) and not one of the six patterns: the patterns are sentences and lose the transitions, and it is the transitions that make [_Implementation_](#implementation)'s rejection mechanical. It is a record of the service like a criterion, written by the artifact store in the same call, and the screen's identity is the id of the flow that introduced it — per service, stable, never reused, the rule the criterion id and the number both keep. A revision is a new flow naming the one it supersedes, and the chain of supersessions is the screen; there is no screen record, because a screen with no flow is nothing the factory can check. The cost is that nothing mechanical stops two items introducing two chains for what a human would call one screen, and what catches that is the owner confirming here — the one place the flow's enforcement rests on a human noticing rather than on a link.
 
-The drawback is the authoring, the same one declared meaning has in [_What a diff cannot see_](07-contracts.md#what-a-diff-cannot-see) — a sketch is cheaper and checks nothing. What the screen looks like is not here: that is the design system the project chose as a standing constraint (2), a screen design that arrived with the request as a per-item one, and, where neither answers, [_Implementation plan_](#implementation-plan).
+The drawback is the authoring, the same one declared meaning has in [_What a diff cannot see_](07-contracts.md#what-a-diff-cannot-see) — a sketch is cheaper and checks nothing. What the screen looks like is not here: that is the design system the project chose as a standing constraint (2), a screen design that arrived with the request as a per-intent one, and, where neither answers, [_Implementation plan_](#implementation-plan).
 
 ### Implementation plan
 

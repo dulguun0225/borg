@@ -2,6 +2,8 @@
 
 One directory per item, holding what the factory's stages write about that item. During stage 0 the stages are run by hand, so the artifacts are written by hand — that is the only difference between this directory now and what the factory will write into it later.
 
+The words are the design document's — item, stage, artifact, the cut — and each is one line in [_Glossary_](../end-goal/glossary.md), linked to the section that defines it.
+
 ## What an item directory holds
 
 `items/<name>/` — the item's name, lower case with hyphens — holds `spec.md`, `implementation-plan.md`, and `tasks.md`, three of the four artifacts of an item that sitting 3 of [the interview](../bootstrap/README.md#the-interview-in-ten-sittings) names.

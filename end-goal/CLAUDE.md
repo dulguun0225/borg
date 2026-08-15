@@ -18,7 +18,7 @@ it is open to revision.
 `README.md` indexes the tree; `how-humans-do-it/README.md` is the dependency-order table
 and only that.
 
-There is no work list. `next.md` held one until 2026-08-14, when its two lists were spent: the
+There is no work list. `next.md` held one until 2026-08-14, when its two lists were emptied: the
 eight decided-but-unwritten entries were folded into the files that own their subjects, which
 is where a decision belongs, and the fifteen cut candidates were each taken or refused with
 the reason written into the same files. A list of answers kept outside the sections that own
@@ -64,7 +64,7 @@ slot, and there is no such slot.
 **Section order encodes dependency.** One pipeline (the unit of work) → Intent into items
 (how a request becomes items, and the cut) → Gates (where a
 decision happens) → Risk score (what decides whether a human decides at one) → Environments
-(the branch, the per-candidate environment, the merge queue) → Releases (what travels) →
+(the branch, the per-candidate environment, the merge queue) → Releases (what ships) →
 Contracts (what binds services to each other) → Operations (the control, the watch window,
 K, the page) → Gate policy (everything an owner authors, gathered from the sections
 that define each parameter) → The fleet (what an agent runs on, and what a borrowed
@@ -113,7 +113,7 @@ human at a gate, an owner authors a parameter with gate policy (8) and the score
 the default, and the score learns from outcomes: those three were reached for late three
 times rather than at the time. Nor is a loose end a session noticed while doing something
 else — the subject has to raise it, and an owner has to be who decides it. Six questions
-accumulated by that second route before 2026-08-13, each spun off in a trailing `Open:`
+accumulated by that second route before 2026-08-13, each raised in a trailing `Open:`
 line by a commit doing something else, and one asserted a premise the body of that same
 commit contradicted. (Owner rule, 2026-08-13.)
 
@@ -180,9 +180,9 @@ whose only definition is in an instruction file as unresolved however the check 
 check whose result is a judgment rather than a grep exit code.)
 
 Then read One pipeline → Intent into items → Gates → Risk score → Environments → Releases →
-Contracts → Operations → Gate policy → The fleet → Surfaces straight through and confirm one identity survives end to end: item
-plus build as a candidate, the same build in production, an ordinal attached at merge,
-contracts versioned alongside it.
+Contracts → Operations → Gate policy → The fleet → Surfaces straight through and confirm one
+identity survives end to end: item plus build as a candidate, the same build in production,
+an ordinal attached at merge, contracts versioned alongside it.
 
 ## Commits
 
