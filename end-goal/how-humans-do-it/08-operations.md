@@ -99,7 +99,7 @@ A page is an event on the row it belongs to — who was reached, when it widened
 
 ## The reconciler
 
-Every check above reads a record the factory wrote. A service's [_current release_](06-releases.md#the-number) is what its production deploy record names, the health signal is measured against a control the factory started and recorded, and an incident points at a deploy the same log describes. So a factory whose records are wrong reports itself healthy, and nothing downstream of them contradicts it.
+Every check above reads a record the factory wrote. A service's [_current release_](06-releases.md#the-deploy-record) is what its production deploy record names, the health signal is measured against a control the factory started and recorded, and an incident points at a deploy the same log describes. So a factory whose records are wrong reports itself healthy, and nothing downstream of them contradicts it.
 
 The **reconciler** is one process outside the pipeline that reads what is actually running on each production target and compares it against that service's current release. One fact, one comparison, read-only — no deploy privilege, and it writes nothing the factory reads back. The owner installs it beside the factory they already host, because a reconciler the factory deployed would be inside the trust domain it exists to check.
 

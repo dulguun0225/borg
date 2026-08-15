@@ -1,9 +1,5 @@
 # Open
 
-Three questions, all from sitting 1 of the interview. Each is deleted from here when it is folded into the file that owns its subject.
+Nothing is open. Sitting 1 of the interview raised eleven questions, and each one is folded into the file that owns its subject.
 
-**When is a deploy record written, and how many does one rollout produce?** At the start of the deploy or at the end of the rollout; one record updated as traffic shifts, or one per event. Turns on: what "which release runs where" answers while a release takes part of the traffic and its [_control_](how-humans-do-it/08-operations.md#the-health-signal) serves the rest, and what [_The reconciler_](how-humans-do-it/08-operations.md#the-reconciler) compares against.
-
-**What is a deploy record keyed by?** Service and environment, and the production target too, given the reconciler reads what is actually running on each target. Turns on: whether current release can differ per target inside one environment, and whether a mismatch is raised per target or per environment.
-
-**Is current release derived or stored, and which reading do its readers take?** A query over the service's production deploy records, or a field written at deploy completion. And while a rollout runs, does a dependent's candidate environment compose from the release taking part of the traffic or from the one its control runs — the same fact the dependency hold at [_Deploy to production_](how-humans-do-it/03-gates.md#deploy-to-production) reads. Turns on: whether the service record gains a writer on every deploy, and whether current means most recently deployed or most recently completed, which disagree exactly while a rollout runs.
+A question belongs here when an owner is who decides it and the tree cannot answer it by applying a pattern it already holds. It is phrased as the question and what turns on it, and it is deleted from here when it is folded.

@@ -30,9 +30,17 @@ The number is an ordinal, per service, assigned at merge to master. It orders bu
 
 A numbered release that has never run anywhere is normal, not an anomaly. The number is minted at merge, one gate before production, so it records that a change was accepted — not that it is live. A hold at the production deploy gate produces exactly this. Where a release is running is a deploy record and never the number.
 
+Master's only inbound path is [_The merge queue_](05-environments.md#the-merge-queue), and a candidate fast-forwards only after re-verifying against the master it will actually merge into. The commit that was verified is the commit on master. What was tested is what ships — a structural property of the queue, not a discipline anyone has to keep.
+
+## The deploy record
+
 A service's **current release** is the one its production deploy record names — what is running, not what is newest. Merged-and-never-deployed being normal is exactly what makes those different facts, and every cross-service check reads the current one: an environment composed from its dependencies is composed from what runs, and a promise is kept by what serves it.
 
-Master's only inbound path is [_The merge queue_](05-environments.md#the-merge-queue), and a candidate fast-forwards only after re-verifying against the master it will actually merge into. The commit that was verified is the commit on master. What was tested is what ships — a structural property of the queue, not a discipline anyone has to keep.
+A deploy record is written by the agent performing the deploy, through seam 4 of [_Deferred, but not designed out_](../deferred.md), when the deploy starts, and its status advances to complete or rolled back. One rollout produces one, and [_Rollback_](#rollback) is a deploy event and produces its own. What the record does not say is what share of traffic each build takes — that is the rollout's and its [_control_](08-operations.md#the-health-signal)'s, and a deploy log recording every shift would scale with the schedule for a fact only the rollout reads while it runs.
+
+It is keyed by service and environment and not by target, so current release is single-valued per service. [_The reconciler_](08-operations.md#the-reconciler) still reads each production target and raises a mismatch naming the target that differs, which is the stronger check: a record per target would let three targets disagree with a fourth and call each of them right. The cost is that a deploy reaching three targets of four is not a state the record expresses — it is an incomplete deploy, caught as a mismatch rather than recorded as a partial one.
+
+Current is the most recently completed deploy and not the most recently started, and the two disagree exactly while a rollout runs. Composing a dependent's [_candidate environment_](05-environments.md#an-environment-per-candidate) from the release still taking part of the traffic would verify it against a build that may roll back within the hour, and the dependency hold at [_Deploy to production_](03-gates.md#deploy-to-production) would admit a producer nothing is yet committed to. So while a rollout runs, the current release is what the control runs — the build the release is being compared against. What that costs is a dependent whose producer is mid-rollout waiting for it, which on a widening schedule is the length of the rollout.
 
 ## Rollback
 
