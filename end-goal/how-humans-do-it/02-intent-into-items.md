@@ -22,7 +22,7 @@ So a designer's say continues after the gate they decided at, but unevenly. The 
 
 An end user's bug report (4) or complaint (5) is a **report**, and a report is not an intent. The way in is thin and embedded in the deployed software: what it writes is a report, into a store of its own sized for what a population of end users sends rather than for what a graph joins on. A grouper reads that store and calls intake once per group, so five hundred reports of one slow button are one intent and not five hundred.
 
-This source alone has a record in front of the intent. An owner's request is one thing because one person typed it. A factory finding needs deduplication and not grouping, and the evidence keys it exactly. Only an end user's report arrives in a quantity nobody upstream has collapsed, in words the factory has to read to know whether two of them are one problem.
+This source alone has a record in front of the intent. An owner's request is one thing because one person typed it, and a factory finding is keyed by its evidence. Only an end user's report arrives in a quantity nobody upstream has collapsed, in words the factory has to read to know whether two of them are one problem.
 
 A report raises an intent on arrival rather than waiting for a batch: the first of a group raises it, and later matching ones attach. Nothing waits for a count, because grouping is deduplication and not triage — one report from one end user is an intent, and the count is evidence on it rather than a rank: nothing orders work by it on its own, though a human reordering a queue can read it. A batch would group better and delay every fix by the length of the interval.
 
@@ -44,7 +44,7 @@ The interview is not a stage of its own. It is the state an intent is in, which 
 
 The state is the intent's own and stops at the cut. What comes after is read from the items — [_A partial intent_](#a-partial-intent) is computed from whether they all reached a release, and whether an intent was cut at all is answered by the items that exist. So the record keeps one writer: a transition is a write to the intent and goes through intake like every other, and the cut writes items and never writes back.
 
-What is written once is the statement and whatever is attached to it, which is what keeps an approval pointing at what was approved; the state advances. Nothing reads the state back to justify a decision — it says where the intent is, and where a thing is is what [_Work_](11-surfaces.md#work-ops-factory-people) answers. It is stored rather than left implied by whichever component is running, because three readers ask for it: Work, whatever puts an agent on the intents still unrefined, and a detector looking for an intent on its evidence that has not finished.
+What is written once is the statement and whatever is attached to it, which is what keeps an approval pointing at what was approved; the state advances. Nothing reads the state back to justify a decision — it says where the intent is, which is what [_Work_](11-surfaces.md#work-ops-factory-people) answers and what puts an agent on the intents still unrefined.
 
 Questions appear in [_Work_](11-surfaces.md#work-ops-factory-people) under the intent that raised them, and are answered there. The spec is the artifact, so there is no interview gate and none is missing: approving the spec ratifies the refinement that produced it, which is what [_Where a gate is, and what decides it_](03-gates.md#where-a-gate-is-and-what-decides-it) already assumes.
 
