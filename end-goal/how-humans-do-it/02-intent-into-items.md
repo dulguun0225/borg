@@ -2,15 +2,39 @@
 
 ## Intake
 
-What arrives is an **intent**: a request from an owner (1), a bug or a complaint from an end user (4, 5), or something the factory found itself — a comparison still running after its window closed, a consumer breaking in its own error rate. One record, three sources. Nothing is judged on the way in, because judging it is what the interview is for.
+What arrives is an **intent**: a request from an owner (1), the end-user [_reports_](#reports) a grouper turned into one (4, 5), or something the factory found itself — a comparison still running after its window closed, a consumer breaking in its own error rate. One record, three sources, and one writer — intake writes every intent, and the three sources are three callers of one entrance rather than three components writing the same record. What it writes at that event is the source, the actor (seam 1 of [_Deferred, but not designed out_](../deferred.md)), whatever per-item constraint arrived with the request, and for an intent the factory raised, a link to the evidence that raised it. An intent arrives unrefined, and nothing is judged on the way in, because judging it is what the interview is for.
+
+One writer costs a dependency edge from the far end of the pipeline back to its start: operations calls intake to raise what it found. What several writers would cost is one record's rules — the actor always populated, the chain, the links — implemented once per writer and drifting apart, on the record every other record links back to.
 
 The intent is what the graph joins on. Every item links back to it, which is why one request producing four items in four services needs no record type of its own — the same point [_Work that spans services_](07-contracts.md#work-that-spans-services) makes from the other end.
+
+The factory's own source repeats where the other two do not: a comparison still running is still running tomorrow, and a consumer breaking in its own error rate goes on breaking. So a detector raises an intent for a condition and not for an observation — before raising one it looks for an intent on the same evidence that has not finished, and attaches to that one instead. The evidence is what keys it: this service, this consumer, this contract, this release. Keyed too finely it raises an intent per observation; too coarsely it attaches two problems to one intent, which the cut then has to split.
+
+### Constraints and the design system
 
 Constraints (2) arrive here too and are not intents: they are never cut into items and never ship. A standing one attaches to the factory and binds every item from then on; a per-item document arrives with one request and applies only to it. What the difference decides is what the factory reads when it drafts — every standing constraint in force, plus whatever arrived with this intent.
 
 A design system is the standing constraint a project with a user interface always has, and it is chosen as much as supplied: the project uses one the factory ships with or one an owner uploads. What is uploaded decides what can ever be checked against it. As code — tokens and components with a build — it is diffable, and a screen that departs from it fails mechanically. As a document — an export, a page of rules — there is no build, nothing checks the result, and what enforces it is a pin (9) putting a human at the gate. Nothing about that is particular to design: no standing constraint is checked mechanically unless it arrives in a form a machine can read, which is why the compliance officer holding (2) over a regulated area holds a pin with it.
 
 So a designer's say continues after the gate they decided at, but unevenly. The screen's state flow confirmed at [_Spec_](03-gates.md#spec) (6) is authored as a state machine and enforced at [_Implementation_](03-gates.md#implementation); what the screen looks like is checked by nobody unless the design system came as code. The cheap form requires a human at a pinned gate for as long as the pin lasts; the enforceable one requires a designer to produce code.
+
+### Reports
+
+An end user's bug report (4) or complaint (5) is a **report**, and a report is not an intent. The way in is thin and embedded in the deployed software: what it writes is a report, into a store of its own sized for what a population of end users sends rather than for what a graph joins on. A grouper reads that store and calls intake once per group, so five hundred reports of one slow button are one intent and not five hundred.
+
+This source alone has a record in front of the intent, and the reason is that it is the only one where volume meets inference. An owner's request is one thing because one person typed it. A factory finding needs deduplication and not grouping, and the evidence keys it exactly. Only an end user's report arrives in a quantity nobody upstream has collapsed, in words the factory has to read to know whether two of them are one problem.
+
+A report raises an intent on arrival rather than waiting for a batch: the first of a group raises it, and later matching ones attach. Nothing waits for a count, because grouping is deduplication and not triage — one report from one end user is an intent, and the count is evidence on it rather than a rank: nothing orders work by it on its own, though a human reordering a queue can read it. A batch would group better and delay every fix by the length of the interval.
+
+A report is marked with the intent it was grouped into and kept. Deleting one on grouping would cost the measurement this store makes possible — the rate of reports before and after the release meant to fix what they describe — so what removes a report is a retention setting an owner authors, and never the grouping.
+
+Grouping takes no gate. The interview, the cut, and [_Spec_](03-gates.md#spec) all read what it produced, which is the argument [_Dispatch_](#dispatch) makes for itself. The two ways it goes wrong are not symmetric, so the grouper prefers to group: two problems in one intent are separated one stage down, where the cut yields an item each or a spec comes back too large, while duplicates that were never grouped are separated by nobody — each takes its own interview, its own thread, and its own item, several of them on the same code and serialized behind each other in [_The merge queue_](05-environments.md#the-merge-queue).
+
+A later report attaches to the intent and never rewrites it. What refines an intent is attached to it and every reader reads both, so the five hundredth report changes what is built by being read rather than by editing the record — which is what keeps an approval pointing at what was approved. The cut is the boundary. Before it, the grouper may still split a group it got wrong; after it, a report matching work already cut attaches and raises the count, and one that does not is a new intent, linked to the first as a recurrence. A report arriving after the fix shipped is that same rule: the thread is finished, so evidence that the fix did not work is a new intent and never a reopening. What the boundary costs is a run of reports just after a narrow cut showing as two linked threads where a human would call it one problem.
+
+For an intent grouped from reports, the reports are what the interview and the spec are authored against and the intent's own statement summarizes them; for an owner's request the statement is the thing itself.
+
+A report that is never grouped is work nobody sees, which is how a store in front of a pipeline fails wherever it is built. So every report is either linked to the intent it was grouped into or counted as ungrouped, and that count is a number on [_Factory_](11-surfaces.md#work-ops-factory-people). One report appears in [_Work_](11-surfaces.md#work-ops-factory-people) under its intent and nowhere else: a browsable list of reports would put end-user volume on the surface that is one item per thread, and make the grouping a human's job again.
 
 ## The interview
 
