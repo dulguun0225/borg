@@ -8,7 +8,11 @@ The cost is [an environment per item in progress](05-environments.md#an-environm
 
 ## The release record
 
-A release is a record, and it is where the graph joins. It links the item that caused it, the build and commit it is made of, the gate decisions that let it through, the contract versions it publishes, and every deploy of it to every environment. Ask anything about a shipped change — from what intent, on whose approval, under which policy, running where, rolled back when — and the answer is found by following links from the release record. Traceability is not added to this; it is what the record is for.
+A release is a record, and it is where the graph joins. It names what is known at the merge: the item that caused it, the build and commit it is made of, and the contract versions it publishes. The gate decisions that let it through were written before it existed and name the item and the build; every deploy of it to every environment is written afterwards and names the release. Ask anything about a shipped change — from what intent, on whose approval, under which policy, running where, rolled back when — and the answer is reached by traversing edges at the release record, outbound or inbound. Traceability is not added to this; it is what the record is for.
+
+[_The merge queue_](05-environments.md#the-merge-queue) writes it and mints the number with it. Master's only inbound path is the queue, so the fast-forward is the event and the queue is what performs it, and the serialization that stops two merges taking one number is the per-service ordering the queue keeps already. A writer of its own, called at the fast-forward, would be a component with one caller and that ordering implemented again inside it. What this costs is release identity inside the queue's component, and no release record for a commit that reached master by another path — which nothing does, the queue's exclusivity being what makes that true.
+
+It is written once and never written again, which is what keeps that one writer. The alternative was five — a gate component, the deploy component, and the rest writing their links into it — which is five writers on the record the whole graph joins on and a seam to declare between each pair, and writes to a release after it shipped. The cost of one is that where a release runs and which gates let it through are queries over the records that name it, so every reader asking either needs those inbound edges indexed.
 
 ## What a build is called, and when
 

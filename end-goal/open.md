@@ -1,10 +1,6 @@
 # Open
 
-Five questions, all from sitting 1 of the interview. Each is deleted from here when it is folded into the file that owns its subject.
-
-**Who writes the release record, and who mints the number?** Both happen at merge to master. Is [_The merge queue_](how-humans-do-it/05-environments.md#the-merge-queue) the writer of both, or does something else react to master moving? Turns on: whether release identity lives inside the queue's component, and where the per-service serialization sits that stops two merges taking one number.
-
-**Which of the release record's links does it hold, and which are inbound edges?** It links the item, the build and commit, the gate decisions, the contract versions, and every deploy — the decisions written before it existed and the deploys after. Turns on: whether five components write one record, which is a seam that has to be declared, or the record holds what is known at merge and every reader traverses inbound edges.
+Three questions, all from sitting 1 of the interview. Each is deleted from here when it is folded into the file that owns its subject.
 
 **When is a deploy record written, and how many does one rollout produce?** At the start of the deploy or at the end of the rollout; one record updated as traffic shifts, or one per event. Turns on: what "which release runs where" answers while a release takes part of the traffic and its [_control_](how-humans-do-it/08-operations.md#the-health-signal) serves the rest, and what [_The reconciler_](how-humans-do-it/08-operations.md#the-reconciler) compares against.
 
