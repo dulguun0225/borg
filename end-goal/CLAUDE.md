@@ -73,13 +73,14 @@ the section that leans on it. The numeric filename prefixes under `how-humans-do
 that order and nothing else — reordering means renaming files and fixing the links that
 point at them.
 
-Six forward references are known and left in place, each defined below a section that
+Seven forward references are known and left in place, each defined below a section that
 depends on it because moving the definition up would put something more depended-on out of
 order: the **watch window** and **K**; the **gate** and the **score** that Intent into items
 leans on, with **current release** the same shape at smaller scale; the **page**; the
-**reconciler**; **the fleet**; and the four surfaces — **Work**, **Ops**, **Factory**,
+**reconciler**; **the fleet**; the **restore floor**, which Contracts leans on and
+Operations defines; and the four surfaces — **Work**, **Ops**, **Factory**,
 **People** — which _What humans do_ leans on and _Surfaces_ defines last. One treatment
-covers the first five — a link forward at each early use, so a reader meeting the term
+covers the first six — a link forward at each early use, so a reader meeting the term
 there can reach the definition — and a new early use is expected to keep that true. The
 surfaces take that treatment at the first use of each name in a file rather than at every
 use: the four recur as ordinary nouns in nearly every file, and a link on each would put
@@ -129,18 +130,28 @@ grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u 
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
 grep -rc "^# " --include='*.md' end-goal/ --exclude=CLAUDE.md | grep -v ':1$'    # one "# " per file — expect none
-# every link resolves — expect no output
-grep -rho "]([^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/](//; s/[)#].*//' | sort -u \
-  | while read -r p; do [ -z "$p" ] || [ -e "end-goal/$p" ] || [ -e "end-goal/how-humans-do-it/$p" ] || echo "dangling: $p"; done
+# every link resolves against the directory of the file it appears in — expect no output
+python3 -c "
+import os, re, glob
+for p in glob.glob('end-goal/**/*.md', recursive=True):
+    if os.path.basename(p) == 'CLAUDE.md': continue
+    for t in re.findall(r'\]\(([^)]+)\)', open(p).read()):
+        f = t.split('#')[0]
+        if not f or f.startswith('http'): continue
+        if not os.path.exists(os.path.join(os.path.dirname(p), f)): print('dangling:', p, '->', t)
+"
 # every anchor matches a heading — expect no output
 comm -23 <(grep -rho "]([^)]*#[a-z0-9-]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
          <(grep -rh "^#\{1,3\} " --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/^#* //; s/[^A-Za-z0-9 -]//g; s/ /-/g' | tr 'A-Z' 'a-z' | sort -u)
 ```
 
-The link check cannot see anchors — it strips fragments and skips same-file links — which
-is why the anchor check is separate. That one matches an anchor against every heading in
-the tree rather than against the target file's own, so it catches a renamed heading and not
-a link pointed at the wrong file.
+The link check resolves each path against the directory of the file it appears in, which a
+one-liner resolving against `end-goal/` and `how-humans-do-it/` alike did not: a link
+written with the wrong prefix resolved under the other directory and passed. It cannot see
+anchors — it strips fragments and skips same-file links — which is why the anchor check
+is separate. That one matches an anchor against every heading in the tree rather than
+against the target file's own, so it catches a renamed heading and not a link pointed at
+the wrong file.
 
 ### The cold-read check
 
