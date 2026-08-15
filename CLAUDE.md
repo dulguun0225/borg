@@ -22,63 +22,66 @@ one directory per item. (Owner decision, 2026-08-14.)
 
 ## Writing style
 
-Governs every file in this repository — the design tree, `bootstrap/`, this file, commit
-bodies — and anything written about them, a reply in the terminal included.
+Governs every file in this repository — the design document under `end-goal/`,
+`bootstrap/`, this file, commit bodies — and anything written about them, a reply in the
+terminal included.
 
-**Precise, then concise, then simple.** The order is the rule — it only does work when
-the three conflict.
+**Precise, then literal, then understandable, then concise, then simple.** The order is
+the rule and only does work where they conflict. Simple is last, not absent: plain words
+and short sentences wherever they take nothing away. (Owner rule, 2026-08-15.)
 
-**Precise beats concise.** If cutting a qualification blurs the claim, keep it: "a
-breaking diff without the migration already shipped ahead of it" is not "a bad diff." Name
-the scope — *per service*, *at merge to master*. One name per concept, held constant
-across sections.
+**Precise.** If cutting a qualification blurs the claim, keep it: "a breaking diff
+without the migration already shipped ahead of it" is not "a bad diff." A true statement
+that needs a caveat gets the caveat: "the last place a human decides — by default, and
+by score, not because the gates downstream of it are missing." Name the scope — *per
+service*, *at merge to master*. One name per concept, held constant across sections.
 
-**Precise beats simple.** A true statement that needs a caveat gets the caveat: "the last
-place a human decides — by default, and by score, not because the gates downstream of it
-are missing."
+**Literal.** Name the thing and say what happens to it. A record does not carry, hold,
+walk, stand, ride, or land — a component writes it, reads it, or points at it. Nothing
+is bought, spent, or paid for unless money or a quota actually moves. Corporate register
+is the same rule: nothing **is key**, and work is **in progress** rather than **in
+flight**. Metaphor reads as precision and is not: *an intent carries a project* leaves a
+reader choosing between a field on the record, a link to another record, and something a
+later stage looks up. Where the literal sentence is longer or harder to take in, write
+it anyway — the remedy for hard is the next rule, never the figure. (Owner rule,
+2026-08-14.)
 
-**Concise beats simple.** The short true sentence over the longer gentle one. No preamble,
-no restating the heading, no summarizing what is about to be said. State reasons rather
+**Settled technical terms exempt.** A term `end-goal/` defines keeps its word even where
+the word is on the list above: a **hold** at a gate, a **standing** constraint, a
+**control**, a **straight** deploy, a window closing **clean** or **swept**, a **floor**
+under a parameter or a **ceiling** over it. What makes a term settled is that a section
+defines it, not that two paragraphs use it — so the exemption is checkable, and coining
+one to get around the ban is not it. Outside its definition the word is ordinary again:
+a record still does not hold its fields. (Owner rule, 2026-08-14.)
+
+**Understandable.** A term is introduced where it is first used, or linked to where it
+is introduced. A reader who has not read the rest of the document has to be able to
+finish the sentence they are on. Where introducing a term needs another clause, write
+the clause. A term `end-goal/` defines is linked to its section or to
+[`end-goal/glossary.md`](end-goal/glossary.md), which is what a file outside that
+directory does rather than assuming the name. What it costs is length: a paragraph
+naming six records introduces six. (Owner rule, 2026-08-15.)
+
+A section opens with one sentence saying what it is about, in ordinary words. That
+sentence may restate the heading and may summarise what follows. It is the one place
+redundancy is not waste.
+
+**Concise.** The short true sentence over the longer gentle one. State reasons rather
 than announcing them — `This is the reason:` was cut for exactly that.
 
-Simple is last, not absent: plain words and short sentences wherever they take nothing
-away.
-
-**No figurative speech and no business speech.** Name the thing and say what happens to
-it, literally. A record does not carry, hold, walk, stand, ride, or land — a component
-writes it, reads it, or points at it. Nothing is bought, spent, or paid for unless money
-or a quota actually moves. Metaphor reads as precision and is not: *an intent carries a
-project* leaves a reader choosing between a field on the record, a link to another record,
-and something a later stage looks up. Where the literal sentence is longer, write the
-longer one — precise still beats concise.
-
-Corporate register is the same rule and was swept with it: nothing **is key**, there are
-no **touchpoints**, **handoffs**, or **readouts**, work is **in progress** rather than
-**in flight**, and a problem **appears** rather than **surfaces**. Say what the thing is
-or what it does. (Owner rule, 2026-08-14, replacing the licence for idiom that stood in
-`end-goal/CLAUDE.md`.)
-
-**Settled technical terms exempt.** A term the tree defines keeps its word even where the
-word is on the list above: a **hold** at a gate, a **standing** constraint, a **control**,
-a **straight** deploy, a window closing **clean** or **swept**, a **floor** under a
-parameter or a **ceiling** over it. What makes a term settled is that a section defines
-it, not that two paragraphs use it — so the exemption is checkable, and coining one to get
-around the ban is not it. Outside its definition the word is ordinary again: a record
-still does not hold its fields. (Owner rule, 2026-08-14.)
-
 Two habits follow. A rule is stated together with the downside it creates — no-batching
-with the human-UAT ceiling it creates. A qualification goes in an em-dash aside rather
-than a sentence of its own.
+with the human-UAT ceiling it creates. A qualification goes in an em-dash aside where
+the sentence still reads without it; where the aside is itself a claim the reader has to
+keep in mind, it becomes its own sentence. (Owner rule, 2026-08-15.)
 
-**Structure for a reader.** Prose here is read by humans, not only parsed. A long run of
-uniform paragraphs gets `###` subheadings; a set of parallel facts gets a table. When a
-table contains a definition, the prose around it must not restate the table — trim the
-prose to what the table cannot express.
+**Structure for a reader.** A long run of uniform paragraphs gets `###` subheadings; a
+set of parallel facts gets a table. When a table contains a definition, the prose around
+it must not restate the table — trim the prose to what the table cannot express.
 
 No hard wrap anywhere but the instruction files: one paragraph is one line, and the
-renderer does the rest. (Owner rule, 2026-08-13, replacing the 88-column wrap.) The
-instruction files — this one, `end-goal/CLAUDE.md`, and the root `README.md` — stay
-wrapped, which is how all three are written today.
+renderer does the rest. The instruction files — this one, `end-goal/CLAUDE.md`, and the
+root `README.md` — stay wrapped, which is how all three are written today. (Owner rule,
+2026-08-13.)
 
 ## Commits
 

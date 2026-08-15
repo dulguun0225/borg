@@ -142,6 +142,43 @@ is why the anchor check is separate. That one matches an anchor against every he
 the tree rather than against the target file's own, so it catches a renamed heading and not
 a link pointed at the wrong file.
 
+### The cold-read check
+
+The greps above find a link pointing at nothing. This finds a name pointing at nothing,
+which is the same defect one level down and the one that made the document unreadable.
+
+For each file this edit changed, dispatch a subagent with no other context and this
+instruction, verbatim:
+
+> Read only this file: `<path>`. Do not open any other file and do not follow any link. Judge
+> the file on its own, ignoring anything you were told about this repository elsewhere.
+>
+> List every term it uses as though already defined and does not define. Put each in one of
+> two groups: **unlinked**, where the sentence using the term offers no link to follow, and
+> **linked**, where it does. Quote the sentence where each first appears. Return the two
+> lists and nothing else.
+
+Only the unlinked list is a failure, and a non-empty one means the edit is not finished. Fix
+each by introducing the term where it is first used, linking it to the section that defines
+it, or adding it to [`glossary.md`](glossary.md) and linking there. The linked list is the
+rule already satisfied — a term linked to its definition is introduced, which is the
+treatment the six known forward references get — and it is worth reading once for a link
+that points somewhere too far from the sentence to help.
+
+Both lists are long on a file that summarises the whole document, and that is not a fault in
+the file: one link to the glossary at its first unlinked term is often the whole fix.
+
+The subagent has to be given nothing but the path. An agent that has read the rest of the
+document resolves every term and returns an empty list, which is exactly the blindness the
+check exists to defeat — the document has always been readable to whoever just wrote it.
+The instruction files are the leak in this: a subagent receives the repository's `CLAUDE.md`
+whether or not it is asked to, so a term defined there rather than here is resolvable to the
+check and not to a reader. Tell the subagent to judge the file on its own, and treat a term
+whose only definition is in an instruction file as unresolved however the check reports it.
+
+(Owner rule, 2026-08-15. What it costs is a subagent per changed file on every edit, and a
+check whose result is a judgment rather than a grep exit code.)
+
 Then read One pipeline → Intent into items → Gates → Risk score → Environments → Releases →
 Contracts → Operations → Gate policy → The fleet → Surfaces straight through and confirm one identity survives end to end: item
 plus build as a candidate, the same build in production, an ordinal attached at merge,

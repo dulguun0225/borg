@@ -9,5 +9,6 @@ A draft. Everything here is open to revision.
 | [How humans do it](how-humans-do-it/README.md) | Eleven sections in dependency order, one file each |
 | [Deferred, but not designed out](deferred.md) | Security last, adoption later, and the four seams that cost nothing now |
 | [Open](open.md) | What is not settled, phrased as the question and what turns on it |
+| [Glossary](glossary.md) | Every term used as though already defined, one line each, linked to the section that defines it |
 
-Read _What humans do_ before anything under `how-humans-do-it/`: a bare `(7)` or `(11, 12)` anywhere in the tree is a duty number from that list.
+Read _What humans do_ before anything under `how-humans-do-it/`: a bare `(7)` or `(11, 12)` anywhere in the tree is a duty number from that list. Reach for the [Glossary](glossary.md) whenever a sentence uses a name you cannot place.
