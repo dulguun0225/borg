@@ -1,8 +1,6 @@
 # Open
 
-Eight questions, all from sitting 1 of the interview. Each is deleted from here when it is folded into the file that owns its subject.
-
-**What says which stage an item is at, and who writes it?** [_Dispatch_](how-humans-do-it/02-intent-into-items.md#dispatch) matches the item's stage against the role, so something answers this — a field one component advances at each transition, or a fact derived from which artifacts exist and which gate decisions passed. Turns on: whether one component owns item state and every stage reports to it, or the stages are independent writers and an item's stage is a query over the graph.
+Seven questions, all from sitting 1 of the interview. Each is deleted from here when it is folded into the file that owns its subject.
 
 **What does dispatch read off an item, and what does a pin read?** An item names one service. Are its area and its project fields of the item, or facts of the service reached through it? Turns on: whether a scope match at dispatch and a pin (9) over an area read the item alone, or must join to the service record.
 
