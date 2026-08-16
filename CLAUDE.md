@@ -262,6 +262,13 @@ that ran the pass. (Owner rule, 2026-08-16.)
 Commit straight to `main`. The project is early; branches start when it is ready for
 them, and not before. Do not create one unasked. (Owner rule, 2026-08-13.)
 
+Push with `git push`. `origin` is an HTTPS URL and git pushes to it on its own, so
+whether the GitHub CLI is installed has nothing to do with a push — answering a request
+to push with `gh` being missing refuses work that would have succeeded. `gh` is for what
+git cannot do: pull requests, issues, the API. What it costs: `git push` publishes, so a
+commit is on the remote the moment it runs, and taking it back there is another commit.
+(Owner rule, 2026-08-17.)
+
 ## How a change to the end goal is recorded
 
 Change `end-goal/` directly. The commit is the record: the edit goes in the file that
