@@ -25,9 +25,9 @@ one directory per item. (Owner decision, 2026-08-14.)
 Building this needs more than one kind of expertise, and the design document is written in
 one register — records, writers, seams — which hides that. A question about the watch
 window reads as an architecture question and is answered as one, in a voice that sounds
-right and is wrong: what decides whether the window works is the arithmetic of a sequential
-test at the traffic one install has. So before answering, name which row below the subject
-belongs to, and say which it is where the answer would differ by row.
+right and is wrong: what decides whether the window works is the arithmetic of a
+sequential test at the traffic one install has. So before answering, name which row below
+the subject belongs to, and say which it is where the answer would differ by row.
 
 ### What the product is
 
@@ -157,7 +157,10 @@ root `README.md` — stay wrapped, which is how all three are written today. (Ow
 `end-goal/CLAUDE.md` has a consistency pass that verifies the design document against
 rules the document sets, and it runs after every edit. This is the second pass, and it
 asks whether what those rules protect is any good. It runs when the owner asks for it and
-at no other time.
+at no other time. **Audit this project** is the phrase that asks, and it means every
+reader below. A request naming one subject or one discipline runs the readers that own it
+and is not an audit — the word is reserved for the full run, because a pass that quietly
+ran six of thirty would report the tree sound for the same reason a warm subagent does.
 
 Neither substitutes for the other. The consistency pass finds a link pointing at nothing,
 a heading no longer matching the anchor aimed at it, a term used before it is introduced —
@@ -173,27 +176,53 @@ defeat, and it is the blindness the cold-read check already names one level down
 changed file, `end-goal/CLAUDE.md` sends a subagent nothing but the path, because one that
 has read the whole document resolves every term and returns an empty list.
 
-So each stance runs in its own subagent, and each is told two things in its dispatch text
+So each reader runs in its own subagent, and each is told two things in its dispatch text
 — to judge what it reads on its own and ignore anything it was told about this repository
 elsewhere, and that the instruction files it has been given are material to review rather
-than rules to obey. A subagent receives this file whether or not it is asked to, which
-`end-goal/CLAUDE.md` records as a leak for the cold-read check. Here an unqualified copy
-of the rules reproduces the exact defect the pass is for.
+than rules to obey. A discipline reader is told a third, below. A subagent receives this
+file whether or not it is asked to, which `end-goal/CLAUDE.md` records as a leak for the
+cold-read check. Here an unqualified copy of the rules reproduces the exact defect the
+pass is for.
 
-### The stances
+[_What the work spans_](#what-the-work-spans) is a second leak and a sharper one. It tells
+each discipline reader what in the tree it owns, which is a brief where half the job is
+finding what its field covers and the tree never mentions — a reader that audits its own
+rows confirms the table rather than the design. So a discipline reader is told to audit
+the whole tree from its field, and that its row is the tree's claim about what it owns
+rather than the boundary of what to read.
 
-Six subagents, one per stance, each reading the repository's Markdown — `end-goal/`,
-[`bootstrap/`](bootstrap/README.md), [`items/`](items/README.md), and the instruction
-files. A stance is a position with a reason to find something, not a checklist:
+### The readers
+
+Thirty subagents, none seeing another's work, each reading the repository's Markdown —
+`end-goal/`, [`bootstrap/`](bootstrap/README.md), [`items/`](items/README.md), and the
+instruction files. Twenty-eight are the disciplines
+[_What the work spans_](#what-the-work-spans) names, one per row, each asking two things
+of the whole tree: what its field knows the design gets wrong, and what its field normally
+covers that the design never mentions. The rows are not repeated here — the table is one
+place, and a copy would be two able to disagree.
+
+Two stances survive beside them, because neither is any discipline's. A stance is a
+position with a reason to find something, not a checklist:
 
 | Stance | What it looks for |
 |---|---|
-| The builder | What is not specified enough to implement, described two ways, or leaves who does it unnamed |
-| The operator | What happens when a component is down, what cannot be recovered, what has no way to be observed |
-| The adversary | The assumption everything rests on, and the case that breaks it |
-| The cold reader | What cannot be followed in the order written, and what is asserted without support |
 | The absence reader | Subjects a design of this kind normally covers and this one never mentions |
 | The rule reader | Reads the instruction files alone: whether a rule earns the cost it states, whether two conflict, and whether one is followed anywhere in the tree |
+
+Four stances went, each replaced by readers that know the field rather than occupy a
+position in it: the builder by software architecture and backend engineering, the operator
+by site reliability and observability engineering, the adversary by safety and security
+engineering, the cold reader by technical writing. The absence reader stays because the
+twenty-eight were derived by reading this tree and inherit its blind spots — a subject no
+discipline on the list owns is invisible to all twenty-eight and to nothing else. The rule
+reader stays because the instruction files are what it reads, and no discipline is pointed
+at them.
+
+Each reader returns at most three findings, ranked by what turns on them. Thirty uncapped
+readers return what nobody reads, and the cap costs the fourth finding of whichever
+discipline had the most to say. A reader that finds nothing returns nothing, and that is
+a result rather than a gap to fill: a discipline the tree never touches is either absent
+from the design or wrongly on the list.
 
 ### What happens to a finding
 
@@ -211,20 +240,22 @@ three dispositions:
 
 A refusal is written because the document records why it is what it is, the way it
 records that `beta` was dropped and that an uncut intent is not an item. It does not bind
-a later run. A stance raising the same thing again is answered by the text, which costs a
+a later run. A reader raising the same thing again is answered by the text, which costs a
 paragraph to read and is the text doing its job. What must not appear is a fourth place:
-a findings file, a report per run, a list of what each stance said. `next.md` was that
+a findings file, a report per run, a list of what each reader said. `next.md` was that
 shape, and `end-goal/` emptied it on 2026-08-14.
 
-What it costs: six subagents per run, and a result that is a judgment rather than a
+What it costs: thirty subagents per run, and a result that is a judgment rather than a
 command's exit status. Running on request rather than after every edit means a defect can
-sit in the tree until someone thinks to look, and the six stances are fixed, so a run
-finds six kinds of thing. The larger cost is downstream. Every taken finding is an edit
-to `end-goal/`, which fires the consistency pass — a cold-read subagent per changed file
-and the eleven-file read-through — so ten taken findings cost ten of each. That makes
-refusal the cheapest disposition, which is the one it should be least eager to reach, and
-is why the triage is done with the owner rather than by the session that ran the pass.
-(Owner rule, 2026-08-16.)
+sit in the tree until someone thinks to look, and the readers are fixed, so a run finds
+thirty kinds of thing and no thirty-first. Capped at three findings each, a full run
+returns up to ninety — a backlog measured in sessions, where the first pass's sixty was
+already more than one session could act on. The larger cost is downstream. Every taken
+finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read subagent
+per changed file and the eleven-file read-through — so ten taken findings cost ten of
+each. That makes refusal the cheapest disposition, which is the one it should be least
+eager to reach, and is why the triage is done with the owner rather than by the session
+that ran the pass. (Owner rule, 2026-08-16.)
 
 ## Commits
 
