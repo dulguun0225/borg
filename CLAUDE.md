@@ -238,6 +238,10 @@ three dispositions:
   noticing a loose end while doing something else.
 - **Refused** — the reason written into the file that owns the subject.
 
+Where more than one reader reached a finding separately, that is recorded with it wherever
+it lands, because independent arrival is evidence about the finding rather than about the
+reader. `end-goal/open.md` held that rule until the run it described was discarded.
+
 A refusal is written because the document records why it is what it is, the way it
 records that `beta` was dropped and that an uncut intent is not an item. It does not bind
 a later run. A reader raising the same thing again is answered by the text, which costs a
