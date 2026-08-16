@@ -153,11 +153,16 @@ root `README.md` — stay wrapped, which is how all three are written today. (Ow
 
 `end-goal/CLAUDE.md` has a consistency pass that verifies the design document against
 rules the document sets, and it runs after every edit. This is the second pass, and it
-asks whether what those rules protect is any good. It runs when the owner asks for it and
-at no other time. **Audit this project** is the phrase that asks, and it means every
-reader below. A request naming one subject or one discipline runs the readers that own it
-and is not an audit — the word is reserved for the full run, because a pass that quietly
-ran six of thirty would report the tree sound for the same reason a warm subagent does.
+asks whether what those rules protect is any good. A reader below runs when the owner
+names it, and readers run one at a time — the next starts after the previous returns. No
+phrase runs all of them, and no request means more readers than it names. There was one —
+**Audit this project** dispatched all thirty at once — and it was retired: one run spent
+a session limit in ten minutes and a fifth of a weekly model quota. What a partial run
+must not do is speak for the tree: its report names which readers ran, and a tree those
+readers found sound is not a tree found sound. A reader's subagent runs on a model and at
+an effort matched to what it judges — quality of the work decides first, tokens second,
+time last, so a doubt between two tiers resolves to the higher, and the cheap tier is
+never a default. (Owner rule, 2026-08-17.)
 
 Neither substitutes for the other. The consistency pass finds a link pointing at nothing,
 a heading no longer matching the anchor aimed at it, a term used before it is introduced —
@@ -190,11 +195,11 @@ rather than the boundary of what to read.
 
 ### The readers
 
-Thirty subagents, none seeing another's work, each reading the repository's Markdown —
-`end-goal/` and the instruction files. Twenty-eight are the disciplines
-[_What the work spans_](#what-the-work-spans) names, one per row, each asking two things
-of the whole tree: what its field knows the design gets wrong, and what its field normally
-covers that the design never mentions. The rows are not repeated here — the table is one
+A roster of thirty, each run as one subagent reading the repository's Markdown —
+`end-goal/` and the instruction files — and none seeing another's work. Twenty-eight are
+the disciplines [_What the work spans_](#what-the-work-spans) names, one per row, each
+asking two things of the whole tree: what its field knows the design gets wrong, and what
+its field normally covers that the design never mentions. The rows are not repeated here — the table is one
 place, and a copy would be two able to disagree.
 
 Two stances survive beside them, because neither is any discipline's. A stance is a
@@ -214,17 +219,17 @@ discipline on the list owns is invisible to all twenty-eight and to nothing else
 reader stays because the instruction files are what it reads, and no discipline is pointed
 at them.
 
-Each reader returns at most three findings, ranked by what turns on them. Thirty uncapped
-readers return what nobody reads, and the cap costs the fourth finding of whichever
-discipline had the most to say. A reader that finds nothing returns nothing, and that is
-a result rather than a gap to fill: a discipline the tree never touches is either absent
-from the design or wrongly on the list.
+Each reader returns at most three findings, ranked by what turns on them. An uncapped
+reader returns what nobody reads, and the cap costs the fourth finding of a reader that
+had more to say. A reader that finds nothing returns nothing, and that is a result rather
+than a gap to fill: a discipline the tree never touches is either absent from the design
+or wrongly on the list.
 
 ### What happens to a finding
 
-A run returns more than one session can act on — the first was six stances and about
-sixty findings — so this is a triage and not a queue to empty. Each finding takes one of
-three dispositions:
+Findings accumulate faster than sessions act on them — the first run, six stances
+dispatched together, returned about sixty — so this is a triage and not a queue to empty.
+Each finding takes one of three dispositions:
 
 - **Taken** — folded into the file that owns the subject, with its reason and its cost.
 - **Carried** — a question in [`end-goal/open.md`](end-goal/open.md), phrased as the
@@ -245,12 +250,13 @@ paragraph to read and is the text doing its job. What must not appear is a fourt
 a findings file, a report per run, a list of what each reader said. `next.md` was that
 shape, and `end-goal/` emptied it on 2026-08-14.
 
-What it costs: thirty subagents per run, and a result that is a judgment rather than a
+What it costs: a subagent per reader named, and a result that is a judgment rather than a
 command's exit status. Running on request rather than after every edit means a defect can
-sit in the tree until someone thinks to look, and the readers are fixed, so a run finds
-thirty kinds of thing and no thirty-first. Capped at three findings each, a full run
-returns up to ninety — a backlog measured in sessions, where the first pass's sixty was
-already more than one session could act on. The larger cost is downstream. Every taken
+sit in the tree until someone thinks to look, and the readers are fixed, so they find
+thirty kinds of thing and no thirty-first. One reader per request means coverage is
+whatever the owner remembers to ask for — a defect in a field whose reader is never named
+sits indefinitely — and covering the roster costs thirty requests paid in latency where
+the retired full run paid in quota. The larger cost is downstream. Every taken
 finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read subagent
 per changed file and the eleven-file read-through — so ten taken findings cost ten of
 each. That makes refusal the cheapest disposition, which is the one it should be least
