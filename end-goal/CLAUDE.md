@@ -127,7 +127,7 @@ request. Every command below is scoped to `end-goal/` and run from the repositor
 nothing in a sibling directory is included in a check written for this one:
 
 ```bash
-grep -rh "^|---" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l          # expect 8: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
+grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 8: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
@@ -143,7 +143,7 @@ for p in glob.glob('end-goal/**/*.md', recursive=True):
         if not os.path.exists(os.path.join(os.path.dirname(p), f)): print('dangling:', p, '->', t)
 "
 # every anchor matches a heading — expect no output
-comm -23 <(grep -rho "]([^)]*#[a-z0-9-]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
+comm -23 <(grep -rho "]([^)]*#[^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
          <(grep -rh "^#\{1,3\} " --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/^#* //; s/[^A-Za-z0-9 -]//g; s/ /-/g' | tr 'A-Z' 'a-z' | sort -u)
 ```
 
@@ -175,7 +175,7 @@ Only the unlinked list is a failure, and a non-empty one means the edit is not f
 each by introducing the term where it is first used, linking it to the section that defines
 it, or adding it to [`glossary.md`](glossary.md) and linking there. The linked list is the
 rule already satisfied — a term linked to its definition is introduced, which is the
-treatment the six known forward references get — and it is worth reading once for a link
+treatment six of the seven known forward references get — and it is worth reading once for a link
 that points somewhere too far from the sentence to help.
 
 Both lists are long on a file that summarises the whole document, and that is not a fault in

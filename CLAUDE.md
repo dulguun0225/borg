@@ -128,23 +128,34 @@ files. A stance is a position with a reason to find something, not a checklist:
 
 ### What happens to a finding
 
-Every finding is taken or refused in the session that ran the pass, and nothing outlives
-it. Two shapes it must not take: a findings list kept outside the sections that own its
-subjects, which is what retired `next.md`, the work list `end-goal/` emptied on
-2026-08-14; and a record carried forward to bind later work, which **How a change to the
-end goal is recorded** refuses below.
+A run returns more than one session can act on — the first was six stances and about
+sixty findings — so this is a triage and not a queue to empty. Each finding takes one of
+three dispositions:
 
 - **Taken** — folded into the file that owns the subject, with its reason and its cost.
-- **Unsettled, and an owner has to decide it** — a question in
-  [`end-goal/open.md`](end-goal/open.md), phrased as the question and what turns on it.
-- **Refused** — the reason written into the file that owns the subject, so a later run
-  does not raise it again. `end-goal/CLAUDE.md` records the precedent: when `next.md` was
-  emptied, what was refused had its reason written into the same file as what was taken.
+- **Carried** — a question in [`end-goal/open.md`](end-goal/open.md), phrased as the
+  question and what turns on it. That file is the backlog, and it already sets what may
+  sit there: genuinely unsettled, with an owner as who decides it. A review-pass finding
+  meets the other test it sets too — the subject raised it, rather than a session
+  noticing a loose end while doing something else.
+- **Refused** — the reason written into the file that owns the subject.
+
+A refusal is written because the document records why it is what it is, the way it
+records that `beta` was dropped and that an uncut intent is not an item. It does not bind
+a later run. A stance raising the same thing again is answered by the text, which costs a
+paragraph to read and is the text doing its job. What must not appear is a fourth place:
+a findings file, a report per run, a list of what each stance said. `next.md` was that
+shape, and `end-goal/` emptied it on 2026-08-14.
 
 What it costs: six subagents per run, and a result that is a judgment rather than a
 command's exit status. Running on request rather than after every edit means a defect can
 sit in the tree until someone thinks to look, and the six stances are fixed, so a run
-finds six kinds of thing. (Owner rule, 2026-08-16.)
+finds six kinds of thing. The larger cost is downstream. Every taken finding is an edit
+to `end-goal/`, which fires the consistency pass — a cold-read subagent per changed file
+and the eleven-file read-through — so ten taken findings cost ten of each. That makes
+refusal the cheapest disposition, which is the one it should be least eager to reach, and
+is why the triage is done with the owner rather than by the session that ran the pass.
+(Owner rule, 2026-08-16.)
 
 ## Commits
 
