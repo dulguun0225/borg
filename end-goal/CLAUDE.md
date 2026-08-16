@@ -120,9 +120,11 @@ commit contradicted. (Owner rule, 2026-08-13.)
 
 ## Verification
 
-There are no tests. After editing, run the consistency pass. Every command is scoped to
-`end-goal/` and run from the repository root, so nothing in a sibling directory is
-included in a check written for this one:
+There are no tests. After editing, run the consistency pass. It checks this document
+against rules this file and the root `CLAUDE.md` set, and finds nothing they do not name —
+the review pass in the root `CLAUDE.md` is what looks for the rest, dispatched cold and on
+request. Every command below is scoped to `end-goal/` and run from the repository root, so
+nothing in a sibling directory is included in a check written for this one:
 
 ```bash
 grep -rh "^|---" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l          # expect 8: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy

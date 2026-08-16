@@ -83,6 +83,69 @@ renderer does the rest. The instruction files — this one, `end-goal/CLAUDE.md`
 root `README.md` — stay wrapped, which is how all three are written today. (Owner rule,
 2026-08-13.)
 
+## The review pass
+
+`end-goal/CLAUDE.md` has a consistency pass that verifies the design document against
+rules the document sets, and it runs after every edit. This is the second pass, and it
+asks whether what those rules protect is any good. It runs when the owner asks for it and
+at no other time.
+
+Neither substitutes for the other. The consistency pass finds a link pointing at nothing,
+a heading no longer matching the anchor aimed at it, a term used before it is introduced —
+defects the rules name, which is why a grep finds most of them. The review pass finds a
+design that would not work, a subject the tree never mentions, and a rule costing more
+than it returns. Nothing in the repository looked for those until 2026-08-16.
+
+### Why it is dispatched cold
+
+An agent that has read the instruction files audits against them and reports the tree
+sound, because every rule in it is satisfied. That is the failure this pass exists to
+defeat, and it is the blindness the cold-read check already names one level down: on each
+changed file, `end-goal/CLAUDE.md` sends a subagent nothing but the path, because one that
+has read the whole document resolves every term and returns an empty list.
+
+So each stance runs in its own subagent, and each is told two things in its dispatch text
+— to judge what it reads on its own and ignore anything it was told about this repository
+elsewhere, and that the instruction files it has been given are material to review rather
+than rules to obey. A subagent receives this file whether or not it is asked to, which
+`end-goal/CLAUDE.md` records as a leak for the cold-read check. Here an unqualified copy
+of the rules reproduces the exact defect the pass is for.
+
+### The stances
+
+Six subagents, one per stance, each reading the repository's Markdown — `end-goal/`,
+[`bootstrap/`](bootstrap/README.md), [`items/`](items/README.md), and the instruction
+files. A stance is a position with a reason to find something, not a checklist:
+
+| Stance | What it looks for |
+|---|---|
+| The builder | What is not specified enough to implement, described two ways, or leaves who does it unnamed |
+| The operator | What happens when a component is down, what cannot be recovered, what has no way to be observed |
+| The adversary | The assumption everything rests on, and the case that breaks it |
+| The cold reader | What cannot be followed in the order written, and what is asserted without support |
+| The absence reader | Subjects a design of this kind normally covers and this one never mentions |
+| The rule reader | Reads the instruction files alone: whether a rule earns the cost it states, whether two conflict, and whether one is followed anywhere in the tree |
+
+### What happens to a finding
+
+Every finding is taken or refused in the session that ran the pass, and nothing outlives
+it. Two shapes it must not take: a findings list kept outside the sections that own its
+subjects, which is what retired `next.md`, the work list `end-goal/` emptied on
+2026-08-14; and a record carried forward to bind later work, which **How a change to the
+end goal is recorded** refuses below.
+
+- **Taken** — folded into the file that owns the subject, with its reason and its cost.
+- **Unsettled, and an owner has to decide it** — a question in
+  [`end-goal/open.md`](end-goal/open.md), phrased as the question and what turns on it.
+- **Refused** — the reason written into the file that owns the subject, so a later run
+  does not raise it again. `end-goal/CLAUDE.md` records the precedent: when `next.md` was
+  emptied, what was refused had its reason written into the same file as what was taken.
+
+What it costs: six subagents per run, and a result that is a judgment rather than a
+command's exit status. Running on request rather than after every edit means a defect can
+sit in the tree until someone thinks to look, and the six stances are fixed, so a run
+finds six kinds of thing. (Owner rule, 2026-08-16.)
+
 ## Commits
 
 Commit straight to `main`. The project is early; branches start when it is ready for
