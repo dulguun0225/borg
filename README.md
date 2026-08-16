@@ -26,3 +26,15 @@ seams — hides that. [CLAUDE.md](CLAUDE.md) names what each of these owns.
   engineering.
 - **What the factory answers to** — security engineering, supply chain security, trust and
   safety, audit and compliance, legal, cost engineering.
+
+## The review pass
+
+Every discipline named above is also a reader — a subagent run by name, one at a time,
+that audits the whole tree from its field ([CLAUDE.md](CLAUDE.md#the-review-pass) sets
+how one is dispatched). Two readers are no discipline's:
+
+- **the absence reader** — subjects a design of this kind normally covers and this one
+  never mentions
+- **the rule reader** — the instruction files alone: whether a rule earns its cost
+
+Name one to run it: "run the security engineering reader".
