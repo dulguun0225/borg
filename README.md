@@ -12,3 +12,20 @@ by hand until it can adopt a codebase it did not build, which is the point it ca
 itself. What those stages write about one item is in [items/](items/README.md), a
 directory per item. Code is added beside all three as it arrives, never inside any of
 them.
+
+## What building it takes
+
+More than one kind of engineering, and the design document's register — records, writers,
+seams — hides that. [CLAUDE.md](CLAUDE.md) names what each of these owns.
+
+- **What the product is** — product management, product design, design systems, technical
+  writing.
+- **What the factory decides** — applied statistics and sequential testing, risk scoring,
+  requirements engineering, formal methods, safety engineering, human factors.
+- **What the factory is made of** — software architecture, backend engineering, frontend
+  engineering, data architecture, agent engineering, program analysis.
+- **What the factory runs** — release engineering, database migration engineering, site
+  reliability engineering, observability engineering, test architecture, platform
+  engineering.
+- **What the factory answers to** — security engineering, supply chain security, trust and
+  safety, audit and compliance, legal, cost engineering.

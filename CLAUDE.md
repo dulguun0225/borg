@@ -20,6 +20,75 @@ subject and never into `bootstrap/`, which holds process and not design. A spec,
 implementation plan, or a set of tasks goes under [`items/`](items/README.md) instead,
 one directory per item. (Owner decision, 2026-08-14.)
 
+## What the work spans
+
+Building this needs more than one kind of expertise, and the design document is written in
+one register — records, writers, seams — which hides that. A question about the watch
+window reads as an architecture question and is answered as one, in a voice that sounds
+right and is wrong: what decides whether the window works is the arithmetic of a sequential
+test at the traffic one install has. So before answering, name which row below the subject
+belongs to, and say which it is where the answer would differ by row.
+
+### What the product is
+
+| Discipline | What in the tree it owns |
+|---|---|
+| Product management | Whether a self-hosted factory with one customer per install is worth having, and what the no-tenancy decision costs |
+| Product design | The four surfaces, and a home view that is empty whenever the factory is working |
+| Design systems | The design system a project holds as a standing constraint: what a machine can check, and what a designer has to produce as code before anything checks it |
+| Technical writing | The document itself — one name per concept held constant, the glossary, and the cross-references that make its claims interlock |
+
+### What the factory decides
+
+| Discipline | What in the tree it owns |
+|---|---|
+| Applied statistics and sequential testing | The watch window: a boundary valid at every point it is read, the size and confidence an owner authors, and whether `clean` is reachable at all on a quiet service |
+| Risk scoring | The score's factors, its published formula, its calibration, and a loop trained on outcomes its own decisions selected |
+| Requirements engineering | The six criterion patterns, and the unwanted conditions a pattern-perfect set can still omit |
+| Formal methods | The item, gate, hold, and rollback lifecycle as a state machine, and whether it deadlocks |
+| Safety engineering | One path with no second path, and what an analysis over a control structure of that shape finds |
+| Human factors | What a human at a gate does when nearly every gate auto-passes, and what a page that reaches everybody does to the next one |
+
+### What the factory is made of
+
+| Discipline | What in the tree it owns |
+|---|---|
+| Software architecture | Component boundaries, one writer per record, and the seam declared between two |
+| Backend engineering | The record graph and the components that write it |
+| Frontend engineering | The four surfaces as software |
+| Data architecture | Backup, restore, retention, and records written by one version of a self-hosted product that the next version has to read |
+| Agent engineering | The fleet — a model in a role with a scope — what a stage's agent is given, and how one is evaluated |
+| Program analysis | Deriving a consumer's declaration from its build, which differs per toolchain |
+
+### What the factory runs
+
+| Discipline | What in the tree it owns |
+|---|---|
+| Release engineering | The merge queue, the two rollout strategies, K, and a rollback's target |
+| Database migration engineering | The store's forward promise, which is what a rollback across a schema change rests on |
+| Site reliability engineering | Pages, escalation, incidents, and the reconciler |
+| Observability engineering | The quantity the comparison reads, and instrumenting software the factory wrote so that it emits one |
+| Test architecture | What runs on a candidate environment, every pre-merge check being decided against that run |
+| Platform engineering | An environment per candidate, and a place for a service the cut creates |
+
+### What the factory answers to
+
+| Discipline | What in the tree it owns |
+|---|---|
+| Security engineering | The four seams, and the policy that attaches at the one between an agent and a deploy target |
+| Supply chain security | Dependencies the factory adds on its own — versions, vulnerabilities, and licenses |
+| Trust and safety | The report channel, which is the one way in from outside the factory |
+| Audit and compliance | Traceability as a claim made to an auditor, and segregation of duties in a system that authors, approves, and deploys |
+| Legal | Laws and regulations as standing constraints, and licensing a product a customer self-hosts |
+| Cost engineering | Cost per feature, the provider's quota, and the spend ceiling the tree refuses |
+
+What it costs: a list this long names something for every question and so settles none of
+them, and most sessions touch one row or two. It also describes a factory that does not
+exist yet, so a row will turn out to be an afternoon's work rather than a discipline. Its
+use is to stop an answer being given in the wrong register, and it staffs nothing.
+[`README.md`](README.md) names the same disciplines and links here for what each owns.
+(Owner rule, 2026-08-16.)
+
 ## Writing style
 
 Governs every file in this repository — the design document under `end-goal/`,
