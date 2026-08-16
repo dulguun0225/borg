@@ -3,22 +3,20 @@
 ## What this repository is
 
 A monorepo for building the software factory [README.md](README.md) describes. It holds
-the design document under `end-goal/`, the record of building toward it under
-`bootstrap/`, and the artifacts each stage writes for one item under `items/`. Code is
-added beside those three as it arrives, never inside any of them — `end-goal/` is the
-state the repository is built toward, not a record of what it currently does.
+the design document under `end-goal/`. Code is added beside it as it arrives, never
+inside it — `end-goal/` is the state the repository is built toward, not a record of what
+it currently does.
+
+The factory is built as ordinary software and does not run its own pipeline over itself.
 
 **Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** It has its own
 editing rules and a consistency pass to run after every edit, which govern that directory
 alone and say nothing about code. **Writing style** below is what governs prose
 everywhere, that directory included; it sat in `end-goal/CLAUDE.md` until 2026-08-14.
 
-**Read [`bootstrap/README.md`](bootstrap/README.md) before starting work.** It has the
-plan and where the work has got to, and it is the only place that says what work is under
-way. A decision reached while working folds into the `end-goal/` file that owns the
-subject and never into `bootstrap/`, which holds process and not design. A spec, an
-implementation plan, or a set of tasks goes under [`items/`](items/README.md) instead,
-one directory per item. (Owner decision, 2026-08-14.)
+A decision reached while working folds into the `end-goal/` file that owns the subject.
+Nothing else in the repository records one — there is no plan file, no status file, and
+nothing that says what work is under way. (Owner rule, 2026-08-14.)
 
 ## What the work spans
 
@@ -91,9 +89,8 @@ use is to stop an answer being given in the wrong register, and it staffs nothin
 
 ## Writing style
 
-Governs every file in this repository — the design document under `end-goal/`,
-`bootstrap/`, this file, commit bodies — and anything written about them, a reply in the
-terminal included.
+Governs every file in this repository — the design document under `end-goal/`, this file,
+commit bodies — and anything written about them, a reply in the terminal included.
 
 **Precise, then literal, then understandable, then concise, then simple.** The order is
 the rule and only does work where they conflict. Simple is last, not absent: plain words
@@ -194,8 +191,7 @@ rather than the boundary of what to read.
 ### The readers
 
 Thirty subagents, none seeing another's work, each reading the repository's Markdown —
-`end-goal/`, [`bootstrap/`](bootstrap/README.md), [`items/`](items/README.md), and the
-instruction files. Twenty-eight are the disciplines
+`end-goal/` and the instruction files. Twenty-eight are the disciplines
 [_What the work spans_](#what-the-work-spans) names, one per row, each asking two things
 of the whole tree: what its field knows the design gets wrong, and what its field normally
 covers that the design never mentions. The rows are not repeated here — the table is one
