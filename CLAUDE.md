@@ -152,6 +152,25 @@ renderer does the rest. The instruction files — this one, `end-goal/CLAUDE.md`
 root `README.md` — stay wrapped, which is how all three are written today. (Owner rule,
 2026-08-13.)
 
+## Delegate by default
+
+Route work to the agent roster in `~/.claude/agents/` instead of doing it in the main
+context, without being asked. Each agent's definition already carries the model and
+effort matched to its tier — scout on haiku for lookups, coder for scoped edits,
+deep-worker at high effort for correctness-critical work — so routing to the right
+agent is routing to the right model. The routing table is the `description:` line of
+each agent file; when in doubt between two agents, the tier ladder is quality > tokens
+> time and a doubt resolves upward.
+
+What stays in the main context: triage and routing itself, anything the user must
+decide, conversation-spanning work an agent cannot see, and answers so small that
+dispatch costs more than it saves.
+
+Agents run as the task shapes them — sequentially when dependent, in parallel only when
+genuinely independent and few. This does not touch the borg review pass: its readers
+still run only when the owner names them, one at a time, per that project's CLAUDE.md.
+(Owner rule, 2026-08-17.)
+
 ## Code
 
 Code lives in `factory/` — beside `end-goal/`, never inside it — written in Go against
