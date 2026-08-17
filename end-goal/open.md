@@ -1,5 +1,11 @@
 # Open
 
-Nothing is open.
+A question belongs here when an [owner](what-humans-do.md) is who decides it and [the tree](glossary.md) cannot answer it by applying a pattern it already holds. It is phrased as the question and what turns on it, and it is deleted from here when it is folded into the file that owns its subject.
 
-A question belongs here when an owner is who decides it and the tree cannot answer it by applying a pattern it already holds. It is phrased as the question and what turns on it, and it is deleted from here when it is folded into the file that owns its subject.
+## How does a verdict join the chain?
+
+A [decision](how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it) is one record with two writes — opened when the gate fires, closed when the verdict is given — and it is written into the append-only log whose chain seam 2 of [_Deferred, but not designed out_](deferred.md) says is what makes it evidence. A record is chained when it is appended, so a verdict written onto it later is either outside what the chain covers or a rewrite of a chained record — and a record rewritten afterwards is what [_The reconciler_](how-humans-do-it/08-operations.md#the-reconciler) names as the one thing the log cannot catch. What turns on it is whether the chain can tell a verdict from tampering, on the field the [audit trail](deferred.md) exists to protect. The likely answer is that closing appends a second record naming the one it closes, which is the shape "one record, two writes at two events" currently refuses; the owner decides, because either answer changes the decision's shape in [_Gates_](how-humans-do-it/03-gates.md) and what seam 2 promises.
+
+## What survives a lost disk or a factory upgrade?
+
+The tree keeps every record for the life of the install and lets an owner author [retention](how-humans-do-it/09-gate-policy.md#what-is-not-in-it) on two of them, and that is all it says about the store's life: nothing about backing [the graph](what-the-factory-does.md#tight-integration) up, restoring it, or a record written by one version of a self-hosted product being readable by the next — and upgrading the factory is already the owner's, as part of [hosting it](what-humans-do.md). A lost disk today loses the records, the log the [risk score](how-humans-do-it/04-risk-score.md) learns from, and the audit trail, and the design does not say so. What turns on it is whether this is a third subject [_Deferred, but not designed out_](deferred.md) sequences away — stated with what the wait costs, beside security and adoption — or work the design answers before anything rests on the log as evidence; the owner decides which.
