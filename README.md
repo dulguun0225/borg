@@ -6,7 +6,8 @@ its own bugs, on its own.
 
 Nothing is built yet. What exists is the design, in [end-goal/](end-goal/README.md): the
 state this repository is built toward, not a record of what it does. Code is added beside
-it as it arrives, never inside it.
+it as it arrives, never inside it. The order it is built in is
+[roadmap.md](roadmap.md) — milestones, not progress.
 
 The factory is built as ordinary software. It does not run its own pipeline over itself.
 

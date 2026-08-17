@@ -15,8 +15,11 @@ alone and say nothing about code. **Writing style** below is what governs prose
 everywhere, that directory included; it sat in `end-goal/CLAUDE.md` until 2026-08-14.
 
 A decision reached while working folds into the `end-goal/` file that owns the subject.
-Nothing else in the repository records one — there is no plan file, no status file, and
-nothing that says what work is under way. (Owner rule, 2026-08-14.)
+The one other planning record is [`roadmap.md`](roadmap.md) — the order the factory is
+built in, as milestones — which records order and never progress. Beyond those two,
+nothing in the repository records a decision: there is still no status file and nothing
+that says what work is under way or how far along it is. (Owner rule, 2026-08-14;
+roadmap excepted 2026-08-17.)
 
 ## What the work spans
 
@@ -148,6 +151,37 @@ No hard wrap anywhere but the instruction files: one paragraph is one line, and 
 renderer does the rest. The instruction files — this one, `end-goal/CLAUDE.md`, and the
 root `README.md` — stay wrapped, which is how all three are written today. (Owner rule,
 2026-08-13.)
+
+## Code
+
+Code lives in `factory/` — beside `end-goal/`, never inside it — written in Go against
+PostgreSQL. Go because the compiler makes an import cycle an error and the ecosystem
+leans on neither reflection nor DI containers; PostgreSQL from the first record because
+the owner expects the project to need it, and starting there means the chained log is
+never migrated. `mise.toml` at the root pins the toolchain, and
+`factory/docker-compose.yml` runs the dev database.
+
+Five rules govern how it is written, set because the code's readers are LLMs as much as
+humans (owner rule, 2026-08-17):
+
+- **Feature-sliced packages with hard boundaries.** One package owns one thing — its
+  schema, its writer, its doc — so a task touches a few files in one directory rather
+  than fifteen across five layers, and the relevant context fits in a window without
+  retrieval.
+- **Explicit over implicit.** No runtime reflection, no DI container, no string-keyed
+  dispatch, no codegen the source does not show. Everything a static reader — human,
+  model, or graph extractor — needs is in the text.
+- **Locality.** Small files, shallow indirection, low fan-out.
+- **Machine-checked dependency direction.** `factory/deps.txt` is the allowed package
+  graph, `cmd/depscheck` fails the build on an edge not in it, and the compiler already
+  refuses cycles — so a wrongly wired package is caught by the build, not by a reviewer.
+- **The map ships with the code.** `factory/README.md` names every package and the
+  allowed edges; each package's `doc.go` says what it owns, who may write what, and
+  which `end-goal/` section defines the concept it implements.
+
+What the rules cost: more packages than a layered design would have, and a duplicated
+line where two features would otherwise share a helper — locality is paid for in
+repetition, and the repetition is the cheaper of the two.
 
 ## The review pass
 

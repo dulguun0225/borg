@@ -1,0 +1,22 @@
+# Dev PostgreSQL for the factory. Tests read DATABASE_URL and default to this
+# instance: postgres://factory:factory@localhost:5433/factory
+# Port 5433 on the host so a locally installed Postgres on 5432 is untouched.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: factory
+      POSTGRES_PASSWORD: factory
+      POSTGRES_DB: factory
+    ports:
+      - "5433:5432"
+    volumes:
+      - factory-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factory -d factory"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  factory-pgdata:
