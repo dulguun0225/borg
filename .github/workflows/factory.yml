@@ -1,0 +1,69 @@
+# Everything M0 is demonstrated by, on a PostgreSQL the workflow starts. The
+# database tests do not skip when the database is unreachable, so a service
+# container that fails to start fails the run rather than turning it green.
+#
+# -count=1 is what makes that true, and it is not a habit: go test caches a
+# result against the test binary, the command line, and the files and
+# environment variables the test read, none of which is the database. A
+# re-run of the same commit therefore reports the cached ok without opening a
+# socket, and setup-go restores GOCACHE keyed on go.sum, which does not change
+# between those re-runs. Without the flag a run with no database at all is
+# green.
+name: factory
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: factory
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: factory
+          POSTGRES_PASSWORD: factory
+          POSTGRES_DB: factory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U factory -d factory"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+
+    env:
+      DATABASE_URL: postgres://factory:factory@localhost:5432/factory
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The toolchain is pinned in two files that have to agree: mise.toml is
+      # what a developer's shell reads, go.mod is what this workflow reads.
+      - name: mise.toml and go.mod name the same Go
+        run: |
+          mise=$(sed -n 's/^go = "\(.*\)"$/\1/p' ../mise.toml)
+          mod=$(sed -n 's/^go \(.*\)$/\1/p' go.mod)
+          echo "mise.toml names $mise, go.mod names $mod"
+          [ -n "$mise" ] && [ "$mise" = "$mod" ]
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: factory/go.mod
+          cache-dependency-path: factory/go.sum
+
+      - run: go vet ./...
+
+      - run: go run ./cmd/depscheck
+
+      - run: go test -count=1 ./...
