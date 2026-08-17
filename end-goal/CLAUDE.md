@@ -86,6 +86,18 @@ surfaces take that treatment at the first use of each name in a file rather than
 use: the four recur as ordinary nouns in nearly every file, and a link on each would put
 one in most paragraphs.
 
+**Link a term at its first use in each file.** A term defined in another file is linked
+at its first use in each file that uses it, to the section that defines it, with
+[`glossary.md`](glossary.md) as the fallback; later uses stay bare. The glossary is the
+registry: a term worth linking is a term with a glossary line, so a new term enters the
+tree by getting its line there. What stays bare, deliberately: the bare duty numbers,
+which `README.md` already makes a convention; **the factory** and the **owner**, the
+document's subject and its reader; a file's own defined terms; external proper nouns —
+EARS, REST, gRPC, protobuf, Kafka, OpenAPI; and ordinary words that are not the settled
+term — a builder of the product, substrate, a queue's rotation. What it costs is that a
+first edit to an old paragraph sometimes owes a link the paragraph never had. (Owner
+rule, 2026-08-17.)
+
 **Never cross-reference by position.** "The second open question" broke the moment a
 bullet was resolved and removed. Refer to things by name. A link's path may contain a
 number; its text never does.
@@ -145,6 +157,37 @@ for p in glob.glob('end-goal/**/*.md', recursive=True):
 # every anchor matches a heading — expect no output
 comm -23 <(grep -rho "]([^)]*#[^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
          <(grep -rh "^#\{1,3\} " --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/^#* //; s/[^A-Za-z0-9 -]//g; s/ /-/g' | tr 'A-Z' 'a-z' | sort -u)
+# every distinctive glossary term a file uses is linked in that file — expect no output
+python3 - <<'EOF'
+import os, re, glob
+gl = open('end-goal/glossary.md', encoding='utf-8').read()
+terms = {}  # term -> the defining target its glossary line ends with; deleting a line removes its coverage
+for line in gl.splitlines():
+    m = re.match(r'- \*\*(.+?)\*\*.*\]\(([^)]+)\)\s*$', line)
+    if m and (' ' in m.group(1) or m.group(1) == 'K'):
+        terms[m.group(1)] = m.group(2)
+SKIP = {  # (file, term) where the bare phrase is a different sense
+    ('04-risk-score.md', 'the number'),   # the score's number
+    ('09-gate-policy.md', 'the number'),  # the score's number
+    ('10-fleet.md', 'the number'),        # the cost number
+}
+for p in sorted(glob.glob('end-goal/**/*.md', recursive=True)):
+    base = os.path.basename(p)
+    if base in ('CLAUDE.md', 'glossary.md', 'README.md'): continue
+    text = open(p, encoding='utf-8').read()
+    links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', text)
+    bare = re.sub(r'\[[^\]]*\]\([^)]*\)', ' ', text)
+    for term, target in terms.items():
+        if (base, term) in SKIP or os.path.basename(target.split('#')[0]) == base: continue
+        if re.search(r'\*\*' + re.escape(term) + r's?\*\*', text, re.I): continue
+        if not re.search(r'\b' + re.escape(term) + r's?\b', bare, 0 if term == 'K' else re.I): continue
+        anchor = '#' + target.split('#')[1] if '#' in target else None
+        tfile = os.path.basename(target.split('#')[0])
+        if not any(term.lower() in lt.lower() or (anchor and lt2.endswith(anchor))
+                   or (not anchor and os.path.basename(lt2.split('#')[0]) == tfile)
+                   for lt, lt2 in links):
+            print(f'{p}: {term}')
+EOF
 ```
 
 The link check resolves each path against the directory of the file it appears in, which a
@@ -154,6 +197,15 @@ anchors — it strips fragments and skips same-file links — which is why the a
 is separate. That one matches an anchor against every heading in the tree rather than
 against the target file's own, so it catches a renamed heading and not a link pointed at
 the wrong file.
+
+The coverage check enforces the link-at-first-use rule at the level a grep can: its term
+list is the glossary's multi-word terms plus **K**, and a file that uses one must link
+the term itself or link a section the glossary names as defining it. A term is skipped
+in the file whose section defines it, in a file that introduces it in bold, and where
+the `SKIP` set names the pair — a bare phrase meaning something else, which is what put
+the score's number there against the release's. What it cannot judge stays the
+cold-read check's: single-word terms, whose bare uses are usually ordinary English, and
+whether the link sits at the first use rather than a later one.
 
 ### The cold-read check
 
