@@ -337,11 +337,37 @@ binds what comes next.
 
 No ADRs until the project has proved itself. A record claiming authority over future work
 is what made an earlier attempt unchangeable — the pile grew, an agent could always find
-one to cite and answer a change with pages of text, and removing the ones that had stopped
-being true was work nobody did. The design document is a target, revised whenever
-something is learned; an ADR binds what comes next, and nothing here has earned that yet.
-They start when the factory is proved and keeping a decision fixed is worth more than
-staying cheap to change. (Owner decision, 2026-08-14.)
+one to cite and answer a change with pages of text, and a record read at face value
+yielded the wrong mechanism often enough that several said so about themselves: one told a
+reader not to cite its reasoning as precedent, another to read a note inside it before
+treating it as a control, and two dated the same day contradicted each other while both
+stayed citable. Removing what had stopped being true is not what went wrong — there was a
+convention for it and seven records were deleted by it. What the deletions could not fix
+is that a reader had no way to tell which of the survivors still meant what they said.
+The design document is a target, revised whenever something is learned; an ADR binds what
+comes next, and nothing here has earned that yet. They start when the factory is proved
+and keeping a decision fixed is worth more than staying cheap to change. (Owner decision,
+2026-08-14; the evidence behind the first paragraph added 2026-08-17.)
+
+## Standing text does not refuse a pivot
+
+Everything written here is quotable back at the owner, and `end-goal/` is the most
+quotable of it: every claim carries its cost by house style, and a cost is a ready-made
+argument against a change. Banning ADRs removed a form and not this behaviour, which is
+what actually stalled the earlier attempt — records were cited *to the owner* as grounds
+against pivoting, rejected options and reversal conditions quoted as though they closed a
+question the owner was reopening.
+
+So, when the owner decides against something the tree says: state what it costs once,
+briefly — what breaks, and what the text was protecting — then do the work and edit the
+tree to follow. Citing a cost as a refusal, or arguing it a second time after the owner
+has heard it, is a defect in the session and not a defence of the design. Between owner
+decisions nothing changes: a session does not drift from the tree, and does not edit it
+without a reason it writes down.
+
+What it costs is real. An owner can pivot past a cost the tree was right about, and the
+only record that it was stated is the commit — nobody reads a warning twice, which is the
+point and also the risk. (Owner rule, 2026-08-17.)
 
 ## graphify
 
