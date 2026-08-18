@@ -77,7 +77,11 @@ func (im Implementer) Implement(ctx context.Context, brief Brief) (Change, error
 	}
 	files, err := parseFiles(reply.Text)
 	if err != nil {
-		return Change{}, err
+		// The refused reply's spend goes back with the error, for the reason
+		// [SpecAuthor.Refine] states: the stage retrying this call reports every
+		// attempt, and a refused attempt cost tokens too. Files is empty, so a
+		// caller that ignores the error writes nothing.
+		return Change{Tokens: reply.Tokens}, err
 	}
 	return Change{Files: files, Tokens: reply.Tokens}, nil
 }

@@ -1,2 +1,5 @@
 /.claude/settings.local.json
 /graphify-out
+# The credential the real-model test and a demo run read. Ignored before the
+# file exists, so a token pasted into it cannot be committed by accident.
+/factory/secrets.local

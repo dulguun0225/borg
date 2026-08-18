@@ -39,8 +39,8 @@ func TestEncodingsReadsTestFilesOnly(t *testing.T) {
 		"pkg/a_test.go": "package pkg\n\n// encodes " + named + "\nfunc Test_" + named + "(t *testing.T) {}\n",
 		// Not a _test.go file, so its id is not an encoding.
 		"pkg/b.go": "package pkg\n\n// mentions " + elsewhere + "\n",
-		// A longer identifier containing the shape does not name it: the
-		// regexp's word boundaries refuse it.
+		// A longer identifier containing the shape does not name it: the id
+		// sits directly after a letter.
 		"pkg/c_test.go": "package pkg\n\nvar x = \"prefix" + embedded + "\"\n",
 	})
 
@@ -50,6 +50,43 @@ func TestEncodingsReadsTestFilesOnly(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0] != named {
 		t.Fatalf("Encodings = %v, want exactly [%s]", ids, named)
+	}
+}
+
+// TestATestNameNamesTheCriterion is the form the implementation role is asked
+// for and the one a real model wrote: the id in the test's name, where the
+// character before it is the underscore after `Test`. Nothing else in the file
+// mentions the id, so this passes only if a name alone counts.
+func TestATestNameNamesTheCriterion(t *testing.T) {
+	named := record.NewID(criterion.IDPrefix)
+	dir := checkout(t, map[string]string{
+		"a_test.go": "package main\n\nfunc Test_" + named + "(t *testing.T) {}\n",
+	})
+
+	ids, err := criterion.Encodings(dir)
+	if err != nil {
+		t.Fatalf("Encodings: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != named {
+		t.Fatalf("Encodings = %v, want exactly [%s] — a test's name names it", ids, named)
+	}
+}
+
+// TestALongerHexadecimalRunIsNotAnID is the other edge: an id is exactly
+// thirty-two hexadecimal characters, so a longer run's first thirty-two are
+// not one, and reading them out would name a criterion nothing has.
+func TestALongerHexadecimalRunIsNotAnID(t *testing.T) {
+	named := record.NewID(criterion.IDPrefix)
+	dir := checkout(t, map[string]string{
+		"a_test.go": "package main\n\n// " + named + "abc\n// " + named + "\n",
+	})
+
+	ids, err := criterion.Encodings(dir)
+	if err != nil {
+		t.Fatalf("Encodings: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != named {
+		t.Fatalf("Encodings = %v, want exactly [%s] — the longer run is not an id", ids, named)
 	}
 }
 

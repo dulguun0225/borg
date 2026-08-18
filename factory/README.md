@@ -23,7 +23,7 @@ What exists is milestone M0, [_The graph and the log_](../roadmap.md#m0--the-gra
 | [`build`](build) | A build record, one per commit built, naming the item it was built for and the commit it was made from. |
 | [`release`](release) | The release record and the number, minted per service at the fast-forward. |
 | [`deploy`](deploy) | The deploy record and the straight rollout, reaching a target through `targetseam`. |
-| [`agent`](agent) | The two authoring roles — `SpecAuthor`, `Implementer` — the `Model` interface both call, and `Anthropic`, the one implementation, reaching its credential through `secretref`. |
+| [`agent`](agent) | The two authoring roles — `SpecAuthor`, `Implementer` — the `Model` interface both call, and `Anthropic`, the one implementation, reaching its credential — a Claude subscription's token — through `secretref`. |
 | [`localtarget`](localtarget) | A `targetseam.Target` that runs the software as a local process, one per service — the implementation M1's demonstration deploys against. |
 | [`cmd/factory`](cmd/factory) | The crude interface: `run` walks the whole path once and `walk <deploy-id>` follows the links back. It owns no table of its own; every record it causes to exist is written by the package that owns it. |
 
@@ -72,14 +72,22 @@ The database tests read `DATABASE_URL` and fall back to `postgres://factory:fact
 
 [`../.github/workflows/factory.yml`](../.github/workflows/factory.yml) runs the same three commands against a `postgres:17` service container.
 
-M1's demonstration is the end-to-end test in `cmd/factory`, and it runs under `go test` above along with everything else — no separate step is needed to see it pass. To walk the path against a real model and a real process, run it directly:
+A fourth command runs the same demonstration against the model API instead of a fake, and it is the only thing that tests the stretch between a role and the provider — the credential's header, the shape of a real answer, a reply the protocol refuses, an encoding named the way a model chose to name it. Three defects have sat on that stretch while everything above was green, so it is run whenever something on it changes and before a milestone is called done:
+
+```sh
+FACTORY_MODEL=claude-opus-5 go test -tags realmodel -count=1 -v -run RealModel ./cmd/factory/
+```
+
+The credential is `model.anthropic` in `secrets.local`, which [`../.gitignore`](../.gitignore) refuses to track; `claude setup-token` mints one. The test fails rather than skips when the file holds no token, for the reason the database tests do not skip, and it keeps its git repository on a failure so what the model wrote can be read. The build tag is what keeps it out of `go test ./...` and out of CI, neither of which has a credential to spend — and what the tag costs is that this one file is not compiled in the default build, so `go vet -tags realmodel ./cmd/factory/` is how a change to it is checked.
+
+M1's demonstration is the end-to-end test in `cmd/factory`, and it runs under `go test` above along with everything else — no separate step is needed to see it pass. To walk the path against a real model and a real process, run it directly — [`DEMO.md`](DEMO.md) is that run as a runbook, with what to set up, what to type at each of the two prompts, what to show afterwards, and what the run deliberately does not cover:
 
 ```sh
 go run ./cmd/factory run -secrets <file> -model <name> -repo <dir> -service <name> -targets <dir>
 go run ./cmd/factory walk <deploy-id>
 ```
 
-`run` reads two secrets from `<file>` by the names `model.anthropic`, the Anthropic API key the model call resolves and sends in a header, and `deploy.local`, the credential `targetseam` requires on every operation and `localtarget` never reads. `-repo` is the service's git repository, created when absent; `-targets` is the directory `localtarget` runs releases from. `-human` names the deciding human (default `owner`) and `-intent` supplies the intent's statement, prompted for on standard input when absent. `walk <deploy-id>` follows the links from an existing deploy record back to its intent, printing each stored field it crosses.
+`run` reads two secrets from `<file>` by the names `model.anthropic`, the Claude subscription token `claude setup-token` mints, which the model call resolves and sends as a bearer token, and `deploy.local`, the credential `targetseam` requires on every operation and `localtarget` never reads. `-repo` is the service's git repository, created when absent; `-targets` is the directory `localtarget` runs releases from. `-human` names the deciding human (default `owner`) and `-intent` supplies the intent's statement, prompted for on standard input when absent. `walk <deploy-id>` follows the links from an existing deploy record back to its intent, printing each stored field it crosses.
 
 ## What the tests demonstrate
 

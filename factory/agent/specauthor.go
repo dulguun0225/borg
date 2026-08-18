@@ -93,7 +93,11 @@ func (s SpecAuthor) Refine(ctx context.Context, statement string, answered []QA,
 	}
 	refined, err := parseRefined(reply.Text)
 	if err != nil {
-		return Refined{}, err
+		// The refused reply's spend goes back with the error: the tokens were
+		// spent whether or not the reply was usable, and the stage retrying this
+		// call reports every attempt to dispatch. Nothing else on the value is
+		// set, so a caller that ignores the error reads no spec from it.
+		return Refined{Tokens: reply.Tokens}, err
 	}
 	refined.Tokens = reply.Tokens
 	return refined, nil

@@ -14,7 +14,15 @@
 // resolved at the moment of the HTTP call, sent in a header, stored in no
 // field of any struct here, and rendered in no error this package returns —
 // an API error carries the status and the response body, and the request that
-// body may quote carries the key in a header, not in the body.
+// body may quote carries the credential in a header, not in the body.
+//
+// The credential is the long-lived OAuth token `claude setup-token` mints
+// against a Claude subscription, sent as a bearer token under the beta header
+// that scheme requires. One scheme and not two: an API key is a different
+// header and this package sends neither conditionally, so an install holding
+// one cannot call the model until a credential kind is something configuration
+// names — which is the fleet's at M7, there being no fleet record behind these
+// roles yet.
 //
 // # Every criterion in force, not only this item's
 //

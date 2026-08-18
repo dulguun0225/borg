@@ -63,6 +63,64 @@ type shipped struct {
 	rejected bool
 }
 
+// attemptBound is how many attempts a stage gets before the factory stops
+// retrying it. The bound is one parameter an owner authors with the rest of
+// gate policy — ../../end-goal/how-humans-do-it/03-gates.md#the-attempt-bound —
+// and there is nothing to author it with until M2, so M1 holds one number here
+// and every stage gets the same three. Three because a stage that fails once is
+// usually a reply the protocol refused rather than work the factory cannot do,
+// and a bound this low turns solvable work into human work no more than a few
+// tokens later.
+const attemptBound = 3
+
+// stageAttempts is one stage's remaining attempts and what each of them spent.
+// The bound is per stage and not per call, which is what the design compares it
+// against: a stage that asks the model twice — the interview's question and then
+// the spec — has three attempts across both calls and not three of each. The
+// spends are kept because a refused attempt cost tokens and dispatch is told
+// about every one of them, so the item's stored count is the count the bound was
+// applied to.
+type stageAttempts struct {
+	left   int
+	spends []int64
+}
+
+// attempt runs one authoring call, retrying while the stage has attempts left
+// and returning what the call produced as soon as a reply parses.
+//
+// What is retried is a reply the protocol refused and an answer the client could
+// not read — both are the model failing to say the thing, which another sample
+// may say correctly. Nothing else is: a rate-limited or unauthorised account is
+// not an attempt at the work, and what the design does with an account that has
+// run out is a hold — ../../end-goal/how-humans-do-it/10-fleet.md#an-account-that-runs-out-is-a-hold
+// — so those return on the first failure rather than spending the bound on a
+// refusal that will not change. There is no wait between attempts, which costs
+// nothing on a refused reply and would be the wrong shape for a rate limit
+// anyway.
+//
+// A stage out of attempts is the factory saying it cannot do this one, which the
+// design shows in Work as an escalation. M1 has no surface to show it on, so the
+// run stops and the message says so, the human being at the terminal already.
+func attempt[T any](out io.Writer, a *stageAttempts, role string, call func() (T, int64, error)) (T, error) {
+	var zero T
+	var last error
+	for a.left > 0 {
+		result, spend, err := call()
+		a.left--
+		a.spends = append(a.spends, spend)
+		if err == nil {
+			return result, nil
+		}
+		if !errors.Is(err, agent.ErrReply) && !errors.Is(err, agent.ErrAnswer) {
+			return zero, err
+		}
+		last = err
+		fmt.Fprintf(out, "The %s's reply was refused; %d attempt(s) left: %v\n", role, a.left, err)
+	}
+	return zero, fmt.Errorf("factory: the %s used all %d attempts without a reply the protocol accepts, and the factory is stuck on this item: %w",
+		role, attemptBound, last)
+}
+
 // The component actors of the path, named per the M1 convention. The two
 // authoring agents are components too — an agent is a part of the factory,
 // in a role.
@@ -115,14 +173,29 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	// cannot author without and proceeds on the answer. A second question is
 	// an error, which is the stopping rule enforced rather than assumed.
 	author := agent.SpecAuthor{Model: d.model}
-	refined, err := author.Refine(ctx, statement, nil, briefCriteria(inForce))
+	specStage := &stageAttempts{left: attemptBound}
+	refined, err := attempt(d.out, specStage, "spec author", func() (agent.Refined, int64, error) {
+		r, err := author.Refine(ctx, statement, nil, briefCriteria(inForce))
+		return r, r.Tokens, err
+	})
 	if err != nil {
 		return s, err
 	}
-	specTokens := refined.Tokens
 	rounds := 0
+	// Everything the stage spent up to a question belongs to the interview's
+	// round and not to an attempt at the spec: the design counts a round against
+	// this same bound but keeps it on the intent, upstream of the item's first
+	// stage, and intake is what wrote the count. An intent has no spend field in
+	// M1, so the round's tokens are charged to the stage's first attempt where it
+	// is reported below, and the item's total is right even though the split is
+	// coarse.
+	var interviewSpend int64
 	if refined.Question != "" {
 		rounds = 1
+		for _, spend := range specStage.spends {
+			interviewSpend += spend
+		}
+		specStage.spends = nil
 		q, err := intake.Ask(ctx, specAuthorActor, in.ID, refined.Question)
 		if err != nil {
 			return s, err
@@ -147,12 +220,14 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 		if err != nil {
 			return s, err
 		}
-		refined, err = author.Refine(ctx, statement,
-			[]agent.QA{{Question: q.Question, Answer: q.Answer}}, briefCriteria(inForce))
+		refined, err = attempt(d.out, specStage, "spec author", func() (agent.Refined, int64, error) {
+			r, err := author.Refine(ctx, statement,
+				[]agent.QA{{Question: q.Question, Answer: q.Answer}}, briefCriteria(inForce))
+			return r, r.Tokens, err
+		})
 		if err != nil {
 			return s, err
 		}
-		specTokens += refined.Tokens
 		if refined.Question != "" {
 			return s, errors.New("factory: the spec author asked a second question, and the interview is one round or none")
 		}
@@ -206,9 +281,19 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	if err != nil {
 		return s, err
 	}
+	// Every attempt the spec stage made, one report each, now that the item they
+	// belong to exists. The reports come after the fact because M1's path authors
+	// the spec before the cut writes the item, so the count the bound was applied
+	// to is in memory until here and stored after — the same number either way,
+	// this being the item's only writer.
 	dispatch := item.NewDispatch(d.pool)
-	if err := dispatch.ReportAttempt(ctx, dispatchActor, it.ID, item.StageSpec, specTokens); err != nil {
-		return s, err
+	for n, spend := range specStage.spends {
+		if n == 0 {
+			spend += interviewSpend
+		}
+		if err := dispatch.ReportAttempt(ctx, dispatchActor, it.ID, item.StageSpec, spend); err != nil {
+			return s, err
+		}
 	}
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
 		return s, err
@@ -245,10 +330,20 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	if err != nil {
 		return s, err
 	}
-	change, err := agent.Implementer{Model: d.model}.Implement(ctx, agent.Brief{
-		Criteria: briefCriteria(inForce),
-		Spec:     refined.Spec,
-		Files:    current,
+	// Each attempt is reported as it is made, the item being there to report it
+	// against, so an item the factory gave up on carries the count in the store
+	// and not only in what the run printed.
+	implStage := &stageAttempts{left: attemptBound}
+	change, err := attempt(d.out, implStage, "implementer", func() (agent.Change, int64, error) {
+		c, err := agent.Implementer{Model: d.model}.Implement(ctx, agent.Brief{
+			Criteria: briefCriteria(inForce),
+			Spec:     refined.Spec,
+			Files:    current,
+		})
+		if reportErr := dispatch.ReportAttempt(ctx, dispatchActor, it.ID, item.StageImplementation, c.Tokens); reportErr != nil {
+			return c, c.Tokens, reportErr
+		}
+		return c, c.Tokens, err
 	})
 	if err != nil {
 		return s, err
@@ -282,9 +377,6 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 		return s, err
 	}
 	s.implArtifactID = implArt.ID
-	if err := dispatch.ReportAttempt(ctx, dispatchActor, it.ID, item.StageImplementation, change.Tokens); err != nil {
-		return s, err
-	}
 	fmt.Fprintf(d.out, "Implementation %s submitted: commit %s on %s\n", implArt.ID, commit, branch)
 
 	// 6. The build: the record first, so the binary's path can name it.
@@ -311,6 +403,22 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	// encodings run, and the run's result is each criterion's Passed — a failed
 	// run is not an error here, because deciding over it is the gate's.
 	if err := criterion.CheckEncodings(d.repo, inForce); err != nil {
+		// What the build does name, printed beside what it was required to name.
+		// The check's own errors say which criterion has no encoding and never
+		// what the encodings are, which leaves a human reading a failure with
+		// nothing to compare — and the two lists are the whole of the answer:
+		// an id missing from the build, or one there under a spelling the check
+		// does not recognise.
+		named, readErr := criterion.Encodings(d.repo)
+		if readErr != nil {
+			return s, errors.Join(err, readErr)
+		}
+		fmt.Fprintf(d.out, "The criteria in force: %s\n", strings.Join(criterionIDs(inForce), ", "))
+		if len(named) == 0 {
+			fmt.Fprintln(d.out, "The build names no criterion id in any _test.go file")
+		} else {
+			fmt.Fprintf(d.out, "The build names: %s\n", strings.Join(named, ", "))
+		}
 		return s, err
 	}
 	testOutput, testErr := inDir(d.repo, "go", "test", "./...")
@@ -467,6 +575,16 @@ func masterExists(repo string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// criterionIDs is the ids of a criterion set, for a message that names which
+// ones the build was required to encode.
+func criterionIDs(inForce []criterion.Criterion) []string {
+	ids := make([]string, 0, len(inForce))
+	for _, c := range inForce {
+		ids = append(ids, c.ID)
+	}
+	return ids
 }
 
 // briefCriteria is the criteria in force as the two authoring roles are told

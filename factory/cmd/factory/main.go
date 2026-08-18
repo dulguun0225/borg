@@ -15,11 +15,12 @@ import (
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
-// The two secrets the run reads from the -secrets file: the Anthropic API
-// key, resolved inside the model call and stored in no record, and the deploy
-// credential the target seam requires on every operation.
+// The two secrets the run reads from the -secrets file: the Claude
+// subscription token `claude setup-token` mints, resolved inside the model call
+// and stored in no record, and the deploy credential the target seam requires
+// on every operation.
 const (
-	modelKeyName         = "model.anthropic"
+	modelCredentialName  = "model.anthropic"
 	deployCredentialName = "deploy.local"
 )
 
@@ -101,7 +102,7 @@ func runCommand(args []string) error {
 
 	_, err = run(ctx, deps{
 		pool:       pool,
-		model:      agent.Anthropic{ModelName: *model, Key: secretref.MustNew(modelKeyName), Resolver: resolver},
+		model:      agent.Anthropic{ModelName: *model, Credential: secretref.MustNew(modelCredentialName), Resolver: resolver},
 		target:     localtarget.New(*targets),
 		targets:    *targets,
 		credential: secretref.MustNew(deployCredentialName),

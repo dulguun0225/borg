@@ -11,10 +11,21 @@ import (
 )
 
 // encodingID is the shape of a criterion id in test code: the [IDPrefix], an
-// underscore, and the 32 hexadecimal characters [record.NewID] produces. The
-// word boundaries keep a longer identifier that happens to contain one from
-// counting as naming it.
-var encodingID = regexp.MustCompile(`\bcr_[0-9a-f]{32}\b`)
+// underscore, and the 32 hexadecimal characters [record.NewID] produces.
+// Submatch 1 is the id; submatch 2 is a hexadecimal character following it,
+// which [Encodings] reads as a longer run of hexadecimal and not an id.
+//
+// What the two edges are for. An id directly after a letter or a digit does
+// not count, so a longer identifier that happens to contain the shape is not
+// a naming — `"prefixcr_<id>"` names nothing. An underscore before it does
+// count, and that is not a nicety: a Go test's name begins with `Test`, so the
+// id inside one is always preceded by a word character, and requiring a word
+// boundary there made `func Test_cr_<id>` unrecognisable — the exact form the
+// implementation role's system prompt asks for. That was a contradiction
+// between what an agent is told and what the build accepts, and the fake model
+// in the end-to-end test wrote the id in a comment, where a boundary holds, so
+// nothing failed until a real model named it in a test's name.
+var encodingID = regexp.MustCompile(`(?:^|[^0-9A-Za-z])(cr_[0-9a-f]{32})([0-9a-f]?)`)
 
 // Encodings is every distinct criterion id named anywhere in a _test.go file
 // under dir — dir being a checkout of the build. An encoding is code picked
@@ -23,9 +34,9 @@ var encodingID = regexp.MustCompile(`\bcr_[0-9a-f]{32}\b`)
 // walk first finds it, which is lexical by path.
 //
 // What the shape-match costs: an id in a comment or a string counts the same
-// as one in a test's name or body, because the check reads text and not what
-// the test does. The gate this feeds rests on the encoding running, not on
-// this list being more than where the ids are.
+// as one in a test's name, because the check reads text and not what the test
+// does. The gate this feeds rests on the encoding running, not on this list
+// being more than where the ids are.
 func Encodings(dir string) ([]string, error) {
 	var ids []string
 	seen := make(map[string]bool)
@@ -40,8 +51,15 @@ func Encodings(dir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		for _, match := range encodingID.FindAll(text, -1) {
-			if id := string(match); !seen[id] {
+		for _, match := range encodingID.FindAllSubmatch(text, -1) {
+			// A hexadecimal character after the thirty-second is a longer run
+			// of hexadecimal, and its first 32 characters are not an id — every
+			// id is exactly that long, so reading one out of a longer run would
+			// name a criterion nothing in force has.
+			if len(match[2]) > 0 {
+				continue
+			}
+			if id := string(match[1]); !seen[id] {
 				seen[id] = true
 				ids = append(ids, id)
 			}
