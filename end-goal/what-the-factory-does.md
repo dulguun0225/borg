@@ -4,7 +4,7 @@ A **fully autonomous software factory and operations**: it refines intent, produ
 
 ## Tight integration
 
-**Tight integration is the first of the two properties the product is built around.** One system, not a bundle of tools with connectors between them. Intent, [spec](how-humans-do-it/03-gates.md#spec), change, [gate decision](how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it), deploy, [incident](how-humans-do-it/08-operations.md#incidents), and score are records in one graph, linked to each other.
+**Tight integration is the first of the two properties the product is built around.** One system, not a bundle of tools with connectors between them. Intent, item, [spec](how-humans-do-it/03-gates.md#spec), [build](how-humans-do-it/05-environments.md#records-and-one-long-lived-branch), [gate decision](how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it), deploy, [incident](how-humans-do-it/08-operations.md#incidents), and score are records in one graph, linked to each other.
 
 Because they are linked, a question that connectors answer by matching records across systems is answered here by following links. Which services consume a contract, so [what a change breaks](how-humans-do-it/07-contracts.md#enforcement) is a query rather than an estimate. Which items came from one request, so [work that spans services](how-humans-do-it/07-contracts.md#work-that-spans-services) needs no record type of its own. Which release each service is running, so a candidate's environment is composed from the [current releases](how-humans-do-it/06-releases.md#the-deploy-record) of its dependencies.
 
