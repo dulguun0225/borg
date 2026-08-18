@@ -139,7 +139,7 @@ request. Every command below is scoped to `end-goal/` and run from the repositor
 nothing in a sibling directory is included in a check written for this one:
 
 ```bash
-grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 8: tree index, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
+grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 9: tree index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
