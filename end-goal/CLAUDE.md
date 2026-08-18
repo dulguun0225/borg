@@ -77,7 +77,9 @@ Seven forward references are known and left in place, each defined below a secti
 depends on it because moving the definition up would put something more depended-on out of
 order: the **watch window** and **K**; the **gate** and the **score** that Intent into items
 leans on, with **current release** the same shape at smaller scale; the **page**; the
-**reconciler**; **the fleet**; the **restore floor**, which Contracts leans on and
+**reconciler**; **the fleet**, and with it the **brief** and the **skill** an agent works
+from, which One pipeline, Gates, Risk score and Gate policy all lean on and The fleet
+defines; the **restore floor**, which Contracts leans on and
 Operations defines; and the four surfaces — **Work**, **Ops**, **Factory**,
 **People** — which _What humans do_ leans on and _Surfaces_ defines last. One treatment
 covers the first six — a link forward at each early use, so a reader meeting the term
@@ -139,7 +141,7 @@ request. Every command below is scoped to `end-goal/` and run from the repositor
 nothing in a sibling directory is included in a check written for this one:
 
 ```bash
-grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 9: tree index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy
+grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 10: tree index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a brief and a skill reach
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
