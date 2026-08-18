@@ -7,7 +7,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // DefaultURL is the development database factory/docker-compose.yml runs. The
@@ -42,16 +50,32 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 }
 
 // Apply creates the factory's schema: every package that owns a table, in the
-// order this function names them. A package is added by writing another loop
-// here and nothing else — nothing is discovered and nothing registers itself.
+// order this function names them. A package is added by writing another line
+// into the list here and nothing else — nothing is discovered and nothing
+// registers itself.
 //
 // Each statement is written so that applying it to a database that already has
 // it changes nothing, so Apply may run at the start of every process, one
 // process at a time. doc.go says why two at once is not the same thing.
 func Apply(ctx context.Context, pool *pgxpool.Pool) error {
-	for n, statement := range decisionlog.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("postgres: applying decisionlog statement %d: %w", n+1, err)
+	for _, owner := range []struct {
+		name string
+		ddl  []string
+	}{
+		{"decisionlog", decisionlog.DDL},
+		{"intent", intent.DDL},
+		{"service", service.DDL},
+		{"item", item.DDL},
+		{"criterion", criterion.DDL},
+		{"artifact", artifact.DDL},
+		{"build", build.DDL},
+		{"release", release.DDL},
+		{"deploy", deploy.DDL},
+	} {
+		for n, statement := range owner.ddl {
+			if _, err := pool.Exec(ctx, statement); err != nil {
+				return fmt.Errorf("postgres: applying %s statement %d: %w", owner.name, n+1, err)
+			}
 		}
 	}
 	return nil

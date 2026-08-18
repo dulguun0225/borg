@@ -6,19 +6,31 @@
 // # The three shapes
 //
 // A row is a decision, a page event, or a wait, and [Writer] has one method
-// per shape rather than a shape argument. A decision names the policy version
-// and the score version it was decided under. The other two name neither,
-// being a delivery and a wait rather than a decision, and the method refuses
-// them; [DDL] refuses them again with a CHECK constraint, so a row inserted
-// around the methods is refused too. Every reader of the log filters on the
-// shape it wants, which is what having three costs.
+// per kind of row rather than a shape argument. A page event and a wait are
+// one row each. A decision is two rows: an opening row appended when the gate
+// fires, naming the policy version and the score version it was decided
+// under, and a closing row appended when the verdict is given, naming the
+// opening row it closes and neither version — what a decision was made under
+// is a fact of the firing, written once where the firing is, so two rows
+// cannot come to disagree about it. The verdict cannot be written onto the
+// opening row instead, because that row is chained the moment it is appended
+// and a verdict added afterwards would be a rewrite of a chained record.
+//
+// Each rule is enforced twice. The methods refuse an entry that breaks it,
+// and [DDL] refuses the same row again with a CHECK constraint, so a row
+// inserted around the methods is refused too. [Writer.AppendDecisionClosing]
+// also checks, inside its transaction and before its insert, that the row it
+// names exists and is an opening decision row; a second closing on one
+// opening is refused by a partial unique index on closes. Every reader of the
+// log filters on the shape it wants and joins a decision's two rows by the
+// closing's closes field, which is what the shapes and the split cost.
 //
 // # The chain
 //
 // Each row names its predecessor's hash, and the first row names the empty
 // string. The hash is SHA-256 over this serialisation, in this order:
 //
-//	the format tag "borg/factory/decisionlog/v1"
+//	the format tag "borg/factory/decisionlog/v2"
 //	prev_hash
 //	seq, in decimal
 //	id
@@ -29,6 +41,8 @@
 //	payload
 //	policy_version
 //	score_version
+//	part
+//	closes
 //
 // Each field is written as its length in bytes, big-endian in eight bytes,
 // then the bytes themselves. Length-prefixing is what makes the serialisation
@@ -63,7 +77,7 @@
 //
 // [Verify] and [Read] are functions taking the pool, not methods on [Writer],
 // so a component that reads the log or checks its health is not handed the
-// thing that appends to it. [Writer] has the three append methods and nothing
+// thing that appends to it. [Writer] has the four append methods and nothing
 // else.
 //
 // # One writer, enforced
@@ -102,7 +116,9 @@
 // ../../end-goal/how-humans-do-it/04-risk-score.md#factors-at-least. How long
 // the log is kept is a setting an owner authors,
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-not-in-it, and
-// nothing here deletes anything yet. How a verdict joins the chain is open —
-// ../../end-goal/open.md — and this package does not decide it: it appends
-// whole records.
+// nothing here deletes anything yet. The two-row decision is
+// ../../end-goal/how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it:
+// the opening row exists so the human has the factor vector to argue with,
+// and the verdict is a second row because writing it onto a chained row would
+// be a rewrite.
 package decisionlog

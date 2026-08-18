@@ -30,10 +30,25 @@ const (
 // the same three, and TestDDLListsEveryShape fails if the two stop agreeing.
 var Shapes = []Shape{ShapeDecision, ShapePageEvent, ShapeWait}
 
-// Entry is what a caller hands an append method: who decided, what about, and
-// under which versions. The three version rules are the three methods, not
-// three types, so a caller that puts a version on a page event is told so
-// rather than being unable to say it.
+// Part is which of a decision's two rows a row is. A decision is two rows —
+// an opening and a closing — and on the other two shapes the part is the
+// empty string, which the part_matches_shape constraint in [DDL] enforces.
+type Part string
+
+const (
+	// PartOpening is the row appended when the gate fires, naming both
+	// versions and everything the verdict will be given over.
+	PartOpening Part = "opening"
+	// PartClosing is the row appended when the verdict is given, naming the
+	// opening row it closes and neither version.
+	PartClosing Part = "closing"
+)
+
+// Entry is what a caller hands an append method: who decided, what about,
+// under which versions, and — on a closing — which row it closes. The version
+// and closes rules are the four methods, not four types, so a caller that
+// puts a version on a page event is told so rather than being unable to say
+// it.
 //
 // The writer fills in the rest of the row — the identifier, the timestamp, the
 // sequence value, and both hashes — so a caller cannot set them.
@@ -45,11 +60,17 @@ type Entry struct {
 	// package neither parses it nor constrains its format.
 	Payload string
 	// PolicyVersion is the gate policy the decision was decided under. It is
-	// required by [Writer.AppendDecision] and refused by the other two.
+	// required by [Writer.AppendDecisionOpening] and refused by the other
+	// three methods: what a decision was made under is a fact of the firing,
+	// written once where the firing is.
 	PolicyVersion string
 	// ScoreVersion is the risk score the decision was decided under. The same
 	// rule applies to it.
 	ScoreVersion string
+	// Closes is the id of the opening row a closing row closes. It is set
+	// only on a closing row: [Writer.AppendDecisionClosing] requires it and
+	// the other three methods refuse it.
+	Closes string
 }
 
 // Row is one row of the log as it is stored.
@@ -62,14 +83,17 @@ type Row struct {
 	Payload       string
 	PolicyVersion string
 	ScoreVersion  string
+	Part          Part
+	Closes        string
 	PrevHash      string
 	Hash          string
 }
 
 // hashFormat is the first field of every serialisation. A change to the field
 // order or the framing below changes this string, so a row hashed under one
-// format never verifies as a row hashed under another.
-const hashFormat = "borg/factory/decisionlog/v1"
+// format never verifies as a row hashed under another. v2 appended part and
+// closes after score_version when a decision became two rows.
+const hashFormat = "borg/factory/decisionlog/v2"
 
 // ChainHash is the hash the row's chain requires, computed from its stored
 // fields and its predecessor's hash. It reads Row.Hash for nothing, so
@@ -91,6 +115,8 @@ func (r Row) ChainHash() string {
 		r.Payload,
 		r.PolicyVersion,
 		r.ScoreVersion,
+		string(r.Part),
+		r.Closes,
 	} {
 		writeField(h, field)
 	}

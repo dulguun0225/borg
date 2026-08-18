@@ -1,7 +1,8 @@
 // Package targetseam is the named set of operations an agent reaches a deploy
 // target through. [Target] declares them — [Target.Deploy], [Target.Stop],
-// [Target.ReadRunning] — and [Fake] is the only implementation, which records
-// what was called on it and reaches nothing.
+// [Target.ReadRunning] — as an interface. [Fake] records what was called on it
+// and reaches nothing; package localtarget is the implementation the M1
+// demonstration deploys against.
 //
 // Adding an operation is an edit to [Target], which is the point: production
 // access is three named methods in one interface rather than spread through

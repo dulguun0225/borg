@@ -12,13 +12,24 @@ import (
 )
 
 var (
-	// ErrVersionsMissing is returned by [Writer.AppendDecision] for an entry
-	// naming no policy version or no score version.
-	ErrVersionsMissing = errors.New("decisionlog: a decision names a policy version and a score version")
-	// ErrVersionsRefused is returned by [Writer.AppendPageEvent] and
-	// [Writer.AppendWait] for an entry naming either version. A page event is
-	// a delivery and a wait is a wait, so neither was decided under anything.
-	ErrVersionsRefused = errors.New("decisionlog: only a decision names a policy version or a score version")
+	// ErrVersionsMissing is returned by [Writer.AppendDecisionOpening] for an
+	// entry naming no policy version or no score version.
+	ErrVersionsMissing = errors.New("decisionlog: an opening names a policy version and a score version")
+	// ErrVersionsRefused is returned by [Writer.AppendDecisionClosing],
+	// [Writer.AppendPageEvent], and [Writer.AppendWait] for an entry naming
+	// either version. A page event is a delivery and a wait is a wait, so
+	// neither was decided under anything; a closing was, but what it was
+	// decided under is written once, on the opening row it names.
+	ErrVersionsRefused = errors.New("decisionlog: only an opening names a policy version or a score version")
+	// ErrClosesMissing is returned by [Writer.AppendDecisionClosing] for an
+	// entry naming no row to close.
+	ErrClosesMissing = errors.New("decisionlog: a closing names the opening row it closes")
+	// ErrClosesRefused is returned by the other three append methods for an
+	// entry naming a row to close.
+	ErrClosesRefused = errors.New("decisionlog: only a closing names a row it closes")
+	// ErrNotAnOpening is returned by [Writer.AppendDecisionClosing] when the
+	// row the entry names does not exist or is not an opening decision row.
+	ErrNotAnOpening = errors.New("decisionlog: a closing closes an opening decision row")
 )
 
 // Writer is the log's one writer. Every component that decides anything holds
@@ -30,47 +41,81 @@ type Writer struct {
 // NewWriter returns the writer over pool.
 func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 
-// AppendDecision appends a decision, which names both versions.
-func (w *Writer) AppendDecision(ctx context.Context, e Entry) (Row, error) {
+// AppendDecisionOpening appends a decision's opening row, written when the
+// gate fires. It names both versions and closes nothing.
+func (w *Writer) AppendDecisionOpening(ctx context.Context, e Entry) (Row, error) {
 	if e.PolicyVersion == "" || e.ScoreVersion == "" {
 		return Row{}, fmt.Errorf("%w: policy %q, score %q", ErrVersionsMissing, e.PolicyVersion, e.ScoreVersion)
 	}
-	return w.append(ctx, ShapeDecision, e)
+	if err := refuseCloses("an opening", e); err != nil {
+		return Row{}, err
+	}
+	return w.append(ctx, ShapeDecision, PartOpening, e)
+}
+
+// AppendDecisionClosing appends a decision's closing row, written when the
+// verdict is given. It names the opening row it closes and neither version.
+// It fails with [ErrNotAnOpening] when the named row does not exist or is not
+// an opening decision row, and a second closing on one opening is refused by
+// the store's partial unique index rather than by this method.
+func (w *Writer) AppendDecisionClosing(ctx context.Context, e Entry) (Row, error) {
+	if err := refuseVersions("a closing", e); err != nil {
+		return Row{}, err
+	}
+	if e.Closes == "" {
+		return Row{}, fmt.Errorf("%w: the entry names none", ErrClosesMissing)
+	}
+	return w.append(ctx, ShapeDecision, PartClosing, e)
 }
 
 // AppendPageEvent appends a page that was delivered, which names neither
-// version.
+// version and closes nothing.
 func (w *Writer) AppendPageEvent(ctx context.Context, e Entry) (Row, error) {
-	if err := refuseVersions(ShapePageEvent, e); err != nil {
+	if err := refuseVersions("a page event", e); err != nil {
 		return Row{}, err
 	}
-	return w.append(ctx, ShapePageEvent, e)
+	if err := refuseCloses("a page event", e); err != nil {
+		return Row{}, err
+	}
+	return w.append(ctx, ShapePageEvent, "", e)
 }
 
 // AppendWait appends something the factory could not compute when a gate
-// fired, which names neither version.
+// fired, which names neither version and closes nothing.
 func (w *Writer) AppendWait(ctx context.Context, e Entry) (Row, error) {
-	if err := refuseVersions(ShapeWait, e); err != nil {
+	if err := refuseVersions("a wait", e); err != nil {
 		return Row{}, err
 	}
-	return w.append(ctx, ShapeWait, e)
+	if err := refuseCloses("a wait", e); err != nil {
+		return Row{}, err
+	}
+	return w.append(ctx, ShapeWait, "", e)
 }
 
-func refuseVersions(shape Shape, e Entry) error {
+func refuseVersions(what string, e Entry) error {
 	if e.PolicyVersion != "" || e.ScoreVersion != "" {
-		return fmt.Errorf("%w: a %s named policy %q, score %q", ErrVersionsRefused, shape, e.PolicyVersion, e.ScoreVersion)
+		return fmt.Errorf("%w: %s named policy %q, score %q", ErrVersionsRefused, what, e.PolicyVersion, e.ScoreVersion)
+	}
+	return nil
+}
+
+func refuseCloses(what string, e Entry) error {
+	if e.Closes != "" {
+		return fmt.Errorf("%w: %s named %q", ErrClosesRefused, what, e.Closes)
 	}
 	return nil
 }
 
 const insertRow = `insert into ` + Table + `
-	(seq, id, actor_kind, actor_name, at, shape, payload, policy_version, score_version, prev_hash, hash)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	(seq, id, actor_kind, actor_name, at, shape, payload, policy_version, score_version, part, closes, prev_hash, hash)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 
-// append is every append: take the lock, read the head, take the next
-// sequence value, hash, insert. The order matters — the lock is taken before
-// the head is read, so no two transactions read the same head.
-func (w *Writer) append(ctx context.Context, shape Shape, e Entry) (Row, error) {
+// append is every append: take the lock, check what a closing names, read the
+// head, take the next sequence value, hash, insert. The order matters — the
+// lock is taken before the head is read, so no two transactions read the same
+// head, and the closing's check runs under it, so what it found holds until
+// the insert commits.
+func (w *Writer) append(ctx context.Context, shape Shape, part Part, e Entry) (Row, error) {
 	if err := e.Actor.Validate(); err != nil {
 		return Row{}, err
 	}
@@ -83,6 +128,20 @@ func (w *Writer) append(ctx context.Context, shape Shape, e Entry) (Row, error) 
 
 	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey); err != nil {
 		return Row{}, fmt.Errorf("decisionlog: taking the append lock: %w", err)
+	}
+
+	if part == PartClosing {
+		var closedShape, closedPart string
+		err := tx.QueryRow(ctx, `select shape, part from `+Table+` where id = $1`, e.Closes).
+			Scan(&closedShape, &closedPart)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Row{}, fmt.Errorf("%w: %q names no row", ErrNotAnOpening, e.Closes)
+		} else if err != nil {
+			return Row{}, fmt.Errorf("decisionlog: reading the row a closing names: %w", err)
+		}
+		if Shape(closedShape) != ShapeDecision || Part(closedPart) != PartOpening {
+			return Row{}, fmt.Errorf("%w: %q is shape %q, part %q", ErrNotAnOpening, e.Closes, closedShape, closedPart)
+		}
 	}
 
 	var prevHash string
@@ -110,6 +169,8 @@ func (w *Writer) append(ctx context.Context, shape Shape, e Entry) (Row, error) 
 		Payload:       e.Payload,
 		PolicyVersion: e.PolicyVersion,
 		ScoreVersion:  e.ScoreVersion,
+		Part:          part,
+		Closes:        e.Closes,
 		PrevHash:      prevHash,
 	}
 	row.Hash = row.ChainHash()
@@ -117,7 +178,7 @@ func (w *Writer) append(ctx context.Context, shape Shape, e Entry) (Row, error) 
 	if _, err := tx.Exec(ctx, insertRow,
 		row.Seq, row.ID, string(row.Actor.Kind), row.Actor.Name, row.At,
 		string(row.Shape), row.Payload, row.PolicyVersion, row.ScoreVersion,
-		row.PrevHash, row.Hash,
+		string(row.Part), row.Closes, row.PrevHash, row.Hash,
 	); err != nil {
 		return Row{}, fmt.Errorf("decisionlog: appending row %d: %w", row.Seq, err)
 	}
@@ -129,7 +190,7 @@ func (w *Writer) append(ctx context.Context, shape Shape, e Entry) (Row, error) 
 }
 
 const selectRows = `select seq, id, actor_kind, actor_name, at, shape, payload,
-	policy_version, score_version, prev_hash, hash
+	policy_version, score_version, part, closes, prev_hash, hash
 	from ` + Table + ` order by seq`
 
 // Read is the whole log in row order. It takes the pool and not a [Writer],
@@ -162,13 +223,15 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Row, error) {
 
 func scan(rows pgx.Rows) (Row, error) {
 	var row Row
-	var kind, shape string
+	var kind, shape, part string
 	err := rows.Scan(&row.Seq, &row.ID, &kind, &row.Actor.Name, &row.At, &shape,
-		&row.Payload, &row.PolicyVersion, &row.ScoreVersion, &row.PrevHash, &row.Hash)
+		&row.Payload, &row.PolicyVersion, &row.ScoreVersion, &part, &row.Closes,
+		&row.PrevHash, &row.Hash)
 	if err != nil {
 		return Row{}, fmt.Errorf("decisionlog: reading a row: %w", err)
 	}
 	row.Actor.Kind = record.Kind(kind)
 	row.Shape = Shape(shape)
+	row.Part = Part(part)
 	return row, nil
 }

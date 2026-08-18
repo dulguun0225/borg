@@ -15,8 +15,9 @@
 // it safe: PostgreSQL checks for the object and creates it as two steps, so
 // both can pass the check and the loser fails on a catalogue index —
 // pg_class_relname_nsp_index for the sequence, pg_type_typname_nsp_index for
-// the table, which creates a composite type of its own name. Nothing but the
-// tests calls Apply today, and they run one at a time. What it costs later is
+// the table, which creates a composite type of its own name. The tests call
+// Apply one at a time, and so does cmd/factory's run, which applies the
+// schema at every start of the one process it is. What it costs later is
 // that starting two replicas together needs something this package does not
 // have — a lock around Apply, or applying the schema somewhere other than at
 // a process start.

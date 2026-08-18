@@ -1,4 +1,4 @@
-# Everything M0 is demonstrated by, on a PostgreSQL the workflow starts. The
+# Everything M0 and M1 are demonstrated by, on a PostgreSQL the workflow starts. The
 # database tests do not skip when the database is unreachable, so a service
 # container that fails to start fails the run rather than turning it green.
 #

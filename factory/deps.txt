@@ -11,19 +11,47 @@
 # so adding one means adding a line here.
 #
 # A line beginning with "test" allows an edge that appears only in a package's
-# test imports. There is one such line, and postgres is on it because that is
-# how a database test reaches the pool: postgres imports decisionlog to apply
-# its DDL, so decisionlog cannot import postgres, but decisionlog's tests are
-# in the external test package decisionlog_test, which the compiler treats as
-# a separate package and lets import postgres. secretref is on it for the
-# demonstration that a resolved secret's value reaches no record, which is the
-# one test that needs a secret and a database at once.
+# test imports. Every record package's database tests are in an external test
+# package and open the pool through postgres, which that package cannot import
+# itself once postgres applies its DDL — the arrangement decisionlog's line
+# has carried since M0 — so each record package has a test line naming
+# postgres. decisionlog's also names secretref for the demonstration that a
+# resolved secret's value reaches no record, which is the one test that needs
+# a secret and a database at once.
+#
+# Two edges deserve their reason stated. artifact -> criterion is the one
+# import between two record packages: the artifact store is the criterion's
+# one writer, so the spec version and the criteria it introduces are written
+# in one transaction. cmd/factory imports nearly everything, because it is the
+# crude interface M1 defers the four surfaces with — the one place the whole
+# path is composed.
 
 record
 decisionlog -> record
 secretref
 targetseam -> secretref
-postgres -> decisionlog
+intent -> record
+service -> record
+item -> record
+criterion -> record
+artifact -> criterion record
+build -> record
+release -> record
+deploy -> record secretref targetseam
+gate -> decisionlog record
+agent -> secretref
+localtarget -> secretref targetseam
+postgres -> artifact build criterion decisionlog deploy intent item release service
 cmd/depscheck
+cmd/factory -> agent artifact build criterion decisionlog deploy gate intent item localtarget postgres record release secretref service targetseam
 
 test decisionlog -> postgres secretref
+test intent -> postgres
+test service -> postgres
+test item -> postgres
+test criterion -> postgres
+test artifact -> postgres
+test build -> postgres
+test release -> postgres
+test deploy -> postgres
+test gate -> postgres

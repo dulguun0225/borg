@@ -19,6 +19,7 @@ func fixedRow() Row {
 		Payload:       `{"verdict":"pass"}`,
 		PolicyVersion: "policy-1",
 		ScoreVersion:  "score-1",
+		Part:          PartOpening,
 		PrevHash:      "0000000000000000000000000000000000000000000000000000000000000001",
 	}
 }
@@ -27,7 +28,7 @@ func fixedRow() Row {
 // A change to the field order, the framing, or the format tag changes this
 // value, and changing it is changing what every stored hash means.
 func TestChainHashIsFixed(t *testing.T) {
-	const want = "82c43feec422f8a727d9c6b668b57bcf27b43edc9d6453d2e1e582d75e1ce05b"
+	const want = "ccd654079098fdf46a56a9195ca30bd2fdae64c71bdf9614db9ef1fafe337f3e"
 	if got := fixedRow().ChainHash(); got != want {
 		t.Fatalf("ChainHash() = %q, want %q", got, want)
 	}
@@ -48,6 +49,8 @@ func TestChainHashCoversEveryField(t *testing.T) {
 		"Payload":       func(r *Row) { r.Payload = `{"verdict":"fail"}` },
 		"PolicyVersion": func(r *Row) { r.PolicyVersion = "policy-2" },
 		"ScoreVersion":  func(r *Row) { r.ScoreVersion = "score-2" },
+		"Part":          func(r *Row) { r.Part = PartClosing },
+		"Closes":        func(r *Row) { r.Closes = "dl_ffeeddccbbaa99887766554433221100" },
 		"PrevHash":      func(r *Row) { r.PrevHash = strings.Repeat("a", 64) },
 	}
 	for field, change := range changes {

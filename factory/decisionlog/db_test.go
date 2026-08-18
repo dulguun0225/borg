@@ -87,7 +87,8 @@ func TestApplyRunsTwice(t *testing.T) {
 }
 
 // TestTheThreeShapesChainUnbroken is the first half of the demonstration: all
-// three shapes appended, and the chain read back whole.
+// three shapes appended — the decision as its two rows — and the chain read
+// back whole.
 func TestTheThreeShapesChainUnbroken(t *testing.T) {
 	ctx, pool, log := newLog(t)
 
@@ -95,14 +96,14 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 		t.Fatalf("an empty log does not verify: %v", err)
 	}
 
-	decision, err := log.AppendDecision(ctx, decisionlog.Entry{
+	opening, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
 		Actor:         gate,
-		Payload:       `{"gate":"merge","verdict":"pass"}`,
+		Payload:       `{"gate":"merge","waits_on":"owner"}`,
 		PolicyVersion: "policy-1",
 		ScoreVersion:  "score-1",
 	})
 	if err != nil {
-		t.Fatalf("AppendDecision: %v", err)
+		t.Fatalf("AppendDecisionOpening: %v", err)
 	}
 	page, err := log.AppendPageEvent(ctx, decisionlog.Entry{
 		Actor:   record.Actor{Kind: record.KindComponent, Name: "operations.pager"},
@@ -118,6 +119,14 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendWait: %v", err)
 	}
+	closing, err := log.AppendDecisionClosing(ctx, decisionlog.Entry{
+		Actor:   owner,
+		Payload: `{"verdict":"approve"}`,
+		Closes:  opening.ID,
+	})
+	if err != nil {
+		t.Fatalf("AppendDecisionClosing: %v", err)
+	}
 
 	if err := decisionlog.Verify(ctx, pool); err != nil {
 		t.Fatalf("Verify: %v", err)
@@ -127,15 +136,20 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 3 {
-		t.Fatalf("Read returned %d rows, want 3", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("Read returned %d rows, want 4", len(rows))
 	}
 
-	wantShapes := []decisionlog.Shape{decisionlog.ShapeDecision, decisionlog.ShapePageEvent, decisionlog.ShapeWait}
+	wantShapes := []decisionlog.Shape{decisionlog.ShapeDecision, decisionlog.ShapePageEvent,
+		decisionlog.ShapeWait, decisionlog.ShapeDecision}
+	wantParts := []decisionlog.Part{decisionlog.PartOpening, "", "", decisionlog.PartClosing}
 	prevHash := ""
 	for n, row := range rows {
 		if row.Shape != wantShapes[n] {
 			t.Errorf("row %d is a %s, want a %s", n+1, row.Shape, wantShapes[n])
+		}
+		if row.Part != wantParts[n] {
+			t.Errorf("row %d is part %q, want %q", n+1, row.Part, wantParts[n])
 		}
 		if row.PrevHash != prevHash {
 			t.Errorf("row %d names predecessor %q, want %q", n+1, row.PrevHash, prevHash)
@@ -155,15 +169,22 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 		prevHash = row.Hash
 	}
 
-	if rows[0].ID != decision.ID || rows[1].ID != page.ID || rows[2].ID != wait.ID {
-		t.Errorf("the rows read back are not the three appended")
+	if rows[0].ID != opening.ID || rows[1].ID != page.ID || rows[2].ID != wait.ID || rows[3].ID != closing.ID {
+		t.Errorf("the rows read back are not the four appended")
 	}
 	if rows[0].PolicyVersion != "policy-1" || rows[0].ScoreVersion != "score-1" {
-		t.Errorf("the decision does not name the versions it was decided under: %+v", rows[0])
+		t.Errorf("the opening does not name the versions it was decided under: %+v", rows[0])
 	}
-	if rows[1].PolicyVersion != "" || rows[1].ScoreVersion != "" ||
-		rows[2].PolicyVersion != "" || rows[2].ScoreVersion != "" {
-		t.Errorf("a page event or a wait names a version")
+	for _, n := range []int{1, 2, 3} {
+		if rows[n].PolicyVersion != "" || rows[n].ScoreVersion != "" {
+			t.Errorf("row %d names a version, and only an opening does", n+1)
+		}
+	}
+	if rows[3].Closes != opening.ID {
+		t.Errorf("the closing closes %q, want the opening %q", rows[3].Closes, opening.ID)
+	}
+	if rows[0].Closes != "" || rows[1].Closes != "" || rows[2].Closes != "" {
+		t.Errorf("a row that is not a closing closes something")
 	}
 }
 
@@ -251,7 +272,7 @@ func TestATruncatedTailIsNotCaught(t *testing.T) {
 
 	// The freed prev_hash is why a truncation is not merely undetected: the
 	// log goes on accepting appends as though the removed row never was.
-	replacement, err := log.AppendDecision(ctx, decisionlog.Entry{
+	replacement, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
 		Actor: gate, Payload: "written over the removed tail", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	})
 	if err != nil {
@@ -294,11 +315,11 @@ func appendThree(ctx context.Context, t *testing.T, pool *pgxpool.Pool, log *dec
 	t.Helper()
 	var appended []decisionlog.Row
 	for _, payload := range []string{"first", "second", "third"} {
-		row, err := log.AppendDecision(ctx, decisionlog.Entry{
+		row, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
 			Actor: gate, Payload: payload, PolicyVersion: "policy-1", ScoreVersion: "score-1",
 		})
 		if err != nil {
-			t.Fatalf("AppendDecision(%q): %v", payload, err)
+			t.Fatalf("AppendDecisionOpening(%q): %v", payload, err)
 		}
 		appended = append(appended, row)
 	}
