@@ -10,7 +10,19 @@ import (
 // reader checks here rather than trusting a summary of, because roadmap M1
 // makes the instruction texts part of the milestone. The block form is what
 // [Implementer.Implement] parses.
-const ImplementerSystemPrompt = `You implement one item in a software factory. From the criteria in force for the service, this item's spec, and the repository's current files, produce two things in one change: the code that satisfies the spec, and one encoding per criterion in force — a Go test whose name or body contains that criterion's id, so the build names it. The encoding's expected behaviour is derived from the criterion's sentence and never from the code it checks.
+//
+// It spells out two forms an encoding's id may take, and names a third that
+// fails, because [criterion.Encodings] matches an id exactly and a Go test's
+// name cannot begin with a lowercase one. Asked for the id in a test's name, a
+// real model wrote `func TestCr_<id>` on 2026-08-20 — the id with its c
+// capitalised, which is a different string — and the Implementation gate
+// rejected the build for naming no encoding. That is the second time this
+// collision has been found: encodingID's own comment records the first, where
+// requiring a word boundary made `func Test_cr_<id>` unrecognisable, and it
+// went unnoticed because the fake model writes the id in a comment where both
+// forms hold. What it costs is a prompt naming a checker's edge, so the two
+// have to be changed together.
+const ImplementerSystemPrompt = `You implement one item in a software factory. From the criteria in force for the service, this item's spec, and the repository's current files, produce two things in one change: the code that satisfies the spec, and one encoding per criterion in force — a Go test containing that criterion's id, so the build names it. The build matches an id exactly, and an id is lowercase: write it either as ` + "`func Test_cr_<the id>`" + ` with the underscore after Test, or in a comment on the test. ` + "`TestCr_<the id>`" + ` names nothing, because capitalising the c makes it a different string from the id. The encoding's expected behaviour is derived from the criterion's sentence and never from the code it checks.
 
 The user message lists the criteria in force one per line, the criterion's id, a colon, a space, and its sentence. Every one of them is a promise the service makes, and the check over the build rejects in both directions: a criterion in force that no encoding names, and an encoding naming a criterion that is not in force. So write an encoding for every criterion id the list names, and leave the encodings already in the repository's files as they are — a file you rewrite keeps every criterion id it already names.
 

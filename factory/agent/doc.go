@@ -1,6 +1,6 @@
 // Package agent is M1's two authoring roles — [SpecAuthor] and [Implementer]
-// — the [Model] interface both roles call, and [Anthropic], the one
-// implementation of it. The system prompts are exported constants —
+// — the [Model] interface both roles call, and the two implementations of it,
+// [OpenRouter] and [Anthropic]. The system prompts are exported constants —
 // [SpecAuthorSystemPrompt], [ImplementerSystemPrompt] — because roadmap M1
 // makes what each agent is told part of the milestone rather than a detail of
 // it, and the four rules it names are [Rules], one constant included in both
@@ -9,9 +9,9 @@
 // # A model, a role, a credential
 //
 // A role is a struct over a [Model], and a Model is one call: a system
-// prompt, a user message, a [Reply]. [Anthropic] takes its model name from
-// configuration and names its credential as a [secretref.Ref]: the value is
-// resolved at the moment of the HTTP call, sent in a header, stored in no
+// prompt, a user message, a [Reply]. Both implementations take their model name
+// from configuration and name their credential as a [secretref.Ref]: the value
+// is resolved at the moment of the HTTP call, sent in a header, stored in no
 // field of any struct here, and rendered in no error this package returns —
 // an API error carries the status and the response body, and the request that
 // body may quote carries the credential in a header, not in the body.
@@ -19,16 +19,38 @@
 // [Paced] wraps a Model to leave an interval between two call starts, so the
 // factory sends nothing in rapid succession however many calls a stage makes —
 // a retry after a refused reply being the one place two requests would
-// otherwise have nothing between them. It is composed around [Anthropic] by the
-// caller rather than being a field on it, Anthropic being a value with nowhere
+// otherwise have nothing between them. It is composed around an implementation
+// by the caller rather than being a field on it, both being values with nowhere
 // to keep the time of the last call.
 //
-// The credential is the long-lived OAuth token `claude setup-token` mints
-// against a Claude subscription, sent as a bearer token under the beta header
-// that scheme requires. One scheme and not two: an API key is a different
-// header and this package sends neither conditionally, so an install holding
-// one cannot call the model until a credential kind is something configuration
-// names — which is the fleet's at M7, there being no fleet record behind these
+// # Two providers, and what the second is for
+//
+// [OpenRouter] posts to OpenRouter's chat completions endpoint with an
+// OpenRouter API key. [Anthropic] posts to Anthropic's messages endpoint with
+// the long-lived OAuth token `claude setup-token` mints against a Claude
+// subscription, sent as a bearer token under the beta header that scheme
+// requires. The caller picks one and this package dispatches on nothing: two
+// structs implementing one interface, selected where the model is constructed.
+//
+// The second exists because the first credential does not reach every model.
+// Measured on 2026-08-18 and again on 2026-08-19, a subscription token is
+// served claude-haiku-4-5 and refused every model above it with a 429 carrying
+// no rate-limit header, and the only thing that turns that refusal into an
+// answer is the request carrying Claude Code's own system prompt — which this
+// factory does not send, its roles having prompts of their own. So [Anthropic]
+// reaches Haiku, and a take that needs a stronger model goes through
+// [OpenRouter].
+//
+// What two providers cost: one more party between a role and the model, which
+// is one more place a take's failure comes from. [ErrUpstream] is one shape it
+// takes, a failure at the provider [OpenRouter] routed to arriving as a 200,
+// and [ErrRefused] is the other, a model declining on policy grounds — which is
+// its own error and not a malformed answer, because retrying it spends an
+// attempt on a verdict already given. Neither is reachable through
+// [Anthropic], whose endpoint reports both as a status. And an API key
+// against Anthropic's own endpoint is still not sendable: that is a third
+// header pair neither struct writes, and naming a credential's kind rather
+// than its name is the fleet's at M7, there being no fleet record behind these
 // roles yet.
 //
 // # Every criterion in force, not only this item's

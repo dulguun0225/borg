@@ -15,12 +15,16 @@
 // something on the path between a role and the provider changes, and before
 // calling a milestone done:
 //
-//	FACTORY_MODEL=claude-opus-5 go test -tags realmodel -count=1 -v -run RealModel ./cmd/factory/
+//	FACTORY_MODEL=deepseek/deepseek-v4-flash go test -tags realmodel -count=1 -v -run RealModel ./cmd/factory/
+//
+// FACTORY_PROVIDER names which provider answers, openrouter by default, and
+// FACTORY_MODEL is that provider's model id — OpenRouter's ids are namespaced
+// and Anthropic's are not, so the two are set together or neither is.
 //
 // The credential comes from factory/secrets.local, which .gitignore refuses to
-// track. When it holds no token this test fails rather than skipping, for the
-// reason the database tests do not skip either: a silent skip is how a green run
-// comes to mean nothing.
+// track, under the name the named provider resolves. When it holds no key this
+// test fails rather than skipping, for the reason the database tests do not skip
+// either: a silent skip is how a green run comes to mean nothing.
 package main
 
 import (
@@ -45,8 +49,9 @@ const realModelSecrets = "../../secrets.local"
 
 // realModelPlaceholder is what the file ships holding. A run against it would
 // send the placeholder as a credential and read a 401 back, so it is named as
-// what it is instead.
-const realModelPlaceholder = "PASTE_THE_TOKEN_HERE"
+// what it is instead. One string for either provider's line, because what the
+// test can say about it is the same either way.
+const realModelPlaceholder = "PASTE_THE_KEY_HERE"
 
 // realModelPace is the least time between two model calls, the same default the
 // run subcommand's -pace flag carries. A take makes a handful of calls, so this
@@ -87,18 +92,43 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	if name == "" {
 		t.Fatal("FACTORY_MODEL names the provider's model id and has no default, roadmap M1 requiring the model named in configuration")
 	}
+	// The same default the run subcommand's -provider flag carries, so what
+	// this test drives is what a take drives.
+	provider := os.Getenv("FACTORY_PROVIDER")
+	if provider == "" {
+		provider = "openrouter"
+	}
+
+	// The credential name this provider's calls resolve, switched on here
+	// rather than reached through newModel, because the value is read before
+	// anything is spent: a file still holding the placeholder fails the test
+	// instead of being sent as a key. It is the same two constants newModel
+	// uses, so there is no second list of names to keep in step, and what it
+	// answers is which name and not which implementation.
+	var credentialName, mints string
+	switch provider {
+	case "openrouter":
+		credentialName, mints = openRouterCredentialName, "an OpenRouter API key"
+	case "anthropic":
+		credentialName, mints = anthropicCredentialName, "the token `claude setup-token` mints"
+	default:
+		t.Fatalf("FACTORY_PROVIDER=%q is not one of %s", provider, providers)
+	}
 
 	resolver, err := secretref.Load(realModelSecrets)
 	if err != nil {
 		t.Fatalf("loading %s: %v", realModelSecrets, err)
 	}
-	credential := secretref.MustNew("model.anthropic")
-	value, err := resolver.Resolve(credential)
+	value, err := resolver.Resolve(secretref.MustNew(credentialName))
 	if err != nil {
-		t.Fatalf("resolving the model credential from %s: %v", realModelSecrets, err)
+		t.Fatalf("resolving %s from %s: %v", credentialName, realModelSecrets, err)
 	}
 	if value == "" || value == realModelPlaceholder {
-		t.Fatalf("%s still holds the placeholder; put a token in it — `claude setup-token` mints one", realModelSecrets)
+		t.Fatalf("%s still holds the placeholder for %s; put %s in it", realModelSecrets, credentialName, mints)
+	}
+	provided, err := newModel(provider, name, resolver)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// The interview asks at most one question and may ask none, so the first
@@ -115,10 +145,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	// take drives — a run that sends requests back to back is one of the things
 	// only a real provider can object to.
 	ctx, d, out := newPath(t, "approve\napprove\napprove\napprove\n")
-	d.model = agent.NewPaced(
-		agent.Anthropic{ModelName: name, Credential: credential, Resolver: resolver},
-		realModelPace,
-	)
+	d.model = agent.NewPaced(provided, realModelPace)
 	// The author every version this take writes names is the model that wrote it,
 	// which is what an authorship prior is kept on.
 	d.modelName = name

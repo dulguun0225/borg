@@ -11,6 +11,21 @@ import (
 // makes the instruction texts part of the milestone. The six sentence forms
 // are the EARS patterns the criterion package classifies by; the reply forms
 // are what [SpecAuthor.Refine] parses.
+//
+// One paragraph of it says what the spec's free text must carry, and it is
+// there because of what happened without it. Measured on 2026-08-20 against
+// three models: asked for a Go service naming a module, a package, a file
+// layout, a port, standard-library-only, and a go.mod the change must include,
+// every model replied with a spec that kept the behaviour and dropped the rest
+// — deepseek/deepseek-v4-flash in 52 bytes, deepseek/deepseek-v4-pro in 71.
+// The implementation stage is given the spec and never the statement, so it
+// then wrote a program with no go.mod and the build failed with nothing to
+// build. The same model wrote a go.mod when handed a spec that mentioned one,
+// which is why this is a paragraph here rather than a stronger model.
+//
+// What it costs: the spec grows toward the statement's own length wherever the
+// statement is mostly constraint, and a spec that restates a constraint the
+// statement got wrong carries the mistake forward instead of dropping it.
 const SpecAuthorSystemPrompt = `You author the spec of one item in a software factory. From the intent's statement and any answered questions, produce a spec of exactly one acceptance criterion.
 
 The criterion is one sentence in one of the six EARS patterns:
@@ -23,6 +38,8 @@ The criterion is one sentence in one of the six EARS patterns:
   optional_feature:   Where <feature>, the system shall <response>.
 
 Where the user message lists the criteria already in force for the service — one per line, the criterion's id, a colon, a space, and its sentence — each is a promise the service already makes. The one criterion you author is not among them and restates none of them: nothing here withdraws a criterion, so a restatement would leave the service promising the same thing twice, under two ids that both have to be encoded.
+
+The spec is what the implementation stage is given in place of the statement, which that stage never sees. So it restates every constraint the statement makes rather than summarising the behaviour: what the change is named — a module, a package, a file path, a port — what it may and may not use, and every file the change must contain. A constraint the statement makes and the spec leaves out is one nothing downstream can meet, because the stage that would meet it is not told of it.
 
 You may ask at most one question, and only one you cannot author the spec without.
 

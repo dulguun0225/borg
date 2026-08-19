@@ -20,14 +20,45 @@ import (
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
-// The two secrets the run reads from the -secrets file: the Claude
-// subscription token `claude setup-token` mints, resolved inside the model call
-// and stored in no record, and the deploy credential the target seam requires
-// on every operation.
+// The secrets the run reads from the -secrets file: one model credential per
+// provider, resolved inside the model call and stored in no record, and the
+// deploy credential the target seam requires on every operation. A run reads
+// the one its -provider names and never the other, so an install using one
+// provider has no reason to hold the other's credential.
 const (
-	modelCredentialName  = "model.anthropic"
-	deployCredentialName = "deploy.local"
+	anthropicCredentialName  = "model.anthropic"
+	openRouterCredentialName = "model.openrouter"
+	deployCredentialName     = "deploy.local"
 )
+
+// providers is what -provider accepts, in the order the flag's usage lists
+// them. Two providers and a switch rather than one client with a base URL
+// swapped: the two endpoints differ in their wire shape and in their
+// credential's scheme, so a name here selects an implementation and configures
+// nothing.
+const providers = "openrouter, anthropic"
+
+// newModel is the one place a provider name becomes a model. The switch is
+// exhaustive and its default is an error, so a name this interface does not
+// implement is refused at the flag rather than reaching a request.
+func newModel(provider, modelName string, resolver *secretref.Resolver) (agent.Model, error) {
+	switch provider {
+	case "openrouter":
+		return agent.OpenRouter{
+			ModelName:  modelName,
+			Credential: secretref.MustNew(openRouterCredentialName),
+			Resolver:   resolver,
+		}, nil
+	case "anthropic":
+		return agent.Anthropic{
+			ModelName:  modelName,
+			Credential: secretref.MustNew(anthropicCredentialName),
+			Resolver:   resolver,
+		}, nil
+	default:
+		return nil, fmt.Errorf("factory run: -provider %q is not one of %s", provider, providers)
+	}
+}
 
 func main() {
 	if err := dispatch(os.Args[1:]); err != nil {
@@ -140,6 +171,7 @@ func runCommand(args []string) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	secrets := flags.String("secrets", "", "path of the secrets file (required)")
 	model := flags.String("model", "", "the provider's model id (required; the roadmap names the model in configuration)")
+	provider := flags.String("provider", "openrouter", "which provider answers the model — "+providers+"; each reads its own credential from the secrets file")
 	repo := flags.String("repo", "", "path of the service's git repository (required; created when absent)")
 	serviceName := flags.String("service", "", "the service's name (required)")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
@@ -164,6 +196,10 @@ func runCommand(args []string) error {
 	}
 
 	resolver, err := secretsResolver(*secrets)
+	if err != nil {
+		return err
+	}
+	provided, err := newModel(*provider, *model, resolver)
 	if err != nil {
 		return err
 	}
@@ -206,10 +242,7 @@ func runCommand(args []string) error {
 		// Paced around the provider client, so every call a stage makes —
 		// including a retry after a refused reply, which would otherwise follow
 		// the refusal with nothing in between — waits out the interval.
-		model: agent.NewPaced(
-			agent.Anthropic{ModelName: *model, Credential: secretref.MustNew(modelCredentialName), Resolver: resolver},
-			*pace,
-		),
+		model: agent.NewPaced(provided, *pace),
 		// One target per environment: production's is the directory named here, and
 		// each candidate environment's is a directory of its own under it.
 		targets: newTargetSet(localTargetAt),
