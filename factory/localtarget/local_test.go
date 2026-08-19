@@ -33,7 +33,7 @@ func main() {}
 `
 
 // buildProgram compiles source into dir/name, which is where [localtarget.New]'s
-// Deploy expects the binary for release "name".
+// Deploy expects the binary for build "name".
 func buildProgram(t *testing.T, dir, name, source string) {
 	t.Helper()
 	src := filepath.Join(t.TempDir(), "main.go")
@@ -69,7 +69,7 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 	local, dir := newTarget(t, "checkout")
 	buildProgram(t, dir, "rel_one", sleeperSource)
 
-	err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: "rel_one", Credential: credential})
+	err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one", Credential: credential})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
@@ -77,8 +77,8 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if running.Release != "rel_one" {
-		t.Fatalf("ReadRunning names %q, want rel_one", running.Release)
+	if running.Build != "rel_one" {
+		t.Fatalf("ReadRunning names %q, want rel_one", running.Build)
 	}
 
 	if err := local.Stop(ctx, "checkout", credential); err != nil {
@@ -88,8 +88,8 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if running.Release != "" {
-		t.Fatalf("ReadRunning names %q after Stop, want nothing running", running.Release)
+	if running.Build != "" {
+		t.Fatalf("ReadRunning names %q after Stop, want nothing running", running.Build)
 	}
 
 	// Stopping a service with nothing running is not an error: what Stop
@@ -105,10 +105,10 @@ func TestASecondDeployReplacesTheFirst(t *testing.T) {
 	buildProgram(t, dir, "rel_one", sleeperSource)
 	buildProgram(t, dir, "rel_two", sleeperSource)
 
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: "rel_one", Credential: credential}); err != nil {
+	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one", Credential: credential}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: "rel_two", Credential: credential}); err != nil {
+	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_two", Credential: credential}); err != nil {
 		t.Fatalf("Deploy rel_two: %v", err)
 	}
 
@@ -116,8 +116,8 @@ func TestASecondDeployReplacesTheFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if running.Release != "rel_two" {
-		t.Fatalf("ReadRunning names %q, want the replacement, rel_two", running.Release)
+	if running.Build != "rel_two" {
+		t.Fatalf("ReadRunning names %q, want the replacement, rel_two", running.Build)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestADeadProcessReadsAsNothingRunning(t *testing.T) {
 	local, dir := newTarget(t, "checkout")
 	buildProgram(t, dir, "rel_dies", exiterSource)
 
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: "rel_dies", Credential: credential}); err != nil {
+	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_dies", Credential: credential}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
 
@@ -139,18 +139,18 @@ func TestADeadProcessReadsAsNothingRunning(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadRunning: %v", err)
 		}
-		if running.Release == "" {
+		if running.Build == "" {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("ReadRunning still names %q ten seconds after the process exited", running.Release)
+			t.Fatalf("ReadRunning still names %q ten seconds after the process exited", running.Build)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-// TestAReleaseOutsideTheDirectoryIsRefused deploys a release string that
-// traverses out of the targets directory. The target joins the release onto its
+// TestAReleaseOutsideTheDirectoryIsRefused deploys a build string that
+// traverses out of the targets directory. The target joins the build onto its
 // directory, so without the check it would run whatever the traversal names.
 // The refusal comes before the stop, so what was running is still running.
 func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
@@ -162,26 +162,26 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 	outside := filepath.Dir(dir)
 	buildProgram(t, outside, "planted", sleeperSource)
 
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: "rel_one", Credential: credential}); err != nil {
+	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one", Credential: credential}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
 
-	for _, release := range []string{
+	for _, build := range []string{
 		filepath.Join("..", "planted"),
 		filepath.Join(outside, "planted"),
 		"/bin/sh",
 		"",
 	} {
-		err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: release, Credential: credential})
-		if release == "" {
-			// An empty release is the seam's own refusal, before this one.
+		err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: build, Credential: credential})
+		if build == "" {
+			// An empty build is the seam's own refusal, before this one.
 			if !errors.Is(err, targetseam.ErrIncomplete) {
-				t.Errorf("Deploy of %q = %v, want %v", release, err, targetseam.ErrIncomplete)
+				t.Errorf("Deploy of %q = %v, want %v", build, err, targetseam.ErrIncomplete)
 			}
 			continue
 		}
-		if !errors.Is(err, localtarget.ErrReleaseNotLocal) {
-			t.Errorf("Deploy of %q = %v, want %v", release, err, localtarget.ErrReleaseNotLocal)
+		if !errors.Is(err, localtarget.ErrBuildNotLocal) {
+			t.Errorf("Deploy of %q = %v, want %v", build, err, localtarget.ErrBuildNotLocal)
 		}
 	}
 
@@ -189,8 +189,8 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if running.Release != "rel_one" {
-		t.Errorf("ReadRunning names %q after the refusals, want rel_one still running", running.Release)
+	if running.Build != "rel_one" {
+		t.Errorf("ReadRunning names %q after the refusals, want rel_one still running", running.Build)
 	}
 }
 
@@ -198,13 +198,13 @@ func TestTheSeamsChecksHold(t *testing.T) {
 	ctx := t.Context()
 	local, _ := newTarget(t, "checkout")
 
-	err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: "rel_one"})
+	err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one"})
 	if !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("Deploy with no credential = %v, want %v", err, targetseam.ErrIncomplete)
 	}
 	err = local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Credential: credential})
 	if !errors.Is(err, targetseam.ErrIncomplete) {
-		t.Errorf("Deploy with no release = %v, want %v", err, targetseam.ErrIncomplete)
+		t.Errorf("Deploy with no build = %v, want %v", err, targetseam.ErrIncomplete)
 	}
 	if err := local.Stop(ctx, "", credential); !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("Stop with no service = %v, want %v", err, targetseam.ErrIncomplete)
@@ -213,17 +213,17 @@ func TestTheSeamsChecksHold(t *testing.T) {
 		t.Errorf("ReadRunning with no credential = %v, want %v", err, targetseam.ErrIncomplete)
 	}
 
-	// A release whose binary was never placed in dir fails at the start, and
+	// A build whose binary was never placed in dir fails at the start, and
 	// nothing runs for the service afterwards.
-	err = local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Release: "rel_missing", Credential: credential})
+	err = local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_missing", Credential: credential})
 	if err == nil {
-		t.Error("Deploy of a release with no binary succeeded")
+		t.Error("Deploy of a build with no binary succeeded")
 	}
 	running, err := local.ReadRunning(ctx, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if running.Release != "" {
-		t.Errorf("ReadRunning names %q after a failed deploy, want nothing", running.Release)
+	if running.Build != "" {
+		t.Errorf("ReadRunning names %q after a failed deploy, want nothing", running.Build)
 	}
 }

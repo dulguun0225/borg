@@ -170,3 +170,34 @@ func TestGetOfNothingIsNotFound(t *testing.T) {
 		t.Errorf("Get = %v, want %v", err, build.ErrNotFound)
 	}
 }
+
+// TestForCommitAnswersWhichBuildIsAlreadyThere: a rebuild is a new build, so a
+// re-verification that produced the commit already built produced no build. The
+// caller asks before it writes one, rather than being refused by the unique
+// constraint and left without the record that is there.
+func TestForCommitAnswersWhichBuildIsAlreadyThere(t *testing.T) {
+	ctx, pool, w := newTable(t)
+	const itemID, commit = "it_a", "8bd35e6a5b0f1ee5f0f2f6f39c5d0f0f6a2b1c3d"
+
+	if _, found, err := build.ForCommit(ctx, pool, itemID, commit); err != nil || found {
+		t.Fatalf("ForCommit before anything was built = found %v, %v", found, err)
+	}
+
+	made, err := w.Create(ctx, dispatch, itemID, commit)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	found, ok, err := build.ForCommit(ctx, pool, itemID, commit)
+	if err != nil || !ok {
+		t.Fatalf("ForCommit = ok %v, %v", ok, err)
+	}
+	if found != made {
+		t.Errorf("ForCommit = %+v, want the build that was made, %+v", found, made)
+	}
+
+	// Another item at the same commit is another build, the record being one per
+	// commit built for an item.
+	if _, ok, err := build.ForCommit(ctx, pool, "it_b", commit); err != nil || ok {
+		t.Errorf("ForCommit for another item = ok %v, %v", ok, err)
+	}
+}

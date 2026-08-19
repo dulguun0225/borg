@@ -72,18 +72,41 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, itemID, commitH
 	return b, nil
 }
 
+const selectBuild = `select id, actor_kind, actor_name, at, item_id, commit_hash
+	from ` + Table
+
 // Get is one build by id. It takes the pool and not a [Writer], because
 // reading a build is not a reason to be handed the thing that writes them.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Build, error) {
-	var b Build
-	var kind string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, item_id, commit_hash
-		from `+Table+` where id = $1`, id).
-		Scan(&b.ID, &kind, &b.Actor.Name, &b.At, &b.ItemID, &b.CommitHash)
+	b, err := scan(pool.QueryRow(ctx, selectBuild+` where id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Build{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
 		return Build{}, fmt.Errorf("build: reading %s: %w", id, err)
+	}
+	return b, nil
+}
+
+// ForCommit is the build of one item at one commit, and false where there is
+// none. It is what a caller asks before writing one: a rebuild is a new build, so
+// a re-verification that produced the commit already built produced no build, and
+// [Writer.Create] would be refused by the unique constraint rather than answer
+// which record is already there.
+func ForCommit(ctx context.Context, pool *pgxpool.Pool, itemID, commitHash string) (Build, bool, error) {
+	b, err := scan(pool.QueryRow(ctx, selectBuild+` where item_id = $1 and commit_hash = $2`, itemID, commitHash))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Build{}, false, nil
+	} else if err != nil {
+		return Build{}, false, fmt.Errorf("build: reading the build of %s at %s: %w", itemID, commitHash, err)
+	}
+	return b, true, nil
+}
+
+func scan(row pgx.Row) (Build, error) {
+	var b Build
+	var kind string
+	if err := row.Scan(&b.ID, &kind, &b.Actor.Name, &b.At, &b.ItemID, &b.CommitHash); err != nil {
+		return Build{}, err
 	}
 	b.Actor.Kind = record.Kind(kind)
 	return b, nil

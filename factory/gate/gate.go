@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
@@ -14,9 +15,9 @@ import (
 
 var (
 	// ErrFiringIncomplete is returned by [Gate.Fire] for a firing missing
-	// something its row always has. Both rows name an item, a build, a service,
+	// something its row always has. Every row names an item, a build, a service,
 	// and the environment whose threshold decides them; the merge row also names
-	// the artifact version under decision and the deploy row names none, there
+	// the artifact version under decision and neither deploy row names one, there
 	// being no artifact under decision at a deploy.
 	ErrFiringIncomplete = errors.New("gate: the firing is missing something its row always has")
 	// ErrVerdictUnknown is returned for a verdict the row does not offer.
@@ -59,8 +60,8 @@ func New(log *decisionlog.Writer, s Score, p Policy) *Gate {
 	return &Gate{log: log, score: s, policy: p}
 }
 
-// Firing is what fires the gate: the row, the records it decides over, each
-// acceptance criterion's result from the build's own run, and the build's
+// Firing is what fires the gate: the row, the records it decides over, what the
+// acceptance criteria in force produced against the build, and the build's
 // measurement, which the component that built took and the score cannot read.
 type Firing struct {
 	Row           Row
@@ -70,16 +71,23 @@ type Firing struct {
 	ServiceID     string
 	AreaID        string
 	EnvironmentID string
-	Criteria      []CriterionResult
-	Measurement   score.Measurement
+	// CriteriaInForce is how many criteria the build is decided against, which is
+	// what the coverage factor reads. It is separate from Criteria because at the
+	// candidate deploy row the count is known and no outcome is: the run that
+	// decides them is what that deploy is for.
+	CriteriaInForce int
+	// Criteria is what deciding each of them produced, and is empty at the
+	// candidate deploy row.
+	Criteria    []CriterionResult
+	Measurement score.Measurement
 }
 
 // CriterionResult is one criterion decided against the build: the criterion's id
-// and whether its encoding passed. The JSON tags are the field names the opening
+// and what its encoding produced. The JSON tags are the field names the opening
 // payload stores.
 type CriterionResult struct {
-	CriterionID string `json:"criterion_id"`
-	Passed      bool   `json:"passed"`
+	CriterionID string            `json:"criterion_id"`
+	Outcome     criterion.Outcome `json:"outcome"`
 }
 
 // Opened is what [Gate.Fire] returns and the two closing calls take: the opening
@@ -175,8 +183,8 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		ServiceID:       f.ServiceID,
 		AreaID:          f.AreaID,
 		Measurement:     f.Measurement,
-		CriteriaInForce: len(f.Criteria),
-		CriteriaFailed:  failed(f.Criteria),
+		CriteriaInForce: f.CriteriaInForce,
+		CriteriaFailed:  blocked(f.Criteria),
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: assessing the change: %w", err)
@@ -318,17 +326,21 @@ func complete(f Firing) error {
 	if f.Row == MergeToMaster && f.ArtifactID == "" {
 		return fmt.Errorf("%w: %s names no artifact version under decision", ErrFiringIncomplete, f.Row)
 	}
-	if f.Row == DeployToProduction && f.ArtifactID != "" {
+	if f.Row != MergeToMaster && f.ArtifactID != "" {
 		return fmt.Errorf("%w: %s names an artifact, and no artifact is under decision at a deploy",
 			ErrFiringIncomplete, f.Row)
 	}
 	return nil
 }
 
-func failed(criteria []CriterionResult) int {
+// blocked is how many of the criteria decided against the build stop it at the
+// merge gate. Undecided is counted with failed, which is what the design says of
+// it: an encoding that produced a failure and a pass over the same build decided
+// nothing, and it is read there the way a failure is.
+func blocked(criteria []CriterionResult) int {
 	n := 0
 	for _, c := range criteria {
-		if !c.Passed {
+		if c.Outcome.Blocks() {
 			n++
 		}
 	}

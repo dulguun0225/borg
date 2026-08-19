@@ -2,16 +2,24 @@
 // the policy what applies, and writes that firing's decision into the decision
 // log through [decisionlog.Writer].
 //
-// # The two rows
+// # The three rows
 //
-// [MergeToMaster] and [DeployToProduction]. The merge row is where a candidate
-// becomes a numbered release and where the verdict on the candidate is given;
-// the production deploy row is where hold is an action, the merge having
-// happened and the number already assigned, so hold is the only way to stop it.
-// The other six rows of the default path are not built: the candidate deploy row
-// needs the environment per candidate, and the four authoring rows need stages
-// that fire one. An item reaches these two having passed through stages that
-// fire nothing.
+// [DeployToCandidateEnvironment], [MergeToMaster], and [DeployToProduction]. The
+// candidate deploy row is where the candidate's own environment is created and
+// its build is put on it, and what the deploy provides is the criteria — nothing
+// else attaches to that row. The merge row is where a candidate becomes a
+// numbered release and where the verdict on the candidate is given. The production
+// deploy row is where the merge has happened and the number is already assigned,
+// so hold is the only way to stop it.
+//
+// The four authoring rows of the default path are not built: each needs a stage
+// that fires one, and an item reaches these three having passed through stages
+// that fire nothing.
+//
+// All three read their threshold from production's environment record, which is
+// the rule the design gives for all eight rows — and a candidate's own environment
+// could not hold it anyway, being created at the approval of the row that decides
+// its deploy.
 //
 // [Actions] is what may be done at each, and it differs by row: reject is
 // available up to the merge to master and nowhere after it, and hold is offered
@@ -52,11 +60,15 @@
 // A hold is the third kind of verdict and the only one that decides nothing: it
 // leaves the event queued with the change still good, counts no attempt against
 // the bound, and teaches the score nothing — which is what separates it from a
-// reject, and why the score's own reader of outcomes ignores it. The factory's
-// own hold over a record that already exists is not built here: an open window, a
-// dependency that is not current, a rollback whose revert has not shipped, and a
-// reconciler mismatch are records later milestones write, and none of them writes
-// a decision anyway.
+// reject, and why the score's own reader of outcomes ignores it.
+//
+// The factory's own hold is not a verdict and is not fired here. What it is
+// computed from at the two deploy rows is named by [HoldDependencyNotLive] and
+// [HoldNoRoomForAnotherEnvironment], and computing it is the caller's: it reads
+// the item's declared dependencies and the deploy records of their services, and
+// this package imports neither. The rest of the design's conditions — an open
+// window, a rollback whose revert has not shipped, a reconciler mismatch — are
+// records later milestones write.
 //
 // Who may write what: this package owns no table. It appends into the decision
 // log through [decisionlog.Writer], which owns that table, and it writes nowhere
@@ -69,8 +81,9 @@
 // ../../end-goal/how-humans-do-it/03-gates.md#actions-at-each-gate, the three
 // kinds of hold are
 // ../../end-goal/how-humans-do-it/03-gates.md#what-a-gate-may-change, and the
-// two rows themselves are
-// ../../end-goal/how-humans-do-it/03-gates.md#merge-to-master and
+// the three rows themselves are
+// ../../end-goal/how-humans-do-it/03-gates.md#deploy-to-candidate-environment,
+// ../../end-goal/how-humans-do-it/03-gates.md#merge-to-master, and
 // ../../end-goal/how-humans-do-it/03-gates.md#deploy-to-production. The vector
 // and the number are ../../end-goal/how-humans-do-it/04-risk-score.md; the
 // threshold and the pin are

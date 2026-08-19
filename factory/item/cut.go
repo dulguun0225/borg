@@ -44,9 +44,15 @@ type New struct {
 	// refused here.
 	AreaID string
 	Branch string
+	// WaitsOn is the items this one cannot be verified until they have shipped.
+	// The cut records the order, so this is where a dependency is declared and
+	// not something discovered at deploy time.
+	WaitsOn []string
 }
 
-// Create writes an item at stage spec, where every item starts.
+// Create writes an item at stage spec, where every item starts, with the
+// priority at nothing — an owner reordering a queue is [Dispatch.SetPriority]
+// and never the cut.
 func (c *Cut) Create(ctx context.Context, actor record.Actor, n New) (Item, error) {
 	if err := actor.Validate(); err != nil {
 		return Item{}, err
@@ -61,6 +67,12 @@ func (c *Cut) Create(ctx context.Context, actor record.Actor, n New) (Item, erro
 		return Item{}, ErrBranchEmpty
 	}
 
+	for _, on := range n.WaitsOn {
+		if on == "" {
+			return Item{}, fmt.Errorf("%w: one of the items it waits on", ErrItemIDEmpty)
+		}
+	}
+
 	it := Item{
 		ID:        record.NewID(IDPrefix),
 		Actor:     actor,
@@ -70,12 +82,13 @@ func (c *Cut) Create(ctx context.Context, actor record.Actor, n New) (Item, erro
 		AreaID:    n.AreaID,
 		Branch:    n.Branch,
 		Stage:     StageSpec,
+		WaitsOn:   n.WaitsOn,
 	}
 	_, err := c.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		(id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage, waits_on, priority)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)`,
 		it.ID, string(it.Actor.Kind), it.Actor.Name, it.At,
-		it.IntentID, it.ServiceID, it.AreaID, it.Branch, string(it.Stage),
+		it.IntentID, it.ServiceID, it.AreaID, it.Branch, string(it.Stage), joinWaitsOn(it.WaitsOn),
 	)
 	if err != nil {
 		return Item{}, fmt.Errorf("item: cutting %s: %w", it.ID, err)

@@ -110,18 +110,26 @@ func (w *Writer) Mint(ctx context.Context, actor record.Actor, serviceID, buildI
 	return r, nil
 }
 
+const selectRelease = `select id, actor_kind, actor_name, at, service_id, number, build_id, item_id
+	from ` + Table
+
 // Get is one release by id. It takes the pool and not a [Writer], because
 // reading a release is not a reason to be handed the thing that mints them.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Release, error) {
-	var r Release
-	var kind string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, service_id, number, build_id, item_id
-		from `+Table+` where id = $1`, id).
-		Scan(&r.ID, &kind, &r.Actor.Name, &r.At, &r.ServiceID, &r.Number, &r.BuildID, &r.ItemID)
+	r, err := scan(pool.QueryRow(ctx, selectRelease+` where id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Release{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
 		return Release{}, fmt.Errorf("release: reading %s: %w", id, err)
+	}
+	return r, nil
+}
+
+func scan(row pgx.Row) (Release, error) {
+	var r Release
+	var kind string
+	if err := row.Scan(&r.ID, &kind, &r.Actor.Name, &r.At, &r.ServiceID, &r.Number, &r.BuildID, &r.ItemID); err != nil {
+		return Release{}, err
 	}
 	r.Actor.Kind = record.Kind(kind)
 	return r, nil

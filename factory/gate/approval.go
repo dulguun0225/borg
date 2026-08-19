@@ -1,0 +1,81 @@
+package gate
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/dulguun0225/borg/factory/decisionlog"
+)
+
+// ApprovalTimes is when each item's decision at one row closed as an approval,
+// by item id. It is here rather than in the package that asks because the shape
+// of both payloads is this package's: a caller that unmarshalled them itself
+// would be a second place naming the same JSON fields, and the two could come to
+// disagree — the arrangement package score already has for the fields it reads
+// back off an opening row.
+//
+// An item with more than one approval at the row keeps the latest, an item may be
+// rejected and approved again, and the queue's order is about the approval in
+// force.
+//
+// A payload it cannot read is skipped rather than returned as an error, the way
+// every other reader of this log treats one: a payload is unconstrained bytes by
+// decisionlog's contract, so a row in a shape this package does not know is not a
+// decision at this gate row.
+//
+// It reads the whole log, which is what the merge queue's order costs: the design
+// makes that order the item's priority and then the time of the approval in the
+// log, so the time is not a field of any record and the log is where it is. What
+// that costs grows with the log, and what would remove it is an index on the log
+// this package does not own.
+func ApprovalTimes(ctx context.Context, pool *pgxpool.Pool, row Row) (map[string]string, error) {
+	if _, err := Actions(row); err != nil {
+		return nil, err
+	}
+	rows, err := decisionlog.Read(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
+
+	// The item each opening row of this gate row decided over, by opening id, so
+	// a closing row can be attributed without a second pass.
+	itemOf := make(map[string]string)
+	for _, r := range rows {
+		if r.Shape != decisionlog.ShapeDecision || r.Part != decisionlog.PartOpening {
+			continue
+		}
+		var opening OpeningPayload
+		if err := json.Unmarshal([]byte(r.Payload), &opening); err != nil {
+			// A payload is unconstrained bytes by decisionlog's contract — that
+			// package neither parses one nor constrains its format — so a row this
+			// package cannot read is a row some other component wrote in a shape it
+			// does not know. It is not a decision at this gate row and it is not an
+			// error either, which is what package score already does with one.
+			continue
+		}
+		if Row(opening.Gate) == row && opening.ItemID != "" {
+			itemOf[r.ID] = opening.ItemID
+		}
+	}
+
+	approved := make(map[string]string)
+	for _, r := range rows {
+		if r.Shape != decisionlog.ShapeDecision || r.Part != decisionlog.PartClosing {
+			continue
+		}
+		itemID, ours := itemOf[r.Closes]
+		if !ours {
+			continue
+		}
+		var closing ClosingPayload
+		if err := json.Unmarshal([]byte(r.Payload), &closing); err != nil {
+			continue
+		}
+		if Verdict(closing.Verdict) == VerdictApprove {
+			approved[itemID] = r.At
+		}
+	}
+	return approved, nil
+}

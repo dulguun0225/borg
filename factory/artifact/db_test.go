@@ -138,7 +138,7 @@ func TestSubmitSpecWritesTheSpecAndItsCriteriaTogether(t *testing.T) {
 	if read != spec {
 		t.Errorf("Get returned %+v, want %+v", read, spec)
 	}
-	inForce, err := criterion.InForce(ctx, pool, "svc_a")
+	inForce, err := criterion.InForce(ctx, pool, "svc_a", []string{spec.ItemID})
 	if err != nil {
 		t.Fatalf("InForce: %v", err)
 	}

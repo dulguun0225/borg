@@ -27,6 +27,12 @@
 # both own tables: the artifact store is the criterion's one writer, so the
 # spec version and the criteria it introduces are written in one transaction.
 #
+# gate imports criterion for one type: what deciding a criterion against a build
+# produced, which is what the merge gate reads about the item's own behaviour. The
+# vocabulary of an outcome — passed, failed, and undecided read the way a failure
+# is — belongs to the package that owns the criterion, so the gate names it rather
+# than keeping a second spelling of it.
+#
 # gatepolicy is imported by everything that holds an authored value and by
 # nothing it imports itself. It owns no table and is the vocabulary of gate
 # policy — the parameters, what each value means, and the direction a pin on it
@@ -44,6 +50,13 @@
 # and the pin — and calls the transaction-taking write each of them exposes,
 # appending the policy version inside the same transaction. It imports score
 # for the value the score supplies where an owner authored nothing.
+#
+# mergequeue imports gate because the shape of a decision's two payloads is
+# gate's: the queue's order is the time of the merge approval in the log, and a
+# queue that unmarshalled those payloads itself would be a second place naming
+# the same JSON fields. It asks gate for the approval times instead. What it does
+# not import is anything that reaches a repository or a deploy target — that is
+# behind an interface its caller implements.
 #
 # cmd/factory imports nearly everything, because it is the crude interface the
 # four surfaces are deferred with — the one place the whole path is composed,
@@ -68,12 +81,13 @@ factorypolicy -> record gatepolicy item
 pin -> record gatepolicy
 score -> record gatepolicy artifact decisionlog item release
 policy -> record gatepolicy area environment factorypolicy item pin score secretref service
-gate -> decisionlog policy record score
+gate -> criterion decisionlog policy record score
+mergequeue -> decisionlog gate item record release
 agent -> secretref
 localtarget -> secretref targetseam
 postgres -> area artifact build criterion decisionlog deploy environment factorypolicy intent item pin policy release score service
 cmd/depscheck
-cmd/factory -> agent area artifact build criterion decisionlog deploy environment factorypolicy gate gatepolicy intent item localtarget pin policy postgres record release score secretref service targetseam
+cmd/factory -> agent area artifact build criterion decisionlog deploy environment factorypolicy gate gatepolicy intent item localtarget mergequeue pin policy postgres record release score secretref service targetseam
 
 test decisionlog -> postgres secretref
 test intent -> postgres
@@ -88,6 +102,7 @@ test area -> postgres
 test environment -> postgres
 test factorypolicy -> postgres
 test pin -> postgres
-test score -> postgres gate policy
+test score -> postgres criterion gate policy
 test policy -> postgres
 test gate -> postgres
+test mergequeue -> decisionlog gate item postgres record release

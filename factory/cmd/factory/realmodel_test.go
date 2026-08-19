@@ -62,15 +62,17 @@ const realModelStatement = "A Go HTTP service, module borg.demo/realmodel, packa
 	"Test the handler through net/http/httptest rather than by binding the port."
 
 // TestTheDemonstrationAgainstARealModel is M1's demonstration end to end, under
-// M2's score: an intent taken in, an item cut, a spec and an implementation
-// authored by a real model, both gate rows approved by the human the score puts
-// there, release 1 minted, a straight deploy running on the target, and the walk
-// back to the intent over a clean chain.
+// M2's score and along M3's path: an intent taken in, an item cut, a spec and an
+// implementation authored by a real model, a candidate environment of the item's
+// own with the build running on it and the criteria decided there, all three gate
+// rows approved by the human the score puts there, release 1 minted by the merge
+// queue, a straight deploy running on the target, and the walk back to the intent
+// over a clean chain.
 //
 // It asserts that a human decided rather than what the number was. A real
 // model's diff is whatever it wrote, so the number moves run to run — but every
 // factor of a service's first release reads at the risky end whatever the diff
-// is, so a human at both rows is the one thing this take can promise. What the
+// is, so a human at every row is the one thing this take can promise. What the
 // number came out as is in the run's logged output.
 func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	name := os.Getenv("FACTORY_MODEL")
@@ -98,10 +100,13 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	// first release puts a human at both gate rows and the answer may take the
 	// first of them.
 	//
+	// Four lines, because a first release puts a human at all three rows and the
+	// answer may take the first of them.
+	//
 	// Paced as the run subcommand paces it, so what this test drives is what a
 	// take drives — a run that sends requests back to back is one of the things
 	// only a real provider can object to.
-	ctx, d, out := newPath(t, "approve\napprove\napprove\n")
+	ctx, d, out := newPath(t, "approve\napprove\napprove\napprove\n")
 	d.model = agent.NewPaced(
 		agent.Anthropic{ModelName: name, Credential: credential, Resolver: resolver},
 		realModelPace,
@@ -129,21 +134,26 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		}
 	})
 
-	res, err := run(ctx, d, realModelStatement)
+	res, err := run(ctx, d, []string{realModelStatement})
 	if err != nil {
 		t.Fatalf("the path stopped: %v\n\nthe run's output:\n%s", err, out)
 	}
 	t.Logf("the run's output:\n%s", out)
+	c := only(t, res)
 
-	if res.rejected {
+	if c.rejected {
 		t.Fatal("the run reports rejected, and the scripted verdict was approve")
 	}
-	if res.releaseID == "" || res.deployID == "" {
-		t.Fatalf("the run names release %q and deploy %q, an approved take ships both", res.releaseID, res.deployID)
+	if c.releaseID == "" || c.deployID == "" {
+		t.Fatalf("the run names release %q and deploy %q, an approved take ships both", c.releaseID, c.deployID)
+	}
+	if c.environmentID == "" || !c.tornDown {
+		t.Errorf("the candidate ran on environment %q and torn down = %v, want an environment of its own torn down at the merge",
+			c.environmentID, c.tornDown)
 	}
 
 	// The release is the service's first.
-	rel, err := release.Get(ctx, d.pool, res.releaseID)
+	rel, err := release.Get(ctx, d.pool, c.releaseID)
 	if err != nil {
 		t.Fatalf("reading the release: %v", err)
 	}
@@ -156,21 +166,21 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
-	if !found || current.ID != res.deployID || current.Status != deploy.StatusComplete {
+	if !found || current.ID != c.deployID || current.Status != deploy.StatusComplete {
 		t.Errorf("the current deploy is %q found=%t status=%s, the path deployed %s and completes it",
-			current.ID, found, current.Status, res.deployID)
+			current.ID, found, current.Status, c.deployID)
 	}
-	running, err := d.target.ReadRunning(ctx, d.service, d.credential)
+	running, err := d.targets.at(d.dir).ReadRunning(ctx, d.service, d.credential)
 	if err != nil {
 		t.Fatalf("reading what the target runs: %v", err)
 	}
-	if running.Release != res.releaseID {
-		t.Errorf("the target runs %q, the deploy put %s there", running.Release, res.releaseID)
+	if running.Build != rel.BuildID {
+		t.Errorf("the target runs %q, the deploy put build %s there", running.Build, rel.BuildID)
 	}
 
 	// Every attempt the two authoring stages made is on the item, refused ones
 	// included — which is the number a real model moves and a fake one does not.
-	stages, err := item.Stages(ctx, d.pool, res.itemID)
+	stages, err := item.Stages(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
@@ -182,12 +192,16 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		}
 	}
 
-	// Both rows put a human there and both decisions name a score version and a
+	// Every row put a human there and every decision names a score version and a
 	// policy version that are records rather than names.
 	for _, fired := range []struct {
 		row string
 		got fired
-	}{{"merge to master", res.merge}, {"deploy to production", res.deploy}} {
+	}{
+		{"deploy to candidate environment", c.candidateGate},
+		{"merge to master", c.mergeGate},
+		{"deploy to production", c.deployGate},
+	} {
 		t.Logf("%s: number %.3f against threshold %.3f (%s), human %v (%s)",
 			fired.row, fired.got.number, fired.got.threshold, fired.got.thresholdFrom,
 			fired.got.humanDecided, fired.got.whyHuman)
@@ -203,11 +217,11 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 
 	// The walk reaches the statement from the deploy, over a clean chain.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, res.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, c.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), realModelStatement) {
-		t.Errorf("the walk from %s does not reach the statement:\n%s", res.deployID, walked.String())
+		t.Errorf("the walk from %s does not reach the statement:\n%s", c.deployID, walked.String())
 	}
 	if !strings.Contains(walked.String(), "the chain is clean") {
 		t.Errorf("the walk does not report the chain clean:\n%s", walked.String())

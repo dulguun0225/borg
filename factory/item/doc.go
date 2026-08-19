@@ -5,16 +5,25 @@
 //
 // # The item
 //
-// An item names the intent it was cut from, the one service it changes, and
-// the branch its work is committed on. Which stage it is at is a field on the
-// item, and dispatch is what writes it: every stage reports its transition to
-// dispatch rather than writing the item itself, so the record's rules are
-// implemented once rather than once per stage.
+// An item names the intent it was cut from, the one service it changes, the
+// branch its work is committed on, and the items it waits on. Which stage it is
+// at is a field on the item, and dispatch is what writes it: every stage reports
+// its transition to dispatch rather than writing the item itself, so the
+// record's rules are implemented once rather than once per stage. The priority
+// an owner reorders a queue with is dispatch's too, for the same reason.
 //
-// The stage CHECK in [DDL] lists spec, implementation, and merged — the
-// stages M1's path touches. The design has more (superseded, dropped,
-// escalated), and later milestones widen the CHECK as they build what writes
-// each. What that costs: a CHECK is a schema edit each time a value arrives.
+// The stage CHECK in [DDL] lists spec, implementation, queued, and merged — the
+// stages the path touches. Queued is the merge queue's membership: the merge
+// gate approved the candidate and its fast-forward has not happened, and the
+// queue is a component with no record of its own, so this value is what says an
+// item is in it. The design has more (superseded, dropped, escalated), and later
+// milestones widen the CHECK as they build what writes each. What that costs: a
+// CHECK is a schema edit each time a value arrives.
+//
+// An item moves both ways. [Dispatch.Advance] goes one stage forward and
+// [Dispatch.SendBack] goes to the stage the item is at or to one above it,
+// counting one attempt at what it is sent to — the rule the design gives for a
+// gate's reject, an author's return, and the queue's rejection alike.
 //
 // # The per-stage row
 //
@@ -27,8 +36,9 @@
 //
 // # Links
 //
-// intent_id and service_id are id fields and not foreign keys, like every
-// link between records, and item_stage.item_id is written the same way. The
+// intent_id, service_id, and the ids in waits_on are id fields and not foreign
+// keys, like every link between records, and item_stage.item_id is written the
+// same way. The
 // store checks a link for being present and not for pointing at anything; the
 // link walk reads the fields. What that costs: an item naming an intent or a
 // service that does not exist is stored without complaint, and the cut is

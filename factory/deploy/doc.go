@@ -10,8 +10,19 @@
 // second row; the design says so explicitly. Strategy has one value,
 // straight: with a control is M4's row, and widening the CHECK in [DDL] is
 // that milestone's edit, a CHECK being a schema edit each time a value is
-// added. Nothing in M1 writes rolled_back — the value is in the CHECK because
+// added. Nothing writes rolled_back yet — the value is in the CHECK because
 // the record's definition names the three statuses.
+//
+// # What the record names as deployed
+//
+// [What] is the pair: the build the deploy put on the target, on every record,
+// and the release the deploy is of, on every record but a candidate's. The build
+// is there because the build is what runs — a release is the name a build has on
+// master, which is a fact of this store and not of the target, so a target reports
+// the build it is running and the build is what makes what runs comparable to what
+// the record says. The release is absent on a deploy into a candidate's own
+// environment, that deploy happening one gate before the merge that mints the
+// number.
 //
 // # Current is what is running
 //
@@ -33,10 +44,10 @@
 // started record is found by a reader noticing it, not by the factory.
 //
 // Who may write what: [Writer] inserts a deploy and advances its status;
-// nothing updates any other field and nothing deletes. service_id and
-// release_id are id fields and not foreign keys — a cross-package link is a
-// field the link walk reads, and the store checks an id for being present and
-// not for pointing at anything.
+// nothing updates any other field and nothing deletes. service_id,
+// environment_id, release_id, and build_id are id fields and not foreign keys —
+// a cross-package link is a field the link walk reads, and the store checks an id
+// for being present and not for pointing at anything.
 //
 // What defines it: the deploy record in
 // ../../end-goal/how-humans-do-it/06-releases.md#the-deploy-record — written
@@ -44,6 +55,6 @@
 // rolled back, keyed by service and environment — and the strategy table in
 // ../../end-goal/how-humans-do-it/03-gates.md#the-rollout-strategy, whose two
 // rows differ on whether the build being replaced is still serving; a
-// service's first release is straight whatever the score would prefer, and
-// M1's change is a first release.
+// service's first release is straight whatever the score would prefer, and on a
+// substrate that moves a process rather than traffic every release is.
 package deploy

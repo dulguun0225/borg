@@ -22,11 +22,24 @@
 //
 // # The in-force query
 //
-// The design's query is: a criterion is in force unless a spec version
-// withdrawing it belongs to an item in that build. With no withdrawal
-// written anywhere yet, the query collapses to every criterion of the
-// service, which is what [InForce] returns; the build parameter arrives with
-// withdrawal.
+// In force is per build and not per service, and a build is a set of items: the
+// ones merged into the tree it was made from, plus the item whose branch it is.
+// [InForce] takes that set. A criterion introduced by a sibling item that has not
+// merged is a promise this build's tree could not keep, so holding it in force
+// against this build would reject every candidate cut in parallel with the one
+// that introduced it — which is what two candidates at once on one service found.
+//
+// The other half of the design's query, withdrawal, is not written anywhere yet:
+// a spec version withdrawing a criterion arrives with the milestone that authors
+// one, so what is filtered so far is introduction alone.
+//
+// Which item introduced a criterion is a column here and not a hop through the
+// spec version that introduced it. The fact is reachable — the artifact names the
+// item — and duplicating it is the cheaper of two costs: the alternative is either
+// a join into a table this package does not own or a caller that assembles every
+// spec version of every merged item to ask about a set of items it already has.
+// What it costs is a second place the same fact is written, at one event, by one
+// writer.
 //
 // # The encoding checks
 //
@@ -38,13 +51,29 @@
 // leave an encoding in master deciding a promise the service no longer
 // makes.
 //
-// The service_id and spec_artifact_id columns are id fields and not foreign
-// keys, which is the rule for every link between record packages. The store
-// checks each for being present and not for pointing at anything; record's
-// doc.go states that rule and its cost once.
+// # What the run produced
+//
+// An encoding runs where there is a run to observe, which is the candidate
+// environment, and what it produced attaches to the build. [RecordResults] is
+// where the deploy agent writes it when the run finishes, and the identity of a
+// result is the build plus the criterion id rather than an id of its own — the
+// environment the run happened on is the item's, which the build names.
+//
+// There are three [Outcome] values and the third is not a kind of pass:
+// [OutcomeUndecided] is an encoding that produced a failure and a pass over the
+// same build, and [Outcome.Blocks] is what says it is read at the merge gate the
+// way a failure is. [Decide] is the whole of how one is reached, which is why the
+// encodings are run twice.
+//
+// The service_id, spec_artifact_id, build_id, and criterion_id columns are id
+// fields and not foreign keys, which is the rule for every link between record
+// packages. The store checks each for being present and not for pointing at
+// anything; record's doc.go states that rule and its cost once.
 //
 // What defines it: the criterion, its six patterns, the escape, and the
 // stable id are ../../end-goal/how-humans-do-it/03-gates.md#spec; the
 // encoding, its authoring rule, and the two rejection directions are
-// ../../end-goal/how-humans-do-it/03-gates.md#implementation.
+// ../../end-goal/how-humans-do-it/03-gates.md#implementation; the run, what it
+// attaches to, and the undecided outcome are
+// ../../end-goal/how-humans-do-it/05-environments.md#what-the-candidate-environment-decides.
 package criterion

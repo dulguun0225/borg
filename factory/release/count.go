@@ -2,8 +2,10 @@ package release
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -33,6 +35,46 @@ func CountForItemsSince(ctx context.Context, pool *pgxpool.Pool, itemIDs []strin
 		return 0, fmt.Errorf("release: counting the releases of %d items since %s: %w", len(itemIDs), since, err)
 	}
 	return count, nil
+}
+
+// Highest is the service's highest-numbered release, and false where it has
+// none. It is master's head: the commit of that release, reached through the
+// build it names. Numbers are never reused and a rolled-back release keeps its
+// own, so the maximum is always right, and a counter beside it would be the same
+// fact written twice at one event.
+//
+// It takes the pool and not a [Writer], because reading what master is at is not
+// a reason to be handed the thing that mints.
+func Highest(ctx context.Context, pool *pgxpool.Pool, serviceID string) (Release, bool, error) {
+	r, err := scan(pool.QueryRow(ctx, selectRelease+` where service_id = $1
+		order by number desc limit 1`, serviceID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Release{}, false, nil
+	} else if err != nil {
+		return Release{}, false, fmt.Errorf("release: reading the highest number of %s: %w", serviceID, err)
+	}
+	return r, true, nil
+}
+
+// ForItem is the release minted for one item, and false where none was. One item
+// is one release, so there is at most one.
+//
+// It is what says a fast-forward already happened. The fast-forward, the mint, and
+// the item's advance to merged are three writes across a repository and two
+// transactions, and a failure after the mint leaves an item that has a release and
+// does not say it merged — so the caller asks this before minting rather than
+// minting a second number for one merge.
+func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Release, bool, error) {
+	if itemID == "" {
+		return Release{}, false, nil
+	}
+	r, err := scan(pool.QueryRow(ctx, selectRelease+` where item_id = $1`, itemID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Release{}, false, nil
+	} else if err != nil {
+		return Release{}, false, fmt.Errorf("release: reading the release of %s: %w", itemID, err)
+	}
+	return r, true, nil
 }
 
 // CountForService is how many releases the service has, leaving out the

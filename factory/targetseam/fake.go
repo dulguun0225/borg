@@ -12,7 +12,7 @@ import (
 type Call struct {
 	Op         Op
 	Service    string
-	Release    string
+	Build      string
 	Credential secretref.Ref
 }
 
@@ -31,15 +31,15 @@ func NewFake() *Fake {
 	return &Fake{running: make(map[string]string)}
 }
 
-// Deploy records the call and remembers the release as what is running for
+// Deploy records the call and remembers the build as what is running for
 // that service. It refuses a deployment [Deployment.Validate] refuses, which
 // is what an implementation that reached something would do first.
 func (f *Fake) Deploy(_ context.Context, d Deployment) error {
 	if err := d.Validate(); err != nil {
 		return err
 	}
-	f.calls = append(f.calls, Call{Op: OpDeploy, Service: d.Service, Release: d.Release, Credential: d.Credential})
-	f.running[d.Service] = d.Release
+	f.calls = append(f.calls, Call{Op: OpDeploy, Service: d.Service, Build: d.Build, Credential: d.Credential})
+	f.running[d.Service] = d.Build
 	return nil
 }
 
@@ -54,13 +54,13 @@ func (f *Fake) Stop(_ context.Context, service string, credential secretref.Ref)
 }
 
 // ReadRunning records the call and answers with what Deploy last left for that
-// service, or an empty release when nothing did.
+// service, or an empty build when nothing did.
 func (f *Fake) ReadRunning(_ context.Context, service string, credential secretref.Ref) (Running, error) {
 	if err := check(service, credential); err != nil {
 		return Running{}, err
 	}
 	f.calls = append(f.calls, Call{Op: OpReadRunning, Service: service, Credential: credential})
-	return Running{Service: service, Release: f.running[service]}, nil
+	return Running{Service: service, Build: f.running[service]}, nil
 }
 
 // Calls is every operation performed on the fake, in the order it was

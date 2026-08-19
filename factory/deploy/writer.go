@@ -18,9 +18,10 @@ var (
 	// ErrServiceIDEmpty is returned by [Writer.Start] for a deploy naming no
 	// service. record's doc.go states what a link is checked for.
 	ErrServiceIDEmpty = errors.New("deploy: the service id is empty")
-	// ErrReleaseIDEmpty is returned by [Writer.Start] for a deploy naming no
-	// release.
-	ErrReleaseIDEmpty = errors.New("deploy: the release id is empty")
+	// ErrBuildIDEmpty is returned by [Writer.Start] for a deploy naming no
+	// build. Every deploy names the build it put there; the release is what a
+	// candidate deploy has none of.
+	ErrBuildIDEmpty = errors.New("deploy: the build id is empty")
 	// ErrNotFound is returned where the named deploy does not exist.
 	ErrNotFound = errors.New("deploy: no deploy has that id")
 	// ErrNotStarted is returned by [Writer.Complete] for a deploy whose
@@ -41,8 +42,9 @@ func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 // being the one strategy until the health signal and the control are built, and
 // on a substrate that moves a process rather than traffic there is no other. The
 // environment is the id of an environment record, which is what keys a service's
-// current release per environment.
-func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, environmentID, releaseID string) (Deploy, error) {
+// current release per environment. What names the build the deploy put there and,
+// where the deploy is of one, the release.
+func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, environmentID string, what What) (Deploy, error) {
 	if err := actor.Validate(); err != nil {
 		return Deploy{}, err
 	}
@@ -52,8 +54,8 @@ func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, envir
 	if environmentID == "" {
 		return Deploy{}, ErrEnvironmentEmpty
 	}
-	if releaseID == "" {
-		return Deploy{}, ErrReleaseIDEmpty
+	if what.BuildID == "" {
+		return Deploy{}, ErrBuildIDEmpty
 	}
 
 	d := Deploy{
@@ -62,15 +64,16 @@ func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, envir
 		At:            record.Now(),
 		ServiceID:     serviceID,
 		EnvironmentID: environmentID,
-		ReleaseID:     releaseID,
+		ReleaseID:     what.ReleaseID,
+		BuildID:       what.BuildID,
 		Strategy:      StrategyStraight,
 		Status:        StatusStarted,
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		(id, actor_kind, actor_name, at, service_id, environment_id, release_id, build_id, strategy, status)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		d.ID, string(d.Actor.Kind), d.Actor.Name, d.At, d.ServiceID, d.EnvironmentID,
-		d.ReleaseID, string(d.Strategy), string(d.Status),
+		d.ReleaseID, d.BuildID, string(d.Strategy), string(d.Status),
 	)
 	if err != nil {
 		return Deploy{}, fmt.Errorf("deploy: starting %s: %w", d.ID, err)
@@ -123,15 +126,25 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 // the thing that deploys. The walk from a deploy back to its intent starts
 // here — the record's release_id is the first field it follows.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
-	var d Deploy
-	var kind, strategy, status string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status
-		from `+Table+` where id = $1`, id).
-		Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.EnvironmentID, &d.ReleaseID, &strategy, &status)
+	d, err := scan(pool.QueryRow(ctx, selectDeploy+` where id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deploy{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
 		return Deploy{}, fmt.Errorf("deploy: reading %s: %w", id, err)
+	}
+	return d, nil
+}
+
+const selectDeploy = `select id, actor_kind, actor_name, at, service_id, environment_id,
+	release_id, build_id, strategy, status
+	from ` + Table
+
+func scan(row pgx.Row) (Deploy, error) {
+	var d Deploy
+	var kind, strategy, status string
+	if err := row.Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.EnvironmentID,
+		&d.ReleaseID, &d.BuildID, &strategy, &status); err != nil {
+		return Deploy{}, err
 	}
 	d.Actor.Kind = record.Kind(kind)
 	d.Strategy = Strategy(strategy)
@@ -150,23 +163,22 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 // Completed deploys are ordered by at, the time each record was written: the
 // record advances in place, so when it completed is not a stored fact. The
 // two orders differ only where a deploy completes after a later-started one,
-// which one caller deploying one at a time — M1's crude path — does not
+// which one caller deploying one at a time — the crude path — does not
 // produce.
+//
+// It reads only the deploys that name a release. A candidate deploy names a build
+// instead, and a candidate environment is a place where nothing is current: what
+// composes a dependent's environment reads what is running in production, and a
+// candidate never is.
 func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID string) (Deploy, bool, error) {
-	var d Deploy
-	var kind, strategy, status string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status
-		from `+Table+` where service_id = $1 and environment_id = $2 and status = $3
+	d, err := scan(pool.QueryRow(ctx, selectDeploy+`
+		where service_id = $1 and environment_id = $2 and status = $3 and release_id <> ''
 		order by at desc limit 1`,
-		serviceID, environmentID, string(StatusComplete)).
-		Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.EnvironmentID, &d.ReleaseID, &strategy, &status)
+		serviceID, environmentID, string(StatusComplete)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deploy{}, false, nil
 	} else if err != nil {
 		return Deploy{}, false, fmt.Errorf("deploy: reading the current deploy of %s in %s: %w", serviceID, environmentID, err)
 	}
-	d.Actor.Kind = record.Kind(kind)
-	d.Strategy = Strategy(strategy)
-	d.Status = Status(status)
 	return d, true, nil
 }

@@ -121,7 +121,7 @@ func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, by By, itemI
 
 	written := make([]criterion.Criterion, 0, len(criteria))
 	for _, draft := range criteria {
-		c, err := criterion.Insert(ctx, tx, actor, serviceID, submitted.ID, draft.Sentence, draft.EscapeReason)
+		c, err := criterion.Insert(ctx, tx, actor, serviceID, submitted.ID, itemID, draft.Sentence, draft.EscapeReason)
 		if err != nil {
 			return Artifact{}, nil, err
 		}

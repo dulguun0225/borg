@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,21 +12,50 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
+// columns is every column of the item table, in the order [scanItem] reads
+// them. It is written once because four callers read an item — two here, the
+// advance, and the send back — and a fifth column added to one of five select
+// lists is a bug the compiler cannot see.
+const columns = `id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage, waits_on, priority`
+
+// The items this one waits on are stored as one column holding one id per line.
+// An id is [record.NewID]'s alphabet, which holds no line ending, so the
+// separator needs no escaping — the arrangement package environment's targets
+// column already has.
+
+func joinWaitsOn(waitsOn []string) string { return strings.Join(waitsOn, "\n") }
+
+func splitWaitsOn(stored string) []string {
+	if stored == "" {
+		return nil
+	}
+	return strings.Split(stored, "\n")
+}
+
+// scanItem reads one item row in [columns] order.
+func scanItem(row pgx.Row) (Item, error) {
+	var it Item
+	var kind, stage, waitsOn string
+	err := row.Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID,
+		&it.AreaID, &it.Branch, &stage, &waitsOn, &it.Priority)
+	if err != nil {
+		return Item{}, err
+	}
+	it.Actor.Kind = record.Kind(kind)
+	it.Stage = Stage(stage)
+	it.WaitsOn = splitWaitsOn(waitsOn)
+	return it, nil
+}
+
 // Get is one item by id. It takes the pool and not a writer, because reading
 // an item is not a reason to be handed either of the things that write one.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Item, error) {
-	var it Item
-	var kind, stage string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage
-		from `+Table+` where id = $1`, id).
-		Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID, &it.AreaID, &it.Branch, &stage)
+	it, err := scanItem(pool.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
 		return Item{}, fmt.Errorf("item: reading %s: %w", id, err)
 	}
-	it.Actor.Kind = record.Kind(kind)
-	it.Stage = Stage(stage)
 	return it, nil
 }
 
@@ -58,6 +88,36 @@ func IDsInArea(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]string
 		return nil, fmt.Errorf("item: reading the items in %s: %w", areaID, err)
 	}
 	return ids, nil
+}
+
+// AtStage is every item of one service at one stage, ordered by the priority an
+// owner set — greater first — and then by the time the item was cut.
+//
+// It is what the merge queue's membership is read with, and the order it returns
+// is not the queue's own: the queue orders by that priority and then by the time
+// of the merge approval in the log, which is a fact this package does not hold.
+// The tie-break here is the cut's time, so a caller that reads no log still gets
+// a stable order.
+func AtStage(ctx context.Context, pool *pgxpool.Pool, serviceID string, stage Stage) ([]Item, error) {
+	rows, err := pool.Query(ctx, `select `+columns+` from `+Table+`
+		where service_id = $1 and stage = $2 order by priority desc, at, id`, serviceID, string(stage))
+	if err != nil {
+		return nil, fmt.Errorf("item: reading the items of %s at %s: %w", serviceID, stage, err)
+	}
+	defer rows.Close()
+
+	var read []Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("item: reading an item of %s at %s: %w", serviceID, stage, err)
+		}
+		read = append(read, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("item: reading the items of %s at %s: %w", serviceID, stage, err)
+	}
+	return read, nil
 }
 
 // Stages is every per-stage row of one item, in the order the stages first

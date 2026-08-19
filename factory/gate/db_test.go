@@ -24,6 +24,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/criterion"
+
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/policy"
@@ -146,16 +148,17 @@ var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
 // artifact version under decision, the records the score and the policy are read
 // against, and two criteria results.
 var mergeFiring = gate.Firing{
-	Row:           gate.MergeToMaster,
-	ItemID:        "it_0000000000000000000000000000000a",
-	BuildID:       "bl_0000000000000000000000000000000a",
-	ArtifactID:    "art_000000000000000000000000000000a",
-	ServiceID:     "svc_000000000000000000000000000000a",
-	AreaID:        "ar_0000000000000000000000000000000a",
-	EnvironmentID: "env_000000000000000000000000000000a",
+	Row:             gate.MergeToMaster,
+	ItemID:          "it_0000000000000000000000000000000a",
+	BuildID:         "bl_0000000000000000000000000000000a",
+	ArtifactID:      "art_000000000000000000000000000000a",
+	ServiceID:       "svc_000000000000000000000000000000a",
+	AreaID:          "ar_0000000000000000000000000000000a",
+	EnvironmentID:   "env_000000000000000000000000000000a",
+	CriteriaInForce: 2,
 	Criteria: []gate.CriterionResult{
-		{CriterionID: "cr_0000000000000000000000000000000a", Passed: true},
-		{CriterionID: "cr_0000000000000000000000000000000b", Passed: true},
+		{CriterionID: "cr_0000000000000000000000000000000a", Outcome: criterion.OutcomePassed},
+		{CriterionID: "cr_0000000000000000000000000000000b", Outcome: criterion.OutcomePassed},
 	},
 	Measurement: score.Measurement{LinesChanged: 20, FilesChanged: 2, FilesInTree: 4},
 }
@@ -323,8 +326,8 @@ func TestAFailedCriterionReachesTheScoreAsACount(t *testing.T) {
 
 	firing := mergeFiring
 	firing.Criteria = []gate.CriterionResult{
-		{CriterionID: "cr_a", Passed: true},
-		{CriterionID: "cr_b", Passed: false},
+		{CriterionID: "cr_a", Outcome: criterion.OutcomePassed},
+		{CriterionID: "cr_b", Outcome: criterion.OutcomeFailed},
 	}
 	if _, err := g.Fire(ctx, firing); err != nil {
 		t.Fatalf("Fire: %v", err)
@@ -332,6 +335,63 @@ func TestAFailedCriterionReachesTheScoreAsACount(t *testing.T) {
 	if s.asked.CriteriaInForce != 2 || s.asked.CriteriaFailed != 1 {
 		t.Errorf("the score was told %d in force and %d failed, want 2 and 1",
 			s.asked.CriteriaInForce, s.asked.CriteriaFailed)
+	}
+}
+
+// TestAnUndecidedCriterionReachesTheScoreLikeAFailure: undecided is read at the
+// merge gate the way a failure is, which is the whole reason the value exists —
+// an encoding that produced a failure and a pass over the same build decided
+// nothing.
+func TestAnUndecidedCriterionReachesTheScoreLikeAFailure(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
+	ctx, _, g := newGate(t, s, p)
+
+	firing := mergeFiring
+	firing.Criteria = []gate.CriterionResult{
+		{CriterionID: "cr_a", Outcome: criterion.OutcomePassed},
+		{CriterionID: "cr_b", Outcome: criterion.OutcomeUndecided},
+	}
+	if _, err := g.Fire(ctx, firing); err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if s.asked.CriteriaFailed != 1 {
+		t.Errorf("the score was told %d criteria failed, want the undecided one counted as 1", s.asked.CriteriaFailed)
+	}
+}
+
+// TestTheCandidateDeployRowNamesNoOutcome: at that row the count is known and no
+// outcome is, the run that decides them being what the deploy is for — so the
+// coverage factor reads the count and the payload carries no result.
+func TestTheCandidateDeployRowNamesNoOutcome(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.2)}, &fakePolicy{applied: applied(0.5)}
+	ctx, pool, g := newGate(t, s, p)
+
+	firing := mergeFiring
+	firing.Row = gate.DeployToCandidateEnvironment
+	firing.ArtifactID = ""
+	firing.Criteria = nil
+	firing.CriteriaInForce = 2
+	opened, err := g.Fire(ctx, firing)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if s.asked.CriteriaInForce != 2 || s.asked.CriteriaFailed != 0 {
+		t.Errorf("the score was told %d in force and %d failed, want 2 and 0",
+			s.asked.CriteriaInForce, s.asked.CriteriaFailed)
+	}
+	rows, err := decisionlog.Read(ctx, pool)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	var payload gate.OpeningPayload
+	if err := json.Unmarshal([]byte(rows[len(rows)-1].Payload), &payload); err != nil {
+		t.Fatalf("unmarshalling the opening payload: %v", err)
+	}
+	if len(payload.Criteria) != 0 {
+		t.Errorf("the payload names %d criteria results at the candidate deploy row, want none", len(payload.Criteria))
+	}
+	if opened.HumanDecides {
+		t.Error("the candidate deploy row put a human there with the number under the threshold")
 	}
 }
 
@@ -630,5 +690,72 @@ func TestEveryRowHasActionsAndAWait(t *testing.T) {
 		if gate.WaitsOn(row) == "" {
 			t.Errorf("%s names nothing it waits on", row)
 		}
+	}
+}
+
+// TestApprovalTimesIsWhatOrdersTheMergeQueue: the queue's order is the item's
+// priority and then the time of the merge approval in the log, and that time is a
+// fact of no record — so this package, which owns the shape of both payloads,
+// answers it. A rejected item has no approval, and an item approved twice keeps the
+// latest.
+func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, g := newGate(t, s, p)
+	human := record.Actor{Kind: record.KindHuman, Name: "owner"}
+
+	fire := func(row gate.Row, itemID string, verdict gate.Verdict, feedback string) string {
+		t.Helper()
+		firing := mergeFiring
+		firing.Row = row
+		firing.ItemID = itemID
+		if row != gate.MergeToMaster {
+			firing.ArtifactID = ""
+		}
+		opened, err := g.Fire(ctx, firing)
+		if err != nil {
+			t.Fatalf("Fire at %s for %s: %v", row, itemID, err)
+		}
+		closing, err := g.Decide(ctx, opened, human, verdict, feedback)
+		if err != nil {
+			t.Fatalf("Decide at %s for %s: %v", row, itemID, err)
+		}
+		return closing.At
+	}
+
+	const approvedItem, rejectedItem = "it_approved", "it_rejected"
+	fire(gate.MergeToMaster, approvedItem, gate.VerdictApprove, "")
+	fire(gate.MergeToMaster, rejectedItem, gate.VerdictReject, "not this one")
+	// A decision at another row is not this row's, however it closed.
+	fire(gate.DeployToCandidateEnvironment, rejectedItem, gate.VerdictApprove, "")
+	// Approved again: the queue's order is about the approval in force.
+	latest := fire(gate.MergeToMaster, approvedItem, gate.VerdictApprove, "")
+
+	// A row in a shape this package cannot read is skipped rather than returned as
+	// an error, the way every other reader of this log treats one.
+	if _, err := decisionlog.NewWriter(pool).AppendDecisionOpening(ctx, decisionlog.Entry{
+		Actor:         record.Actor{Kind: record.KindComponent, Name: "gate.some_other_gate"},
+		Payload:       "a payload this package has no shape for",
+		PolicyVersion: testPolicyVersion,
+		ScoreVersion:  testScoreVersion,
+	}); err != nil {
+		t.Fatalf("appending the unreadable opening row: %v", err)
+	}
+
+	times, err := gate.ApprovalTimes(ctx, pool, gate.MergeToMaster)
+	if err != nil {
+		t.Fatalf("ApprovalTimes: %v", err)
+	}
+	if len(times) != 1 {
+		t.Fatalf("ApprovalTimes = %+v, want the one item approved at that row", times)
+	}
+	if times[approvedItem] != latest {
+		t.Errorf("the approval of %s reads as %q, want the latest one at %q", approvedItem, times[approvedItem], latest)
+	}
+	if _, ours := times[rejectedItem]; ours {
+		t.Errorf("ApprovalTimes names %s, which was rejected at that row", rejectedItem)
+	}
+
+	if _, err := gate.ApprovalTimes(ctx, pool, gate.Row("some_other_row")); !errors.Is(err, gate.ErrRowUnknown) {
+		t.Errorf("ApprovalTimes at a row this package does not fire = %v, want ErrRowUnknown", err)
 	}
 }

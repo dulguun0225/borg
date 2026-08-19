@@ -16,15 +16,15 @@ func TestFakeRecordsEveryNamedOperation(t *testing.T) {
 	fake := NewFake()
 
 	var target Target = fake
-	if err := target.Deploy(ctx, Deployment{Service: "checkout", Release: "r-7", Credential: credential}); err != nil {
+	if err := target.Deploy(ctx, Deployment{Service: "checkout", Build: "r-7", Credential: credential}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
 	running, err := target.ReadRunning(ctx, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if running.Release != "r-7" {
-		t.Fatalf("ReadRunning = %+v, want release r-7", running)
+	if running.Build != "r-7" {
+		t.Fatalf("ReadRunning = %+v, want build r-7", running)
 	}
 	if err := target.Stop(ctx, "checkout", credential); err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -33,12 +33,12 @@ func TestFakeRecordsEveryNamedOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if stopped.Release != "" {
+	if stopped.Build != "" {
 		t.Fatalf("ReadRunning = %+v, want nothing running", stopped)
 	}
 
 	want := []Call{
-		{Op: OpDeploy, Service: "checkout", Release: "r-7", Credential: credential},
+		{Op: OpDeploy, Service: "checkout", Build: "r-7", Credential: credential},
 		{Op: OpReadRunning, Service: "checkout", Credential: credential},
 		{Op: OpStop, Service: "checkout", Credential: credential},
 		{Op: OpReadRunning, Service: "checkout", Credential: credential},
@@ -63,7 +63,7 @@ func TestARecordedCallHoldsAReferenceAndNoValue(t *testing.T) {
 	credential := secretref.MustNew("deploy.staging")
 	fake := NewFake()
 
-	if err := fake.Deploy(ctx, Deployment{Service: "checkout", Release: "r-7", Credential: credential}); err != nil {
+	if err := fake.Deploy(ctx, Deployment{Service: "checkout", Build: "r-7", Credential: credential}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
 
@@ -82,9 +82,9 @@ func TestTheSeamRefusesAnIncompleteOperation(t *testing.T) {
 	fake := NewFake()
 
 	cases := map[string]func() error{
-		"no service":    func() error { return fake.Deploy(ctx, Deployment{Release: "r-7", Credential: credential}) },
-		"no release":    func() error { return fake.Deploy(ctx, Deployment{Service: "checkout", Credential: credential}) },
-		"no credential": func() error { return fake.Deploy(ctx, Deployment{Service: "checkout", Release: "r-7"}) },
+		"no service":    func() error { return fake.Deploy(ctx, Deployment{Build: "r-7", Credential: credential}) },
+		"no build":    func() error { return fake.Deploy(ctx, Deployment{Service: "checkout", Credential: credential}) },
+		"no credential": func() error { return fake.Deploy(ctx, Deployment{Service: "checkout", Build: "r-7"}) },
 		"stop with no credential": func() error {
 			return fake.Stop(ctx, "checkout", secretref.Ref{})
 		},

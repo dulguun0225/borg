@@ -15,7 +15,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -115,7 +117,7 @@ func TestCutWritesOnceAtSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if read != it {
+	if !reflect.DeepEqual(read, it) {
 		t.Errorf("Get = %+v, want the item as cut, %+v", read, it)
 	}
 
@@ -152,10 +154,13 @@ func TestAdvanceMovesOneStageForward(t *testing.T) {
 	}
 	// The advance rewrites the stage and nothing else.
 	advanced.Stage = it.Stage
-	if advanced != it {
+	if !reflect.DeepEqual(advanced, it) {
 		t.Errorf("Advance rewrote more than the stage: %+v, cut as %+v", advanced, it)
 	}
 
+	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageQueued); err != nil {
+		t.Fatalf("Advance to queued: %v", err)
+	}
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageMerged); err != nil {
 		t.Fatalf("Advance to merged: %v", err)
 	}
@@ -167,7 +172,7 @@ func TestAdvanceMovesOneStageForward(t *testing.T) {
 		t.Errorf("the item is at %s, want merged", read.Stage)
 	}
 
-	// Merged is the last stage M1 writes; nothing advances past it.
+	// Merged is the last stage anything writes; nothing advances past it.
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageImplementation); !errors.Is(err, item.ErrNotNextStage) {
 		t.Errorf("Advance past merged = %v, want ErrNotNextStage", err)
 	}
@@ -177,7 +182,7 @@ func TestAdvanceRefusesSkipsAndBackwardsMoves(t *testing.T) {
 	ctx, _, cut, dispatch := newWriters(t)
 	it := oneItem(ctx, t, cut)
 
-	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageMerged); !errors.Is(err, item.ErrNotNextStage) {
+	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageQueued); !errors.Is(err, item.ErrNotNextStage) {
 		t.Errorf("Advance skipping implementation = %v, want ErrNotNextStage", err)
 	}
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageSpec); !errors.Is(err, item.ErrNotNextStage) {
@@ -192,7 +197,7 @@ func TestAdvanceRefusesSkipsAndBackwardsMoves(t *testing.T) {
 	}
 
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.Stage("shipped")); !errors.Is(err, item.ErrStageUnknown) {
-		t.Errorf("Advance to a stage outside the three = %v, want ErrStageUnknown", err)
+		t.Errorf("Advance to a stage outside the four = %v, want ErrStageUnknown", err)
 	}
 	if _, err := dispatch.Advance(ctx, dispatchActor, "it_missing", item.StageImplementation); !errors.Is(err, item.ErrNotFound) {
 		t.Errorf("Advance on a missing item = %v, want ErrNotFound", err)
@@ -249,8 +254,8 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 		t.Fatalf("ReportAttempt: %v", err)
 	}
 
-	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage)
-		values ($1, 'component', 'cut', $2, 'in_x', 'svc_x', 'ar_x', $3, $4)`
+	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage, waits_on, priority)
+		values ($1, 'component', 'cut', $2, 'in_x', 'svc_x', 'ar_x', $3, $4, '', 0)`
 	for _, refused := range []struct {
 		name       string
 		branch     string
@@ -258,7 +263,7 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 		constraint string
 	}{
 		{"an empty branch", "", "spec", "branch_present"},
-		{"a stage outside the three", "item/x", "shipped", "stage_known"},
+		{"a stage outside the four", "item/x", "shipped", "stage_known"},
 	} {
 		_, err := pool.Exec(ctx, insertItem, record.NewID(item.IDPrefix), record.Now(), refused.branch, refused.stage)
 		if err == nil || !strings.Contains(err.Error(), refused.constraint) {
@@ -268,8 +273,8 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 
 	// An empty link, at the column representing this package's three: the
 	// store refuses it around the writer too.
-	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage)
-		values ($1, 'component', 'cut', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec')`,
+	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage, waits_on, priority)
+		values ($1, 'component', 'cut', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec', '', 0)`,
 		record.NewID(item.IDPrefix), record.Now(),
 	); err == nil || !strings.Contains(err.Error(), "intent_id_present") {
 		t.Errorf("inserting an item naming no intent = %v, want a violation of intent_id_present", err)
@@ -302,5 +307,149 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
 		t.Errorf("a second row for one item and stage = %v, want a unique violation (23505)", err)
+	}
+}
+
+// workActor is who reorders a queue: an owner at Work, writing the priority
+// through dispatch rather than beside it.
+var workActor = record.Actor{Kind: record.KindHuman, Name: "owner"}
+
+// TestTheCutDeclaresWhatAnItemWaitsOn: the cut records the order, so a dependency
+// is declared there and not discovered at deploy time. It reads back as the ids
+// the cut named, and an empty one is refused.
+func TestTheCutDeclaresWhatAnItemWaitsOn(t *testing.T) {
+	ctx, pool, cut, _ := newWriters(t)
+
+	waits := []string{"it_" + strings.Repeat("a", 32), "it_" + strings.Repeat("b", 32)}
+	it, err := cut.Create(ctx, cutActor, item.New{
+		IntentID:  "in_" + strings.Repeat("0", 32),
+		ServiceID: "svc_" + strings.Repeat("0", 32),
+		Branch:    "item/dependent",
+		WaitsOn:   waits,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	read, err := item.Get(ctx, pool, it.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !reflect.DeepEqual(read.WaitsOn, waits) {
+		t.Errorf("the item waits on %v, the cut declared %v", read.WaitsOn, waits)
+	}
+	if read.Priority != 0 {
+		t.Errorf("a freshly cut item has priority %d, the cut writes nothing", read.Priority)
+	}
+
+	if _, err := cut.Create(ctx, cutActor, item.New{
+		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x", WaitsOn: []string{""},
+	}); !errors.Is(err, item.ErrItemIDEmpty) {
+		t.Errorf("Create waiting on an empty id = %v, want ErrItemIDEmpty", err)
+	}
+}
+
+// TestSendBackMovesUpAndCountsTheAttempt is the one way back: the rework is booked
+// against the thing that was wrong, so the move and the attempt are one write. The
+// target may be the stage the item is at — a reject at the stage that fired is
+// another attempt at the same artifact — and may not be below it.
+func TestSendBackMovesUpAndCountsTheAttempt(t *testing.T) {
+	ctx, pool, cut, dispatch := newWriters(t)
+	it := oneItem(ctx, t, cut)
+	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
+		t.Fatalf("Advance to implementation: %v", err)
+	}
+	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageQueued); err != nil {
+		t.Fatalf("Advance to queued: %v", err)
+	}
+
+	sent, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageImplementation)
+	if err != nil {
+		t.Fatalf("SendBack to implementation: %v", err)
+	}
+	if sent.Stage != item.StageImplementation {
+		t.Errorf("SendBack returned stage %s, want implementation", sent.Stage)
+	}
+	stages, err := item.Stages(ctx, pool, it.ID)
+	if err != nil {
+		t.Fatalf("Stages: %v", err)
+	}
+	if len(stages) != 1 || stages[0].Stage != item.StageImplementation || stages[0].Attempts != 1 {
+		t.Fatalf("the stage rows are %+v, want one attempt booked at implementation", stages)
+	}
+	if stages[0].SpendTokens != 0 {
+		t.Errorf("the send back spent %d tokens, and what the attempt after it spends is that attempt's",
+			stages[0].SpendTokens)
+	}
+
+	// The stage the item is at is a valid target and counts another attempt.
+	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
+		t.Fatalf("SendBack to the stage it is at: %v", err)
+	}
+	if stages, err = item.Stages(ctx, pool, it.ID); err != nil || stages[0].Attempts != 2 {
+		t.Fatalf("the implementation stage records %d attempts, want 2: %v", stages[0].Attempts, err)
+	}
+
+	// Forward is Advance's, not this.
+	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageQueued); !errors.Is(err, item.ErrNotBackUp) {
+		t.Errorf("SendBack forwards = %v, want ErrNotBackUp", err)
+	}
+	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.Stage("shipped")); !errors.Is(err, item.ErrStageUnknown) {
+		t.Errorf("SendBack to a stage outside the four = %v, want ErrStageUnknown", err)
+	}
+	if _, err := dispatch.SendBack(ctx, dispatchActor, "it_missing", item.StageSpec); !errors.Is(err, item.ErrNotFound) {
+		t.Errorf("SendBack on a missing item = %v, want ErrNotFound", err)
+	}
+	if _, err := dispatch.SendBack(ctx, record.Actor{}, it.ID, item.StageSpec); !errors.Is(err, record.ErrKindUnknown) {
+		t.Errorf("SendBack with no actor = %v, want ErrKindUnknown", err)
+	}
+}
+
+// TestSetPriorityAndAtStage is the settable order: an owner writes a priority
+// through dispatch, and the query the merge queue's membership is read with returns
+// the items of one service at one stage, greater priority first.
+func TestSetPriorityAndAtStage(t *testing.T) {
+	ctx, pool, cut, dispatch := newWriters(t)
+	const serviceID = "svc_" + "00000000000000000000000000000000"
+
+	var queued []item.Item
+	for n, branch := range []string{"item/first", "item/second", "item/third"} {
+		it, err := cut.Create(ctx, cutActor, item.New{
+			IntentID: fmt.Sprintf("in_%032d", n), ServiceID: serviceID, Branch: branch,
+		})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
+			t.Fatalf("Advance: %v", err)
+		}
+		if n < 2 {
+			if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageQueued); err != nil {
+				t.Fatalf("Advance to queued: %v", err)
+			}
+			queued = append(queued, it)
+		}
+	}
+
+	pushed, err := dispatch.SetPriority(ctx, workActor, queued[1].ID, 5)
+	if err != nil {
+		t.Fatalf("SetPriority: %v", err)
+	}
+	if pushed.Priority != 5 {
+		t.Errorf("SetPriority returned priority %d, want 5", pushed.Priority)
+	}
+
+	members, err := item.AtStage(ctx, pool, serviceID, item.StageQueued)
+	if err != nil {
+		t.Fatalf("AtStage: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("%d items are queued, two were advanced there: %+v", len(members), members)
+	}
+	if members[0].ID != queued[1].ID {
+		t.Errorf("the queued items come back %s then %s, want the pushed one first",
+			members[0].ID, members[1].ID)
+	}
+	if _, err := dispatch.SetPriority(ctx, workActor, "it_missing", 1); !errors.Is(err, item.ErrNotFound) {
+		t.Errorf("SetPriority on a missing item = %v, want ErrNotFound", err)
 	}
 }

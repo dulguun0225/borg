@@ -13,7 +13,7 @@ import (
 type Op string
 
 const (
-	// OpDeploy puts a release on a target.
+	// OpDeploy puts a build on a target.
 	OpDeploy Op = "deploy"
 	// OpStop takes a service off a target. What it does not do is delete
 	// anything the service wrote.
@@ -28,7 +28,7 @@ const (
 // nothing else, so what production access exists is answered by reading one
 // declaration.
 type Target interface {
-	// Deploy puts the release d names on the target, reaching it with the
+	// Deploy puts the build d names on the target, reaching it with the
 	// credential d references.
 	Deploy(ctx context.Context, d Deployment) error
 	// Stop takes the named service off the target, reaching it with the
@@ -38,17 +38,23 @@ type Target interface {
 	ReadRunning(ctx context.Context, service string, credential secretref.Ref) (Running, error)
 }
 
-// Deployment is what one deploy names: the service, the release, and the
+// Deployment is what one deploy names: the service, the build, and the
 // credential to reach the target with. The credential is a reference and
 // there is no field on this struct that could hold a value.
+//
+// What crosses the seam is the build and not the release. A release is the name a
+// build has on master, which is a fact of the store and not of the target, and a
+// candidate has no such name at all — so a field called release could not carry
+// the deploy into a candidate's own environment, which happens one gate before
+// the number exists.
 type Deployment struct {
 	Service    string
-	Release    string
+	Build      string
 	Credential secretref.Ref
 }
 
-// ErrIncomplete is returned for an operation missing a service, a release, or
-// a credential reference.
+// ErrIncomplete is returned for an operation missing a service, a build, or a
+// credential reference.
 var ErrIncomplete = errors.New("targetseam: the operation is incomplete")
 
 // Validate reports whether the deployment may be attempted. An implementation
@@ -57,15 +63,15 @@ func (d Deployment) Validate() error {
 	if err := check(d.Service, d.Credential); err != nil {
 		return err
 	}
-	if d.Release == "" {
-		return fmt.Errorf("%w: service %q names no release", ErrIncomplete, d.Service)
+	if d.Build == "" {
+		return fmt.Errorf("%w: service %q names no build", ErrIncomplete, d.Service)
 	}
 	return nil
 }
 
 // check is what every operation on a [Target] requires: something to act on,
 // and a credential to reach the target with. [Deployment.Validate] is this
-// plus the release, which is the one field only a deploy has.
+// plus the build, which is the one field only a deploy has.
 func check(service string, credential secretref.Ref) error {
 	switch {
 	case service == "":
@@ -76,9 +82,9 @@ func check(service string, credential secretref.Ref) error {
 	return nil
 }
 
-// Running is what a target reports for one service. An empty Release means
+// Running is what a target reports for one service. An empty Build means
 // nothing is running there.
 type Running struct {
 	Service string
-	Release string
+	Build   string
 }

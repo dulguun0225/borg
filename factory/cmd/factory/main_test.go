@@ -1,11 +1,12 @@
-// The end-to-end test: roadmap M1's demonstration and M2's, driven through the
-// same run function the run subcommand calls, with a fake model and scripted
-// input. M2's is three runs on one service — the first decided by a human at
-// both gate rows, the second auto-passed at both with nobody deciding anything,
-// and the third held at the production deploy row by a human a pin put there. Each test gets a PostgreSQL schema of its own with the whole factory
+// The end-to-end test: roadmap M1's demonstration, M2's, and M3's, driven
+// through the same run function the run subcommand calls, with a fake model and
+// scripted input. M2's is runs on one service decided differently — a human at
+// every row, then nobody anywhere, then a pin putting one back. M3's is two
+// candidates in one run, each on an environment of its own, merged in the queue's
+// order. Each test gets a PostgreSQL schema of its own with the whole factory
 // schema applied through postgres.Apply. None of these tests skips when the
-// database is unreachable: the milestone is demonstrated by them running, so
-// an unreachable database fails the run.
+// database is unreachable: the milestone is demonstrated by them running, so an
+// unreachable database fails the run.
 package main
 
 import (
@@ -31,11 +32,13 @@ import (
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/localtarget"
+	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/pin"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
@@ -44,6 +47,7 @@ import (
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
+	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
 // theModel is the model id the run is configured with, which is the author every
@@ -54,6 +58,11 @@ const theModel = "fake-model-1"
 // context factor and a human decides every gate, so the milestone's own
 // demonstration needs one.
 const theArea = "payments"
+
+// theCeiling is how many candidate environments the tests give the substrate room
+// for. It is high enough that no test meets it by accident, and the one test about
+// the ceiling lowers it to one.
+const theCeiling = 8
 
 // attemptBound is the bound in force in these tests: nothing here authors one,
 // so it is what the score supplies. The tests that spend it read it from there
@@ -67,19 +76,33 @@ var attemptBound = func() int {
 	return int(supplied)
 }()
 
-// The two interviews and the two specs the fake model plays out: the first
-// item's on a service with nothing in force, the second item's on the same
-// service, where the first criterion already is. Both sentences classify as
-// the event pattern, and both are the pattern's response form, which is what
-// theResponse reads the encoding's expected value out of.
+// The statements the tests give the run, and the spec and the criterion the fake
+// spec author authors for each. Keyed by the statement so that two candidates
+// authored in one run author two different promises, which is what makes them two
+// candidates rather than one change twice.
 const (
-	theStatement            = "The demo service needs a health check."
-	theQuestion             = "What does a healthy response say?"
-	theAnswer               = "ok"
+	theStatement       = "The demo service needs a health check."
+	theSecondStatement = "The demo service needs a version endpoint."
+	theThirdStatement  = "The demo service needs a readiness endpoint."
+	theFourthStatement = "The demo service needs an uptime endpoint."
+	theQuestion        = "What does a healthy response say?"
+	theAnswer          = "ok"
+
 	criterionSentence       = "When asked for its health, the system shall respond ok."
-	theSecondStatement      = "The demo service needs a version endpoint."
 	secondCriterionSentence = "When asked for its version, the system shall respond two."
+	thirdCriterionSentence  = "When asked for its readiness, the system shall respond ready."
+	fourthCriterionSentence = "When asked for its uptime, the system shall respond forever."
 )
+
+// theSpecs is what the fake spec author writes for each statement. Both sentences
+// of every pair classify as the event pattern in the pattern's response form,
+// which is what theResponse reads the encoding's expected value out of.
+var theSpecs = map[string]struct{ spec, criterion string }{
+	theStatement:       {"The demo service answers a health check with ok.", criterionSentence},
+	theSecondStatement: {"The demo service answers a version request with two.", secondCriterionSentence},
+	theThirdStatement:  {"The demo service answers a readiness check with ready.", thirdCriterionSentence},
+	theFourthStatement: {"The demo service answers an uptime request with forever.", fourthCriterionSentence},
+}
 
 // briefCriterion picks the criteria out of a role's user prompt: one line per
 // criterion, its id then its sentence, which is the shape both prompts render
@@ -93,11 +116,10 @@ var theResponse = regexp.MustCompile(`shall respond (.+)\.$`)
 
 // fakeModel answers by role, told apart by the system prompt — the same
 // constant each real role sends, so a prompt this switch does not know is a
-// wiring defect and an error. The first spec-author call asks the one
-// question, the next delivers a spec — the second criterion where the prompt
-// says one is already in force, so a second item on the service does not
-// restate the first's promise — and the implementer call returns whole files
-// with one encoding per criterion the prompt names.
+// wiring defect and an error. The first spec-author call asks the one question,
+// and every call after it delivers the spec [theSpecs] holds for the statement in
+// the prompt; the implementer call returns whole files with one encoding per
+// criterion the prompt names.
 type fakeModel struct {
 	specCalls int
 }
@@ -109,11 +131,15 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 		if m.specCalls == 1 {
 			return agent.Reply{Text: "QUESTION: " + theQuestion, Tokens: 11}, nil
 		}
-		spec, sentence := "The demo service answers a health check with ok.", criterionSentence
-		if briefCriterion.MatchString(user) {
-			spec, sentence = "The demo service answers a version request with two.", secondCriterionSentence
+		for statement, authored := range theSpecs {
+			if strings.Contains(user, statement) {
+				return agent.Reply{
+					Text:   "SPEC:\n" + authored.spec + "\nCRITERION: " + authored.criterion,
+					Tokens: 23,
+				}, nil
+			}
 		}
-		return agent.Reply{Text: "SPEC:\n" + spec + "\nCRITERION: " + sentence, Tokens: 23}, nil
+		return agent.Reply{}, fmt.Errorf("fake model: the spec author's prompt names no statement this fake authors for")
 	case agent.ImplementerSystemPrompt:
 		named := briefCriterion.FindAllStringSubmatch(user, -1)
 		if len(named) == 0 {
@@ -129,32 +155,43 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 }
 
 // implementerReply is the implementer's whole reply for the criteria the brief
-// named, in the order it named them: a module file, one function per criterion
-// in main.go, and one encoding per criterion — a test naming that criterion's
-// id in its body, whose expected value is read out of the criterion's sentence
-// and not out of the code. Every criterion in force is encoded because the
-// check over the build rejects one that is not, so a second item's reply
-// carries the first item's encoding again. The main function sleeps in a loop
-// so the deployed process stays alive for ReadRunning.
+// named: a module file, a main function that stays alive so the deployed process
+// answers ReadRunning, and one source file plus one encoding per criterion. Every
+// criterion in force is encoded because the check over the build rejects one that
+// is not, so a candidate's reply carries the encodings of the criteria already in
+// force again.
+//
+// Each pair of files is named by the criterion's id and its content is derived
+// from that criterion's sentence, never from the code it checks. Naming them by
+// the id rather than by position is what lets two candidates of one service merge:
+// each adds the files of the criterion it introduced and rewrites the files of the
+// criteria already in force with the same bytes, so no two sides of the merge
+// change one file differently.
 func implementerReply(named [][]string) (string, error) {
-	main := []string{"package main", "", `import "time"`, ""}
-	var encodings []string
-	for i, match := range named {
+	files := []string{
+		"=== FILE go.mod ===", "module demo", "", "go 1.24", "=== END ===",
+		"=== FILE main.go ===", "package main", "", `import "time"`, "",
+		"func main() {", "\tfor {", "\t\ttime.Sleep(time.Hour)", "\t}", "}", "=== END ===",
+	}
+	for _, match := range named {
 		id, sentence := match[1], match[2]
 		response := theResponse.FindStringSubmatch(sentence)
 		if response == nil {
 			return "", fmt.Errorf("fake model: the sentence of %s is not the response form this fake encodes: %q", id, sentence)
 		}
-		function := fmt.Sprintf("respond%d", i+1)
-		main = append(main, fmt.Sprintf("func %s() string { return %q }", function, response[1]))
-		encodings = append(encodings,
+		function := "respond_" + id
+		files = append(files,
+			"=== FILE "+function+".go ===",
+			"package main",
+			"",
+			fmt.Sprintf("func %s() string { return %q }", function, response[1]),
+			"=== END ===",
 			"=== FILE "+function+"_test.go ===",
 			"package main",
 			"",
 			`import "testing"`,
 			"",
-			fmt.Sprintf("func TestRespond%d(t *testing.T) {", i+1),
-			"\t// "+id,
+			fmt.Sprintf("func Test_%s(t *testing.T) {", id),
 			fmt.Sprintf("\tif %s() != %q {", function, response[1]),
 			fmt.Sprintf("\t\tt.Fatalf(%q, %s())", function+"() = %q, the criterion requires "+response[1], function),
 			"\t}",
@@ -162,20 +199,33 @@ func implementerReply(named [][]string) (string, error) {
 			"=== END ===",
 		)
 	}
-	main = append(main, "", "func main() {", "\tfor {", "\t\ttime.Sleep(time.Hour)", "\t}", "}")
+	return strings.Join(files, "\n"), nil
+}
 
-	lines := []string{"=== FILE go.mod ===", "module demo", "", "go 1.24", "=== END ===", "=== FILE main.go ==="}
-	lines = append(lines, main...)
-	lines = append(lines, "=== END ===")
-	lines = append(lines, encodings...)
-	return strings.Join(lines, "\n"), nil
+// conflictingModel wraps a model and has the implementer write one more file
+// whose content is the id of the criterion this item introduced, which is the last
+// one the brief names. Two candidates of one service then change one file
+// differently, so the second one's re-verification against the master the first
+// created is a merge that conflicts — which is a candidate failing on its own
+// merits and the merge queue rejecting it.
+type conflictingModel struct{ inner agent.Model }
+
+func (m *conflictingModel) Complete(ctx context.Context, system, user string) (agent.Reply, error) {
+	reply, err := m.inner.Complete(ctx, system, user)
+	if err != nil || system != agent.ImplementerSystemPrompt {
+		return reply, err
+	}
+	named := briefCriterion.FindAllStringSubmatch(user, -1)
+	introduced := named[len(named)-1][1]
+	reply.Text += "\n=== FILE shared.go ===\npackage main\n\n// shared, last written for " + introduced + "\n=== END ==="
+	return reply, nil
 }
 
 // newPath gives a test a schema of its own with the whole schema applied,
-// temp directories for the repository and the targets, a secrets file holding
-// the deploy credential, a local target whose started process is stopped in
-// cleanup — through the seam — and the deps the path runs over. input is what
-// the scripted human types.
+// temp directories for the repository and production's target, a secrets file
+// holding the deploy credential, a target per environment whose started processes
+// are stopped in cleanup — through the seam — and the deps the path runs over.
+// input is what the scripted human types.
 func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) {
 	t.Helper()
 	ctx := t.Context()
@@ -184,7 +234,7 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatalf("naming the test schema: %v", err)
 	}
-	schema := "m1_factory_" + hex.EncodeToString(suffix[:])
+	schema := "factory_" + hex.EncodeToString(suffix[:])
 
 	pool, err := postgres.Open(ctx, inSchema(t, postgres.URL(), schema))
 	if err != nil {
@@ -219,28 +269,34 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 		t.Fatalf("resolving the deploy credential: %v", err)
 	}
 
-	targets := t.TempDir()
-	target := localtarget.New(targets)
+	// One target per environment, the way the run composes them: production's is
+	// the directory named here and each candidate environment's is one of its own.
+	// Every target the run made is stopped in cleanup, a candidate environment torn
+	// down mid-run having stopped its own already.
+	targets := newTargetSet(func(dir string) targetseam.Target { return localtarget.New(dir) })
 	t.Cleanup(func() {
-		if err := target.Stop(context.Background(), "demo", credential); err != nil {
-			t.Errorf("stopping the demo service: %v", err)
+		for dir, target := range targets.made {
+			if err := target.Stop(context.Background(), "demo", credential); err != nil {
+				t.Errorf("stopping the demo service on %s: %v", dir, err)
+			}
 		}
 	})
 
 	out := &bytes.Buffer{}
 	return ctx, deps{
-		pool:       pool,
-		model:      &fakeModel{},
-		modelName:  theModel,
-		target:     target,
-		targets:    targets,
-		credential: credential,
-		in:         strings.NewReader(input),
-		out:        out,
-		human:      "owner",
-		service:    "demo",
-		area:       theArea,
-		repo:       filepath.Join(t.TempDir(), "demo"),
+		pool:             pool,
+		model:            &fakeModel{},
+		modelName:        theModel,
+		targets:          targets,
+		dir:              t.TempDir(),
+		credential:       credential,
+		in:               strings.NewReader(input),
+		out:              out,
+		human:            "owner",
+		service:          "demo",
+		area:             theArea,
+		repo:             filepath.Join(t.TempDir(), "demo"),
+		candidateCeiling: theCeiling,
 	}, out
 }
 
@@ -258,23 +314,39 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-// TestOneChangeShips is the demonstration: one change followed end to end,
-// approved at the one gate, released as number 1, deployed straight, running
-// on the target, and walkable from the deploy back to the intent with the
-// decision readable in a clean chain.
-func TestOneChangeShips(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
+// only is the one candidate of a single-intent run, which is what most of these
+// tests assert over.
+func only(t *testing.T, s shipped) *candidate {
+	t.Helper()
+	if len(s.candidates) != 1 {
+		t.Fatalf("the run has %d candidates, want one", len(s.candidates))
+	}
+	return s.candidates[0]
+}
 
-	res, err := run(ctx, d, theStatement)
+// approvals is a scripted human approving every row that puts one there. A row
+// that auto-passes consumes nothing, so a script with more approvals than rows is
+// harmless and a script with fewer is what fails.
+const approvals = "approve\napprove\napprove\n"
+
+// TestOneChangeShips is the demonstration: one change followed end to end,
+// approved at every row that put a human there, released as number 1, deployed
+// straight, running on the target, and walkable from the deploy back to the intent
+// with the decisions readable in a clean chain.
+func TestOneChangeShips(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+
+	res, err := run(ctx, d, []string{theStatement})
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
-	if res.rejected {
-		t.Fatal("the run reports rejected, and the scripted verdict was approve")
+	c := only(t, res)
+	if c.rejected {
+		t.Fatal("the run reports rejected, and every scripted verdict was approve")
 	}
 
 	// The intent: one round, its question answered, refined.
-	in, err := intent.Get(ctx, d.pool, res.intentID)
+	in, err := intent.Get(ctx, d.pool, c.intentID)
 	if err != nil {
 		t.Fatalf("reading the intent: %v", err)
 	}
@@ -284,7 +356,7 @@ func TestOneChangeShips(t *testing.T) {
 	if in.State != intent.StateRefined {
 		t.Errorf("intent state = %s, the interview marked it refined", in.State)
 	}
-	questions, err := intent.Questions(ctx, d.pool, res.intentID)
+	questions, err := intent.Questions(ctx, d.pool, c.intentID)
 	if err != nil {
 		t.Fatalf("reading the questions: %v", err)
 	}
@@ -297,19 +369,19 @@ func TestOneChangeShips(t *testing.T) {
 	}
 
 	// The item: merged, one attempt with spend on each authored stage.
-	it, err := item.Get(ctx, d.pool, res.itemID)
+	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item: %v", err)
 	}
 	if it.Stage != item.StageMerged {
 		t.Errorf("item stage = %s, the path ends at merged", it.Stage)
 	}
-	stages, err := item.Stages(ctx, d.pool, res.itemID)
+	stages, err := item.Stages(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
 	if len(stages) != 2 {
-		t.Fatalf("the item has %d stage rows, spec and implementation reported one each", len(stages))
+		t.Fatalf("the item has %d stage rows, spec and implementation reported one each: %+v", len(stages), stages)
 	}
 	reported := map[item.Stage]bool{}
 	for _, st := range stages {
@@ -325,13 +397,18 @@ func TestOneChangeShips(t *testing.T) {
 		t.Errorf("the reported stages are %v, spec and implementation were expected", stages)
 	}
 
-	// The release is number 1.
-	rel, err := release.Get(ctx, d.pool, res.releaseID)
+	// The release is number 1, and it names the build the re-verification made
+	// rather than the one the implementation stage did — which for a candidate with
+	// no master to merge is the same build.
+	rel, err := release.Get(ctx, d.pool, c.releaseID)
 	if err != nil {
 		t.Fatalf("reading the release: %v", err)
 	}
 	if rel.Number != 1 {
 		t.Errorf("release number = %d, a service's first release is 1", rel.Number)
+	}
+	if rel.BuildID != c.reverifiedBuildID {
+		t.Errorf("the release names build %s, the re-verification produced %s", rel.BuildID, c.reverifiedBuildID)
 	}
 
 	// The deploy completed and Current names it — what is running, not what
@@ -340,80 +417,82 @@ func TestOneChangeShips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
-	if !found || current.ID != res.deployID {
-		t.Errorf("the current deploy is %q found=%t, the path deployed %s", current.ID, found, res.deployID)
+	if !found || current.ID != c.deployID {
+		t.Errorf("the current deploy is %q found=%t, the path deployed %s", current.ID, found, c.deployID)
 	}
 	if current.Status != deploy.StatusComplete {
 		t.Errorf("deploy status = %s, the straight deploy completes", current.Status)
 	}
+	if current.BuildID != rel.BuildID {
+		t.Errorf("the deploy names build %s and the release names %s", current.BuildID, rel.BuildID)
+	}
 
-	// The target runs the release.
-	running, err := d.target.ReadRunning(ctx, "demo", d.credential)
+	// The target runs the build. What crosses the seam is the build and never the
+	// release: a target runs a binary rather than a name.
+	running, err := d.targets.at(d.dir).ReadRunning(ctx, "demo", d.credential)
 	if err != nil {
 		t.Fatalf("reading what the target runs: %v", err)
 	}
-	if running.Release != res.releaseID {
-		t.Errorf("the target runs %q, the deploy put %s there", running.Release, res.releaseID)
+	if running.Build != rel.BuildID {
+		t.Errorf("the target runs %q, the deploy put build %s there", running.Build, rel.BuildID)
 	}
 
-	// Master exists in the repository at the candidate commit.
+	// Master exists in the repository at the commit the queue fast-forwarded to.
 	master, err := git(d.repo, "rev-parse", "master")
 	if err != nil {
 		t.Fatalf("reading master: %v", err)
 	}
-	if master != res.commit {
-		t.Errorf("master is at %s, the fast-forward targeted %s", master, res.commit)
+	if master != c.reverifiedCommit {
+		t.Errorf("master is at %s, the fast-forward targeted %s", master, c.reverifiedCommit)
 	}
 
 	// The walk alone — the walk subcommand's code — reaches the intent's
 	// statement from the deploy id, and reports the chain clean.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, res.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, c.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {
-		t.Errorf("the walk from %s does not reach the statement %q:\n%s", res.deployID, theStatement, walked.String())
+		t.Errorf("the walk from %s does not reach the statement %q:\n%s", c.deployID, theStatement, walked.String())
 	}
 	if !strings.Contains(walked.String(), "the chain is clean") {
 		t.Errorf("the walk does not report the chain clean:\n%s", walked.String())
 	}
 
-	// The log: two decisions, four rows — the merge row and the production
-	// deploy row, each opened by its gate component and closed by the human the
-	// score put there.
+	// The log: three decisions, six rows — the candidate deploy row, the merge
+	// row, and the production deploy row, each opened by its gate component.
 	rows, err := decisionlog.Read(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}
-	if len(rows) != 4 {
-		t.Fatalf("the log holds %d rows, two decisions are four", len(rows))
+	if len(rows) != 6 {
+		t.Fatalf("the log holds %d rows, three decisions are six:\n%s", len(rows), out)
 	}
 	for n, want := range []struct {
 		part  decisionlog.Part
-		actor record.Actor
-		row   gate.Row
+		actor string
 	}{
-		{decisionlog.PartOpening, record.Actor{Kind: record.KindComponent, Name: "gate.merge_to_master"}, gate.MergeToMaster},
-		{decisionlog.PartClosing, record.Actor{Kind: record.KindHuman, Name: "owner"}, gate.MergeToMaster},
-		{decisionlog.PartOpening, record.Actor{Kind: record.KindComponent, Name: "gate.deploy_to_production"}, gate.DeployToProduction},
-		{decisionlog.PartClosing, record.Actor{Kind: record.KindHuman, Name: "owner"}, gate.DeployToProduction},
+		{decisionlog.PartOpening, "gate.deploy_to_candidate_environment"},
+		{decisionlog.PartClosing, ""},
+		{decisionlog.PartOpening, "gate.merge_to_master"},
+		{decisionlog.PartClosing, ""},
+		{decisionlog.PartOpening, "gate.deploy_to_production"},
+		{decisionlog.PartClosing, ""},
 	} {
 		row := rows[n]
 		if row.Shape != decisionlog.ShapeDecision || row.Part != want.part {
 			t.Errorf("row %d is shape %s part %s, want a %s decision row", n+1, row.Shape, row.Part, want.part)
 		}
-		if row.Actor != want.actor {
-			t.Errorf("row %d's actor is %+v, want %+v", n+1, row.Actor, want.actor)
+		if want.actor != "" && row.Actor.Name != want.actor {
+			t.Errorf("row %d's actor is %q, want %q", n+1, row.Actor.Name, want.actor)
 		}
 	}
-	if rows[1].Closes != rows[0].ID || rows[3].Closes != rows[2].ID {
-		t.Errorf("the closings close %q and %q, want %q and %q",
-			rows[1].Closes, rows[3].Closes, rows[0].ID, rows[2].ID)
+	if rows[1].Closes != rows[0].ID || rows[3].Closes != rows[2].ID || rows[5].Closes != rows[4].ID {
+		t.Error("a closing row does not close the opening row before it")
 	}
 
-	// Both decisions name the policy version and the score version they were
-	// decided under, and both are records rather than names — which is what the
-	// milestone's demonstration is followed along.
+	// Every decision names the policy version and the score version it was
+	// decided under, and both are records rather than names.
 	scoreVersion, found, err := score.Newest(ctx, d.pool)
 	if err != nil || !found {
 		t.Fatalf("reading the score version: %v", err)
@@ -422,7 +501,7 @@ func TestOneChangeShips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the policy version: %v", err)
 	}
-	for _, opening := range []decisionlog.Row{rows[0], rows[2]} {
+	for _, opening := range []decisionlog.Row{rows[0], rows[2], rows[4]} {
 		if opening.ScoreVersion != scoreVersion.ID {
 			t.Errorf("an opening names score version %q, want the record %q", opening.ScoreVersion, scoreVersion.ID)
 		}
@@ -438,41 +517,47 @@ func TestOneChangeShips(t *testing.T) {
 	}
 
 	// The merge row's opening names the implementation version under decision and
-	// the whole vector; the deploy row's names no artifact, there being none under
-	// decision at a deploy.
-	mergeOpening := openingPayload(t, rows[0])
-	if mergeOpening.ArtifactID != res.implArtifactID {
+	// the whole vector; neither deploy row's names an artifact, there being none
+	// under decision at a deploy.
+	mergeOpening := openingPayload(t, rows[2])
+	if mergeOpening.ArtifactID != c.implArtifactID {
 		t.Errorf("the merge opening names artifact %s, the decision was over implementation %s",
-			mergeOpening.ArtifactID, res.implArtifactID)
+			mergeOpening.ArtifactID, c.implArtifactID)
 	}
 	if len(mergeOpening.Vector) == 0 || mergeOpening.Number <= 0 {
 		t.Errorf("the merge opening carries %d factors and number %v", len(mergeOpening.Vector), mergeOpening.Number)
 	}
-	if !mergeOpening.HumanDecides || mergeOpening.WhyHuman != gate.WhyOverThreshold {
-		t.Errorf("the merge opening says human %v because %q, want the number over the threshold",
-			mergeOpening.HumanDecides, mergeOpening.WhyHuman)
-	}
-	supplied, _ := score.Supplied(gatepolicy.RiskThreshold)
-	if mergeOpening.Threshold != supplied || mergeOpening.ThresholdFrom != string(policy.FromSupplied) {
-		t.Errorf("the merge opening applied threshold %v from %q, want the supplied %v",
-			mergeOpening.Threshold, mergeOpening.ThresholdFrom, supplied)
-	}
 	if len(mergeOpening.Unavailable) != 0 {
 		t.Errorf("the merge opening names %v as unavailable, and every factor is computable here", mergeOpening.Unavailable)
 	}
-	if deployOpening := openingPayload(t, rows[2]); deployOpening.ArtifactID != "" {
-		t.Errorf("the deploy opening names artifact %q, and nothing is under decision at a deploy", deployOpening.ArtifactID)
+	if len(mergeOpening.Criteria) != 1 || mergeOpening.Criteria[0].Outcome != criterion.OutcomePassed {
+		t.Errorf("the merge opening carries criteria %+v, want the one criterion passed", mergeOpening.Criteria)
+	}
+	for _, deployRow := range []decisionlog.Row{rows[0], rows[4]} {
+		if payload := openingPayload(t, deployRow); payload.ArtifactID != "" {
+			t.Errorf("a deploy opening names artifact %q, and nothing is under decision at a deploy", payload.ArtifactID)
+		}
+	}
+	// The candidate deploy row's opening carries no outcome: the run that decides
+	// the criteria is what that deploy is for.
+	if payload := openingPayload(t, rows[0]); len(payload.Criteria) != 0 {
+		t.Errorf("the candidate deploy opening carries criteria %+v, and none is decided yet", payload.Criteria)
 	}
 
-	for _, closing := range []decisionlog.Row{rows[1], rows[3]} {
-		payload := closingPayload(t, closing)
-		if payload.Verdict != string(gate.VerdictApprove) {
-			t.Errorf("a closing carries verdict %q, the human approved", payload.Verdict)
-		}
-		if payload.AutoPassedBy != "" {
-			t.Errorf("a closing a human wrote says it was auto-passed by %q", payload.AutoPassedBy)
+	// The first item on a fresh factory is decided by a human at every row, which
+	// is the calibration the milestone states: no earlier release to return to, an
+	// author nobody has approved, and an area with no history.
+	for name, firing := range map[string]fired{
+		"candidate deploy": c.candidateGate,
+		"merge":            c.mergeGate,
+		"production":       c.deployGate,
+	} {
+		if !firing.humanDecided {
+			t.Errorf("the %s row auto-passed the first item of a fresh factory (number %v against threshold %v)",
+				name, firing.number, firing.threshold)
 		}
 	}
+
 	if err := decisionlog.Verify(ctx, d.pool); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
@@ -498,13 +583,532 @@ func closingPayload(t *testing.T, row decisionlog.Row) gate.ClosingPayload {
 	return payload
 }
 
+// TestACandidateGetsAnEnvironmentOfItsOwn is M3's first claim: the gate that
+// decides the candidate's deploy creates an environment named for the item, the
+// build goes on it and the deploy record names that build and no release, the
+// criteria are decided there, and the environment is torn down at the merge with
+// its record kept.
+func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+
+	res, err := run(ctx, d, []string{theStatement})
+	if err != nil {
+		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
+	}
+	c := only(t, res)
+
+	env, found, err := environment.ForItem(ctx, d.pool, c.itemID)
+	if err != nil || !found {
+		t.Fatalf("ForItem = found %v, %v", found, err)
+	}
+	if env.ID != c.environmentID {
+		t.Errorf("the item's environment is %s, the run composed %s", env.ID, c.environmentID)
+	}
+	if env.Kind != environment.KindCandidate {
+		t.Errorf("the environment's kind is %s, want a candidate's", env.Kind)
+	}
+	if env.Name != environment.NameForItem(c.itemID) {
+		t.Errorf("the environment is named %q, want %q", env.Name, environment.NameForItem(c.itemID))
+	}
+	if env.ItemID != c.itemID {
+		t.Errorf("the environment names item %s, want %s", env.ItemID, c.itemID)
+	}
+	if !slices.Equal(env.Targets, []string{c.environmentDir}) {
+		t.Errorf("the environment's targets are %v, want the directory of its own %q", env.Targets, c.environmentDir)
+	}
+	if len(env.ComposedFrom) != 0 {
+		t.Errorf("the environment was composed from %+v, and the cut declared no dependency", env.ComposedFrom)
+	}
+	if env.Live() {
+		t.Error("the environment is still live, and the item merged")
+	}
+	if !c.tornDown {
+		t.Error("the run does not report the environment torn down")
+	}
+	// The record is kept rather than deleted, because the deploy records naming it
+	// would otherwise point at nothing.
+	if _, err := environment.Get(ctx, d.pool, env.ID); err != nil {
+		t.Errorf("the torn-down environment's record does not read back: %v", err)
+	}
+
+	// The candidate deploy record names the build and no release: the number is
+	// minted one gate below it.
+	candidateDeploy, err := deploy.Get(ctx, d.pool, c.candidateDeployID)
+	if err != nil {
+		t.Fatalf("reading the candidate deploy: %v", err)
+	}
+	if candidateDeploy.EnvironmentID != env.ID {
+		t.Errorf("the candidate deploy names environment %s, want %s", candidateDeploy.EnvironmentID, env.ID)
+	}
+	if candidateDeploy.ReleaseID != "" {
+		t.Errorf("the candidate deploy names release %q, and no number exists at that row", candidateDeploy.ReleaseID)
+	}
+	if candidateDeploy.BuildID == "" {
+		t.Error("the candidate deploy names no build, and the build is what it put there")
+	}
+	// Nothing is current on a candidate environment: Current reads the records
+	// that name a release.
+	if _, running, err := deploy.Current(ctx, d.pool, res.serviceID, env.ID); err != nil || running {
+		t.Errorf("Current on a candidate environment = running %v, %v", running, err)
+	}
+
+	// The criteria were decided against the build, on that environment, by the
+	// deploy agent.
+	results, err := criterion.ResultsForBuild(ctx, d.pool, candidateDeploy.BuildID)
+	if err != nil {
+		t.Fatalf("reading what was decided over the build: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("%d criteria were decided over the build, one was in force: %+v", len(results), results)
+	}
+	if results[0].Outcome != criterion.OutcomePassed {
+		t.Errorf("the criterion is %s over the build, want passed", results[0].Outcome)
+	}
+	if results[0].Actor.Name != "deploy" {
+		t.Errorf("the result was written by %q, want the deploy agent", results[0].Actor.Name)
+	}
+	if !strings.Contains(out.String(), "ran twice on the candidate environment") {
+		t.Errorf("the run does not report the encodings running twice:\n%s", out)
+	}
+}
+
+// TestTwoCandidatesProceedAtOnce is M3's demonstration: two intents in one run,
+// two items cut on the same master, two candidate environments live at once with
+// different targets and different deploy records, and the queue merging them in
+// its order — the second re-verifying against the master the first created, which
+// is a build the implementation stage never made.
+func TestTwoCandidatesProceedAtOnce(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+
+	// One change first, so master exists and the two candidates below are both
+	// based on it. Two candidates cut before any release have no common commit, and
+	// what that costs is stated where the queue merges them.
+	first, err := run(ctx, d, []string{theStatement})
+	if err != nil {
+		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
+	}
+
+	d.in = strings.NewReader("")
+	res, err := run(ctx, d, []string{theSecondStatement, theThirdStatement})
+	if err != nil {
+		t.Fatalf("the two-candidate run stopped: %v\noutput so far:\n%s", err, out)
+	}
+	if len(res.candidates) != 2 {
+		t.Fatalf("the run has %d candidates, two intents are two", len(res.candidates))
+	}
+	a, b := res.candidates[0], res.candidates[1]
+
+	// Two environments, neither reading the other's: different records, different
+	// items, different directories, different deploy records.
+	if a.environmentID == b.environmentID || a.environmentDir == b.environmentDir {
+		t.Fatalf("the two candidates share environment %s at %s", a.environmentID, a.environmentDir)
+	}
+	if a.candidateDeployID == b.candidateDeployID {
+		t.Error("the two candidate deploys are one record")
+	}
+	for _, c := range res.candidates {
+		env, found, err := environment.ForItem(ctx, d.pool, c.itemID)
+		if err != nil || !found {
+			t.Fatalf("ForItem(%s) = found %v, %v", c.itemID, found, err)
+		}
+		if env.ItemID != c.itemID {
+			t.Errorf("environment %s names item %s, want %s", env.ID, env.ItemID, c.itemID)
+		}
+		if !c.merged {
+			t.Errorf("item %s did not merge:\n%s", c.itemID, out)
+		}
+		if !c.tornDown {
+			t.Errorf("item %s merged and its environment was not torn down", c.itemID)
+		}
+	}
+
+	// Each candidate's criteria attach to its own build, so what one run produced
+	// is not read as the other's.
+	for _, c := range res.candidates {
+		results, err := criterion.ResultsForBuild(ctx, d.pool, c.reverifiedBuildID)
+		if err != nil {
+			t.Fatalf("reading what was decided over build %s: %v", c.reverifiedBuildID, err)
+		}
+		if len(results) == 0 {
+			t.Errorf("nothing was decided over build %s", c.reverifiedBuildID)
+		}
+		for _, result := range results {
+			if result.BuildID != c.reverifiedBuildID {
+				t.Errorf("a result of build %s names %s", c.reverifiedBuildID, result.BuildID)
+			}
+		}
+	}
+
+	// The queue merged them in its order: numbers 2 and 3 after the first run's 1.
+	numbers := map[int64]string{}
+	for _, c := range res.candidates {
+		rel, err := release.Get(ctx, d.pool, c.releaseID)
+		if err != nil {
+			t.Fatalf("reading release %s: %v", c.releaseID, err)
+		}
+		numbers[rel.Number] = c.itemID
+	}
+	if numbers[2] != a.itemID || numbers[3] != b.itemID {
+		t.Errorf("the numbers went %+v, want 2 to the first-approved item %s and 3 to %s",
+			numbers, a.itemID, b.itemID)
+	}
+
+	// The second candidate's release names a build the implementation stage never
+	// made: it is the re-verification's, made from the candidate branch with the
+	// master the first one created merged into it.
+	if b.reverifiedBuildID == b.buildID {
+		t.Error("the second candidate's re-verification reused its own build, and master had moved under it")
+	}
+	if _, err := git(d.repo, "merge-base", "--is-ancestor", first.candidates[0].reverifiedCommit,
+		b.reverifiedCommit); err != nil {
+		t.Errorf("the first release's commit is not an ancestor of the second candidate's re-verified commit: %v", err)
+	}
+
+	// Master is at the last commit the queue fast-forwarded to.
+	master, err := git(d.repo, "rev-parse", "master")
+	if err != nil {
+		t.Fatalf("reading master: %v", err)
+	}
+	if master != b.reverifiedCommit {
+		t.Errorf("master is at %s, the last fast-forward targeted %s", master, b.reverifiedCommit)
+	}
+
+	// Both deployed, and production runs the last one.
+	for _, c := range res.candidates {
+		if c.deployID == "" {
+			t.Errorf("item %s minted release %s and deployed nothing", c.itemID, c.releaseID)
+		}
+	}
+	running, err := d.targets.at(d.dir).ReadRunning(ctx, "demo", d.credential)
+	if err != nil {
+		t.Fatalf("reading what production runs: %v", err)
+	}
+	if running.Build != b.reverifiedBuildID {
+		t.Errorf("production runs %q, the last deploy put build %s there", running.Build, b.reverifiedBuildID)
+	}
+
+	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+		t.Errorf("the chain does not verify after two candidates at once: %v", err)
+	}
+}
+
+// TestTheQueueRejectsACandidateThatFailedItsOwnReverification is the queue's
+// rejection: two candidates change one file differently, so the second one's
+// re-verification against the master the first created is a merge that conflicts.
+// The item goes back to Implementation with an attempt counted there, no release
+// is minted for it, its environment stays its own, and the log holds a wait row
+// naming the queue as its actor.
+func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	d.model = &conflictingModel{inner: &fakeModel{}}
+
+	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
+	}
+
+	d.in = strings.NewReader("")
+	res, err := run(ctx, d, []string{theSecondStatement, theThirdStatement})
+	if err != nil {
+		t.Fatalf("the run stopped, and a queue rejection is not an error: %v\noutput so far:\n%s", err, out)
+	}
+	a, b := res.candidates[0], res.candidates[1]
+
+	if !a.merged {
+		t.Fatalf("the first candidate in the queue did not merge:\n%s", out)
+	}
+	if b.merged || !b.queueRejected {
+		t.Fatalf("the second candidate merged=%v rejected=%v, want the queue rejecting it:\n%s",
+			b.merged, b.queueRejected, out)
+	}
+	if b.releaseID != "" {
+		t.Errorf("the rejected candidate minted release %s", b.releaseID)
+	}
+	if !strings.Contains(b.queueWhy, "merging master") {
+		t.Errorf("the queue rejected it because %q, want the merge that conflicted", b.queueWhy)
+	}
+
+	// The item is back at Implementation with an attempt counted there — the
+	// rework booked against the thing that was wrong.
+	it, err := item.Get(ctx, d.pool, b.itemID)
+	if err != nil {
+		t.Fatalf("reading the rejected item: %v", err)
+	}
+	if it.Stage != item.StageImplementation {
+		t.Errorf("the rejected item is at %s, want implementation", it.Stage)
+	}
+	stages, err := item.Stages(ctx, d.pool, b.itemID)
+	if err != nil {
+		t.Fatalf("reading the item's stages: %v", err)
+	}
+	var attempts int
+	for _, st := range stages {
+		if st.Stage == item.StageImplementation {
+			attempts = st.Attempts
+		}
+	}
+	if attempts != 2 {
+		t.Errorf("the implementation stage records %d attempts, want the authoring one and the queue's rejection", attempts)
+	}
+
+	// Its environment is still its own: nothing waits on the environment a
+	// rejected candidate used, and it stays the item's until it merges or is
+	// dropped.
+	env, found, err := environment.ForItem(ctx, d.pool, b.itemID)
+	if err != nil || !found {
+		t.Fatalf("ForItem = found %v, %v", found, err)
+	}
+	if !env.Live() {
+		t.Error("the rejected candidate's environment was torn down, and it stays the item's")
+	}
+
+	// The rejection is a wait row the log wrote with the queue as caller and
+	// actor: no gate fired, the merge gate's own having closed as an approval.
+	rows, err := decisionlog.Read(ctx, d.pool)
+	if err != nil {
+		t.Fatalf("reading the log: %v", err)
+	}
+	var waits int
+	for _, row := range rows {
+		if row.Shape != decisionlog.ShapeWait {
+			continue
+		}
+		waits++
+		if row.ID != b.queueWaitRow {
+			t.Errorf("the log's wait row is %s, the run reported %s", row.ID, b.queueWaitRow)
+		}
+		if row.Actor != mergequeue.Actor {
+			t.Errorf("the wait row's actor is %+v, want the queue %+v", row.Actor, mergequeue.Actor)
+		}
+		var payload mergequeue.RejectionPayload
+		if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+			t.Fatalf("reading the rejection payload: %v", err)
+		}
+		if payload.Kind != mergequeue.RejectionKind || payload.ItemID != b.itemID {
+			t.Errorf("the rejection payload is %+v, want kind %q for item %s",
+				payload, mergequeue.RejectionKind, b.itemID)
+		}
+		if payload.ReturnsTo != gate.ReturnsTo || !payload.CountsAnAttempt {
+			t.Errorf("the rejection returns the item to %q and counts an attempt %v",
+				payload.ReturnsTo, payload.CountsAnAttempt)
+		}
+	}
+	if waits != 1 {
+		t.Errorf("the log holds %d wait rows, one candidate was rejected", waits)
+	}
+	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+		t.Errorf("the chain does not verify after a queue rejection: %v", err)
+	}
+}
+
+// TestThePriorityReordersTheQueue is the settable order: an owner writes a
+// priority through dispatch and the queue takes that candidate first. What it
+// changes is when a candidate re-verifies and never what it has to pass — so the
+// one that goes second is the one whose merge conflicts, which is the opposite of
+// what happens with the priorities left where the cut wrote them.
+func TestThePriorityReordersTheQueue(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	d.model = &conflictingModel{inner: &fakeModel{}}
+
+	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
+	}
+
+	// The priority is written between the merge gate and the queue, which is what
+	// a surface would do: the run does both in one call, so this test drives the
+	// steps rather than run itself.
+	d.in = strings.NewReader("")
+	p, err := compose(ctx, d)
+	if err != nil {
+		t.Fatalf("composing the path: %v", err)
+	}
+	var candidates []*candidate
+	for _, statement := range []string{theSecondStatement, theThirdStatement} {
+		c, err := p.author(ctx, statement, statement)
+		if err != nil {
+			t.Fatalf("authoring %q: %v\noutput so far:\n%s", statement, err, out)
+		}
+		candidates = append(candidates, c)
+		p.byItem[c.itemID] = c
+	}
+	for _, c := range candidates {
+		if err := p.candidateEnvironment(ctx, c); err != nil {
+			t.Fatalf("the candidate environment of %s: %v\noutput so far:\n%s", c.itemID, err, out)
+		}
+		if err := p.mergeGate(ctx, c); err != nil {
+			t.Fatalf("the merge gate of %s: %v\noutput so far:\n%s", c.itemID, err, out)
+		}
+	}
+
+	// The second-approved candidate is pushed to the front.
+	owner := record.Actor{Kind: record.KindHuman, Name: d.human}
+	if _, err := item.NewDispatch(d.pool).SetPriority(ctx, owner, candidates[1].itemID, 5); err != nil {
+		t.Fatalf("setting the priority: %v", err)
+	}
+	members, err := p.queue.Members(ctx, p.svc.ID)
+	if err != nil {
+		t.Fatalf("reading the queue's members: %v", err)
+	}
+	if len(members) != 2 || members[0].ID != candidates[1].itemID {
+		t.Fatalf("the queue's order is %+v, want the pushed candidate %s first", members, candidates[1].itemID)
+	}
+
+	if _, err := p.runQueue(ctx); err != nil {
+		t.Fatalf("the queue stopped: %v\noutput so far:\n%s", err, out)
+	}
+	if !candidates[1].merged {
+		t.Errorf("the candidate an owner pushed to the front did not merge:\n%s", out)
+	}
+	if candidates[0].merged || !candidates[0].queueRejected {
+		t.Errorf("the candidate behind it merged=%v rejected=%v, and its merge is the one that conflicts",
+			candidates[0].merged, candidates[0].queueRejected)
+	}
+}
+
+// TestTheSubstrateWithNoRoomWaits is the other hold at the candidate deploy row,
+// and the one that writes: the substrate has no room for another environment, that
+// condition is not a record, and no parameter of an owner's limits it — so it goes
+// into the log as a wait with the deploy agent as caller and actor.
+func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	d.candidateCeiling = 1
+
+	res, err := run(ctx, d, []string{theStatement, theSecondStatement})
+	if err != nil {
+		t.Fatalf("the run stopped, and a wait is not an error: %v\noutput so far:\n%s", err, out)
+	}
+	a, b := res.candidates[0], res.candidates[1]
+
+	if a.environmentID == "" {
+		t.Fatalf("the first candidate got no environment with room for one:\n%s", out)
+	}
+	if b.environmentID != "" {
+		t.Errorf("the second candidate got environment %s with the ceiling at one", b.environmentID)
+	}
+	if b.factoryHold != gate.HoldNoRoomForAnotherEnvironment {
+		t.Errorf("the second candidate's hold is %q, want the substrate's", b.factoryHold)
+	}
+	if b.candidateGate.opening != "" {
+		t.Error("the candidate deploy row fired for the held candidate, and a factory hold is not a verdict")
+	}
+	if b.releaseID != "" || b.deployID != "" {
+		t.Errorf("the held candidate minted release %q and deployed %q", b.releaseID, b.deployID)
+	}
+
+	rows, err := decisionlog.Read(ctx, d.pool)
+	if err != nil {
+		t.Fatalf("reading the log: %v", err)
+	}
+	var waits int
+	for _, row := range rows {
+		if row.Shape != decisionlog.ShapeWait {
+			continue
+		}
+		waits++
+		if row.ID != b.holdWaitRow {
+			t.Errorf("the wait row is %s, the run reported %s", row.ID, b.holdWaitRow)
+		}
+		if row.Actor.Name != "deploy" {
+			t.Errorf("the wait row's actor is %q, want the deploy agent that met the condition", row.Actor.Name)
+		}
+		var payload substrateWait
+		if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+			t.Fatalf("reading the wait payload: %v", err)
+		}
+		if payload.Kind != SubstrateWaitKind || payload.ItemID != b.itemID {
+			t.Errorf("the wait payload is %+v, want kind %q for item %s", payload, SubstrateWaitKind, b.itemID)
+		}
+		if payload.Ceiling != 1 || payload.Live != 1 {
+			t.Errorf("the wait payload says %d live against a ceiling of %d, want 1 and 1", payload.Live, payload.Ceiling)
+		}
+	}
+	if waits != 1 {
+		t.Errorf("the log holds %d wait rows, one candidate met the ceiling", waits)
+	}
+	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+		t.Errorf("the chain does not verify after a wait: %v", err)
+	}
+}
+
+// TestADeclaredDependencyThatIsNotLiveHolds is the factory's own hold at both
+// deploy rows, and the one that writes nothing: a declared dependency that is not
+// its service's current release. No run of this interface declares one — the cut
+// yields one item per intent — so the condition is driven directly against an item
+// that waits on one that has not shipped.
+func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+
+	res, err := run(ctx, d, []string{theStatement})
+	if err != nil {
+		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
+	}
+	shippedItem := only(t, res).itemID
+
+	p, err := compose(ctx, d)
+	if err != nil {
+		t.Fatalf("composing the path: %v", err)
+	}
+
+	// An item waiting on the one that shipped: its dependency is live, so nothing
+	// holds.
+	live, err := item.NewCut(d.pool).Create(ctx, cutActor, item.New{
+		IntentID: "in_dependent", ServiceID: res.serviceID, Branch: "item/dependent-live",
+		WaitsOn: []string{shippedItem},
+	})
+	if err != nil {
+		t.Fatalf("cutting the dependent item: %v", err)
+	}
+	held, err := p.dependencyHold(ctx, live)
+	if err != nil {
+		t.Fatalf("dependencyHold: %v", err)
+	}
+	if held != "" {
+		t.Errorf("the dependency is the service's current release and the hold says %q", held)
+	}
+
+	// An item waiting on one that has not shipped: the hold fires, and it names
+	// the condition rather than a verdict.
+	unshipped, err := item.NewCut(d.pool).Create(ctx, cutActor, item.New{
+		IntentID: "in_dependent2", ServiceID: res.serviceID, Branch: "item/dependent-waiting",
+	})
+	if err != nil {
+		t.Fatalf("cutting the item nothing shipped: %v", err)
+	}
+	waiting, err := item.NewCut(d.pool).Create(ctx, cutActor, item.New{
+		IntentID: "in_dependent3", ServiceID: res.serviceID, Branch: "item/dependent-held",
+		WaitsOn: []string{unshipped.ID},
+	})
+	if err != nil {
+		t.Fatalf("cutting the held item: %v", err)
+	}
+	held, err = p.dependencyHold(ctx, waiting)
+	if err != nil {
+		t.Fatalf("dependencyHold: %v", err)
+	}
+	if !strings.Contains(held, gate.HoldDependencyNotLive) {
+		t.Errorf("the hold says %q, want %q", held, gate.HoldDependencyNotLive)
+	}
+
+	// Nothing was written for it: a hold over a record that already exists is
+	// recomputed at every firing, and a record for it would be a decision where
+	// nothing is decided.
+	rows, err := decisionlog.Read(ctx, d.pool)
+	if err != nil {
+		t.Fatalf("reading the log: %v", err)
+	}
+	for _, row := range rows {
+		if row.Shape == decisionlog.ShapeWait {
+			t.Errorf("the log holds a wait row %s, and the dependency hold writes nothing", row.ID)
+		}
+	}
+}
+
 // TestTheWalkSkipsAPayloadItCannotRead appends an opening row whose payload is
 // not the gate's shape, before the run, so the walk meets it first. A payload
 // is unconstrained bytes by decisionlog's contract, so a row the walk cannot
 // read is skipped and the search goes on — one such row does not take down
 // every walk.
 func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
 	_, err := decisionlog.NewWriter(d.pool).AppendDecisionOpening(ctx, decisionlog.Entry{
 		Actor:         record.Actor{Kind: record.KindComponent, Name: "gate.some_other_gate"},
@@ -516,17 +1120,18 @@ func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 		t.Fatalf("appending the unreadable opening row: %v", err)
 	}
 
-	res, err := run(ctx, d, theStatement)
+	res, err := run(ctx, d, []string{theStatement})
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
+	c := only(t, res)
 
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, res.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, c.deployID); err != nil {
 		t.Fatalf("the walk stopped on a row it cannot read: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {
-		t.Errorf("the walk from %s does not reach the statement %q:\n%s", res.deployID, theStatement, walked.String())
+		t.Errorf("the walk from %s does not reach the statement %q:\n%s", c.deployID, theStatement, walked.String())
 	}
 }
 
@@ -535,9 +1140,9 @@ func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 // asked again rather than sent — sending it would stamp the question answered
 // with nothing in it.
 func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
-	ctx, d, out := newPath(t, "\n"+theAnswer+"\napprove\napprove\n")
+	ctx, d, out := newPath(t, "\n"+theAnswer+"\n"+approvals)
 
-	res, err := run(ctx, d, theStatement)
+	res, err := run(ctx, d, []string{theStatement})
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -545,7 +1150,7 @@ func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 		t.Errorf("the blank line was not asked again:\n%s", out)
 	}
 
-	questions, err := intent.Questions(ctx, d.pool, res.intentID)
+	questions, err := intent.Questions(ctx, d.pool, only(t, res).intentID)
 	if err != nil {
 		t.Fatalf("reading the questions: %v", err)
 	}
@@ -560,15 +1165,14 @@ func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 // would be refused by that constraint from the second item on that service
 // onwards — a later change, or this one run again after a reject.
 func TestTheCutReachesAnExistingService(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	before, err := service.NewWriter(d.pool).Create(ctx,
-		record.Actor{Kind: record.KindComponent, Name: "cut"}, d.service, d.repo)
+	before, err := service.NewWriter(d.pool).Create(ctx, cutActor, d.service, d.repo)
 	if err != nil {
 		t.Fatalf("writing the service before the run: %v", err)
 	}
 
-	res, err := run(ctx, d, theStatement)
+	res, err := run(ctx, d, []string{theStatement})
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -585,21 +1189,23 @@ func TestTheCutReachesAnExistingService(t *testing.T) {
 	}
 }
 
-// TestARejectStopsThePath scripts a reject at the gate: the path stops before
-// any release exists, the item stays at implementation, master is never
-// created, and the closing row carries the feedback.
+// TestARejectStopsThePath scripts a reject at the merge row: the path stops
+// before any release exists, the item goes back to implementation with an attempt
+// counted there, master is never created, and the closing row carries the
+// feedback.
 func TestARejectStopsThePath(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\nreject not what I asked for\n")
+	ctx, d, out := newPath(t, theAnswer+"\napprove\nreject not what I asked for\n")
 
-	res, err := run(ctx, d, theStatement)
+	res, err := run(ctx, d, []string{theStatement})
 	if err != nil {
 		t.Fatalf("the path stopped with an error, and a reject is not one: %v\noutput so far:\n%s", err, out)
 	}
-	if !res.rejected {
+	c := only(t, res)
+	if !c.rejected {
 		t.Fatal("the verdict was reject and the run does not say so")
 	}
-	if res.releaseID != "" || res.deployID != "" {
-		t.Errorf("the run names release %q and deploy %q, a reject ships nothing", res.releaseID, res.deployID)
+	if c.releaseID != "" || c.deployID != "" {
+		t.Errorf("the run names release %q and deploy %q, a reject ships nothing", c.releaseID, c.deployID)
 	}
 
 	// No release exists.
@@ -611,18 +1217,42 @@ func TestARejectStopsThePath(t *testing.T) {
 		t.Errorf("%d releases exist, a reject mints none", releases)
 	}
 
-	// The item stays at implementation.
-	it, err := item.Get(ctx, d.pool, res.itemID)
+	// The item is at implementation with two attempts there: the authoring one,
+	// and the one the reject booked against the stage it was sent to.
+	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item: %v", err)
 	}
 	if it.Stage != item.StageImplementation {
-		t.Errorf("item stage = %s, a rejected item stays at implementation", it.Stage)
+		t.Errorf("item stage = %s, a rejected item goes back to implementation", it.Stage)
+	}
+	stages, err := item.Stages(ctx, d.pool, c.itemID)
+	if err != nil {
+		t.Fatalf("reading the item's stages: %v", err)
+	}
+	for _, st := range stages {
+		want := 1
+		if st.Stage == item.StageImplementation {
+			want = 2
+		}
+		if st.Attempts != want {
+			t.Errorf("stage %s attempts = %d, want %d", st.Stage, st.Attempts, want)
+		}
 	}
 
 	// Master was never created.
 	if _, err := git(d.repo, "rev-parse", "--verify", "master"); err == nil {
-		t.Error("master exists, and the fast-forward runs only after an approve")
+		t.Error("master exists, and the fast-forward runs only after the queue passes a candidate")
+	}
+
+	// The environment stays the item's: nothing waits on the environment a
+	// rejected candidate used.
+	env, found, err := environment.ForItem(ctx, d.pool, c.itemID)
+	if err != nil || !found {
+		t.Fatalf("ForItem = found %v, %v", found, err)
+	}
+	if !env.Live() {
+		t.Error("the rejected item's environment was torn down, and it stays the item's until it merges or is dropped")
 	}
 
 	// The closing row carries the feedback.
@@ -630,10 +1260,10 @@ func TestARejectStopsThePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("the log holds %d rows, and a reject at the merge row is one decision: the deploy row never fires", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("the log holds %d rows, and a reject at the merge row is two decisions: the production row never fires", len(rows))
 	}
-	payload := closingPayload(t, rows[1])
+	payload := closingPayload(t, rows[3])
 	if payload.Verdict != string(gate.VerdictReject) {
 		t.Errorf("the closing carries verdict %q, the human rejected", payload.Verdict)
 	}
@@ -653,37 +1283,33 @@ func TestARejectStopsThePath(t *testing.T) {
 // asks its one question on its first call only.
 //
 // secondInput is what the second run's human types, and it is empty wherever the
-// second run is meant to auto-pass at both rows: a reader with nothing in it is
+// second run is meant to auto-pass at every row: a reader with nothing in it is
 // how a test says nobody was asked anything.
-func twoRunsOnOneService(t *testing.T, firstVerdicts, secondInput string) (context.Context, deps, shipped, shipped) {
+func twoRunsOnOneService(t *testing.T, firstVerdicts, secondInput string) (context.Context, deps, *candidate, *candidate) {
 	t.Helper()
 	ctx, d, out := newPath(t, theAnswer+"\n"+firstVerdicts)
 
-	first, err := run(ctx, d, theStatement)
+	first, err := run(ctx, d, []string{theStatement})
 	if err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
 	d.in = strings.NewReader(secondInput)
-	second, err := run(ctx, d, theSecondStatement)
+	second, err := run(ctx, d, []string{theSecondStatement})
 	if err != nil {
 		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)
 	}
-	return ctx, d, first, second
+	return ctx, d, only(t, first), only(t, second)
 }
 
-// TestASecondChangeShips is the second change on one service: a second intent,
-// a second item, a second criterion authored beside the one already in force,
-// and a build encoding both — which is what the encoding check demands, a
-// criterion in force with no encoding naming it being refused. It ships as
-// release number 2, and the walk from its deploy reaches its own intent.
+// TestASecondChangeShips is the second change on one service: a second intent, a
+// second item, a second criterion authored beside the one already in force, and a
+// build encoding both — which is what the encoding check demands of a build whose
+// item set holds the first item, it having merged. It ships as release number 2,
+// and the walk from its deploy reaches its own intent.
 func TestASecondChangeShips(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, "approve\napprove\n", "")
+	ctx, d, first, second := twoRunsOnOneService(t, approvals, "")
 
-	if second.serviceID != first.serviceID {
-		t.Fatalf("the second run cut on service %s, the first on %s, and both name the same service",
-			second.serviceID, first.serviceID)
-	}
 	if second.itemID == first.itemID {
 		t.Errorf("both runs report item %s, a second change is a second item", second.itemID)
 	}
@@ -697,9 +1323,9 @@ func TestASecondChangeShips(t *testing.T) {
 		t.Errorf("the second release's number = %d, the second release of a service is 2", rel.Number)
 	}
 
-	// Two criteria in force, the second one authored rather than the first
-	// restated.
-	inForce, err := criterion.InForce(ctx, d.pool, second.serviceID)
+	// Two criteria in force for the second item's build, the second one authored
+	// rather than the first restated.
+	inForce, err := criterion.InForce(ctx, d.pool, rel.ServiceID, []string{first.itemID, second.itemID})
 	if err != nil {
 		t.Fatalf("reading the criteria in force: %v", err)
 	}
@@ -741,61 +1367,72 @@ func TestASecondChangeShips(t *testing.T) {
 }
 
 // TestTheSecondChangeShipsWithNoHumanAtAnyGate is M2's demonstration: the second
-// item on the service reads under the threshold at both rows, so the factory
-// gives both verdicts itself, and nobody is asked anything — the second run's
-// scripted input is empty, so a run that stopped to ask would fail on a reader
-// with nothing in it.
+// item on the service reads under the threshold at every row, so the factory gives
+// every verdict itself and nobody is asked anything — the second run's scripted
+// input is empty, so a run that stopped to ask would fail on a reader with nothing
+// in it.
 //
 // What made the difference is the first run: a human approved its implementation,
 // which narrowed the prior on the model that wrote it and the history of the area
 // it was in, and its release gave the service something to return to. The factory
 // earns the autonomy rather than starting with it.
 func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, "approve\napprove\n", "")
+	ctx, d, first, second := twoRunsOnOneService(t, approvals, "")
 
-	if !first.merge.humanDecided || !first.deploy.humanDecided {
-		t.Fatalf("the first item was decided by a human at merge=%v and deploy=%v, and on a fresh factory it is both",
-			first.merge.humanDecided, first.deploy.humanDecided)
+	for name, firing := range map[string]fired{
+		"candidate deploy": first.candidateGate,
+		"merge":            first.mergeGate,
+		"production":       first.deployGate,
+	} {
+		if !firing.humanDecided {
+			t.Fatalf("the first item's %s row auto-passed, and on a fresh factory a human decides every one", name)
+		}
 	}
-	if second.merge.humanDecided || second.deploy.humanDecided {
-		t.Fatalf("the second item put a human at merge=%q deploy=%q",
-			second.merge.whyHuman, second.deploy.whyHuman)
+	for name, firing := range map[string]fired{
+		"candidate deploy": second.candidateGate,
+		"merge":            second.mergeGate,
+		"production":       second.deployGate,
+	} {
+		if firing.humanDecided {
+			t.Fatalf("the second item's %s row put a human there because %q", name, firing.whyHuman)
+		}
 	}
 	if second.deployID == "" {
 		t.Fatal("the second item did not deploy")
 	}
-	if second.merge.number >= second.merge.threshold {
+	if second.mergeGate.number >= second.mergeGate.threshold {
 		t.Errorf("the second item's merge number is %v against a threshold of %v",
-			second.merge.number, second.merge.threshold)
+			second.mergeGate.number, second.mergeGate.threshold)
 	}
-	if !(second.merge.number < first.merge.number) {
+	if !(second.mergeGate.number < first.mergeGate.number) {
 		t.Errorf("the second item reads %v and the first read %v, and the evidence the first left narrows the second",
-			second.merge.number, first.merge.number)
+			second.mergeGate.number, first.mergeGate.number)
 	}
 
-	// Both of the second run's decisions were closed by the gate component and
-	// say what auto-passed them.
+	// Every one of the second run's decisions was closed by the gate component and
+	// says what auto-passed it, and every opening row of an auto-pass waits on
+	// nobody — which is how a reader of the log tells a decision nobody was asked
+	// to make from a pending one.
 	rows, err := decisionlog.Read(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}
-	if len(rows) != 8 {
-		t.Fatalf("the log holds %d rows, two runs of two rows are eight", len(rows))
+	if len(rows) != 12 {
+		t.Fatalf("the log holds %d rows, two runs of three decisions are twelve", len(rows))
 	}
-	for _, closing := range []decisionlog.Row{rows[5], rows[7]} {
-		if closing.Actor.Kind != record.KindComponent {
-			t.Errorf("the second run's closing was written by %+v, want the gate component", closing.Actor)
+	for _, row := range rows[6:] {
+		if row.Part == decisionlog.PartOpening {
+			if payload := openingPayload(t, row); payload.WaitsOn != "" {
+				t.Errorf("an auto-passed firing waits on %q", payload.WaitsOn)
+			}
+			continue
 		}
-		payload := closingPayload(t, closing)
+		if row.Actor.Kind != record.KindComponent {
+			t.Errorf("the second run's closing was written by %+v, want the gate component", row.Actor)
+		}
+		payload := closingPayload(t, row)
 		if payload.Verdict != string(gate.VerdictApprove) || payload.AutoPassedBy != gate.AutoPassedByThreshold {
 			t.Errorf("the closing says %+v, want an approve auto-passed by the threshold", payload)
-		}
-	}
-	// The opening rows of an auto-pass wait on nobody, which is how a reader of
-	// the log tells a decision nobody was asked to make from a pending one.
-	for _, opening := range []decisionlog.Row{rows[4], rows[6]} {
-		if payload := openingPayload(t, opening); payload.WaitsOn != "" {
-			t.Errorf("an auto-passed firing waits on %q", payload.WaitsOn)
 		}
 	}
 	if err := decisionlog.Verify(ctx, d.pool); err != nil {
@@ -809,7 +1446,7 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 // with the release minted, nothing deployed, no attempt counted, and the item
 // where it was.
 func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
-	ctx, d, first, _ := twoRunsOnOneService(t, "approve\napprove\n", "")
+	ctx, d, _, _ := twoRunsOnOneService(t, approvals, "")
 
 	placed, version, err := policy.NewFactory(d.pool).Pin(ctx,
 		record.Actor{Kind: record.KindHuman, Name: d.human}, gatepolicy.RiskThreshold,
@@ -819,31 +1456,32 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	}
 
 	d.in = strings.NewReader("hold the window before this one is still open\n")
-	third, err := run(ctx, d, "The demo service needs a readiness endpoint.")
+	res, err := run(ctx, d, []string{theThirdStatement})
 	if err != nil {
 		t.Fatalf("the third run stopped, and a hold is not an error: %v", err)
 	}
+	third := only(t, res)
 
 	if !third.held {
 		t.Fatal("the verdict was hold and the run does not say so")
 	}
-	if third.merge.humanDecided {
-		t.Errorf("the merge row put a human there because %q, and the pin names the deploy row alone", third.merge.whyHuman)
+	if third.mergeGate.humanDecided {
+		t.Errorf("the merge row put a human there because %q, and the pin names the deploy row alone", third.mergeGate.whyHuman)
 	}
-	if !third.deploy.humanDecided || third.deploy.whyHuman != gate.WhyPinned {
+	if !third.deployGate.humanDecided || third.deployGate.whyHuman != gate.WhyPinned {
 		t.Errorf("the deploy row says human %v because %q, want the pin",
-			third.deploy.humanDecided, third.deploy.whyHuman)
+			third.deployGate.humanDecided, third.deployGate.whyHuman)
 	}
-	if third.deploy.number >= third.deploy.threshold {
+	if third.deployGate.number >= third.deployGate.threshold {
 		t.Errorf("the deploy number is %v against a threshold of %v, and the pin is what put a human there rather than the number",
-			third.deploy.number, third.deploy.threshold)
+			third.deployGate.number, third.deployGate.threshold)
 	}
-	if !slices.Contains(third.deploy.pins, placed.ID) {
-		t.Errorf("the firing names pins %v, want the one placed", third.deploy.pins)
+	if !slices.Contains(third.deployGate.pins, placed.ID) {
+		t.Errorf("the firing names pins %v, want the one placed", third.deployGate.pins)
 	}
-	if third.deploy.policyVersion != version.ID {
+	if third.deployGate.policyVersion != version.ID {
 		t.Errorf("the firing names policy version %q, want the one the pin appended %q",
-			third.deploy.policyVersion, version.ID)
+			third.deployGate.policyVersion, version.ID)
 	}
 
 	// The release is minted and nothing is deployed: a hold is a stop and not an
@@ -854,7 +1492,7 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	if third.deployID != "" {
 		t.Errorf("the run deployed %s, and a hold stops the event", third.deployID)
 	}
-	current, found, err := deploy.Current(ctx, d.pool, third.serviceID, third.environmentID)
+	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID)
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
@@ -883,8 +1521,7 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	}
 
 	// The hold is the verdict of that firing's decision, with the human as its
-	// actor, and it teaches the score nothing — the prior the fourth firing would
-	// read is the one the first run's approvals left.
+	// actor.
 	rows, err := decisionlog.Read(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
@@ -913,9 +1550,9 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	}
 	applied, err := policy.NewReader(d.pool).AtGate(ctx, policy.Subjects{
 		GateRow:       string(gate.DeployToProduction),
-		EnvironmentID: third.environmentID,
-		ServiceID:     third.serviceID,
-		AreaID:        third.areaID,
+		EnvironmentID: res.environmentID,
+		ServiceID:     res.serviceID,
+		AreaID:        res.areaID,
 	})
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
@@ -923,39 +1560,38 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	if applied.HumanPinned {
 		t.Error("the withdrawn pin still adds a human at the row")
 	}
-	_ = first
 }
 
 // TestTheSecondCandidateBranchIsBasedOnMaster is why the first item's encoding
 // is in the second item's build. The cut has the implementation role commit the
-// candidate branch with no base, and that is the first release's case: the first
-// branch is one commit deep with no ancestor, and the second is based on master,
-// so what the first item merged is in the tree the second one starts from.
+// candidate branch with no base, and that is the case for every candidate cut
+// before the first release: the first branch is one commit deep with no ancestor,
+// and the second is based on master, so what the first item merged is in the tree
+// the second one starts from.
 func TestTheSecondCandidateBranchIsBasedOnMaster(t *testing.T) {
-	_, d, first, second := twoRunsOnOneService(t, "approve\napprove\n", "")
+	_, d, first, second := twoRunsOnOneService(t, approvals, "")
 
-	firstBranch, secondBranch := "item/"+first.intentID, "item/"+second.intentID
-
-	if _, err := git(d.repo, "merge-base", "--is-ancestor", "master", secondBranch); err != nil {
-		t.Errorf("master is not an ancestor of %s, and every item after the first is based on master: %v",
-			secondBranch, err)
+	if _, err := git(d.repo, "merge-base", "--is-ancestor", "master", second.branch); err != nil {
+		t.Errorf("master is not an ancestor of %s, and every candidate after the first release is based on master: %v",
+			second.branch, err)
 	}
-	depth, err := git(d.repo, "rev-list", "--count", firstBranch)
+	depth, err := git(d.repo, "rev-list", "--count", first.branch)
 	if err != nil {
 		t.Fatalf("counting the first branch's commits: %v", err)
 	}
 	if depth != "1" {
-		t.Errorf("%s is %s commits deep, the first item's branch is committed with no base", firstBranch, depth)
+		t.Errorf("%s is %s commits deep, the first item's branch is committed with no base", first.branch, depth)
 	}
 }
 
 // TestARejectThenASecondRunShips is the other way a service reaches a second
-// item: the first was rejected, so master does not exist and the second branch
-// is committed with no base too — but the rejected item's criterion is in force
-// all the same, nothing here withdrawing one, so the second build has to encode
-// both. What it ships is release number 1, the reject having minted none.
+// item: the first was rejected, so master does not exist and the second branch is
+// committed with no base too. The rejected item's criterion is not in force for
+// the second item's build — a build is a set of items and the rejected one is not
+// in it, which is what lets a candidate cut in parallel with another one build at
+// all. What it ships is release number 1, the reject having minted none.
 func TestARejectThenASecondRunShips(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, "reject not what I asked for\n", "approve\napprove\n")
+	ctx, d, first, second := twoRunsOnOneService(t, "approve\nreject not what I asked for\n", approvals)
 
 	if !first.rejected {
 		t.Fatal("the first run's scripted verdict was a reject and the run does not say so")
@@ -972,20 +1608,32 @@ func TestARejectThenASecondRunShips(t *testing.T) {
 		t.Errorf("the release's number = %d, the rejected item minted none so this is the service's first", rel.Number)
 	}
 
-	inForce, err := criterion.InForce(ctx, d.pool, second.serviceID)
+	// One criterion in force for the second item's build: its own. The rejected
+	// item's is a promise the service records and this build's tree could not keep.
+	inForce, err := criterion.InForce(ctx, d.pool, rel.ServiceID, []string{second.itemID})
 	if err != nil {
 		t.Fatalf("reading the criteria in force: %v", err)
 	}
-	if len(inForce) != 2 {
-		t.Fatalf("%d criteria are in force, a rejected item's criterion is in force too: %+v", len(inForce), inForce)
+	if len(inForce) != 1 || inForce[0].ItemID != second.itemID {
+		t.Fatalf("%d criteria are in force for the second item's build: %+v", len(inForce), inForce)
 	}
 	if err := criterion.CheckEncodings(d.repo, inForce); err != nil {
 		t.Errorf("the second build does not satisfy the encoding check: %v", err)
 	}
 
+	// Both criteria are records of the service all the same, nothing here
+	// withdrawing one.
+	both, err := criterion.InForce(ctx, d.pool, rel.ServiceID, []string{first.itemID, second.itemID})
+	if err != nil {
+		t.Fatalf("reading the criteria of both items: %v", err)
+	}
+	if len(both) != 2 {
+		t.Errorf("%d criteria belong to the two items, each introduced one", len(both))
+	}
+
 	// The second branch had no base either: the reject minted no release, so
 	// nothing had created master by the time it was cut.
-	depth, err := git(d.repo, "rev-list", "--count", "item/"+second.intentID)
+	depth, err := git(d.repo, "rev-list", "--count", second.branch)
 	if err != nil {
 		t.Fatalf("counting the second branch's commits: %v", err)
 	}
@@ -1021,21 +1669,22 @@ func (m *refusingModel) Complete(ctx context.Context, system, user string) (agen
 // take ships — with the item's implementation stage recording both attempts,
 // because the count the bound is compared against is the item's own.
 func TestARefusedReplyIsRetried(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.model = &refusingModel{inner: &fakeModel{}, refusals: 1}
 
-	res, err := run(ctx, d, theStatement)
+	res, err := run(ctx, d, []string{theStatement})
 	if err != nil {
 		t.Fatalf("the path stopped, and one refused reply is inside the bound: %v\noutput so far:\n%s", err, out)
 	}
-	if res.deployID == "" {
+	c := only(t, res)
+	if c.deployID == "" {
 		t.Fatal("the run shipped nothing after a retry that succeeded")
 	}
 	if !strings.Contains(out.String(), "reply was refused") {
 		t.Errorf("the run does not report the refused reply:\n%s", out)
 	}
 
-	stages, err := item.Stages(ctx, d.pool, res.itemID)
+	stages, err := item.Stages(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
@@ -1058,11 +1707,11 @@ func TestARefusedReplyIsRetried(t *testing.T) {
 // and the item carries the whole count — which is what an escalation is read
 // from once there is a surface to read it on.
 func TestAStageOutOfAttemptsStops(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	model := &refusingModel{inner: &fakeModel{}, refusals: attemptBound + 5}
 	d.model = model
 
-	res, err := run(ctx, d, theStatement)
+	res, err := run(ctx, d, []string{theStatement})
 	if err == nil {
 		t.Fatalf("the path finished, and every implementer reply was refused:\n%s", out)
 	}
@@ -1075,22 +1724,19 @@ func TestAStageOutOfAttemptsStops(t *testing.T) {
 	if model.callsMade != attemptBound {
 		t.Errorf("the implementer was called %d times, the bound is %d", model.callsMade, attemptBound)
 	}
-	if res.releaseID != "" || res.deployID != "" {
-		t.Errorf("the run names release %q and deploy %q, a stage out of attempts ships nothing", res.releaseID, res.deployID)
+	if len(res.candidates) != 0 {
+		t.Errorf("the run reports %d candidates, a stage out of attempts finishes none", len(res.candidates))
 	}
 
-	stages, err := item.Stages(ctx, d.pool, res.itemID)
-	if err != nil {
-		t.Fatalf("reading the item's stages: %v", err)
+	// The item exists and carries the whole count, the stage having reported each
+	// attempt as it was made.
+	var attempts int
+	if err := d.pool.QueryRow(ctx, `select attempts from `+item.StageTable+` where stage = $1`,
+		string(item.StageImplementation)).Scan(&attempts); err != nil {
+		t.Fatalf("reading the implementation stage's attempts: %v", err)
 	}
-	var implementation int
-	for _, st := range stages {
-		if st.Stage == item.StageImplementation {
-			implementation = st.Attempts
-		}
-	}
-	if implementation != attemptBound {
-		t.Errorf("the implementation stage records %d attempts, the bound spent %d", implementation, attemptBound)
+	if attempts != attemptBound {
+		t.Errorf("the implementation stage records %d attempts, the bound spent %d", attempts, attemptBound)
 	}
 }
 
@@ -1117,11 +1763,11 @@ func (m *erroringModel) Complete(ctx context.Context, system, user string) (agen
 // attempt at the work, so the first failure stops the run with its own error
 // and the remaining attempts are never spent.
 func TestAnErrorThatIsNotAProtocolFailureIsNotRetried(t *testing.T) {
-	ctx, d, _ := newPath(t, theAnswer+"\napprove\napprove\n")
+	ctx, d, _ := newPath(t, theAnswer+"\n"+approvals)
 	model := &erroringModel{inner: &fakeModel{}}
 	d.model = model
 
-	_, err := run(ctx, d, theStatement)
+	_, err := run(ctx, d, []string{theStatement})
 	if !errors.Is(err, errNotTheProtocol) {
 		t.Fatalf("the path stopped with %v, want the model's own error", err)
 	}
@@ -1130,5 +1776,82 @@ func TestAnErrorThatIsNotAProtocolFailureIsNotRetried(t *testing.T) {
 	}
 	if model.calls != 1 {
 		t.Errorf("the implementer was called %d times, an error the bound does not cover is not retried", model.calls)
+	}
+}
+
+// TestARunThatStoppedLeavesAnItemTheNextQueueFinishes is the queue's membership
+// being the service's and not the run's. A run that stopped after one merge gate
+// approved leaves that item at the queued stage, and nothing in the crude interface
+// clears one — so the next run has to finish it rather than failing on it, which is
+// what a run of a service whose queue holds somebody else's item would otherwise do
+// after it had already spent the model calls.
+func TestARunThatStoppedLeavesAnItemTheNextQueueFinishes(t *testing.T) {
+	// The input runs out after the first candidate's merge gate: the interview, two
+	// candidate deploy rows, and one merge approval, and then nothing for the second
+	// merge row to read.
+	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\napprove\n")
+
+	stopped, err := run(ctx, d, []string{theStatement, theSecondStatement})
+	if err == nil {
+		t.Fatalf("the run finished, and its input ended before the second merge row:\n%s", out)
+	}
+	if len(stopped.candidates) != 2 {
+		t.Fatalf("the run authored %d candidates before it stopped, want two", len(stopped.candidates))
+	}
+	left := stopped.candidates[0]
+	it, err := item.Get(ctx, d.pool, left.itemID)
+	if err != nil {
+		t.Fatalf("reading the item the run left: %v", err)
+	}
+	if it.Stage != item.StageQueued {
+		t.Fatalf("the first item is at %s, and the run stopped after its merge gate approved", it.Stage)
+	}
+
+	// A later run on the same service: its queue holds the item left behind and its
+	// own, and it finishes both. It is asked for verdicts because the stopped run
+	// minted no release, so the service still has nothing to return to and its number
+	// still reads over the threshold.
+	d.in = strings.NewReader(approvals)
+	next, err := run(ctx, d, []string{theFourthStatement})
+	if err != nil {
+		t.Fatalf("the next run stopped on an item the earlier one left queued: %v\noutput so far:\n%s", err, out)
+	}
+	if !strings.Contains(out.String(), "was left in the queue by an earlier run") {
+		t.Errorf("the run does not report adopting the item left behind:\n%s", out)
+	}
+
+	byItem := map[string]*candidate{}
+	for _, c := range next.candidates {
+		byItem[c.itemID] = c
+	}
+	adopted := byItem[left.itemID]
+	if adopted == nil {
+		t.Fatalf("the run reports %d candidates and none of them is the adopted item %s", len(next.candidates), left.itemID)
+	}
+	if !adopted.merged || adopted.releaseID == "" {
+		t.Errorf("the adopted item merged=%v release=%q", adopted.merged, adopted.releaseID)
+	}
+	if !adopted.tornDown {
+		t.Error("the adopted item merged and its environment was not torn down")
+	}
+	if adopted.deployID == "" {
+		t.Error("the adopted item was minted a release and deployed nothing")
+	}
+	for _, c := range next.candidates {
+		if c.itemID != left.itemID && !c.merged {
+			t.Errorf("the run's own item %s did not merge alongside the adopted one", c.itemID)
+		}
+	}
+
+	// One release per item, and no item has two: the queue mints once per merge.
+	var releases, items int
+	if err := d.pool.QueryRow(ctx, `select count(*), count(distinct item_id) from `+release.Table).Scan(&releases, &items); err != nil {
+		t.Fatalf("counting releases: %v", err)
+	}
+	if releases != items {
+		t.Errorf("%d releases across %d items, and one item is one release", releases, items)
+	}
+	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+		t.Errorf("the chain does not verify: %v", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/record"
@@ -16,11 +17,15 @@ var (
 	// ErrNotFound is returned where no item has the id.
 	ErrNotFound = errors.New("item: no item has that id")
 	// ErrStageUnknown is returned for a stage outside [StageOrder].
-	ErrStageUnknown = errors.New("item: the stage is none of spec, implementation, merged")
+	ErrStageUnknown = errors.New("item: the stage is none of spec, implementation, queued, merged")
 	// ErrNotNextStage is returned by [Dispatch.Advance] for a transition that
 	// is not one stage forward in [StageOrder] — a skip, a backwards move,
 	// staying put, and anything past merged are all this error.
-	ErrNotNextStage = errors.New("item: an item advances spec to implementation to merged, one stage forward at a time")
+	ErrNotNextStage = errors.New("item: an item advances spec to implementation to queued to merged, one stage forward at a time")
+	// ErrNotBackUp is returned by [Dispatch.SendBack] for a target that is not
+	// at or above the stage the item is at. Going back up is the one way back,
+	// and going forward is [Dispatch.Advance]'s.
+	ErrNotBackUp = errors.New("item: an item is sent back to the stage it is at or to one above it")
 	// ErrSpendNegative is returned by [Dispatch.ReportAttempt] for a negative
 	// spend. The totals only go up; taking spend back is not a report.
 	ErrSpendNegative = errors.New("item: a report's spend is not negative")
@@ -55,21 +60,16 @@ func (d *Dispatch) Advance(ctx context.Context, actor record.Actor, itemID strin
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var it Item
-	var kind, current string
-	err = tx.QueryRow(ctx, `select id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage
-		from `+Table+` where id = $1 for update`, itemID).
-		Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID, &it.AreaID, &it.Branch, &current)
+	it, err := scanItem(tx.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1 for update`, itemID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, itemID)
 	} else if err != nil {
 		return Item{}, fmt.Errorf("item: reading %s: %w", itemID, err)
 	}
-	it.Actor.Kind = record.Kind(kind)
 
-	next, ok := nextStage(Stage(current))
+	next, ok := nextStage(it.Stage)
 	if !ok || next != stage {
-		return Item{}, fmt.Errorf("%w: %s is at %s, not advancing to %s", ErrNotNextStage, itemID, current, stage)
+		return Item{}, fmt.Errorf("%w: %s is at %s, not advancing to %s", ErrNotNextStage, itemID, it.Stage, stage)
 	}
 
 	if _, err := tx.Exec(ctx, `update `+Table+` set stage = $1 where id = $2`, string(stage), itemID); err != nil {
@@ -112,10 +112,22 @@ func (d *Dispatch) ReportAttempt(ctx context.Context, actor record.Actor, itemID
 		return fmt.Errorf("%w: %d", ErrSpendNegative, spendTokens)
 	}
 
-	// The freshly minted id and timestamp are discarded on a conflict; the
-	// row keeps the first report's. An id is never reused either way —
-	// record.NewID reads random bytes and holds no counter.
-	_, err := d.pool.Exec(ctx, `insert into `+StageTable+`
+	return reportAttempt(ctx, d.pool, actor, itemID, stage, spendTokens)
+}
+
+// executor is the two things an attempt report is written through: the pool for
+// [Dispatch.ReportAttempt], and a transaction for [Dispatch.SendBack], which
+// counts its attempt in the same transaction as the move.
+type executor interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// reportAttempt is the upsert both callers make. The freshly minted id and
+// timestamp are discarded on a conflict; the row keeps the first report's. An id
+// is never reused either way — record.NewID reads random bytes and holds no
+// counter.
+func reportAttempt(ctx context.Context, q executor, actor record.Actor, itemID string, stage Stage, spendTokens int64) error {
+	_, err := q.Exec(ctx, `insert into `+StageTable+`
 		(id, actor_kind, actor_name, at, item_id, stage, attempts, spend_tokens)
 		values ($1, $2, $3, $4, $5, $6, 1, $7)
 		on conflict (item_id, stage) do update set
@@ -128,4 +140,82 @@ func (d *Dispatch) ReportAttempt(ctx context.Context, actor record.Actor, itemID
 		return fmt.Errorf("item: reporting an attempt at %s of %s: %w", stage, itemID, err)
 	}
 	return nil
+}
+
+// SendBack moves the item back up the pipeline and counts one attempt at the
+// stage it is sent to, in one transaction: the rework is booked against the thing
+// that was wrong, and a move that counted nothing would leave the attempt bound
+// comparing against a number the item never spent.
+//
+// The three callers are the two gate rows that reject and the merge queue's
+// rejection of a candidate that failed its own re-verification. Each of them
+// names the stage, and the default where a verdict names none is Implementation
+// — there being no stage of their own and none between.
+//
+// The target may be the stage the item is already at, which is what a reject at
+// the Implementation gate is: another attempt at the same artifact. It may not be
+// below it; that is [ErrNotBackUp], and going forward is [Dispatch.Advance]'s.
+// The spend is nothing, because a send back spends no tokens: what the attempt
+// after it spends is reported by that attempt.
+func (d *Dispatch) SendBack(ctx context.Context, actor record.Actor, itemID string, stage Stage) (Item, error) {
+	if err := actor.Validate(); err != nil {
+		return Item{}, err
+	}
+	if !slices.Contains(StageOrder, stage) {
+		return Item{}, fmt.Errorf("%w: %q", ErrStageUnknown, stage)
+	}
+
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return Item{}, fmt.Errorf("item: beginning the send back of %s: %w", itemID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	it, err := scanItem(tx.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1 for update`, itemID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, itemID)
+	} else if err != nil {
+		return Item{}, fmt.Errorf("item: reading %s: %w", itemID, err)
+	}
+	if slices.Index(StageOrder, stage) > slices.Index(StageOrder, it.Stage) {
+		return Item{}, fmt.Errorf("%w: %s is at %s, not sent back to %s", ErrNotBackUp, itemID, it.Stage, stage)
+	}
+
+	if _, err := tx.Exec(ctx, `update `+Table+` set stage = $1 where id = $2`, string(stage), itemID); err != nil {
+		return Item{}, fmt.Errorf("item: sending %s back to %s: %w", itemID, stage, err)
+	}
+	if err := reportAttempt(ctx, tx, actor, itemID, stage, 0); err != nil {
+		return Item{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Item{}, fmt.Errorf("item: committing the send back of %s: %w", itemID, err)
+	}
+	it.Stage = stage
+	return it, nil
+}
+
+// SetPriority writes the priority an owner reorders a queue with. It goes
+// through dispatch rather than beside it, the way Work calls intake to answer a
+// question: the item has one writer after the cut, and reordering is a write to
+// the item.
+//
+// Reordering changes when a candidate is re-verified and never what it has to
+// pass, and it orders every queue the item waits in as an item — so an owner who
+// rushes an item to the front here has rushed it at every gate it has left, and
+// has no way at all to reorder a deploy.
+func (d *Dispatch) SetPriority(ctx context.Context, actor record.Actor, itemID string, priority int) (Item, error) {
+	if err := actor.Validate(); err != nil {
+		return Item{}, err
+	}
+	if itemID == "" {
+		return Item{}, ErrItemIDEmpty
+	}
+	if _, err := d.pool.Exec(ctx, `update `+Table+` set priority = $1 where id = $2`, priority, itemID); err != nil {
+		return Item{}, fmt.Errorf("item: setting the priority of %s: %w", itemID, err)
+	}
+	it, err := Get(ctx, d.pool, itemID)
+	if err != nil {
+		return Item{}, err
+	}
+	return it, nil
 }

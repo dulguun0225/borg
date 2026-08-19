@@ -18,9 +18,19 @@ const ThresholdIDPrefix = "egt"
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
 //
-// The kind CHECK lists production alone, the kind this milestone writes;
-// doc.go says why, and what widening it later costs. The name is unique, so
-// production is one record until a project record exists to have one each.
+// The kind CHECK lists the two kinds this milestone writes; doc.go says which
+// third one is missing and what writes it. The name is unique, so production is
+// one record until a project record exists to have one each, and a candidate's
+// name is derived from its item so two candidates cannot collide on one.
+//
+// Three columns are a candidate's and empty on a persistent kind, each with a
+// constraint saying so rather than a comment. The item is the candidate's own,
+// which is what item_id_matches_kind enforces in both directions: a persistent
+// environment naming an item and a candidate's naming none are both refused.
+// composed_from is what the deploy agent put in place beside the candidate, and
+// is empty where it put nothing there — a candidate whose item declared no
+// dependency. torn_down_at is written when the item merges, is dropped, or is
+// superseded, and only a candidate is ever torn down.
 //
 // A threshold row exists only where an owner authored one: an absent row is the
 // score supplying the value, which is why the column is not null here and the
@@ -34,11 +44,18 @@ var DDL = []string{
 	name text not null unique,
 	targets text not null,
 	credential text not null,
+	item_id text not null,
+	composed_from text not null,
+	torn_down_at text not null,
 	` + record.Constraints + `,
-	constraint kind_known check (kind in ('production')),
+	constraint kind_known check (kind in ('production', 'candidate')),
 	constraint name_present check (name <> ''),
 	constraint targets_present check (targets <> ''),
-	constraint credential_present check (credential <> '')
+	constraint credential_present check (credential <> ''),
+	constraint item_id_matches_kind check ((kind = 'candidate') = (item_id <> '')),
+	constraint composed_from_is_a_candidates check (kind = 'candidate' or composed_from = ''),
+	constraint torn_down_is_a_candidates check (kind = 'candidate' or torn_down_at = ''),
+	constraint torn_down_at_is_time_layout check (torn_down_at = '' or torn_down_at ~ '` + record.TimePattern + `')
 )`,
 
 	`create table if not exists ` + ThresholdTable + ` (

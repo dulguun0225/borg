@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
@@ -145,15 +146,16 @@ func cutItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, branch strin
 // would have taken where the repository is.
 func firing(it item.Item, implementation artifact.Artifact, m score.Measurement) gate.Firing {
 	return gate.Firing{
-		Row:           gate.MergeToMaster,
-		ItemID:        it.ID,
-		BuildID:       "bl_0000000000000000000000000000000a",
-		ArtifactID:    implementation.ID,
-		ServiceID:     serviceID,
-		AreaID:        areaID,
-		EnvironmentID: environmentID,
-		Criteria:      []gate.CriterionResult{{CriterionID: "cr_a", Passed: true}},
-		Measurement:   m,
+		Row:             gate.MergeToMaster,
+		ItemID:          it.ID,
+		BuildID:         "bl_0000000000000000000000000000000a",
+		ArtifactID:      implementation.ID,
+		ServiceID:       serviceID,
+		AreaID:          areaID,
+		EnvironmentID:   environmentID,
+		CriteriaInForce: 1,
+		Criteria:        []gate.CriterionResult{{CriterionID: "cr_a", Outcome: criterion.OutcomePassed}},
+		Measurement:     m,
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
 	"sort"
 	"strings"
@@ -201,5 +202,41 @@ func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 		record.NewID(release.IDPrefix), record.Now(), record.NewID("bl"), record.NewID("it"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a release naming no service = %v, want a violation of service_id_present", err)
+	}
+}
+
+// TestHighestIsMastersHead: master's head is the commit of the service's
+// highest-numbered release, so the store answers which release that is and is
+// empty until the first one. Numbers are never reused, so the maximum is always
+// right.
+func TestHighestIsMastersHead(t *testing.T) {
+	ctx, pool, w := newTable(t)
+	const serviceID, other = "svc_a", "svc_b"
+
+	if _, found, err := release.Highest(ctx, pool, serviceID); err != nil || found {
+		t.Fatalf("Highest before the first release = found %v, %v", found, err)
+	}
+
+	var last release.Release
+	for n := 1; n <= 3; n++ {
+		minted, err := w.Mint(ctx, merge, serviceID, fmt.Sprintf("bl_%d", n), fmt.Sprintf("it_%d", n))
+		if err != nil {
+			t.Fatalf("Mint %d: %v", n, err)
+		}
+		last = minted
+	}
+	if _, err := w.Mint(ctx, merge, other, "bl_other", "it_other"); err != nil {
+		t.Fatalf("Mint on another service: %v", err)
+	}
+
+	highest, found, err := release.Highest(ctx, pool, serviceID)
+	if err != nil || !found {
+		t.Fatalf("Highest = found %v, %v", found, err)
+	}
+	if highest.ID != last.ID || highest.Number != 3 {
+		t.Errorf("Highest is %s number %d, want %s number 3", highest.ID, highest.Number, last.ID)
+	}
+	if highest.BuildID != last.BuildID {
+		t.Errorf("Highest names build %s, want %s — which is the commit master is at", highest.BuildID, last.BuildID)
 	}
 }
