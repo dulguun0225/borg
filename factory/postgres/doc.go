@@ -22,10 +22,16 @@
 // have — a lock around Apply, or applying the schema somewhere other than at
 // a process start.
 //
-// That is the whole of the forward promise today: the factory is at the
-// milestone where the schema is created and never yet changed, and what a
-// change to an existing table costs is a question the store has not had to
-// answer.
+// That is the whole of the forward promise today, and M2 is where it first cost
+// something: three tables M1 wrote gained a column — item.area_id,
+// artifact.author, and deploy.environment_id, the last a rename — and CREATE
+// TABLE IF NOT EXISTS does not alter a table that is already there. So a
+// database written by an earlier milestone is not brought forward by running
+// against it; it is dropped and applied again. Nothing here detects that either:
+// the first write against a table missing a column fails on the column, which is
+// a clear enough error and is not the same as a store that knows what version it
+// is at. What answers it properly is the milestone that makes this a product an
+// upgrade has to survive, ../../roadmap.md#m8--a-product.
 //
 // Who may write what: this package creates the schema and writes no record.
 // It imports the packages that own tables; they do not import it, because that

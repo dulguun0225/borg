@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/criterion"
@@ -23,8 +24,10 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/targetseam"
@@ -36,6 +39,7 @@ import (
 type deps struct {
 	pool       *pgxpool.Pool
 	model      agent.Model
+	modelName  string // the provider's model id, which is the author an authorship prior is kept on
 	target     targetseam.Target
 	targets    string        // where the built binary goes and the target runs releases from
 	credential secretref.Ref // the deploy credential, deploy.local
@@ -43,6 +47,7 @@ type deps struct {
 	out        io.Writer
 	human      string // the deciding human's name
 	service    string // the service's name
+	area       string // the area's name, empty where the run names none
 	repo       string // path of the service's git repository
 }
 
@@ -52,37 +57,75 @@ type deps struct {
 type shipped struct {
 	intentID       string
 	serviceID      string
+	areaID         string
+	environmentID  string
 	itemID         string
 	implArtifactID string
 	buildID        string
 	commit         string
 	releaseID      string
 	deployID       string
-	// rejected is true where the human rejected at the gate. That stops the
+	// The two firings, each as it was decided: what put a human at the row where
+	// one was put there, the score's number, and the two versions the decision
+	// names. Every fact in them is on the opening row too; they are here for the
+	// end-to-end test to assert over without parsing a payload.
+	merge  fired
+	deploy fired
+	// rejected is true where the human rejected at the merge row. That stops the
 	// path and is not an error: a reject is the gate working.
 	rejected bool
+	// held is true where the human held at the production deploy row: the
+	// release is minted, nothing is deployed, and the event stays queued with the
+	// change still good.
+	held bool
 }
 
-// attemptBound is how many attempts a stage gets before the factory stops
-// retrying it. The bound is one parameter an owner authors with the rest of
-// gate policy — ../../end-goal/how-humans-do-it/03-gates.md#the-attempt-bound —
-// and there is nothing to author it with until M2, so M1 holds one number here
-// and every stage gets the same three. Three because a stage that fails once is
-// usually a reply the protocol refused rather than work the factory cannot do,
-// and a bound this low turns solvable work into human work no more than a few
-// tokens later.
-const attemptBound = 3
+// fired is one gate firing as the path saw it.
+type fired struct {
+	opening       string
+	closing       string
+	humanDecided  bool
+	whyHuman      string
+	number        float64
+	threshold     float64
+	thresholdFrom string
+	scoreVersion  string
+	policyVersion string
+	pins          []string
+}
 
-// stageAttempts is one stage's remaining attempts and what each of them spent.
-// The bound is per stage and not per call, which is what the design compares it
-// against: a stage that asks the model twice — the interview's question and then
-// the spec — has three attempts across both calls and not three of each. The
-// spends are kept because a refused attempt cost tokens and dispatch is told
-// about every one of them, so the item's stored count is the count the bound was
-// applied to.
+// stageAttempts is one stage's bound, its remaining attempts, and what each of
+// them spent. The bound is per stage and not per call, which is what the design
+// compares it against: a stage that asks the model twice — the interview's
+// question and then the spec — has its attempts across both calls and not that
+// many of each. The spends are kept because a refused attempt cost tokens and
+// dispatch is told about every one of them, so the item's stored count is the
+// count the bound was applied to.
+//
+// The bound is read through package policy, so it is what an owner authored, or
+// what the score supplies where they authored nothing, clamped by any pin.
 type stageAttempts struct {
+	bound  int
 	left   int
 	spends []int64
+}
+
+// boundFor is one stage's attempt bound as it is in force. The read happens once
+// per stage rather than once per attempt: an owner re-authoring the bound while a
+// stage is retrying would otherwise change the number the stage is being held to
+// half way through it.
+func boundFor(ctx context.Context, reader *policy.Reader, stage item.Stage, s policy.Subjects) (*stageAttempts, error) {
+	s.Stage = stage
+	effective, err := reader.AttemptBound(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	bound := int(effective.Number)
+	if bound < 1 {
+		return nil, fmt.Errorf("factory: the attempt bound in force at %s is %v, and a stage gets at least one attempt",
+			stage, effective.Number)
+	}
+	return &stageAttempts{bound: bound, left: bound}, nil
 }
 
 // attempt runs one authoring call, retrying while the stage has attempts left
@@ -118,13 +161,14 @@ func attempt[T any](out io.Writer, a *stageAttempts, role string, call func() (T
 		fmt.Fprintf(out, "The %s's reply was refused; %d attempt(s) left: %v\n", role, a.left, err)
 	}
 	return zero, fmt.Errorf("factory: the %s used all %d attempts without a reply the protocol accepts, and the factory is stuck on this item: %w",
-		role, attemptBound, last)
+		role, a.bound, last)
 }
 
 // The component actors of the path, named per the M1 convention. The two
 // authoring agents are components too — an agent is a part of the factory,
 // in a role.
 var (
+	scoreActor       = record.Actor{Kind: record.KindComponent, Name: "score"}
 	intakeActor      = record.Actor{Kind: record.KindComponent, Name: "intake"}
 	specAuthorActor  = record.Actor{Kind: record.KindComponent, Name: "agent.spec_author"}
 	cutActor         = record.Actor{Kind: record.KindComponent, Name: "cut"}
@@ -142,6 +186,47 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	var s shipped
 	human := record.Actor{Kind: record.KindHuman, Name: d.human}
 	lines := bufio.NewScanner(d.in)
+
+	// 0. The install and the two versions. The factory policy record and
+	// production's environment record are what an owner authors on, and they
+	// exist before a project does — so the run ensures both as the owner and
+	// takes the policy version in force from it. The score version is the
+	// score's own: what the source publishes, appended where it has stopped
+	// matching the newest stored version.
+	factory := policy.NewFactory(d.pool)
+	installed, err := factory.Install(ctx, human, []string{d.targets}, d.credential)
+	if err != nil {
+		return s, err
+	}
+	s.environmentID = installed.Production.ID
+	scoreVersion, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
+	if err != nil {
+		return s, err
+	}
+	assessor := score.New(d.pool, scoreVersion)
+	policyReader := policy.NewReader(d.pool)
+	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
+		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
+
+	// The area, where the run names one. Declaring one is an owner's write and
+	// the owner is the human at this terminal, so a name not yet declared is
+	// declared here rather than refused. An item with no area is allowed and
+	// costs the score both of its context readings, which puts a human at every
+	// gate of that item.
+	if d.area != "" {
+		ar, found, err := area.ByName(ctx, d.pool, d.area)
+		if err != nil {
+			return s, err
+		}
+		if !found {
+			ar, err = area.NewWriter(d.pool).Declare(ctx, human, d.area, "")
+			if err != nil {
+				return s, err
+			}
+			fmt.Fprintf(d.out, "Area %s declared as %s\n", d.area, ar.ID)
+		}
+		s.areaID = ar.ID
+	}
 
 	// 1. Intake: the intent arrives from the owner, unrefined.
 	intake := intent.NewIntake(d.pool)
@@ -173,7 +258,15 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	// cannot author without and proceeds on the answer. A second question is
 	// an error, which is the stopping rule enforced rather than assumed.
 	author := agent.SpecAuthor{Model: d.model}
-	specStage := &stageAttempts{left: attemptBound}
+	// The subjects every policy read of this run is performed against. The
+	// service is empty on a first run — M1's path authors the spec before the cut
+	// writes the service — so a pin on a service the factory has not seen does
+	// not bound that run's spec stage, and does bound every run after it.
+	subjects := policy.Subjects{ServiceID: svc.ID, AreaID: s.areaID}
+	specStage, err := boundFor(ctx, policyReader, item.StageSpec, subjects)
+	if err != nil {
+		return s, err
+	}
 	refined, err := attempt(d.out, specStage, "spec author", func() (agent.Refined, int64, error) {
 		r, err := author.Refine(ctx, statement, nil, briefCriteria(inForce))
 		return r, r.Tokens, err
@@ -250,8 +343,14 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 		}
 	}
 	s.serviceID = svc.ID
+	subjects.ServiceID = svc.ID
 	branch := "item/" + in.ID
-	it, err := item.NewCut(d.pool).Create(ctx, cutActor, in.ID, svc.ID, branch)
+	it, err := item.NewCut(d.pool).Create(ctx, cutActor, item.New{
+		IntentID:  in.ID,
+		ServiceID: svc.ID,
+		AreaID:    s.areaID,
+		Branch:    branch,
+	})
 	if err != nil {
 		return s, err
 	}
@@ -265,7 +364,10 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	// 4. The spec stage: one spec version, introducing one criterion, then
 	// the stage reports its attempt and its spend to dispatch and advances.
 	store := artifact.NewStore(d.pool)
-	specArt, criteria, err := store.SubmitSpec(ctx, specAuthorActor, artifact.AuthorshipAgent,
+	// The author is the model version and not the role: the prior is kept per
+	// model, so two agents on one model share one.
+	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: d.modelName}
+	specArt, criteria, err := store.SubmitSpec(ctx, specAuthorActor, by,
 		it.ID, svc.ID, refined.Spec, []artifact.Draft{{Sentence: refined.Criterion}})
 	if err != nil {
 		return s, err
@@ -333,7 +435,10 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	// Each attempt is reported as it is made, the item being there to report it
 	// against, so an item the factory gave up on carries the count in the store
 	// and not only in what the run printed.
-	implStage := &stageAttempts{left: attemptBound}
+	implStage, err := boundFor(ctx, policyReader, item.StageImplementation, subjects)
+	if err != nil {
+		return s, err
+	}
 	change, err := attempt(d.out, implStage, "implementer", func() (agent.Change, int64, error) {
 		c, err := agent.Implementer{Model: d.model}.Implement(ctx, agent.Brief{
 			Criteria: briefCriteria(inForce),
@@ -372,7 +477,7 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 		return s, err
 	}
 	s.commit = commit
-	implArt, err := store.SubmitImplementation(ctx, implementerActor, artifact.AuthorshipAgent, it.ID, commit)
+	implArt, err := store.SubmitImplementation(ctx, implementerActor, by, it.ID, commit)
 	if err != nil {
 		return s, err
 	}
@@ -433,53 +538,47 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 		fmt.Fprintf(d.out, "The encodings ran and failed:\n%s\n", testOutput)
 	}
 
-	// 8. The gate — Merge to master, the one row M1 builds. What is printed
-	// is what a human argues with: the number, each factor, each criterion
-	// result.
-	g := gate.New(decisionlog.NewWriter(d.pool), gate.Stub{})
-	opened, err := g.Fire(ctx, gate.Firing{ItemID: it.ID, BuildID: bl.ID, ArtifactID: implArt.ID, Criteria: results})
+	// 8. The gate — Merge to master. The score is real from here, so what is
+	// printed is what a human argues with when one is put at the row: the number
+	// beside the threshold it was compared against, every factor with the
+	// quantity it was read from, and every criterion result.
+	//
+	// The measurement is taken here, where the repository is, and against the
+	// master this build was made from — before the fast-forward moves it. A
+	// first item has no master and is diffed against the empty tree, which is
+	// every line of it added and is the reading the design gives a first release:
+	// the widest reach and nothing to return to.
+	measurement := measure(d.repo, masterCreated)
+	if measurement.Unavailable != "" {
+		fmt.Fprintf(d.out, "The build's diff could not be measured: %s\n", measurement.Unavailable)
+	}
+	g := gate.New(decisionlog.NewWriter(d.pool), assessor, policyReader)
+	merge := gate.Firing{
+		Row:           gate.MergeToMaster,
+		ItemID:        it.ID,
+		BuildID:       bl.ID,
+		ArtifactID:    implArt.ID,
+		ServiceID:     svc.ID,
+		AreaID:        s.areaID,
+		EnvironmentID: installed.Production.ID,
+		Criteria:      results,
+		Measurement:   measurement,
+	}
+	opened, err := g.Fire(ctx, merge)
 	if err != nil {
 		return s, err
 	}
-	fmt.Fprintf(d.out, "Gate %s fired; decision %s waits on %s\n", gate.MergeToMaster, opened.Row.ID, gate.WaitsOn)
-	fmt.Fprintf(d.out, "The score's number: %s (score version %s)\n", opened.Assessment.Number, opened.Assessment.Version)
-	for _, f := range opened.Assessment.Vector {
-		if f.Unavailable != "" {
-			fmt.Fprintf(d.out, "  factor %s: %s — unavailable: %s\n", f.Name, f.Value, f.Unavailable)
-		} else {
-			fmt.Fprintf(d.out, "  factor %s: %s\n", f.Name, f.Value)
-		}
-	}
-	for _, r := range results {
-		word := "failed"
-		if r.Passed {
-			word = "passed"
-		}
-		fmt.Fprintf(d.out, "  criterion %s: %s\n", r.CriterionID, word)
-	}
-	fmt.Fprint(d.out, "Verdict (approve, or reject <feedback>): ")
-	line, err := readLine(lines)
+	report(d.out, opened, results)
+	verdict, feedback, closing, err := settle(ctx, d, g, opened, human, lines)
 	if err != nil {
 		return s, err
 	}
-	verdict, feedback := gate.VerdictApprove, ""
-	if line != "approve" {
-		rest, isReject := strings.CutPrefix(line, "reject")
-		if !isReject {
-			return s, fmt.Errorf("factory: the verdict is approve or reject <feedback>, not %q", line)
-		}
-		verdict, feedback = gate.VerdictReject, strings.TrimSpace(rest)
-	}
-	closing, err := g.Decide(ctx, opened, human, verdict, feedback)
-	if err != nil {
-		return s, err
-	}
+	s.merge = recordFiring(opened, closing)
 	if verdict == gate.VerdictReject {
 		s.rejected = true
 		fmt.Fprintf(d.out, "Rejected: %s\nThe path stops; item %s stays at implementation\n", feedback, it.ID)
 		return s, nil
 	}
-	fmt.Fprintf(d.out, "Approved; closing row %s\n", closing.ID)
 
 	// 9. The fast-forward: one command that creates master at the candidate
 	// commit or fast-forwards it to there, and refuses anything else. Then
@@ -508,22 +607,169 @@ func run(ctx context.Context, d deps, statement string) (shipped, error) {
 	}
 	fmt.Fprintf(d.out, "Master fast-forwarded to %s; release %s minted, number %d\n", commit, rel.ID, rel.Number)
 
-	// 10. The straight deploy: the local target runs targets/<release>, so
-	// the built binary is copied to the release's name first.
+	// 10. The gate — Deploy to production, the row this milestone adds and the
+	// one that offers hold. It fires after the release exists and is written
+	// against the item and the build like the row above it, and it names no
+	// artifact: there is none under decision at a deploy. Its vector is computed
+	// again, because every firing produces one of its own — and the merge row's
+	// verdict, where a human gave one, has already moved the prior it reads.
+	deployRow := merge
+	deployRow.Row = gate.DeployToProduction
+	deployRow.ArtifactID = ""
+	openedDeploy, err := g.Fire(ctx, deployRow)
+	if err != nil {
+		return s, err
+	}
+	report(d.out, openedDeploy, results)
+	deployVerdict, _, deployClosing, err := settle(ctx, d, g, openedDeploy, human, lines)
+	if err != nil {
+		return s, err
+	}
+	s.deploy = recordFiring(openedDeploy, deployClosing)
+	if deployVerdict == gate.VerdictHold {
+		s.held = true
+		fmt.Fprintf(d.out, "Held; release %s is minted and is not deployed, and the event stays queued\n", rel.ID)
+		fmt.Fprintf(d.out, "No attempt is counted and the score learns nothing from a hold; item %s stays where it is\n", it.ID)
+		return s, nil
+	}
+
+	// 11. The straight deploy: the local target runs targets/<release>, so
+	// the built binary is copied to the release's name first. Straight because
+	// this substrate moves a process rather than traffic, so the strategy that
+	// keeps a control is unavailable and there is nothing to pin.
 	if err := copyFile(binary, filepath.Join(targets, rel.ID)); err != nil {
 		return s, err
 	}
 	dep, err := deploy.Straight(ctx, deploy.NewWriter(d.pool), d.target, deployActor,
-		svc.ID, svc.Name, "production", rel.ID, d.credential)
+		svc.ID, svc.Name, installed.Production.ID, rel.ID, d.credential)
 	if err != nil {
 		return s, err
 	}
 	s.deployID = dep.ID
 	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production\n", dep.ID, rel.ID)
 
-	// 11. The walk, the demonstration's direction: from the deploy back to
+	// 12. The walk, the demonstration's direction: from the deploy back to
 	// the intent, every step a field and none reconstructed.
 	return s, walk(ctx, d.pool, d.out, dep.ID)
+}
+
+// report prints one firing as a human at the row would read it: the number
+// beside the threshold it was compared against and where that threshold came
+// from, every factor with the quantity it was read from, every unavailable
+// factor with its reason, and every criterion result. It prints the same lines
+// whether or not a human decides, because an auto-pass an owner cannot read is
+// an auto-pass they cannot argue with.
+func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
+	a, applied := opened.Assessment, opened.Applied
+	fmt.Fprintf(out, "Gate %s fired; decision %s\n", opened.Gate, opened.Row.ID)
+	fmt.Fprintf(out, "  number %.3f against threshold %.3f (%s), likelihood %.3f, impact %.3f, exposure %.3f\n",
+		a.Number, applied.Threshold, applied.ThresholdFrom, a.Likelihood, a.Impact, a.Exposure)
+	fmt.Fprintf(out, "  score version %s (formula %s), policy version %s\n",
+		a.Version, a.FormulaVersion, applied.PolicyVersion)
+	for _, f := range a.Vector {
+		if f.Unavailable != "" {
+			fmt.Fprintf(out, "  factor %s: unavailable — %s\n", f.Name, f.Unavailable)
+			continue
+		}
+		fmt.Fprintf(out, "  factor %s: %.2f (%s, weight %.2f) — %s\n",
+			f.Name, f.Level, f.Half, f.Weight, f.Reading)
+	}
+	for _, r := range results {
+		word := "failed"
+		if r.Passed {
+			word = "passed"
+		}
+		fmt.Fprintf(out, "  criterion %s: %s\n", r.CriterionID, word)
+	}
+	for _, id := range applied.Pins {
+		fmt.Fprintf(out, "  pin %s applies here\n", id)
+	}
+	if opened.HumanDecides {
+		fmt.Fprintf(out, "  a human decides: %s; the row waits on %s\n", opened.WhyHuman, gate.WaitsOn(opened.Gate))
+		return
+	}
+	fmt.Fprintln(out, "  no human decides: the number is under the threshold and no pin adds one")
+}
+
+// settle closes one firing: the factory's own verdict where the firing put no
+// human at the row, and the human's typed verdict where it did. What may be
+// typed is what the row offers, which differs per row — the merge row rejects
+// and the deploy row holds.
+func settle(ctx context.Context, d deps, g *gate.Gate, opened gate.Opened,
+	human record.Actor, lines *bufio.Scanner) (gate.Verdict, string, decisionlog.Row, error) {
+	if !opened.HumanDecides {
+		closing, err := g.AutoPass(ctx, opened)
+		if err != nil {
+			return "", "", decisionlog.Row{}, err
+		}
+		fmt.Fprintf(d.out, "Auto-passed by the threshold; closing row %s written as the gate component\n", closing.ID)
+		return gate.VerdictApprove, "", closing, nil
+	}
+
+	actions, err := gate.Actions(opened.Gate)
+	if err != nil {
+		return "", "", decisionlog.Row{}, err
+	}
+	fmt.Fprintf(d.out, "Verdict (%s): ", strings.Join(words(actions), ", "))
+	line, err := readLine(lines)
+	if err != nil {
+		return "", "", decisionlog.Row{}, err
+	}
+	verdict, feedback, err := typed(line, actions)
+	if err != nil {
+		return "", "", decisionlog.Row{}, err
+	}
+	closing, err := g.Decide(ctx, opened, human, verdict, feedback)
+	if err != nil {
+		return "", "", decisionlog.Row{}, err
+	}
+	fmt.Fprintf(d.out, "The verdict is %s; closing row %s written as %s %s\n",
+		verdict, closing.ID, closing.Actor.Kind, closing.Actor.Name)
+	return verdict, feedback, closing, nil
+}
+
+// typed reads a verdict the human typed. A reject carries its feedback after the
+// word, which is what the action is: reject with feedback.
+func typed(line string, actions []gate.Verdict) (gate.Verdict, string, error) {
+	for _, action := range actions {
+		rest, matched := strings.CutPrefix(line, string(action))
+		if !matched {
+			continue
+		}
+		return action, strings.TrimSpace(rest), nil
+	}
+	return "", "", fmt.Errorf("factory: the verdict is one of %s, not %q", strings.Join(words(actions), ", "), line)
+}
+
+// words is the actions as they are offered on the terminal, the reject carrying
+// the feedback its action is named for.
+func words(actions []gate.Verdict) []string {
+	offered := make([]string, 0, len(actions))
+	for _, a := range actions {
+		if a == gate.VerdictReject {
+			offered = append(offered, "reject <feedback>")
+			continue
+		}
+		offered = append(offered, string(a))
+	}
+	return offered
+}
+
+// recordFiring is one firing as the end-to-end test reads it. Every field is on
+// the opening row as well; this saves the test a payload to unmarshal.
+func recordFiring(opened gate.Opened, closing decisionlog.Row) fired {
+	return fired{
+		opening:       opened.Row.ID,
+		closing:       closing.ID,
+		humanDecided:  opened.HumanDecides,
+		whyHuman:      opened.WhyHuman,
+		number:        opened.Assessment.Number,
+		threshold:     opened.Applied.Threshold,
+		thresholdFrom: string(opened.Applied.ThresholdFrom),
+		scoreVersion:  opened.Assessment.Version,
+		policyVersion: opened.Applied.PolicyVersion,
+		pins:          opened.Applied.Pins,
+	}
 }
 
 // readLine is the next line the human typed, without its line ending and

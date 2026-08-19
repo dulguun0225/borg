@@ -27,6 +27,7 @@ var DDL = []string{
 	` + record.Columns + `,
 	intent_id text not null,
 	service_id text not null,
+	area_id text not null,
 	branch text not null,
 	stage text not null,
 	` + record.Constraints + `,

@@ -44,12 +44,12 @@ var Statuses = []Status{StatusStarted, StatusComplete, StatusRolledBack}
 // written, which is when the deploy started; the record advances in place,
 // so when it completed is not a stored fact.
 type Deploy struct {
-	ID          string
-	Actor       record.Actor
-	At          string
-	ServiceID   string
-	Environment string
-	ReleaseID   string
-	Strategy    Strategy
-	Status      Status
+	ID            string
+	Actor         record.Actor
+	At            string
+	ServiceID     string
+	EnvironmentID string
+	ReleaseID     string
+	Strategy      Strategy
+	Status        Status
 }

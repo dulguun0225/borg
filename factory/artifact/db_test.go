@@ -90,13 +90,20 @@ func inSchema(t *testing.T, base, schema string) string {
 var specAuthor = record.Actor{Kind: record.KindComponent, Name: "agent.spec_author"}
 var implementer = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
 
+// modelVersion is the author both roles write as here, which is the point of the
+// field: the prior is kept per model version, so two agents in two roles on one
+// model are one author under two actors.
+const modelVersion = "claude-opus-5"
+
+var byAgent = artifact.By{Authorship: artifact.AuthorshipAgent, Author: modelVersion}
+
 // TestSubmitSpecWritesTheSpecAndItsCriteriaTogether is the one call: the
 // artifact row and each criterion row committed in one transaction, the
 // criteria naming the version that introduced them.
 func TestSubmitSpecWritesTheSpecAndItsCriteriaTogether(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	spec, criteria, err := s.SubmitSpec(ctx, specAuthor, artifact.AuthorshipAgent, "it_a", "svc_a",
+	spec, criteria, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a",
 		"The service opens an intent per report.",
 		[]artifact.Draft{
 			{Sentence: "When a report arrives, the system shall open an intent."},
@@ -146,7 +153,7 @@ func TestSubmitSpecWritesTheSpecAndItsCriteriaTogether(t *testing.T) {
 func TestABadDraftTakesTheArtifactRowDownWithIt(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	_, _, err := s.SubmitSpec(ctx, specAuthor, artifact.AuthorshipAgent, "it_a", "svc_a",
+	_, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a",
 		"A spec whose criteria do not all hold.",
 		[]artifact.Draft{
 			{Sentence: "When a report arrives, the system shall open an intent."},
@@ -174,11 +181,11 @@ func TestABadDraftTakesTheArtifactRowDownWithIt(t *testing.T) {
 func TestTheVersionChain(t *testing.T) {
 	ctx, _, s := newStore(t)
 
-	first, _, err := s.SubmitSpec(ctx, specAuthor, artifact.AuthorshipAgent, "it_a", "svc_a", "version one", nil)
+	first, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version one", nil)
 	if err != nil {
 		t.Fatalf("SubmitSpec: %v", err)
 	}
-	second, _, err := s.SubmitSpec(ctx, specAuthor, artifact.AuthorshipAgent, "it_a", "svc_a", "version two", nil)
+	second, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version two", nil)
 	if err != nil {
 		t.Fatalf("SubmitSpec again: %v", err)
 	}
@@ -189,7 +196,7 @@ func TestTheVersionChain(t *testing.T) {
 		t.Errorf("the second version supersedes %q, want %s", second.Supersedes, first.ID)
 	}
 
-	impl, err := s.SubmitImplementation(ctx, implementer, artifact.AuthorshipAgent, "it_a", "3f786850e387550fdab836ed7e6dc881de23001b")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "3f786850e387550fdab836ed7e6dc881de23001b")
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -204,7 +211,7 @@ func TestSubmitImplementation(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
 	commit := "3f786850e387550fdab836ed7e6dc881de23001b"
-	impl, err := s.SubmitImplementation(ctx, implementer, artifact.AuthorshipAgent, "it_a", commit)
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", commit)
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -233,14 +240,14 @@ func TestSubmitImplementation(t *testing.T) {
 func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	_, err := s.SubmitImplementation(ctx, implementer, artifact.Authorship("reviewer"), "it_a", "a commit")
+	_, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: "reviewer", Author: modelVersion}, "it_a", "a commit")
 	if !errors.Is(err, artifact.ErrAuthorshipUnknown) {
 		t.Fatalf("SubmitImplementation = %v, want ErrAuthorshipUnknown", err)
 	}
 
 	_, err = pool.Exec(ctx, `insert into artifact
-		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, content)
-		values ($1, 'component', 'agent.implementer', $2, 'it_a', 'implementation', 1, '', 'reviewer', 'a commit')`,
+		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
+		values ($1, 'component', 'agent.implementer', $2, 'it_a', 'implementation', 1, '', 'reviewer', 'claude-opus-5', 'a commit')`,
 		record.NewID(artifact.IDPrefix), record.Now())
 	if err == nil {
 		t.Fatal("the store accepted an authorship outside the three")
@@ -253,19 +260,101 @@ func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	if _, err := s.SubmitImplementation(ctx, implementer, artifact.AuthorshipAgent, "", "a commit"); !errors.Is(err, artifact.ErrItemIDEmpty) {
+	if _, err := s.SubmitImplementation(ctx, implementer, byAgent, "", "a commit"); !errors.Is(err, artifact.ErrItemIDEmpty) {
 		t.Errorf("SubmitImplementation naming no item = %v, want ErrItemIDEmpty", err)
 	}
-	if _, _, err := s.SubmitSpec(ctx, specAuthor, artifact.AuthorshipAgent, "", "svc_a", "a spec", nil); !errors.Is(err, artifact.ErrItemIDEmpty) {
+	if _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "", "svc_a", "a spec", nil); !errors.Is(err, artifact.ErrItemIDEmpty) {
 		t.Errorf("SubmitSpec naming no item = %v, want ErrItemIDEmpty", err)
 	}
 
 	_, err := pool.Exec(ctx, `insert into artifact
-		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, content)
-		values ($1, 'component', 'agent.implementer', $2, '', 'implementation', 1, '', 'agent', 'a commit')`,
+		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
+		values ($1, 'component', 'agent.implementer', $2, '', 'implementation', 1, '', 'agent', 'claude-opus-5', 'a commit')`,
 		record.NewID(artifact.IDPrefix), record.Now())
 	if err == nil || !strings.Contains(err.Error(), "item_id_present") {
 		t.Errorf("inserting a version naming no item = %v, want a violation of item_id_present", err)
+	}
+}
+
+// TestAVersionWithNoAuthorIsRefusedTwice: an authorship prior is computed from
+// that author's own work, so a version whose author is not on the record is one
+// no prior can read. The store refuses it around the writer too.
+func TestAVersionWithNoAuthorIsRefusedTwice(t *testing.T) {
+	ctx, pool, s := newStore(t)
+
+	if _, err := s.SubmitImplementation(ctx, implementer,
+		artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "a commit"); !errors.Is(err, artifact.ErrAuthorEmpty) {
+		t.Errorf("SubmitImplementation naming no author = %v, want ErrAuthorEmpty", err)
+	}
+	if _, _, err := s.SubmitSpec(ctx, specAuthor,
+		artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "svc_a", "a spec", nil); !errors.Is(err, artifact.ErrAuthorEmpty) {
+		t.Errorf("SubmitSpec naming no author = %v, want ErrAuthorEmpty", err)
+	}
+
+	_, err := pool.Exec(ctx, `insert into artifact
+		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
+		values ($1, 'component', 'agent.implementer', $2, 'it_a', 'implementation', 1, '', 'agent', '', 'a commit')`,
+		record.NewID(artifact.IDPrefix), record.Now())
+	if err == nil || !strings.Contains(err.Error(), "author_present") {
+		t.Errorf("inserting a version naming no author = %v, want a violation of author_present", err)
+	}
+}
+
+// TestTheAuthorIsWhatAPriorIsKeptOn: two roles on one model are one author, and
+// the store keeps the author beside the authorship rather than instead of it.
+func TestTheAuthorIsWhatAPriorIsKeptOn(t *testing.T) {
+	ctx, pool, s := newStore(t)
+
+	spec, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "a spec", nil)
+	if err != nil {
+		t.Fatalf("SubmitSpec: %v", err)
+	}
+	implementation, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "a commit")
+	if err != nil {
+		t.Fatalf("SubmitImplementation: %v", err)
+	}
+	if spec.Actor == implementation.Actor {
+		t.Error("the two versions were written by one actor, and the roles differ")
+	}
+	if spec.Author != modelVersion || implementation.Author != modelVersion {
+		t.Errorf("the authors are %q and %q, want the one model %q", spec.Author, implementation.Author, modelVersion)
+	}
+
+	authored, err := artifact.IDsByAuthor(ctx, pool, modelVersion)
+	if err != nil {
+		t.Fatalf("IDsByAuthor: %v", err)
+	}
+	if len(authored) != 2 {
+		t.Errorf("%s wrote %d versions, want both", modelVersion, len(authored))
+	}
+	if others, err := artifact.IDsByAuthor(ctx, pool, "some-other-model"); err != nil || len(others) != 0 {
+		t.Errorf("IDsByAuthor of a model that wrote nothing = %v, %v", others, err)
+	}
+	if none, err := artifact.IDsByAuthor(ctx, pool, ""); err != nil || len(none) != 0 {
+		t.Errorf("IDsByAuthor of no author = %v, %v", none, err)
+	}
+
+	newest, found, err := artifact.NewestOfKind(ctx, pool, "it_a", artifact.KindImplementation)
+	if err != nil || !found {
+		t.Fatalf("NewestOfKind = %+v, %v, %v", newest, found, err)
+	}
+	if newest.ID != implementation.ID {
+		t.Errorf("the newest implementation is %s, want %s", newest.ID, implementation.ID)
+	}
+	if _, found, err := artifact.NewestOfKind(ctx, pool, "it_nothing", artifact.KindImplementation); err != nil || found {
+		t.Errorf("NewestOfKind on an item with no version = %v, %v", found, err)
+	}
+
+	second, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "a second commit")
+	if err != nil {
+		t.Fatalf("SubmitImplementation again: %v", err)
+	}
+	newest, _, err = artifact.NewestOfKind(ctx, pool, "it_a", artifact.KindImplementation)
+	if err != nil {
+		t.Fatalf("NewestOfKind: %v", err)
+	}
+	if newest.ID != second.ID || newest.Version != 2 {
+		t.Errorf("the newest implementation is %s at version %d, want the second one", newest.ID, newest.Version)
 	}
 }
 

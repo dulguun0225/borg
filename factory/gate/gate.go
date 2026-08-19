@@ -7,195 +7,343 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/score"
 )
-
-// MergeToMaster names the one gate row M1 builds, and is what the opening
-// payload's gate field says.
-const MergeToMaster = "merge_to_master"
-
-// PolicyVersion is the gate policy every opening row names in M1. An opening
-// row requires a policy version and gate policy is authored from M2, so the
-// name says nothing was authored rather than passing an empty string off as a
-// version.
-const PolicyVersion = "policy-unauthored-m1"
-
-// WaitsOn is what the opening row waits on: duty 7, UAT, which is the owner's
-// in M1. The opening row names it so a reader of a pending decision knows who
-// the verdict is waited on from.
-const WaitsOn = "duty 7, UAT — the owner"
-
-// component is the actor every opening row is written as: the gate component
-// firing the Merge to master row. The closing row is written as the deciding
-// human instead, who is its actor.
-var component = record.Actor{Kind: record.KindComponent, Name: "gate." + MergeToMaster}
 
 var (
-	// ErrFiringIncomplete is returned by [Gate.Fire] for a firing that names
-	// no item, no build, or no artifact version. Merge to master always has
-	// all three, so a blank is a caller's defect and not a case to store.
-	ErrFiringIncomplete = errors.New("gate: a firing names an item, a build, and an artifact version")
-	// ErrVerdictUnknown is returned by [Gate.Decide] for a verdict that is
-	// neither approve nor reject, which are the two actions Merge to master
-	// has.
-	ErrVerdictUnknown = errors.New("gate: a verdict is approve or reject")
-	// ErrFeedbackMissing is returned by [Gate.Decide] for a reject with no
-	// feedback. The action is "Reject with feedback": the feedback is what
-	// goes back up the pipeline, so a reject without it decides nothing the
-	// item's next attempt can use.
+	// ErrFiringIncomplete is returned by [Gate.Fire] for a firing missing
+	// something its row always has. Both rows name an item, a build, a service,
+	// and the environment whose threshold decides them; the merge row also names
+	// the artifact version under decision and the deploy row names none, there
+	// being no artifact under decision at a deploy.
+	ErrFiringIncomplete = errors.New("gate: the firing is missing something its row always has")
+	// ErrVerdictUnknown is returned for a verdict the row does not offer.
+	ErrVerdictUnknown = errors.New("gate: the row does not offer that verdict")
+	// ErrFeedbackMissing is returned for a reject with no feedback. The action is
+	// "Reject with feedback": the feedback is what goes back up the pipeline, so
+	// a reject without it decides nothing the item's next attempt can use.
 	ErrFeedbackMissing = errors.New("gate: a reject carries feedback")
+	// ErrHumanDecides is returned by [Gate.AutoPass] for a firing that put a
+	// human at the row. Nothing in the tree removes a human from a gate, so the
+	// factory may not close a decision it was not asked to make.
+	ErrHumanDecides = errors.New("gate: this firing put a human at the row, and the factory does not decide over one")
 )
 
-// Gate is the gate component: it appends a decision's two rows through the
-// log's writer, asking a [Score] before the first.
+// Score is what the gate asks about a change before it fires: the vector, the
+// two halves, and the number. It is an interface so that a test can hold a fake
+// where the real score would read the whole graph; package score is the
+// implementation.
+type Score interface {
+	Assess(ctx context.Context, c score.Change) (score.Assessment, error)
+}
+
+// Policy is what the gate asks about the values in force: the threshold for this
+// row, where it came from, whether a pin adds a human, and the policy version
+// the firing is decided under. Package policy is the implementation.
+type Policy interface {
+	AtGate(ctx context.Context, s policy.Subjects) (policy.Applied, error)
+}
+
+// Gate is the gate component: it appends a decision's two rows through the log's
+// writer, asking the score and the policy before the first.
 type Gate struct {
-	log   *decisionlog.Writer
-	score Score
+	log    *decisionlog.Writer
+	score  Score
+	policy Policy
 }
 
-// New returns the gate over log and score.
-func New(log *decisionlog.Writer, score Score) *Gate {
-	return &Gate{log: log, score: score}
+// New returns the gate over the log, the score, and the policy.
+func New(log *decisionlog.Writer, s Score, p Policy) *Gate {
+	return &Gate{log: log, score: s, policy: p}
 }
 
-// Firing is what fires the gate: the item, the build, the artifact version
-// under decision, and each acceptance criterion's result from the candidate's
-// own run.
+// Firing is what fires the gate: the row, the records it decides over, each
+// acceptance criterion's result from the build's own run, and the build's
+// measurement, which the component that built took and the score cannot read.
 type Firing struct {
-	ItemID     string
-	BuildID    string
-	ArtifactID string
-	Criteria   []CriterionResult
+	Row           Row
+	ItemID        string
+	BuildID       string
+	ArtifactID    string
+	ServiceID     string
+	AreaID        string
+	EnvironmentID string
+	Criteria      []CriterionResult
+	Measurement   score.Measurement
 }
 
-// CriterionResult is one criterion decided against the build: the criterion's
-// id and whether its encoding passed. The JSON tags are the field names the
-// opening payload stores.
+// CriterionResult is one criterion decided against the build: the criterion's id
+// and whether its encoding passed. The JSON tags are the field names the opening
+// payload stores.
 type CriterionResult struct {
 	CriterionID string `json:"criterion_id"`
 	Passed      bool   `json:"passed"`
 }
 
-// Opened is what [Gate.Fire] returns and [Gate.Decide] takes: the opening row
-// as it was appended, and the assessment it was appended with. The verdict is
-// given over this and not over an id, so the caller deciding is the caller
-// that saw the vector.
+// Opened is what [Gate.Fire] returns and the two closing calls take: the opening
+// row as it was appended, what the score and the policy answered, and whether a
+// human decides. The verdict is given over this and not over an id, so the
+// caller deciding is the caller that saw the vector.
 type Opened struct {
-	Row        decisionlog.Row
-	Assessment Assessment
+	Gate         Row
+	Row          decisionlog.Row
+	Assessment   score.Assessment
+	Applied      policy.Applied
+	HumanDecides bool
+	// WhyHuman is what put a human at the row, and is empty where none is.
+	WhyHuman string
 }
 
-// OpeningPayload is what the opening row says, marshalled to JSON by
-// [Gate.Fire]. It names the gate row, the item, the build, the artifact
-// version under decision, the criteria results, the vector, the number, and
-// what the row waits on. The artifact version is named because artifacts are
-// editable while a row waits, so a verdict over only the item would point at
-// whatever the artifact says when someone reads it rather than at what was
-// decided over.
-type OpeningPayload struct {
-	Gate       string            `json:"gate"`
-	ItemID     string            `json:"item_id"`
-	BuildID    string            `json:"build_id"`
-	ArtifactID string            `json:"artifact_id"`
-	Criteria   []CriterionResult `json:"criteria"`
-	Vector     []Factor          `json:"vector"`
-	Number     string            `json:"number"`
-	WaitsOn    string            `json:"waits_on"`
-}
-
-// ClosingPayload is what the closing row says, marshalled to JSON by
-// [Gate.Decide]: the verdict and the feedback, which is the empty string on
-// an approve.
-type ClosingPayload struct {
-	Verdict  string `json:"verdict"`
-	Feedback string `json:"feedback"`
-}
-
-// Verdict is what a decision closes with. Merge to master has two actions —
-// Approve and Reject with feedback — and no third.
-type Verdict string
-
+// The two reasons a human decides, in the words the opening row stores.
 const (
-	// VerdictApprove admits the candidate to the merge; in M1 the caller
-	// performs the merge itself, there being no merge queue until M3.
-	VerdictApprove Verdict = "approve"
-	// VerdictReject sends the item back up the pipeline, and requires
-	// feedback.
-	VerdictReject Verdict = "reject"
+	// WhyOverThreshold is the number being at or above the threshold in force.
+	WhyOverThreshold = "the number is at or above the threshold in force"
+	// WhyPinned is a pin adding a human, which a pin may do whatever the number
+	// reads.
+	WhyPinned = "a pin adds a human at this row"
+	// WhyBoth is both at once, which is worth telling apart from either: an
+	// owner withdrawing the pin would not remove the human.
+	WhyBoth = "the number is at or above the threshold in force, and a pin adds a human"
 )
 
-// Fire fires the gate: it asks the score about the change, composes the
-// opening payload, and appends the opening row as the gate component, naming
-// the assessment's score version and [PolicyVersion]. The vector is written
-// here and never recomputed, because it has to exist while a human is
+// OpeningPayload is what the opening row says. It names the row, the records
+// decided over, the criteria results, the whole vector and the number it reduced
+// to, the values actually applied, and what the row waits on.
+//
+// [score.Subject] is embedded rather than restated: the score reads the item and
+// the artifact back off this payload when it counts outcomes, so the two field
+// names are declared once, in the package that reads them.
+type OpeningPayload struct {
+	score.Subject
+	Gate           string            `json:"gate"`
+	BuildID        string            `json:"build_id"`
+	ServiceID      string            `json:"service_id"`
+	AreaID         string            `json:"area_id"`
+	EnvironmentID  string            `json:"environment_id"`
+	Criteria       []CriterionResult `json:"criteria"`
+	Vector         []score.Factor    `json:"vector"`
+	FormulaVersion string            `json:"formula_version"`
+	Likelihood     float64           `json:"likelihood"`
+	Impact         float64           `json:"impact"`
+	Exposure       float64           `json:"exposure"`
+	Number         float64           `json:"number"`
+	Threshold      float64           `json:"threshold"`
+	ThresholdFrom  string            `json:"threshold_from"`
+	Pins           []string          `json:"pins"`
+	Unavailable    []string          `json:"unavailable_factors"`
+	HumanDecides   bool              `json:"human_decides"`
+	WhyHuman       string            `json:"why_human"`
+	WaitsOn        string            `json:"waits_on"`
+}
+
+// ClosingPayload is what the closing row says: the verdict, what the human typed
+// with it, the stage a reject returns the item to, and what auto-passed the
+// firing where the factory decided for itself.
+//
+// Feedback is required on a reject, that action being "Reject with feedback",
+// and is a note on a hold — what a human held for is worth showing beside the
+// wait, and nothing reads it.
+//
+// AutoPassedBy reads "threshold" and nothing else here. The design's other value
+// is the score's held-out sample, and nothing selects one yet, so the field says
+// which of the two it was on every auto-pass and one of the two is unreachable.
+type ClosingPayload struct {
+	Verdict      string `json:"verdict"`
+	Feedback     string `json:"feedback"`
+	ReturnsTo    string `json:"returns_to"`
+	AutoPassedBy string `json:"auto_passed_by"`
+}
+
+// AutoPassedByThreshold is what the closing row says of an auto-pass: the number
+// was under the threshold in force.
+const AutoPassedByThreshold = "threshold"
+
+// Fire fires the gate: it asks the score about the change and the policy about
+// the values in force, decides whether a human decides, composes the opening
+// payload, and appends the opening row as the gate component. The vector is
+// written here and never recomputed, because it has to exist while a human is
 // deciding and the score version moves as outcomes arrive.
 func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
-	if f.ItemID == "" || f.BuildID == "" || f.ArtifactID == "" {
-		return Opened{}, fmt.Errorf("%w: item %q, build %q, artifact %q",
-			ErrFiringIncomplete, f.ItemID, f.BuildID, f.ArtifactID)
+	if err := complete(f); err != nil {
+		return Opened{}, err
 	}
 
-	assessment, err := g.score.Assess(ctx, Change{
-		ItemID:     f.ItemID,
-		BuildID:    f.BuildID,
-		ArtifactID: f.ArtifactID,
+	assessment, err := g.score.Assess(ctx, score.Change{
+		ItemID:          f.ItemID,
+		ServiceID:       f.ServiceID,
+		AreaID:          f.AreaID,
+		Measurement:     f.Measurement,
+		CriteriaInForce: len(f.Criteria),
+		CriteriaFailed:  failed(f.Criteria),
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: assessing the change: %w", err)
 	}
 
+	applied, err := g.policy.AtGate(ctx, policy.Subjects{
+		GateRow:       string(f.Row),
+		EnvironmentID: f.EnvironmentID,
+		ServiceID:     f.ServiceID,
+		AreaID:        f.AreaID,
+	})
+	if err != nil {
+		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", f.Row, err)
+	}
+
+	overThreshold := assessment.Number >= applied.Threshold
+	opened := Opened{
+		Gate:         f.Row,
+		Assessment:   assessment,
+		Applied:      applied,
+		HumanDecides: overThreshold || applied.HumanPinned,
+		WhyHuman:     why(overThreshold, applied.HumanPinned),
+	}
+
+	waitsOn := ""
+	if opened.HumanDecides {
+		waitsOn = WaitsOn(f.Row)
+	}
 	payload, err := json.Marshal(OpeningPayload{
-		Gate:       MergeToMaster,
-		ItemID:     f.ItemID,
-		BuildID:    f.BuildID,
-		ArtifactID: f.ArtifactID,
-		Criteria:   f.Criteria,
-		Vector:     assessment.Vector,
-		Number:     assessment.Number,
-		WaitsOn:    WaitsOn,
+		Subject:        score.Subject{ItemID: f.ItemID, ArtifactID: f.ArtifactID},
+		Gate:           string(f.Row),
+		BuildID:        f.BuildID,
+		ServiceID:      f.ServiceID,
+		AreaID:         f.AreaID,
+		EnvironmentID:  f.EnvironmentID,
+		Criteria:       f.Criteria,
+		Vector:         assessment.Vector,
+		FormulaVersion: assessment.FormulaVersion,
+		Likelihood:     assessment.Likelihood,
+		Impact:         assessment.Impact,
+		Exposure:       assessment.Exposure,
+		Number:         assessment.Number,
+		Threshold:      applied.Threshold,
+		ThresholdFrom:  string(applied.ThresholdFrom),
+		Pins:           applied.Pins,
+		Unavailable:    assessment.UnavailableFactors(),
+		HumanDecides:   opened.HumanDecides,
+		WhyHuman:       opened.WhyHuman,
+		WaitsOn:        waitsOn,
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload: %w", err)
 	}
 
 	row, err := g.log.AppendDecisionOpening(ctx, decisionlog.Entry{
-		Actor:         component,
+		Actor:         component(f.Row),
 		Payload:       string(payload),
-		PolicyVersion: PolicyVersion,
+		PolicyVersion: applied.PolicyVersion,
 		ScoreVersion:  assessment.Version,
 	})
 	if err != nil {
 		return Opened{}, err
 	}
-	return Opened{Row: row, Assessment: assessment}, nil
+	opened.Row = row
+	return opened, nil
 }
 
-// Decide gives the verdict: it appends the closing row as the deciding actor
-// — the human at the gate — naming the opening row it closes. A reject with
-// no feedback is refused with [ErrFeedbackMissing], because the action is
-// "Reject with feedback". A second verdict over one opening is refused by the
-// log's store, not here.
+// Decide gives a human's verdict: it appends the closing row as the deciding
+// human, naming the opening row it closes. A verdict the row does not offer is
+// refused, and so is a reject with no feedback. A second verdict over one opening
+// is refused by the log's store, not here.
 func (g *Gate) Decide(ctx context.Context, opened Opened, actor record.Actor, verdict Verdict, feedback string) (decisionlog.Row, error) {
-	switch verdict {
-	case VerdictApprove, VerdictReject:
-	default:
-		return decisionlog.Row{}, fmt.Errorf("%w: %q", ErrVerdictUnknown, verdict)
+	if err := permits(opened.Gate, verdict); err != nil {
+		return decisionlog.Row{}, err
 	}
 	if verdict == VerdictReject && feedback == "" {
 		return decisionlog.Row{}, fmt.Errorf("%w: the reject of %s carries none", ErrFeedbackMissing, opened.Row.ID)
 	}
 
-	payload, err := json.Marshal(ClosingPayload{
-		Verdict:  string(verdict),
-		Feedback: feedback,
+	returnsTo := ""
+	if verdict == VerdictReject {
+		returnsTo = ReturnsTo
+	}
+	return g.close(ctx, opened, actor, ClosingPayload{
+		Verdict:   string(verdict),
+		Feedback:  feedback,
+		ReturnsTo: returnsTo,
 	})
+}
+
+// AutoPass gives the factory's own verdict, which is what closes a firing that
+// put no human at the row. The closing row's actor is the gate component, and
+// the payload says what auto-passed it. A firing that did put a human there is
+// refused with [ErrHumanDecides].
+func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, error) {
+	if opened.HumanDecides {
+		return decisionlog.Row{}, fmt.Errorf("%w: %s", ErrHumanDecides, opened.WhyHuman)
+	}
+	return g.close(ctx, opened, component(opened.Gate), ClosingPayload{
+		Verdict:      string(VerdictApprove),
+		AutoPassedBy: AutoPassedByThreshold,
+	})
+}
+
+func (g *Gate) close(ctx context.Context, opened Opened, actor record.Actor, closing ClosingPayload) (decisionlog.Row, error) {
+	payload, err := json.Marshal(closing)
 	if err != nil {
 		return decisionlog.Row{}, fmt.Errorf("gate: marshalling the closing payload: %w", err)
 	}
-
 	return g.log.AppendDecisionClosing(ctx, decisionlog.Entry{
 		Actor:   actor,
 		Payload: string(payload),
 		Closes:  opened.Row.ID,
 	})
+}
+
+// component is the actor an opening row is written as, and a closing row too
+// where the factory decides for itself: the gate component firing that row.
+func component(row Row) record.Actor {
+	return record.Actor{Kind: record.KindComponent, Name: "gate." + string(row)}
+}
+
+// complete refuses a firing missing something its row always has. The artifact
+// is required at the merge row and refused at the deploy row: there is no
+// artifact under decision at a deploy, and one named there would say a version
+// was decided over when nothing was.
+func complete(f Firing) error {
+	if _, err := Actions(f.Row); err != nil {
+		return err
+	}
+	for _, required := range []struct{ what, value string }{
+		{"item", f.ItemID}, {"build", f.BuildID},
+		{"service", f.ServiceID}, {"environment", f.EnvironmentID},
+	} {
+		if required.value == "" {
+			return fmt.Errorf("%w: %s names no %s", ErrFiringIncomplete, f.Row, required.what)
+		}
+	}
+	if f.Row == MergeToMaster && f.ArtifactID == "" {
+		return fmt.Errorf("%w: %s names no artifact version under decision", ErrFiringIncomplete, f.Row)
+	}
+	if f.Row == DeployToProduction && f.ArtifactID != "" {
+		return fmt.Errorf("%w: %s names an artifact, and no artifact is under decision at a deploy",
+			ErrFiringIncomplete, f.Row)
+	}
+	return nil
+}
+
+func failed(criteria []CriterionResult) int {
+	n := 0
+	for _, c := range criteria {
+		if !c.Passed {
+			n++
+		}
+	}
+	return n
+}
+
+func why(overThreshold, pinned bool) string {
+	switch {
+	case overThreshold && pinned:
+		return WhyBoth
+	case overThreshold:
+		return WhyOverThreshold
+	case pinned:
+		return WhyPinned
+	default:
+		return ""
+	}
 }

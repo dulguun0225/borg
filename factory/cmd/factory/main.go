@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/localtarget"
@@ -31,17 +32,31 @@ func main() {
 	}
 }
 
+// subcommands is what the crude interface offers, in the order the usage message
+// lists them. run and walk are the path and the link walk; the other four are
+// duty 8 and duty 9 — everything an owner authors, and the pins — which have no
+// surface until the four are built.
+const subcommands = "run, walk <deploy-id>, area <name>, author, pin, policy"
+
 func dispatch(args []string) error {
 	if len(args) == 0 {
-		return errors.New("factory: a subcommand is required — run, or walk <deploy-id>")
+		return errors.New("factory: a subcommand is required — " + subcommands)
 	}
 	switch args[0] {
 	case "run":
 		return runCommand(args[1:])
 	case "walk":
 		return walkCommand(args[1:])
+	case "area":
+		return areaCommand(args[1:])
+	case "author":
+		return authorCommand(args[1:])
+	case "pin":
+		return pinCommand(args[1:])
+	case "policy":
+		return policyCommand(args[1:])
 	default:
-		return fmt.Errorf("factory: %q is neither run nor walk", args[0])
+		return fmt.Errorf("factory: %q is none of %s", args[0], subcommands)
 	}
 }
 
@@ -55,8 +70,10 @@ func runCommand(args []string) error {
 	repo := flags.String("repo", "", "path of the service's git repository (required; created when absent)")
 	serviceName := flags.String("service", "", "the service's name (required)")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
-	human := flags.String("human", "owner", "the deciding human's name")
+	human := flags.String("human", "owner", "the deciding human's name, and the owner every authoring write is made as")
+	areaName := flags.String("area", "", "the area the item is in, declared where it does not exist; without one the score reads no context factor and a human decides every gate of the item")
 	statement := flags.String("intent", "", "the intent's statement; prompted for when absent")
+	pace := flags.Duration("pace", 2*time.Second, "the least time between two model calls; 0 sends them back to back")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -101,8 +118,17 @@ func runCommand(args []string) error {
 	}
 
 	_, err = run(ctx, deps{
-		pool:       pool,
-		model:      agent.Anthropic{ModelName: *model, Credential: secretref.MustNew(modelCredentialName), Resolver: resolver},
+		pool: pool,
+		// The model's id is the author every version this run writes names, the
+		// authorship prior being kept per model version.
+		modelName: *model,
+		// Paced around the provider client, so every call a stage makes —
+		// including a retry after a refused reply, which would otherwise follow
+		// the refusal with nothing in between — waits out the interval.
+		model: agent.NewPaced(
+			agent.Anthropic{ModelName: *model, Credential: secretref.MustNew(modelCredentialName), Resolver: resolver},
+			*pace,
+		),
 		target:     localtarget.New(*targets),
 		targets:    *targets,
 		credential: secretref.MustNew(deployCredentialName),
@@ -110,6 +136,7 @@ func runCommand(args []string) error {
 		out:        os.Stdout,
 		human:      *human,
 		service:    *serviceName,
+		area:       *areaName,
 		repo:       *repo,
 	}, *statement)
 	return err

@@ -22,8 +22,8 @@ import (
 // the record says started about a release that is running until something
 // completes or reconciles it.
 func Straight(ctx context.Context, w *Writer, target targetseam.Target, actor record.Actor,
-	serviceID, serviceName, environment, releaseID string, credential secretref.Ref) (Deploy, error) {
-	d, err := w.Start(ctx, actor, serviceID, environment, releaseID)
+	serviceID, serviceName, environmentID, releaseID string, credential secretref.Ref) (Deploy, error) {
+	d, err := w.Start(ctx, actor, serviceID, environmentID, releaseID)
 	if err != nil {
 		return Deploy{}, err
 	}

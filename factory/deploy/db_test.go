@@ -83,6 +83,11 @@ func inSchema(t *testing.T, base, schema string) string {
 
 var deployer = record.Actor{Kind: record.KindComponent, Name: "deploy"}
 
+// productionID stands for production's environment record. The deploy record
+// names an environment by the record's id from M2 on, and there are no foreign
+// keys between record tables, so this test names one it never creates.
+const productionID = "env_000000000000000000000000000000a"
+
 // storedStatus is the status column as the store has it, read raw because the
 // package exposes no Get — a deploy is read through [deploy.Current], and a
 // started one is exactly what Current does not name.
@@ -98,7 +103,7 @@ func storedStatus(ctx context.Context, t *testing.T, pool *pgxpool.Pool, id stri
 func TestTheRecordAdvancesInPlace(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
-	d, err := w.Start(ctx, deployer, record.NewID("svc"), "production", record.NewID("rel"))
+	d, err := w.Start(ctx, deployer, record.NewID("svc"), productionID, record.NewID("rel"))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -141,22 +146,22 @@ func TestCurrentIsWhatIsRunningNotWhatIsNewest(t *testing.T) {
 	ctx, pool, w := newTable(t)
 	serviceID := record.NewID("svc")
 
-	if _, running, err := deploy.Current(ctx, pool, serviceID, "production"); err != nil || running {
+	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
 		t.Fatalf("Current = running %v, err %v; want nothing running in an empty table", running, err)
 	}
 
-	first, err := w.Start(ctx, deployer, serviceID, "production", record.NewID("rel"))
+	first, err := w.Start(ctx, deployer, serviceID, productionID, record.NewID("rel"))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if _, running, err := deploy.Current(ctx, pool, serviceID, "production"); err != nil || running {
+	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
 		t.Fatalf("Current = running %v, err %v; a started deploy is not running", running, err)
 	}
 
 	if err := w.Complete(ctx, first.ID); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	current, running, err := deploy.Current(ctx, pool, serviceID, "production")
+	current, running, err := deploy.Current(ctx, pool, serviceID, productionID)
 	if err != nil || !running {
 		t.Fatalf("Current = running %v, err %v; want the completed deploy", running, err)
 	}
@@ -164,11 +169,11 @@ func TestCurrentIsWhatIsRunningNotWhatIsNewest(t *testing.T) {
 		t.Errorf("Current names %s, want %s", current.ID, first.ID)
 	}
 
-	second, err := w.Start(ctx, deployer, serviceID, "production", record.NewID("rel"))
+	second, err := w.Start(ctx, deployer, serviceID, productionID, record.NewID("rel"))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	current, running, err = deploy.Current(ctx, pool, serviceID, "production")
+	current, running, err = deploy.Current(ctx, pool, serviceID, productionID)
 	if err != nil || !running {
 		t.Fatalf("Current = running %v, err %v", running, err)
 	}
@@ -179,7 +184,7 @@ func TestCurrentIsWhatIsRunningNotWhatIsNewest(t *testing.T) {
 	if err := w.Complete(ctx, second.ID); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	current, running, err = deploy.Current(ctx, pool, serviceID, "production")
+	current, running, err = deploy.Current(ctx, pool, serviceID, productionID)
 	if err != nil || !running {
 		t.Fatalf("Current = running %v, err %v", running, err)
 	}
@@ -204,7 +209,7 @@ func TestStraightRolloutThroughTheSeam(t *testing.T) {
 	serviceID := record.NewID("svc")
 	releaseID := record.NewID("rel")
 
-	d, err := deploy.Straight(ctx, w, target, deployer, serviceID, "checkout", "production", releaseID, credential)
+	d, err := deploy.Straight(ctx, w, target, deployer, serviceID, "checkout", productionID, releaseID, credential)
 	if err != nil {
 		t.Fatalf("Straight: %v", err)
 	}
@@ -230,7 +235,7 @@ func TestStraightRolloutThroughTheSeam(t *testing.T) {
 		t.Errorf("the call records credential reference %v, want %v", call.Credential, credential)
 	}
 
-	current, running, err := deploy.Current(ctx, pool, serviceID, "production")
+	current, running, err := deploy.Current(ctx, pool, serviceID, productionID)
 	if err != nil || !running {
 		t.Fatalf("Current = running %v, err %v", running, err)
 	}
@@ -255,7 +260,7 @@ func TestATargetErrorLeavesTheRecordStarted(t *testing.T) {
 	serviceID := record.NewID("svc")
 
 	d, err := deploy.Straight(ctx, w, brokenTarget{err: unreachable}, deployer,
-		serviceID, "checkout", "production", record.NewID("rel"), secretref.MustNew("target.production"))
+		serviceID, "checkout", productionID, record.NewID("rel"), secretref.MustNew("target.production"))
 	if !errors.Is(err, unreachable) {
 		t.Fatalf("Straight = %v, want the target's error", err)
 	}
@@ -265,7 +270,7 @@ func TestATargetErrorLeavesTheRecordStarted(t *testing.T) {
 	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusStarted {
 		t.Errorf("the store has status %q, want started — the reconciler that would settle it is M4", got)
 	}
-	if _, running, err := deploy.Current(ctx, pool, serviceID, "production"); err != nil || running {
+	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
 		t.Errorf("Current = running %v, err %v; a deploy that never completed is not running", running, err)
 	}
 }
@@ -276,12 +281,12 @@ func TestTheStoreRefusesWhatTheWriterRefuses(t *testing.T) {
 	if _, err := w.Start(ctx, deployer, record.NewID("svc"), "", record.NewID("rel")); !errors.Is(err, deploy.ErrEnvironmentEmpty) {
 		t.Errorf("Start with no environment = %v, want %v", err, deploy.ErrEnvironmentEmpty)
 	}
-	if _, err := w.Start(ctx, record.Actor{}, record.NewID("svc"), "production", record.NewID("rel")); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := w.Start(ctx, record.Actor{}, record.NewID("svc"), productionID, record.NewID("rel")); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("Start with no actor = %v, want %v", err, record.ErrKindUnknown)
 	}
 
 	insert := func(environment, strategy, status string) error {
-		_, err := pool.Exec(ctx, `insert into deploy (id, actor_kind, actor_name, at, service_id, environment, release_id, strategy, status)
+		_, err := pool.Exec(ctx, `insert into deploy (id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status)
 			values ($1, 'component', 'deploy', $2, $3, $4, $5, $6, $7)`,
 			record.NewID(deploy.IDPrefix), record.Now(), record.NewID("svc"), environment, record.NewID("rel"), strategy, status)
 		return err
@@ -289,10 +294,10 @@ func TestTheStoreRefusesWhatTheWriterRefuses(t *testing.T) {
 	if err := insert("", "straight", "started"); err == nil {
 		t.Error("the store accepted a deploy with no environment")
 	}
-	if err := insert("production", "with_a_control", "started"); err == nil {
+	if err := insert(productionID, "with_a_control", "started"); err == nil {
 		t.Error("the store accepted a strategy the CHECK does not list — with a control is M4's edit")
 	}
-	if err := insert("production", "straight", "watching"); err == nil {
+	if err := insert(productionID, "straight", "watching"); err == nil {
 		t.Error("the store accepted a status the CHECK does not list")
 	}
 }
@@ -304,14 +309,14 @@ func TestTheStoreRefusesWhatTheWriterRefuses(t *testing.T) {
 func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
-	if _, err := w.Start(ctx, deployer, "", "production", record.NewID("rel")); !errors.Is(err, deploy.ErrServiceIDEmpty) {
+	if _, err := w.Start(ctx, deployer, "", productionID, record.NewID("rel")); !errors.Is(err, deploy.ErrServiceIDEmpty) {
 		t.Errorf("Start naming no service = %v, want %v", err, deploy.ErrServiceIDEmpty)
 	}
-	if _, err := w.Start(ctx, deployer, record.NewID("svc"), "production", ""); !errors.Is(err, deploy.ErrReleaseIDEmpty) {
+	if _, err := w.Start(ctx, deployer, record.NewID("svc"), productionID, ""); !errors.Is(err, deploy.ErrReleaseIDEmpty) {
 		t.Errorf("Start naming no release = %v, want %v", err, deploy.ErrReleaseIDEmpty)
 	}
 
-	_, err := pool.Exec(ctx, `insert into deploy (id, actor_kind, actor_name, at, service_id, environment, release_id, strategy, status)
+	_, err := pool.Exec(ctx, `insert into deploy (id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status)
 		values ($1, 'component', 'deploy', $2, '', 'production', $3, 'straight', 'started')`,
 		record.NewID(deploy.IDPrefix), record.Now(), record.NewID("rel"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {

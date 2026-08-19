@@ -53,6 +53,10 @@ var (
 	// ErrItemIDEmpty is returned by both submissions for a version naming no
 	// item. record's doc.go states what a link is checked for.
 	ErrItemIDEmpty = errors.New("artifact: the item id is empty")
+	// ErrAuthorEmpty is returned for a version naming no author. A version
+	// whose author is not on the record is one no authorship prior can be
+	// computed from, which is what the field is for.
+	ErrAuthorEmpty = errors.New("artifact: the author is empty")
 )
 
 // Artifact is one version of an artifact as it is stored.
@@ -65,7 +69,10 @@ type Artifact struct {
 	Version    int
 	Supersedes string
 	Authorship Authorship
-	Content    string
+	// Author is the identity a prior is kept on: the model version for a
+	// version an agent wrote, the person's name for one a human wrote.
+	Author  string
+	Content string
 }
 
 // Draft is one criterion as a caller of [Store.SubmitSpec] hands it in:
@@ -96,8 +103,8 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // serviceID is the service the criteria belong to; the artifact row does not
 // carry it, because an artifact is the item's and the item names its
 // service.
-func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, authorship Authorship, itemID, serviceID, content string, criteria []Draft) (Artifact, []criterion.Criterion, error) {
-	if err := refuse(actor, authorship, itemID); err != nil {
+func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, by By, itemID, serviceID, content string, criteria []Draft) (Artifact, []criterion.Criterion, error) {
+	if err := refuse(actor, by, itemID); err != nil {
 		return Artifact{}, nil, err
 	}
 
@@ -107,7 +114,7 @@ func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, authorship A
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	submitted, err := insertVersion(ctx, tx, actor, authorship, itemID, KindSpec, content)
+	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindSpec, content)
 	if err != nil {
 		return Artifact{}, nil, err
 	}
@@ -130,8 +137,8 @@ func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, authorship A
 // SubmitImplementation writes an implementation version — the same
 // versioning as a spec, no criteria. The content is the commit hash the
 // stage produced; the code lives in the repository, and the record names it.
-func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, authorship Authorship, itemID, content string) (Artifact, error) {
-	if err := refuse(actor, authorship, itemID); err != nil {
+func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, by By, itemID, content string) (Artifact, error) {
+	if err := refuse(actor, by, itemID); err != nil {
 		return Artifact{}, err
 	}
 
@@ -141,7 +148,7 @@ func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, au
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	submitted, err := insertVersion(ctx, tx, actor, authorship, itemID, KindImplementation, content)
+	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindImplementation, content)
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -151,12 +158,15 @@ func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, au
 	return submitted, nil
 }
 
-func refuse(actor record.Actor, authorship Authorship, itemID string) error {
+func refuse(actor record.Actor, by By, itemID string) error {
 	if err := actor.Validate(); err != nil {
 		return err
 	}
-	if !slices.Contains(Authorships, authorship) {
-		return fmt.Errorf("%w: %q", ErrAuthorshipUnknown, authorship)
+	if !slices.Contains(Authorships, by.Authorship) {
+		return fmt.Errorf("%w: %q", ErrAuthorshipUnknown, by.Authorship)
+	}
+	if by.Author == "" {
+		return fmt.Errorf("%w: authorship %q", ErrAuthorEmpty, by.Authorship)
 	}
 	if itemID == "" {
 		return ErrItemIDEmpty
@@ -165,14 +175,14 @@ func refuse(actor record.Actor, authorship Authorship, itemID string) error {
 }
 
 const insertArtifact = `insert into ` + Table + `
-	(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, content)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+	(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
 // insertVersion is every submission: read the prior version for the item and
 // kind, write the next one naming it. Two transactions reading the same
 // prior write the same next version, and the unique constraint in [DDL]
 // refuses the second — schema.go says why that needs no lock.
-func insertVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, authorship Authorship, itemID string, kind Kind, content string) (Artifact, error) {
+func insertVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, by By, itemID string, kind Kind, content string) (Artifact, error) {
 	priorID, priorVersion := "", 0
 	err := tx.QueryRow(ctx,
 		`select id, version from `+Table+` where item_id = $1 and kind = $2 order by version desc limit 1`,
@@ -189,20 +199,23 @@ func insertVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, authorshi
 		Kind:       kind,
 		Version:    priorVersion + 1,
 		Supersedes: priorID,
-		Authorship: authorship,
+		Authorship: by.Authorship,
+		Author:     by.Author,
 		Content:    content,
 	}
 	if _, err := tx.Exec(ctx, insertArtifact,
 		a.ID, string(a.Actor.Kind), a.Actor.Name, a.At,
-		a.ItemID, string(a.Kind), a.Version, a.Supersedes, string(a.Authorship), a.Content,
+		a.ItemID, string(a.Kind), a.Version, a.Supersedes,
+		string(a.Authorship), a.Author, a.Content,
 	); err != nil {
 		return Artifact{}, fmt.Errorf("artifact: writing %s: %w", a.ID, err)
 	}
 	return a, nil
 }
 
-const selectArtifact = `select id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, content
-	from ` + Table + ` where id = $1`
+const selectArtifact = `select id, actor_kind, actor_name, at, item_id, kind,
+	version, supersedes, authorship, author, content
+	from ` + Table
 
 // Get is the artifact with the given id. It takes the pool and not a
 // [Store], because reading a version is not a reason to be handed the thing
@@ -210,9 +223,9 @@ const selectArtifact = `select id, actor_kind, actor_name, at, item_id, kind, ve
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Artifact, error) {
 	var a Artifact
 	var kind, authorship, actorKind string
-	err := pool.QueryRow(ctx, selectArtifact, id).Scan(
-		&a.ID, &actorKind, &a.Actor.Name, &a.At,
-		&a.ItemID, &kind, &a.Version, &a.Supersedes, &authorship, &a.Content)
+	err := pool.QueryRow(ctx, selectArtifact+` where id = $1`, id).Scan(
+		&a.ID, &actorKind, &a.Actor.Name, &a.At, &a.ItemID, &kind,
+		&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content)
 	if err != nil {
 		return Artifact{}, fmt.Errorf("artifact: reading %s: %w", id, err)
 	}

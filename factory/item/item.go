@@ -28,8 +28,11 @@ type Item struct {
 	At        string
 	IntentID  string
 	ServiceID string
-	Branch    string
-	Stage     Stage
+	// AreaID is the area the cut wrote, and is empty where no declared area
+	// covered the work.
+	AreaID string
+	Branch string
+	Stage  Stage
 }
 
 // StageTotals is one item's bookkeeping for one stage: the attempts it has

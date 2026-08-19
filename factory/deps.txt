@@ -17,33 +17,63 @@
 # has carried since M0 — so each record package has a test line naming
 # postgres. decisionlog's also names secretref for the demonstration that a
 # resolved secret's value reaches no record, which is the one test that needs
-# a secret and a database at once.
+# a secret and a database at once. score's names gate and policy: the outcomes
+# it counts are the decisions a gate wrote, so its tests fire real gates rather
+# than writing those rows by hand, and a gate is fired with a policy.
 #
-# Two edges deserve their reason stated. artifact -> criterion is the one
-# import between two record packages: the artifact store is the criterion's
-# one writer, so the spec version and the criteria it introduces are written
-# in one transaction. cmd/factory imports nearly everything, because it is the
-# crude interface M1 defers the four surfaces with — the one place the whole
-# path is composed.
+# Five edges deserve their reason stated.
+#
+# artifact -> criterion is the one import between two record packages that
+# both own tables: the artifact store is the criterion's one writer, so the
+# spec version and the criteria it introduces are written in one transaction.
+#
+# gatepolicy is imported by everything that holds an authored value and by
+# nothing it imports itself. It owns no table and is the vocabulary of gate
+# policy — the parameters, what each value means, and the direction a pin on it
+# points — which two packages would otherwise each keep a copy of.
+#
+# score reads the graph, so it imports the record packages the factors are
+# computed from: the artifacts an author wrote, the closed decisions in the
+# log, the items in an area, and the releases of a service. It writes only its
+# own version record. What it does not import is a repository: the one input
+# that is not a record is the build's diff, measured by the component that
+# built and handed to it.
+#
+# policy is Factory's writer, so it imports every record an owner authors a
+# value on — the environment, the service, the area, the factory policy record,
+# and the pin — and calls the transaction-taking write each of them exposes,
+# appending the policy version inside the same transaction. It imports score
+# for the value the score supplies where an owner authored nothing.
+#
+# cmd/factory imports nearly everything, because it is the crude interface the
+# four surfaces are deferred with — the one place the whole path is composed,
+# and the one place an owner can author a parameter or place a pin.
 
 record
+gatepolicy
 decisionlog -> record
 secretref
 targetseam -> secretref
 intent -> record
-service -> record
+service -> record gatepolicy
 item -> record
 criterion -> record
 artifact -> criterion record
 build -> record
 release -> record
 deploy -> record secretref targetseam
-gate -> decisionlog record
+area -> record gatepolicy
+environment -> record gatepolicy secretref
+factorypolicy -> record gatepolicy item
+pin -> record gatepolicy
+score -> record gatepolicy artifact decisionlog item release
+policy -> record gatepolicy area environment factorypolicy item pin score secretref service
+gate -> decisionlog policy record score
 agent -> secretref
 localtarget -> secretref targetseam
-postgres -> artifact build criterion decisionlog deploy intent item release service
+postgres -> area artifact build criterion decisionlog deploy environment factorypolicy intent item pin policy release score service
 cmd/depscheck
-cmd/factory -> agent artifact build criterion decisionlog deploy gate intent item localtarget postgres record release secretref service targetseam
+cmd/factory -> agent area artifact build criterion decisionlog deploy environment factorypolicy gate gatepolicy intent item localtarget pin policy postgres record release score secretref service targetseam
 
 test decisionlog -> postgres secretref
 test intent -> postgres
@@ -54,4 +84,10 @@ test artifact -> postgres
 test build -> postgres
 test release -> postgres
 test deploy -> postgres
+test area -> postgres
+test environment -> postgres
+test factorypolicy -> postgres
+test pin -> postgres
+test score -> postgres gate policy
+test policy -> postgres
 test gate -> postgres

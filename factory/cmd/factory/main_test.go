@@ -1,6 +1,8 @@
-// The end-to-end test: roadmap M1's demonstration, driven through the same
-// run function the run subcommand calls, with a fake model and scripted
-// input. Each test gets a PostgreSQL schema of its own with the whole factory
+// The end-to-end test: roadmap M1's demonstration and M2's, driven through the
+// same run function the run subcommand calls, with a fake model and scripted
+// input. M2's is three runs on one service — the first decided by a human at
+// both gate rows, the second auto-passed at both with nobody deciding anything,
+// and the third held at the production deploy row by a human a pin put there. Each test gets a PostgreSQL schema of its own with the whole factory
 // schema applied through postgres.Apply. None of these tests skips when the
 // database is unreachable: the milestone is demonstrated by them running, so
 // an unreachable database fails the run.
@@ -18,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,15 +32,40 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/localtarget"
+	"github.com/dulguun0225/borg/factory/pin"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
+
+// theModel is the model id the run is configured with, which is the author every
+// version it writes names and the identity the authorship prior is kept on.
+const theModel = "fake-model-1"
+
+// theArea is the area the run names. Without one the score can read neither
+// context factor and a human decides every gate, so the milestone's own
+// demonstration needs one.
+const theArea = "payments"
+
+// attemptBound is the bound in force in these tests: nothing here authors one,
+// so it is what the score supplies. The tests that spend it read it from there
+// rather than holding a number of their own, so authoring a different supplied
+// value moves the tests with it.
+var attemptBound = func() int {
+	supplied, ok := score.Supplied(gatepolicy.AttemptBound)
+	if !ok {
+		panic("the score supplies no attempt bound")
+	}
+	return int(supplied)
+}()
 
 // The two interviews and the two specs the fake model plays out: the first
 // item's on a service with nothing in force, the second item's on the same
@@ -203,6 +231,7 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 	return ctx, deps{
 		pool:       pool,
 		model:      &fakeModel{},
+		modelName:  theModel,
 		target:     target,
 		targets:    targets,
 		credential: credential,
@@ -210,6 +239,7 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 		out:        out,
 		human:      "owner",
 		service:    "demo",
+		area:       theArea,
 		repo:       filepath.Join(t.TempDir(), "demo"),
 	}, out
 }
@@ -233,7 +263,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // on the target, and walkable from the deploy back to the intent with the
 // decision readable in a clean chain.
 func TestOneChangeShips(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
 
 	res, err := run(ctx, d, theStatement)
 	if err != nil {
@@ -306,7 +336,7 @@ func TestOneChangeShips(t *testing.T) {
 
 	// The deploy completed and Current names it — what is running, not what
 	// is newest.
-	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, "production")
+	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID)
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
@@ -348,44 +378,124 @@ func TestOneChangeShips(t *testing.T) {
 		t.Errorf("the walk does not report the chain clean:\n%s", walked.String())
 	}
 
-	// The log: exactly one opening and one closing row, the closing naming
-	// the opening and carrying verdict approve with the human as actor, the
-	// opening's payload naming the implementation artifact.
+	// The log: two decisions, four rows — the merge row and the production
+	// deploy row, each opened by its gate component and closed by the human the
+	// score put there.
 	rows, err := decisionlog.Read(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("the log holds %d rows, one decision is two", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("the log holds %d rows, two decisions are four", len(rows))
 	}
-	opening, closing := rows[0], rows[1]
-	if opening.Shape != decisionlog.ShapeDecision || opening.Part != decisionlog.PartOpening {
-		t.Errorf("the first row is shape %s part %s, the gate's firing appends an opening decision row", opening.Shape, opening.Part)
+	for n, want := range []struct {
+		part  decisionlog.Part
+		actor record.Actor
+		row   gate.Row
+	}{
+		{decisionlog.PartOpening, record.Actor{Kind: record.KindComponent, Name: "gate.merge_to_master"}, gate.MergeToMaster},
+		{decisionlog.PartClosing, record.Actor{Kind: record.KindHuman, Name: "owner"}, gate.MergeToMaster},
+		{decisionlog.PartOpening, record.Actor{Kind: record.KindComponent, Name: "gate.deploy_to_production"}, gate.DeployToProduction},
+		{decisionlog.PartClosing, record.Actor{Kind: record.KindHuman, Name: "owner"}, gate.DeployToProduction},
+	} {
+		row := rows[n]
+		if row.Shape != decisionlog.ShapeDecision || row.Part != want.part {
+			t.Errorf("row %d is shape %s part %s, want a %s decision row", n+1, row.Shape, row.Part, want.part)
+		}
+		if row.Actor != want.actor {
+			t.Errorf("row %d's actor is %+v, want %+v", n+1, row.Actor, want.actor)
+		}
 	}
-	if closing.Part != decisionlog.PartClosing || closing.Closes != opening.ID {
-		t.Errorf("the second row is part %s closing %q, the verdict closes %s", closing.Part, closing.Closes, opening.ID)
+	if rows[1].Closes != rows[0].ID || rows[3].Closes != rows[2].ID {
+		t.Errorf("the closings close %q and %q, want %q and %q",
+			rows[1].Closes, rows[3].Closes, rows[0].ID, rows[2].ID)
 	}
-	if closing.Actor != (record.Actor{Kind: record.KindHuman, Name: "owner"}) {
-		t.Errorf("the closing row's actor is %+v, the human owner decided", closing.Actor)
+
+	// Both decisions name the policy version and the score version they were
+	// decided under, and both are records rather than names — which is what the
+	// milestone's demonstration is followed along.
+	scoreVersion, found, err := score.Newest(ctx, d.pool)
+	if err != nil || !found {
+		t.Fatalf("reading the score version: %v", err)
 	}
-	var openingPayload gate.OpeningPayload
-	if err := json.Unmarshal([]byte(opening.Payload), &openingPayload); err != nil {
-		t.Fatalf("reading the opening payload: %v", err)
+	policyVersion, err := policy.InForce(ctx, d.pool)
+	if err != nil {
+		t.Fatalf("reading the policy version: %v", err)
 	}
-	if openingPayload.ArtifactID != res.implArtifactID {
-		t.Errorf("the opening names artifact %s, the decision was over implementation %s",
-			openingPayload.ArtifactID, res.implArtifactID)
+	for _, opening := range []decisionlog.Row{rows[0], rows[2]} {
+		if opening.ScoreVersion != scoreVersion.ID {
+			t.Errorf("an opening names score version %q, want the record %q", opening.ScoreVersion, scoreVersion.ID)
+		}
+		if opening.PolicyVersion != policyVersion.ID {
+			t.Errorf("an opening names policy version %q, want the record %q", opening.PolicyVersion, policyVersion.ID)
+		}
 	}
-	var closingPayload gate.ClosingPayload
-	if err := json.Unmarshal([]byte(closing.Payload), &closingPayload); err != nil {
-		t.Fatalf("reading the closing payload: %v", err)
+	if _, err := score.Get(ctx, d.pool, rows[0].ScoreVersion); err != nil {
+		t.Errorf("the score version a decision names does not read back: %v", err)
 	}
-	if closingPayload.Verdict != string(gate.VerdictApprove) {
-		t.Errorf("the closing carries verdict %q, the human approved", closingPayload.Verdict)
+	if _, err := policy.Get(ctx, d.pool, rows[0].PolicyVersion); err != nil {
+		t.Errorf("the policy version a decision names does not read back: %v", err)
+	}
+
+	// The merge row's opening names the implementation version under decision and
+	// the whole vector; the deploy row's names no artifact, there being none under
+	// decision at a deploy.
+	mergeOpening := openingPayload(t, rows[0])
+	if mergeOpening.ArtifactID != res.implArtifactID {
+		t.Errorf("the merge opening names artifact %s, the decision was over implementation %s",
+			mergeOpening.ArtifactID, res.implArtifactID)
+	}
+	if len(mergeOpening.Vector) == 0 || mergeOpening.Number <= 0 {
+		t.Errorf("the merge opening carries %d factors and number %v", len(mergeOpening.Vector), mergeOpening.Number)
+	}
+	if !mergeOpening.HumanDecides || mergeOpening.WhyHuman != gate.WhyOverThreshold {
+		t.Errorf("the merge opening says human %v because %q, want the number over the threshold",
+			mergeOpening.HumanDecides, mergeOpening.WhyHuman)
+	}
+	supplied, _ := score.Supplied(gatepolicy.RiskThreshold)
+	if mergeOpening.Threshold != supplied || mergeOpening.ThresholdFrom != string(policy.FromSupplied) {
+		t.Errorf("the merge opening applied threshold %v from %q, want the supplied %v",
+			mergeOpening.Threshold, mergeOpening.ThresholdFrom, supplied)
+	}
+	if len(mergeOpening.Unavailable) != 0 {
+		t.Errorf("the merge opening names %v as unavailable, and every factor is computable here", mergeOpening.Unavailable)
+	}
+	if deployOpening := openingPayload(t, rows[2]); deployOpening.ArtifactID != "" {
+		t.Errorf("the deploy opening names artifact %q, and nothing is under decision at a deploy", deployOpening.ArtifactID)
+	}
+
+	for _, closing := range []decisionlog.Row{rows[1], rows[3]} {
+		payload := closingPayload(t, closing)
+		if payload.Verdict != string(gate.VerdictApprove) {
+			t.Errorf("a closing carries verdict %q, the human approved", payload.Verdict)
+		}
+		if payload.AutoPassedBy != "" {
+			t.Errorf("a closing a human wrote says it was auto-passed by %q", payload.AutoPassedBy)
+		}
 	}
 	if err := decisionlog.Verify(ctx, d.pool); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
+}
+
+// openingPayload and closingPayload unmarshal what a decision row says, which
+// every assertion over a firing reads through.
+func openingPayload(t *testing.T, row decisionlog.Row) gate.OpeningPayload {
+	t.Helper()
+	var payload gate.OpeningPayload
+	if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+		t.Fatalf("reading the opening payload of %s: %v", row.ID, err)
+	}
+	return payload
+}
+
+func closingPayload(t *testing.T, row decisionlog.Row) gate.ClosingPayload {
+	t.Helper()
+	var payload gate.ClosingPayload
+	if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+		t.Fatalf("reading the closing payload of %s: %v", row.ID, err)
+	}
+	return payload
 }
 
 // TestTheWalkSkipsAPayloadItCannotRead appends an opening row whose payload is
@@ -394,7 +504,7 @@ func TestOneChangeShips(t *testing.T) {
 // read is skipped and the search goes on — one such row does not take down
 // every walk.
 func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
 
 	_, err := decisionlog.NewWriter(d.pool).AppendDecisionOpening(ctx, decisionlog.Entry{
 		Actor:         record.Actor{Kind: record.KindComponent, Name: "gate.some_other_gate"},
@@ -425,7 +535,7 @@ func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 // asked again rather than sent — sending it would stamp the question answered
 // with nothing in it.
 func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
-	ctx, d, out := newPath(t, "\n"+theAnswer+"\napprove\n")
+	ctx, d, out := newPath(t, "\n"+theAnswer+"\napprove\napprove\n")
 
 	res, err := run(ctx, d, theStatement)
 	if err != nil {
@@ -450,7 +560,7 @@ func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 // would be refused by that constraint from the second item on that service
 // onwards — a later change, or this one run again after a reject.
 func TestTheCutReachesAnExistingService(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
 
 	before, err := service.NewWriter(d.pool).Create(ctx,
 		record.Actor{Kind: record.KindComponent, Name: "cut"}, d.service, d.repo)
@@ -521,37 +631,40 @@ func TestARejectStopsThePath(t *testing.T) {
 		t.Fatalf("reading the log: %v", err)
 	}
 	if len(rows) != 2 {
-		t.Fatalf("the log holds %d rows, one decision is two", len(rows))
+		t.Fatalf("the log holds %d rows, and a reject at the merge row is one decision: the deploy row never fires", len(rows))
 	}
-	var closingPayload gate.ClosingPayload
-	if err := json.Unmarshal([]byte(rows[1].Payload), &closingPayload); err != nil {
-		t.Fatalf("reading the closing payload: %v", err)
+	payload := closingPayload(t, rows[1])
+	if payload.Verdict != string(gate.VerdictReject) {
+		t.Errorf("the closing carries verdict %q, the human rejected", payload.Verdict)
 	}
-	if closingPayload.Verdict != string(gate.VerdictReject) {
-		t.Errorf("the closing carries verdict %q, the human rejected", closingPayload.Verdict)
+	if payload.Feedback != "not what I asked for" {
+		t.Errorf("the closing carries feedback %q, the human typed %q", payload.Feedback, "not what I asked for")
 	}
-	if closingPayload.Feedback != "not what I asked for" {
-		t.Errorf("the closing carries feedback %q, the human typed %q", closingPayload.Feedback, "not what I asked for")
+	if payload.ReturnsTo != gate.ReturnsTo {
+		t.Errorf("the closing returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsTo)
 	}
 }
 
-// twoRunsOnOneService walks the path twice on one service, approving both, and
-// returns what each run shipped. The second run reads from a reader of its own
-// because run wraps the reader in a bufio.Scanner, which reads further than the
-// lines it hands back, so a second scanner over the same reader finds it
-// drained — the run subcommand is one process per run and never meets that. The
-// fake spec author asks its one question on its first call only, so the second
-// run's one scripted line is the verdict.
-func twoRunsOnOneService(t *testing.T, firstVerdict string) (context.Context, deps, shipped, shipped) {
+// twoRunsOnOneService walks the path twice on one service and returns what each
+// run shipped. The second run reads from a reader of its own because run wraps
+// the reader in a bufio.Scanner, which reads further than the lines it hands
+// back, so a second scanner over the same reader finds it drained — the run
+// subcommand is one process per run and never meets that. The fake spec author
+// asks its one question on its first call only.
+//
+// secondInput is what the second run's human types, and it is empty wherever the
+// second run is meant to auto-pass at both rows: a reader with nothing in it is
+// how a test says nobody was asked anything.
+func twoRunsOnOneService(t *testing.T, firstVerdicts, secondInput string) (context.Context, deps, shipped, shipped) {
 	t.Helper()
-	ctx, d, out := newPath(t, theAnswer+"\n"+firstVerdict+"\n")
+	ctx, d, out := newPath(t, theAnswer+"\n"+firstVerdicts)
 
 	first, err := run(ctx, d, theStatement)
 	if err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader("approve\n")
+	d.in = strings.NewReader(secondInput)
 	second, err := run(ctx, d, theSecondStatement)
 	if err != nil {
 		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)
@@ -565,7 +678,7 @@ func twoRunsOnOneService(t *testing.T, firstVerdict string) (context.Context, de
 // criterion in force with no encoding naming it being refused. It ships as
 // release number 2, and the walk from its deploy reaches its own intent.
 func TestASecondChangeShips(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, "approve")
+	ctx, d, first, second := twoRunsOnOneService(t, "approve\napprove\n", "")
 
 	if second.serviceID != first.serviceID {
 		t.Fatalf("the second run cut on service %s, the first on %s, and both name the same service",
@@ -627,13 +740,199 @@ func TestASecondChangeShips(t *testing.T) {
 	}
 }
 
+// TestTheSecondChangeShipsWithNoHumanAtAnyGate is M2's demonstration: the second
+// item on the service reads under the threshold at both rows, so the factory
+// gives both verdicts itself, and nobody is asked anything — the second run's
+// scripted input is empty, so a run that stopped to ask would fail on a reader
+// with nothing in it.
+//
+// What made the difference is the first run: a human approved its implementation,
+// which narrowed the prior on the model that wrote it and the history of the area
+// it was in, and its release gave the service something to return to. The factory
+// earns the autonomy rather than starting with it.
+func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
+	ctx, d, first, second := twoRunsOnOneService(t, "approve\napprove\n", "")
+
+	if !first.merge.humanDecided || !first.deploy.humanDecided {
+		t.Fatalf("the first item was decided by a human at merge=%v and deploy=%v, and on a fresh factory it is both",
+			first.merge.humanDecided, first.deploy.humanDecided)
+	}
+	if second.merge.humanDecided || second.deploy.humanDecided {
+		t.Fatalf("the second item put a human at merge=%q deploy=%q",
+			second.merge.whyHuman, second.deploy.whyHuman)
+	}
+	if second.deployID == "" {
+		t.Fatal("the second item did not deploy")
+	}
+	if second.merge.number >= second.merge.threshold {
+		t.Errorf("the second item's merge number is %v against a threshold of %v",
+			second.merge.number, second.merge.threshold)
+	}
+	if !(second.merge.number < first.merge.number) {
+		t.Errorf("the second item reads %v and the first read %v, and the evidence the first left narrows the second",
+			second.merge.number, first.merge.number)
+	}
+
+	// Both of the second run's decisions were closed by the gate component and
+	// say what auto-passed them.
+	rows, err := decisionlog.Read(ctx, d.pool)
+	if err != nil {
+		t.Fatalf("reading the log: %v", err)
+	}
+	if len(rows) != 8 {
+		t.Fatalf("the log holds %d rows, two runs of two rows are eight", len(rows))
+	}
+	for _, closing := range []decisionlog.Row{rows[5], rows[7]} {
+		if closing.Actor.Kind != record.KindComponent {
+			t.Errorf("the second run's closing was written by %+v, want the gate component", closing.Actor)
+		}
+		payload := closingPayload(t, closing)
+		if payload.Verdict != string(gate.VerdictApprove) || payload.AutoPassedBy != gate.AutoPassedByThreshold {
+			t.Errorf("the closing says %+v, want an approve auto-passed by the threshold", payload)
+		}
+	}
+	// The opening rows of an auto-pass wait on nobody, which is how a reader of
+	// the log tells a decision nobody was asked to make from a pending one.
+	for _, opening := range []decisionlog.Row{rows[4], rows[6]} {
+		if payload := openingPayload(t, opening); payload.WaitsOn != "" {
+			t.Errorf("an auto-passed firing waits on %q", payload.WaitsOn)
+		}
+	}
+	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+		t.Errorf("the chain does not verify after two runs: %v", err)
+	}
+}
+
+// TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy is the other half of
+// M2's demonstration. An owner pins the production deploy row, so the row the
+// score would have passed puts a human there; the human holds; and the run stops
+// with the release minted, nothing deployed, no attempt counted, and the item
+// where it was.
+func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
+	ctx, d, first, _ := twoRunsOnOneService(t, "approve\napprove\n", "")
+
+	placed, version, err := policy.NewFactory(d.pool).Pin(ctx,
+		record.Actor{Kind: record.KindHuman, Name: d.human}, gatepolicy.RiskThreshold,
+		pin.Subject{Kind: pin.SubjectGateRow, ID: string(gate.DeployToProduction)}, 0, nil)
+	if err != nil {
+		t.Fatalf("placing the pin: %v", err)
+	}
+
+	d.in = strings.NewReader("hold the window before this one is still open\n")
+	third, err := run(ctx, d, "The demo service needs a readiness endpoint.")
+	if err != nil {
+		t.Fatalf("the third run stopped, and a hold is not an error: %v", err)
+	}
+
+	if !third.held {
+		t.Fatal("the verdict was hold and the run does not say so")
+	}
+	if third.merge.humanDecided {
+		t.Errorf("the merge row put a human there because %q, and the pin names the deploy row alone", third.merge.whyHuman)
+	}
+	if !third.deploy.humanDecided || third.deploy.whyHuman != gate.WhyPinned {
+		t.Errorf("the deploy row says human %v because %q, want the pin",
+			third.deploy.humanDecided, third.deploy.whyHuman)
+	}
+	if third.deploy.number >= third.deploy.threshold {
+		t.Errorf("the deploy number is %v against a threshold of %v, and the pin is what put a human there rather than the number",
+			third.deploy.number, third.deploy.threshold)
+	}
+	if !slices.Contains(third.deploy.pins, placed.ID) {
+		t.Errorf("the firing names pins %v, want the one placed", third.deploy.pins)
+	}
+	if third.deploy.policyVersion != version.ID {
+		t.Errorf("the firing names policy version %q, want the one the pin appended %q",
+			third.deploy.policyVersion, version.ID)
+	}
+
+	// The release is minted and nothing is deployed: a hold is a stop and not an
+	// undo, and the change is still good.
+	if third.releaseID == "" {
+		t.Error("the run minted no release, and the hold is after the merge")
+	}
+	if third.deployID != "" {
+		t.Errorf("the run deployed %s, and a hold stops the event", third.deployID)
+	}
+	current, found, err := deploy.Current(ctx, d.pool, third.serviceID, third.environmentID)
+	if err != nil {
+		t.Fatalf("reading the current deploy: %v", err)
+	}
+	if !found || current.ReleaseID == third.releaseID {
+		t.Errorf("what runs in production is %q of release %q, and the held release is not deployed",
+			current.ID, current.ReleaseID)
+	}
+
+	// The item is merged and stays there, and no attempt was counted for the
+	// hold: a hold is not a failed attempt.
+	it, err := item.Get(ctx, d.pool, third.itemID)
+	if err != nil {
+		t.Fatalf("reading the item: %v", err)
+	}
+	if it.Stage != item.StageMerged {
+		t.Errorf("the held item is at %s, want merged", it.Stage)
+	}
+	stages, err := item.Stages(ctx, d.pool, third.itemID)
+	if err != nil {
+		t.Fatalf("reading the item's stages: %v", err)
+	}
+	for _, st := range stages {
+		if st.Attempts != 1 {
+			t.Errorf("stage %s records %d attempts, and a hold counts none", st.Stage, st.Attempts)
+		}
+	}
+
+	// The hold is the verdict of that firing's decision, with the human as its
+	// actor, and it teaches the score nothing — the prior the fourth firing would
+	// read is the one the first run's approvals left.
+	rows, err := decisionlog.Read(ctx, d.pool)
+	if err != nil {
+		t.Fatalf("reading the log: %v", err)
+	}
+	closing := rows[len(rows)-1]
+	if closing.Actor.Kind != record.KindHuman {
+		t.Errorf("the hold was written by %+v, want the human who set it", closing.Actor)
+	}
+	payload := closingPayload(t, closing)
+	if payload.Verdict != string(gate.VerdictHold) {
+		t.Errorf("the closing says verdict %q, want a hold", payload.Verdict)
+	}
+	if payload.ReturnsTo != "" {
+		t.Errorf("the hold sends the item to %q, and a hold sends nothing back", payload.ReturnsTo)
+	}
+	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+		t.Errorf("the chain does not verify after a hold: %v", err)
+	}
+
+	// Withdrawing the pin leaves the row the score's again, which is what a pin
+	// being a bound rather than a precedence means at this row: nothing else
+	// moved.
+	if _, err := policy.NewFactory(d.pool).WithdrawPin(ctx,
+		record.Actor{Kind: record.KindHuman, Name: d.human}, placed.ID); err != nil {
+		t.Fatalf("withdrawing the pin: %v", err)
+	}
+	applied, err := policy.NewReader(d.pool).AtGate(ctx, policy.Subjects{
+		GateRow:       string(gate.DeployToProduction),
+		EnvironmentID: third.environmentID,
+		ServiceID:     third.serviceID,
+		AreaID:        third.areaID,
+	})
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if applied.HumanPinned {
+		t.Error("the withdrawn pin still adds a human at the row")
+	}
+	_ = first
+}
+
 // TestTheSecondCandidateBranchIsBasedOnMaster is why the first item's encoding
 // is in the second item's build. The cut has the implementation role commit the
 // candidate branch with no base, and that is the first release's case: the first
 // branch is one commit deep with no ancestor, and the second is based on master,
 // so what the first item merged is in the tree the second one starts from.
 func TestTheSecondCandidateBranchIsBasedOnMaster(t *testing.T) {
-	_, d, first, second := twoRunsOnOneService(t, "approve")
+	_, d, first, second := twoRunsOnOneService(t, "approve\napprove\n", "")
 
 	firstBranch, secondBranch := "item/"+first.intentID, "item/"+second.intentID
 
@@ -656,7 +955,7 @@ func TestTheSecondCandidateBranchIsBasedOnMaster(t *testing.T) {
 // all the same, nothing here withdrawing one, so the second build has to encode
 // both. What it ships is release number 1, the reject having minted none.
 func TestARejectThenASecondRunShips(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, "reject not what I asked for")
+	ctx, d, first, second := twoRunsOnOneService(t, "reject not what I asked for\n", "approve\napprove\n")
 
 	if !first.rejected {
 		t.Fatal("the first run's scripted verdict was a reject and the run does not say so")
@@ -722,7 +1021,7 @@ func (m *refusingModel) Complete(ctx context.Context, system, user string) (agen
 // take ships — with the item's implementation stage recording both attempts,
 // because the count the bound is compared against is the item's own.
 func TestARefusedReplyIsRetried(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
 	d.model = &refusingModel{inner: &fakeModel{}, refusals: 1}
 
 	res, err := run(ctx, d, theStatement)
@@ -759,7 +1058,7 @@ func TestARefusedReplyIsRetried(t *testing.T) {
 // and the item carries the whole count — which is what an escalation is read
 // from once there is a surface to read it on.
 func TestAStageOutOfAttemptsStops(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\n")
+	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\n")
 	model := &refusingModel{inner: &fakeModel{}, refusals: attemptBound + 5}
 	d.model = model
 
@@ -818,7 +1117,7 @@ func (m *erroringModel) Complete(ctx context.Context, system, user string) (agen
 // attempt at the work, so the first failure stops the run with its own error
 // and the remaining attempts are never spent.
 func TestAnErrorThatIsNotAProtocolFailureIsNotRetried(t *testing.T) {
-	ctx, d, _ := newPath(t, theAnswer+"\napprove\n")
+	ctx, d, _ := newPath(t, theAnswer+"\napprove\napprove\n")
 	model := &erroringModel{inner: &fakeModel{}}
 	d.model = model
 

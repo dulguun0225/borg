@@ -28,6 +28,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -45,6 +46,12 @@ const realModelSecrets = "../../secrets.local"
 // what it is instead.
 const realModelPlaceholder = "PASTE_THE_TOKEN_HERE"
 
+// realModelPace is the least time between two model calls, the same default the
+// run subcommand's -pace flag carries. A take makes a handful of calls, so this
+// adds a few seconds to the test and keeps it sending requests at the rate a
+// real run sends them.
+const realModelPace = 2 * time.Second
+
 // realModelStatement is the intent a demo would type, from DEMO.md's
 // Statements that work: one behaviour a sentence can state and a test can
 // decide, the module and the standard library named so the build has what it
@@ -54,10 +61,17 @@ const realModelStatement = "A Go HTTP service, module borg.demo/realmodel, packa
 	"It answers GET /health with status 200 and the body ok, on port 8199. " +
 	"Test the handler through net/http/httptest rather than by binding the port."
 
-// TestTheDemonstrationAgainstARealModel is M1's demonstration end to end: an
-// intent taken in, an item cut, a spec and an implementation authored by a real
-// model, the gate approved, release 1 minted, a straight deploy running on the
-// target, and the walk back to the intent over a clean chain.
+// TestTheDemonstrationAgainstARealModel is M1's demonstration end to end, under
+// M2's score: an intent taken in, an item cut, a spec and an implementation
+// authored by a real model, both gate rows approved by the human the score puts
+// there, release 1 minted, a straight deploy running on the target, and the walk
+// back to the intent over a clean chain.
+//
+// It asserts that a human decided rather than what the number was. A real
+// model's diff is whatever it wrote, so the number moves run to run — but every
+// factor of a service's first release reads at the risky end whatever the diff
+// is, so a human at both rows is the one thing this take can promise. What the
+// number came out as is in the run's logged output.
 func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	name := os.Getenv("FACTORY_MODEL")
 	if name == "" {
@@ -80,9 +94,21 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	// The interview asks at most one question and may ask none, so the first
 	// scripted line has to be a valid verdict as well as an answer. What that
 	// costs is the answer's quality where a question does come: the spec author
-	// is answered with the word approve and authors on it.
-	ctx, d, out := newPath(t, "approve\napprove\n")
-	d.model = agent.Anthropic{ModelName: name, Credential: credential, Resolver: resolver}
+	// is answered with the word approve and authors on it. Three lines, because a
+	// first release puts a human at both gate rows and the answer may take the
+	// first of them.
+	//
+	// Paced as the run subcommand paces it, so what this test drives is what a
+	// take drives — a run that sends requests back to back is one of the things
+	// only a real provider can object to.
+	ctx, d, out := newPath(t, "approve\napprove\napprove\n")
+	d.model = agent.NewPaced(
+		agent.Anthropic{ModelName: name, Credential: credential, Resolver: resolver},
+		realModelPace,
+	)
+	// The author every version this take writes names is the model that wrote it,
+	// which is what an authorship prior is kept on.
+	d.modelName = name
 
 	// The repository outlives a failing run, which the temp directory newPath
 	// hands out does not: what a real model wrote is the evidence a failure is
@@ -126,7 +152,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	}
 
 	// The deploy completed, and the target is running what it put there.
-	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, "production")
+	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID)
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
@@ -153,6 +179,25 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		if st.Attempts < 1 || st.SpendTokens <= 0 {
 			t.Errorf("stage %s reports %d attempts and %d tokens, a real call spends both",
 				st.Stage, st.Attempts, st.SpendTokens)
+		}
+	}
+
+	// Both rows put a human there and both decisions name a score version and a
+	// policy version that are records rather than names.
+	for _, fired := range []struct {
+		row string
+		got fired
+	}{{"merge to master", res.merge}, {"deploy to production", res.deploy}} {
+		t.Logf("%s: number %.3f against threshold %.3f (%s), human %v (%s)",
+			fired.row, fired.got.number, fired.got.threshold, fired.got.thresholdFrom,
+			fired.got.humanDecided, fired.got.whyHuman)
+		if !fired.got.humanDecided {
+			t.Errorf("%s auto-passed a service's first release at %.3f against %.3f",
+				fired.row, fired.got.number, fired.got.threshold)
+		}
+		if fired.got.scoreVersion == "" || fired.got.policyVersion == "" {
+			t.Errorf("%s names score version %q and policy version %q",
+				fired.row, fired.got.scoreVersion, fired.got.policyVersion)
 		}
 	}
 

@@ -16,9 +16,9 @@ import (
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Item, error) {
 	var it Item
 	var kind, stage string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, intent_id, service_id, branch, stage
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage
 		from `+Table+` where id = $1`, id).
-		Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID, &it.Branch, &stage)
+		Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID, &it.AreaID, &it.Branch, &stage)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
@@ -27,6 +27,37 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Item, error) {
 	it.Actor.Kind = record.Kind(kind)
 	it.Stage = Stage(stage)
 	return it, nil
+}
+
+// IDsInArea is every item whose area is the one named, in the order they were
+// cut. It answers one area and not a chain: a caller wanting every item a pin
+// on an area reaches walks the chain itself and asks for each, the chain being
+// package area's to read.
+//
+// An empty area is no items and no error. An item may name no area, and an
+// empty id would otherwise match every one of them.
+func IDsInArea(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]string, error) {
+	if areaID == "" {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `select id from `+Table+` where area_id = $1 order by at, id`, areaID)
+	if err != nil {
+		return nil, fmt.Errorf("item: reading the items in %s: %w", areaID, err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("item: reading an item in %s: %w", areaID, err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("item: reading the items in %s: %w", areaID, err)
+	}
+	return ids, nil
 }
 
 // Stages is every per-stage row of one item, in the order the stages first

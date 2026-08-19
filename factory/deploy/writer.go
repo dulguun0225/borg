@@ -37,18 +37,19 @@ type Writer struct {
 // NewWriter returns the writer over pool.
 func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 
-// Start writes the deploy record: status started, strategy straight —
-// straight being the one strategy until M4. M1 writes environment
-// "production"; the column takes any non-empty name because the design lets a
-// customer define more.
-func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, environment, releaseID string) (Deploy, error) {
+// Start writes the deploy record: status started, strategy straight — straight
+// being the one strategy until the health signal and the control are built, and
+// on a substrate that moves a process rather than traffic there is no other. The
+// environment is the id of an environment record, which is what keys a service's
+// current release per environment.
+func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, environmentID, releaseID string) (Deploy, error) {
 	if err := actor.Validate(); err != nil {
 		return Deploy{}, err
 	}
 	if serviceID == "" {
 		return Deploy{}, ErrServiceIDEmpty
 	}
-	if environment == "" {
+	if environmentID == "" {
 		return Deploy{}, ErrEnvironmentEmpty
 	}
 	if releaseID == "" {
@@ -56,19 +57,19 @@ func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, envir
 	}
 
 	d := Deploy{
-		ID:          record.NewID(IDPrefix),
-		Actor:       actor,
-		At:          record.Now(),
-		ServiceID:   serviceID,
-		Environment: environment,
-		ReleaseID:   releaseID,
-		Strategy:    StrategyStraight,
-		Status:      StatusStarted,
+		ID:            record.NewID(IDPrefix),
+		Actor:         actor,
+		At:            record.Now(),
+		ServiceID:     serviceID,
+		EnvironmentID: environmentID,
+		ReleaseID:     releaseID,
+		Strategy:      StrategyStraight,
+		Status:        StatusStarted,
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, service_id, environment, release_id, strategy, status)
+		(id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		d.ID, string(d.Actor.Kind), d.Actor.Name, d.At, d.ServiceID, d.Environment,
+		d.ID, string(d.Actor.Kind), d.Actor.Name, d.At, d.ServiceID, d.EnvironmentID,
 		d.ReleaseID, string(d.Strategy), string(d.Status),
 	)
 	if err != nil {
@@ -124,9 +125,9 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 	var d Deploy
 	var kind, strategy, status string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, service_id, environment, release_id, strategy, status
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status
 		from `+Table+` where id = $1`, id).
-		Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.Environment, &d.ReleaseID, &strategy, &status)
+		Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.EnvironmentID, &d.ReleaseID, &strategy, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deploy{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
@@ -151,18 +152,18 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 // two orders differ only where a deploy completes after a later-started one,
 // which one caller deploying one at a time — M1's crude path — does not
 // produce.
-func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environment string) (Deploy, bool, error) {
+func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID string) (Deploy, bool, error) {
 	var d Deploy
 	var kind, strategy, status string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, service_id, environment, release_id, strategy, status
-		from `+Table+` where service_id = $1 and environment = $2 and status = $3
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, service_id, environment_id, release_id, strategy, status
+		from `+Table+` where service_id = $1 and environment_id = $2 and status = $3
 		order by at desc limit 1`,
-		serviceID, environment, string(StatusComplete)).
-		Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.Environment, &d.ReleaseID, &strategy, &status)
+		serviceID, environmentID, string(StatusComplete)).
+		Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.EnvironmentID, &d.ReleaseID, &strategy, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deploy{}, false, nil
 	} else if err != nil {
-		return Deploy{}, false, fmt.Errorf("deploy: reading the current deploy of %s in %s: %w", serviceID, environment, err)
+		return Deploy{}, false, fmt.Errorf("deploy: reading the current deploy of %s in %s: %w", serviceID, environmentID, err)
 	}
 	d.Actor.Kind = record.Kind(kind)
 	d.Strategy = Strategy(strategy)

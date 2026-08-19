@@ -16,6 +16,13 @@
 // an API error carries the status and the response body, and the request that
 // body may quote carries the credential in a header, not in the body.
 //
+// [Paced] wraps a Model to leave an interval between two call starts, so the
+// factory sends nothing in rapid succession however many calls a stage makes —
+// a retry after a refused reply being the one place two requests would
+// otherwise have nothing between them. It is composed around [Anthropic] by the
+// caller rather than being a field on it, Anthropic being a value with nowhere
+// to keep the time of the last call.
+//
 // The credential is the long-lived OAuth token `claude setup-token` mints
 // against a Claude subscription, sent as a bearer token under the beta header
 // that scheme requires. One scheme and not two: an API key is a different

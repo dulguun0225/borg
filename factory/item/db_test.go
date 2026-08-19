@@ -88,7 +88,12 @@ var dispatchActor = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
 // report against.
 func oneItem(ctx context.Context, t *testing.T, cut *item.Cut) item.Item {
 	t.Helper()
-	it, err := cut.Create(ctx, cutActor, "in_"+strings.Repeat("0", 32), "svc_"+strings.Repeat("0", 32), "item/checkout-retry")
+	it, err := cut.Create(ctx, cutActor, item.New{
+		IntentID:  "in_" + strings.Repeat("0", 32),
+		ServiceID: "svc_" + strings.Repeat("0", 32),
+		AreaID:    "ar_" + strings.Repeat("0", 32),
+		Branch:    "item/checkout-retry",
+	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -117,19 +122,19 @@ func TestCutWritesOnceAtSpec(t *testing.T) {
 	if _, err := item.Get(ctx, pool, "it_missing"); !errors.Is(err, item.ErrNotFound) {
 		t.Errorf("Get on a missing id = %v, want ErrNotFound", err)
 	}
-	if _, err := cut.Create(ctx, cutActor, "in_x", "svc_x", ""); !errors.Is(err, item.ErrBranchEmpty) {
+	if _, err := cut.Create(ctx, cutActor, item.New{IntentID: "in_x", ServiceID: "svc_x"}); !errors.Is(err, item.ErrBranchEmpty) {
 		t.Errorf("Create with no branch = %v, want ErrBranchEmpty", err)
 	}
 	// An empty link names nothing, and the writer refuses it the way it
 	// refuses every other required field. record's doc.go states what a link
 	// is checked for.
-	if _, err := cut.Create(ctx, cutActor, "", "svc_x", "item/x"); !errors.Is(err, item.ErrIntentIDEmpty) {
+	if _, err := cut.Create(ctx, cutActor, item.New{ServiceID: "svc_x", Branch: "item/x"}); !errors.Is(err, item.ErrIntentIDEmpty) {
 		t.Errorf("Create naming no intent = %v, want ErrIntentIDEmpty", err)
 	}
-	if _, err := cut.Create(ctx, cutActor, "in_x", "", "item/x"); !errors.Is(err, item.ErrServiceIDEmpty) {
+	if _, err := cut.Create(ctx, cutActor, item.New{IntentID: "in_x", Branch: "item/x"}); !errors.Is(err, item.ErrServiceIDEmpty) {
 		t.Errorf("Create naming no service = %v, want ErrServiceIDEmpty", err)
 	}
-	if _, err := cut.Create(ctx, record.Actor{}, "in_x", "svc_x", "item/x"); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := cut.Create(ctx, record.Actor{}, item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x"}); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("Create with no actor = %v, want record.ErrKindUnknown", err)
 	}
 }
@@ -244,8 +249,8 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 		t.Fatalf("ReportAttempt: %v", err)
 	}
 
-	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, branch, stage)
-		values ($1, 'component', 'cut', $2, 'in_x', 'svc_x', $3, $4)`
+	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage)
+		values ($1, 'component', 'cut', $2, 'in_x', 'svc_x', 'ar_x', $3, $4)`
 	for _, refused := range []struct {
 		name       string
 		branch     string
@@ -263,8 +268,8 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 
 	// An empty link, at the column representing this package's three: the
 	// store refuses it around the writer too.
-	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, branch, stage)
-		values ($1, 'component', 'cut', $2, '', 'svc_x', 'item/x', 'spec')`,
+	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage)
+		values ($1, 'component', 'cut', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec')`,
 		record.NewID(item.IDPrefix), record.Now(),
 	); err == nil || !strings.Contains(err.Error(), "intent_id_present") {
 		t.Errorf("inserting an item naming no intent = %v, want a violation of intent_id_present", err)

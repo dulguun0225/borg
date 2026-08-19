@@ -7,14 +7,20 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/factorypolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/pin"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -71,6 +77,12 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"build", build.DDL},
 		{"release", release.DDL},
 		{"deploy", deploy.DDL},
+		{"area", area.DDL},
+		{"environment", environment.DDL},
+		{"factorypolicy", factorypolicy.DDL},
+		{"pin", pin.DDL},
+		{"score", score.DDL},
+		{"policy", policy.DDL},
 	} {
 		for n, statement := range owner.ddl {
 			if _, err := pool.Exec(ctx, statement); err != nil {

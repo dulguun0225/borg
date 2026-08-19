@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -21,14 +22,15 @@ var (
 	ErrNotFound = errors.New("service: no service has that id")
 )
 
-// Service is one service as it is stored: its identity and its repository,
-// and nothing an owner authors later.
+// Service is one service as it is stored: the identity and repository the cut
+// wrote, and the parameters an owner authored on it.
 type Service struct {
 	ID         string
 	Actor      record.Actor
 	At         string
 	Name       string
 	Repository string
+	Parameters Parameters
 }
 
 // Writer is the table's one writer, held by the cut.
@@ -62,8 +64,9 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 		Repository: repository,
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, name, repository)
-		values ($1, $2, $3, $4, $5, $6)`,
+		(id, actor_kind, actor_name, at, name, repository,
+		window_size, window_confidence, window_cap_seconds, k)
+		values ($1, $2, $3, $4, $5, $6, null, null, null, null)`,
 		s.ID, string(s.Actor.Kind), s.Actor.Name, s.At, s.Name, s.Repository,
 	)
 	if err != nil {
@@ -72,23 +75,14 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 	return s, nil
 }
 
-const selectService = `select id, actor_kind, actor_name, at, name, repository
+const selectService = `select id, actor_kind, actor_name, at, name, repository,
+	window_size, window_confidence, window_cap_seconds, k
 	from ` + Table
 
 // Get is one service by id. It takes the pool and not a [Writer], because
 // reading a service is not a reason to be handed the thing that creates them.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Service, error) {
-	var s Service
-	var kind string
-	err := pool.QueryRow(ctx, selectService+` where id = $1`, id).
-		Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.Name, &s.Repository)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Service{}, fmt.Errorf("%w: %s", ErrNotFound, id)
-	} else if err != nil {
-		return Service{}, fmt.Errorf("service: reading %s: %w", id, err)
-	}
-	s.Actor.Kind = record.Kind(kind)
-	return s, nil
+	return scan(pool.QueryRow(ctx, selectService+` where id = $1`, id), id)
 }
 
 // ByName is the service of that name, and false where no service has it. The
@@ -106,15 +100,41 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Service, error) {
 // cuts of one new service name can both find nothing, and what refuses the
 // second create is the store's unique constraint rather than this function.
 func ByName(ctx context.Context, pool *pgxpool.Pool, name string) (Service, bool, error) {
-	var s Service
-	var kind string
-	err := pool.QueryRow(ctx, selectService+` where name = $1`, name).
-		Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.Name, &s.Repository)
-	if errors.Is(err, pgx.ErrNoRows) {
+	s, err := scan(pool.QueryRow(ctx, selectService+` where name = $1`, name), name)
+	if errors.Is(err, ErrNotFound) {
 		return Service{}, false, nil
 	} else if err != nil {
-		return Service{}, false, fmt.Errorf("service: reading the service named %q: %w", name, err)
+		return Service{}, false, err
+	}
+	return s, true, nil
+}
+
+// scan reads one row, turning each null parameter column into an unauthored
+// value rather than a zero.
+func scan(row pgx.Row, named string) (Service, error) {
+	var s Service
+	var kind string
+	var size, confidence, cap, k *float64
+	err := row.Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.Name, &s.Repository,
+		&size, &confidence, &cap, &k)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Service{}, fmt.Errorf("%w: %s", ErrNotFound, named)
+	} else if err != nil {
+		return Service{}, fmt.Errorf("service: reading %s: %w", named, err)
 	}
 	s.Actor.Kind = record.Kind(kind)
-	return s, true, nil
+	s.Parameters = Parameters{
+		WindowSize:       authored(size),
+		WindowConfidence: authored(confidence),
+		WindowCapSeconds: authored(cap),
+		K:                authored(k),
+	}
+	return s, nil
+}
+
+func authored(column *float64) gatepolicy.Authored {
+	if column == nil {
+		return gatepolicy.Authored{}
+	}
+	return gatepolicy.Authored{Number: *column, Present: true}
 }

@@ -57,9 +57,9 @@ func (d *Dispatch) Advance(ctx context.Context, actor record.Actor, itemID strin
 
 	var it Item
 	var kind, current string
-	err = tx.QueryRow(ctx, `select id, actor_kind, actor_name, at, intent_id, service_id, branch, stage
+	err = tx.QueryRow(ctx, `select id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage
 		from `+Table+` where id = $1 for update`, itemID).
-		Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID, &it.Branch, &current)
+		Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID, &it.AreaID, &it.Branch, &current)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, itemID)
 	} else if err != nil {
