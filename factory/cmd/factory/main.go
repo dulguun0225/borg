@@ -10,9 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/reconciler"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
@@ -34,10 +37,13 @@ func main() {
 }
 
 // subcommands is what the crude interface offers, in the order the usage message
-// lists them. run and walk are the path and the link walk; the other five are
-// duty 8 and duty 9 — everything an owner authors, the pins, and the priority an
-// owner reorders a queue with — which have no surface until the four are built.
-const subcommands = "run, walk <deploy-id>, area <name>, author, pin, policy, priority <item-id>"
+// lists them. run and walk are the path and the link walk; watch is the comparison,
+// which is the one thing that closes a watch window; approve is the emergency action
+// at the production deploy row; and the other six are duty 8, duty 9, the priority an
+// owner reorders a queue with, and the People declaration a page routes on — none of
+// which has a surface until the four of M7 are built.
+const subcommands = "run, walk <deploy-id>, watch <service>, approve <item-id>, " +
+	"area <name>, author, pin, policy, priority <item-id>, people [<human>]"
 
 func dispatch(args []string) error {
 	if len(args) == 0 {
@@ -48,6 +54,10 @@ func dispatch(args []string) error {
 		return runCommand(args[1:])
 	case "walk":
 		return walkCommand(args[1:])
+	case "watch":
+		return watchCommand(args[1:])
+	case "approve":
+		return approveCommand(args[1:])
 	case "area":
 		return areaCommand(args[1:])
 	case "author":
@@ -58,9 +68,52 @@ func dispatch(args []string) error {
 		return policyCommand(args[1:])
 	case "priority":
 		return priorityCommand(args[1:])
+	case "people":
+		return peopleCommand(args[1:])
 	default:
 		return fmt.Errorf("factory: %q is none of %s", args[0], subcommands)
 	}
+}
+
+// secretsResolver loads the secrets file, which every command that reaches a target
+// needs and which is where a mistyped path is caught before anything is opened.
+func secretsResolver(path string) (*secretref.Resolver, error) {
+	return secretref.Load(path)
+}
+
+// deployCredential is the reference the target seam requires on every operation. It
+// is a name and never a value: what sits behind the seam resolves it, and nothing sits
+// behind this one.
+func deployCredential() secretref.Ref { return secretref.MustNew(deployCredentialName) }
+
+// localTargetAt is how every command in this interface makes a target: one local
+// process per service in one directory.
+func localTargetAt(dir string) targetseam.Target { return localtarget.New(dir) }
+
+// openReconciler opens the reconciler's own store where one is reachable, and
+// returns nothing where it is not. Nothing here applies its schema — that store is
+// the reconciler's and a factory that created it would own it — so a store the
+// reconciler has never run against reads as absent, which is a factory with no
+// reconciler installed and is a state the design has.
+//
+// The absence is not an error. Installing the reconciler is substrate outside the
+// twelve duties, and a factory that refused to run without one would make it a
+// requirement the design does not make.
+func openReconciler(ctx context.Context) (*pgxpool.Pool, func(), error) {
+	pool, err := reconciler.Open(ctx, reconciler.URL())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "no reconciler store at %s, so nothing checks this factory's records against what runs: %v\n",
+			reconciler.URL(), err)
+		return nil, func() {}, nil
+	}
+	if _, err := reconciler.LastComparisons(ctx, pool, ""); err != nil {
+		// The store is reachable and holds no schema, which is a reconciler that has
+		// never run. Applying it here is what this must not do.
+		fmt.Fprintln(os.Stderr, "the reconciler's store holds no schema, so it has never run; `reconciler pass` is what creates it")
+		pool.Close()
+		return nil, func() {}, nil
+	}
+	return pool, pool.Close, nil
 }
 
 // statements is -intent given more than once, one intent per candidate. It is a
@@ -96,6 +149,8 @@ func runCommand(args []string) error {
 	flags.Var(&intents, "intent", "an intent's statement, given once per candidate; prompted for one when absent")
 	pace := flags.Duration("pace", 2*time.Second, "the least time between two model calls; 0 sends them back to back")
 	ceiling := flags.Int("candidate-environments", 8, "how many candidate environments this substrate has room for at once; a candidate that meets it waits, and the wait is written into the log")
+	watchFor := flags.Duration("watch", time.Minute, "how long to watch this run's own windows before leaving what is open, open; `factory watch` continues from there")
+	watchEvery := flags.Duration("watch-every", time.Second, "how often to read the quantity while watching")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -108,7 +163,7 @@ func runCommand(args []string) error {
 		}
 	}
 
-	resolver, err := secretref.Load(*secrets)
+	resolver, err := secretsResolver(*secrets)
 	if err != nil {
 		return err
 	}
@@ -122,6 +177,11 @@ func runCommand(args []string) error {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		return err
 	}
+	reconcilerStore, shut, err := openReconciler(ctx)
+	if err != nil {
+		return err
+	}
+	defer shut()
 
 	// One buffered reader over standard input, shared between the prompt
 	// below and the path: a second reader would lose whatever this one has
@@ -152,10 +212,10 @@ func runCommand(args []string) error {
 		),
 		// One target per environment: production's is the directory named here, and
 		// each candidate environment's is a directory of its own under it.
-		targets: newTargetSet(func(dir string) targetseam.Target { return localtarget.New(dir) }),
+		targets: newTargetSet(localTargetAt),
 		dir:     *targets,
 
-		credential:       secretref.MustNew(deployCredentialName),
+		credential:       deployCredential(),
 		in:               in,
 		out:              os.Stdout,
 		human:            *human,
@@ -163,6 +223,9 @@ func runCommand(args []string) error {
 		area:             *areaName,
 		repo:             *repo,
 		candidateCeiling: *ceiling,
+		reconciler:       reconcilerStore,
+		watchFor:         *watchFor,
+		watchEvery:       *watchEvery,
 	}, intents)
 	return err
 }

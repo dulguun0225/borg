@@ -47,17 +47,52 @@ type Policy interface {
 	AtGate(ctx context.Context, s policy.Subjects) (policy.Applied, error)
 }
 
+// Reconciler is what the gate asks about the reconciler's own store when the
+// production deploy row fires: whether a mismatch stands for this service, and
+// what disagrees. It is an interface because that store is not the factory's — no
+// factory component may write it, and a gate that imported the package owning it
+// would be a gate holding a second pool. [NoReconciler] is what a factory with
+// none installed is composed with.
+//
+// The design puts this read at the moment the row fires and nowhere else, which
+// is the same rule every other check a gate makes keeps.
+type Reconciler interface {
+	// Mismatch is whether an uncleared mismatch stands for the service, and what
+	// disagrees, in words a human reads on the opening row.
+	Mismatch(ctx context.Context, serviceID string) (bool, string, error)
+}
+
+// NoReconciler is the answer of a factory with no reconciler installed: no
+// mismatch, ever. It is a value rather than a nil interface, so that a factory
+// composed without one says so and a caller cannot forget to check.
+//
+// What it costs is what the design says installing the reconciler buys: with none
+// installed, every check the factory makes reads a record the factory wrote, so a
+// factory whose records are wrong reports itself healthy and nothing contradicts
+// it. That is visible in what the crude interface prints and nowhere else.
+type NoReconciler struct{}
+
+// Mismatch is never one.
+func (NoReconciler) Mismatch(context.Context, string) (bool, string, error) { return false, "", nil }
+
 // Gate is the gate component: it appends a decision's two rows through the log's
 // writer, asking the score and the policy before the first.
 type Gate struct {
-	log    *decisionlog.Writer
-	score  Score
-	policy Policy
+	log        *decisionlog.Writer
+	score      Score
+	policy     Policy
+	reconciler Reconciler
 }
 
-// New returns the gate over the log, the score, and the policy.
-func New(log *decisionlog.Writer, s Score, p Policy) *Gate {
-	return &Gate{log: log, score: s, policy: p}
+// New returns the gate over the log, the score, the policy, and the reconciler's
+// store. A nil reconciler is [NoReconciler]: composing a factory without one is
+// something a caller does deliberately, and a gate that panicked on it would make
+// the reconciler required where the design makes installing it the owner's.
+func New(log *decisionlog.Writer, s Score, p Policy, r Reconciler) *Gate {
+	if r == nil {
+		r = NoReconciler{}
+	}
+	return &Gate{log: log, score: s, policy: p, reconciler: r}
 }
 
 // Firing is what fires the gate: the row, the records it decides over, what the
@@ -102,6 +137,11 @@ type Opened struct {
 	HumanDecides bool
 	// WhyHuman is what put a human at the row, and is empty where none is.
 	WhyHuman string
+	// Mismatch is what the reconciler found disagreeing with what runs, and is
+	// empty where it found nothing and at every row but the production deploy. It
+	// is a field of its own beside WhyHuman because a human deciding here has to
+	// read what disagrees and not only that something does.
+	Mismatch string
 }
 
 // The two reasons a human decides, in the words the opening row stores.
@@ -114,6 +154,11 @@ const (
 	// WhyBoth is both at once, which is worth telling apart from either: an
 	// owner withdrawing the pin would not remove the human.
 	WhyBoth = "the number is at or above the threshold in force, and a pin adds a human"
+	// WhyMismatch is a record the reconciler found disagreeing with what runs. It
+	// is the one reason a human decides that is neither the score's nor an owner's,
+	// and it is appended to whichever of the three above also holds — an owner
+	// clearing the mismatch would not remove a human the number put there.
+	WhyMismatch = HoldReconcilerMismatch
 )
 
 // OpeningPayload is what the opening row says. It names the row, the records
@@ -144,6 +189,12 @@ type OpeningPayload struct {
 	HumanDecides   bool              `json:"human_decides"`
 	WhyHuman       string            `json:"why_human"`
 	WaitsOn        string            `json:"waits_on"`
+	// Mismatch is what the reconciler found disagreeing with what runs, and is
+	// empty on every row that found none. It is on the opening row because a human
+	// approving through it is saying the record is wrong and the deploy should
+	// proceed anyway, which is a verdict nobody can read against a row that does
+	// not say what disagreed.
+	Mismatch string `json:"reconciler_mismatch,omitempty"`
 }
 
 // ClosingPayload is what the closing row says: the verdict, what the human typed
@@ -200,13 +251,30 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", f.Row, err)
 	}
 
+	// The reconciler's store, read at the production deploy row and at no other:
+	// what it holds is a disagreement about what is running in production, and no
+	// other row decides a deploy into it. A mismatch puts a human here whatever the
+	// number reads, because nothing the factory can decide on the record is worth
+	// deciding while the record is the thing in doubt.
+	mismatch := ""
+	if f.Row == DeployToProduction {
+		found, why, err := g.reconciler.Mismatch(ctx, f.ServiceID)
+		if err != nil {
+			return Opened{}, fmt.Errorf("gate: reading the reconciler's store for %s: %w", f.ServiceID, err)
+		}
+		if found {
+			mismatch = why
+		}
+	}
+
 	overThreshold := assessment.Number >= applied.Threshold
 	opened := Opened{
 		Gate:         f.Row,
 		Assessment:   assessment,
 		Applied:      applied,
-		HumanDecides: overThreshold || applied.HumanPinned,
-		WhyHuman:     why(overThreshold, applied.HumanPinned),
+		HumanDecides: overThreshold || applied.HumanPinned || mismatch != "",
+		WhyHuman:     why(overThreshold, applied.HumanPinned, mismatch != ""),
+		Mismatch:     mismatch,
 	}
 
 	waitsOn := ""
@@ -234,6 +302,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		HumanDecides:   opened.HumanDecides,
 		WhyHuman:       opened.WhyHuman,
 		WaitsOn:        waitsOn,
+		Mismatch:       opened.Mismatch,
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload: %w", err)
@@ -347,15 +416,26 @@ func blocked(criteria []CriterionResult) int {
 	return n
 }
 
-func why(overThreshold, pinned bool) string {
+// why is what put a human at the row. The score's number and a pin are the two
+// the design gives every row, and their four combinations are the three constants
+// above; a mismatch is appended rather than replacing either, because clearing it
+// would not remove a human the number put there.
+func why(overThreshold, pinned, mismatch bool) string {
+	reason := ""
 	switch {
 	case overThreshold && pinned:
-		return WhyBoth
+		reason = WhyBoth
 	case overThreshold:
-		return WhyOverThreshold
+		reason = WhyOverThreshold
 	case pinned:
-		return WhyPinned
+		reason = WhyPinned
+	}
+	switch {
+	case !mismatch:
+		return reason
+	case reason == "":
+		return WhyMismatch
 	default:
-		return ""
+		return reason + ", and " + WhyMismatch
 	}
 }

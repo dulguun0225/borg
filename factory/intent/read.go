@@ -30,6 +30,37 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Intent, error) {
 	return in, nil
 }
 
+// Unrefined is the oldest unrefined intent whose statement is exactly this one, and
+// false where none is waiting. It reads no source: an intent waiting to be refined is
+// waiting whoever wrote it, and an interface that took one in on behalf of an owner
+// should not take in a second copy of what a detector already asked for.
+//
+// It is what a caller working from a statement rather than an intent id needs, which
+// is every caller that has not got a surface to pick one on. What matching on the
+// statement costs is a false match where two intents say exactly the same thing, so an
+// owner typing a statement character for character equal to one already waiting joins
+// that intent instead of raising their own.
+func Unrefined(ctx context.Context, pool *pgxpool.Pool, statement string) (Intent, bool, error) {
+	if statement == "" {
+		return Intent{}, false, nil
+	}
+	var in Intent
+	var kind, source, state string
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds
+		from `+Table+` where statement = $1 and state = $2 order by at, id limit 1`,
+		statement, string(StateUnrefined)).
+		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Intent{}, false, nil
+	} else if err != nil {
+		return Intent{}, false, fmt.Errorf("intent: reading the unrefined intent for a statement: %w", err)
+	}
+	in.Actor.Kind = record.Kind(kind)
+	in.Source = Source(source)
+	in.State = State(state)
+	return in, true, nil
+}
+
 // Questions is every question of one intent, in the order they were asked.
 // The order is the round and not the timestamp, because the round is what the
 // interview counts.

@@ -122,6 +122,12 @@ var theResponse = regexp.MustCompile(`shall respond (.+)\.$`)
 // criterion the prompt names.
 type fakeModel struct {
 	specCalls int
+	// failEvery is how often the program this fake writes emits a failure rather
+	// than an ok: nothing at zero, every unit at one, every other unit at two. It is
+	// what a deliberately bad deploy is — an implementation that passes every
+	// criterion in force and fails a share of the work it does, which is the shape of
+	// defect the criteria cannot see and the watch window exists for.
+	failEvery int
 }
 
 func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Reply, error) {
@@ -139,13 +145,28 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 				}, nil
 			}
 		}
+		// A revert, whose intent the comparison wrote at a rollback. Nothing on the item
+		// says it is one — this reads the statement, which is all a spec author ever has.
+		//
+		// It introduces a criterion because the spec author's protocol requires exactly
+		// one per spec version, which is a simplification M1 made and not something the
+		// design asks for: a revert restores a behaviour the service already promises, so
+		// the honest version introduces none. What the simplification costs is one
+		// criterion per revert that nobody asked for.
+		if strings.Contains(user, "Revert release") {
+			return agent.Reply{
+				Text: "SPEC:\nRestore the behaviour the condemned release changed, leaving every criterion in force as it is.\n" +
+					"CRITERION: When asked what it was restored from, the system shall respond harm.",
+				Tokens: 19,
+			}, nil
+		}
 		return agent.Reply{}, fmt.Errorf("fake model: the spec author's prompt names no statement this fake authors for")
 	case agent.ImplementerSystemPrompt:
 		named := briefCriterion.FindAllStringSubmatch(user, -1)
 		if len(named) == 0 {
 			return agent.Reply{}, fmt.Errorf("fake model: the implementer's prompt names no criterion")
 		}
-		text, err := implementerReply(named)
+		text, err := implementerReply(named, m.failEvery)
 		if err != nil {
 			return agent.Reply{}, err
 		}
@@ -167,12 +188,10 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 // each adds the files of the criterion it introduced and rewrites the files of the
 // criteria already in force with the same bytes, so no two sides of the merge
 // change one file differently.
-func implementerReply(named [][]string) (string, error) {
-	files := []string{
+func implementerReply(named [][]string, failEvery int) (string, error) {
+	files := append([]string{
 		"=== FILE go.mod ===", "module demo", "", "go 1.24", "=== END ===",
-		"=== FILE main.go ===", "package main", "", `import "time"`, "",
-		"func main() {", "\tfor {", "\t\ttime.Sleep(time.Hour)", "\t}", "}", "=== END ===",
-	}
+	}, mainGo(failEvery)...)
 	for _, match := range named {
 		id, sentence := match[1], match[2]
 		response := theResponse.FindStringSubmatch(sentence)
@@ -200,6 +219,61 @@ func implementerReply(named [][]string) (string, error) {
 		)
 	}
 	return strings.Join(files, "\n"), nil
+}
+
+// interviewed is a fake whose one interview round is already behind it, which is
+// what a test swapping the model in mid-way needs: the interview is one round or none
+// per intent, and a fresh fake would ask its question again to a reader with nothing in
+// it.
+func interviewed(failEvery int) *fakeModel { return &fakeModel{specCalls: 1, failEvery: failEvery} }
+
+// mainGo is the program every one of these fakes writes, and it is the one place
+// this test does what the implementer's standing instruction asks: the program runs
+// as a long-lived process, exercises its own behaviour over and over, and appends one
+// line per exercise to the file the environment names. Without that the comparison
+// reads nothing, every window ends at its cap, and the whole of this milestone is
+// untestable — which is the instruction earning its place rather than decorating the
+// prompt.
+//
+// failEvery is what makes a deploy deliberately bad: nothing at zero, every other
+// unit at two. The failure is in no criterion's path, so a build with it passes every
+// criterion in force and is condemned by its window instead — which is the shape of
+// defect the criteria cannot see.
+//
+// The file's content depends on failEvery and on nothing else, so two good candidates
+// of one service write identical bytes and their merge does not conflict, and a run
+// that writes the good version over the bad one is a real revert.
+func mainGo(failEvery int) []string {
+	emit := `"ok"`
+	if failEvery == 1 {
+		emit = `"error"`
+	} else if failEvery > 1 {
+		emit = fmt.Sprintf("map[bool]string{true: \"error\", false: \"ok\"}[n%%%d == 0]", failEvery)
+	}
+	return []string{
+		"=== FILE main.go ===",
+		"package main",
+		"",
+		`import (`,
+		`	"os"`,
+		`	"time"`,
+		`)`,
+		"",
+		"func main() {",
+		"\tsignal := os.Getenv(\"BORG_SIGNAL\")",
+		"\tfor n := 1; ; n++ {",
+		"\t\tif signal != \"\" {",
+		"\t\t\tf, err := os.OpenFile(signal, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)",
+		"\t\t\tif err == nil {",
+		"\t\t\t\t_, _ = f.WriteString(" + emit + " + \"\\n\")",
+		"\t\t\t\t_ = f.Close()",
+		"\t\t\t}",
+		"\t\t}",
+		"\t\ttime.Sleep(time.Millisecond)",
+		"\t}",
+		"}",
+		"=== END ===",
+	}
 }
 
 // conflictingModel wraps a model and has the implementer write one more file
@@ -283,7 +357,7 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 	})
 
 	out := &bytes.Buffer{}
-	return ctx, deps{
+	d := deps{
 		pool:             pool,
 		model:            &fakeModel{},
 		modelName:        theModel,
@@ -297,7 +371,75 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 		area:             theArea,
 		repo:             filepath.Join(t.TempDir(), "demo"),
 		candidateCeiling: theCeiling,
-	}, out
+		watchFor:         theWatchFor,
+		watchEvery:       theWatchEvery,
+	}
+	installWindow(t, ctx, d, 1)
+	return ctx, d, out
+}
+
+// The watch window as these tests author it, and how long a run watches for.
+//
+// The supplied values are deliberately unreachable here and that is the design
+// working rather than the tests fighting it: a size of two in a hundred needs traffic
+// no test generates, and a cap of a day is exactly how long the second release of a
+// service would wait behind a first that can never close clean. So the tests author a
+// coarse size and a short cap, which is what an owner running a quiet service would
+// do, and the run watches for longer than the cap so every window it opens closes
+// before it returns.
+const (
+	theWindowSize       = 0.1
+	theWindowConfidence = 0.95
+	theWindowCap        = 1.0
+	theWatchFor         = 4 * time.Second
+	theWatchEvery       = 50 * time.Millisecond
+)
+
+// installWindow creates the service record and authors the watch window's four on
+// it, before any run has opened a window.
+//
+// The service has to exist first, because those four are fields of its record — and
+// it has to be authored before the first window opens, because a window copies the
+// size, the confidence, and the cap onto itself at the open and an owner authoring
+// afterwards does not move a window already open. Creating the service here is what
+// [TestTheCutReachesAnExistingService] proves the cut is happy with: a service the
+// work changes may exist already, and the cut writes a service's identity once.
+func installWindow(t *testing.T, ctx context.Context, d deps, k float64) {
+	t.Helper()
+	owner := record.Actor{Kind: record.KindHuman, Name: d.human}
+	if _, err := policy.NewFactory(d.pool).Install(ctx, owner, []string{d.dir}, d.credential); err != nil {
+		t.Fatalf("installing the factory: %v", err)
+	}
+	svc, found, err := service.ByName(ctx, d.pool, d.service)
+	if err != nil {
+		t.Fatalf("reading the service: %v", err)
+	}
+	if !found {
+		svc, err = service.NewWriter(d.pool).Create(ctx, cutActor, d.service, d.repo)
+		if err != nil {
+			t.Fatalf("writing the service: %v", err)
+		}
+	}
+	factory := policy.NewFactory(d.pool)
+	for _, authoring := range []struct {
+		what  string
+		write func() (policy.Version, error)
+	}{
+		{"the size", func() (policy.Version, error) {
+			return factory.AuthorWindowSize(ctx, owner, svc.ID, theWindowSize)
+		}},
+		{"the confidence", func() (policy.Version, error) {
+			return factory.AuthorWindowConfidence(ctx, owner, svc.ID, theWindowConfidence)
+		}},
+		{"the cap", func() (policy.Version, error) {
+			return factory.AuthorWindowCap(ctx, owner, svc.ID, theWindowCap)
+		}},
+		{"K", func() (policy.Version, error) { return factory.AuthorK(ctx, owner, svc.ID, k) }},
+	} {
+		if _, err := authoring.write(); err != nil {
+			t.Fatalf("authoring %s of the watch window: %v", authoring.what, err)
+		}
+	}
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -679,6 +821,12 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 // is a build the implementation stage never made.
 func TestTwoCandidatesProceedAtOnce(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	// K at two, so both releases may hold a window open and both may deploy. At the
+	// K of one the score supplies, the second candidate's own environment and its merge
+	// are unaffected and its production deploy waits behind the first release's window —
+	// which is [TestKHoldsTheNextProductionDeploy], and is the serial factory the
+	// design says a K of one is.
+	installWindow(t, ctx, d, 2)
 
 	// One change first, so master exists and the two candidates below are both
 	// based on it. Two candidates cut before any release have no common commit, and
@@ -1167,9 +1315,12 @@ func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 func TestTheCutReachesAnExistingService(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	before, err := service.NewWriter(d.pool).Create(ctx, cutActor, d.service, d.repo)
-	if err != nil {
-		t.Fatalf("writing the service before the run: %v", err)
+	// The service record is already there — newPath writes it, the watch window's
+	// four being fields of it and having to be authored before the first window opens.
+	// What this test is about is what the cut does with one it finds.
+	before, found, err := service.ByName(ctx, d.pool, d.service)
+	if err != nil || !found {
+		t.Fatalf("reading the service before the run: found %v, %v", found, err)
 	}
 
 	res, err := run(ctx, d, []string{theStatement})

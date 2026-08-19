@@ -61,9 +61,37 @@
 # cmd/factory imports nearly everything, because it is the crude interface the
 # four surfaces are deferred with — the one place the whole path is composed,
 # and the one place an owner can author a parameter or place a pin.
+#
+# Four more edges arrive with everything downstream of a deploy.
+#
+# boundary imports nothing, inside this module or out of it beyond the standard
+# library. It is the watch window's arithmetic over numbers its caller has
+# already read, and a package with no dependencies is what makes the one part of
+# this milestone that is a claim about statistics testable as arithmetic alone.
+#
+# comparison is the health signal and imports what it writes and what it reads
+# the graph through: the window and the incident it writes, the intake it raises a
+# revert intent through, the notifier it reports a rollback on, the policy for the
+# window's four parameters, and release, item, and deploy for the records a
+# rollback's target and a settled incident are computed from. What it does not
+# import is a repository or a deploy target — a rollback is behind an interface its
+# caller implements, and so is the quantity it reads. That is the arrangement
+# mergequeue already has.
+#
+# notifier imports people because routing is a read of that declaration, and
+# decisionlog because a page event is a row of the log. It imports nothing that
+# creates a wait: its callers hand it one, so the component that delivers
+# everything waiting on a human depends on none of the things that wait.
+#
+# reconciler imports record and nothing else. Its store is not the factory's — no
+# factory component may write it — so it brings its own opener and its own
+# applier rather than reaching for package postgres, and postgres does not name
+# it. What it shares with the factory is the column conventions, which are about
+# who wrote a row and not about which store it is in.
 
 record
 gatepolicy
+boundary
 decisionlog -> record
 secretref
 targetseam -> secretref
@@ -79,15 +107,22 @@ area -> record gatepolicy
 environment -> record gatepolicy secretref
 factorypolicy -> record gatepolicy item
 pin -> record gatepolicy
+window -> record
+incident -> record
+people -> record
+reconciler -> record
 score -> record gatepolicy artifact decisionlog item release
 policy -> record gatepolicy area environment factorypolicy item pin score secretref service
 gate -> criterion decisionlog policy record score
 mergequeue -> decisionlog gate item record release
+notifier -> decisionlog people record
+comparison -> boundary deploy incident intent item notifier policy record release window
 agent -> secretref
 localtarget -> secretref targetseam
-postgres -> area artifact build criterion decisionlog deploy environment factorypolicy intent item pin policy release score service
+postgres -> area artifact build criterion decisionlog deploy environment factorypolicy incident intent item people pin policy release score service window
 cmd/depscheck
-cmd/factory -> agent area artifact build criterion decisionlog deploy environment factorypolicy gate gatepolicy intent item localtarget mergequeue pin policy postgres record release score secretref service targetseam
+cmd/factory -> agent area artifact boundary build comparison criterion decisionlog deploy environment factorypolicy gate gatepolicy incident intent item localtarget mergequeue notifier people pin policy postgres reconciler record release score secretref service targetseam window
+cmd/reconciler -> deploy environment localtarget postgres reconciler release secretref service targetseam window
 
 test decisionlog -> postgres secretref
 test intent -> postgres
@@ -102,7 +137,13 @@ test area -> postgres
 test environment -> postgres
 test factorypolicy -> postgres
 test pin -> postgres
+test window -> postgres
+test incident -> postgres
+test people -> postgres
+test notifier -> postgres decisionlog people record
+test comparison -> postgres boundary build deploy item record release window
 test score -> postgres criterion gate policy
 test policy -> postgres
 test gate -> postgres
 test mergequeue -> decisionlog gate item postgres record release
+test cmd/reconciler -> build decisionlog record

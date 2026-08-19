@@ -7,17 +7,24 @@ type Strategy string
 
 const (
 	// StrategyStraight is all of the traffic, in place, with none of the
-	// build it replaces left running. It is the one strategy M1 writes: with
-	// a control is M4's row, and widening the CHECK in [DDL] is that
-	// milestone's edit — a CHECK is a schema edit each time a value is added,
-	// which is what listing the values in the store costs.
+	// build it replaces left running. It is the one strategy anything writes
+	// here.
 	StrategyStraight Strategy = "straight"
+	// StrategyWithControl is a share of the traffic, with the build it replaces
+	// serving the rest throughout. Nothing writes it: serving a share means
+	// deciding what fraction of arriving traffic reaches each of two builds, and
+	// a target that runs a release as a local process moves a process instead —
+	// so the row is unavailable on this substrate and every deploy is straight,
+	// which is what [gate.ErrStrategyPinRefused] says at the row that would pin
+	// one. The value is in the CHECK because the record's definition names two
+	// strategies, the arrangement [StatusRolledBack] had until M4 wrote it.
+	StrategyWithControl Strategy = "with_control"
 )
 
 // Strategies is every strategy a deploy may have. The CHECK constraint in
-// [DDL] lists the same one, and TestDDLListsEveryStrategyAndStatus fails if
+// [DDL] lists the same two, and TestDDLListsEveryStrategyAndStatus fails if
 // the two stop agreeing.
-var Strategies = []Strategy{StrategyStraight}
+var Strategies = []Strategy{StrategyStraight, StrategyWithControl}
 
 // Status is where a deploy is. It advances in place: the deploy record is an
 // ordinary record and not a row of the log, and nothing chains it, so a
@@ -30,8 +37,9 @@ const (
 	// StatusComplete means the target took the release. [Current] reads only
 	// completed deploys.
 	StatusComplete Status = "complete"
-	// StatusRolledBack is written by nothing until M4 builds rollback; the
-	// value is in the CHECK because the record's definition names it.
+	// StatusRolledBack is a deploy a rollback undid: the condemned release's own
+	// deploy, and the deploy of every release the same rollback swept. It is
+	// written by [Writer.Undo], which takes the source the rollback names.
 	StatusRolledBack Status = "rolled_back"
 )
 
@@ -56,6 +64,57 @@ type Deploy struct {
 	ReleaseID string
 	Strategy  Strategy
 	Status    Status
+	// Undoing is what a rollback's own deploy record names beside the deploy it
+	// is, and is empty on every other record. [Undoing.Any] is what tells the two
+	// apart.
+	Undoing Undoing
+}
+
+// Undoing is what a rollback names beside being a deploy of the release it
+// returns to: the release it condemned, the releases it swept, the source that
+// called for it, and the intent it raised.
+//
+// The condemned release is a field apart from the swept ones because the hold and
+// the one-revert-per-condemned-release rule both need the two apart: one condemned
+// release is one revert item, and the swept ones were never condemned — their
+// code is still on master and the revert redelivers them.
+//
+// The source is beside the actor rather than instead of it. The actor stays the
+// deploy agent that performed the rollback, and the source is what called for it:
+// [SourceComparisonAtHarm], or [SourceOfHuman] for the named human at Ops with the
+// reason they state.
+//
+// The revert intent is the one stored link from a rollback to the item that
+// undoes it. Nothing on that item says it is a revert — the design keeps it an
+// ordinary item — so this is where the fact lives, on the record of the event that
+// raised it, which is what "revert names what raised its intent" already says. It
+// is what makes the hold computable: the hold stands until the item cut from this
+// intent has a release running.
+type Undoing struct {
+	CondemnedReleaseID string
+	SweptReleaseIDs    []string
+	Source             string
+	// RevertIntentID is empty where the rollback raised none, which is not a
+	// state the comparison produces — it raises the intent before it calls for the
+	// rollback, so a rollback with no intent is one performed by something else.
+	RevertIntentID string
+}
+
+// Any reports whether the record is a rollback's. A rollback always names the
+// release it condemned and a source; nothing else names either.
+func (u Undoing) Any() bool { return u.CondemnedReleaseID != "" }
+
+// SourceComparisonAtHarm is the source of every rollback the factory performs on
+// its own: the comparison having crossed the boundary against the release inside
+// its watch window. A rollback from this source is reported and not requested, and
+// reporting is not paging.
+const SourceComparisonAtHarm = "the comparison at the watch window's harm exit"
+
+// SourceOfHuman is the source of a rollback a human called for from Ops, which is
+// the first phase of veto after the fact. The reason is required because a human's
+// judgment about live software is the whole of the evidence for one.
+func SourceOfHuman(name, reason string) string {
+	return "the human " + name + " at Ops: " + reason
 }
 
 // What a deploy names as the thing deployed: the build it put there, always, and

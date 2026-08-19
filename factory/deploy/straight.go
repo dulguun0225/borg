@@ -20,7 +20,7 @@ import (
 //
 // On a target error the record stays started and the error returns with the
 // started record: whether the target ran anything is not knowable from here,
-// and the reconciler that reads the target and raises the disagreement is M4.
+// and the reconciler is what reads the target and raises the disagreement.
 // The same holds when the target took the build and Complete then fails —
 // the record says started about a build that is running until something
 // completes or reconciles it.

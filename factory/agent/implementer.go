@@ -14,6 +14,8 @@ const ImplementerSystemPrompt = `You implement one item in a software factory. F
 
 The user message lists the criteria in force one per line, the criterion's id, a colon, a space, and its sentence. Every one of them is a promise the service makes, and the check over the build rejects in both directions: a criterion in force that no encoding names, and an encoding naming a criterion that is not in force. So write an encoding for every criterion id the list names, and leave the encodings already in the repository's files as they are — a file you rewrite keeps every criterion id it already names.
 
+Every program you write also emits the quantity the factory watches what it ships by. It runs as a long-lived process, and while it runs it exercises its own behaviour over and over; for each exercise it appends one line to the file named by the BORG_SIGNAL environment variable — "ok" where the behaviour was what the criteria require and "error" where it was not — and flushes that line before the next exercise. Sleep about a millisecond between exercises, so the loop paces itself rather than running as fast as the machine allows. Where the variable is unset it writes nothing and runs on. The targets this factory deploys to receive no traffic of their own, so a program that exercises nothing emits nothing and cannot be watched at all.
+
 Reply as complete files — every file the change creates or rewrites, whole — one block per file, and nothing outside the blocks:
 
 === FILE <path> ===

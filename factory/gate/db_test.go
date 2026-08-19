@@ -125,7 +125,7 @@ func newGate(t *testing.T, s *fakeScore, p *fakePolicy) (context.Context, *pgxpo
 			t.Fatalf("applying decisionlog statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, gate.New(decisionlog.NewWriter(pool), s, p)
+	return ctx, pool, gate.New(decisionlog.NewWriter(pool), s, p, gate.NoReconciler{})
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every

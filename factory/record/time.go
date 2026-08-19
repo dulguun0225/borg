@@ -15,3 +15,13 @@ func FormatTime(t time.Time) string { return t.UTC().Format(TimeLayout) }
 // rather than taking a timestamp from its caller, so what a record says about
 // when it was written is what the writer observed.
 func Now() string { return FormatTime(time.Now()) }
+
+// ParseTime reads a stored timestamp back as a time. Almost nothing needs it:
+// the layout is fixed width and always UTC, so comparing two stored timestamps
+// as text is already comparing them as times, and every ordering in the factory
+// does that instead. What needs a time is a duration — the watch window's cap is
+// an elapsed time against the moment the window opened — and that is what this
+// is for.
+func ParseTime(stored string) (time.Time, error) {
+	return time.Parse(TimeLayout, stored)
+}

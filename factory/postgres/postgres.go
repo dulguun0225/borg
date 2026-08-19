@@ -15,13 +15,16 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorypolicy"
+	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/pin"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
+	"github.com/dulguun0225/borg/factory/window"
 )
 
 // DefaultURL is the development database factory/docker-compose.yml runs. The
@@ -60,6 +63,11 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // into the list here and nothing else — nothing is discovered and nothing
 // registers itself.
 //
+// One store the factory uses is deliberately not here: the reconciler's. It writes
+// into a store of its own that no factory component may write, and a store this
+// function applied would be a store the factory owns — so package reconciler brings
+// its own opener and applier, and its own process calls them.
+//
 // Each statement is written so that applying it to a database that already has
 // it changes nothing, so Apply may run at the start of every process, one
 // process at a time. doc.go says why two at once is not the same thing.
@@ -83,6 +91,9 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"pin", pin.DDL},
 		{"score", score.DDL},
 		{"policy", policy.DDL},
+		{"window", window.DDL},
+		{"incident", incident.DDL},
+		{"people", people.DDL},
 	} {
 		for n, statement := range owner.ddl {
 			if _, err := pool.Exec(ctx, statement); err != nil {

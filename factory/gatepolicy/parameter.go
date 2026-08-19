@@ -94,9 +94,9 @@ type Definition struct {
 	// one. A parameter of KindList has none.
 	Unit string
 	// ReaderAtThisMilestone says which mechanism reads the value in force, and
-	// is empty for a parameter nothing reads yet — which is four of the eight.
-	// It is here so that a printer can say so rather than leaving an owner to
-	// discover that what they authored changed nothing.
+	// is empty for a parameter nothing reads yet — two of the eight now that the
+	// watch window is built. It is here so that a printer can say so rather than
+	// leaving an owner to discover that what they authored changed nothing.
 	ReaderAtThisMilestone string
 }
 
@@ -127,22 +127,26 @@ var Definitions = []Definition{
 	{
 		Parameter: WindowSize, Row: "the watch window's size and confidence",
 		Kind: KindFraction, Direction: DirectionCeiling, Scope: ScopeService,
-		Unit: "the smallest regression ruled out, as a share",
+		Unit:                  "the smallest regression ruled out, as a share",
+		ReaderAtThisMilestone: "the boundary, at every read of the comparison",
 	},
 	{
 		Parameter: WindowConfidence, Row: "the watch window's size and confidence",
 		Kind: KindFraction, Direction: DirectionFloor, Scope: ScopeService,
-		Unit: "the confidence required, as a share",
+		Unit:                  "the confidence required, as a share",
+		ReaderAtThisMilestone: "the boundary, as where it crosses in either direction",
 	},
 	{
 		Parameter: WindowCap, Row: "the watch window's cap",
 		Kind: KindSeconds, Direction: DirectionFloor, Scope: ScopeService,
-		Unit: "seconds",
+		Unit:                  "seconds",
+		ReaderAtThisMilestone: "the comparison, as the exit a window that will never reach its volume takes",
 	},
 	{
 		Parameter: K, Row: "K",
 		Kind: KindCount, Direction: DirectionCeiling, Scope: ScopeService,
-		Unit: "windows open at once, per service",
+		Unit:                  "windows open at once, per service",
+		ReaderAtThisMilestone: "the production deploy row's hold, and how many releases one rollback undoes",
 	},
 }
 

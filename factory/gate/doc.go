@@ -51,24 +51,51 @@
 //
 // # What decides whether a human decides
 //
-// Two things, and either is enough. The number the score reduced the vector to
-// is at or above the threshold in force, or a pin adds a human at the row. A pin
-// can only add: it never removes a human the number put there. [Opened.WhyHuman]
-// says which, because a firing that reads the same to an owner for two different
-// reasons is one they cannot argue with.
+// Three things, and any of them is enough. The number the score reduced the
+// vector to is at or above the threshold in force; a pin adds a human at the row;
+// or, at the production deploy row alone, the reconciler found a record
+// disagreeing with what runs. None of them removes a human another put there — a
+// pin can only add, and clearing a mismatch would not lift a human the number put
+// at the row. [Opened.WhyHuman] says which, because a firing that reads the same to
+// an owner for two different reasons is one they cannot argue with, and
+// [Opened.Mismatch] says what disagreed, because a human approving through one is
+// saying the record is wrong and the deploy should proceed anyway.
+//
+// The mismatch is asked of [Reconciler] rather than read from a table here: that
+// store is not the factory's and no factory component may write it, so a gate that
+// imported the package owning it would be a gate holding a second pool.
+// [NoReconciler] is what a factory with none installed is composed with, and it
+// answers no mismatch ever — which is the state the design describes as a factory
+// whose every check reads a record the factory itself wrote.
 //
 // A hold is the third kind of verdict and the only one that decides nothing: it
 // leaves the event queued with the change still good, counts no attempt against
 // the bound, and teaches the score nothing — which is what separates it from a
 // reject, and why the score's own reader of outcomes ignores it.
 //
-// The factory's own hold is not a verdict and is not fired here. What it is
-// computed from at the two deploy rows is named by [HoldDependencyNotLive] and
-// [HoldNoRoomForAnotherEnvironment], and computing it is the caller's: it reads
-// the item's declared dependencies and the deploy records of their services, and
-// this package imports neither. The rest of the design's conditions — an open
-// window, a rollback whose revert has not shipped, a reconciler mismatch — are
-// records later milestones write.
+// The factory's own hold is not a verdict, and four of the five are not fired
+// here either. This package owns the vocabulary of all five —
+// [HoldDependencyNotLive], [HoldNoRoomForAnotherEnvironment], [HoldKWindowsOpen],
+// [HoldRollbackAwaitingRevert], and [HoldReconcilerMismatch] — so a caller cannot
+// report one under a name of its own, and computing four of them is the caller's:
+// they read the item's declared dependencies, the deploy records of their
+// services, the service's open windows, and its newest rollback, none of which
+// this package imports.
+//
+// The five split on one line, and it is not which record they read. Four lift
+// themselves — a dependency becomes current, an environment is freed, a window
+// closes, a revert ships — so the deploy waits, nothing is decided, and the next
+// firing recomputes; a gate fired for one of them would ask a human to approve
+// through something the factory is about to clear. [HoldReconcilerMismatch] does
+// not lift itself, because every remedy the factory has reads the record in
+// question. That is the one this package fires: it puts a human at the row, and it
+// is what the notifier pages about.
+//
+// Of the four, only [HoldNoRoomForAnotherEnvironment] is written anywhere. The
+// other three are computed from records that already exist, and the design gives
+// such a hold no row of its own — a record for it would be a decision where
+// nothing is decided. What that costs is that how long the factory has been
+// holding is answerable for the written one alone.
 //
 // Who may write what: this package owns no table. It appends into the decision
 // log through [decisionlog.Writer], which owns that table, and it writes nowhere

@@ -33,8 +33,10 @@ import (
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/secretref"
+	"github.com/dulguun0225/borg/factory/window"
 )
 
 // realModelSecrets is the gitignored credential file, relative to this package's
@@ -56,6 +58,12 @@ const realModelPace = 2 * time.Second
 // Statements that work: one behaviour a sentence can state and a test can
 // decide, the module and the standard library named so the build has what it
 // needs, and a port high enough not to meet anything else on the machine.
+//
+// It says nothing about the quantity the factory watches by. That is the
+// implementer's standing instruction and not part of any request, so a statement
+// that asked for it would be testing whether a model can follow a statement rather
+// than whether it follows the prompt — which is the thing here that only a real
+// call answers.
 const realModelStatement = "A Go HTTP service, module borg.demo/realmodel, package main in main.go at the repository root, " +
 	"standard library only. The change must include a go.mod file declaring the module and a Go version. " +
 	"It answers GET /health with status 200 and the body ok, on port 8199. " +
@@ -213,6 +221,37 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 			t.Errorf("%s names score version %q and policy version %q",
 				fired.row, fired.got.scoreVersion, fired.got.policyVersion)
 		}
+	}
+
+	// The watch window, which is the one thing on this stretch a fake model cannot
+	// fail: the implementer is told to emit the quantity the factory watches by, and
+	// whether a real model does what an instruction asks is exactly what only a real
+	// call answers. A build that emitted nothing leaves a window that can end at its
+	// cap and nowhere else, however healthy the service is.
+	if c.windowID == "" {
+		t.Fatalf("no watch window opened over the production deploy:\n%s", out)
+	}
+	w, err := window.Get(ctx, d.pool, c.windowID)
+	if err != nil {
+		t.Fatalf("reading the window: %v", err)
+	}
+	t.Logf("window %s: size %v, confidence %v, cap %vs, clean available %v, exit %q",
+		w.ID, w.Size, w.Confidence, w.CapSeconds, w.CleanAvailable, w.Exit)
+	if w.CleanAvailable {
+		t.Error("the window says clean was available to a service's first release, and there is nothing below it to compare against")
+	}
+	if w.Exit != window.ExitCap {
+		t.Errorf("the window closed %q, and a first release can end at the cap and nowhere else", w.Exit)
+	}
+
+	units, failures, err := countSignal(localtarget.SignalFile(d.dir, rel.BuildID))
+	if err != nil {
+		t.Fatalf("reading the quantity build %s emitted: %v", rel.BuildID, err)
+	}
+	t.Logf("build %s emitted %d unit(s), %d failed", rel.BuildID, units, failures)
+	if units == 0 {
+		t.Errorf("build %s emitted nothing into %s, so this release cannot be watched at all — the implementer is told to append one line per unit of work it does, and what a real model did with that instruction is what this test is for",
+			rel.BuildID, localtarget.SignalFile(d.dir, rel.BuildID))
 	}
 
 	// The walk reaches the statement from the deploy, over a clean chain.

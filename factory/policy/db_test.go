@@ -404,10 +404,10 @@ func TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt(t *testing.T) {
 	}
 }
 
-// TestEverySevenRowsResolveAndFourAreReadByNothing: an owner can author all of
+// TestEverySevenRowsResolveAndTwoAreReadByNothing: an owner can author all of
 // them, and the read says which of them changes anything at this milestone rather
 // than leaving an owner to discover it.
-func TestEverySevenRowsResolveAndFourAreReadByNothing(t *testing.T) {
+func TestEverySevenRowsResolveAndTwoAreReadByNothing(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	authorings := []struct {
@@ -470,8 +470,17 @@ func TestEverySevenRowsResolveAndFourAreReadByNothing(t *testing.T) {
 			read++
 		}
 	}
-	if read != 2 {
-		t.Errorf("%d parameters are read by something at this milestone, want the threshold and the bound", read)
+	// Six of the eight are read by something now that the watch window is built:
+	// the threshold, the bound, and the window's four. The two left are the
+	// item-size target, which nothing sizes an item against yet, and the predicate
+	// catalog, which contracts read.
+	if read != 6 {
+		t.Errorf("%d parameters are read by something at this milestone, want all but the item-size target and the catalog", read)
+	}
+	for _, unread := range []gatepolicy.Parameter{gatepolicy.ItemSizeTarget, gatepolicy.PredicateCatalog} {
+		if e := effectiveOf(t, all, unread); e.ReadBy != "" {
+			t.Errorf("%s says it is read by %q, and nothing reads it yet", unread, e.ReadBy)
+		}
 	}
 
 	// The brief-or-skill threshold is the same parameter on the factory policy

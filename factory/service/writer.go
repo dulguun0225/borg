@@ -109,6 +109,34 @@ func ByName(ctx context.Context, pool *pgxpool.Pool, name string) (Service, bool
 	return s, true, nil
 }
 
+// All is every service, in the order they were created. Its reader is the
+// reconciler's own process, which is the one thing that has to walk every service
+// there is: it compares what each production target runs against what the factory
+// recorded, and nothing tells it which services to ask about.
+//
+// It takes the pool and not a [Writer], for the reason [Get] does — and the
+// reconciler holds no writer of anything in the factory at all.
+func All(ctx context.Context, pool *pgxpool.Pool) ([]Service, error) {
+	rows, err := pool.Query(ctx, selectService+` order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("service: reading the services: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Service
+	for rows.Next() {
+		s, err := scan(rows, "a service")
+		if err != nil {
+			return nil, err
+		}
+		read = append(read, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("service: reading the services: %w", err)
+	}
+	return read, nil
+}
+
 // scan reads one row, turning each null parameter column into an unauthored
 // value rather than a zero.
 func scan(row pgx.Row, named string) (Service, error) {

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/comparison"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
@@ -308,36 +310,37 @@ func (p *path) FastForward(ctx context.Context, _ item.Item, commit string) erro
 }
 
 // productionDeploy is the Deploy to production row: the last row before a release
-// takes traffic, and the one that offers hold and no reject. Its own hold is
-// computed first and writes nothing, the same dependency check the candidate
-// deploy row made, asked now about whether the dependency is live still.
+// takes traffic, and the one that offers hold and no reject.
+//
+// The factory's own holds are computed first. Four of the five lift themselves — a
+// dependency becomes current, a window closes, a revert ships — so the deploy waits,
+// nothing is written, and the next firing recomputes; a gate fired for one of them
+// would ask a human to approve through something the factory is about to clear on
+// its own. Approving through them all the same is `factory approve`, which is the
+// emergency action the design keeps at this row.
+//
+// The fifth is the reconciler's mismatch, and it is not computed here: the gate
+// reads that store itself at the firing, puts a human at the row, and carries what
+// disagreed on the opening row.
 func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 	d := p.d
 	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		return err
 	}
-	held, err := p.dependencyHold(ctx, it)
+	held, err := p.factoryHolds(ctx, it)
 	if err != nil {
 		return err
 	}
 	if held != "" {
 		c.factoryHold = held
 		fmt.Fprintf(d.out, "Release %s waits at %s: %s\n", c.releaseID, gate.DeployToProduction, held)
+		fmt.Fprintln(d.out, "  the factory set this hold over records that already exist, so nothing is written and it lifts itself")
+		fmt.Fprintf(d.out, "  a human may approve through it: `factory approve %s`\n", c.itemID)
 		return nil
 	}
 
-	opened, err := p.gate.Fire(ctx, gate.Firing{
-		Row:             gate.DeployToProduction,
-		ItemID:          c.itemID,
-		BuildID:         c.reverifiedBuildID,
-		ServiceID:       p.svc.ID,
-		AreaID:          p.areaID,
-		EnvironmentID:   p.production.ID,
-		CriteriaInForce: len(c.criteria),
-		Criteria:        c.criteria,
-		Measurement:     c.measurement,
-	})
+	opened, err := p.fireProduction(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -353,14 +356,56 @@ func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 		fmt.Fprintf(d.out, "No attempt is counted and the score learns nothing from a hold; item %s stays where it is\n", c.itemID)
 		return nil
 	}
+	return p.putOnProduction(ctx, c)
+}
 
+// fireProduction fires the production deploy row over one candidate. It is its own
+// function because two callers fire it: the path, and a human approving through a
+// factory hold.
+func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, error) {
+	return p.gate.Fire(ctx, gate.Firing{
+		Row:             gate.DeployToProduction,
+		ItemID:          c.itemID,
+		BuildID:         c.reverifiedBuildID,
+		ServiceID:       p.svc.ID,
+		AreaID:          p.areaID,
+		EnvironmentID:   p.production.ID,
+		CriteriaInForce: len(c.criteria),
+		Criteria:        c.criteria,
+		Measurement:     c.measurement,
+	})
+}
+
+// putOnProduction is what an approval at that row performs: the verified build put
+// on production's target, and the watch window opened over the deploy record that
+// results.
+//
+// The window is opened after the deploy record is written, which is what the design
+// says of it — and the deploy having completed first is what makes the release the
+// window watches one that is actually running. Nothing here closes it: the comparison
+// evaluates every exit, so what this leaves is a window for the watch to finish.
+func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
+	d := p.d
 	// The binary the re-verification built is where it ran, which is the candidate
 	// environment's directory. Copying it is what puts the verified build on
-	// production rather than compiling the same commit a second time.
-	if err := copyFile(filepath.Join(c.environmentDir, c.reverifiedBuildID),
-		filepath.Join(d.dir, c.reverifiedBuildID)); err != nil {
-		return err
+	// production rather than compiling the same commit a second time. A release whose
+	// candidate environment is gone — one deployed a second time, or a revert whose
+	// binary is already here — is deployed from what is already in production's
+	// directory, which nothing removes.
+	from := filepath.Join(c.environmentDir, c.reverifiedBuildID)
+	to := filepath.Join(d.dir, c.reverifiedBuildID)
+	if c.environmentDir != "" {
+		if _, err := os.Stat(from); err == nil {
+			if err := copyFile(from, to); err != nil {
+				return err
+			}
+		}
 	}
+	if _, err := os.Stat(to); err != nil {
+		return fmt.Errorf("factory: build %s is not in production's directory and its candidate environment has none: %w",
+			c.reverifiedBuildID, err)
+	}
+
 	dep, err := deploy.Straight(ctx, p.deploys, d.targets.at(d.dir), deployActor,
 		p.svc.ID, p.svc.Name, p.production.ID,
 		deploy.OfRelease(c.releaseID, c.reverifiedBuildID), d.credential)
@@ -369,5 +414,85 @@ func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 	}
 	c.deployID = dep.ID
 	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production\n", dep.ID, c.releaseID)
+
+	opened, isNew, err := p.comparison.Open(ctx, comparison.Watching{
+		ID: p.svc.ID, Name: p.svc.Name, EnvironmentID: p.production.ID,
+	}, dep.ID, c.releaseID, p.scoreVersion)
+	if err != nil {
+		return err
+	}
+	if !isNew {
+		fmt.Fprintf(d.out, "No window opens: release %s was watched already, by window %s\n", c.releaseID, opened.ID)
+		return nil
+	}
+	c.windowID = opened.ID
+	clean := "clean is available to it"
+	if !opened.CleanAvailable {
+		clean = "clean is not available to it, nothing below it being there to compare against — so it can end only at its cap"
+	}
+	fmt.Fprintf(d.out, "Watch window %s opened over deploy %s: size %v, confidence %v, cap %vs; %s\n",
+		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, clean)
 	return nil
+}
+
+// factoryHolds is every hold the factory sets at the production deploy row that
+// lifts itself, in the order it is worth reporting them: a declared dependency that
+// is not live still, the service already holding as many watch windows open as K
+// allows, and a rollback whose revert has not shipped. It returns the words the first
+// one found is reported with, and nothing where none holds.
+//
+// None of the three is written anywhere. Each is computed from records that already
+// exist — the deploy records of the dependencies' services, the open windows, the
+// newest rollback — and the design gives such a hold no row: a record for it would be
+// a decision where nothing is decided, and re-testing would append one every time the
+// gate re-fired. What that costs is that how long the factory has been holding is
+// answerable for the substrate's ceiling alone, which is the one wait at a deploy row
+// that is written.
+func (p *path) factoryHolds(ctx context.Context, it item.Item) (string, error) {
+	held, err := p.dependencyHold(ctx, it)
+	if err != nil || held != "" {
+		return held, err
+	}
+	if held, err := p.windowHold(ctx); err != nil || held != "" {
+		return held, err
+	}
+	return p.rollbackHold(ctx, it)
+}
+
+// windowHold is K: an open window blocks nothing until the service holds as many as
+// K allows, and then the next production deploy waits. It is a wait on the factory
+// rather than on a human, so it does not page — it shows only to a reader who asks,
+// which on this interface is this line.
+func (p *path) windowHold(ctx context.Context) (string, error) {
+	room, open, k, err := p.comparison.Room(ctx, p.svc.ID)
+	if err != nil || room {
+		return "", err
+	}
+	return fmt.Sprintf("%s — %d open against a K of %d, and this is a wait on the factory rather than on anybody",
+		gate.HoldKWindowsOpen, open, k), nil
+}
+
+// rollbackHold is the hold a rollback leaves: master keeps the change that was
+// rolled back and the next item was built on master, so deploying it would redeliver
+// the defect just removed.
+//
+// It does not hold the revert — a dependency hold that blocked its own dependency
+// would never lift — and what says which item is the revert is the intent the
+// rollback's own deploy record names. That link is the one stored fact connecting the
+// two, nothing on the item saying it is a revert.
+func (p *path) rollbackHold(ctx context.Context, it item.Item) (string, error) {
+	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, p.svc.ID, p.production.ID)
+	if err != nil || !found {
+		return "", err
+	}
+	shipped, err := comparison.Shipped(ctx, p.d.pool, p.production.ID, rollback.Undoing.RevertIntentID)
+	if err != nil || shipped {
+		return "", err
+	}
+	if it.IntentID != "" && it.IntentID == rollback.Undoing.RevertIntentID {
+		return "", nil
+	}
+	return fmt.Sprintf("%s — rollback %s condemned release %s and its revert, intent %s, has not shipped",
+		gate.HoldRollbackAwaitingRevert, rollback.ID, rollback.Undoing.CondemnedReleaseID,
+		rollback.Undoing.RevertIntentID), nil
 }

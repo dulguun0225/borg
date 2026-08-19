@@ -130,6 +130,26 @@ const (
 	// anywhere: it is not a record and no parameter of an owner's limits it, so it
 	// goes into the log as a wait, with the component that met it as the actor.
 	HoldNoRoomForAnotherEnvironment = "the substrate has no room for another candidate environment"
+	// HoldKWindowsOpen is the service already holding as many watch windows open
+	// as K allows. It is computed from records that already exist — the open
+	// windows — so it writes nothing and is recomputed at every firing, and it
+	// lifts itself when one of those windows closes. It is a wait on the factory
+	// and not on a human, which is why it does not page.
+	HoldKWindowsOpen = "the service holds as many watch windows open as K allows"
+	// HoldRollbackAwaitingRevert is a rollback whose revert has not shipped. Master
+	// keeps the change that was rolled back and the next item was built on master,
+	// so deploying it would redeliver the defect just removed. It writes nothing,
+	// it lifts itself when the revert ships, and it does not hold the revert — a
+	// dependency hold that blocked its own dependency would never lift.
+	HoldRollbackAwaitingRevert = "a rollback's revert has not shipped, so deploying would redeliver the defect it removed"
+	// HoldReconcilerMismatch is a record the reconciler found disagreeing with what
+	// runs. It is the other kind of hold and the only one of it: no evidence the
+	// factory can gather lifts it, because every remedy the factory has reads the
+	// record in question. So this is the one factory hold that fires the row rather
+	// than stopping the deploy before a decision is opened — a human decides, and
+	// the notifier pages, because the service cannot receive its own fixes until
+	// one of them ends it.
+	HoldReconcilerMismatch = "the reconciler found a record disagreeing with what runs"
 )
 
 // ErrStrategyPinRefused is returned for the production deploy row's third

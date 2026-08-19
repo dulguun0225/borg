@@ -77,6 +77,51 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Release, b
 	return r, true, nil
 }
 
+// Above is every release of the service numbered above number, lowest first. It
+// is what a rollback sweeps: master is linear, so the release above a bad one
+// includes it, and returning to a target below the bad one undoes every release
+// above that target.
+//
+// It answers what is above and not how far above. How many a rollback may sweep is
+// bounded by K, which is how many watch windows a service may hold open at once and
+// is a parameter of an owner's rather than anything this package reads.
+func Above(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int64) ([]Release, error) {
+	rows, err := pool.Query(ctx, selectRelease+`
+		where service_id = $1 and number > $2 order by number`, serviceID, number)
+	if err != nil {
+		return nil, fmt.Errorf("release: reading the releases of %s above %d: %w", serviceID, number, err)
+	}
+	defer rows.Close()
+
+	var read []Release
+	for rows.Next() {
+		r, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("release: reading a release of %s above %d: %w", serviceID, number, err)
+		}
+		read = append(read, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("release: reading the releases of %s above %d: %w", serviceID, number, err)
+	}
+	return read, nil
+}
+
+// Below is whether the service has any release numbered below number. It is what
+// says whether the clean exit is available to a window at all: a release with
+// nothing below it has no baseline to be compared against, so nothing about it is
+// ruled out by watching, and the design gives the choice of a control from the
+// second release onward.
+func Below(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int64) (bool, error) {
+	var count int
+	err := pool.QueryRow(ctx, `select count(*) from `+Table+`
+		where service_id = $1 and number < $2`, serviceID, number).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("release: counting the releases of %s below %d: %w", serviceID, number, err)
+	}
+	return count > 0, nil
+}
+
 // CountForService is how many releases the service has, leaving out the
 // releases of exceptItemID.
 func CountForService(ctx context.Context, pool *pgxpool.Pool, serviceID, exceptItemID string) (int, error) {

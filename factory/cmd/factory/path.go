@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -13,21 +14,26 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/comparison"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
+	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/reconciler"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/targetseam"
+	"github.com/dulguun0225/borg/factory/window"
 )
 
 // deps is everything the path composes, explicit so the end-to-end test
@@ -56,12 +62,25 @@ type deps struct {
 	// owner's limits it. A candidate that meets it waits, and the wait is written
 	// into the log because it is not a record and no gate fired.
 	candidateCeiling int
+	// reconciler is the reconciler's own store, read and never written: the gate
+	// asks it for a mismatch at the production deploy row, and the notifier reads
+	// it for both ends of the page about one. It is nil where no reconciler is
+	// installed, which is a factory whose every check reads a record the factory
+	// wrote — the state the reconciler exists to remove.
+	reconciler *pgxpool.Pool
+	// watchFor is how long a run watches its own windows before it leaves them open,
+	// and watchEvery is how often it reads the quantity while it does. A window's
+	// duration is measured and never set, so a run cannot know in advance how long to
+	// wait: what it gives up on, `factory watch` continues.
+	watchFor   time.Duration
+	watchEvery time.Duration
 }
 
 // targetSet is one [targetseam.Target] per environment, made on demand and kept.
-// Kept, because what a local target has running is held in its own memory: asking
-// twice for the target of one directory and getting two would be two views of one
-// place, and the second would report nothing running.
+// It was kept because what a local target had running was in its own memory, and
+// that is no longer so — the target records what runs in its own directory, which is
+// what let a second process read it. What the set is now is the set of directories
+// this run has deployed into, which is what its caller stops in cleanup.
 type targetSet struct {
 	make func(dir string) targetseam.Target
 	made map[string]targetseam.Target
@@ -150,6 +169,10 @@ type candidate struct {
 	queueWaitRow      string
 
 	deployID string
+	// windowID is the watch window opened over the production deploy, and is empty
+	// where none was — a rollback opens none, and neither does a redeploy of a release
+	// already watched.
+	windowID string
 }
 
 // The component actors of the path, named per the M1 convention. The two
@@ -189,6 +212,17 @@ type path struct {
 	deploys    *deploy.Writer
 	candidates *environment.Candidates
 	queue      *mergequeue.Queue
+	// scoreVersion is the version in force for this run, held because a window
+	// stores the two versions in force at its open and the comparison does not append
+	// one of its own.
+	scoreVersion string
+	// The three of everything downstream of a deploy: the comparison the run watches
+	// with, the notifier it tells a
+	// human through, and the reads of the reconciler's own store. The notifier is
+	// nil for no install and the mismatch reads are nil where no reconciler is
+	// installed, which is what [gate.NoReconciler] answers for.
+	comparison *comparison.Comparison
+	notifier   *notifier.Notifier
 
 	// byItem is the candidate of each item the run has touched, so the queue's
 	// re-verification can write what it produced onto the candidate the run reports.
@@ -200,7 +234,10 @@ type path struct {
 	authored map[string]bool
 }
 
-var _ mergequeue.Repository = (*path)(nil)
+var (
+	_ mergequeue.Repository = (*path)(nil)
+	_ comparison.Rollbacker = (*path)(nil)
+)
 
 // run walks the whole path once for each intent it is given, from a statement to
 // a running release, stopping with the first error. Every candidate reaches each
@@ -262,9 +299,15 @@ func run(ctx context.Context, d deps, statements []string) (shipped, error) {
 	// 5. The production deploys, in the order the numbers were minted — a
 	// numbered release waiting to deploy is ordered by its number and by nothing
 	// else, so an owner's priority reaches every queue before this one and none
-	// after it.
+	// after it. The one exception is a revert, which deploys ahead of every release
+	// the rollback's hold is holding: those cannot deploy until it ships, so making it
+	// wait behind them would be the same deadlock one step further out.
+	ordered, err := p.deployOrder(ctx, s.candidates)
+	if err != nil {
+		return s, err
+	}
 	deployed := ""
-	for _, c := range inNumberOrder(s.candidates) {
+	for _, c := range ordered {
 		if err := p.productionDeploy(ctx, c); err != nil {
 			return s, err
 		}
@@ -273,11 +316,26 @@ func run(ctx context.Context, d deps, statements []string) (shipped, error) {
 		}
 	}
 
-	// 6. The walk, the demonstration's direction: from the last deploy back to
-	// the intent, every step a field and none reconstructed.
+	// 6. The watch: everything downstream of a deploy, read until every window this
+	// run opened has closed. A window's duration is measured and never set, so what
+	// this gives up on is left open for `factory watch` to finish rather than waited
+	// out here.
+	if p.svc.ID != "" {
+		if err := p.watchTo(ctx, time.Now().Add(d.watchFor), d.watchEvery); err != nil {
+			return s, err
+		}
+	}
+
+	// 7. The walk, the demonstration's direction: from the last deploy back to
+	// the intent, every step a field and none reconstructed. A run whose release was
+	// condemned walks the rollback's own deploy record, which is the deploy that is
+	// live at the end of it.
 	if deployed == "" {
 		fmt.Fprintln(d.out, "Nothing reached production, so there is no deploy to walk back from")
 		return s, nil
+	}
+	if live, running, err := deploy.Current(ctx, d.pool, p.svc.ID, p.production.ID); err == nil && running {
+		deployed = live.ID
 	}
 	return s, walk(ctx, d.pool, d.out, deployed)
 }
@@ -323,10 +381,37 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion), p.policy)
+	p.scoreVersion = scoreVersion.ID
+
+	// The reconciler's store, read and never written. Where none is installed the
+	// gate is composed with [gate.NoReconciler], which answers no mismatch ever — so a
+	// factory without one decides exactly as it did before this milestone, and the
+	// absence shows in the line below rather than as a failure.
+	var mismatches gate.Reconciler = gate.NoReconciler{}
+	if d.reconciler != nil {
+		mismatches = reconciler.NewStore(d.reconciler)
+		fmt.Fprintln(d.out, "A reconciler is installed; the production deploy row reads its store at every firing")
+	} else {
+		fmt.Fprintln(d.out, "No reconciler is installed, so every check this factory makes reads a record it wrote itself")
+	}
+	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion), p.policy, mismatches)
 	p.queue = mergequeue.New(d.pool, p.log, release.NewWriter(d.pool), p.dispatch, p)
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
+
+	// The notifier and the comparison. The notifier is composed with the owner's
+	// name because a page widens to the owner and the design gives the owner no record;
+	// the comparison is composed with this same value as its rollbacker, the deploy
+	// agent being what reaches a target.
+	p.notifier, err = notifier.New(d.pool, p.log, terminal{out: d.out}, d.human)
+	if err != nil {
+		return nil, err
+	}
+	p.comparison, err = comparison.New(d.pool, window.NewWriter(d.pool), incident.NewWriter(d.pool),
+		p.intake, p.policy, p.notifier, signalFiles{dir: d.dir}, p)
+	if err != nil {
+		return nil, err
+	}
 
 	// The area, where the run names one. Declaring one is an owner's write and
 	// the owner is the human at this terminal, so a name not yet declared is
@@ -359,9 +444,15 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	return p, nil
 }
 
-// inNumberOrder is the candidates that were minted a release, lowest number
-// first. A candidate with no release is left out: there is nothing to deploy.
-func inNumberOrder(candidates []*candidate) []*candidate {
+// deployOrder is the candidates that were minted a release, in the order they
+// deploy: the revert of an outstanding rollback first, and then the rest by number,
+// lowest first. A candidate with no release is left out — there is nothing to deploy.
+//
+// The number orders deploys and a revert is the one exception the design makes to
+// that. Every release the rollback's hold is holding cannot deploy until the revert
+// ships, so making the revert wait behind them by number would be the same deadlock
+// one step further out.
+func (p *path) deployOrder(ctx context.Context, candidates []*candidate) ([]*candidate, error) {
 	var minted []*candidate
 	for _, c := range candidates {
 		if c.releaseID != "" {
@@ -373,7 +464,31 @@ func inNumberOrder(candidates []*candidate) []*candidate {
 			minted[b], minted[b-1] = minted[b-1], minted[b]
 		}
 	}
-	return minted
+	if p.svc.ID == "" {
+		return minted, nil
+	}
+
+	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, p.svc.ID, p.production.ID)
+	if err != nil || !found {
+		return minted, err
+	}
+	reverts, rest := []*candidate{}, []*candidate{}
+	for _, c := range minted {
+		it, err := item.Get(ctx, p.d.pool, c.itemID)
+		if err != nil {
+			return nil, err
+		}
+		if it.IntentID != "" && it.IntentID == rollback.Undoing.RevertIntentID {
+			reverts = append(reverts, c)
+			continue
+		}
+		rest = append(rest, c)
+	}
+	if len(reverts) > 0 {
+		fmt.Fprintf(p.d.out, "A revert of rollback %s deploys ahead of %d release(s) its hold is holding\n",
+			rollback.ID, len(rest))
+	}
+	return append(reverts, rest...), nil
 }
 
 // inForceFor is the criteria in force for one build of this service: the ones

@@ -36,7 +36,8 @@
 // repaired on the next run and one merge never mints two numbers — [Queue.one] says
 // how. A mint that failed after the fast-forward leaves master at a commit no
 // release names, and that one is open: what repairs a record disagreeing with what is
-// there is the reconciler, which is M4.
+// there is the reconciler, and it is now installed beside the factory: its pass finds a
+// record disagreeing with what runs, and a human clears it at the reconciler.
 //
 // The lock key is derived from this package's own name, so it is not the key
 // [release.Writer.Mint] takes — one lock held while the other is waited for on

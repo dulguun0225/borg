@@ -90,6 +90,38 @@ func IDsInArea(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]string
 	return ids, nil
 }
 
+// ForIntent is every item cut from one intent, in the order they were cut. One
+// intent yields one item on the crude path and several where the cut divides the
+// work, and both readers of this want all of them: what a rollback's revert intent
+// became, and what an incident's intent became.
+//
+// An empty intent is no items and no error, for the reason [IDsInArea] gives about
+// an empty area.
+func ForIntent(ctx context.Context, pool *pgxpool.Pool, intentID string) ([]Item, error) {
+	if intentID == "" {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `select `+columns+` from `+Table+`
+		where intent_id = $1 order by at, id`, intentID)
+	if err != nil {
+		return nil, fmt.Errorf("item: reading the items of %s: %w", intentID, err)
+	}
+	defer rows.Close()
+
+	var read []Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("item: reading an item of %s: %w", intentID, err)
+		}
+		read = append(read, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("item: reading the items of %s: %w", intentID, err)
+	}
+	return read, nil
+}
+
 // AtStage is every item of one service at one stage, ordered by the priority an
 // owner set — greater first — and then by the time the item was cut.
 //

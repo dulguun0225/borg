@@ -10,10 +10,40 @@
 //
 // The deployable binary for a build is placed there before Deploy is called,
 // named exactly by the build string; Deploy kills whatever runs for the service
-// and starts dir/<build>, Stop kills the process and forgets it, and ReadRunning
-// reports the build whose process is still alive — a dead one reads as nothing
-// running. The directory is a boundary and not a prefix: a build that is not a
-// local path is [ErrBuildNotLocal] rather than a path joined and run.
+// and starts dir/<build>, Stop kills the process and clears what says it runs, and
+// ReadRunning reports the build whose process is still alive — a dead one reads as
+// nothing running. The directory is a boundary and not a prefix: a build that is not
+// a local path is [ErrBuildNotLocal] rather than a path joined and run, and the same
+// check holds for the service name, which is part of a filename here too.
+//
+// # What is running is on disk, because a second process has to read it
+//
+// [RunningFile] is where the target records the build it started and its process
+// id, and [Local.ReadRunning] reads that file rather than this value's memory. It
+// was memory until 2026-08-19, and the reconciler is what made that impossible:
+// the reconciler is one process outside the factory that reads what is actually
+// running on each production target, so a target whose answer lived in the
+// factory's own address space could not be read by the one thing the design has
+// read it. A read operation on the seam that only its own writer can answer is not
+// a read operation.
+//
+// What that buys beside the reconciler is that two [Local] values over one
+// directory are two views of one place rather than two places, and that a factory
+// process which restarts reads what its predecessor started.
+//
+// # The quantity the software emits
+//
+// Deploy starts the process knowing [SignalFile] through the [SignalEnv]
+// environment variable, and the software the factory wrote appends one line per
+// unit of work there. That is the substrate wiring observability rather than the
+// factory doing it: what emits the quantity is the build, where it lands is the
+// target's arrangement, and the comparison reads it through an interface knowing
+// neither. One file per build, so a release's counts are told apart from those of
+// the build that ran there before it — which is what the comparison's baseline is.
+//
+// A service the factory did not write emits nothing into that file and cannot be
+// watched, which is the adopted-service case ../../end-goal/deferred.md sequences
+// away.
 //
 // What crosses the seam is the build and never the release: a release is the name
 // a build has on master, and a candidate deployed to its own environment has no
@@ -31,25 +61,33 @@
 //
 // # What a local process is not
 //
-// Not safe for concurrent use — the caller is the one crude path the surfaces
-// are deferred with, which deploys one thing at a time, and nothing guards the
-// process table. What is running is held in memory and
-// nowhere else, so a factory process that restarts reads nothing running
-// while the processes it started may still run; the reconciler that would
-// read the machine and raise that disagreement is M4. The kill is a kill, not
-// a graceful shutdown, and Deploy does not wait for the old process to
-// release anything — a port, a file — before the new one starts.
+// Two deploys of one service into one directory at once are still a race: the
+// stop, the start, and the write of what runs are three steps and nothing guards
+// them, and the caller is the one crude path the surfaces are deferred with, which
+// deploys one thing at a time. The kill is a kill, not a graceful shutdown, and
+// Deploy does not wait for the old process to release anything — a port, a file —
+// before the new one starts.
+//
+// A process this value did not start has nobody waiting on it, so when it exits it
+// may sit in the process table as a zombie and answer signal 0 as though it were
+// alive. So a build started by an earlier factory run and since crashed can read as
+// running until something reaps it, which is the one way this target reports what was
+// started rather than what runs.
 //
 // Who may write what: this package owns no table and writes no record. The
 // deploy record is package deploy's, written by the component that calls this
-// seam. What is running is per target and held in this process's memory, so a
-// candidate environment torn down by one process leaves nothing for another to
-// stop.
+// seam. What it does write is two files in its own directory — what runs, and the
+// file the started process emits its quantity into — and neither is a record of the
+// factory's.
 //
 // What defines it: seam 4 of "Security comes last" in
 // ../../end-goal/deferred.md#security-comes-last — an agent reaches an
 // environment through a small set of named operations, the seam being where
 // policy attaches later — and the M1 demonstration in
 // ../../roadmap.md#m1--one-change-ships, which needs a target that runs the
-// software so the straight deploy ships something.
+// software so the straight deploy ships something. What reads
+// [Local.ReadRunning] from outside the factory is
+// ../../end-goal/how-humans-do-it/08-operations.md#the-reconciler, and the
+// quantity the started process emits is
+// ../../end-goal/how-humans-do-it/08-operations.md#the-health-signal.
 package localtarget

@@ -51,6 +51,12 @@ func boundFor(ctx context.Context, reader *policy.Reader, stage item.Stage, s po
 	return &stageAttempts{bound: bound, left: bound}, nil
 }
 
+// ErrOutOfAttempts is what a stage that spent its bound returns. It is a sentinel
+// because the escalation page turns on it: the factory giving up on an item is what
+// the design shows in Work as an escalation, and whether it also pages depends on the
+// intent behind the item, which the caller reads and this generic function cannot.
+var ErrOutOfAttempts = errors.New("factory: the stage used every attempt its bound allows")
+
 // attempt runs one authoring call, retrying while the stage has attempts left
 // and returning what the call produced as soon as a reply parses.
 //
@@ -83,8 +89,34 @@ func attempt[T any](out io.Writer, a *stageAttempts, role string, call func() (T
 		last = err
 		fmt.Fprintf(out, "The %s's reply was refused; %d attempt(s) left: %v\n", role, a.left, err)
 	}
-	return zero, fmt.Errorf("factory: the %s used all %d attempts without a reply the protocol accepts, and the factory is stuck on this item: %w",
-		role, a.bound, last)
+	return zero, fmt.Errorf("%w: the %s used all %d without a reply the protocol accepts, and the factory is stuck on this item: %w",
+		ErrOutOfAttempts, role, a.bound, last)
+}
+
+// take is the intent this candidate is authored from: the unrefined one already
+// waiting with exactly this statement, or one intake takes in for it.
+//
+// The first is how a revert reaches the pipeline. The comparison took its intent in
+// at the rollback, with the detector as its source, and this interface's run is given
+// a statement rather than an intent id — so a run given the revert's own statement
+// works that intent rather than taking in a second one saying the same thing and
+// leaving the rollback's hold pointing at an intent nothing was cut from.
+//
+// Matching on the statement is what an interface with no surface can do. What it
+// costs is a false match where an owner types a statement character for character
+// equal to one already waiting; the surface that replaces this shows an owner the
+// intents that are waiting and has them pick.
+func (p *path) take(ctx context.Context, statement string) (intent.Intent, error) {
+	waiting, found, err := intent.Unrefined(ctx, p.d.pool, statement)
+	if err != nil {
+		return intent.Intent{}, err
+	}
+	if found {
+		fmt.Fprintf(p.d.out, "Intent %s is already waiting with this statement, taken in from %s by %s %s; this run works it\n",
+			waiting.ID, waiting.Source, waiting.Actor.Kind, waiting.Actor.Name)
+		return waiting, nil
+	}
+	return p.intake.TakeIn(ctx, p.human, intent.SourceOwner, statement)
 }
 
 // author takes one intent in, refines it, cuts an item, authors the spec and the
@@ -95,13 +127,30 @@ func (p *path) author(ctx context.Context, statement, of string) (*candidate, er
 	d := p.d
 	c := &candidate{}
 
-	// 1. Intake: the intent arrives from the owner, unrefined.
-	in, err := p.intake.TakeIn(ctx, p.human, intent.SourceOwner, statement)
+	// 1. Intake: the intent arrives from the owner, unrefined — unless one is already
+	// there for this statement, which is how a revert reaches the pipeline: the
+	// comparison took its intent in at the rollback, and this run works it rather than
+	// taking in a second one saying the same thing.
+	in, err := p.take(ctx, statement)
 	if err != nil {
 		return nil, err
 	}
 	c.intentID = in.ID
 	fmt.Fprintf(d.out, "Intent %s taken in (%s): %s\n", in.ID, of, in.Statement)
+
+	// gaveUp is the escalation page. A stage that spent its bound is the factory
+	// saying it cannot do this one, and whether that also reaches a human out of the
+	// product turns on the intent: an owner's request has nothing live that is worse,
+	// and an intent a detector wrote is a defect that is live.
+	gaveUp := func(err error) error {
+		if !errors.Is(err, ErrOutOfAttempts) {
+			return err
+		}
+		if pageErr := p.escalated(ctx, in.ID, c.itemID, err.Error()); pageErr != nil {
+			return errors.Join(err, pageErr)
+		}
+		return err
+	}
 
 	// The service record where it exists already, read before the interview
 	// because the spec author is told which criteria the service already
@@ -136,7 +185,7 @@ func (p *path) author(ctx context.Context, statement, of string) (*candidate, er
 		return r, r.Tokens, err
 	})
 	if err != nil {
-		return nil, err
+		return nil, gaveUp(err)
 	}
 	rounds := 0
 	// Everything the stage spent up to a question belongs to the interview's
@@ -183,7 +232,7 @@ func (p *path) author(ctx context.Context, statement, of string) (*candidate, er
 			return r, r.Tokens, err
 		})
 		if err != nil {
-			return nil, err
+			return nil, gaveUp(err)
 		}
 		if refined.Question != "" {
 			return nil, errors.New("factory: the spec author asked a second question, and the interview is one round or none")
@@ -324,7 +373,7 @@ func (p *path) author(ctx context.Context, statement, of string) (*candidate, er
 		return ch, ch.Tokens, err
 	})
 	if err != nil {
-		return nil, err
+		return nil, gaveUp(err)
 	}
 	if err := writeFiles(d.repo, change.Files); err != nil {
 		return nil, err

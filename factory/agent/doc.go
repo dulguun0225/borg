@@ -71,4 +71,15 @@
 // that does not yet exist behind the roles is
 // ../../end-goal/how-humans-do-it/10-fleet.md. The milestone, the four rules
 // included, is ../../roadmap.md#m1--one-change-ships.
+// # The implementer emits the quantity the factory watches by
+//
+// [ImplementerSystemPrompt] carries one standing instruction beside the four
+// rules: the program appends one line per unit of work it performs to the file its
+// environment names, and it exercises its own behaviour while it runs. That is not
+// a detail of the prompt — software that emits nothing cannot be watched, and the
+// targets this factory deploys to receive no traffic of their own, so the release
+// exercising itself is where the quantity comes from at all. What it costs is an
+// instruction rather than a check: an implementation that ignores it produces a
+// release whose watch window can only end at its cap, and nothing rejects it for
+// that.
 package agent
