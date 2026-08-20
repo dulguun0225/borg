@@ -64,7 +64,7 @@ var ErrOutOfAttempts = errors.New("factory: the stage used every attempt its bou
 // not read — both are the model failing to say the thing, which another sample
 // may say correctly. Nothing else is: a rate-limited or unauthorised account is
 // not an attempt at the work, and what the design does with an account that has
-// run out is a hold — ../../end-goal/how-humans-do-it/10-fleet.md#an-account-that-runs-out-is-a-hold
+// run out is a hold — ../../../end-goal/how-humans-do-it/10-fleet.md#an-account-that-runs-out-is-a-hold
 // — so those return on the first failure rather than spending the bound on a
 // refusal that will not change. There is no wait between attempts, which costs
 // nothing on a refused reply and would be the wrong shape for a rate limit
@@ -326,7 +326,7 @@ func (p *path) author(ctx context.Context, statement, of string) (*candidate, er
 	// 5. The implementation stage. The repository may not exist yet, so the
 	// stage initialises it, and what the candidate branch is based on follows from
 	// whether master exists. The cut
-	// (../../end-goal/how-humans-do-it/02-intent-into-items.md#the-cut) says master
+	// (../../../end-goal/how-humans-do-it/02-intent-into-items.md#the-cut) says master
 	// does not exist until the first release and the implementation role commits
 	// the candidate branch with no base — which is every candidate cut before the
 	// first one merges, not only the very first. Every candidate after that is

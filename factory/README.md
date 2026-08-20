@@ -22,6 +22,7 @@ Two things M4 does not have, and both follow from the substrate rather than from
 | [`targetseam`](targetseam) | The named operations an agent reaches a deploy target through — `Deploy`, `Stop`, `ReadRunning` — as an interface. `Fake` records what was called on it and reaches nothing; `localtarget` is the implementation the demonstrations deploy against. |
 | [`postgres`](postgres) | Opening the pool, and applying each package's DDL from one ordered list written in the source. No ORM, no migration framework. |
 | [`cmd/depscheck`](cmd/depscheck) | Failing the build on an import between two packages of this module that [`deps.txt`](deps.txt) does not allow. |
+| [`cmd/tracecheck`](cmd/tracecheck) | Failing the build on a reference from the code or its documentation into a Markdown file that points at nothing — a target that does not exist, or an anchor matching no heading in it. |
 | [`intent`](intent) | The intent — its source, its statement, its refinement state, its round count — and the questions attached to it, `Intake` being the one writer of both. |
 | [`service`](service) | A service's identity and its repository, written at the cut, and the four parameters an owner authors on it. Two writers, and the seam between them is the field. |
 | [`item`](item) | The item — its intent, service, area, branch, and what it waits on — written once by the cut, and the stage, attempts, spend, and priority `Dispatch` writes after. It moves both ways: one stage forward, or back to the stage it is at or one above it with an attempt counted where it lands. |
@@ -92,6 +93,7 @@ postgres -> area artifact build criterion decisionlog deploy environment
                 factorypolicy incident intent item people pin policy release
                 score service window
 cmd/depscheck
+cmd/tracecheck
 cmd/factory -> agent area artifact boundary build comparison criterion decisionlog
                 deploy environment factorypolicy gate gatepolicy incident intent
                 item localtarget mergequeue notifier people pin policy postgres
@@ -101,7 +103,7 @@ cmd/reconciler -> deploy environment localtarget postgres reconciler release
                 secretref service targetseam window
 ```
 
-An arrow reads as "imports": `decisionlog -> record` is `decisionlog` importing `record`. `record`, `gatepolicy`, `boundary`, `secretref`, and `cmd/depscheck` import nothing inside this module — and `boundary` imports nothing outside it either, beyond the standard library. Eleven edges deserve their reason stated, and [`deps.txt`](deps.txt) states each of them beside the list:
+An arrow reads as "imports": `decisionlog -> record` is `decisionlog` importing `record`. `record`, `gatepolicy`, `boundary`, `secretref`, `cmd/depscheck`, and `cmd/tracecheck` import nothing inside this module — and `boundary` imports nothing outside it either, beyond the standard library. Eleven edges deserve their reason stated, and [`deps.txt`](deps.txt) states each of them beside the list:
 
 - `artifact -> criterion` is the one import between two record packages that both own tables, because the artifact store is the criterion's one writer, so a spec version and the criteria it introduces are written in one transaction.
 - `gatepolicy` is imported by everything that holds an authored value and imports nothing itself: it owns no table and is the one place the parameters, their units, and the direction each one's pin points are written down.
@@ -128,6 +130,7 @@ The toolchain is pinned by [`../mise.toml`](../mise.toml). The dev database is [
 docker compose up -d           # the database
 go vet ./...
 go run ./cmd/depscheck
+go run ./cmd/tracecheck
 go test -count=1 ./...
 ```
 

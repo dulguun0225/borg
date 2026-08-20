@@ -121,6 +121,7 @@ agent -> secretref
 localtarget -> secretref targetseam
 postgres -> area artifact build criterion decisionlog deploy environment factorypolicy incident intent item people pin policy release score service window
 cmd/depscheck
+cmd/tracecheck
 cmd/factory -> agent area artifact boundary build comparison criterion decisionlog deploy environment factorypolicy gate gatepolicy incident intent item localtarget mergequeue notifier people pin policy postgres reconciler record release score secretref service targetseam window
 cmd/reconciler -> deploy environment localtarget postgres reconciler release secretref service targetseam window
 
