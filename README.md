@@ -31,8 +31,9 @@ seams — hides that. [CLAUDE.md](CLAUDE.md) names what each of these owns.
 ## The review pass
 
 Every discipline named above is also a reader — a subagent run by name, one at a time,
-that audits the whole tree from its field ([CLAUDE.md](CLAUDE.md#the-review-pass) sets
-how one is dispatched). Two readers are no discipline's:
+that audits the whole of `end-goal/` from its field
+([CLAUDE.md](CLAUDE.md#the-review-pass) sets how one is dispatched). Two readers are no
+discipline's:
 
 - **the absence reader** — subjects a design of this kind normally covers and this one
   never mentions

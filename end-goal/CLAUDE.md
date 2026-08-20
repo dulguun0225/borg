@@ -5,9 +5,9 @@ relative to this directory; the verification commands are the exception and say 
 
 ## What this is
 
-A tree of Markdown files. It is one design document for a fully autonomous software
-factory — a product each customer self-hosts, which refines intent, builds, deploys,
-monitors, and fixes software on its own.
+`end-goal/` is a directory of Markdown files. It is one design document for a fully
+autonomous software factory — a product each customer self-hosts, which refines intent,
+builds, deploys, monitors, and fixes software on its own.
 
 The repository around it is the monorepo that will build that thing. This directory is
 the state it is built toward, so code is added beside it and never in it. There is no
@@ -91,14 +91,14 @@ one in most paragraphs.
 **Link a term at its first use in each file.** A term defined in another file is linked
 at its first use in each file that uses it, to the section that defines it, with
 [`glossary.md`](glossary.md) as the fallback; later uses stay bare. The glossary is the
-registry: a term worth linking is a term with a glossary line, so a new term enters the
-tree by getting its line there. What stays bare, deliberately: the bare duty numbers,
-which `README.md` already makes a convention; **the factory** and the **owner**, the
-document's subject and its reader; a file's own defined terms; external proper nouns —
-EARS, REST, gRPC, protobuf, Kafka, OpenAPI; and ordinary words that are not the settled
-term — a builder of the product, substrate, a queue's rotation. What it costs is that a
-first edit to an old paragraph sometimes owes a link the paragraph never had. (Owner
-rule, 2026-08-17.)
+registry: a term worth linking is a term with a glossary line, so a new term enters
+`end-goal/` by getting its line there. What stays bare, deliberately: the bare duty
+numbers, which `README.md` already makes a convention; **the factory** and the
+**owner**, the document's subject and its reader; a file's own defined terms; external
+proper nouns — EARS, REST, gRPC, protobuf, Kafka, OpenAPI; and ordinary words that are
+not the settled term — a builder of the product, substrate, a queue's rotation. What it
+costs is that a first edit to an old paragraph sometimes owes a link the paragraph
+never had. (Owner rule, 2026-08-17.)
 
 **Never cross-reference by position.** "The second open question" broke the moment a
 bullet was resolved and removed. Refer to things by name. A link's path may contain a
@@ -108,7 +108,7 @@ number; its text never does.
 
 Moved to the repository root `CLAUDE.md` on 2026-08-14, unchanged. It always governed
 every file here and not this directory alone, and a rule over the whole repository belongs
-where the repository's rules are. The no-hard-wrap rule for this tree went with it.
+where the repository's rules are. The no-hard-wrap rule for `end-goal/` went with it.
 
 ## Resolved questions get folded, not deleted
 
@@ -141,7 +141,7 @@ request. Every command below is scoped to `end-goal/` and run from the repositor
 nothing in a sibling directory is included in a check written for this one:
 
 ```bash
-grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 10: tree index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a brief and a skill reach
+grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 10: end-goal index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a brief and a skill reach
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none

@@ -29,7 +29,7 @@
 // turned to a hyphen — so the two agree; that differs from GitHub, which
 // appends "-1" to a repeated heading's second slug, and this check does
 // not. The third forces a cost: a doc.go whose concept is defined nowhere
-// in the tree now has to say so — "What defines it: nothing yet" or
+// in end-goal/ now has to say so — "What defines it: nothing yet" or
 // similar — rather than stay silent about it.
 //
 // What it does not see: a link or a path split across a line break,
@@ -44,10 +44,9 @@
 // requirement above exists to exclude exactly that.
 //
 // Who may write what: this command writes nothing. It opens no database,
-// it reads the tree and never edits it — a broken reference is fixed by a
+// it reads end-goal/ and never edits it — a broken reference is fixed by a
 // person, not by the tool that found it — and it reports what it found on
 // standard error and in its exit status.
-//
 // What defines it: "The map ships with the code" under Code in
 // ../../../CLAUDE.md#code.
 package main

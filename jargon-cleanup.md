@@ -121,7 +121,7 @@ Found under the earlier test and still valid under this one. One group from that
 
 **Metaphors standing in for definitions**, which the `Literal` rule in [`CLAUDE.md`](CLAUDE.md#writing-style) already bans: `a leak`, `the blindness`, `register`, `voice`, `an evidence` — a Go type name used as an English count noun, which reads as a grammatical error — and `crude path` against `crude interface`, made one name.
 
-**Leftovers from the removal of "the tree".** Twelve sites survive the 2026-08-20 pass, which missed six files outright — root `README.md`, `factory/DEMO.md`, all of `tools/graph/PLAN-B.md`, and both `factory/cmd/tracecheck/refs.go` and `doc.go` — and left four in `end-goal/CLAUDE.md`. One of those four is stale as well as private: a grep comment reads "tree index" for a table whose own row now reads "this document". Keep the roughly 65 git-working-tree and ordinary-sense uses; `FilesInTree`, `emptyTree`, `ls-tree`, two trees conflicting, a chain that is a list and not a tree, and depscheck's package tree are all the ordinary word. Align `factory/criterion/doc.go` and `writer.go` on "merged into the repository", which is what `03-gates.md` now says.
+**Two Go comments quote a design sentence that has since changed.** `factory/criterion/doc.go` and `writer.go` both say a build is "the ones merged into the tree it was made from", where [`03-gates.md`](end-goal/how-humans-do-it/03-gates.md) now says "merged into the repository it was made from". This is the git working tree and not the private synonym, so what is left is an alignment and not a removal — the private sense went on 2026-08-20, fifteen sites across six files the first pass had missed.
 
 ## What is deliberately kept
 
@@ -134,7 +134,7 @@ The statistics borrowings stay because they are the most accurate vocabulary in 
 ## Order, and what each step costs
 
 1. **Step 1, the rules.** Small edits, but everything depends on them, and they must be committed with the consistency pass green.
-2. The `tree` leftovers and the metaphors from Step 5. Cheapest, and they add no vocabulary.
+2. The metaphors from Step 5. Cheapest, and they add no vocabulary.
 3. **Step 4**, the glossary. A large diff at low risk, and it shrinks the surface every later step has to check.
 4. **Step 2**, the coined replacements, cheapest first: `auto-passed by`, `state flow`, `trust number`, `originating project`, `per-intent`, `partial intent`, then the watch-window exit names as one commit, then `the number`, `the cut`, `thread`, and `surfaces`.
 5. **Step 3**, the seven bent renames, one commit each carrying its reason and its cost.
@@ -155,5 +155,3 @@ The `surfaces` to `screens` rename is verified by the dangling-link and anchor g
 The `SKIP` set should be gone once `the number` becomes the release number. If it cannot go, the rename is incomplete.
 
 `cmd/tracecheck` mechanically requires every `doc.go` to name an `end-goal/` section, so renaming a section heading or a file breaks the Go build until the trailers follow. That is a real coupling between Step 2 and the code, and it is a feature: the build refuses a half-finished rename. After any change under `factory/`, run `go build ./...`, `go test ./...`, `go run ./cmd/depscheck` and `go run ./cmd/tracecheck` from that directory.
-
-When the `tree` leftovers are done, `grep -rn 'the tree' --include='*.md' --include='*.go' .` returns only the paragraph in `CLAUDE.md` that records the removal.

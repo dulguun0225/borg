@@ -9,9 +9,9 @@ import (
 	"unicode"
 )
 
-// Reference is one target named from inside the tree: File and Line are
-// where it was found, and Target is the text named, path and anchor
-// together, exactly as written.
+// Reference is one target named from inside end-goal/: File and Line are
+// where it was found, and Target is the text named, path and anchor together,
+// exactly as written.
 type Reference struct {
 	File   string
 	Line   int
@@ -44,11 +44,11 @@ func ExtractFile(file string, content []byte) []Reference {
 
 // lines splits content on newlines. It is here rather than a bufio.Scanner
 // because this repository hard-wraps nothing outside its instruction files —
-// one paragraph is one line, and the longest in the tree is already 4KB — and
-// a Scanner stops at a line longer than 64KB. Stopping is what makes that a
-// defect worth avoiding rather than a limit worth stating: a check that reads
-// half a file and reports nothing passes silently, which is the one way this
-// command can be wrong and useless at once.
+// one paragraph is one line, and the longest in end-goal/ is already 4KB —
+// and a Scanner stops at a line longer than 64KB. Stopping is what makes that
+// a defect worth avoiding rather than a limit worth stating: a check that
+// reads half a file and reports nothing passes silently, which is the one way
+// this command can be wrong and useless at once.
 func lines(content []byte) []string {
 	split := strings.Split(string(content), "\n")
 	for i, line := range split {

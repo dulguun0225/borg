@@ -1,4 +1,4 @@
-# Plan B — deterministic graphify over the tree, zero LLM tokens for markdown
+# Plan B — deterministic graphify over `end-goal/`, zero LLM tokens for markdown
 
 Shelved 2026-08-17. Plan A is running graphify as-is over the repo; this plan activates
 if graphify's LLM extraction of the markdown proves too wasteful again. It sits here by
@@ -23,15 +23,15 @@ node-ID rule `{path_stem}_{entity}` lowercased `[a-z0-9_]`, relations
 `references|cites|conceptually_related_to|…`, confidence `EXTRACTED` score 1.0 for
 explicit relations).
 
-And this tree's relations are fully explicit and mechanically checked (the 2026-08-17
-relinking sweep plus the coverage check in `end-goal/CLAUDE.md`): glossary lines = term
-nodes with defining sections, markdown links = reference edges, headings = section
-structure, bare `(1)`–`(12)` = duty citations. Nothing needs inferring, so nothing
-needs an LLM. We emit the extraction JSON ourselves — every edge honestly `EXTRACTED`
-at 1.0 — and drive graphify's own library for build/cluster/export. Rebuild cost:
-milliseconds, zero tokens, every time the docs change. When code lands in the monorepo,
-the same build step runs graphify's free AST extractor over it and merges both into one
-graph.
+And the relations in `end-goal/` are fully explicit and mechanically checked (the
+2026-08-17 relinking sweep plus the coverage check in `end-goal/CLAUDE.md`): glossary
+lines = term nodes with defining sections, markdown links = reference edges, headings =
+section structure, bare `(1)`–`(12)` = duty citations. Nothing needs inferring, so
+nothing needs an LLM. We emit the extraction JSON ourselves — every edge honestly
+`EXTRACTED` at 1.0 — and drive graphify's own library for build/cluster/export. Rebuild
+cost: milliseconds, zero tokens, every time the docs change. When code lands in the
+monorepo, the same build step runs graphify's free AST extractor over it and merges
+both into one graph.
 
 ## What gets built
 
@@ -116,14 +116,14 @@ opt-out by construction.
 ## Verification
 
 1. Build once; sanity-check counts against known ground truth: ~100 term nodes
-   (glossary lines), ~300 section nodes, `references` edge count ≥ the tree's markdown
-   link count, zero health warnings, `input_tokens: 0` in the report.
+   (glossary lines), ~300 section nodes, `references` edge count ≥ the markdown link
+   count in `end-goal/`, zero health warnings, `input_tokens: 0` in the report.
 2. Idempotence: run the build twice, `diff graphify-out/graph.json` runs clean.
-3. Three live queries, answers eyeballed against the tree:
+3. Three live queries, answers eyeballed against `end-goal/`:
    - `graphify query "what depends on the watch window"`
    - `graphify path "the cut" "rollback"`
    - `graphify explain "restore floor"`
 4. Regression probe: temporarily remove one link in one file, rebuild, confirm the
    corresponding edge disappears (the graph tracks source exactly); restore.
-5. `graphify export html`, open, confirm communities look like the tree's real
-   neighborhoods (operations, contracts, intake…).
+5. `graphify export html`, open, confirm communities look like the real neighborhoods
+   in `end-goal/` (operations, contracts, intake…).

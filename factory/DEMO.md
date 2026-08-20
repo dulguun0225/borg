@@ -10,7 +10,7 @@ Everything below is run from this directory.
 |---|---|
 | The dev database | [`docker-compose.yml`](docker-compose.yml) on port 5433. `docker compose up -d`. Every record the run writes goes there, so an unreachable database stops it at the first write. |
 | An OpenRouter API key | [openrouter.ai/keys](https://openrouter.ai/keys) mints one, and the [agent](../end-goal/how-humans-do-it/10-fleet.md) sends it as a bearer token. This is the default provider because it reaches every model; the alternative, `-provider anthropic` with the token `claude setup-token` mints, is served `claude-haiku-4-5` and refused above it — see [_When it fails_](#when-it-fails) for what was measured. An API key against Anthropic's own endpoint goes in a header this code does not write and would answer 401. |
-| A directory outside this repository | The secrets file, the service's repository, and the directory releases run from — a candidate environment gets a directory of its own under that one. Nothing the demo creates belongs in this tree. |
+| A directory outside this repository | The secrets file, the service's repository, and the directory releases run from — a candidate environment gets a directory of its own under that one. Nothing the demo creates belongs in `end-goal/`. |
 | Go and git | The build is `go build` in the service's repository and the encodings run as `go test` there, so the demo's service is a Go program. |
 
 ## Setting it up
