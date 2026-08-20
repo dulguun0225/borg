@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/incident"
@@ -34,10 +35,11 @@ func TestRulesStateEveryBound(t *testing.T) {
 		{"the threshold's ceiling", "0.90"},
 		{"how many held-out firings raise it a band", "3"},
 		{"the attempt bound's ceiling", "6"},
+		{"the attempt bound's floor", "2"},
 		{"the item-size target's floor", "50"},
 		{"the window size's floor", "0.002"},
 		{"the confidence's ceiling", "0.999"},
-		{"the cap's floor", "86400"},
+		{"the cap's floor", "60"},
 		{"K's ceiling", "5"},
 		{"how many windows raise K", "3"},
 	} {
@@ -221,27 +223,53 @@ func TestTheThresholdFallsBelowWhatItPassedAndRisesOnlyOnTheSample(t *testing.T)
 	}
 }
 
-// TestTheAttemptBoundRisesToOneAboveWhatSucceeded and nothing lowers it, an
-// escalation saying the bound was reached and not that it was too high.
-func TestTheAttemptBoundRisesToOneAboveWhatSucceeded(t *testing.T) {
+// TestTheAttemptBoundMovesBothWays: up to one above the highest attempt that ever
+// got past the stage, down where nothing has ever needed more than one — which is
+// the loose end gate policy's own table states, agent time spent before anybody
+// sees the item.
+func TestTheAttemptBoundMovesBothWays(t *testing.T) {
 	start, _ := Starting(gatepolicy.AttemptBound)
-	e := newEvidence()
-	e.items = []item.Item{{ID: "it_a", Stage: item.StageMerged, AreaID: "ar_a"}}
-	e.stages = []item.StageTotals{{ItemID: "it_a", Stage: item.StageImplementation, Attempts: 4}}
-	e.index()
-	if got := valueOf(t, e, gatepolicy.AttemptBound, string(item.StageImplementation)); got != 5 {
+
+	// A stage that has needed a fourth attempt gets a fifth.
+	if got := valueOf(t, stageEvidence(4, 3, 3), gatepolicy.AttemptBound, string(item.StageImplementation)); got != 5 {
 		t.Errorf("a stage that succeeded on attempt 4 supplies a bound of %v, want 5", got)
 	}
 
-	// A stage that has only ever succeeded on the first attempt leaves the bound
-	// where it started: the evidence is one-sided and there is none for lowering it.
-	quiet := newEvidence()
-	quiet.items = []item.Item{{ID: "it_a", Stage: item.StageMerged}}
-	quiet.stages = []item.StageTotals{{ItemID: "it_a", Stage: item.StageImplementation, Attempts: 1}}
-	quiet.index()
-	if got := valueOf(t, quiet, gatepolicy.AttemptBound, string(item.StageImplementation)); got != start.Value {
-		t.Errorf("a stage that succeeds first time supplies %v, want the starting %v", got, start.Value)
+	// A stage nothing has ever needed more than one attempt at keeps one retry and
+	// not two, which is below where the score started.
+	quick := valueOf(t, stageEvidence(1, 3, 3), gatepolicy.AttemptBound, string(item.StageImplementation))
+	if quick != attemptBoundFloor {
+		t.Errorf("a stage that succeeds first time supplies %v, want the floor %v", quick, float64(attemptBoundFloor))
 	}
+	if quick >= start.Value {
+		t.Errorf("the bound did not move down: %v against a starting %v", quick, start.Value)
+	}
+
+	// Two items are not enough evidence to move a bound the whole factory reads.
+	if got := valueOf(t, stageEvidence(1, 2, 2), gatepolicy.AttemptBound, string(item.StageImplementation)); got != start.Value {
+		t.Errorf("two items at a stage supply %v, want the starting %v", got, start.Value)
+	}
+}
+
+// stageEvidence is n items that reported at Implementation, the first `past` of
+// them having got past it, the first with `highest` attempts against it.
+func stageEvidence(highest, past, n int) *Evidence {
+	e := newEvidence()
+	for i := range n {
+		stage := item.StageImplementation
+		if i < past {
+			stage = item.StageMerged
+		}
+		id := fmt.Sprintf("it_%d", i)
+		attempts := 1
+		if i == 0 {
+			attempts = highest
+		}
+		e.items = append(e.items, item.Item{ID: id, AreaID: "ar_a", Stage: stage})
+		e.stages = append(e.stages, item.StageTotals{ItemID: id, Stage: item.StageImplementation, Attempts: attempts})
+	}
+	e.index()
+	return e
 }
 
 // TestAStallHalvesTheItemSizeTarget: an item that reached the bound at a stage and
@@ -270,63 +298,137 @@ func TestAStallHalvesTheItemSizeTarget(t *testing.T) {
 	}
 }
 
-// TestTheCapIsSetAboveWhatAWindowActuallyNeeded: a cap under the time a window of
-// this service took to resolve closes unresolved one that would have resolved.
-func TestTheCapIsSetAboveWhatAWindowActuallyNeeded(t *testing.T) {
+// TestTheCapMovesBothWaysWithWhatAWindowNeeded: a cap under the time a window of
+// this service took to resolve closes unresolved one that would have resolved, and
+// a cap far above it holds the next deploy for nothing.
+func TestTheCapMovesBothWaysWithWhatAWindowNeeded(t *testing.T) {
 	start, _ := Starting(gatepolicy.WindowCap)
-	e := newEvidence()
 	opened := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
-	e.windows = []window.Window{{
-		ID: "win_a", ServiceID: "svc_a", ReleaseID: "rel_a", Exit: window.ExitClean,
-		At: record.FormatTime(opened), ClosedAt: record.FormatTime(opened.Add(20 * time.Hour)),
-	}}
-	e.index()
-	// Twenty hours doubled is forty, which is above the day the score starts at.
-	if got := valueOf(t, e, gatepolicy.WindowCap, "svc_a"); got != (40 * time.Hour).Seconds() {
+
+	// Twenty hours doubled is forty, above the day the score starts at.
+	long := resolvedIn(opened, 20*time.Hour, window.ExitClean)
+	if got := valueOf(t, long, gatepolicy.WindowCap, "svc_a"); got != (40 * time.Hour).Seconds() {
 		t.Errorf("the cap reads %v, want twice the twenty hours the window needed", got)
 	}
 
-	// A window that closed inside the starting cap leaves it alone: the floor is
-	// the starting value, and the rule only ever raises.
-	quick := newEvidence()
-	quick.windows = []window.Window{{
-		ID: "win_a", ServiceID: "svc_a", ReleaseID: "rel_a", Exit: window.ExitHarm,
-		At: record.FormatTime(opened), ClosedAt: record.FormatTime(opened.Add(time.Minute)),
-	}}
-	quick.index()
-	if got := valueOf(t, quick, gatepolicy.WindowCap, "svc_a"); got != start.Value {
-		t.Errorf("a window that resolved in a minute supplies a cap of %v, want the starting %v", got, start.Value)
+	// A window that resolved in a minute leaves the cap at two minutes, not at a
+	// day: holding the next deploy for a day is what the loose end costs.
+	quick := resolvedIn(opened, time.Minute, window.ExitHarm)
+	got := valueOf(t, quick, gatepolicy.WindowCap, "svc_a")
+	if got != (2 * time.Minute).Seconds() {
+		t.Errorf("the cap reads %v, want twice the minute the window needed", got)
+	}
+	if got >= start.Value {
+		t.Errorf("the cap did not move down: %v against a starting %v", got, start.Value)
+	}
+
+	// A service with nothing resolved on evidence keeps the starting value: a
+	// window that ended at the cap says how long the cap was, not how long a
+	// window needs.
+	atCap := resolvedIn(opened, time.Hour, window.ExitCap)
+	if got := valueOf(t, atCap, gatepolicy.WindowCap, "svc_a"); got != start.Value {
+		t.Errorf("a service whose only window ended at the cap supplies %v, want the starting %v", got, start.Value)
 	}
 }
 
-// TestFiveOfTheSixMoveOnlyTowardProtection is the ratchet stated as a test. It is
-// here so that the cost the published rules state is checkable and not only
-// asserted: every value but K, given evidence, moves the protective way.
-func TestFiveOfTheSixMoveOnlyTowardProtection(t *testing.T) {
-	for _, of := range []struct {
-		parameter gatepolicy.Parameter
-		subject   string
-		evidence  *Evidence
-		// protective is the direction more protection lies in.
-		protective func(before, after float64) bool
-	}{
-		{gatepolicy.WindowSize, "svc_a",
-			withIncident(evidenceFor("svc_a", closes(1, window.ExitCap), nil), "rel_svc_a_0"),
-			func(before, after float64) bool { return after < before }},
-		{gatepolicy.WindowConfidence, "svc_a",
-			withIncident(evidenceFor("svc_a", closes(1, window.ExitClean), nil), "rel_svc_a_0"),
-			func(before, after float64) bool { return after > before }},
-		{gatepolicy.WindowCap, "svc_a", longWindow(), func(before, after float64) bool { return after > before }},
-	} {
-		start, _ := Starting(of.parameter)
-		after := valueOf(t, of.evidence, of.parameter, of.subject)
-		if after == start.Value {
-			t.Errorf("%s did not move on evidence that should move it", of.parameter)
-			continue
+// resolvedIn is one window of one service that closed at an exit after took.
+func resolvedIn(opened time.Time, took time.Duration, exit window.Exit) *Evidence {
+	e := newEvidence()
+	e.windows = []window.Window{{
+		ID: "win_a", ServiceID: "svc_a", ReleaseID: "rel_a", Exit: exit,
+		At: record.FormatTime(opened), ClosedAt: record.FormatTime(opened.Add(took)),
+	}}
+	e.index()
+	return e
+}
+
+// TestASizeFinerThanTheTrafficCanResolveIsNotAsked is the answer to the ratchet:
+// what harm asks for and what the traffic reaches are two different questions, and
+// the size in force is the coarser of them. A size finer than the traffic can
+// resolve rules nothing out — the window ends at the cap every time, protects
+// nothing, and holds the next deploy for the whole cap.
+func TestASizeFinerThanTheTrafficCanResolveIsNotAsked(t *testing.T) {
+	start, _ := Starting(gatepolicy.WindowSize)
+
+	// A miss, and traffic that a window at the starting size can only just resolve.
+	// Harm asks for half the starting size; the traffic does not reach it, so the
+	// starting size stands and the reason says both halves.
+	thin := withRead(withIncident(evidenceFor("svc_a", closes(1, window.ExitCap), nil), "rel_svc_a_0"), 400, 86400)
+	value := valueOf(t, thin, gatepolicy.WindowSize, "svc_a")
+	if value != start.Value {
+		t.Errorf("the size reads %v on a service whose traffic cannot resolve anything finer, want the starting %v",
+			value, start.Value)
+	}
+	if row := rowFor(t, thin, gatepolicy.WindowSize, "svc_a"); row != nil {
+		if !strings.Contains(row.Why, "too coarse") || !strings.Contains(row.Why, "reaches") {
+			t.Errorf("the row says %q, and both the miss and the traffic decided it", row.Why)
 		}
-		if !of.protective(start.Value, after) {
-			t.Errorf("%s moved from %v to %v, which is away from protection", of.parameter, start.Value, after)
+	}
+
+	// The same miss on a service with a thousand times the traffic: what harm asks
+	// for is reachable, so it is what is asked for.
+	busy := withRead(withIncident(evidenceFor("svc_a", closes(1, window.ExitCap), nil), "rel_svc_a_0"), 400000, 86400)
+	if got := valueOf(t, busy, gatepolicy.WindowSize, "svc_a"); got != start.Value/2 {
+		t.Errorf("the size reads %v on a service with the traffic for it, want the halved %v", got, start.Value/2)
+	}
+}
+
+// withRead puts a read on the newest window of the evidence: units served over
+// the seconds the window was open, with a baseline to be read against. It is what
+// makes the traffic a service receives arithmetic rather than a guess.
+func withRead(e *Evidence, units int64, seconds int) *Evidence {
+	last := len(e.windows) - 1
+	opened := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	e.windows[last].At = record.FormatTime(opened)
+	e.windows[last].ClosedAt = record.FormatTime(opened.Add(time.Duration(seconds) * time.Second))
+	e.windows[last].ClosedOn = boundary.Observed{
+		Units: units, Failures: units / 100, BaselineUnits: units, BaselineFailures: units / 100,
+	}
+	e.index()
+	return e
+}
+
+// rowFor is the supplied row for one parameter and subject, or nil where the pass
+// moved nothing for it.
+func rowFor(t *testing.T, e *Evidence, parameter gatepolicy.Parameter, subject string) *Supplied {
+	t.Helper()
+	values, err := LearnFrom(e)
+	if err != nil {
+		t.Fatalf("LearnFrom: %v", err)
+	}
+	for _, row := range values {
+		if row.Parameter == parameter && row.Subject == subject {
+			return &row
 		}
+	}
+	return nil
+}
+
+// TestTwoOfTheSevenMoveOneWayAndBothSayWhy is the ratchet reduced to what is left
+// of it. Five parameters move both ways on evidence the factory records; the
+// confidence and the item-size target move one way, and the published rules state
+// the reason for each rather than leaving a reader to find the asymmetry.
+func TestTwoOfTheSevenMoveOneWayAndBothSayWhy(t *testing.T) {
+	oneWay := []gatepolicy.Parameter{gatepolicy.WindowConfidence, gatepolicy.ItemSizeTarget}
+	for _, p := range oneWay {
+		if !strings.Contains(Rules, "One way only") {
+			t.Fatal("the published rules do not mark a one-way parameter as one")
+		}
+		if _, found := Starting(p); !found {
+			t.Errorf("the score supplies no %s", p)
+		}
+	}
+	if !strings.Contains(Rules, "Two of the seven move one way") {
+		t.Error("the published rules do not say how many parameters move one way")
+	}
+
+	// And each of the five that moves both ways does move both ways somewhere in
+	// these tests. The confidence moving up is asserted above; what this asserts is
+	// that it is the only window parameter left with one direction.
+	confidence, _ := Starting(gatepolicy.WindowConfidence)
+	falseClean := withIncident(evidenceFor("svc_a", closes(1, window.ExitClean), nil), "rel_svc_a_0")
+	if got := valueOf(t, falseClean, gatepolicy.WindowConfidence, "svc_a"); got <= confidence.Value {
+		t.Errorf("the confidence reads %v after a false clean, want above %v", got, confidence.Value)
 	}
 }
 

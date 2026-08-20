@@ -146,7 +146,7 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 		t.Fatalf("opening the window: %v", err)
 	}
 	if exit != "" {
-		if _, err := g.windows.Close(ctx, w.ID, exit); err != nil {
+		if _, err := g.windows.Close(ctx, w.ID, exit, readFor(exit)); err != nil {
 			t.Fatalf("closing the window at %s: %v", exit, err)
 		}
 	}
@@ -412,4 +412,22 @@ func TestASignalWithNothingToReadLeavesTheWindowOpen(t *testing.T) {
 		t.Errorf("the reading is unavailable (%s), and the baseline is there — it is the release that has said nothing",
 			reading.Unavailable)
 	}
+}
+
+// closedOn is the read a test closes a window on: a pair of counts with a
+// baseline in it, which is what an exit other than swept always has. The numbers
+// are not what any of these tests assert over — what they assert is the exit —
+// but a close with no read is refused, and rightly: an exit nobody can recompute
+// is one nobody can argue with.
+func closedOn() boundary.Observed {
+	return boundary.Observed{Units: 200, Failures: 2, BaselineUnits: 200, BaselineFailures: 2}
+}
+
+// readFor is [closedOn] for every exit but swept, which takes none. A loop closing
+// windows at each of the four exits needs the read to follow the exit.
+func readFor(exit window.Exit) boundary.Observed {
+	if exit == window.ExitSwept {
+		return boundary.Observed{}
+	}
+	return closedOn()
 }

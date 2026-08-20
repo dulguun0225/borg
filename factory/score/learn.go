@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/window"
@@ -28,7 +30,13 @@ const LearningVersion = "outcomes-1"
 // moves nothing twice. TestLearningIsIdempotent is what holds that true.
 const Rules = `Each value the score supplies starts where the formula was calibrated and moves as outcomes arrive.
 An outcome is read off records that already exist: a human's verdict on a decision, a watch window's
-exit, a rollback and the releases it swept, an incident against a release, and the attempts a stage took.
+exit and the read it closed on, a rollback and the releases it swept, an incident against a release,
+and the attempts a stage took.
+
+Every value moves by harm on one side and by its own stated cost on the other. Gate policy's own table
+says what goes wrong at each end of each of them, and both ends are the evidence: one end is something
+going wrong, the other is the parameter costing more than it returns. Where a value moves one way only,
+the reason is that its loose end is not observable here, and that reason is stated with it.
 
   risk threshold      per gate row. It falls to one band (0.05) below the lowest number the score
                       auto-passed on the number at that row and whose item turned out badly, floored
@@ -40,41 +48,50 @@ exit, a rollback and the releases it swept, an incident against a release, and t
                       exists to break, and the sample is the only unbiased evidence for raising it.
                       A fall outranks a rise: it names a number the score is known to have got wrong.
 
-  attempt bound       per stage. One above the highest attempt at which that stage produced work that
-                      got past it, floored at 3 and ceilinged at 6. A retry that worked is evidence
-                      the next one might; nothing lowers it, an escalation saying the bound was
-                      reached and not that it was too high.
+  attempt bound       per stage, both ways, once 3 items have reported at that stage. One above the
+                      highest attempt at which the stage produced work that got past it, floored at 2
+                      and ceilinged at 6 — so a stage that has needed a third attempt gets a fourth,
+                      and a stage nothing has ever needed more than one attempt at keeps one retry and
+                      not two. The floor is the design's own reasoning about a reply the protocol
+                      refused, which one retry is what covers.
 
   item-size target    per area. Halved per stall in that area — an item whose attempts at a stage
                       reached the bound above and which has no release, which is work spent and thrown
-                      away — floored at 50. Nothing raises it: the other end of a bad size is cost per
-                      feature and rework rate, and the factory measures neither.
+                      away — floored at 50. One way only: the other end of a bad size is cost per
+                      feature and rework rate, and cost per feature needs features counted, which
+                      nothing here does. Nothing reads the value either, until a cut sizes something.
 
-  watch window size   per service. Halved per miss — a window that closed clean or at the cap over a
-                      release an incident was later raised against, which is the crossing the
-                      comparison could have seen and did not — floored at 0.002. Each halving
-                      quadruples the traffic a comparison needs, which is the inverse-square cost of
-                      catching something smaller, so a service that misses often watches longer and
-                      resolves less.
+  watch window size   per service, and the coarser of two numbers. What harm asks for is the starting
+                      size halved per miss — a window closed clean or at the cap over a release an
+                      incident was later raised against, which is the crossing the comparison could
+                      have seen and did not — floored at 0.002. What the traffic reaches is the finest
+                      size on that same lattice whose units to clean this service's newest closed
+                      window's read supplies inside the cap in force, and never coarser than the
+                      starting size. The size in force is the coarser of the two, because a size finer
+                      than the traffic can resolve rules nothing out: the window ends at the cap every
+                      time, protects nothing, and holds the next deploy for the whole cap. The two are
+                      different questions — what is worth catching, and whether anything can be caught
+                      — and only the first is about harm.
 
   window confidence   per service. Each false clean — a miss whose window closed at the clean exit
                       rather than at the cap — halves the distance from the confidence in force to
-                      one, ceilinged at 0.999. A window that ended at the cap ruled nothing out, so it
-                      is evidence about the size and not about the confidence.
+                      one, ceilinged at 0.999. One way only, and the reason is arithmetic: the units a
+                      window needs grow as the log of one over one-minus-confidence, where they grow as
+                      the inverse square of the size, so tightening this costs about a doubling where
+                      two halvings of the size cost sixteen times. It does not compound.
 
-  watch window cap    per service. Twice the longest a window of that service took to close on
-                      evidence — clean or harm, the two exits that read the quantity rather than the
-                      clock — floored at 86400 and ceilinged at a week. A cap under the time a window
-                      of this service actually needed closes unresolved a window that would have
-                      resolved; the doubling is the room a sample of one earns.
+  watch window cap    per service, both ways. Twice the longest a window of that service took to close
+                      on evidence — clean or harm, the two exits that read the quantity rather than the
+                      clock — floored at 60 and ceilinged at a week. A cap under what a window actually
+                      needed closes unresolved one that would have resolved; a cap far above it holds
+                      the next deploy for nothing.
 
-  K                   per service, and the one value that moves both ways. Folded over that service's
-                      own history in order: from 1, every 3 windows closing without harm raise it by
-                      one, ceilinged at 5, and a rollback that swept a release lowers it by one and
-                      resets the count, floored at 1. Windows closing without harm are one-sided
-                      evidence — a service that has never rolled back has seen the throughput K gives
-                      and none of the rollback size it causes — which is why the rise is slow and the
-                      fall is immediate.
+  K                   per service. Folded over that service's own history in order: from 1, every 3
+                      windows closing without harm raise it by one, ceilinged at 5, and a rollback that
+                      swept a release lowers it by one and resets the count, floored at 1. Windows
+                      closing without harm are one-sided evidence — a service that has never rolled
+                      back has seen the throughput K gives and none of the rollback size it causes —
+                      which is why the rise is slow and the fall is immediate.
 
   the predicate       nothing. No outcome teaches which kinds of assertion a declaration may draw
   catalog             from, so the score supplies none and the value in force is the kinds this
@@ -90,10 +107,11 @@ keeps a control: every deploy here moves a process rather than traffic, so a hel
 watched by the same confounded comparison as every other one and the longest watch available is all
 the sample gets.
 
-Five of the six move only toward more protection, because the evidence arrives one-sided: the factory
-finds out that it should have been more careful and never that it was careful enough. K is the
-exception the design makes two-sided. What that costs is a ratchet — a long-lived install tightens and
-nothing but an owner authoring over it loosens anything.
+Two of the seven move one way, and each says above why its loose end is not observable here. What that
+costs is that those two ratchet: an install tightens them and only an owner authoring over the value
+loosens anything. Neither compounds — the confidence's cost grows as a log, and nothing reads the
+item-size target yet — which is what makes a ratchet on those two tolerable where a ratchet on the
+window's size was not.
 `
 
 // The published rules' own numbers, named where they are applied. Every one of
@@ -115,6 +133,14 @@ const (
 	// attemptBoundCeiling is as high as the bound goes, whatever the evidence: a
 	// stage retried more than this has stopped being a stage that retries.
 	attemptBoundCeiling = 6
+	// attemptBoundFloor is as low as it goes. One retry is the one the design's own
+	// reasoning is about — a stage that failed once has usually had a reply the
+	// protocol refused — so a bound of two survives whatever the evidence says.
+	attemptBoundFloor = 2
+	// attemptBoundEvidence is how many items must have reported at a stage before
+	// the bound moves off its starting value at all. One item that got past a stage
+	// first time is not grounds for supplying a bound the whole factory reads.
+	attemptBoundEvidence = 3
 	// itemSizeFloor is as small as the target goes. Below this an item is smaller
 	// than the overhead of shipping one.
 	itemSizeFloor = 50
@@ -127,6 +153,10 @@ const (
 	// windowCapCeiling is as long as a window is held open, in seconds: a week,
 	// after which the next deploy has waited longer than any release should.
 	windowCapCeiling = 7 * 24 * 60 * 60
+	// windowCapFloor is as short as it goes. A cap under a minute would end a
+	// window before traffic had arrived to read, which is not a cap but a refusal
+	// to watch.
+	windowCapFloor = 60
 	// kCeiling is as many windows as one service holds open, whatever the
 	// evidence. Every increment is one more release a rollback undoes.
 	kCeiling = 5
@@ -211,20 +241,43 @@ func thresholds(e *Evidence) []Supplied {
 	return moved
 }
 
-// attemptBounds is the attempt bound per stage: one above the highest attempt at
-// which that stage ever produced work that got past it.
+// attemptBounds is the attempt bound per stage, and it moves both ways: up to one
+// above the highest attempt at which that stage ever produced work that got past
+// it, and down where every item that got past it did so on fewer attempts than the
+// bound allows. The loose end is the one gate policy's own table states — a bound
+// higher than the evidence spends agent time before anyone sees the item — and it
+// is observable in the per-stage rows, so there is no reason for this one to be
+// one-way.
+//
+// Nothing moves until [attemptBoundEvidence] items have reported at the stage, and
+// the floor is [attemptBoundFloor]: one retry is what the design's reasoning about
+// a refused reply is for, and no amount of evidence takes that away.
 func attemptBounds(e *Evidence) []Supplied {
 	start, _ := Starting(gatepolicy.AttemptBound)
 	var moved []Supplied
 	for _, stage := range e.Stages() {
+		reached := e.reachedStage(stage)
+		if reached < attemptBoundEvidence {
+			continue
+		}
 		highest := e.succeededAt(stage)
-		value := math.Min(attemptBoundCeiling, math.Max(start.Value, float64(highest+1)))
+		if highest == 0 {
+			// Nothing has got past this stage at all, so there is no attempt that
+			// worked and nothing to read either way.
+			continue
+		}
+		value := math.Min(attemptBoundCeiling, math.Max(attemptBoundFloor, float64(highest+1)))
 		if value == start.Value {
 			continue
 		}
+		how := "so a retry after it is worth having"
+		if value < start.Value {
+			how = "and nothing has ever needed more, so the attempts above that are spent before anybody sees the item"
+		}
 		moved = append(moved, Supplied{
 			Parameter: gatepolicy.AttemptBound, Subject: string(stage), Value: value,
-			Why: fmt.Sprintf("this stage has produced work that got past it on attempt %d, so a retry after it is worth having", highest),
+			Why: fmt.Sprintf("over %d item(s) at this stage the highest attempt that produced work getting past it is %d, %s",
+				reached, highest, how),
 		})
 	}
 	return moved
@@ -273,13 +326,39 @@ func itemSizeTargets(e *Evidence, bound func(item.Stage) float64) []Supplied {
 	return moved
 }
 
-// windowParameters is the watch window's three per service: the size and the
-// confidence moved by what the comparison missed, and the cap moved by how long
-// that service's own windows took to resolve.
+// windowParameters is the watch window's three per service. Two of them move both
+// ways.
+//
+// The cap tracks how long that service's windows actually take to resolve, in both
+// directions: a cap under what a window needed closes unresolved one that would
+// have resolved, and a cap far above it holds the next deploy for nothing. The
+// pin's direction on this parameter is a floor, and that is an owner's bound rather
+// than a direction for evidence — reading it as one is what made this rule one-way
+// until 2026-08-20.
+//
+// The size is the coarser of two numbers, and that is the whole of the answer to
+// the ratchet. What harm asks for gets finer per miss and never coarser. What the
+// service's traffic can resolve is arithmetic over volume, computed fresh from the
+// read its newest closed window carries — and a size finer than that is a size the
+// comparison can never rule anything out at, so the window ends at the cap every
+// time, protects nothing, and holds the next deploy for the whole cap. Asking for
+// the finer of the two would be the factory watching longer and catching less.
+//
+// The two inputs are different questions and only one of them is about harm, which
+// is why [_The watch window_]'s restriction to evidence traceable to the health
+// signal is not being reopened here: that restriction governs what is worth
+// catching, and reachability governs whether anything can be caught at all.
+//
+// The confidence stays one-way, and the reason is arithmetic rather than a missing
+// rule: the units a window needs grow as the log of one over one-minus-confidence
+// and as the inverse square of the size, so tightening the confidence from the
+// convention to its ceiling costs about a doubling where two halvings of the size
+// cost sixteen times. It does not compound, so it does not produce the failure the
+// size's own rule exists to prevent.
 func windowParameters(e *Evidence) ([]Supplied, error) {
 	size, _ := Starting(gatepolicy.WindowSize)
 	confidence, _ := Starting(gatepolicy.WindowConfidence)
-	cap_, _ := Starting(gatepolicy.WindowCap)
+	startingCap, _ := Starting(gatepolicy.WindowCap)
 
 	var moved []Supplied
 	for _, service := range e.Services() {
@@ -291,26 +370,9 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 			}
 		}
 
-		if len(misses) > 0 {
-			value := math.Max(windowSizeFloor, size.Value/math.Pow(2, float64(len(misses))))
-			if value != size.Value {
-				moved = append(moved, Supplied{
-					Parameter: gatepolicy.WindowSize, Subject: service, Value: value,
-					Why: fmt.Sprintf("%d window(s) on this service closed without harm over a release an incident was raised against, so the size they watched at was too coarse — and catching something this much smaller takes %.0f times the traffic",
-						len(misses), math.Pow(4, float64(len(misses)))),
-				})
-			}
-		}
-		if falseCleans > 0 {
-			value := math.Min(windowConfidenceCeiling, 1-(1-confidence.Value)/math.Pow(2, float64(falseCleans)))
-			if value != confidence.Value {
-				moved = append(moved, Supplied{
-					Parameter: gatepolicy.WindowConfidence, Subject: service, Value: value,
-					Why: fmt.Sprintf("%d window(s) on this service closed clean over a release an incident was raised against, so the boundary said it had ruled out what it had not", falseCleans),
-				})
-			}
-		}
-
+		// The cap first, because what the size can reach depends on how long the
+		// window is allowed to run.
+		capSeconds := startingCap.Value
 		took, err := e.resolvedIn(service)
 		if err != nil {
 			return nil, err
@@ -322,16 +384,116 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 			}
 		}
 		if longest > 0 {
-			value := math.Min(windowCapCeiling, math.Max(cap_.Value, 2*longest.Seconds()))
-			if value != cap_.Value {
+			capSeconds = math.Min(windowCapCeiling, math.Max(windowCapFloor, 2*longest.Seconds()))
+			if capSeconds != startingCap.Value {
+				how := "and a cap under what a window actually needed closes unresolved one that would have resolved"
+				if capSeconds < startingCap.Value {
+					how = "and a cap far above what a window needs holds the next deploy for nothing"
+				}
 				moved = append(moved, Supplied{
-					Parameter: gatepolicy.WindowCap, Subject: service, Value: value,
-					Why: fmt.Sprintf("the longest window of this service to close on evidence took %s, and a cap under what a window actually needed closes unresolved one that would have resolved", longest),
+					Parameter: gatepolicy.WindowCap, Subject: service, Value: capSeconds,
+					Why: fmt.Sprintf("the longest window of this service to close on evidence took %s, %s", longest, how),
 				})
 			}
 		}
+
+		if confidenceValue := 1 - (1-confidence.Value)/math.Pow(2, float64(falseCleans)); falseCleans > 0 {
+			value := math.Min(windowConfidenceCeiling, confidenceValue)
+			if value != confidence.Value {
+				moved = append(moved, Supplied{
+					Parameter: gatepolicy.WindowConfidence, Subject: service, Value: value,
+					Why: fmt.Sprintf("%d window(s) on this service closed clean over a release an incident was raised against, so the boundary said it had ruled out what it had not", falseCleans),
+				})
+			}
+		}
+
+		// The size: the coarser of what harm asks for and what the traffic reaches.
+		wanted := math.Max(windowSizeFloor, size.Value/math.Pow(2, float64(len(misses))))
+		why := ""
+		if len(misses) > 0 {
+			why = fmt.Sprintf("%d window(s) on this service closed without harm over a release an incident was raised against, so the size they watched at was too coarse",
+				len(misses))
+		}
+		traffic, known, err := e.traffic(service)
+		if err != nil {
+			return nil, err
+		}
+		value := wanted
+		if known {
+			reach, err := reachable(traffic, capSeconds, confidence.Value, size.Value)
+			if err != nil {
+				return nil, err
+			}
+			if reach > value {
+				value = reach
+				why = fmt.Sprintf("%s%.3g unit(s) of work a second is what this service's newest closed window read, which reaches %v and no finer inside a cap of %vs",
+					prefix(why), traffic.UnitsPerSecond, reach, capSeconds)
+			}
+		}
+		if why != "" && value != size.Value {
+			moved = append(moved, Supplied{
+				Parameter: gatepolicy.WindowSize, Subject: service, Value: value, Why: why,
+			})
+		}
 	}
 	return moved, nil
+}
+
+// prefix joins the two halves of a size's reason where both apply, so a row that
+// was tightened by a miss and then held back by the traffic says both.
+func prefix(why string) string {
+	if why == "" {
+		return ""
+	}
+	return why + "; and "
+}
+
+// reachable is the finest size this service's traffic can rule anything out at
+// inside its cap, on the same lattice the tightening moves along — the starting
+// size halved, and halved again, down to the floor. It is the lattice and not a
+// closed form so that the two inputs to the size in force are commensurable: a
+// value that has been halved twice is compared against a reachable value that
+// could have been halved twice.
+//
+// The units a size needs come from [boundary.Boundary.UnitsToClean], which is the
+// same arithmetic the comparison reads the window against. A second copy of it
+// here would be two able to disagree, and this is the one number in the factory
+// whose whole point is that it matches what the boundary actually does.
+func reachable(t Traffic, capSeconds, confidence, startingSize float64) (float64, error) {
+	available := t.UnitsPerSecond * capSeconds
+	for _, size := range sizeLattice(startingSize) {
+		needed, err := boundary.Boundary{Size: size, Confidence: confidence}.UnitsToClean(t.BaselineRate)
+		if err != nil {
+			// At this baseline rate the ratio drifts the other way, so nothing is
+			// ruled out at this size however much traffic arrives. The next size up
+			// is the one to ask about.
+			continue
+		}
+		if needed <= available {
+			return size, nil
+		}
+	}
+	// Not even the size the score starts at is reachable. The score does not ask
+	// for anything coarser than that: a quiet service ending every window at the
+	// cap is a state the design has and reports as weak, and coarsening past the
+	// calibrated value would be the factory quietly agreeing to catch less than it
+	// was installed to catch.
+	return startingSize, nil
+}
+
+// sizeLattice is the sizes the tightening can produce, finest first: the starting
+// size halved until it reaches the floor. It is generated by halving down rather
+// than doubling up from the floor, because those are two different sets — the floor
+// is not a power of two below the starting size — and a reachable value taken off
+// the wrong one would not be comparable with what harm asks for.
+func sizeLattice(startingSize float64) []float64 {
+	var descending []float64
+	for size := startingSize; size > windowSizeFloor; size /= 2 {
+		descending = append(descending, size)
+	}
+	descending = append(descending, windowSizeFloor)
+	slices.Reverse(descending)
+	return descending
 }
 
 // ks is K per service, folded over that service's own history in order. The fold

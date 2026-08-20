@@ -172,14 +172,23 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 		t.Error("the superseded version now says a threshold moved, and an append-only record does not change")
 	}
 
-	// And the learning is a pass and not a step: running it again over the same
-	// store appends nothing.
-	still, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
+	// And the learning is a pass and not a step: two ensures with nothing written
+	// between them append one version. It is asserted here and not against the
+	// version the run composed, because the run shipped an item after composing —
+	// so the graph moved under it and a version of its own is the right answer.
+	first, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	if still.ID != appended.ID {
-		t.Errorf("a second pass over the same store appended %s beside %s", still.ID, appended.ID)
+	still, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
+	if err != nil {
+		t.Fatalf("Ensure again: %v", err)
+	}
+	if still.ID != first.ID {
+		t.Errorf("a second pass over an unchanged store appended %s beside %s", still.ID, first.ID)
+	}
+	if first.Supersedes == "" {
+		t.Error("the pass after the run appended a version superseding nothing")
 	}
 }
 

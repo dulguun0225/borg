@@ -43,6 +43,18 @@
 // Both are the caller's to hand over: what the score selected is read off the
 // decisions on the item, which this package does not read.
 //
+// [Window.ClosedOn] is the read the window closed on: what the release served and
+// failed, and what its baseline did. Without it the record stored the boundary a
+// window was read against and no reading to read against it, so an exit could not
+// be recomputed from the numbers it was decided on — which is the rule
+// [boundary.Reading] keeps one level down and this record was not keeping. The
+// swept exit carries none, that close being the one that is not a reading: a
+// rollback aimed below the release ended the window and nothing was evaluated.
+//
+// It is also what makes the traffic a service actually receives arithmetic. The
+// score reads it to answer whether a size it is asking for is reachable inside the
+// cap at all, which is a question about volume rather than about harm.
+//
 // What is not on it is the control. A control is named on the production deploy
 // record, not here — and on a substrate that moves a process rather than traffic
 // no control is ever started, so the field would be a column nothing writes.

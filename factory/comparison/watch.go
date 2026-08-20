@@ -109,7 +109,7 @@ func (c *Comparison) read(ctx context.Context, w Watching, win window.Window) (R
 	case reading.Boundary.Harm:
 		return c.harm(ctx, w, reading)
 	case reading.Boundary.Clean:
-		closed, err := c.windows.Close(ctx, win.ID, window.ExitClean)
+		closed, err := c.windows.Close(ctx, win.ID, window.ExitClean, observed)
 		reading.Window, reading.Exit = closed, window.ExitClean
 		return reading, nil, err
 	}
@@ -121,7 +121,7 @@ func (c *Comparison) read(ctx context.Context, w Watching, win window.Window) (R
 		return reading, nil, err
 	}
 	if past {
-		closed, err := c.windows.Close(ctx, win.ID, window.ExitCap)
+		closed, err := c.windows.Close(ctx, win.ID, window.ExitCap, observed)
 		reading.Window, reading.Exit = closed, window.ExitCap
 		return reading, nil, err
 	}
@@ -168,7 +168,7 @@ func (c *Comparison) harm(ctx context.Context, w Watching, reading Reading) (Rea
 	}
 	reading.IncidentID, reading.RaisedIntentID = raised.IncidentID, raised.IntentID
 
-	closed, err := c.windows.Close(ctx, reading.Window.ID, window.ExitHarm)
+	closed, err := c.windows.Close(ctx, reading.Window.ID, window.ExitHarm, reading.Observed)
 	if err != nil {
 		return reading, nil, err
 	}
@@ -230,7 +230,10 @@ func (c *Comparison) harm(ctx context.Context, w Watching, reading Reading) (Rea
 		if !found || !win.Open() {
 			continue
 		}
-		if _, err := c.windows.Close(ctx, win.ID, window.ExitSwept); err != nil {
+		// Swept takes no read: a rollback aimed below this release ended the window,
+		// so there was no reading and a read stored here would be one nothing
+		// performed.
+		if _, err := c.windows.Close(ctx, win.ID, window.ExitSwept, boundary.Observed{}); err != nil {
 			return reading, closedSwept, err
 		}
 		closedSwept = append(closedSwept, win.ID)

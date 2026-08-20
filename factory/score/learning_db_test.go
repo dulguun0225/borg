@@ -355,7 +355,7 @@ func openWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, re
 	if err != nil {
 		t.Fatalf("opening a window: %v", err)
 	}
-	closed, err := writer.Close(ctx, opened.ID, exit)
+	closed, err := writer.Close(ctx, opened.ID, exit, closedOn())
 	if err != nil {
 		t.Fatalf("closing a window at %s: %v", exit, err)
 	}
@@ -380,4 +380,13 @@ func rollBack(t *testing.T, ctx context.Context, pool *pgxpool.Pool, condemned s
 	if err := w.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the rollback: %v", err)
 	}
+}
+
+// closedOn is the read a test closes a window on: a pair of counts with a
+// baseline in it, which is what an exit other than swept always has. The numbers
+// are not what any of these tests assert over — what they assert is the exit —
+// but a close with no read is refused, and rightly: an exit nobody can recompute
+// is one nobody can argue with.
+func closedOn() boundary.Observed {
+	return boundary.Observed{Units: 200, Failures: 2, BaselineUnits: 200, BaselineFailures: 2}
 }

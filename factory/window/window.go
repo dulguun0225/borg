@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -53,6 +54,11 @@ var (
 	// ErrOpeningIncomplete is returned by [Writer.Open] for an opening missing
 	// something every window has.
 	ErrOpeningIncomplete = errors.New("window: the opening is missing something every window has")
+	// ErrReadRefused is returned by [Writer.Close] for a read that is not a pair of
+	// counts, and for a swept close carrying one. Swept is the exit that is not a
+	// reading: a rollback aimed below the release ended the window, so a read there
+	// would be a reading nothing performed.
+	ErrReadRefused = errors.New("window: the read the window closed on is not a read of the quantity")
 )
 
 // Window is one watch window as it is stored. At is when it opened, which is
@@ -90,6 +96,18 @@ type Window struct {
 	// PolicyVersion and ScoreVersion are the two versions in force at the open.
 	PolicyVersion string
 	ScoreVersion  string
+	// ClosedOn is the read of the quantity the window closed on: what the release
+	// served and failed, and what its baseline did. It is empty while the window is
+	// open and at the swept exit, which is the one close that is not a reading — a
+	// rollback aimed below the release ended it, and nothing was evaluated.
+	//
+	// It is here because an exit nobody can recompute is an exit nobody can argue
+	// with, which is the rule [boundary.Reading] already keeps one level down: the
+	// window stores the boundary it was read against, and without this it stored no
+	// reading to read against it. What else it makes possible is arithmetic over the
+	// traffic a service actually receives, which is what says whether a size the
+	// score is asking for is reachable at all.
+	ClosedOn boundary.Observed
 	// Exit is empty while the window is open.
 	Exit Exit
 	// ClosedAt is empty while the window is open, and moves with Exit.

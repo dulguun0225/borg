@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/window"
@@ -166,7 +167,7 @@ func TestAWindowClosesOnceAtExactlyOneOfTheFourExits(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		closed, err := w.Close(ctx, opened.ID, exit)
+		closed, err := w.Close(ctx, opened.ID, exit, readFor(exit))
 		if err != nil {
 			t.Fatalf("Close(%s): %v", exit, err)
 		}
@@ -192,10 +193,10 @@ func TestASecondCloseOnOneWindowIsAlreadyClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, err := w.Close(ctx, opened.ID, window.ExitClean); err != nil {
+	if _, err := w.Close(ctx, opened.ID, window.ExitClean, closedOn()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, err := w.Close(ctx, opened.ID, window.ExitHarm); !errors.Is(err, window.ErrAlreadyClosed) {
+	if _, err := w.Close(ctx, opened.ID, window.ExitHarm, closedOn()); !errors.Is(err, window.ErrAlreadyClosed) {
 		t.Errorf("Close = %v, want ErrAlreadyClosed", err)
 	}
 }
@@ -206,7 +207,7 @@ func TestClosingAtAnExitOutsideExitsIsExitUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, err := w.Close(ctx, opened.ID, window.Exit("flaky")); !errors.Is(err, window.ErrExitUnknown) {
+	if _, err := w.Close(ctx, opened.ID, window.Exit("flaky"), closedOn()); !errors.Is(err, window.ErrExitUnknown) {
 		t.Errorf("Close = %v, want ErrExitUnknown", err)
 	}
 }
@@ -222,8 +223,10 @@ func TestDDLListsEveryExit(t *testing.T) {
 		o := opening()
 		_, err := pool.Exec(ctx, `insert into `+window.Table+`
 			(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available, held_out,
-			 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at)
-			values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
+			 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
+			values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, $13, $14,
+			 0, 0, 0, 0)`,
 			record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.CleanAvailable,
 			o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, string(exit), record.Now())
 		if err != nil {
@@ -234,8 +237,10 @@ func TestDDLListsEveryExit(t *testing.T) {
 	o := opening()
 	_, err := pool.Exec(ctx, `insert into `+window.Table+`
 		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available, held_out,
-		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at)
-		values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, 'flaky', $13)`,
+		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
+		 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
+		values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, 'flaky', $13,
+		 0, 0, 0, 0)`,
 		record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.CleanAvailable,
 		o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, record.Now())
 	if err == nil {
@@ -262,15 +267,15 @@ func TestCountOpenAllOpenAndClosedWithoutHarmSeeOnlyWhatMatches(t *testing.T) {
 
 	stillOpen := openOne()
 	harmed := openOne()
-	if _, err := w.Close(ctx, harmed.ID, window.ExitHarm); err != nil {
+	if _, err := w.Close(ctx, harmed.ID, window.ExitHarm, closedOn()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	cleared := openOne()
-	if _, err := w.Close(ctx, cleared.ID, window.ExitClean); err != nil {
+	if _, err := w.Close(ctx, cleared.ID, window.ExitClean, closedOn()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	atCap := openOne()
-	if _, err := w.Close(ctx, atCap.ID, window.ExitCap); err != nil {
+	if _, err := w.Close(ctx, atCap.ID, window.ExitCap, closedOn()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
@@ -325,7 +330,7 @@ func TestPastCapIsTrueOnlyAfterATinyCapElapsesAndNeverOnceClosed(t *testing.T) {
 		t.Errorf("PastCap after a tiny cap elapsed = %v, %v, want true", past, err)
 	}
 
-	closed, err := w.Close(ctx, tinyWin.ID, window.ExitCap)
+	closed, err := w.Close(ctx, tinyWin.ID, window.ExitCap, closedOn())
 	if err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -446,7 +451,7 @@ func TestClosedReadsEveryClosedWindowAndNoOpenOne(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		if _, err := w.Close(ctx, opened.ID, exit); err != nil {
+		if _, err := w.Close(ctx, opened.ID, exit, readFor(exit)); err != nil {
 			t.Fatalf("Close at %s: %v", exit, err)
 		}
 		closedIDs = append(closedIDs, opened.ID)
@@ -471,4 +476,22 @@ func TestClosedReadsEveryClosedWindowAndNoOpenOne(t *testing.T) {
 			t.Errorf("Closed read %s with no exit", c.ID)
 		}
 	}
+}
+
+// closedOn is the read a test closes a window on: a pair of counts with a
+// baseline in it, which is what an exit other than swept always has. The numbers
+// are not what any of these tests assert over — what they assert is the exit —
+// but a close with no read is refused, and rightly: an exit nobody can recompute
+// is one nobody can argue with.
+func closedOn() boundary.Observed {
+	return boundary.Observed{Units: 200, Failures: 2, BaselineUnits: 200, BaselineFailures: 2}
+}
+
+// readFor is [closedOn] for every exit but swept, which takes none. A loop closing
+// windows at each of the four exits needs the read to follow the exit.
+func readFor(exit window.Exit) boundary.Observed {
+	if exit == window.ExitSwept {
+		return boundary.Observed{}
+	}
+	return closedOn()
 }

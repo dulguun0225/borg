@@ -55,9 +55,15 @@
 # that is not a record is the build's diff, measured by the component that
 # built and handed to it.
 #
-# Three of those edges arrive with the learning, and each is an outcome rather
-# than a factor: window for the exits, deploy for the rollbacks and what each
-# swept, and incident for the crossing that says a window's size was too coarse.
+# Four of those edges arrive with the learning. Three are outcomes rather than
+# factors: window for the exits and the read each window closed on, deploy for the
+# rollbacks and what each swept, and incident for the crossing that says a window's
+# size was too coarse. The fourth is boundary, and it is an import for arithmetic:
+# whether a size the score is asking for is reachable at all is the units that size
+# needs against the traffic a service receives, and the units it needs are what the
+# comparison already reads the window against. A second copy of that arithmetic
+# here would be two able to disagree about the one number whose whole purpose is to
+# match what the boundary does.
 # What it still does not import is policy — the direction is policy -> score,
 # because the value in force is the authored one where there is one and the
 # supplied one otherwise, and a score that read the authored value would be
@@ -81,6 +87,11 @@
 # and the one place an owner can author a parameter or place a pin.
 #
 # Four more edges arrive with everything downstream of a deploy.
+#
+# window -> boundary is an import for a type. The read a window closed on is a
+# boundary.Observed — the counts the exit was decided from — and a second spelling
+# of those four counts here would be two able to disagree with the package that
+# evaluates them. It is the arrangement declaration -> contract already has.
 #
 # boundary imports nothing, inside this module or out of it beyond the standard
 # library. It is the watch window's arithmetic over numbers its caller has
@@ -145,11 +156,11 @@ area -> record gatepolicy
 environment -> record gatepolicy secretref
 factorypolicy -> record gatepolicy item
 pin -> record gatepolicy
-window -> record
+window -> boundary record
 incident -> record
 people -> record
 reconciler -> record
-score -> record gatepolicy artifact contract declaration decisionlog deploy incident item release window
+score -> record gatepolicy boundary artifact contract declaration decisionlog deploy incident item release window
 policy -> record gatepolicy area environment factorypolicy item pin score secretref service
 gate -> criterion decisionlog policy record score
 mergequeue -> contract decisionlog gate item record release
@@ -184,7 +195,7 @@ test incident -> postgres
 test people -> postgres
 test notifier -> postgres decisionlog people record
 test comparison -> postgres boundary build deploy item record release window
-test contractcheck -> postgres score artifact build contract declaration deploy gate gatepolicy intent item pin policy record release secretref service window
+test contractcheck -> postgres boundary score artifact build contract declaration deploy gate gatepolicy intent item pin policy record release secretref service window
 test score -> postgres artifact boundary contract criterion declaration deploy factorypolicy gate policy release service window
 test policy -> postgres
 test gate -> postgres

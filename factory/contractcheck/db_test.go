@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
@@ -264,7 +265,7 @@ func ship(t *testing.T, ctx context.Context, g graph, svc service.Service,
 		t.Fatalf("opening the window: %v", err)
 	}
 	if exit != "" {
-		if _, err := g.windows.Close(ctx, w.ID, exit); err != nil {
+		if _, err := g.windows.Close(ctx, w.ID, exit, closedOn()); err != nil {
 			t.Fatalf("closing the window at %s: %v", exit, err)
 		}
 	}
@@ -756,3 +757,12 @@ func TestACheckWithNoSeamIsRefused(t *testing.T) {
 }
 
 func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
+
+// closedOn is the read a test closes a window on: a pair of counts with a
+// baseline in it, which is what an exit other than swept always has. The numbers
+// are not what any of these tests assert over — what they assert is the exit —
+// but a close with no read is refused, and rightly: an exit nobody can recompute
+// is one nobody can argue with.
+func closedOn() boundary.Observed {
+	return boundary.Observed{Units: 200, Failures: 2, BaselineUnits: 200, BaselineFailures: 2}
+}

@@ -291,6 +291,69 @@ func (e *Evidence) serviceHistory(serviceID string) []serviceEvent {
 	return events
 }
 
+// Traffic is what one service's windows say about the traffic it actually
+// receives: the units its release served per second, and the failure rate of the
+// baseline it was read against. Both come off the freshest closed window that
+// carries a read, because traffic changes and the newest reading is the honest
+// estimate of what the next window will get.
+//
+// It is what says whether a size the score is asking for is reachable at all —
+// which is arithmetic over volume and not a claim about harm, so it is evidence
+// the watch window's harm-only restriction does not speak to.
+type Traffic struct {
+	// UnitsPerSecond is what the release under watch served, over the seconds its
+	// window was open.
+	UnitsPerSecond float64
+	// BaselineRate is the failure rate of the release it was read against, which is
+	// what the units a window needs are computed at.
+	BaselineRate float64
+}
+
+// traffic is [Traffic] for one service, and false where no closed window of it
+// carries a read with a baseline in it. A service whose windows have never had a
+// baseline has never had clean available to them either, so there is nothing for
+// reachability to constrain.
+func (e *Evidence) traffic(serviceID string) (Traffic, bool, error) {
+	for i := len(e.windows) - 1; i >= 0; i-- {
+		w := e.windows[i]
+		if w.ServiceID != serviceID || w.ClosedOn.Units <= 0 || w.ClosedOn.BaselineUnits <= 0 {
+			continue
+		}
+		opened, err := record.ParseTime(w.At)
+		if err != nil {
+			return Traffic{}, false, fmt.Errorf("score: reading when window %s opened: %w", w.ID, err)
+		}
+		closed, err := record.ParseTime(w.ClosedAt)
+		if err != nil {
+			return Traffic{}, false, fmt.Errorf("score: reading when window %s closed: %w", w.ID, err)
+		}
+		seconds := closed.Sub(opened).Seconds()
+		if seconds <= 0 {
+			// A window opened and closed inside one timestamp says nothing about a
+			// rate. It is not an error: the next one down will.
+			continue
+		}
+		return Traffic{
+			UnitsPerSecond: float64(w.ClosedOn.Units) / seconds,
+			BaselineRate:   float64(w.ClosedOn.BaselineFailures) / float64(w.ClosedOn.BaselineUnits),
+		}, true, nil
+	}
+	return Traffic{}, false, nil
+}
+
+// reachedStage is how many items have reported an attempt at one stage. It is the
+// evidence count the attempt bound's own rule needs: one item that got past a
+// stage first time is not grounds for supplying a bound the whole factory reads.
+func (e *Evidence) reachedStage(stage item.Stage) int {
+	n := 0
+	for _, s := range e.stages {
+		if s.Stage == stage {
+			n++
+		}
+	}
+	return n
+}
+
 // resolvedIn is how long each window of one service took to close on evidence —
 // clean or harm, the two exits that are a reading of the quantity rather than a
 // clock running out. It is what the cap is set above: a cap under the time a

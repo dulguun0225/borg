@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -51,8 +52,9 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o Opening) (Windo
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
 		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available, held_out,
-		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, '', '')`,
+		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
+		 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, '', '', 0, 0, 0, 0)`,
 		win.ID, string(win.Actor.Kind), win.Actor.Name, win.At,
 		win.DeployID, win.ReleaseID, win.ServiceID, win.CleanAvailable, win.HeldOut,
 		win.Size, win.Confidence, win.CapSeconds, win.Formula, win.PolicyVersion, win.ScoreVersion,
@@ -67,11 +69,23 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o Opening) (Windo
 // an exit is [ErrAlreadyClosed]: the comparison evaluates every exit, so a second
 // close would be two answers to a question that has one.
 //
+// on is the read the window closed on, and it is stored so that an exit can be
+// recomputed from the numbers it was decided on. The swept exit takes none: a
+// rollback aimed below the release ended that window, so a read there would be a
+// reading nothing performed.
+//
 // The row is locked while its exit is read, so two closes racing are one close
 // and one error rather than one exit overwriting another.
-func (w *Writer) Close(ctx context.Context, id string, exit Exit) (Window, error) {
+func (w *Writer) Close(ctx context.Context, id string, exit Exit, on boundary.Observed) (Window, error) {
 	if !slices.Contains(Exits, exit) {
 		return Window{}, fmt.Errorf("%w: %q", ErrExitUnknown, exit)
+	}
+	if err := on.Validate(); err != nil {
+		return Window{}, fmt.Errorf("%w: %w", ErrReadRefused, err)
+	}
+	if exit == ExitSwept && on != (boundary.Observed{}) {
+		return Window{}, fmt.Errorf("%w: %s carries %+v, and that exit is a rollback aimed below the release rather than a reading",
+			ErrReadRefused, exit, on)
 	}
 
 	tx, err := w.pool.Begin(ctx)
@@ -92,8 +106,13 @@ func (w *Writer) Close(ctx context.Context, id string, exit Exit) (Window, error
 
 	win.Exit = exit
 	win.ClosedAt = record.Now()
-	if _, err := tx.Exec(ctx, `update `+Table+` set exit = $1, closed_at = $2 where id = $3`,
-		string(win.Exit), win.ClosedAt, id); err != nil {
+	win.ClosedOn = on
+	if _, err := tx.Exec(ctx, `update `+Table+` set exit = $1, closed_at = $2,
+		closed_on_units = $4, closed_on_failures = $5,
+		closed_on_baseline_units = $6, closed_on_baseline_failures = $7
+		where id = $3`,
+		string(win.Exit), win.ClosedAt, id,
+		on.Units, on.Failures, on.BaselineUnits, on.BaselineFailures); err != nil {
 		return Window{}, fmt.Errorf("window: closing %s at %s: %w", id, exit, err)
 	}
 	if err := tx.Commit(ctx); err != nil {

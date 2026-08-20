@@ -17,7 +17,8 @@ import (
 
 const selectWindow = `select id, actor_kind, actor_name, at, deploy_id, release_id, service_id,
 	clean_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
-	exit, closed_at
+	exit, closed_at, closed_on_units, closed_on_failures,
+	closed_on_baseline_units, closed_on_baseline_failures
 	from ` + Table
 
 func scan(row pgx.Row) (Window, error) {
@@ -25,7 +26,9 @@ func scan(row pgx.Row) (Window, error) {
 	var kind, exit string
 	err := row.Scan(&w.ID, &kind, &w.Actor.Name, &w.At, &w.DeployID, &w.ReleaseID, &w.ServiceID,
 		&w.CleanAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
-		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt)
+		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt,
+		&w.ClosedOn.Units, &w.ClosedOn.Failures,
+		&w.ClosedOn.BaselineUnits, &w.ClosedOn.BaselineFailures)
 	if err != nil {
 		return Window{}, err
 	}

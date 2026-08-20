@@ -73,6 +73,34 @@
 // different numbers. What that costs is that a run acts on what the store said
 // when it started.
 //
+// # Both ends of each parameter are the evidence
+//
+// Every value moves by harm on one side and by its own stated cost on the other.
+// Gate policy's own table says what goes wrong at each end of each of them, and
+// both ends are inputs: one end is something going wrong, the other is the
+// parameter costing more than it returns. Five of the seven move both ways on that
+// reading — the threshold through the sample, the attempt bound on attempts that
+// never needed the retry, the cap on how long a window actually takes, the size on
+// what the traffic can resolve, and K, which the design already gave both
+// directions.
+//
+// The window's size is where that mattered most. What harm asks for gets finer per
+// miss and never coarser; what the traffic reaches is the finest size on that same
+// lattice whose units to clean this service's newest closed window's read supplies
+// inside the cap. The size in force is the coarser of the two, because a size finer
+// than the traffic can resolve rules nothing out: the window ends at the cap every
+// time, protects nothing, and holds the next deploy for the whole cap. The two are
+// different questions — what is worth catching, and whether anything can be caught
+// — and only the first is about harm, which is why reading the second is not the
+// watch window's harm-only restriction being reopened.
+//
+// Two move one way, and [Rules] states the reason with each: no outcome here
+// teaches that a confidence was too high, and nothing measures the other end of an
+// item-size target. Neither compounds — the units a window needs grow as the log of
+// one over one-minus-confidence, and nothing reads the item-size target yet — which
+// is what makes a ratchet on those two tolerable where a ratchet on the size was
+// not.
+//
 // # The held-out sample
 //
 // [Score.HoldOut] is the sample: one firing in ten that the score would have gated

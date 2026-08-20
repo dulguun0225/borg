@@ -3,3 +3,6 @@
 # The credential the real-model test and a demo run read. Ignored before the
 # file exists, so a token pasted into it cannot be committed by accident.
 /factory/secrets.local
+
+# Scratch for going over M6's findings one at a time. Deleted when we have.
+/REVIEW-M6.md

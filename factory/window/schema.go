@@ -26,6 +26,14 @@ const IDPrefix = "win"
 // time and no exit are both refused. That is the one place a window's two states
 // could disagree.
 //
+// The four closed_on columns are the read the window closed on, and they are four
+// columns rather than one because a count is a count: what a reader wants of them
+// is arithmetic, and JSON holding four integers would be structure where nothing
+// needs structure. closed_on_read_only_when_closed refuses a read on an open
+// window, which is the one way these could disagree with the exit; a swept close
+// carries zeros, that exit being the one that is not a reading, and the writer is
+// what refuses a read there.
+//
 // held_out is copied onto the row for the reason clean_available is not enough on
 // its own: a window on a held-out release runs to the cap because the score is
 // measuring what it auto-passed, and one on a first release runs to the cap
@@ -52,6 +60,10 @@ var DDL = []string{
 	score_version text not null,
 	exit text not null,
 	closed_at text not null,
+	closed_on_units bigint not null,
+	closed_on_failures bigint not null,
+	closed_on_baseline_units bigint not null,
+	closed_on_baseline_failures bigint not null,
 	` + record.Constraints + `,
 	constraint deploy_id_present check (deploy_id <> ''),
 	constraint release_id_present check (release_id <> ''),
@@ -64,6 +76,13 @@ var DDL = []string{
 	constraint score_version_present check (score_version <> ''),
 	constraint exit_known check (exit in ('', 'harm', 'clean', 'cap', 'swept')),
 	constraint exit_and_closed_together check ((exit <> '') = (closed_at <> '')),
+	constraint closed_on_counts check (
+		closed_on_units >= 0 and closed_on_failures >= 0 and closed_on_failures <= closed_on_units and
+		closed_on_baseline_units >= 0 and closed_on_baseline_failures >= 0
+			and closed_on_baseline_failures <= closed_on_baseline_units),
+	constraint closed_on_read_only_when_closed check (exit <> '' or
+		(closed_on_units = 0 and closed_on_failures = 0
+			and closed_on_baseline_units = 0 and closed_on_baseline_failures = 0)),
 	constraint closed_at_is_time_layout check (closed_at = '' or closed_at ~ '` + record.TimePattern + `')
 )`,
 }
