@@ -196,6 +196,8 @@ go run ./cmd/reconciler clear <mismatch-id> -human <name>
 
 ## What the tests demonstrate
 
+A milestone's tests are its demonstration, so they show the factory as it is and not as it was when the milestone was built. A later milestone may change an earlier one's setup — the verdicts a scripted human types, the fixtures, the records a test starts from — and that is the factory having moved rather than the earlier claim having weakened: M6's learning drew a conclusion from the release M4 deliberately breaks, so rows that auto-passed in that episode now ask, and three of its scripts needed more answers in them. What is not that is a later milestone changing what an earlier one *asserts*. In a diff the two edits look alike, and they are not: the second means either that the earlier claim was wrong or that the new work broke it, so it is a finding and the commit says so. This convention arrived with M6, which made the first kind of change for the first time.
+
 ### M0
 
 M0 is done when these pass, which is what [`../roadmap.md`](../roadmap.md#m0--the-graph-and-the-log) sets as the milestone's demonstration:
