@@ -176,7 +176,9 @@ func TestAMissMakesTheWindowFinerAndACleanMissAlsoRaisesTheConfidence(t *testing
 }
 
 // TestTheThresholdFallsBelowWhatItPassedAndRisesOnlyOnTheSample is the
-// calibration, and the second half is why the sample exists at all.
+// calibration, and the second half is why the sample exists at all: without a
+// held-out firing there is no evidence for a rise, so a factory whose sample never
+// selects has a threshold that can fall and cannot rise.
 func TestTheThresholdFallsBelowWhatItPassedAndRisesOnlyOnTheSample(t *testing.T) {
 	start, _ := Starting(gatepolicy.RiskThreshold)
 	const row = "merge_to_master"
@@ -420,6 +422,17 @@ func TestTwoOfTheSevenMoveOneWayAndBothSayWhy(t *testing.T) {
 	}
 	if !strings.Contains(Rules, "Two of the seven move one way") {
 		t.Error("the published rules do not say how many parameters move one way")
+	}
+
+	// The threshold is the exception to the both-ends rule the paragraph above
+	// states, and it is the one whose loose end is observable and deliberately not
+	// read. A rule that claimed both ends for every value and then did not read one
+	// would be a published rule the code contradicts.
+	if !strings.Contains(Rules, "deliberately not read") {
+		t.Error("the published rules claim both ends for every value and do not say which one is not read")
+	}
+	if !strings.Contains(Rules, "can fall and cannot rise") {
+		t.Error("the published rules do not say what a factory whose sample never selects has")
 	}
 
 	// And each of the five that moves both ways does move both ways somewhere in

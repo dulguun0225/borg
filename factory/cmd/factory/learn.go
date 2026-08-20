@@ -129,7 +129,7 @@ func printHeldOut(ctx context.Context, out io.Writer, pool *pgxpool.Pool) error 
 		return err
 	}
 	if len(items) == 0 {
-		fmt.Fprintf(out, "\nThe score has held no item out. It holds out %.0f in every 100 firings it would have gated, and it has gated none it could sample.\n",
+		fmt.Fprintf(out, "\nThe score has held no item out, so every threshold it supplies can fall and cannot rise: the only evidence for raising one is a change the score wanted gated and did not gate. It holds out %.0f in every 100 firings it would have gated.\n",
 			score.SampleRate*100)
 		return nil
 	}

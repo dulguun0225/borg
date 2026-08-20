@@ -224,3 +224,22 @@ func TestThePassPrintsWhatMovedAndWhatMovedIt(t *testing.T) {
 		t.Errorf("the pass does not say why it moved back:\n%s", printed)
 	}
 }
+
+// TestAFactoryThatHasSampledNothingSaysSo: a threshold that can only fall is a
+// state worth reading off the pass rather than deducing from an empty list. Every
+// test in this package but one composes a draw that selects nothing, so it is also
+// the state most of them are in.
+func TestAFactoryThatHasSampledNothingSaysSo(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
+		t.Fatalf("the run stopped: %v\noutput so far:\n%s", err, out)
+	}
+
+	printed := &bytes.Buffer{}
+	if err := printHeldOut(ctx, printed, d.pool); err != nil {
+		t.Fatalf("printHeldOut: %v", err)
+	}
+	if !strings.Contains(printed.String(), "can fall and cannot rise") {
+		t.Errorf("the pass does not say that a factory with no sample has a one-way threshold:\n%s", printed)
+	}
+}

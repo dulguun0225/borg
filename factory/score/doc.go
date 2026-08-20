@@ -116,6 +116,11 @@
 // And it selects an item and not a firing, so the selection is read forward off
 // the decisions already opened on that item rather than drawn again at each row.
 //
+// [NeverDraw] is therefore a factory whose thresholds can only fall. That is a
+// legitimate composition — a test asserting a human at a row cannot run against a
+// sample that might remove one — and it is not a silent state: the pass says so
+// where nothing has been held out.
+//
 // What this substrate cannot give it is the strategy that keeps a control: every
 // deploy here moves a process rather than traffic, so a held-out release is
 // watched by the same confounded comparison as every other and the longest watch

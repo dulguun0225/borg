@@ -309,7 +309,7 @@ The superseded version still says what it said. A decision taken before the move
   no human decides: the score held this item out of a gate it would have gated, which is the one thing in the factory that removes a human from a row
 ```
 
-and the deploy that follows says `its window runs to the cap — the longest watch there is`. Every row below that one on the same item reads `selected this item at an earlier gate`: the sample selects an item, not a firing, so an item selected once reaches production with a human removed at each gate the score would have gated. `learn` lists the items it has selected. A pinned row keeps its human however the draw falls — `pin -parameter risk_threshold -subject gate_row:merge_to_master` and the sample never passes that row again, which is the one guarantee a pin has to keep.
+and the deploy that follows says `its window runs to the cap — the longest watch there is`. Every row below that one on the same item reads `selected this item at an earlier gate`: the sample selects an item, not a firing, so an item selected once reaches production with a human removed at each gate the score would have gated. `learn` lists the items it has selected — and says so where it has selected none, because a factory that has never sampled has a threshold that can fall and cannot rise. A pinned row keeps its human however the draw falls — `pin -parameter risk_threshold -subject gate_row:merge_to_master` and the sample never passes that row again, which is the one guarantee a pin has to keep.
 
 ## Authoring gate policy
 

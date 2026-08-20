@@ -38,14 +38,25 @@ says what goes wrong at each end of each of them, and both ends are the evidence
 going wrong, the other is the parameter costing more than it returns. Where a value moves one way only,
 the reason is that its loose end is not observable here, and that reason is stated with it.
 
+The risk threshold is the one value whose loose end is observable and is deliberately not read. How
+often a row puts a human at it is a count, and it is what that row's loose end costs — but it is not
+evidence about safety. A window too fine to resolve rules nothing out, so loosening it gives up
+nothing; a human at a gate reads the change and stops some of them, so loosening the threshold on its
+cost alone would be the score deciding that human review is not worth its price. That is an owner's
+judgment, made by authoring the value. What raises a threshold here is the held-out sample and nothing
+else, and a factory whose sample never selects has a threshold that can fall and cannot rise.
+
   risk threshold      per gate row. It falls to one band (0.05) below the lowest number the score
                       auto-passed on the number at that row and whose item turned out badly, floored
                       at 0.05 — so the next change scoring what that one scored is decided by a human.
                       It rises one band per 3 held-out firings at that row whose items turned out well,
                       ceilinged at 0.90, and nothing else raises it: a gated change a human approved is
                       not evidence the gate was unnecessary, because the human's own scrutiny is part
-                      of why it turned out well. That is the self-reinforcement the held-out sample
-                      exists to break, and the sample is the only unbiased evidence for raising it.
+                      of why it turned out well. A gated change that turned out well is consistent with
+                      three things at once — that it was never risky, that the human caught what would
+                      have made it risky, and that its author was more careful for knowing a human
+                      would read it — and no record tells those apart. The sample is the only thing
+                      that produces one that does, which is why it is the only evidence for a rise.
                       A fall outranks a rise: it names a number the score is known to have got wrong.
 
   attempt bound       per stage, both ways, once 3 items have reported at that stage. One above the
