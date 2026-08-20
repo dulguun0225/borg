@@ -7,7 +7,8 @@
 // element whose writer is the merge queue, and a pinned maximum age on the
 // reconciler's last comparison would have the factory writing into a store it
 // may never write. So a pin is a record, five readers and one writer, which is
-// the shape the release record already has. What it costs is that what applies
+// the shape the release record already has. The first of those two is now built,
+// and it is what [SubjectContractElement] and [Bound.Predicate] are. What it costs is that what applies
 // at a mechanism is a query over pins by subject rather than a field read on the
 // record already in hand, so every mechanism a pin binds does one more read.
 //
@@ -23,17 +24,38 @@
 // # What a subject may be here
 //
 // The design admits a stage, a service, a project, an area, a contract
-// element, gate policy's own list, and the reconciler's last comparison. Four
-// of those have a record at this milestone: a service, an area, a gate row, and
-// the factory policy record. A project, a contract element, and the
-// reconciler's last comparison are refused with [ErrSubjectKindUnknown],
-// because storing a pin against a record kind that does not exist is storing a
-// bound nothing can ever apply.
+// element, gate policy's own list, and the reconciler's last comparison. Five
+// of those have a record now: a service, an area, a gate row, the factory policy
+// record, and a contract element — the last arriving with contracts, which is what
+// makes a pinned predicate storable. A project and the reconciler's last
+// comparison are refused with [ErrSubjectKindUnknown], because storing a pin
+// against a record kind that does not exist is storing a bound nothing can ever
+// apply.
+//
+// A contract element is named by its contract's id and the element's own name,
+// which [contract.ElementSubject] composes. It is not the element row's id: that
+// row is written afresh at every version, and a pin has to outlive one — an owner
+// pins a predicate on an element and the producer keeps publishing versions of the
+// contract it belongs to.
 //
 // The gate row is where the design's stage is read as the gate at that stage's
 // boundary. Every one of the eight rows sits at one, a pin is what puts a human
 // at a gate, and the two deploy rows are not stages of their own — so a pin
 // naming a row is the only subject that reaches them.
+//
+// # Three shapes of bound
+//
+// [Bound] is what a pin bounds by, and a parameter takes one of three shapes: a
+// number, a list of names, or one predicate. They are one struct rather than three
+// arguments so that a caller cannot pass one shape where another belongs, and so
+// that the store's own CHECK — at most one of the three columns filled — has one
+// place in the code that decides which.
+//
+// A pinned predicate's bound is a [Predicate]: the kind and, where that kind takes
+// one, its argument. What it is about is the pin's subject, which is the contract
+// element, so the bound is the assertion and not the whole of it. The kinds are the
+// same ones a derivation produces, because what a pin covers is a read the
+// derivation could not see and the assertion about it is the ordinary one.
 //
 // Who may write what: [Writer] is Factory. [Insert] and [Withdraw] take a
 // transaction and are called by package policy inside the one that appends the

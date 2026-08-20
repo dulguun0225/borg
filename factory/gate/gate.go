@@ -30,6 +30,11 @@ var (
 	// human at the row. Nothing in the tree removes a human from a gate, so the
 	// factory may not close a decision it was not asked to make.
 	ErrHumanDecides = errors.New("gate: this firing put a human at the row, and the factory does not decide over one")
+	// ErrCheckMissing is returned by [Gate.AutoReject] for a rejection that does
+	// not name the check that rejected. A mechanical rejection is only readable
+	// against the check it came from, and one that names none is a reject a human
+	// cannot tell from a verdict.
+	ErrCheckMissing = errors.New("gate: a mechanical reject names the check that rejected and what it found")
 )
 
 // Score is what the gate asks about a change before it fires: the vector, the
@@ -198,8 +203,8 @@ type OpeningPayload struct {
 }
 
 // ClosingPayload is what the closing row says: the verdict, what the human typed
-// with it, the stage a reject returns the item to, and what auto-passed the
-// firing where the factory decided for itself.
+// with it, the stage a reject returns the item to, and what auto-passed or
+// auto-rejected the firing where the factory decided for itself.
 //
 // Feedback is required on a reject, that action being "Reject with feedback",
 // and is a note on a hold — what a human held for is worth showing beside the
@@ -213,11 +218,34 @@ type ClosingPayload struct {
 	Feedback     string `json:"feedback"`
 	ReturnsTo    string `json:"returns_to"`
 	AutoPassedBy string `json:"auto_passed_by"`
+	// AutoRejectedBy is which mechanical check rejected, and is empty on every
+	// closing row but [Gate.AutoReject]'s.
+	AutoRejectedBy string `json:"auto_rejected_by,omitempty"`
 }
 
 // AutoPassedByThreshold is what the closing row says of an auto-pass: the number
 // was under the threshold in force.
 const AutoPassedByThreshold = "threshold"
+
+// The mechanical checks that reject on their own terms at the merge row, in the
+// words a closing row names one by. They are constants here so that a caller
+// cannot report a rejection under a name of its own, which is the arrangement the
+// five holds already have; what computes each of them reads the contracts and the
+// declarations, and this package imports neither.
+const (
+	// AutoRejectedByContractDiff is the producer's own diff: the form the
+	// candidate publishes against the version its service's current release
+	// publishes, breaking, with the migration not shipped ahead of it.
+	AutoRejectedByContractDiff = "the producer's own contract diff"
+	// AutoRejectedByDeclaration is a consumer's declaration in force that the
+	// candidate does not satisfy, decided against the candidate's own run.
+	AutoRejectedByDeclaration = "a consumer's declaration"
+	// AutoRejectedByPinnedPredicate is a pinned predicate naming an element the
+	// candidate removes. It is told apart from a declaration because an owner
+	// placed it and a derivation did not, and what a reader of the rejection needs
+	// is the pin and its author.
+	AutoRejectedByPinnedPredicate = "a pinned predicate"
+)
 
 // Fire fires the gate: it asks the score about the change and the policy about
 // the values in force, decides whether a human decides, composes the opening
@@ -334,7 +362,10 @@ func (g *Gate) Decide(ctx context.Context, opened Opened, actor record.Actor, ve
 	}
 
 	returnsTo := ""
-	if verdict == VerdictReject {
+	if verdict == VerdictReject && opened.Gate != Decomposition {
+		// Decomposition names nothing: its reject re-cuts the set rather than
+		// sending an item anywhere, which is the one reject in the tree with no
+		// stage on the other end of it.
 		returnsTo = ReturnsTo
 	}
 	return g.close(ctx, opened, actor, ClosingPayload{
@@ -358,6 +389,44 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 	})
 }
 
+// AutoReject gives the factory's own reject, which is what a mechanical check
+// that failed closes a firing with: the closing row's actor is the gate component,
+// the payload names which check rejected, and the feedback is what it found — which
+// is what goes back up the pipeline, a reject being "Reject with feedback".
+//
+// It is allowed whatever the firing decided about a human, and [Gate.AutoPass] is
+// not. That asymmetry is the whole of the difference between the two: the factory
+// may not approve over a human, because nothing in the tree removes a human from a
+// gate; and it rejects before a human is asked, because a mechanical check rejects
+// on its own terms before anyone gives a verdict. A human at the row who was going
+// to approve is not being overruled — there is nothing left to approve, and the
+// check is not a judgment they could have made differently.
+//
+// A row that does not offer reject refuses this, which is the production deploy
+// row: by then the merge has happened and the number is assigned, so there is
+// nothing left to reject to.
+func (g *Gate) AutoReject(ctx context.Context, opened Opened, check, found string) (decisionlog.Row, error) {
+	if err := permits(opened.Gate, VerdictReject); err != nil {
+		return decisionlog.Row{}, err
+	}
+	if check == "" || found == "" {
+		return decisionlog.Row{}, fmt.Errorf("%w: check %q, what it found %q", ErrCheckMissing, check, found)
+	}
+	returnsTo := ReturnsTo
+	if opened.Gate == Decomposition {
+		// Decomposition names nothing at all: its reject re-cuts the set rather
+		// than sending an item anywhere, so the field its closing row would carry
+		// stays unwritten.
+		returnsTo = ""
+	}
+	return g.close(ctx, opened, component(opened.Gate), ClosingPayload{
+		Verdict:        string(VerdictReject),
+		Feedback:       found,
+		ReturnsTo:      returnsTo,
+		AutoRejectedBy: check,
+	})
+}
+
 func (g *Gate) close(ctx context.Context, opened Opened, actor record.Actor, closing ClosingPayload) (decisionlog.Row, error) {
 	payload, err := json.Marshal(closing)
 	if err != nil {
@@ -370,19 +439,35 @@ func (g *Gate) close(ctx context.Context, opened Opened, actor record.Actor, clo
 	})
 }
 
-// component is the actor an opening row is written as, and a closing row too
+// Component is the actor an opening row is written as, and a closing row too
 // where the factory decides for itself: the gate component firing that row.
-func component(row Row) record.Actor {
+//
+// It is exported because a mechanical rejection has a consequence outside this
+// package — the item goes back to a stage — and whatever performs that has to name
+// the same actor the closing row does. A caller composing the name itself would be
+// a second place the convention lives.
+func Component(row Row) record.Actor {
 	return record.Actor{Kind: record.KindComponent, Name: "gate." + string(row)}
 }
+
+// component is [Component], for this package's own calls.
+func component(row Row) record.Actor { return Component(row) }
 
 // complete refuses a firing missing something its row always has. The artifact
 // is required at the merge row and refused at the deploy row: there is no
 // artifact under decision at a deploy, and one named there would say a version
 // was decided over when nothing was.
+//
+// Decomposition is refused outright: it decides over a set and not over one item's
+// build, so it is fired through [Gate.FireSet] and a [Firing] naming it is a
+// caller's defect.
 func complete(f Firing) error {
 	if _, err := Actions(f.Row); err != nil {
 		return err
+	}
+	if f.Row == Decomposition {
+		return fmt.Errorf("%w: %s decides over a set and is fired through FireSet",
+			ErrFiringIncomplete, f.Row)
 	}
 	for _, required := range []struct{ what, value string }{
 		{"item", f.ItemID}, {"build", f.BuildID},

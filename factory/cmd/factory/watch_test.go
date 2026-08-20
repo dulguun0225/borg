@@ -48,7 +48,7 @@ import (
 func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -122,7 +122,7 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	first, err := run(ctx, d, []string{theStatement})
+	first, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -132,7 +132,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	// anything about how often the work succeeds.
 	d.in = strings.NewReader("")
 	d.model = interviewed(2)
-	res, err := run(ctx, d, []string{theSecondStatement})
+	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the bad run stopped, and a rollback is not an error: %v\noutput so far:\n%s", err, out)
 	}
@@ -293,12 +293,12 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 func TestKHoldsTheNextProductionDeploy(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
 	d.in = strings.NewReader("")
-	res, err := run(ctx, d, []string{theSecondStatement, theThirdStatement})
+	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a hold is not an error: %v\noutput so far:\n%s", err, out)
 	}
@@ -362,7 +362,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	installWindow(t, ctx, d, 2)
 
-	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 	firstRelease, found, err := release.Highest(ctx, d.pool, serviceOf(ctx, t, d))
@@ -376,13 +376,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	path := p(ctx, t, d)
 	var candidates []*candidate
 	for _, statement := range []string{theSecondStatement, theThirdStatement} {
-		c, err := path.author(ctx, statement, statement)
-		if err != nil {
-			t.Fatalf("authoring %q: %v\noutput so far:\n%s", statement, err, out)
-		}
-		candidates = append(candidates, c)
-		path.byItem[c.itemID] = c
-		path.authored[c.itemID] = true
+		candidates = append(candidates, authorOne(t, ctx, path, statement, out))
 	}
 	for _, c := range candidates {
 		if err := path.candidateEnvironment(ctx, c); err != nil {
@@ -392,7 +386,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 			t.Fatalf("the merge gate of %s: %v\noutput so far:\n%s", c.itemID, err, out)
 		}
 	}
-	if _, err := path.runQueue(ctx); err != nil {
+	if _, err := path.runQueue(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the queue stopped: %v\noutput so far:\n%s", err, out)
 	}
 
@@ -410,7 +404,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 		t.Fatalf("windows opened %q and %q, and K is two:\n%s", lower.windowID, upper.windowID, out)
 	}
 
-	if err := path.watchTo(ctx, time.Now().Add(theWatchFor), theWatchEvery); err != nil {
+	if err := path.watchTo(ctx, theServiceRecord(t, ctx, path), time.Now().Add(theWatchFor), theWatchEvery); err != nil {
 		t.Fatalf("the watch stopped: %v\noutput so far:\n%s", err, out)
 	}
 
@@ -436,7 +430,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 
 	// One rollback undid both, and the two are named apart: one condemned release is
 	// one revert item, and the swept one was never condemned.
-	rollback, found, err := deploy.NewestRollback(ctx, d.pool, path.svc.ID, path.production.ID)
+	rollback, found, err := deploy.NewestRollback(ctx, d.pool, theServiceRecord(t, ctx, path).ID, path.production.ID)
 	if err != nil || !found {
 		t.Fatalf("NewestRollback = found %v, %v", found, err)
 	}
@@ -481,7 +475,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	// number, and its deploy is held.
 	d.in = strings.NewReader("")
 	d.model = interviewed(0)
-	held, err := run(ctx, d, []string{theThirdStatement})
+	held, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a hold is not an error: %v\noutput so far:\n%s", err, out)
 	}
@@ -501,7 +495,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	// release the hold is holding — which is the one place the number does not order
 	// deploys.
 	d.in = strings.NewReader("")
-	res, err := run(ctx, d, []string{theFourthStatement, rolled.revertStatement})
+	res, err := run(ctx, d, of(theFourthStatement, rolled.revertStatement))
 	if err != nil {
 		t.Fatalf("the revert run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -541,7 +535,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the held item: %v", err)
 	}
-	if hold, err := path.rollbackHold(ctx, stuckItem); err != nil || hold != "" {
+	if hold, err := path.rollbackHold(ctx, theServiceRecord(t, ctx, path), stuckItem); err != nil || hold != "" {
 		t.Errorf("the rollback still holds %q, %v; its revert has shipped", hold, err)
 	}
 }
@@ -561,7 +555,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	// makes this the consequence the design names.
 	d.in = strings.NewReader("")
 	d.model = interviewed(2)
-	held, err := run(ctx, d, []string{theThirdStatement})
+	held, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
 		t.Fatalf("the run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -591,7 +585,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	// And the defect is back, which is what "redelivers" means: the change was built
 	// on the master that still holds the condemned release's code, so the very next
 	// reading of its window condemns it again.
-	if err := path.watchTo(ctx, time.Now().Add(theWatchFor), theWatchEvery); err != nil {
+	if err := path.watchTo(ctx, theServiceRecord(t, ctx, path), time.Now().Add(theWatchFor), theWatchEvery); err != nil {
 		t.Fatalf("the watch stopped: %v\noutput so far:\n%s", err, out)
 	}
 	w, watched, err := window.ForRelease(ctx, d.pool, stuck.releaseID)
@@ -612,11 +606,11 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 	d.in = strings.NewReader("")
-	res, err := run(ctx, d, []string{theSecondStatement})
+	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -639,7 +633,7 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	}
 
 	path := p(ctx, t, d)
-	if err := path.watchPass(ctx); err != nil {
+	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass stopped: %v\noutput so far:\n%s", err, out)
 	}
 
@@ -675,7 +669,7 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 
 	// A second crossing on the same service and release is an observation on the
 	// incident already open, and never a second intent.
-	if err := path.watchPass(ctx); err != nil {
+	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the second pass stopped: %v", err)
 	}
 	again, err := incident.ForService(ctx, d.pool, res.serviceID)
@@ -706,7 +700,7 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.reconciler = newReconcilerStore(t, ctx)
 
-	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 	if !strings.Contains(out.String(), "A reconciler is installed") {
@@ -742,7 +736,7 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// at that one.
 	d.in = strings.NewReader("hold the record is wrong and I am checking the target\n")
 	d.model = interviewed(0)
-	res, err := run(ctx, d, []string{theSecondStatement})
+	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a hold is not an error: %v\noutput so far:\n%s", err, out)
 	}
@@ -792,7 +786,7 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// Unanswered, it widens exactly once, to the owner. There is no second widening.
 	path := p(ctx, t, d)
 	for range 3 {
-		if err := path.watchPass(ctx); err != nil {
+		if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 			t.Fatalf("a pass stopped: %v", err)
 		}
 	}
@@ -818,7 +812,7 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if _, err := reconciler.NewWriter(d.reconciler).Clear(ctx, raised.Raised, installer); err != nil {
 		t.Fatalf("clearing the mismatch: %v", err)
 	}
-	if err := path.watchPass(ctx); err != nil {
+	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass after the clearing stopped: %v", err)
 	}
 	events, err = notifier.EventsFor(ctx, d.pool, raised.Raised)
@@ -849,7 +843,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 
 	// An owner's request the factory cannot do: no page.
 	d.model = &refusingModel{inner: &fakeModel{}, refusals: attemptBound + 5}
-	if _, err := run(ctx, d, []string{theStatement}); err == nil {
+	if _, err := run(ctx, d, of(theStatement)); err == nil {
 		t.Fatalf("the run finished, and every implementer reply was refused:\n%s", out)
 	}
 	rows, err := decisionlog.Read(ctx, d.pool)
@@ -877,7 +871,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 		t.Fatalf("the intent's source is %s", detected.Source)
 	}
 	d.in = strings.NewReader(theAnswer + "\n" + approvals)
-	if _, err := run(ctx, d, []string{detected.Statement}); err == nil {
+	if _, err := run(ctx, d, of(detected.Statement)); err == nil {
 		t.Fatalf("the run finished, and every implementer reply was refused:\n%s", out)
 	}
 
@@ -926,13 +920,13 @@ type rolledBack struct {
 // that began from a state it did not reach would report the wrong thing.
 func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.Buffer) rolledBack {
 	t.Helper()
-	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
 	d.in = strings.NewReader("")
 	d.model = interviewed(2)
-	res, err := run(ctx, d, []string{theSecondStatement})
+	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the bad run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -976,7 +970,7 @@ func watching(s shipped, name string) comparison.Watching {
 func serviceOf(ctx context.Context, t *testing.T, d deps) string {
 	t.Helper()
 	var id string
-	if err := d.pool.QueryRow(ctx, `select id from service where name = $1`, d.service).Scan(&id); err != nil {
+	if err := d.pool.QueryRow(ctx, `select id from service where name = $1`, theService).Scan(&id); err != nil {
 		t.Fatalf("reading the service's id: %v", err)
 	}
 	return id

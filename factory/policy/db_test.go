@@ -213,7 +213,7 @@ func TestTheValueInForceIsAReadOfThreeThings(t *testing.T) {
 	// Pinned: a ceiling over K caps the authored value, and the pin that did it
 	// is named.
 	placed, _, err := in.factory.Pin(ctx, owner, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, 2, nil)
+		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 2})
 	if err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestAPinNeverWidens(t *testing.T) {
 		t.Fatalf("AuthorK: %v", err)
 	}
 	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, 5, nil); err != nil {
+		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 5}); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
 
@@ -268,7 +268,7 @@ func TestAPinNeverWidens(t *testing.T) {
 		t.Fatalf("AuthorWindowConfidence: %v", err)
 	}
 	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.WindowConfidence,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, 0.9, nil); err != nil {
+		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 0.9}); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
 	all, err = in.reader.All(ctx, in.subjects("merge_to_master"))
@@ -296,7 +296,7 @@ func TestAPinOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.T) {
 	}
 
 	placed, version, err := in.factory.Pin(ctx, owner, gatepolicy.RiskThreshold,
-		pin.Subject{Kind: pin.SubjectGateRow, ID: "deploy_to_production"}, 0, nil)
+		pin.Subject{Kind: pin.SubjectGateRow, ID: "deploy_to_production"}, pin.Bound{Number: 0})
 	if err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestAPinOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 		t.Fatalf("Declare: %v", err)
 	}
 	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.RiskThreshold,
-		pin.Subject{Kind: pin.SubjectArea, ID: in.area.ID}, 0, nil); err != nil {
+		pin.Subject{Kind: pin.SubjectArea, ID: in.area.ID}, pin.Bound{Number: 0}); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
 
@@ -368,8 +368,9 @@ func TestAPinOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 }
 
 // TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt: the score supplies no
-// catalog, so an unauthored one is empty rather than defaulted, and a pin is a
-// union.
+// catalog, so an unauthored one is the kinds the factory itself can decide rather
+// than empty — gate policy has an owner extend the catalog, which presupposes
+// something to extend — and both an authored value and a pin are a union over it.
 func TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt(t *testing.T) {
 	ctx, in := newFactory(t)
 
@@ -378,15 +379,18 @@ func TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt(t *testing.T) {
 		t.Fatalf("All: %v", err)
 	}
 	catalog := effectiveOf(t, all, gatepolicy.PredicateCatalog)
-	if catalog.Source != policy.FromNothing || len(catalog.List) != 0 {
-		t.Errorf("an unauthored catalog reads %v from %s, want empty and neither", catalog.List, catalog.Source)
+	own := gatepolicy.PredicateCatalogNames()
+	slices.Sort(own)
+	if catalog.Source != policy.FromFactory || !slices.Equal(catalog.List, own) {
+		t.Errorf("an unauthored catalog reads %v from %s, want the factory's own %v",
+			catalog.List, catalog.Source, own)
 	}
 
 	if _, err := in.factory.AuthorPredicateCatalog(ctx, owner, []string{"status", "field-present"}); err != nil {
 		t.Fatalf("AuthorPredicateCatalog: %v", err)
 	}
 	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.PredicateCatalog,
-		pin.Subject{Kind: pin.SubjectFactoryPolicy, ID: in.policy.ID}, 0, []string{"schema", "status"}); err != nil {
+		pin.Subject{Kind: pin.SubjectFactoryPolicy, ID: in.policy.ID}, pin.Bound{List: []string{"schema", "status"}}); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
 
@@ -395,7 +399,8 @@ func TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt(t *testing.T) {
 		t.Fatalf("All: %v", err)
 	}
 	catalog = effectiveOf(t, all, gatepolicy.PredicateCatalog)
-	want := []string{"field-present", "schema", "status"}
+	want := append([]string{"field-present", "schema", "status"}, own...)
+	slices.Sort(want)
 	if !slices.Equal(catalog.List, want) {
 		t.Errorf("the catalog reads %v, want the union %v", catalog.List, want)
 	}
@@ -404,10 +409,10 @@ func TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt(t *testing.T) {
 	}
 }
 
-// TestEverySevenRowsResolveAndTwoAreReadByNothing: an owner can author all of
+// TestEverySevenRowsResolveAndOneIsReadByNothing: an owner can author all of
 // them, and the read says which of them changes anything at this milestone rather
 // than leaving an owner to discover it.
-func TestEverySevenRowsResolveAndTwoAreReadByNothing(t *testing.T) {
+func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	authorings := []struct {
@@ -470,14 +475,14 @@ func TestEverySevenRowsResolveAndTwoAreReadByNothing(t *testing.T) {
 			read++
 		}
 	}
-	// Six of the eight are read by something now that the watch window is built:
-	// the threshold, the bound, and the window's four. The two left are the
-	// item-size target, which nothing sizes an item against yet, and the predicate
-	// catalog, which contracts read.
-	if read != 6 {
-		t.Errorf("%d parameters are read by something at this milestone, want all but the item-size target and the catalog", read)
+	// Seven of the eight are read by something now that contracts are built: the
+	// threshold, the bound, the window's four, and the predicate catalog, whose
+	// reader is the derivation of a consumer's declaration. The one left is the
+	// item-size target, which nothing sizes an item against yet.
+	if read != 7 {
+		t.Errorf("%d parameters are read by something at this milestone, want all but the item-size target", read)
 	}
-	for _, unread := range []gatepolicy.Parameter{gatepolicy.ItemSizeTarget, gatepolicy.PredicateCatalog} {
+	for _, unread := range []gatepolicy.Parameter{gatepolicy.ItemSizeTarget} {
 		if e := effectiveOf(t, all, unread); e.ReadBy != "" {
 			t.Errorf("%s says it is read by %q, and nothing reads it yet", unread, e.ReadBy)
 		}
@@ -515,7 +520,7 @@ func TestTheAttemptBoundIsReadThroughTheSameThreeReads(t *testing.T) {
 		t.Fatalf("AuthorAttemptBound: %v", err)
 	}
 	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.AttemptBound,
-		pin.Subject{Kind: pin.SubjectFactoryPolicy, ID: in.policy.ID}, 4, nil); err != nil {
+		pin.Subject{Kind: pin.SubjectFactoryPolicy, ID: in.policy.ID}, pin.Bound{Number: 4}); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
 	bound, err = in.reader.AttemptBound(ctx, in.subjects("merge_to_master"))
@@ -559,7 +564,7 @@ func TestGatePolicyIsAuthoredByAHuman(t *testing.T) {
 		t.Errorf("a component authoring K = %v, want ErrNotAnOwner", err)
 	}
 	if _, _, err := in.factory.Pin(ctx, component, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, 2, nil); !errors.Is(err, policy.ErrNotAnOwner) {
+		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 2}); !errors.Is(err, policy.ErrNotAnOwner) {
 		t.Errorf("a component placing a pin = %v, want ErrNotAnOwner", err)
 	}
 	if _, err := in.factory.Install(ctx, component, []string{"/srv"}, credential); !errors.Is(err, policy.ErrNotAnOwner) {
@@ -628,7 +633,7 @@ func TestEveryAuthoringWriteMovesTheVersion(t *testing.T) {
 	}
 
 	placed, pinned, err := in.factory.Pin(ctx, owner, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, 2, nil)
+		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 2})
 	if err != nil {
 		t.Fatalf("Pin: %v", err)
 	}

@@ -23,12 +23,12 @@ func TestDDLListsEveryStage(t *testing.T) {
 			t.Fatalf("the %q list is not closed", open)
 		}
 		listed := strings.Split(rest[:j], ",")
-		if len(listed) != len(StageOrder) {
-			t.Fatalf("a constraint lists %d stages, StageOrder has %d", len(listed), len(StageOrder))
+		if len(listed) != len(EveryStage) {
+			t.Fatalf("a constraint lists %d stages, EveryStage has %d", len(listed), len(EveryStage))
 		}
-		for n, s := range StageOrder {
+		for n, s := range EveryStage {
 			if got, want := strings.TrimSpace(listed[n]), "'"+string(s)+"'"; got != want {
-				t.Errorf("a constraint lists %s where StageOrder has %s", got, want)
+				t.Errorf("a constraint lists %s where EveryStage has %s", got, want)
 			}
 		}
 	}

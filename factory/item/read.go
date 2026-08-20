@@ -16,16 +16,17 @@ import (
 // them. It is written once because four callers read an item — two here, the
 // advance, and the send back — and a fifth column added to one of five select
 // lists is a bug the compiler cannot see.
-const columns = `id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage, waits_on, priority`
+const columns = `id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage,
+	waits_on, superseded_by, priority`
 
-// The items this one waits on are stored as one column holding one id per line.
-// An id is [record.NewID]'s alphabet, which holds no line ending, so the
-// separator needs no escaping — the arrangement package environment's targets
-// column already has.
+// Two columns hold one id per line: the items this one waits on, and the items
+// that replaced it. An id is [record.NewID]'s alphabet, which holds no line
+// ending, so the separator needs no escaping — the arrangement package
+// environment's targets column already has.
 
-func joinWaitsOn(waitsOn []string) string { return strings.Join(waitsOn, "\n") }
+func joinIDs(ids []string) string { return strings.Join(ids, "\n") }
 
-func splitWaitsOn(stored string) []string {
+func splitIDs(stored string) []string {
 	if stored == "" {
 		return nil
 	}
@@ -35,15 +36,16 @@ func splitWaitsOn(stored string) []string {
 // scanItem reads one item row in [columns] order.
 func scanItem(row pgx.Row) (Item, error) {
 	var it Item
-	var kind, stage, waitsOn string
+	var kind, stage, waitsOn, supersededBy string
 	err := row.Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID,
-		&it.AreaID, &it.Branch, &stage, &waitsOn, &it.Priority)
+		&it.AreaID, &it.Branch, &stage, &waitsOn, &supersededBy, &it.Priority)
 	if err != nil {
 		return Item{}, err
 	}
 	it.Actor.Kind = record.Kind(kind)
 	it.Stage = Stage(stage)
-	it.WaitsOn = splitWaitsOn(waitsOn)
+	it.WaitsOn = splitIDs(waitsOn)
+	it.SupersededBy = splitIDs(supersededBy)
 	return it, nil
 }
 

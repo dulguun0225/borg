@@ -12,7 +12,8 @@
 //
 // Every factor but two comes from records this package reads: the releases in
 // an item's area, the closed decisions in the log, the artifact the build was
-// made from and its author, and the releases the service already has. The two
+// made from and its author, the releases the service already has, and the
+// contracts it publishes with the declarations naming them. The two
 // that do not are the size and reach of the change, which are read from the
 // build's diff — measured where the repository is, by the component that built,
 // and handed here in [Measurement]. It is not stored, because the vector

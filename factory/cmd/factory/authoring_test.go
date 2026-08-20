@@ -398,8 +398,12 @@ func TestAPinIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 		if e.Parameter != gatepolicy.PredicateCatalog {
 			continue
 		}
-		if len(e.List) != 2 || !e.Clamped {
-			t.Errorf("the catalog reads %v clamped %v, want the two the pin added", e.List, e.Clamped)
+		// The factory's own kinds are the floor an owner extends, so the pin's two
+		// names are added to them rather than replacing them.
+		want := len(gatepolicy.PredicateKinds) + 2
+		if len(e.List) != want || !e.Clamped {
+			t.Errorf("the catalog reads %v clamped %v, want the factory's own %d plus the two the pin added",
+				e.List, e.Clamped, len(gatepolicy.PredicateKinds))
 		}
 	}
 

@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
@@ -54,14 +56,22 @@ var ErrServiceIDEmpty = errors.New("mergequeue: the service id is empty")
 // a new build, and nothing was rebuilt.
 //
 // Why is what failed, in words a human reads on the rejection row, and is empty
-// where it passed. A merge conflict and a criterion that failed both arrive here as
-// a candidate that failed its own re-verification, which is the same disposition
-// for two reasons — so the reason is on the row.
+// where it passed. A merge conflict, a criterion that failed, a breaking contract
+// diff, and a consumer's declaration the candidate does not satisfy all arrive here
+// as a candidate that failed its own re-verification, which is the same disposition
+// for several reasons — so the reason is on the row.
+//
+// Forms is what the re-verified build publishes, derived from the checkout the
+// re-verification produced. The queue does not reach a checkout, so the derivation
+// is the deploy agent's and the write is the queue's — which is the same division
+// the criteria already have, where the agent decides them on the environment and
+// the queue reads what it produced.
 type Verified struct {
 	Commit  string
 	BuildID string
 	Passed  bool
 	Why     string
+	Forms   []contract.Form
 }
 
 // Repository is everything the queue needs done to the service's repository and
@@ -90,6 +100,11 @@ type Outcome struct {
 	Commit  string
 	Why     string
 	WaitRow string
+	// Published is what the fast-forward did to each contract the build declares:
+	// the contract created where this is its first release, the version minted
+	// where the form moved, and what the diff was. It is empty on a rejection and
+	// on a merge of a build that declares no contract, which is most of them.
+	Published []contract.Published
 }
 
 // RejectionKind is what a rejection row says it is, so a reader can tell the
@@ -257,7 +272,18 @@ func (q *Queue) one(ctx context.Context, it item.Item) (Outcome, error) {
 	if err := q.repo.FastForward(ctx, it, verified.Commit); err != nil {
 		return Outcome{}, fmt.Errorf("mergequeue: fast-forwarding master of %s to %s: %w", it.ServiceID, verified.Commit, err)
 	}
-	minted, err = q.releases.Mint(ctx, Actor, it.ServiceID, verified.BuildID, it.ID)
+	// The mint, and the contract versions the release publishes, in one
+	// transaction. A contract changes only inside its service's items and every
+	// write to it happens at a release, so the fast-forward is the event for both —
+	// and one merge must not be able to leave a number with no version, or a version
+	// under a number nothing minted.
+	var published []contract.Published
+	minted, err = q.releases.MintWith(ctx, Actor, it.ServiceID, verified.BuildID, it.ID,
+		func(ctx context.Context, tx pgx.Tx, r release.Release) error {
+			published, err = contract.PublishAll(ctx, tx, Actor,
+				it.ServiceID, r.ID, r.Number, it.ID, verified.Forms)
+			return err
+		})
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -265,11 +291,12 @@ func (q *Queue) one(ctx context.Context, it item.Item) (Outcome, error) {
 		return Outcome{}, err
 	}
 	return Outcome{
-		ItemID:  it.ID,
-		Merged:  true,
-		Release: minted,
-		BuildID: verified.BuildID,
-		Commit:  verified.Commit,
+		ItemID:    it.ID,
+		Merged:    true,
+		Release:   minted,
+		BuildID:   verified.BuildID,
+		Commit:    verified.Commit,
+		Published: published,
 	}, nil
 }
 

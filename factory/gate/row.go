@@ -11,6 +11,13 @@ import (
 type Row string
 
 const (
+	// Decomposition is the cut's own gate: the one row where approving admits
+	// several threads at once. It fires where the cut yielded more than one item
+	// and nowhere else — a cut that yields one produced no set to ratify — and what
+	// is approved is the set: how many items, which service each changes, and what
+	// waits on what. One verdict covers the whole cut however many services it
+	// changes, which is the design's refusal of a per-service approval.
+	Decomposition Row = "decomposition"
 	// DeployToCandidateEnvironment is where the candidate's own environment is
 	// created and the candidate's build is put on it. What the deploy provides is
 	// the criteria: nothing else attaches to this row — no strategy, no rollout,
@@ -26,7 +33,7 @@ const (
 )
 
 // Rows is every row this package fires, in the order the path reaches them.
-var Rows = []Row{DeployToCandidateEnvironment, MergeToMaster, DeployToProduction}
+var Rows = []Row{Decomposition, DeployToCandidateEnvironment, MergeToMaster, DeployToProduction}
 
 // Verdict is what a decision closes with.
 type Verdict string
@@ -49,13 +56,16 @@ const (
 // ErrRowUnknown is returned for a row outside [Rows].
 var ErrRowUnknown = errors.New("gate: not a gate row this milestone builds")
 
-// Actions is what may be done at one row. The candidate deploy row approves,
-// holds, or rejects — it is fed from a candidate, and reject is available up to
-// the merge to master; the merge row approves or rejects; the production deploy
-// row approves or holds, the merge having happened and the number being already
-// assigned, so there is nothing left to reject to.
+// Actions is what may be done at one row. Decomposition approves or rejects a
+// set, and its third action is refused with [ErrEditInPlaceRefused]; the candidate
+// deploy row approves, holds, or rejects — it is fed from a candidate, and reject
+// is available up to the merge to master; the merge row approves or rejects; the
+// production deploy row approves or holds, the merge having happened and the number
+// being already assigned, so there is nothing left to reject to.
 func Actions(row Row) ([]Verdict, error) {
 	switch row {
+	case Decomposition:
+		return []Verdict{VerdictApprove, VerdictReject}, nil
 	case DeployToCandidateEnvironment:
 		return []Verdict{VerdictApprove, VerdictHold, VerdictReject}, nil
 	case MergeToMaster:
@@ -95,7 +105,7 @@ func WaitsOn(row Row) string {
 	switch row {
 	case MergeToMaster:
 		return "duty 7, UAT — the owner"
-	case DeployToCandidateEnvironment, DeployToProduction:
+	case Decomposition, DeployToCandidateEnvironment, DeployToProduction:
 		return "whoever holds this gate row — the owner, under no numbered duty of its own"
 	default:
 		return ""
@@ -106,6 +116,13 @@ func WaitsOn(row Row) string {
 // none. Both rows that reject default to Implementation, there being no stage of
 // their own and none between; the production deploy row does not reject at all.
 const ReturnsTo = "implementation"
+
+// ErrEditInPlaceRefused is returned for Decomposition's third action. Edit in
+// place at that row is a human re-cutting the set by hand, and re-cutting is not
+// built: it needs a cut that decides a decomposition rather than one told what to
+// produce, and the crude interface is told. A rejection is what stops a bad cut
+// here, and repairing one is what the next thing to touch the cut owes.
+var ErrEditInPlaceRefused = errors.New("gate: no set to edit in place — re-cutting is not built, so a bad cut is rejected rather than repaired")
 
 // The conditions the factory's own hold is computed from, in the words a caller
 // reports it with. A hold of this kind is not a verdict and writes nothing: it is

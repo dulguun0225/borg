@@ -18,12 +18,26 @@ const (
 	StageQueued Stage = "queued"
 	// StageMerged follows queued, written by the queue at the fast-forward.
 	StageMerged Stage = "merged"
+	// StageSuperseded is where an item ends when a cut replaces it: the
+	// Decomposition row rejected the set it was part of, and the item points at
+	// whatever replaced it. It is not in [StageOrder] — nothing advances or is
+	// sent back to it, and it is written at one event by [Cut.Supersede] — so it
+	// is a terminal value the way dropped and escalated will be.
+	StageSuperseded Stage = "superseded"
 )
 
-// StageOrder is every stage an item may be at, in the order [Dispatch.Advance]
-// advances them. The CHECK constraints in [DDL] list the same four, and
-// TestDDLListsEveryStage fails if the lists stop agreeing.
+// StageOrder is every stage an item moves through, in the order
+// [Dispatch.Advance] advances them. It is what [Dispatch] validates against, so a
+// terminal value is deliberately not here: nothing advances to superseded and
+// nothing is sent back to it.
 var StageOrder = []Stage{StageSpec, StageImplementation, StageQueued, StageMerged}
+
+// EveryStage is every value the stage column may hold: the four an item moves
+// through, and the terminal ones. The CHECK constraints in [DDL] list the same
+// set, and TestDDLListsEveryStage fails if the lists stop agreeing. It is not
+// called Stages, which this package already uses for the per-stage rows of one
+// item.
+var EveryStage = append(append([]Stage{}, StageOrder...), StageSuperseded)
 
 // Item is one item as it is stored. The actor and the time are the cut's —
 // [Dispatch] advances the stage and rewrites nothing else.
@@ -43,6 +57,12 @@ type Item struct {
 	// deploy until the dependency is live, the production deploy if it has
 	// stopped being.
 	WaitsOn []string
+	// SupersededBy is the items of the re-cut that replaced this one, written by
+	// [Cut.Supersede] and empty on every item nothing replaced. It is a list
+	// because a re-cut may replace four items with two, and it stays unwritten
+	// where a re-cut replaced an item with nothing — what says why then is the
+	// superseded stage beside the decision that rejected the set.
+	SupersededBy []string
 	// Priority is what an owner reorders a queue with, written through
 	// [Dispatch.SetPriority] and nowhere else. A greater number goes first, and
 	// it orders every queue the item waits in as an item — the queues at the

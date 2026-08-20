@@ -367,3 +367,14 @@ func TestDDLListsEveryAuthorship(t *testing.T) {
 		}
 	}
 }
+
+// TestDDLListsEveryKind fails if [artifact.Kinds] and the CHECK constraint in the
+// DDL stop agreeing, which is what a kind arriving with a milestone costs: a CHECK
+// is a schema edit each time a value arrives.
+func TestDDLListsEveryKind(t *testing.T) {
+	for _, kind := range artifact.Kinds {
+		if !strings.Contains(artifact.DDL[0], "'"+string(kind)+"'") {
+			t.Errorf("the DDL's kind CHECK does not list %q", kind)
+		}
+	}
+}

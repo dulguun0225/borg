@@ -23,7 +23,7 @@ func (f *fakeModel) Complete(_ context.Context, system, user string) (Reply, err
 
 func TestRefineParsesAQuestion(t *testing.T) {
 	model := &fakeModel{text: "QUESTION: which port does the service listen on?\n", tokens: 42}
-	refined, err := SpecAuthor{Model: model}.Refine(context.Background(), "a health endpoint", nil, nil)
+	refined, err := SpecAuthor{Model: model}.Refine(context.Background(), Refining{Statement: "a health endpoint"})
 	if err != nil {
 		t.Fatalf("Refine: %v", err)
 	}
@@ -48,8 +48,10 @@ func TestRefineParsesASpecWithCriterion(t *testing.T) {
 	model := &fakeModel{
 		text: "SPEC:\nThe service exposes /healthz.\nIt answers every request.\nCRITERION: When /healthz is requested, the system shall answer 200.\n",
 	}
-	refined, err := SpecAuthor{Model: model}.Refine(context.Background(), "a health endpoint",
-		[]QA{{Question: "which port?", Answer: "8080"}}, nil)
+	refined, err := SpecAuthor{Model: model}.Refine(context.Background(), Refining{
+		Statement: "a health endpoint",
+		Answered:  []QA{{Question: "which port?", Answer: "8080"}},
+	})
 	if err != nil {
 		t.Fatalf("Refine: %v", err)
 	}
@@ -78,7 +80,7 @@ func TestRefineNamesTheCriteriaAlreadyInForce(t *testing.T) {
 	}
 
 	second := &fakeModel{text: spec}
-	if _, err := (SpecAuthor{Model: second}).Refine(context.Background(), "s", nil, inForce); err != nil {
+	if _, err := (SpecAuthor{Model: second}).Refine(context.Background(), Refining{Statement: "s", InForce: inForce}); err != nil {
 		t.Fatalf("Refine: %v", err)
 	}
 	if !strings.Contains(second.user, inForce[0].ID+": "+inForce[0].Sentence) {
@@ -86,7 +88,7 @@ func TestRefineNamesTheCriteriaAlreadyInForce(t *testing.T) {
 	}
 
 	first := &fakeModel{text: spec}
-	if _, err := (SpecAuthor{Model: first}).Refine(context.Background(), "s", nil, nil); err != nil {
+	if _, err := (SpecAuthor{Model: first}).Refine(context.Background(), Refining{Statement: "s"}); err != nil {
 		t.Fatalf("Refine: %v", err)
 	}
 	if strings.Contains(first.user, "already in force") {
@@ -113,7 +115,7 @@ func TestRefineRefusesAReplyOutsideTheProtocol(t *testing.T) {
 	}
 	for name, text := range replies {
 		t.Run(name, func(t *testing.T) {
-			_, err := SpecAuthor{Model: &fakeModel{text: text}}.Refine(context.Background(), "s", nil, nil)
+			_, err := SpecAuthor{Model: &fakeModel{text: text}}.Refine(context.Background(), Refining{Statement: "s"})
 			if !errors.Is(err, ErrReply) {
 				t.Fatalf("Refine = %v, want ErrReply", err)
 			}

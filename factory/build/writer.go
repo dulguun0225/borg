@@ -111,3 +111,22 @@ func scan(row pgx.Row) (Build, error) {
 	b.Actor.Kind = record.Kind(kind)
 	return b, nil
 }
+
+// Newest is the item's newest build, and false where the item has none. It is
+// what a reader outside a run asks: a run holds the build it just made, and a
+// command that reads the records rather than making one has to find it.
+//
+// Newest by the time the record was written, which is the order the builds were
+// made in — a rebuild is a new build, so an item has as many as it was built.
+func Newest(ctx context.Context, pool *pgxpool.Pool, itemID string) (Build, bool, error) {
+	if itemID == "" {
+		return Build{}, false, nil
+	}
+	b, err := scan(pool.QueryRow(ctx, selectBuild+` where item_id = $1 order by at desc, id desc limit 1`, itemID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Build{}, false, nil
+	} else if err != nil {
+		return Build{}, false, fmt.Errorf("build: reading the newest build of %s: %w", itemID, err)
+	}
+	return b, true, nil
+}

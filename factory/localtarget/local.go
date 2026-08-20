@@ -41,6 +41,24 @@ const SignalEnv = "BORG_SIGNAL"
 // ran there before it — which is what the comparison's baseline is.
 func SignalFile(dir, build string) string { return filepath.Join(dir, build+".signal") }
 
+// ExchangeEnv is the environment variable each started process is told the file to
+// write its exchange documents into. It is here beside [SignalEnv] and for the same
+// reason: the name belongs to the substrate that wires it, not to an agreement
+// between the target and whatever reads it.
+const ExchangeEnv = "BORG_EXCHANGE"
+
+// ExchangeFile is where the build running in dir writes one document per unit of
+// work — what it published, as the elements its contract names. One file per build,
+// for the reason the signal file is one per build: a candidate's own documents are
+// what a consumer's declaration is decided against, and the documents of the build
+// that ran there before it are not.
+//
+// It is a second file rather than a second field of the signal's lines. The signal
+// is what the comparison counts and the exchange is what a predicate is decided
+// against, and folding them into one format would make every reader of either parse
+// the other's — and would rewrite a mechanism a milestone already built.
+func ExchangeFile(dir, build string) string { return filepath.Join(dir, build+".exchange") }
+
 // RunningFile is where the target records what it started for one service: the
 // build, a space, and the process id. It is a file rather than a field, so that a
 // process which did not start the software can still read what is running there —
@@ -70,8 +88,10 @@ func New(dir string) *Local { return &Local{dir: dir} }
 
 // Deploy stops whatever runs for the service and starts dir/<build>, so a
 // deploy is a replacement and two builds of one service never run at once. The
-// process is started knowing the file it emits its quantity into, which is what
-// makes the software the factory wrote observable at all.
+// process is started knowing two files: the one it emits its quantity into, which
+// is what makes the software the factory wrote observable at all, and the one it
+// writes its exchange documents into, which is what a consumer's declaration is
+// decided against.
 //
 // A build or a service name that is not a local path is refused before the stop,
 // so what runs is left running. A binary missing from dir is an error from the
@@ -96,7 +116,9 @@ func (l *Local) Deploy(_ context.Context, d targetseam.Deployment) error {
 	}
 
 	cmd := exec.Command(filepath.Join(l.dir, d.Build))
-	cmd.Env = append(os.Environ(), SignalEnv+"="+SignalFile(l.dir, d.Build))
+	cmd.Env = append(os.Environ(),
+		SignalEnv+"="+SignalFile(l.dir, d.Build),
+		ExchangeEnv+"="+ExchangeFile(l.dir, d.Build))
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("localtarget: starting %s for service %q: %w", d.Build, d.Service, err)
 	}

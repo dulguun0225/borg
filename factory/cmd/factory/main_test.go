@@ -54,6 +54,14 @@ import (
 // version it writes names and the identity the authorship prior is kept on.
 const theModel = "fake-model-1"
 
+// theService is the service every single-service test in this file runs on, and
+// theSecondService is the one the contract tests add beside it: an interface has
+// consumers, and the consumers are other services in the same factory.
+const (
+	theService       = "demo"
+	theSecondService = "reader"
+)
+
 // theArea is the area the run names. Without one the score can read neither
 // context factor and a human decides every gate, so the milestone's own
 // demonstration needs one.
@@ -302,7 +310,33 @@ func (m *conflictingModel) Complete(ctx context.Context, system, user string) (a
 // input is what the scripted human types.
 func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) {
 	t.Helper()
+	return newPathOn(t, input, theService)
+}
+
+// newPathOn is [newPath] over more than one service, which is what a contract
+// needs: an interface has consumers, and the consumers are other services in the
+// same factory. Each gets a temporary repository of its own, because a service is
+// one repository and no repository holds two.
+func newPathOn(t *testing.T, input string, services ...string) (context.Context, deps, *bytes.Buffer) {
+	t.Helper()
+	known := make([]serviceRepo, 0, len(services))
+	for _, name := range services {
+		known = append(known, serviceRepo{name: name, repo: filepath.Join(t.TempDir(), name)})
+	}
+	return newPathIn(t, input, known)
+}
+
+// newPathIn is [newPathOn] with the repositories chosen by the caller. It exists
+// because the repository a run works in is the service record's own field, written
+// when the cut creates the record — so a caller that wants a particular directory has
+// to say so before the record is written and cannot rewrite the deps afterwards.
+func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context, deps, *bytes.Buffer) {
+	t.Helper()
 	ctx := t.Context()
+	services := make([]string, 0, len(known))
+	for _, one := range known {
+		services = append(services, one.name)
+	}
 
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
@@ -350,8 +384,10 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 	targets := newTargetSet(func(dir string) targetseam.Target { return localtarget.New(dir) })
 	t.Cleanup(func() {
 		for dir, target := range targets.made {
-			if err := target.Stop(context.Background(), "demo", credential); err != nil {
-				t.Errorf("stopping the demo service on %s: %v", dir, err)
+			for _, name := range services {
+				if err := target.Stop(context.Background(), name, credential); err != nil {
+					t.Errorf("stopping the %s service on %s: %v", name, dir, err)
+				}
 			}
 		}
 	})
@@ -367,9 +403,8 @@ func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) 
 		in:               strings.NewReader(input),
 		out:              out,
 		human:            "owner",
-		service:          "demo",
+		services:         known,
 		area:             theArea,
-		repo:             filepath.Join(t.TempDir(), "demo"),
 		candidateCeiling: theCeiling,
 		watchFor:         theWatchFor,
 		watchEvery:       theWatchEvery,
@@ -395,8 +430,8 @@ const (
 	theWatchEvery       = 50 * time.Millisecond
 )
 
-// installWindow creates the service record and authors the watch window's four on
-// it, before any run has opened a window.
+// installWindow creates every service record the install names and authors the
+// watch window's four on each, before any run has opened a window.
 //
 // The service has to exist first, because those four are fields of its record — and
 // it has to be authored before the first window opens, because a window copies the
@@ -410,34 +445,36 @@ func installWindow(t *testing.T, ctx context.Context, d deps, k float64) {
 	if _, err := policy.NewFactory(d.pool).Install(ctx, owner, []string{d.dir}, d.credential); err != nil {
 		t.Fatalf("installing the factory: %v", err)
 	}
-	svc, found, err := service.ByName(ctx, d.pool, d.service)
-	if err != nil {
-		t.Fatalf("reading the service: %v", err)
-	}
-	if !found {
-		svc, err = service.NewWriter(d.pool).Create(ctx, cutActor, d.service, d.repo)
-		if err != nil {
-			t.Fatalf("writing the service: %v", err)
-		}
-	}
 	factory := policy.NewFactory(d.pool)
-	for _, authoring := range []struct {
-		what  string
-		write func() (policy.Version, error)
-	}{
-		{"the size", func() (policy.Version, error) {
-			return factory.AuthorWindowSize(ctx, owner, svc.ID, theWindowSize)
-		}},
-		{"the confidence", func() (policy.Version, error) {
-			return factory.AuthorWindowConfidence(ctx, owner, svc.ID, theWindowConfidence)
-		}},
-		{"the cap", func() (policy.Version, error) {
-			return factory.AuthorWindowCap(ctx, owner, svc.ID, theWindowCap)
-		}},
-		{"K", func() (policy.Version, error) { return factory.AuthorK(ctx, owner, svc.ID, k) }},
-	} {
-		if _, err := authoring.write(); err != nil {
-			t.Fatalf("authoring %s of the watch window: %v", authoring.what, err)
+	for _, named := range d.services {
+		svc, found, err := service.ByName(ctx, d.pool, named.name)
+		if err != nil {
+			t.Fatalf("reading the service: %v", err)
+		}
+		if !found {
+			svc, err = service.NewWriter(d.pool).Create(ctx, cutActor, named.name, named.repo)
+			if err != nil {
+				t.Fatalf("writing the service: %v", err)
+			}
+		}
+		for _, authoring := range []struct {
+			what  string
+			write func() (policy.Version, error)
+		}{
+			{"the size", func() (policy.Version, error) {
+				return factory.AuthorWindowSize(ctx, owner, svc.ID, theWindowSize)
+			}},
+			{"the confidence", func() (policy.Version, error) {
+				return factory.AuthorWindowConfidence(ctx, owner, svc.ID, theWindowConfidence)
+			}},
+			{"the cap", func() (policy.Version, error) {
+				return factory.AuthorWindowCap(ctx, owner, svc.ID, theWindowCap)
+			}},
+			{"K", func() (policy.Version, error) { return factory.AuthorK(ctx, owner, svc.ID, k) }},
+		} {
+			if _, err := authoring.write(); err != nil {
+				t.Fatalf("authoring %s of the watch window on %s: %v", authoring.what, named.name, err)
+			}
 		}
 	}
 }
@@ -478,7 +515,7 @@ const approvals = "approve\napprove\napprove\n"
 func TestOneChangeShips(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -580,7 +617,7 @@ func TestOneChangeShips(t *testing.T) {
 	}
 
 	// Master exists in the repository at the commit the queue fast-forwarded to.
-	master, err := git(d.repo, "rev-parse", "master")
+	master, err := git(theRepo(d), "rev-parse", "master")
 	if err != nil {
 		t.Fatalf("reading master: %v", err)
 	}
@@ -733,7 +770,7 @@ func closingPayload(t *testing.T, row decisionlog.Row) gate.ClosingPayload {
 func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -831,13 +868,13 @@ func TestTwoCandidatesProceedAtOnce(t *testing.T) {
 	// One change first, so master exists and the two candidates below are both
 	// based on it. Two candidates cut before any release have no common commit, and
 	// what that costs is stated where the queue merges them.
-	first, err := run(ctx, d, []string{theStatement})
+	first, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
 	d.in = strings.NewReader("")
-	res, err := run(ctx, d, []string{theSecondStatement, theThirdStatement})
+	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the two-candidate run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -907,13 +944,13 @@ func TestTwoCandidatesProceedAtOnce(t *testing.T) {
 	if b.reverifiedBuildID == b.buildID {
 		t.Error("the second candidate's re-verification reused its own build, and master had moved under it")
 	}
-	if _, err := git(d.repo, "merge-base", "--is-ancestor", first.candidates[0].reverifiedCommit,
+	if _, err := git(theRepo(d), "merge-base", "--is-ancestor", first.candidates[0].reverifiedCommit,
 		b.reverifiedCommit); err != nil {
 		t.Errorf("the first release's commit is not an ancestor of the second candidate's re-verified commit: %v", err)
 	}
 
 	// Master is at the last commit the queue fast-forwarded to.
-	master, err := git(d.repo, "rev-parse", "master")
+	master, err := git(theRepo(d), "rev-parse", "master")
 	if err != nil {
 		t.Fatalf("reading master: %v", err)
 	}
@@ -950,12 +987,12 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.model = &conflictingModel{inner: &fakeModel{}}
 
-	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
 	d.in = strings.NewReader("")
-	res, err := run(ctx, d, []string{theSecondStatement, theThirdStatement})
+	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a queue rejection is not an error: %v\noutput so far:\n%s", err, out)
 	}
@@ -1057,7 +1094,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.model = &conflictingModel{inner: &fakeModel{}}
 
-	if _, err := run(ctx, d, []string{theStatement}); err != nil {
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
@@ -1071,12 +1108,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	}
 	var candidates []*candidate
 	for _, statement := range []string{theSecondStatement, theThirdStatement} {
-		c, err := p.author(ctx, statement, statement)
-		if err != nil {
-			t.Fatalf("authoring %q: %v\noutput so far:\n%s", statement, err, out)
-		}
-		candidates = append(candidates, c)
-		p.byItem[c.itemID] = c
+		candidates = append(candidates, authorOne(t, ctx, p, statement, out))
 	}
 	for _, c := range candidates {
 		if err := p.candidateEnvironment(ctx, c); err != nil {
@@ -1092,7 +1124,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	if _, err := item.NewDispatch(d.pool).SetPriority(ctx, owner, candidates[1].itemID, 5); err != nil {
 		t.Fatalf("setting the priority: %v", err)
 	}
-	members, err := p.queue.Members(ctx, p.svc.ID)
+	members, err := p.queue.Members(ctx, theServiceRecord(t, ctx, p).ID)
 	if err != nil {
 		t.Fatalf("reading the queue's members: %v", err)
 	}
@@ -1100,7 +1132,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 		t.Fatalf("the queue's order is %+v, want the pushed candidate %s first", members, candidates[1].itemID)
 	}
 
-	if _, err := p.runQueue(ctx); err != nil {
+	if _, err := p.runQueue(ctx, theServiceRecord(t, ctx, p)); err != nil {
 		t.Fatalf("the queue stopped: %v\noutput so far:\n%s", err, out)
 	}
 	if !candidates[1].merged {
@@ -1120,7 +1152,7 @@ func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.candidateCeiling = 1
 
-	res, err := run(ctx, d, []string{theStatement, theSecondStatement})
+	res, err := run(ctx, d, of(theStatement, theSecondStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a wait is not an error: %v\noutput so far:\n%s", err, out)
 	}
@@ -1185,7 +1217,7 @@ func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
 func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -1268,7 +1300,7 @@ func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 		t.Fatalf("appending the unreadable opening row: %v", err)
 	}
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -1290,7 +1322,7 @@ func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 	ctx, d, out := newPath(t, "\n"+theAnswer+"\n"+approvals)
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -1318,12 +1350,12 @@ func TestTheCutReachesAnExistingService(t *testing.T) {
 	// The service record is already there — newPath writes it, the watch window's
 	// four being fields of it and having to be authored before the first window opens.
 	// What this test is about is what the cut does with one it finds.
-	before, found, err := service.ByName(ctx, d.pool, d.service)
+	before, found, err := service.ByName(ctx, d.pool, theService)
 	if err != nil || !found {
 		t.Fatalf("reading the service before the run: found %v, %v", found, err)
 	}
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -1332,11 +1364,11 @@ func TestTheCutReachesAnExistingService(t *testing.T) {
 	}
 
 	var services int
-	if err := d.pool.QueryRow(ctx, `select count(*) from `+service.Table+` where name = $1`, d.service).Scan(&services); err != nil {
-		t.Fatalf("counting the services named %q: %v", d.service, err)
+	if err := d.pool.QueryRow(ctx, `select count(*) from `+service.Table+` where name = $1`, theService).Scan(&services); err != nil {
+		t.Fatalf("counting the services named %q: %v", theService, err)
 	}
 	if services != 1 {
-		t.Errorf("%d services are named %q, the cut writes a service's identity once", services, d.service)
+		t.Errorf("%d services are named %q, the cut writes a service's identity once", services, theService)
 	}
 }
 
@@ -1347,7 +1379,7 @@ func TestTheCutReachesAnExistingService(t *testing.T) {
 func TestARejectStopsThePath(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\napprove\nreject not what I asked for\n")
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped with an error, and a reject is not one: %v\noutput so far:\n%s", err, out)
 	}
@@ -1392,7 +1424,7 @@ func TestARejectStopsThePath(t *testing.T) {
 	}
 
 	// Master was never created.
-	if _, err := git(d.repo, "rev-parse", "--verify", "master"); err == nil {
+	if _, err := git(theRepo(d), "rev-parse", "--verify", "master"); err == nil {
 		t.Error("master exists, and the fast-forward runs only after the queue passes a candidate")
 	}
 
@@ -1440,13 +1472,13 @@ func twoRunsOnOneService(t *testing.T, firstVerdicts, secondInput string) (conte
 	t.Helper()
 	ctx, d, out := newPath(t, theAnswer+"\n"+firstVerdicts)
 
-	first, err := run(ctx, d, []string{theStatement})
+	first, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
 	d.in = strings.NewReader(secondInput)
-	second, err := run(ctx, d, []string{theSecondStatement})
+	second, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -1490,10 +1522,10 @@ func TestASecondChangeShips(t *testing.T) {
 
 	// The second build encodes both, which is the check the second run had to
 	// pass and is asserted here over the tree that build was made from.
-	if err := criterion.CheckEncodings(d.repo, inForce); err != nil {
+	if err := criterion.CheckEncodings(theRepo(d), inForce); err != nil {
 		t.Errorf("the second build does not satisfy the encoding check: %v", err)
 	}
-	encoded, err := criterion.Encodings(d.repo)
+	encoded, err := criterion.Encodings(theRepo(d))
 	if err != nil {
 		t.Fatalf("reading the encodings: %v", err)
 	}
@@ -1601,13 +1633,13 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 
 	placed, version, err := policy.NewFactory(d.pool).Pin(ctx,
 		record.Actor{Kind: record.KindHuman, Name: d.human}, gatepolicy.RiskThreshold,
-		pin.Subject{Kind: pin.SubjectGateRow, ID: string(gate.DeployToProduction)}, 0, nil)
+		pin.Subject{Kind: pin.SubjectGateRow, ID: string(gate.DeployToProduction)}, pin.Bound{Number: 0})
 	if err != nil {
 		t.Fatalf("placing the pin: %v", err)
 	}
 
 	d.in = strings.NewReader("hold the window before this one is still open\n")
-	res, err := run(ctx, d, []string{theThirdStatement})
+	res, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
 		t.Fatalf("the third run stopped, and a hold is not an error: %v", err)
 	}
@@ -1722,11 +1754,11 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 func TestTheSecondCandidateBranchIsBasedOnMaster(t *testing.T) {
 	_, d, first, second := twoRunsOnOneService(t, approvals, "")
 
-	if _, err := git(d.repo, "merge-base", "--is-ancestor", "master", second.branch); err != nil {
+	if _, err := git(theRepo(d), "merge-base", "--is-ancestor", "master", second.branch); err != nil {
 		t.Errorf("master is not an ancestor of %s, and every candidate after the first release is based on master: %v",
 			second.branch, err)
 	}
-	depth, err := git(d.repo, "rev-list", "--count", first.branch)
+	depth, err := git(theRepo(d), "rev-list", "--count", first.branch)
 	if err != nil {
 		t.Fatalf("counting the first branch's commits: %v", err)
 	}
@@ -1768,7 +1800,7 @@ func TestARejectThenASecondRunShips(t *testing.T) {
 	if len(inForce) != 1 || inForce[0].ItemID != second.itemID {
 		t.Fatalf("%d criteria are in force for the second item's build: %+v", len(inForce), inForce)
 	}
-	if err := criterion.CheckEncodings(d.repo, inForce); err != nil {
+	if err := criterion.CheckEncodings(theRepo(d), inForce); err != nil {
 		t.Errorf("the second build does not satisfy the encoding check: %v", err)
 	}
 
@@ -1784,7 +1816,7 @@ func TestARejectThenASecondRunShips(t *testing.T) {
 
 	// The second branch had no base either: the reject minted no release, so
 	// nothing had created master by the time it was cut.
-	depth, err := git(d.repo, "rev-list", "--count", second.branch)
+	depth, err := git(theRepo(d), "rev-list", "--count", second.branch)
 	if err != nil {
 		t.Fatalf("counting the second branch's commits: %v", err)
 	}
@@ -1823,7 +1855,7 @@ func TestARefusedReplyIsRetried(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.model = &refusingModel{inner: &fakeModel{}, refusals: 1}
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
 		t.Fatalf("the path stopped, and one refused reply is inside the bound: %v\noutput so far:\n%s", err, out)
 	}
@@ -1862,7 +1894,7 @@ func TestAStageOutOfAttemptsStops(t *testing.T) {
 	model := &refusingModel{inner: &fakeModel{}, refusals: attemptBound + 5}
 	d.model = model
 
-	res, err := run(ctx, d, []string{theStatement})
+	res, err := run(ctx, d, of(theStatement))
 	if err == nil {
 		t.Fatalf("the path finished, and every implementer reply was refused:\n%s", out)
 	}
@@ -1918,7 +1950,7 @@ func TestAnErrorThatIsNotAProtocolFailureIsNotRetried(t *testing.T) {
 	model := &erroringModel{inner: &fakeModel{}}
 	d.model = model
 
-	_, err := run(ctx, d, []string{theStatement})
+	_, err := run(ctx, d, of(theStatement))
 	if !errors.Is(err, errNotTheProtocol) {
 		t.Fatalf("the path stopped with %v, want the model's own error", err)
 	}
@@ -1942,7 +1974,7 @@ func TestARunThatStoppedLeavesAnItemTheNextQueueFinishes(t *testing.T) {
 	// merge row to read.
 	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\napprove\n")
 
-	stopped, err := run(ctx, d, []string{theStatement, theSecondStatement})
+	stopped, err := run(ctx, d, of(theStatement, theSecondStatement))
 	if err == nil {
 		t.Fatalf("the run finished, and its input ended before the second merge row:\n%s", out)
 	}
@@ -1963,7 +1995,7 @@ func TestARunThatStoppedLeavesAnItemTheNextQueueFinishes(t *testing.T) {
 	// minted no release, so the service still has nothing to return to and its number
 	// still reads over the threshold.
 	d.in = strings.NewReader(approvals)
-	next, err := run(ctx, d, []string{theFourthStatement})
+	next, err := run(ctx, d, of(theFourthStatement))
 	if err != nil {
 		t.Fatalf("the next run stopped on an item the earlier one left queued: %v\noutput so far:\n%s", err, out)
 	}
@@ -2005,4 +2037,65 @@ func TestARunThatStoppedLeavesAnItemTheNextQueueFinishes(t *testing.T) {
 	if err := decisionlog.Verify(ctx, d.pool); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
+}
+
+// of is the intents a test gives a run, one per statement, each cut on the one
+// service the test's install names. It is a helper because most of these tests are
+// single-service and a run's input is a statement plus the services its cut yields
+// items on — writing the pair out at every call site would say the same thing forty
+// times.
+func of(statements ...string) []asked {
+	asks := make([]asked, 0, len(statements))
+	for _, statement := range statements {
+		asks = append(asks, asked{statement: statement, services: []string{theService}})
+	}
+	return asks
+}
+
+// across is one intent whose cut yields an item per service named, in that order,
+// each waiting on the one before it. It is what a contract migration is: one intent,
+// several items, several services, and the intent is what joins them.
+func across(statement string, services ...string) asked {
+	return asked{statement: statement, services: services}
+}
+
+// theRepo is the repository of the first service the install names, which is the
+// only one a single-service test has.
+func theRepo(d deps) string { return d.services[0].repo }
+
+// theServiceRecord is the record of the first service the install names, read
+// after a run has cut on it. Every step that used to take the path's one service now
+// takes a record, which is what two services cost.
+func theServiceRecord(t *testing.T, ctx context.Context, p *path) service.Service {
+	t.Helper()
+	svc, found, err := service.ByName(ctx, p.d.pool, p.d.services[0].name)
+	if err != nil {
+		t.Fatalf("reading the service: %v", err)
+	}
+	if !found {
+		t.Fatalf("no service is named %q", p.d.services[0].name)
+	}
+	return svc
+}
+
+// authorOne is one intent cut into one item on the install's one service, for a
+// test that drives the steps rather than calling run. The cut yields one item, so no
+// Decomposition row fires — the row fires where there is a set to ratify.
+func authorOne(t *testing.T, ctx context.Context, p *path, statement string, out *bytes.Buffer) *candidate {
+	t.Helper()
+	set, candidates, err := p.authorIntent(ctx,
+		asked{statement: statement, services: []string{theService}}, statement)
+	if err != nil {
+		t.Fatalf("authoring %q: %v\noutput so far:\n%s", statement, err, out)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("authoring %q yielded %d candidates, want one", statement, len(candidates))
+	}
+	if set.decided {
+		t.Fatalf("a cut of one item fired Decomposition, and that row fires where there is a set to ratify")
+	}
+	c := candidates[0]
+	p.byItem[c.itemID] = c
+	p.authored[c.itemID] = true
+	return c
 }

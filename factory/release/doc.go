@@ -5,9 +5,15 @@
 // The record is where the graph joins. It names the item that caused the
 // release and the build it is made of; every deploy of it names the release,
 // and the gate decisions name the item and the build and never the release.
-// The contract versions the design puts on the record arrive at M5, and there
-// is no column for them yet — adding one then is a schema edit, which is what
-// deferring a field costs.
+//
+// The contract versions the design puts on the record have no column here, and
+// this package predicted one from M1 until contracts were built. The prediction was
+// wrong: a contract version names the release and copies its number, so "the
+// release names the contract versions it publishes" is the inbound edge every
+// deploy record of a release already is, and a column would be the same fact twice
+// on a record that has no update. What arrived instead is [Writer.MintWith] — the
+// versions are written by the merge queue inside this transaction, so a number and
+// the versions its release publishes commit together or not at all.
 //
 // # The number
 //

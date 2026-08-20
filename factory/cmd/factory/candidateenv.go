@@ -52,7 +52,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	// Every candidate of the run was authored before any of them reached this step,
 	// so what the working tree holds is the last one's — and the encoding check and
 	// the criteria run both read the tree.
-	if _, err := git(d.repo, "switch", it.Branch); err != nil {
+	if _, err := git(c.svc.Repository, "switch", it.Branch); err != nil {
 		return err
 	}
 
@@ -97,7 +97,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	// has been decided — the run that decides them is what this deploy is for — so
 	// the firing names how many there are and no outcome, and the coverage factor
 	// reads the count.
-	inForce, err := p.inForceFor(ctx, c.itemID)
+	inForce, err := p.inForceFor(ctx, c.svc, c.itemID)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		Row:             gate.DeployToCandidateEnvironment,
 		ItemID:          c.itemID,
 		BuildID:         c.buildID,
-		ServiceID:       p.svc.ID,
+		ServiceID:       c.svc.ID,
 		AreaID:          p.areaID,
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(inForce),
@@ -172,11 +172,11 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 // and deploys it there. The deploy record names the build and no release: the
 // number is minted one gate below this one.
 func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buildID string) (deploy.Deploy, error) {
-	if err := buildInto(p.d.repo, c.environmentDir, buildID); err != nil {
+	if err := buildInto(c.svc.Repository, c.environmentDir, buildID); err != nil {
 		return deploy.Deploy{}, err
 	}
 	return deploy.Straight(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
-		p.svc.ID, p.svc.Name, c.environmentID, deploy.OfBuild(buildID), p.d.credential)
+		c.svc.ID, c.svc.Name, c.environmentID, deploy.OfBuild(buildID), p.d.credential)
 }
 
 // decideCriteria runs the encodings on the candidate environment and records what
@@ -195,12 +195,12 @@ func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buil
 // the criterion id it names, and nothing here runs one of them alone.
 func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 	inForce []criterion.Criterion) ([]gate.CriterionResult, error) {
-	if err := p.checkEncodings(inForce); err != nil {
+	if err := p.checkEncodings(c.svc.Repository, inForce); err != nil {
 		return nil, err
 	}
 
-	first, firstOutput := runEncodings(p.d.repo)
-	second, secondOutput := runEncodings(p.d.repo)
+	first, firstOutput := runEncodings(c.svc.Repository)
+	second, secondOutput := runEncodings(c.svc.Repository)
 	outcome := criterion.Decide(first, second)
 	switch outcome {
 	case criterion.OutcomePassed:
@@ -234,12 +234,12 @@ func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 //
 // It is the Implementation gate's rejection and that gate is not built, so a
 // failure here stops the run rather than sending the item back.
-func (p *path) checkEncodings(inForce []criterion.Criterion) error {
-	err := criterion.CheckEncodings(p.d.repo, inForce)
+func (p *path) checkEncodings(repo string, inForce []criterion.Criterion) error {
+	err := criterion.CheckEncodings(repo, inForce)
 	if err == nil {
 		return nil
 	}
-	named, readErr := criterion.Encodings(p.d.repo)
+	named, readErr := criterion.Encodings(repo)
 	if readErr != nil {
 		return errors.Join(err, readErr)
 	}

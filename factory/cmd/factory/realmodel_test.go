@@ -64,13 +64,20 @@ const realModelPace = 2 * time.Second
 // decide, the module and the standard library named so the build has what it
 // needs, and a port high enough not to meet anything else on the machine.
 //
-// It says nothing about the quantity the factory watches by. That is the
-// implementer's standing instruction and not part of any request, so a statement
-// that asked for it would be testing whether a model can follow a statement rather
-// than whether it follows the prompt — which is the thing here that only a real
-// call answers.
+// It says nothing about the quantity the factory watches by, and nothing about a
+// contract. Both are the implementer's standing instructions and neither is part of
+// any request, so a statement that asked for either would be testing whether a model
+// can follow a statement rather than whether it follows the prompt — which is the
+// thing here that only a real call answers.
+//
+// The Go version is named rather than asked for. It said "a Go version" until
+// 2026-08-20, and deepseek/deepseek-v4-flash wrote `go 1.x` into go.mod — a
+// placeholder go refuses to parse, from a statement that left the choice open. An
+// underdetermined request is what the interview exists for and the model did not ask,
+// so what is fixed here is the request: an owner supplying a constraint (2) names the
+// value.
 const realModelStatement = "A Go HTTP service, module borg.demo/realmodel, package main in main.go at the repository root, " +
-	"standard library only. The change must include a go.mod file declaring the module and a Go version. " +
+	"standard library only. The change must include a go.mod file declaring that module and go 1.24. " +
 	"It answers GET /health with status 200 and the body ok, on port 8199. " +
 	"Test the handler through net/http/httptest rather than by binding the port."
 
@@ -144,21 +151,25 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	// Paced as the run subcommand paces it, so what this test drives is what a
 	// take drives — a run that sends requests back to back is one of the things
 	// only a real provider can object to.
-	ctx, d, out := newPath(t, "approve\napprove\napprove\napprove\n")
+	// The repository outlives a failing run, which the temp directory newPath
+	// hands out does not: what a real model wrote is the evidence a failure is
+	// diagnosed from, and a test that deletes it leaves a reader with the error
+	// text alone. A passing run has nothing to look at, so that one is removed.
+	//
+	// It is named before the install rather than swapped in afterwards, because the
+	// repository a run works in is the service record's own field and the cut writes
+	// that record — so a directory chosen after the record exists reaches nothing.
+	repo, err := os.MkdirTemp("", "factory-realmodel-")
+	if err != nil {
+		t.Fatalf("making the repository directory: %v", err)
+	}
+	ctx, d, out := newPathIn(t, "approve\napprove\napprove\napprove\n",
+		[]serviceRepo{{name: theService, repo: repo}})
 	d.model = agent.NewPaced(provided, realModelPace)
 	// The author every version this take writes names is the model that wrote it,
 	// which is what an authorship prior is kept on.
 	d.modelName = name
 
-	// The repository outlives a failing run, which the temp directory newPath
-	// hands out does not: what a real model wrote is the evidence a failure is
-	// diagnosed from, and a test that deletes it leaves a reader with the error
-	// text alone. A passing run has nothing to look at, so that one is removed.
-	repo, err := os.MkdirTemp("", "factory-realmodel-")
-	if err != nil {
-		t.Fatalf("making the repository directory: %v", err)
-	}
-	d.repo = repo
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Logf("the repository is kept for reading: %s", repo)
@@ -169,7 +180,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		}
 	})
 
-	res, err := run(ctx, d, []string{realModelStatement})
+	res, err := run(ctx, d, of(realModelStatement))
 	if err != nil {
 		t.Fatalf("the path stopped: %v\n\nthe run's output:\n%s", err, out)
 	}
@@ -205,7 +216,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		t.Errorf("the current deploy is %q found=%t status=%s, the path deployed %s and completes it",
 			current.ID, found, current.Status, c.deployID)
 	}
-	running, err := d.targets.at(d.dir).ReadRunning(ctx, d.service, d.credential)
+	running, err := d.targets.at(d.dir).ReadRunning(ctx, theService, d.credential)
 	if err != nil {
 		t.Fatalf("reading what the target runs: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // inDir runs one command in dir and returns its combined output. On an error
@@ -37,34 +38,34 @@ func git(repo string, args ...string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
-// masterHead is the commit master is at, and empty where the service has no
-// release: the design makes master's head the commit of the service's
-// highest-numbered release, so the store is what answers it and the repository is
-// where master actually is.
+// masterHead is the commit master is at in one service's repository, and empty
+// where the service has no release: the design makes master's head the commit of
+// the service's highest-numbered release, so the store is what answers it and the
+// repository is where master actually is.
 //
 // The two are compared, and a disagreement is an error naming both. That is the
 // shape the reconciler exists for and nothing else in the factory looks for this
 // one — a fast-forward that landed with no release minted leaves exactly it, which
 // is the window the merge queue names and does not close.
-func (p *path) masterHead(ctx context.Context) (string, error) {
-	inGit, err := masterCommit(p.d.repo)
+func (p *path) masterHead(ctx context.Context, svc service.Service) (string, error) {
+	inGit, err := masterCommit(svc.Repository)
 	if err != nil {
 		return "", err
 	}
-	if p.svc.ID == "" {
+	if svc.ID == "" {
 		if inGit != "" {
 			return "", fmt.Errorf("factory: master is at %s and the factory has no service record for %s",
-				inGit, p.d.service)
+				inGit, svc.Name)
 		}
 		return "", nil
 	}
-	highest, found, err := release.Highest(ctx, p.d.pool, p.svc.ID)
+	highest, found, err := release.Highest(ctx, p.d.pool, svc.ID)
 	if err != nil {
 		return "", err
 	}
 	if !found {
 		if inGit != "" {
-			return "", fmt.Errorf("factory: master is at %s and %s has no release record", inGit, p.svc.ID)
+			return "", fmt.Errorf("factory: master is at %s and %s has no release record", inGit, svc.ID)
 		}
 		return "", nil
 	}
@@ -74,7 +75,7 @@ func (p *path) masterHead(ctx context.Context) (string, error) {
 	}
 	if inGit != bl.CommitHash {
 		return "", fmt.Errorf("factory: master is at %q and release %d of %s names commit %s",
-			inGit, highest.Number, p.svc.ID, bl.CommitHash)
+			inGit, highest.Number, svc.ID, bl.CommitHash)
 	}
 	return bl.CommitHash, nil
 }

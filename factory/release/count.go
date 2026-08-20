@@ -133,3 +133,72 @@ func CountForService(ctx context.Context, pool *pgxpool.Pool, serviceID, exceptI
 	}
 	return count, nil
 }
+
+// Between is every release of the service numbered from lowest to highest
+// inclusive, lowest first. It is what the range of declarations in force is
+// resolved through: the range is the service's restore floor up to its newest
+// release, and the items of those releases are the ones whose declarations bind.
+//
+// A lowest above the highest is no releases and no error, which is the answer for
+// a range that has nothing in it.
+func Between(ctx context.Context, pool *pgxpool.Pool, serviceID string, lowest, highest int64) ([]Release, error) {
+	rows, err := pool.Query(ctx, selectRelease+`
+		where service_id = $1 and number >= $2 and number <= $3 order by number`,
+		serviceID, lowest, highest)
+	if err != nil {
+		return nil, fmt.Errorf("release: reading the releases of %s from %d to %d: %w",
+			serviceID, lowest, highest, err)
+	}
+	defer rows.Close()
+
+	var read []Release
+	for rows.Next() {
+		r, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("release: reading a release of %s from %d to %d: %w",
+				serviceID, lowest, highest, err)
+		}
+		read = append(read, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("release: reading the releases of %s from %d to %d: %w",
+			serviceID, lowest, highest, err)
+	}
+	return read, nil
+}
+
+// ItemsWithRelease is which of these items have a release, in the order given. It
+// is what filters a declaration derived for a candidate that never merged: a
+// declaration is written at the implementation stage, before any release exists, so
+// what says one is a release's is the release naming the same item.
+//
+// No items is none and no error.
+func ItemsWithRelease(ctx context.Context, pool *pgxpool.Pool, itemIDs []string) ([]string, error) {
+	if len(itemIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `select item_id from `+Table+` where item_id = any($1)`, itemIDs)
+	if err != nil {
+		return nil, fmt.Errorf("release: reading which of %d items have a release: %w", len(itemIDs), err)
+	}
+	defer rows.Close()
+
+	have := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("release: reading an item that has a release: %w", err)
+		}
+		have[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("release: reading which of %d items have a release: %w", len(itemIDs), err)
+	}
+	var released []string
+	for _, id := range itemIDs {
+		if have[id] {
+			released = append(released, id)
+		}
+	}
+	return released, nil
+}

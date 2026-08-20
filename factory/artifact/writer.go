@@ -10,11 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// Kind is what an artifact is a version of. M1 has the two the pipeline's
-// path touches.
+// Kind is what an artifact is a version of. There are three, and each is
+// authored at a stage of the path.
 type Kind string
 
 const (
@@ -23,7 +24,19 @@ const (
 	// KindImplementation is an implementation version; its content is the
 	// commit hash the stage produced.
 	KindImplementation Kind = "implementation"
+	// KindDeclaration is a declaration version, authored at the implementation
+	// stage from the same build: its content is the words a human reads the
+	// declaration by, and what it introduces is the predicates. A kind of its own
+	// rather than a field of the implementation version, because the two are
+	// derived from that build separately and either can be authored again while
+	// the other stands.
+	KindDeclaration Kind = "declaration"
 )
+
+// Kinds is every kind an artifact may be a version of. The CHECK constraint in
+// [DDL] lists the same three, and TestDDLListsEveryKind fails if the two lists
+// stop agreeing.
+var Kinds = []Kind{KindSpec, KindImplementation, KindDeclaration}
 
 // Authorship is which of the store's three callers authored the version. It
 // is an attribute of the version and not of the item, because authorship is
@@ -83,9 +96,10 @@ type Draft struct {
 	EscapeReason string
 }
 
-// Store is the one writer of artifacts, and — through [criterion.Insert] —
-// of criteria. Its three callers are the ones [Authorships] names; nothing
-// else inserts into either table.
+// Store is the one writer of artifacts, and — through [criterion.Insert] and
+// [declaration.Insert] — of criteria and of the predicates a declaration version
+// introduces. Its three callers are the ones [Authorships] names; nothing else
+// inserts into any of the three tables.
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -156,6 +170,46 @@ func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, by
 		return Artifact{}, fmt.Errorf("artifact: committing %s: %w", submitted.ID, err)
 	}
 	return submitted, nil
+}
+
+// SubmitDeclaration writes a declaration version and every predicate it
+// introduces, in one transaction — the same arrangement [Store.SubmitSpec] has
+// with the criteria, and taken for the same reason: a version whose predicates
+// were not written would be a declaration nobody can decide against, and one
+// [declaration.Insert] refuses rolls the version back with it.
+//
+// serviceID is the consumer's, which the predicates carry so that a reader of one
+// knows whose assumption it is without walking to the item. The content is what a
+// human reads the version by; the predicates are what the factory decides.
+func (s *Store) SubmitDeclaration(ctx context.Context, actor record.Actor, by By,
+	itemID, serviceID, content string, drafts []declaration.Draft) (Artifact, []declaration.Predicate, error) {
+	if err := refuse(actor, by, itemID); err != nil {
+		return Artifact{}, nil, err
+	}
+	if serviceID == "" {
+		return Artifact{}, nil, fmt.Errorf("artifact: the declaration version of %s names no service", itemID)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Artifact{}, nil, fmt.Errorf("artifact: beginning the submission: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindDeclaration, content)
+	if err != nil {
+		return Artifact{}, nil, err
+	}
+	written, err := declaration.Insert(ctx, tx, actor, declaration.Of{
+		ItemID: itemID, ServiceID: serviceID, ArtifactID: submitted.ID,
+	}, drafts)
+	if err != nil {
+		return Artifact{}, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Artifact{}, nil, fmt.Errorf("artifact: committing %s: %w", submitted.ID, err)
+	}
+	return submitted, written, nil
 }
 
 func refuse(actor record.Actor, by By, itemID string) error {

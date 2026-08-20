@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/pin"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -24,10 +25,16 @@ const (
 	FromAuthored Source = "authored"
 	// FromSupplied is what the score supplies where an owner authored nothing.
 	FromSupplied Source = "supplied"
-	// FromNothing is neither, which is the predicate catalog on a factory where
-	// an owner has extended nothing: the score supplies no catalog, so an
-	// unauthored one is empty rather than defaulted.
+	// FromNothing is neither an authored value nor a supplied one, which is a
+	// numeric parameter the score supplies nothing for. Nothing reaches it today.
 	FromNothing Source = "neither"
+	// FromFactory is the factory's own value, which is what an owner extends
+	// rather than replaces. The predicate catalog is the one parameter with this
+	// source: gate policy has an owner extend the catalog and a pin only add to
+	// it, which presupposes something to extend, and the score supplies none —
+	// no outcome teaches a kind of assertion. So the unauthored value is the kinds
+	// this factory can decide.
+	FromFactory Source = "the factory's own"
 )
 
 // Reader answers what is in force. It is a type rather than a set of functions
@@ -307,7 +314,7 @@ func (r *Reader) resolve(ctx context.Context, parameter gatepolicy.Parameter,
 			effective.HumanPinned = true
 			continue
 		}
-		clamped := gatepolicy.Clamp(p.Direction, p.Bound, effective.Number)
+		clamped := gatepolicy.Clamp(p.Direction, p.Bound.Number, effective.Number)
 		if clamped != effective.Number {
 			effective.Clamped = true
 			effective.Number = clamped
@@ -317,19 +324,28 @@ func (r *Reader) resolve(ctx context.Context, parameter gatepolicy.Parameter,
 }
 
 // resolveList is the same three reads for the one parameter whose value is a
-// list. The score supplies no catalog, so an unauthored one is empty, and a pin
-// may only extend whatever it is.
+// list, with the factory's own value under all of them. The predicate catalog is
+// that parameter: the kinds this factory can decide are the floor, what an owner
+// authored extends it, and a pin extends it again — a union at every step, because
+// a kind of assertion added is coverage added and one removed would invalidate
+// declarations already ratified at a gate.
+//
+// The source says which of the three the value came from, and the factory's own is
+// the answer where an owner authored nothing. It is not [FromNothing]: an
+// unauthored catalog is the five kinds and not an empty list, so a declaration can
+// be derived on a factory where nobody has opened gate policy.
 func (r *Reader) resolveList(ctx context.Context, parameter gatepolicy.Parameter,
 	authored []string, s Subjects) (Effective, error) {
 	definition, err := gatepolicy.Define(parameter)
 	if err != nil {
 		return Effective{}, err
 	}
+	own := factoryOwn(parameter)
 	effective := Effective{
 		Parameter: parameter,
 		Row:       definition.Row,
-		Source:    FromNothing,
-		List:      authored,
+		Source:    FromFactory,
+		List:      gatepolicy.ClampList(authored, own),
 		ReadBy:    definition.ReaderAtThisMilestone,
 	}
 	if len(authored) > 0 {
@@ -342,13 +358,94 @@ func (r *Reader) resolveList(ctx context.Context, parameter gatepolicy.Parameter
 	}
 	for _, p := range pins {
 		effective.Pins = append(effective.Pins, p.ID)
-		extended := gatepolicy.ClampList(p.BoundList, effective.List)
+		extended := gatepolicy.ClampList(p.Bound.List, effective.List)
 		if len(extended) != len(effective.List) {
 			effective.Clamped = true
 		}
 		effective.List = extended
 	}
 	return effective, nil
+}
+
+// factoryOwn is the value the factory itself provides for a list-valued
+// parameter, under whatever an owner authored. There is one such parameter and one
+// such value: the predicate kinds package gatepolicy names, which are the ones
+// enforcement can decide.
+func factoryOwn(parameter gatepolicy.Parameter) []string {
+	if parameter == gatepolicy.PredicateCatalog {
+		return gatepolicy.PredicateCatalogNames()
+	}
+	return nil
+}
+
+// PredicateCatalog is the catalog in force, which is the one read package
+// declaration's derivation performs against gate policy: the kinds a consumer may
+// draw from. It is a read of its own rather than a filter over [Reader.All] for the
+// reason [Reader.WindowParameters] is — All is a printer's answer over every
+// parameter and this is one mechanism's over one.
+//
+// The subjects are the factory policy record's and nothing else, which [pinsOn]
+// adds on its own: the catalog is one list the factory owns, so a pin on a service
+// or an area is a pin on a subject this parameter's mechanism never reads — the
+// dangling pin the design already accounts for.
+func (r *Reader) PredicateCatalog(ctx context.Context) (Effective, error) {
+	definition, err := gatepolicy.Define(gatepolicy.PredicateCatalog)
+	if err != nil {
+		return Effective{}, err
+	}
+	_, authored, err := r.authored(ctx, definition, Subjects{})
+	if err != nil {
+		return Effective{}, err
+	}
+	return r.resolveList(ctx, gatepolicy.PredicateCatalog, authored, Subjects{})
+}
+
+// PinnedPredicate is one pinned predicate as a mechanism reads it: the pin, who
+// placed it, the element it is about, and the assertion. The author is here because
+// a removal item blocked on a pin appears as an escalation naming the pin and its
+// author, and a reader of that escalation has to know whom to ask.
+type PinnedPredicate struct {
+	PinID   string
+	Actor   record.Actor
+	Subject string
+	Kind    gatepolicy.PredicateKind
+	// Argument is the unit, the domain, or the range, and is empty for a kind
+	// that takes none.
+	Argument string
+}
+
+// PinnedPredicatesOn is every pinned predicate in force on any of these contract
+// elements, each named the way [pin.SubjectContractElement] names one. It is the
+// read enforcement and the deprecation list both perform, and it is here rather
+// than in either of them because package pin has one reader and this is it.
+//
+// A withdrawn pin is not in force and is not returned, which is what makes
+// withdrawing one the way an owner takes an invented read back.
+func (r *Reader) PinnedPredicatesOn(ctx context.Context, subjects []string) ([]PinnedPredicate, error) {
+	if len(subjects) == 0 {
+		return nil, nil
+	}
+	on := make([]pin.Subject, 0, len(subjects))
+	for _, s := range subjects {
+		if s != "" {
+			on = append(on, pin.Subject{Kind: pin.SubjectContractElement, ID: s})
+		}
+	}
+	pins, err := pin.BySubjects(ctx, r.pool, gatepolicy.PinnedPredicate, on)
+	if err != nil {
+		return nil, err
+	}
+	pinned := make([]PinnedPredicate, 0, len(pins))
+	for _, p := range pins {
+		pinned = append(pinned, PinnedPredicate{
+			PinID:    p.ID,
+			Actor:    p.Actor,
+			Subject:  p.Subject.ID,
+			Kind:     p.Bound.Predicate.Kind,
+			Argument: p.Bound.Predicate.Argument,
+		})
+	}
+	return pinned, nil
 }
 
 // pinsOn is every pin in force on one parameter across every subject these

@@ -104,4 +104,22 @@
 // instruction rather than a check: an implementation that ignores it produces a
 // release whose watch window can only end at its cap, and nothing rejects it for
 // that.
+//
+// # And it writes the two files a contract is derived from
+//
+// Two file-name conventions go with it, for the same reason and at the same cost:
+// what a service publishes and what it reads are derived from its source, so the
+// source has to say them. A published interface is one exported struct type in a
+// file named for it; an interface this service reads is a mirror in a file named
+// for its producer; and a program that publishes an interface writes one document
+// per unit of work beside the quantity, which is what a consumer's declaration is
+// decided against. The unit goes in a field's own name rather than in a tag, which
+// is what makes a change of units read as a rename.
+//
+// This one is worth less than an instruction usually is, because two of its three
+// parts do have a check. A build that declares a contract file the derivation
+// cannot read is refused, and a producer whose run wrote no document fails every
+// declaration in force against it. What has no check is the mirror: an
+// implementation that reads a field it left out of the mirror declares nothing
+// about it, and what covers that is a pin an owner places.
 package agent

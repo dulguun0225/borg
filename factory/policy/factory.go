@@ -198,9 +198,11 @@ func (f *Factory) authorOnService(ctx context.Context, actor record.Actor, param
 }
 
 // Pin places one, in the direction the parameter's definition gives it, and
-// appends the version in the same transaction.
+// appends the version in the same transaction. The bound is one value of three
+// shapes — a number, a list, or a predicate — which is package pin's [pin.Bound],
+// so this signature does not grow an argument each time a shape arrives.
 func (f *Factory) Pin(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,
-	subject pin.Subject, bound float64, boundList []string) (pin.Pin, Version, error) {
+	subject pin.Subject, bound pin.Bound) (pin.Pin, Version, error) {
 	if err := ownerOnly(actor); err != nil {
 		return pin.Pin{}, Version{}, err
 	}
@@ -211,7 +213,7 @@ func (f *Factory) Pin(ctx context.Context, actor record.Actor, parameter gatepol
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	placed, err := pin.Insert(ctx, tx, actor, parameter, subject, bound, boundList)
+	placed, err := pin.Insert(ctx, tx, actor, parameter, subject, bound)
 	if err != nil {
 		return pin.Pin{}, Version{}, err
 	}

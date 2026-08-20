@@ -2,9 +2,12 @@
 // the policy what applies, and writes that firing's decision into the decision
 // log through [decisionlog.Writer].
 //
-// # The three rows
+// # The four rows
 //
-// [DeployToCandidateEnvironment], [MergeToMaster], and [DeployToProduction]. The
+// [Decomposition], [DeployToCandidateEnvironment], [MergeToMaster], and
+// [DeployToProduction]. Decomposition is the cut's own row and the one that
+// decides over a set rather than over one item's build, which is why it is fired
+// through [Gate.FireSet] and why set.go is a file of its own. The
 // candidate deploy row is where the candidate's own environment is created and
 // its build is put on it, and what the deploy provides is the criteria — nothing
 // else attaches to that row. The merge row is where a candidate becomes a
@@ -12,9 +15,11 @@
 // deploy row is where the merge has happened and the number is already assigned,
 // so hold is the only way to stop it.
 //
-// The four authoring rows of the default path are not built: each needs a stage
-// that fires one, and an item reaches these three having passed through stages
-// that fire nothing.
+// Three of the four authoring rows of the default path are still not built: each
+// needs a stage that fires one, and an item reaches the deploy and merge rows
+// having passed through stages that fire nothing. Decomposition is the first of
+// them, and it arrives because a cut that yields more than one item arrived — the
+// row fires where there is a set to ratify and nowhere else.
 //
 // All three read their threshold from production's environment record, which is
 // the rule the design gives for all eight rows — and a candidate's own environment
@@ -23,11 +28,13 @@
 //
 // [Actions] is what may be done at each, and it differs by row: reject is
 // available up to the merge to master and nowhere after it, and hold is offered
-// by the deploy rows alone. Pin strategy, the production deploy row's third
-// action in the design, is refused with its reason — a target that runs a
-// release as a local process moves a process rather than traffic, so the
-// strategy that keeps a control is unavailable on this substrate and every
-// deploy is straight.
+// by the deploy rows alone. Two third actions are refused with their reasons. Pin
+// strategy, the production deploy row's, is refused because a target that runs a
+// release as a local process moves a process rather than traffic, so the strategy
+// that keeps a control is unavailable on this substrate and every deploy is
+// straight. Edit in place, Decomposition's, is refused because editing a set in
+// place is a human re-cutting by hand and re-cutting is not built —
+// [ErrEditInPlaceRefused] says what that leaves.
 //
 // # The decision is two rows
 //
@@ -67,6 +74,30 @@
 // [NoReconciler] is what a factory with none installed is composed with, and it
 // answers no mismatch ever — which is the state the design describes as a factory
 // whose every check reads a record the factory itself wrote.
+//
+// # The factory's own two verdicts, and the one asymmetry between them
+//
+// [Gate.AutoPass] is the factory approving where the firing put no human at the
+// row, and it refuses a firing that did. [Gate.AutoReject] is the factory
+// rejecting where a mechanical check failed, and it is allowed whatever the firing
+// decided about a human. That asymmetry is the whole difference between them: the
+// factory may not approve over a human, because nothing in the tree removes a
+// human from a gate; and it rejects before a human is asked, because the design
+// has the merge row's checks — the acceptance criteria, every consumer's
+// declaration, and the producer's own contract diff — each rejecting on its own
+// terms before anyone gives a verdict. A human who was going to approve is not
+// overruled: there is nothing left to approve, and a schema diff is not a judgment
+// they could have made differently.
+//
+// The three checks that reject that way are named here —
+// [AutoRejectedByContractDiff], [AutoRejectedByDeclaration], and
+// [AutoRejectedByPinnedPredicate] — so a caller cannot report one under a name of
+// its own, the arrangement the five holds already have. What computes each of them
+// reads the contracts and the declarations, which this package does not import.
+// The acceptance criteria are not among them: a failing criterion is reported to
+// the row and read by whoever gives the verdict, which is how it has worked since
+// M2, and turning it into a mechanical rejection would change a milestone already
+// built.
 //
 // A hold is the third kind of verdict and the only one that decides nothing: it
 // leaves the event queued with the change still good, counts no attempt against
@@ -115,4 +146,9 @@
 // and the number are ../../end-goal/how-humans-do-it/04-risk-score.md; the
 // threshold and the pin are
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them.
+// What Decomposition decides, one verdict covering the whole cut, and a rejection
+// re-cutting the set rather than sending an item back are
+// ../../end-goal/how-humans-do-it/02-intent-into-items.md#the-cut; the merge row's
+// checks rejecting on their own terms before a verdict is given are
+// ../../end-goal/how-humans-do-it/03-gates.md#merge-to-master.
 package gate

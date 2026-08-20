@@ -30,12 +30,22 @@ const (
 	// SubjectFactoryPolicy is the factory policy record, and reaches the
 	// parameters that are fields of it.
 	SubjectFactoryPolicy SubjectKind = "factory_policy"
+	// SubjectContractElement is one element of one contract, named by the
+	// contract's id and the element's name — which [contract.ElementSubject]
+	// composes, because the element row's own id changes at every version and a
+	// pin has to outlive one. It reaches the predicates in force on that element,
+	// and it is the subject doc.go names as the reason a pin is a record: that
+	// record's writer is the merge queue, so an owner authoring on it would be a
+	// second writer with no seam.
+	SubjectContractElement SubjectKind = "contract_element"
 )
 
 // SubjectKinds is every subject kind this milestone stores. The CHECK in [DDL]
 // lists the same four, and TestDDLListsEverySubjectKind fails if they stop
 // agreeing.
-var SubjectKinds = []SubjectKind{SubjectService, SubjectArea, SubjectGateRow, SubjectFactoryPolicy}
+var SubjectKinds = []SubjectKind{
+	SubjectService, SubjectArea, SubjectGateRow, SubjectFactoryPolicy, SubjectContractElement,
+}
 
 var (
 	// ErrSubjectKindUnknown is returned for a subject kind outside
@@ -44,8 +54,9 @@ var (
 	// ErrSubjectIDEmpty is returned for a pin naming no subject.
 	ErrSubjectIDEmpty = errors.New("pin: a pin names the subject it is drawn on")
 	// ErrBoundRefused is returned for a bound on a parameter whose pin adds a
-	// human rather than bounding a value, and for a list on a numeric
-	// parameter or a number on a list one.
+	// human rather than bounding a value, and for a bound of one of the three
+	// shapes on a parameter that takes another — a list where a number belongs, a
+	// number where a predicate does.
 	ErrBoundRefused = errors.New("pin: the bound is not the shape this parameter's pin takes")
 	// ErrBoundMissing is returned for a numeric or list parameter pinned with
 	// no bound. A bound of nothing would clamp nothing and read as a pin.
@@ -62,6 +73,38 @@ type Subject struct {
 
 func (s Subject) String() string { return string(s.Kind) + ":" + s.ID }
 
+// Bound is what a pin bounds by, in whichever of the three shapes its parameter
+// takes: a number, a list of names, or one predicate. It is a struct so that a
+// caller cannot pass one shape where another belongs, and so that a fourth shape
+// is a field here rather than a fourth argument at every call site.
+type Bound struct {
+	// Number is the bound of a numeric parameter, and is meaningless where the
+	// direction adds a human or the parameter takes another shape.
+	Number float64
+	// List is the names a pin on a list-valued parameter adds.
+	List []string
+	// Predicate is the assertion a pinned predicate adds, and is meaningful on
+	// that parameter alone.
+	Predicate Predicate
+}
+
+// Predicate is one assertion a pinned predicate adds: the kind, and the argument
+// where that kind takes one. What the assertion is about is the pin's subject,
+// which is the contract element — so this is the bound and not the whole predicate.
+//
+// The kind is package gatepolicy's, which is where the catalog a declaration draws
+// from lives. A pin adds an assertion of the same kinds a derivation produces, not
+// a kind of its own: what a pin covers is a read the derivation could not see, and
+// the assertion about it is the ordinary one.
+type Predicate struct {
+	Kind     gatepolicy.PredicateKind
+	Argument string
+}
+
+// IsZero reports whether no predicate is named, which is every pin but a pinned
+// predicate.
+func (p Predicate) IsZero() bool { return p.Kind == "" && p.Argument == "" }
+
 // Pin is one pin as it is stored.
 type Pin struct {
 	ID        string
@@ -70,11 +113,7 @@ type Pin struct {
 	Parameter gatepolicy.Parameter
 	Subject   Subject
 	Direction gatepolicy.Direction
-	// Bound is the number the pin bounds the value in force by, and is
-	// meaningless where the direction adds a human or the parameter is a list.
-	Bound float64
-	// BoundList is the names a pin on a list-valued parameter adds.
-	BoundList []string
+	Bound     Bound
 	Withdrawn bool
 }
 
@@ -95,7 +134,7 @@ func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 // so an owner placing a pin chooses the subject and the bound and never which
 // way the bound points.
 func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, parameter gatepolicy.Parameter,
-	subject Subject, bound float64, boundList []string) (Pin, error) {
+	subject Subject, bound Bound) (Pin, error) {
 	if err := actor.Validate(); err != nil {
 		return Pin{}, err
 	}
@@ -109,7 +148,7 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, parameter gatepo
 	if subject.ID == "" {
 		return Pin{}, ErrSubjectIDEmpty
 	}
-	if err := checkBound(definition, bound, boundList); err != nil {
+	if err := checkBound(definition, bound); err != nil {
 		return Pin{}, err
 	}
 
@@ -121,18 +160,19 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, parameter gatepo
 		Subject:   subject,
 		Direction: definition.Direction,
 		Bound:     bound,
-		BoundList: boundList,
 	}
 	var storedBound *float64
-	if definition.Direction != gatepolicy.DirectionAddsAHuman && definition.Kind != gatepolicy.KindList {
-		storedBound = &p.Bound
+	if definition.Direction != gatepolicy.DirectionAddsAHuman &&
+		definition.Kind != gatepolicy.KindList && definition.Kind != gatepolicy.KindPredicate {
+		storedBound = &p.Bound.Number
 	}
 	_, err = tx.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, parameter, subject_kind, subject_id, direction, bound, bound_list, withdrawn)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false)`,
+		(id, actor_kind, actor_name, at, parameter, subject_kind, subject_id, direction,
+		bound, bound_list, predicate_kind, predicate_argument, withdrawn)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false)`,
 		p.ID, string(p.Actor.Kind), p.Actor.Name, p.At, string(p.Parameter),
 		string(p.Subject.Kind), p.Subject.ID, string(p.Direction), storedBound,
-		strings.Join(boundList, "\n"),
+		strings.Join(bound.List, "\n"), string(bound.Predicate.Kind), bound.Predicate.Argument,
 	)
 	if err != nil {
 		return Pin{}, fmt.Errorf("pin: placing a pin on %s at %s: %w", parameter, subject, err)
@@ -141,26 +181,40 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, parameter gatepo
 }
 
 // checkBound refuses a bound of the wrong shape for the parameter: a bound on a
-// pin that adds a human, a list where a number belongs or the reverse, and a
-// missing bound where one is required.
-func checkBound(d gatepolicy.Definition, bound float64, boundList []string) error {
+// pin that adds a human, one shape where another belongs, and a missing bound
+// where one is required.
+func checkBound(d gatepolicy.Definition, bound Bound) error {
 	switch {
 	case d.Direction == gatepolicy.DirectionAddsAHuman:
-		if bound != 0 || len(boundList) > 0 {
+		if bound.Number != 0 || len(bound.List) > 0 || !bound.Predicate.IsZero() {
 			return fmt.Errorf("%w: a pin on %s adds a human and bounds no value", ErrBoundRefused, d.Parameter)
 		}
 	case d.Kind == gatepolicy.KindList:
-		if bound != 0 {
+		if bound.Number != 0 || !bound.Predicate.IsZero() {
 			return fmt.Errorf("%w: %s is a list and its bound is a list", ErrBoundRefused, d.Parameter)
 		}
-		if len(boundList) == 0 {
+		if len(bound.List) == 0 {
 			return fmt.Errorf("%w: %s", ErrBoundMissing, d.Parameter)
 		}
+	case d.Kind == gatepolicy.KindPredicate:
+		if bound.Number != 0 || len(bound.List) > 0 {
+			return fmt.Errorf("%w: %s is a predicate and its bound is a predicate", ErrBoundRefused, d.Parameter)
+		}
+		if bound.Predicate.Kind == "" {
+			return fmt.Errorf("%w: %s", ErrBoundMissing, d.Parameter)
+		}
+		if _, err := gatepolicy.DecidablePredicate(string(bound.Predicate.Kind)); err != nil {
+			return err
+		}
+		if bound.Predicate.Kind.TakesAnArgument() != (bound.Predicate.Argument != "") {
+			return fmt.Errorf("%w: a %s predicate and the argument %q",
+				ErrBoundRefused, bound.Predicate.Kind, bound.Predicate.Argument)
+		}
 	default:
-		if len(boundList) > 0 {
+		if len(bound.List) > 0 || !bound.Predicate.IsZero() {
 			return fmt.Errorf("%w: %s is a number and its bound is a number", ErrBoundRefused, d.Parameter)
 		}
-		if bound <= 0 {
+		if bound.Number <= 0 {
 			return fmt.Errorf("%w: %s", ErrBoundMissing, d.Parameter)
 		}
 	}
@@ -182,7 +236,7 @@ func Withdraw(ctx context.Context, tx pgx.Tx, id string) error {
 }
 
 const selectPins = `select id, actor_kind, actor_name, at, parameter, subject_kind,
-	subject_id, direction, bound, bound_list, withdrawn
+	subject_id, direction, bound, bound_list, predicate_kind, predicate_argument, withdrawn
 	from ` + Table
 
 // BySubjects is every pin in force on one parameter across any of the subjects,
@@ -252,10 +306,11 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Pin, error) {
 
 func scan(rows pgx.Rows) (Pin, error) {
 	var p Pin
-	var kind, parameter, subjectKind, direction, boundList string
+	var kind, parameter, subjectKind, direction, boundList, predicateKind string
 	var bound *float64
 	err := rows.Scan(&p.ID, &kind, &p.Actor.Name, &p.At, &parameter, &subjectKind,
-		&p.Subject.ID, &direction, &bound, &boundList, &p.Withdrawn)
+		&p.Subject.ID, &direction, &bound, &boundList, &predicateKind, &p.Bound.Predicate.Argument,
+		&p.Withdrawn)
 	if err != nil {
 		return Pin{}, fmt.Errorf("pin: reading a pin: %w", err)
 	}
@@ -263,11 +318,12 @@ func scan(rows pgx.Rows) (Pin, error) {
 	p.Parameter = gatepolicy.Parameter(parameter)
 	p.Subject.Kind = SubjectKind(subjectKind)
 	p.Direction = gatepolicy.Direction(direction)
+	p.Bound.Predicate.Kind = gatepolicy.PredicateKind(predicateKind)
 	if bound != nil {
-		p.Bound = *bound
+		p.Bound.Number = *bound
 	}
 	if boundList != "" {
-		p.BoundList = strings.Split(boundList, "\n")
+		p.Bound.List = strings.Split(boundList, "\n")
 	}
 	return p, nil
 }

@@ -53,6 +53,13 @@ type Intent struct {
 	Statement string
 	State     State
 	Rounds    int
+	// Recuts is how many times the cut has been re-cut over this intent, which
+	// is the second of the two counts an intent keeps. It is counted against the
+	// same attempt bound the rounds are and in a field of its own, because the two
+	// are different stretches of work: an owner answering an escalated interview
+	// clears that count alone, and one field would spend an interview's rounds out
+	// of the cut's budget.
+	Recuts int
 }
 
 // Question is one question of an intent's interview as it is stored. Answer

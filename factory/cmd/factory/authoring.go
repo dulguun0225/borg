@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/area"
+	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorypolicy"
 	"github.com/dulguun0225/borg/factory/gate"
@@ -170,8 +171,8 @@ func authorCommand(args []string) error {
 func pinCommand(args []string) error {
 	flags := flag.NewFlagSet("pin", flag.ContinueOnError)
 	name := flags.String("parameter", "", "the parameter to bind")
-	subject := flags.String("subject", "", "what the pin is drawn on, as kind:name — service:x, area:y, gate_row:merge_to_master, factory_policy:")
-	bound := flags.String("bound", "", "the number the pin bounds by, or a comma-separated list for the predicate catalog; a pin on the risk threshold takes none")
+	subject := flags.String("subject", "", "what the pin is drawn on, as kind:name — service:x, area:y, gate_row:merge_to_master, factory_policy:, contract_element:<service>/<contract>/<element>")
+	bound := flags.String("bound", "", "the number the pin bounds by, a comma-separated list for the predicate catalog, or kind[=argument] for a pinned predicate; a pin on the risk threshold takes none")
 	withdraw := flags.String("withdraw", "", "the id of a pin to withdraw instead of placing one")
 	human := flags.String("human", "owner", "the owner placing it")
 	if err := flags.Parse(args); err != nil {
@@ -204,21 +205,25 @@ func pinCommand(args []string) error {
 			return err
 		}
 
-		var number float64
-		var list []string
+		var of pin.Bound
 		switch {
 		case definition.Direction == gatepolicy.DirectionAddsAHuman:
 			// A pin on the risk threshold adds a human and bounds no value.
 		case definition.Kind == gatepolicy.KindList:
-			list = strings.Split(*bound, ",")
+			of.List = strings.Split(*bound, ",")
+		case definition.Kind == gatepolicy.KindPredicate:
+			kind, argument, _ := strings.Cut(*bound, "=")
+			of.Predicate = pin.Predicate{
+				Kind: gatepolicy.PredicateKind(strings.TrimSpace(kind)), Argument: strings.TrimSpace(argument),
+			}
 		default:
-			number, err = strconv.ParseFloat(*bound, 64)
+			of.Number, err = strconv.ParseFloat(*bound, 64)
 			if err != nil {
 				return fmt.Errorf("factory pin: a pin on %s takes a number as its bound, not %q", parameter, *bound)
 			}
 		}
 
-		placed, version, err := factory.Pin(ctx, actor, parameter, on, number, list)
+		placed, version, err := factory.Pin(ctx, actor, parameter, on, of)
 		if err != nil {
 			return err
 		}
@@ -357,6 +362,31 @@ func pinSubject(ctx context.Context, pool *pgxpool.Pool, written string) (pin.Su
 			return pin.Subject{}, err
 		}
 		return pin.Subject{Kind: pin.SubjectGateRow, ID: name}, nil
+	case pin.SubjectContractElement:
+		// A contract element is named by its service, its contract, and the
+		// element — three names an owner has — and stored as the contract's id and
+		// the element, which is what outlives a version. Resolving it here rather
+		// than storing the three names is what makes a pin follow the contract when
+		// the producer publishes a new version of it.
+		parts := strings.Split(name, "/")
+		if len(parts) != 3 {
+			return pin.Subject{}, fmt.Errorf(
+				"factory pin: a contract element is written <service>/<contract>/<element>, not %q", name)
+		}
+		svc, err := namedService(ctx, pool, parts[0])
+		if err != nil {
+			return pin.Subject{}, err
+		}
+		con, found, err := contract.ByName(ctx, pool, svc.ID, parts[1])
+		if err != nil {
+			return pin.Subject{}, err
+		}
+		if !found {
+			return pin.Subject{}, fmt.Errorf(
+				"factory pin: %s publishes no contract named %q, and a contract exists from the merge that first published it",
+				parts[0], parts[1])
+		}
+		return pin.Subject{Kind: pin.SubjectContractElement, ID: contract.ElementSubject(con.ID, parts[2])}, nil
 	case pin.SubjectFactoryPolicy:
 		// The record's own id, and not the word: there is one factory policy
 		// record and it takes no name, but a mechanism reading pins on it reads

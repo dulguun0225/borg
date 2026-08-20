@@ -4,8 +4,9 @@
 // says Merge to master approved them and whose fast-forward has not happened,
 // which is [item.StageQueued]; its order is the item's priority and then the time
 // of that approval in the decision log; and the two outcomes that outlast a run
-// are records already — a fast-forward writes the release record, and a failure
-// on the candidate's own merits writes a row into the log.
+// are records already — a fast-forward writes the release record and the contract
+// versions that release publishes, and a failure on the candidate's own merits
+// writes a row into the log.
 //
 // # Why it exists
 //
@@ -16,12 +17,25 @@
 // provide: the commit that was verified is the commit that merges, which is
 // structural here rather than a discipline anyone has to keep.
 //
-// # It mints the release
+// # It mints the release, and publishes the contracts
 //
 // Master's only inbound path is this queue, so the fast-forward is the event and
 // the queue is what performs it — and the release record and its number are minted
 // with it. A writer of its own, called at the fast-forward, would be a component
 // with one caller and the per-service ordering implemented again inside it.
+//
+// The contract versions the release publishes are written in the same
+// transaction, through [release.Writer.MintWith]. The argument is the same one: a
+// contract changes only inside its service's items and every write to it happens at
+// a release, so the fast-forward is the event for the contract too, and a writer of
+// its own would be a second component with one caller. Being one transaction is
+// what stops one merge leaving a number with no version, or a version under a
+// number nothing minted.
+//
+// What this package does not do is derive the form. The queue reaches no checkout
+// — everything that touches the repository is behind [Repository] — so the form
+// comes back on [Verified] from the re-verification, and the queue writes what the
+// deploy agent read. That is the division the criteria already have.
 //
 // The fast-forward, the mint, and the item's advance to merged are three writes
 // across a repository and two transactions, and nothing can make them atomic.
@@ -38,6 +52,10 @@
 // release names, and that one is open: what repairs a record disagreeing with what is
 // there is the reconciler, and it is now installed beside the factory: its pass finds a
 // record disagreeing with what runs, and a human clears it at the reconciler.
+//
+// The contract versions add no fourth window. They are written inside the mint's
+// own transaction, so a release either exists with its versions or does not exist —
+// there is no state where a number stands and the versions it publishes are missing.
 //
 // The lock key is derived from this package's own name, so it is not the key
 // [release.Writer.Mint] takes — one lock held while the other is waited for on
@@ -68,8 +86,10 @@
 //
 // # Who may write what
 //
-// The queue writes the release record through [release.Writer], the item's stage
-// through [item.Dispatch], and one row into the log through [decisionlog.Writer].
+// The queue writes the release record through [release.Writer], the contract and
+// its versions through [contract.Publish] inside that same transaction, the item's
+// stage through [item.Dispatch], and one row into the log through
+// [decisionlog.Writer].
 // Everything that touches the repository, the candidate's environment, and the
 // criteria is behind [Repository], which is implemented by whatever composes the
 // deploy agent: the queue orders merges and does not reach a deploy target.
@@ -79,7 +99,10 @@
 // membership, the order, the re-verification, the rejection and where it goes, and
 // the queue being a component rather than a record;
 // ../../end-goal/how-humans-do-it/06-releases.md#the-release-record for the queue
-// as the release's writer; and
+// as the release's writer;
+// ../../end-goal/how-humans-do-it/07-contracts.md#two-versioned-things for the
+// queue as the contract's writer, at the fast-forward of the first release that
+// publishes it and in the same write as that release's first version; and
 // ../../end-goal/how-humans-do-it/03-gates.md#going-back-up for the attempt being
 // counted at what the item is sent to.
 package mergequeue

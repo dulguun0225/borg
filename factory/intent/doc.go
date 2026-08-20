@@ -35,6 +35,18 @@
 // rounds. M1's interview stopping rule is one round or none: the factory asks
 // what it cannot author without and proceeds on the answer.
 //
+// # The two counts, in two fields
+//
+// The intent keeps the interview's rounds and the cut's re-cuts, and they are two
+// fields and never one. Both are counted against the same attempt bound, and both
+// are on the intent because both are upstream of an item's first stage — the
+// interview has no gate of its own, and the cut's gate decides a set rather than an
+// item, whose replacements start at nothing. What separates them is that they are
+// different stretches of work: an owner answering an escalated interview clears
+// that count alone, and one field would spend an interview's rounds out of the
+// cut's budget. [Intake.CountRecut] is the second of the two, and its one caller is
+// the cut — the one write the cut makes to an intent rather than to items.
+//
 // # Who may write what
 //
 // [Intake] is the one writer of both tables. The three sources are three

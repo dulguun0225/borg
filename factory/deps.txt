@@ -23,9 +23,18 @@
 #
 # Five edges deserve their reason stated.
 #
-# artifact -> criterion is the one import between two record packages that
-# both own tables: the artifact store is the criterion's one writer, so the
-# spec version and the criteria it introduces are written in one transaction.
+# artifact -> criterion and artifact -> declaration are the two imports between
+# record packages that both own tables: the artifact store is the one writer of
+# both, so a spec version and the criteria it introduces are written in one
+# transaction, and so are a declaration version and the predicates it introduces.
+# The alternative in each case is two writers of one table.
+#
+# declaration -> contract is the third and it is an import for a type. A
+# predicate is an assertion about one element of a contract, and deciding one
+# against a form is what the predicate means — so the vocabulary of a form belongs
+# to the package that owns the contract, and a second spelling of an element here
+# would be two able to disagree. It is the arrangement gate -> criterion already
+# has one level along.
 #
 # gate imports criterion for one type: what deciding a criterion against a build
 # produced, which is what the merge gate reads about the item's own behaviour. The
@@ -40,7 +49,8 @@
 #
 # score reads the graph, so it imports the record packages the factors are
 # computed from: the artifacts an author wrote, the closed decisions in the
-# log, the items in an area, and the releases of a service. It writes only its
+# log, the items in an area, the releases of a service, and the contracts it
+# publishes with the declarations naming them. It writes only its
 # own version record. What it does not import is a repository: the one input
 # that is not a record is the build's diff, measured by the component that
 # built and handed to it.
@@ -83,6 +93,24 @@
 # creates a wait: its callers hand it one, so the component that delivers
 # everything waiting on a human depends on none of the things that wait.
 #
+# Three more edges arrive with contracts.
+#
+# contract imports record and nothing else. It is written by the merge queue
+# inside the mint's transaction, so what it takes is a pgx.Tx rather than a pool,
+# and the form and the diff beside its records are arithmetic over text — which is
+# what makes the one part of this milestone that is a program analysis testable
+# without a database.
+#
+# contractcheck is enforcement and imports what it reads the graph through: the
+# contract and the declaration it decides between, the deploy record that says what
+# is running, the release and window records a service's restore floor is computed
+# from, the policy for the predicate catalog and the pinned predicates, the service
+# for the name a removal statement is written with, the intent it raises a removal
+# through, and gate for the vocabulary of which mechanical check rejected. What it
+# does not import is a repository or a deploy target — a form and a declaration are
+# derived behind an interface its caller implements, and so is the run it observes.
+# That is the arrangement comparison already has.
+#
 # reconciler imports record and nothing else. Its store is not the factory's — no
 # factory component may write it — so it brings its own opener and its own
 # applier rather than reaching for package postgres, and postgres does not name
@@ -99,7 +127,9 @@ intent -> record
 service -> record gatepolicy
 item -> record
 criterion -> record
-artifact -> criterion record
+contract -> record
+declaration -> contract gatepolicy record
+artifact -> criterion declaration record
 build -> record
 release -> record
 deploy -> record secretref targetseam
@@ -111,18 +141,19 @@ window -> record
 incident -> record
 people -> record
 reconciler -> record
-score -> record gatepolicy artifact decisionlog item release
+score -> record gatepolicy artifact contract declaration decisionlog item release
 policy -> record gatepolicy area environment factorypolicy item pin score secretref service
 gate -> criterion decisionlog policy record score
-mergequeue -> decisionlog gate item record release
+mergequeue -> contract decisionlog gate item record release
 notifier -> decisionlog people record
 comparison -> boundary deploy incident intent item notifier policy record release window
+contractcheck -> contract declaration deploy gate intent policy record release service window
 agent -> secretref
 localtarget -> secretref targetseam
-postgres -> area artifact build criterion decisionlog deploy environment factorypolicy incident intent item people pin policy release score service window
+postgres -> area artifact build contract criterion declaration decisionlog deploy environment factorypolicy incident intent item people pin policy release score service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent area artifact boundary build comparison criterion decisionlog deploy environment factorypolicy gate gatepolicy incident intent item localtarget mergequeue notifier people pin policy postgres reconciler record release score secretref service targetseam window
+cmd/factory -> agent area artifact boundary build comparison contract contractcheck criterion declaration decisionlog deploy environment factorypolicy gate gatepolicy incident intent item localtarget mergequeue notifier people pin policy postgres reconciler record release score secretref service targetseam window
 cmd/reconciler -> deploy environment localtarget postgres reconciler release secretref service targetseam window
 
 test decisionlog -> postgres secretref
@@ -130,6 +161,8 @@ test intent -> postgres
 test service -> postgres
 test item -> postgres
 test criterion -> postgres
+test contract -> postgres
+test declaration -> postgres artifact contract gatepolicy record
 test artifact -> postgres
 test build -> postgres
 test release -> postgres
@@ -143,7 +176,8 @@ test incident -> postgres
 test people -> postgres
 test notifier -> postgres decisionlog people record
 test comparison -> postgres boundary build deploy item record release window
-test score -> postgres criterion gate policy
+test contractcheck -> postgres artifact build contract declaration deploy gate gatepolicy intent item pin policy record release secretref service window
+test score -> postgres artifact contract criterion declaration gate policy
 test policy -> postgres
 test gate -> postgres
 test mergequeue -> decisionlog gate item postgres record release

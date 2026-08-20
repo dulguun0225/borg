@@ -291,8 +291,8 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		t.Fatalf("TakeIn: %v", err)
 	}
 
-	insertIntent := `insert into intent (id, actor_kind, actor_name, at, source, statement, state, rounds)
-		values ($1, 'human', 'owner', $2, $3, $4, $5, $6)`
+	insertIntent := `insert into intent (id, actor_kind, actor_name, at, source, statement, state, rounds, recuts)
+		values ($1, 'human', 'owner', $2, $3, $4, $5, $6, 0)`
 	for _, refused := range []struct {
 		name       string
 		source     string
@@ -344,5 +344,53 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		record.NewID(intent.QuestionIDPrefix), record.Now(), "", 1, "anything?", "", "",
 	); err == nil || !strings.Contains(err.Error(), "intent_id_present") {
 		t.Errorf("inserting a question naming no intent = %v, want a violation of intent_id_present", err)
+	}
+}
+
+// TestTheRecutCountIsAFieldOfItsOwnBesideTheRounds: both are counted against the same
+// attempt bound and both live on the intent, and they are two fields because they are
+// two stretches of work — an owner answering an escalated interview clears one alone.
+func TestTheRecutCountIsAFieldOfItsOwnBesideTheRounds(t *testing.T) {
+	ctx, pool, intake := newIntake(t)
+
+	in, err := intake.TakeIn(ctx, owner, intent.SourceOwner, "a request that is cut wrong twice")
+	if err != nil {
+		t.Fatalf("TakeIn: %v", err)
+	}
+	if in.Recuts != 0 {
+		t.Fatalf("an intent arrives with %d re-cuts", in.Recuts)
+	}
+
+	// One round of the interview, which must not move the re-cut count.
+	if _, err := intake.Ask(ctx, owner, in.ID, "which service?"); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	read, err := intent.Get(ctx, pool, in.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Rounds != 1 || read.Recuts != 0 {
+		t.Fatalf("after one round the intent stands at %d rounds and %d re-cuts", read.Rounds, read.Recuts)
+	}
+
+	for want := 1; want <= 2; want++ {
+		reached, err := intake.CountRecut(ctx, owner, in.ID)
+		if err != nil {
+			t.Fatalf("CountRecut: %v", err)
+		}
+		if reached != want {
+			t.Fatalf("the re-cut count reached %d, want %d", reached, want)
+		}
+	}
+	read, err = intent.Get(ctx, pool, in.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Rounds != 1 || read.Recuts != 2 {
+		t.Fatalf("the intent stands at %d rounds and %d re-cuts, and one field would have spent the other's budget",
+			read.Rounds, read.Recuts)
+	}
+	if _, err := intake.CountRecut(ctx, owner, "in_nothing"); !errors.Is(err, intent.ErrIntentNotFound) {
+		t.Errorf("counting a re-cut on an intent that does not exist = %v", err)
 	}
 }

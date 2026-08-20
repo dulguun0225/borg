@@ -31,19 +31,28 @@
 // directory are two views of one place rather than two places, and that a factory
 // process which restarts reads what its predecessor started.
 //
-// # The quantity the software emits
+// # The two files the software writes
 //
 // Deploy starts the process knowing [SignalFile] through the [SignalEnv]
-// environment variable, and the software the factory wrote appends one line per
-// unit of work there. That is the substrate wiring observability rather than the
-// factory doing it: what emits the quantity is the build, where it lands is the
-// target's arrangement, and the comparison reads it through an interface knowing
-// neither. One file per build, so a release's counts are told apart from those of
-// the build that ran there before it — which is what the comparison's baseline is.
+// environment variable and [ExchangeFile] through [ExchangeEnv], and the software
+// the factory wrote appends one line per unit of work to the first and one document
+// per unit of work to the second. That is the substrate wiring observability rather
+// than the factory doing it: what emits them is the build, where they land is the
+// target's arrangement, and the comparison and enforcement each read one through an
+// interface knowing neither. One file per build of each, so a release's counts are
+// told apart from those of the build that ran there before it — which is what the
+// comparison's baseline is, and what makes a candidate's own documents the ones its
+// consumers' declarations are decided against.
 //
-// A service the factory did not write emits nothing into that file and cannot be
-// watched, which is the adopted-service case ../../end-goal/deferred.md sequences
-// away.
+// Two files and not one. The signal is what the comparison counts and the exchange
+// is what a predicate is decided against; one format carrying both would make every
+// reader of either parse the other's, and it would rewrite a mechanism a milestone
+// already built.
+//
+// A service the factory did not write writes nothing into either file, so it
+// cannot be watched and its consumers' declarations cannot be decided against it —
+// the adopted-service case ../../end-goal/deferred.md sequences away, one milestone
+// on and now costing two things rather than one.
 //
 // What crosses the seam is the build and never the release: a release is the name
 // a build has on master, and a candidate deployed to its own environment has no
@@ -89,5 +98,7 @@
 // [Local.ReadRunning] from outside the factory is
 // ../../end-goal/how-humans-do-it/08-operations.md#the-reconciler, and the
 // quantity the started process emits is
-// ../../end-goal/how-humans-do-it/08-operations.md#the-health-signal.
+// ../../end-goal/how-humans-do-it/08-operations.md#the-health-signal, and the
+// exchange document a consumer's declaration is decided against is
+// ../../end-goal/how-humans-do-it/07-contracts.md#what-a-consumer-declares.
 package localtarget

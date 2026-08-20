@@ -34,13 +34,12 @@ Two secrets, by the names the run resolves. `model.openrouter` is the API key, r
 go run ./cmd/factory run \
   -secrets ~/borg-demo/secrets \
   -model deepseek/deepseek-v4-flash \
-  -repo ~/borg-demo/greeter \
-  -service greeter \
+  -service greeter=~/borg-demo/greeter \
   -area greeting \
   -targets ~/borg-demo/targets
 ```
 
-`-provider` is which provider answers — `openrouter` by default, reading `model.openrouter`, or `anthropic`, reading `model.anthropic` — and it selects an implementation rather than configuring one, the two endpoints differing in their wire shape as well as their credential. `-model` is that provider's model id and has no default, because M1 requires the model named in configuration; OpenRouter's ids are namespaced — `deepseek/deepseek-v4-flash`, `anthropic/claude-opus-4.8` — and Anthropic's are not, so `-provider` and `-model` are set together or neither is. An id prefixed `~` is that provider's floating alias for a family's newest member; do not name one, because `-model` is the author every version records and an authorship prior is kept per model version, so an id that changes meaning underneath makes two versions recorded under one author that two models wrote. Not every model authors an implementation: `anthropic/claude-opus-5` refused the implementer's brief four times out of four on 2026-08-20, and `deepseek/deepseek-v4-flash` drove the whole path — spec, implementation, three gate rows, a release, a straight deploy, and a clean chain walked back — in one attempt per stage on 2026-08-20, which is why it is named above; it is also the author every version this run writes names, an [authorship prior](../end-goal/how-humans-do-it/04-risk-score.md#factors-at-least) being kept per model version. `-repo` is created if it is not there. `-area` names the [area](../end-goal/how-humans-do-it/02-intent-into-items.md#what-an-item-names) the item is in and declares it where it does not exist — leave it out and the [score](../end-goal/how-humans-do-it/04-risk-score.md) can read neither of its context factors, which puts a human at every gate of that item and makes M2's second take impossible. `-human` names the deciding human, who is also the owner every authoring write is made as, and defaults to `owner`. `-pace` holds the model calls at least two seconds apart, so a take never sends requests in rapid succession — raise it if a provider is objecting, and leave it alone otherwise. `-candidate-environments` is how many candidate environments this substrate has room for at once and defaults to eight; a candidate that meets it waits, and the wait is written into the log. `-watch` is how long the run keeps reading its own [watch windows](../end-goal/how-humans-do-it/08-operations.md#the-watch-window) before leaving what is still open, open — a minute by default, and `-watch-every` is how often it reads. A window's duration is measured and never set, so a run cannot know in advance how long to wait: what it gives up on, `factory watch <service>` continues.
+`-service` is a service as `<name>=<path>`, the path being its git repository and created when absent, and it is given once per service the install knows — one is every take up to M4's, and M5's needs two. `-provider` is which provider answers — `openrouter` by default, reading `model.openrouter`, or `anthropic`, reading `model.anthropic` — and it selects an implementation rather than configuring one, the two endpoints differing in their wire shape as well as their credential. `-model` is that provider's model id and has no default, because M1 requires the model named in configuration; OpenRouter's ids are namespaced — `deepseek/deepseek-v4-flash`, `anthropic/claude-opus-4.8` — and Anthropic's are not, so `-provider` and `-model` are set together or neither is. An id prefixed `~` is that provider's floating alias for a family's newest member; do not name one, because `-model` is the author every version records and an authorship prior is kept per model version, so an id that changes meaning underneath makes two versions recorded under one author that two models wrote. Not every model authors an implementation: `anthropic/claude-opus-5` refused the implementer's brief four times out of four on 2026-08-20, and `deepseek/deepseek-v4-flash` drove the whole path — spec, implementation, three gate rows, a release, a straight deploy, and a clean chain walked back — in one attempt per stage on 2026-08-20, which is why it is named above; it is also the author every version this run writes names, an [authorship prior](../end-goal/how-humans-do-it/04-risk-score.md#factors-at-least) being kept per model version. `-area` names the [area](../end-goal/how-humans-do-it/02-intent-into-items.md#what-an-item-names) the item is in and declares it where it does not exist — leave it out and the [score](../end-goal/how-humans-do-it/04-risk-score.md) can read neither of its context factors, which puts a human at every gate of that item and makes M2's second take impossible. `-human` names the deciding human, who is also the owner every authoring write is made as, and defaults to `owner`. `-pace` holds the model calls at least two seconds apart, so a take never sends requests in rapid succession — raise it if a provider is objecting, and leave it alone otherwise. `-candidate-environments` is how many candidate environments this substrate has room for at once and defaults to eight; a candidate that meets it waits, and the wait is written into the log. `-watch` is how long the run keeps reading its own [watch windows](../end-goal/how-humans-do-it/08-operations.md#the-watch-window) before leaving what is still open, open — a minute by default, and `-watch-every` is how often it reads. A window's duration is measured and never set, so a run cannot know in advance how long to wait: what it gives up on, `factory watch <service>` continues.
 
 The first run also installs what an owner authors on: the [factory policy](../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them) record, which exists before any project does, and production's [environment](../end-goal/how-humans-do-it/05-environments.md#records-and-one-long-lived-branch) record, which an owner does not choose because production exists everywhere. Both creations append a [policy version](../end-goal/what-the-factory-does.md#traceability), so the first line the run prints is the two versions in force — the policy's and the score's.
 
@@ -65,7 +64,7 @@ What prints between the prompts is the demonstration, in order: the two versions
 
 ## The second take, which is M2's demonstration
 
-Run the path again with the same `-service`, `-repo`, and `-area`, on a statement that adds a route:
+Run the path again with the same `-service` and `-area`, on a statement that adds a route:
 
 > Add a second route to this service: it answers GET /version with status 200 and the body 1.0.0. Keep the existing route and its test as they are. Test the new handler through net/http/httptest rather than by binding the port.
 
@@ -90,8 +89,7 @@ Two intents in one run, on the service the takes above already shipped. Each `-i
 go run ./cmd/factory run \
   -secrets ~/borg-demo/secrets \
   -model deepseek/deepseek-v4-flash \
-  -repo ~/borg-demo/greeter \
-  -service greeter \
+  -service greeter=~/borg-demo/greeter \
   -area greeting \
   -targets ~/borg-demo/targets \
   -intent 'Add a route answering GET /ready with status 200 and the body ready, in a new file ready.go with its test in ready_test.go. Change no existing file.' \
@@ -185,8 +183,8 @@ Before the revert ships, push the held release through by hand:
 
 ```sh
 go run ./cmd/factory approve <item-id> \
-  -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets -repo ~/borg-demo/greeter \
-  -service greeter -reason 'the incident is worse than the defect'
+  -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets \
+  -reason 'the incident is worse than the defect'
 ```
 
 The row fires with the hold on its opening row, the human's verdict and reason close it, and the deploy happens. What it accepts is the defect that was just removed — so the window that opens over it condemns it again, and the run says so. It is the most damaging thing in the factory to approve through and the one most likely to be tried during an incident, which is the whole reason for showing it.
@@ -204,10 +202,68 @@ That file is how the local target records the build it started and its process i
 
 ```sh
 go run ./cmd/reconciler clear <mismatch-id> -human you
-go run ./cmd/factory watch greeter -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets -repo ~/borg-demo/greeter -for 5s
+go run ./cmd/factory watch greeter -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets -for 5s
 ```
 
 Clearing it is a human's act inside the reconciler and there is no way to do it from the factory: that would make the factory a writer of the record that says the factory is wrong. The `watch` above is what writes the page's answered event, because the store that was cleared calls nothing.
+
+## The fifth take, which is M5's demonstration
+
+This one needs a second service, which is what a contract is for: an interface has consumers, and the consumers are other services in the same factory. Nothing else is set up — the window's parameters from the fourth take are enough, and both services get them.
+
+```sh
+go run ./cmd/factory author -parameter window_size -value 0.1 -service reader
+go run ./cmd/factory author -parameter window_confidence -value 0.95 -service reader
+go run ./cmd/factory author -parameter window_cap -value 60 -service reader
+```
+
+That authors on a service the cut has not written yet, so do it after the first run below rather than before — or leave it out, and the reader's windows end at the cap the score supplies, which holds nothing here because K is per service.
+
+**One intent, two items, two services.** The statement names the services its cut yields items on, before a colon, in the order the cut declares them waiting on each other:
+
+```sh
+go run ./cmd/factory run \
+  -secrets ~/borg-demo/secrets \
+  -model deepseek/deepseek-v4-flash \
+  -service greeter=~/borg-demo/greeter \
+  -service reader=~/borg-demo/reader \
+  -area greeting \
+  -targets ~/borg-demo/targets \
+  -intent 'greeter,reader: greeter publishes a health interface with Status, always populated, and Detail; reader reads both of them. Each is a Go HTTP service, module borg.demo/<the service>, package main at the repository root, standard library only, with a go.mod naming that module and go 1.24. The published interface is one exported struct type in contract.health.go; the mirror reader holds is one exported struct type in consume.greeter.health.go, and reader'"'"'s own code reads every field it declares there.'
+```
+
+What to watch for, in the order it goes past. **Decomposition fires** — the one row where approving admits several threads at once, and it fires here because the cut yielded two items. Its vector has holes in it and the run says why: the change factors are computed from a build's diff and the cut happens before anything is built, so an unavailable factor puts a human at the row. That is the design's rule for an unavailable factor rather than a decision the row takes.
+
+Then the layers. **The producer ships first**, all the way to a running release, before the consumer's candidate environment is composed — because that environment is composed from its dependencies' current releases, and the hold at the candidate deploy row is what would otherwise make this two runs. The producer's release line says what it published: `contract health created and published at 1.0.0`, written by the queue inside the transaction that minted the number.
+
+Then **the consumer's declaration**, derived from its build and printed as it is written: `Declaration art_… derived from the build: N predicate(s)`. What is in it is the mirror's fields the consumer's own code reads, and nothing else — a field it carries and never reads declares nothing.
+
+**The breaking change.** Run again on the producer alone, on a statement that drops `Detail`:
+
+```sh
+go run ./cmd/factory run … -intent 'greeter: greeter publishes a health interface with Status alone, always populated. …'
+```
+
+Every criterion in force passes — the removal is in no criterion's path — and the merge row rejects it anyway, before a verdict is asked for: `Rejected by the producer's own contract diff before a verdict was asked for`, naming `health.Detail` and the reader that still declares it. The item is back at Implementation with an attempt counted there. This is the take to show slowly: nothing about it was a judgment, and the consumer it would break was answered by a query rather than by somebody remembering.
+
+**The three items that get it through**, one run each: the producer adds `DetailText` beside `Detail` and marks `Detail` deprecated (`published at 1.1.0` — an addition and a mark break nothing); the reader migrates onto `DetailText`; and then the run prints `The list on health.Detail has emptied; intent … taken in by the detector`. That intent is the third item, and nobody had to remember it. Run it with the statement the detector wrote — `factory contracts` prints it — and the removal passes the same check that rejected the second run, minting `2.0.0`.
+
+**The graph, read as a query.** This is where the milestone's claim is checked rather than asserted:
+
+```sh
+go run ./cmd/factory contracts -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets
+go run ./cmd/factory contracts -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets -breaks <item-id>
+```
+
+The first prints every contract with its versions and the elements of the newest, which version production is running — and so which one a producer's own diff is against — the declarations in force per service with the release range they were derived over, and the deprecation list per marked element. The second answers what one candidate would break and whom.
+
+**The pinned predicate**, which is the blind case an owner covers by hand. Where a consumer reads a field through something the derivation cannot see, an owner asserts it:
+
+```sh
+go run ./cmd/factory pin -parameter pinned_predicate -subject contract_element:greeter/health/Detail -bound read
+```
+
+The detector still raises the removal — a pin never stops the item existing, only passing — and the removal candidate is rejected at its merge row naming the pin and its author, which is the blocked removal asking the consumer to confirm. `pin -withdraw <pin-id>` is the confirmation, and the next candidate goes through.
 
 ## Authoring gate policy
 
@@ -225,7 +281,7 @@ go run ./cmd/factory people you -duty 12
 
 `author` asks for the subject the parameter needs and no other, the record a parameter is a field of being a fact of the parameter: a threshold is authored on an environment for one gate row, an [attempt bound](../end-goal/how-humans-do-it/03-gates.md#the-attempt-bound) on the factory policy record for one stage, an [item-size target](../end-goal/how-humans-do-it/02-intent-into-items.md#the-cut) on an area, and the [watch window](../end-goal/how-humans-do-it/08-operations.md#the-watch-window)'s four on a service. Authoring the threshold down to `0.2` before the second take is the other way to show a gate deciding — the item that auto-passed at `0.3` reads over `0.2` and a human is asked again.
 
-What `policy` says about two of the eight parameters is that nothing reads them yet: the item-size target waits for a cut that sizes anything and the [predicate catalog](../end-goal/how-humans-do-it/07-contracts.md#what-a-consumer-declares) for contracts at M5. Authoring one of those changes nothing today, and the print says so rather than leaving somebody to find out. The other six name their reader — and `k = 2` above is worth authoring before a take with two intents, because at the one the score supplies the second release merges and its deploy waits behind the first one's window.
+What `policy` says about one of the eight parameters is that nothing reads it yet: the item-size target waits for a cut that sizes anything. Authoring it changes nothing today, and the print says so rather than leaving somebody to find out. The [predicate catalog](../end-goal/how-humans-do-it/07-contracts.md#what-a-consumer-declares) was the other until M5, and it is also the one parameter whose unauthored value is neither the score's nor nothing: it is the five kinds of predicate the factory can decide, which is what an owner extends rather than replaces, and the print names that source. The other seven name their reader — and `k = 2` above is worth authoring before a take with two intents, because at the one the score supplies the second release merges and its deploy waits behind the first one's window.
 
 ## Statements that work
 
@@ -298,7 +354,7 @@ docker compose exec -T postgres psql -U factory -d factory \
 
 Drop the schema before the first M4 take on a database an earlier milestone wrote, and drop the reconciler's own beside it — `drop schema if exists reconciler cascade;` — or a mismatch from a previous take goes on holding every production deploy. Every milestone so far has added a column to a table an earlier one wrote and `create table if not exists` does not alter one that is already there, so the first write against the old shape fails on the column — [`README.md`](README.md#running-it) says which columns and whose question it is.
 
-Dropping the schema drops the score version, the policy version, every pin, and every outcome the score reads — so a factory reset this way puts a human back at every gate of its next first release, which is the mechanism working rather than a reset that failed. Or keep the records and run again with `-service greeter2 -repo ~/borg-demo/greeter2` and a different port in the statement; that service's first release is decided by a human too, the prior on the model being the one thing it inherits.
+Dropping the schema drops the score version, the policy version, every pin, and every outcome the score reads — so a factory reset this way puts a human back at every gate of its next first release, which is the mechanism working rather than a reset that failed. Or keep the records and run again with `-service greeter2=~/borg-demo/greeter2` and a different port in the statement; that service's first release is decided by a human too, the prior on the model being the one thing it inherits.
 
 ## When it fails
 
@@ -307,9 +363,11 @@ Dropping the schema drops the score version, the policy version, every pin, and 
 | `The implementer's reply was refused; N attempt(s) left` | Not a failure. The model wrote prose around its file blocks, the protocol refused it rather than repairing it, and the stage is retrying inside its [attempt bound](../end-goal/how-humans-do-it/03-gates.md#the-attempt-bound). The take carries on if a later attempt parses. |
 | `used all 3 attempts … stuck on this item` | The bound is spent and the factory is saying it cannot do this one. The item keeps the count and the spend of every attempt, refused ones included, which is what an escalation is read from once [_Work_](../end-goal/how-humans-do-it/11-surfaces.md#work-ops-factory-people) exists to read it on at M7. Run the take again, or run it on a stronger model — `claude-haiku-4-5` was refused three times out of three on 2026-08-18, which is the model a subscription take is held to and the reason the default provider is the other one. |
 | `go build … no required module provides` | The model reached outside the standard library. The statement above says not to; say it again more plainly. |
+| `./main.go:N: undefined: X` or `imported and not used` | The model wrote Go that does not compile. The [Implementation gate](../end-goal/how-humans-do-it/03-gates.md#implementation) is where the design rejects a build for exactly this, with Reject with feedback as an action, and that gate is not built — so the run stops at the compile instead, with the item readable at the stage it reached and nothing retried. Measured on 2026-08-20: `deepseek/deepseek-v4-flash` produced a non-compiling `main.go` on three takes of four — a `httptest` call with no import, an unused `fmt` — while every other part of the path held. Run it again; what fixes it properly is that gate. |
 | `go: cannot find main module, but found .git/config` | The model wrote no `go.mod`, so there is nothing to build. The cause was found on 2026-08-20 and is not the implementer: the spec author was compressing the statement to its behaviour and dropping every constraint around it — the module, the layout, the go.mod the statement asks for in as many words — and the implementation stage is given the spec and never the statement, so it wrote what it was told. Measured across three models, the spec came back at 52 bytes on `deepseek/deepseek-v4-flash` and 71 on `deepseek/deepseek-v4-pro` from a four-sentence statement. [`agent/specauthor.go`](agent/specauthor.go)'s prompt now requires the spec to restate every constraint the statement makes, and the same model then authored a 451-byte spec and a `go.mod` with it. `claude-haiku-4-5` left it out on both takes of 2026-08-18, before that was understood. If it recurs, read the spec the run printed before blaming the implementer. |
 | `<criterion id> is in force and no encoding in the build names it` | The build has a test for the criterion and the build cannot see it. An encoding is picked out by the id appearing exactly, and a Go test's name cannot begin with a lowercase id — a model asked for the id in a test's name wrote `func TestCr_<id>` on 2026-08-20, which is the id with its c capitalised and so a different string. [`agent/implementer.go`](agent/implementer.go)'s prompt now names the two forms that work, `func Test_cr_<id>` and the id in a comment, and names that one as failing. [`criterion/encoding.go`](criterion/encoding.go) is the matcher, and its own comment records the first time this collision was found — so a change to either belongs with a change to the other. |
 | `go: downloading go1.x` | The `go.mod` it wrote names a newer toolchain than the one installed. Edit that line and run the take again. |
+| `go.mod:3: invalid go version '1.x'` | The statement asked for "a Go version" and the model wrote the placeholder rather than choosing one. Measured on 2026-08-20 with `deepseek/deepseek-v4-flash`. An underdetermined request is what the [interview](../end-goal/how-humans-do-it/02-intent-into-items.md#the-interview) exists for and the model did not ask, so what is fixed is the request: name the version, which is an owner supplying a constraint (2). |
 | `The encodings ran twice on the candidate environment and failed both times` | Not an error. The merge row fires anyway and shows each criterion's outcome, and you can approve over it — which is a fair thing to show, since a human deciding against the evidence is what the row is for. |
 | `The encodings disagreed between two runs, so every criterion is undecided` | The suite is not deterministic. Undecided is read at the merge row the way a failure is, and the way out is to author the encoding again rather than to run it again — so send the item back rather than approving over it. |
 | `the queue rejected item … merging master into the candidate branch failed` | Two candidates wrote to one file. The item is back at implementation with an attempt counted there, which is the queue working; see [_The queue rejecting a candidate_](#the-queue-rejecting-a-candidate). |

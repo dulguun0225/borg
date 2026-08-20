@@ -10,8 +10,10 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorypolicy"
@@ -81,9 +83,11 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"service", service.DDL},
 		{"item", item.DDL},
 		{"criterion", criterion.DDL},
+		{"declaration", declaration.DDL},
 		{"artifact", artifact.DDL},
 		{"build", build.DDL},
 		{"release", release.DDL},
+		{"contract", contract.DDL},
 		{"deploy", deploy.DDL},
 		{"area", area.DDL},
 		{"environment", environment.DDL},

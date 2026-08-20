@@ -13,6 +13,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
@@ -121,7 +122,6 @@ func watchCommand(args []string) error {
 	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
 	secrets := flags.String("secrets", "", "path of the secrets file (required)")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
-	repo := flags.String("repo", "", "path of the service's git repository (required)")
 	human := flags.String("human", "owner", "the owner a page widens to")
 	forHow := flags.Duration("for", time.Minute, "how long to keep reading before leaving what is open, open")
 	every := flags.Duration("every", time.Second, "how often to read the quantity")
@@ -132,7 +132,7 @@ func watchCommand(args []string) error {
 		return errors.New("factory watch: one argument, the service's name, and then any flags")
 	}
 	for _, required := range []struct{ name, value string }{
-		{"secrets", *secrets}, {"targets", *targets}, {"repo", *repo},
+		{"secrets", *secrets}, {"targets", *targets},
 	} {
 		if required.value == "" {
 			return fmt.Errorf("factory watch: -%s is required", required.name)
@@ -140,24 +140,27 @@ func watchCommand(args []string) error {
 	}
 
 	return withPath(pathFlags{
-		secrets: *secrets, targets: *targets, repo: *repo,
-		service: flags.Arg(0), human: *human,
+		secrets: *secrets, targets: *targets, human: *human,
 	}, func(ctx context.Context, p *path) error {
-		if p.svc.ID == "" {
-			return fmt.Errorf("factory watch: no service is named %q", flags.Arg(0))
-		}
-		if err := p.watchTo(ctx, time.Now().Add(*forHow), *every); err != nil {
+		svc, found, err := service.ByName(ctx, p.d.pool, flags.Arg(0))
+		if err != nil {
 			return err
 		}
-		return printWindows(ctx, p)
+		if !found {
+			return fmt.Errorf("factory watch: no service is named %q", flags.Arg(0))
+		}
+		if err := p.watchTo(ctx, svc, time.Now().Add(*forHow), *every); err != nil {
+			return err
+		}
+		return printWindows(ctx, p, svc)
 	})
 }
 
 // printWindows is every window of the service and how it closed, which is what an
 // owner reads to see that a window ending at the cap is weak protection rather than a
 // comparison that ran out of time.
-func printWindows(ctx context.Context, p *path) error {
-	all, err := window.All(ctx, p.d.pool, p.svc.ID)
+func printWindows(ctx context.Context, p *path, svc service.Service) error {
+	all, err := window.All(ctx, p.d.pool, svc.ID)
 	if err != nil {
 		return err
 	}
@@ -188,8 +191,6 @@ func approveCommand(args []string) error {
 	flags := flag.NewFlagSet("approve", flag.ContinueOnError)
 	secrets := flags.String("secrets", "", "path of the secrets file (required)")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
-	repo := flags.String("repo", "", "path of the service's git repository (required)")
-	serviceName := flags.String("service", "", "the service's name (required)")
 	human := flags.String("human", "owner", "the human deciding")
 	verdict := flags.String("verdict", string(gate.VerdictApprove), "approve or hold")
 	reason := flags.String("reason", "", "what the human says with the verdict, which goes on the closing row")
@@ -205,35 +206,40 @@ func approveCommand(args []string) error {
 		return errors.New("factory approve: one argument, the item's id, and then any flags")
 	}
 	for _, required := range []struct{ name, value string }{
-		{"secrets", *secrets}, {"targets", *targets}, {"repo", *repo}, {"service", *serviceName},
+		{"secrets", *secrets}, {"targets", *targets},
 	} {
 		if required.value == "" {
 			return fmt.Errorf("factory approve: -%s is required", required.name)
 		}
 	}
 
-	return withPath(pathFlags{
-		secrets: *secrets, targets: *targets, repo: *repo,
-		service: *serviceName, human: *human,
-	}, func(ctx context.Context, p *path) error {
-		return p.approveThrough(ctx, id, gate.Verdict(*verdict), *reason)
-	})
+	return withPath(pathFlags{secrets: *secrets, targets: *targets, human: *human},
+		func(ctx context.Context, p *path) error {
+			return p.approveThrough(ctx, id, gate.Verdict(*verdict), *reason)
+		})
 }
 
 // pathFlags is what a subcommand other than run needs to compose the path: enough to
-// reach the store, the repository, and the targets, and no model — none of these
-// authors anything.
+// reach the store and the targets, and no model — none of these authors anything.
+//
+// There is no repository here and no service name. Both are the service record's own,
+// and every one of these subcommands acts on a service that already has a record: a
+// flag naming a repository could disagree with the record, and a flag naming one
+// service would leave a two-service install's other one unknown to the run.
 type pathFlags struct {
 	secrets string
 	targets string
-	repo    string
-	service string
 	human   string
 }
 
 // withPath composes the path for a subcommand that drives one step of it rather than
 // the whole thing. The model is nil, which is what says these commands author nothing:
 // a stage that reached for one would fail here rather than spending a token.
+//
+// The services are read out of the store, which is what a subcommand acting on
+// existing records needs and what makes these commands work on an install of any
+// number of services. A factory with no service record yet has nothing for one of
+// these to act on, and the error says so.
 func withPath(f pathFlags, command func(context.Context, *path) error) error {
 	if _, err := secretsResolver(f.secrets); err != nil {
 		return err
@@ -245,6 +251,18 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 		}
 		defer shut()
 
+		services, err := service.All(ctx, pool)
+		if err != nil {
+			return err
+		}
+		known := make([]serviceRepo, 0, len(services))
+		for _, svc := range services {
+			known = append(known, serviceRepo{name: svc.Name, repo: svc.Repository})
+		}
+		if len(known) == 0 {
+			return errors.New("factory: this factory has no service record yet, so there is nothing for this subcommand to act on")
+		}
+
 		p, err := compose(ctx, deps{
 			pool:             pool,
 			targets:          newTargetSet(localTargetAt),
@@ -253,8 +271,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 			in:               strings.NewReader(""),
 			out:              os.Stdout,
 			human:            f.human,
-			service:          f.service,
-			repo:             f.repo,
+			services:         known,
 			candidateCeiling: 1,
 			reconciler:       reconcilerStore,
 		})

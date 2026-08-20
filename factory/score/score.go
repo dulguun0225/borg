@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
@@ -271,14 +274,63 @@ func (s *Score) businessArea(ctx context.Context, c Change) (reading, error) {
 }
 
 // consumers reads which sibling services declare they consume what this one
-// publishes. Nothing derives a declaration until contracts are built, so the
-// query is over nothing and the answer is none — which is what the records say
-// and not what is true: an undeclared consumer is exactly what this factor
-// cannot see.
-func (s *Score) consumers(_ context.Context, _ Change) (reading, error) {
+// publishes. It is a query over the graph a contract and a declaration make: the
+// contracts this service publishes, and the other services whose declarations name
+// one of them.
+//
+// Two filters and both are deliberate. A declaration whose item has no release is
+// left out, because a declaration is written at the implementation stage and a
+// candidate that never merges leaves one behind; what says it is a release's is a
+// release naming the same item. And this service's own declarations are left out,
+// because a service declaring against its own store contract is its own past and
+// not a sibling — that consumer is real and is what a store's forward promise is
+// for, and it is not what this factor is asking about.
+//
+// What it does not filter by is the in-force range. That range is enforcement's
+// question about one candidate at one moment; this is a reading about the service,
+// computed at every firing over the whole graph the way every other factor here is.
+//
+// An undeclared consumer is still exactly what this factor cannot see, which is
+// the derivation's blind case one level up rather than a limit of this query.
+func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
+	published, err := contract.OfService(ctx, s.pool, c.ServiceID)
+	if err != nil {
+		return reading{}, err
+	}
+	if len(published) == 0 {
+		return reading{
+			level: level(0, consumersBreakpoints, 1.0),
+			words: "this service publishes no contract, so nothing declares it consumes one",
+		}, nil
+	}
+
+	predicates, err := declaration.AgainstProducer(ctx, s.pool, c.ServiceID)
+	if err != nil {
+		return reading{}, err
+	}
+	var items []string
+	for _, p := range predicates {
+		if p.ServiceID != c.ServiceID && !slices.Contains(items, p.ItemID) {
+			items = append(items, p.ItemID)
+		}
+	}
+	released, err := release.ItemsWithRelease(ctx, s.pool, items)
+	if err != nil {
+		return reading{}, err
+	}
+	var services []string
+	for _, p := range predicates {
+		if p.ServiceID == c.ServiceID || !slices.Contains(released, p.ItemID) {
+			continue
+		}
+		if !slices.Contains(services, p.ServiceID) {
+			services = append(services, p.ServiceID)
+		}
+	}
 	return reading{
-		level: level(0, consumersBreakpoints, 1.0),
-		words: "no service declares it consumes this one, nothing deriving a declaration yet",
+		level: level(float64(len(services)), consumersBreakpoints, 1.0),
+		words: fmt.Sprintf("%d sibling service(s) declare they consume one of the %d contract(s) this service publishes",
+			len(services), len(published)),
 	}, nil
 }
 

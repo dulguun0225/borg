@@ -16,7 +16,7 @@ const StageIDPrefix = "its"
 
 // stages is the stage CHECK's value list, written once because both tables
 // carry it: a per-stage row cannot name a stage an item cannot be at.
-const stages = `('spec', 'implementation', 'queued', 'merged')`
+const stages = `('spec', 'implementation', 'queued', 'merged', 'superseded')`
 
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated,
@@ -25,6 +25,11 @@ const stages = `('spec', 'implementation', 'queued', 'merged')`
 //
 // One row per item and stage is a constraint of the store, which is what
 // [Dispatch.ReportAttempt]'s upsert conflicts on.
+//
+// superseded_by holds the ids of the items that replaced this one, one per line,
+// and is empty on every item nothing replaced. It is a field for the reason
+// waits_on is: what reads it reads one item's at a time, and a table would be a
+// row per edge for a list of two.
 //
 // waits_on holds the ids of the items this one waits on, one per line, and is
 // empty where the cut declared none. It is a field and not a table because what
@@ -42,6 +47,7 @@ var DDL = []string{
 	branch text not null,
 	stage text not null,
 	waits_on text not null,
+	superseded_by text not null,
 	priority bigint not null,
 	` + record.Constraints + `,
 	constraint intent_id_present check (intent_id <> ''),

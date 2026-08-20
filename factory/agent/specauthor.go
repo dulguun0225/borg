@@ -28,6 +28,8 @@ import (
 // statement got wrong carries the mistake forward instead of dropping it.
 const SpecAuthorSystemPrompt = `You author the spec of one item in a software factory. From the intent's statement and any answered questions, produce a spec of exactly one acceptance criterion.
 
+An item names exactly one service, and the user message names which. One request can produce several items in several services — a change that crosses a published interface is at least three of them — so the spec you author is the part of the request that belongs to the service named and never the whole of it. The criteria already in force are that service's own.
+
 The criterion is one sentence in one of the six EARS patterns:
 
   always_true:        The system shall <response>.
@@ -79,30 +81,46 @@ type SpecAuthor struct {
 	Model Model
 }
 
-// Refine sends the intent's statement, the answers so far, and the criteria
-// already in force for the service, and parses the reply into a [Refined]. The
-// criteria in force are what a second item on a service authors against: with
-// no withdrawal written anywhere, a criterion restated under a second id is a
-// second promise the build then has to encode. inForce is empty for the first
-// item on a service, and the prompt then lists nothing.
+// Refining is what one [SpecAuthor.Refine] call is given: the intent's
+// statement, the service the item changes, the answers so far, and the criteria
+// already in force for that service.
+//
+// The service is named because an item names one and an intent may produce
+// several: a change that crosses a published interface is three items over two
+// services, and a spec author told only the statement would author the whole
+// request into each of them. InForce is what a second item on a service authors
+// against — with no withdrawal written anywhere, a criterion restated under a
+// second id is a second promise the build then has to encode — and it is empty for
+// the first item on a service, where the prompt lists nothing.
+type Refining struct {
+	Statement string
+	Service   string
+	Answered  []QA
+	InForce   []Criterion
+}
+
+// Refine sends the brief and parses the reply into a [Refined].
 //
 // The statement, the answers, and the sentences are content: nothing they say
 // changes what this method does with the reply, and a reply outside the
 // protocol is [ErrReply] however plausible its text.
-func (s SpecAuthor) Refine(ctx context.Context, statement string, answered []QA, inForce []Criterion) (Refined, error) {
+func (s SpecAuthor) Refine(ctx context.Context, of Refining) (Refined, error) {
 	var b strings.Builder
 	b.WriteString("The intent's statement:\n")
-	b.WriteString(statement)
+	b.WriteString(of.Statement)
 	b.WriteString("\n")
-	if len(answered) > 0 {
+	if of.Service != "" {
+		fmt.Fprintf(&b, "\nThe service this item changes: %s\n", of.Service)
+	}
+	if len(of.Answered) > 0 {
 		b.WriteString("\nAsked and answered:\n")
-		for _, qa := range answered {
+		for _, qa := range of.Answered {
 			fmt.Fprintf(&b, "Q: %s\nA: %s\n", qa.Question, qa.Answer)
 		}
 	}
-	if len(inForce) > 0 {
+	if len(of.InForce) > 0 {
 		b.WriteString("\n")
-		writeCriteria(&b, "The criteria already in force for the service:", inForce)
+		writeCriteria(&b, "The criteria already in force for the service:", of.InForce)
 	}
 	reply, err := s.Model.Complete(ctx, SpecAuthorSystemPrompt, b.String())
 	if err != nil {

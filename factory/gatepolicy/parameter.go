@@ -5,8 +5,10 @@ import (
 	"fmt"
 )
 
-// Parameter is one value an owner may author. There are eight and gate policy
-// is seven rows; doc.go says which row carries two.
+// Parameter is one value an owner may author, or one a pin binds without anyone
+// authoring it. Eight are authored across gate policy's seven rows — doc.go says
+// which row carries two — and one is pinnable and not authorable, which is
+// [PinnedPredicate].
 type Parameter string
 
 const (
@@ -35,6 +37,11 @@ const (
 	// K is how many watch windows one service may hold open at once. It is a
 	// field of the service record.
 	K Parameter = "k"
+	// PinnedPredicate is a predicate an owner asserts on one element of a
+	// contract, where the derivation of a consumer's declaration cannot see the
+	// read. Nothing authors it: it exists as a pin and only as a pin, so it is
+	// listed in [PinOnly] rather than in [Definitions].
+	PinnedPredicate Parameter = "pinned_predicate"
 )
 
 // Kind is what a parameter's value is, which decides how a pin clamps it and
@@ -50,6 +57,12 @@ const (
 	KindSeconds Kind = "seconds"
 	// KindList is a list of names, clamped by union.
 	KindList Kind = "list"
+	// KindPredicate is one predicate on one element of a contract: a
+	// [PredicateKind] and, where that kind takes one, its argument. It is the
+	// shape of a pinned predicate's bound and of nothing else, and it is not a
+	// number, so nothing clamps it arithmetically — a pin of this kind adds a
+	// predicate to the ones derived and removes none.
+	KindPredicate Kind = "predicate"
 )
 
 // Direction is which way a pin on a parameter may move the value in force. All
@@ -79,13 +92,17 @@ const (
 	ScopeArea Scope = "area"
 	// ScopeFactoryPolicy is a field of the factory policy record.
 	ScopeFactoryPolicy Scope = "factory_policy"
+	// ScopeNothing is no record at all: the parameter is a pin's and nobody
+	// authors a value for it, so there is no field for one to be a field of.
+	ScopeNothing Scope = "nothing"
 )
 
 // Definition is everything this package knows about one parameter.
 type Definition struct {
 	Parameter Parameter
 	// Row is the gate-policy row the parameter belongs to. Two parameters
-	// share one row; every other row has one parameter.
+	// share one row; every other row has one parameter; and a parameter in
+	// [PinOnly] has none, gate policy being what an owner authors.
 	Row       string
 	Kind      Kind
 	Direction Direction
@@ -100,8 +117,8 @@ type Definition struct {
 	ReaderAtThisMilestone string
 }
 
-// Definitions is every parameter, in the order gate policy's own table lists
-// the rows.
+// Definitions is every parameter an owner authors, in the order gate policy's own
+// table lists the rows. What is not here is [PinOnly].
 var Definitions = []Definition{
 	{
 		Parameter: RiskThreshold, Row: "risk threshold",
@@ -123,6 +140,8 @@ var Definitions = []Definition{
 	{
 		Parameter: PredicateCatalog, Row: "the predicate catalog",
 		Kind: KindList, Direction: DirectionFloor, Scope: ScopeFactoryPolicy,
+		Unit:                  "kinds of assertion a declaration may draw from",
+		ReaderAtThisMilestone: "the derivation of a consumer's declaration",
 	},
 	{
 		Parameter: WindowSize, Row: "the watch window's size and confidence",
@@ -150,14 +169,36 @@ var Definitions = []Definition{
 	},
 }
 
-// ErrUnknown is returned by [Define] for a name that is not one of the eight.
+// PinOnly is every parameter that a pin binds and nobody authors. There is one.
+// It is a list of its own rather than a row of [Definitions] because gate policy
+// is what an owner authors — seven rows, counted by TestSevenRows — and a
+// pinnable-only parameter listed among them would make that count eight while
+// changing nothing about what an owner may write.
+//
+// The direction is derived rather than read off the design's list, which names ten
+// pins and their directions and not this one, while that same section's argument
+// for a pin being a record rather than a field rests on it: a pinned predicate's
+// subject is a contract element, whose writer is the merge queue. So the direction
+// comes from the rule the whole list is an instance of — a pin can only add — and a
+// pinned predicate adds a declaration and removes none, which is a floor.
+var PinOnly = []Definition{
+	{
+		Parameter: PinnedPredicate, Row: "",
+		Kind: KindPredicate, Direction: DirectionFloor, Scope: ScopeNothing,
+		Unit:                  "one predicate on one element of a contract",
+		ReaderAtThisMilestone: "enforcement, beside the declarations derived from a consumer's build",
+	},
+}
+
+// ErrUnknown is returned by [Define] for a name that is neither one of the eight
+// nor one of [PinOnly].
 var ErrUnknown = errors.New("gatepolicy: not one of gate policy's parameters")
 
-// Define is one parameter's definition. A name outside the eight is
-// [ErrUnknown] rather than a zero definition, so a caller that took a
-// parameter from an owner's input cannot resolve one that does not exist.
+// Define is one parameter's definition, from [Definitions] or from [PinOnly]. A
+// name in neither is [ErrUnknown] rather than a zero definition, so a caller that
+// took a parameter from an owner's input cannot resolve one that does not exist.
 func Define(p Parameter) (Definition, error) {
-	for _, d := range Definitions {
+	for _, d := range append(append([]Definition{}, Definitions...), PinOnly...) {
 		if d.Parameter == p {
 			return d, nil
 		}

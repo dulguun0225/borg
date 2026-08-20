@@ -80,14 +80,14 @@ func inSchema(t *testing.T, base, schema string) string {
 // place writes one pin in its own transaction, which is how its one real caller
 // writes it — inside the transaction that appends the policy version.
 func place(t *testing.T, ctx context.Context, pool *pgxpool.Pool, parameter gatepolicy.Parameter,
-	subject pin.Subject, bound float64, list []string) pin.Pin {
+	subject pin.Subject, bound pin.Bound) pin.Pin {
 	t.Helper()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	placed, err := pin.Insert(ctx, tx, owner, parameter, subject, bound, list)
+	placed, err := pin.Insert(ctx, tx, owner, parameter, subject, bound)
 	if err != nil {
 		t.Fatalf("Insert(%s on %s): %v", parameter, subject, err)
 	}
@@ -103,24 +103,40 @@ func place(t *testing.T, ctx context.Context, pool *pgxpool.Pool, parameter gate
 func TestTheDirectionIsReadFromTheParameter(t *testing.T) {
 	ctx, pool := newTable(t)
 
-	ceiling := place(t, ctx, pool, gatepolicy.K, onAService, 2, nil)
+	ceiling := place(t, ctx, pool, gatepolicy.K, onAService, pin.Bound{Number: 2})
 	if ceiling.Direction != gatepolicy.DirectionCeiling {
 		t.Errorf("a pin on K is a %s, want a ceiling", ceiling.Direction)
 	}
-	floor := place(t, ctx, pool, gatepolicy.WindowConfidence, onAService, 0.99, nil)
+	floor := place(t, ctx, pool, gatepolicy.WindowConfidence, onAService, pin.Bound{Number: 0.99})
 	if floor.Direction != gatepolicy.DirectionFloor {
 		t.Errorf("a pin on the window's confidence is a %s, want a floor", floor.Direction)
 	}
-	adds := place(t, ctx, pool, gatepolicy.RiskThreshold, onARow, 0, nil)
+	adds := place(t, ctx, pool, gatepolicy.RiskThreshold, onARow, pin.Bound{})
 	if adds.Direction != gatepolicy.DirectionAddsAHuman {
 		t.Errorf("a pin on the risk threshold is a %s, want one that adds a human", adds.Direction)
 	}
-	if adds.Bound != 0 || adds.BoundList != nil {
+	if adds.Bound.Number != 0 || adds.Bound.List != nil || !adds.Bound.Predicate.IsZero() {
 		t.Errorf("a pin that adds a human carries a bound: %+v", adds)
 	}
-	list := place(t, ctx, pool, gatepolicy.PredicateCatalog, onAService, 0, []string{"status", "schema"})
-	if !slices.Equal(list.BoundList, []string{"status", "schema"}) {
-		t.Errorf("the catalog pin's bound reads back as %v", list.BoundList)
+	list := place(t, ctx, pool, gatepolicy.PredicateCatalog, onAService,
+		pin.Bound{List: []string{"status", "schema"}})
+	if !slices.Equal(list.Bound.List, []string{"status", "schema"}) {
+		t.Errorf("the catalog pin's bound reads back as %v", list.Bound.List)
+	}
+	// A pinned predicate is the third shape of bound and the only parameter that
+	// takes it. Its subject is a contract element, which is what doc.go names as the
+	// reason a pin is a record rather than a field.
+	predicate := place(t, ctx, pool, gatepolicy.PinnedPredicate,
+		pin.Subject{Kind: pin.SubjectContractElement, ID: "con_a.Status"},
+		pin.Bound{Predicate: pin.Predicate{Kind: gatepolicy.PredicatePopulated}})
+	if predicate.Direction != gatepolicy.DirectionFloor {
+		t.Errorf("a pinned predicate is a %s, want a floor — it adds a declaration and removes none", predicate.Direction)
+	}
+	if predicate.Bound.Predicate.Kind != gatepolicy.PredicatePopulated {
+		t.Errorf("the pinned predicate reads back as %+v", predicate.Bound.Predicate)
+	}
+	if predicate.Bound.Number != 0 || predicate.Bound.List != nil {
+		t.Errorf("a pinned predicate carries a second shape of bound: %+v", predicate.Bound)
 	}
 }
 
@@ -139,35 +155,43 @@ func TestABoundOfTheWrongShapeIsRefused(t *testing.T) {
 	cases := []struct {
 		name      string
 		parameter gatepolicy.Parameter
-		bound     float64
-		list      []string
+		bound     pin.Bound
 		want      error
 	}{
-		{"a bound on a pin that adds a human", gatepolicy.RiskThreshold, 0.5, nil, pin.ErrBoundRefused},
-		{"a list on a pin that adds a human", gatepolicy.RiskThreshold, 0, []string{"x"}, pin.ErrBoundRefused},
-		{"a list where a number belongs", gatepolicy.K, 0, []string{"x"}, pin.ErrBoundRefused},
-		{"a number where a list belongs", gatepolicy.PredicateCatalog, 3, nil, pin.ErrBoundRefused},
-		{"no bound at all", gatepolicy.K, 0, nil, pin.ErrBoundMissing},
-		{"an empty list", gatepolicy.PredicateCatalog, 0, nil, pin.ErrBoundMissing},
+		{"a bound on a pin that adds a human", gatepolicy.RiskThreshold, pin.Bound{Number: 0.5}, pin.ErrBoundRefused},
+		{"a list on a pin that adds a human", gatepolicy.RiskThreshold, pin.Bound{List: []string{"x"}}, pin.ErrBoundRefused},
+		{"a list where a number belongs", gatepolicy.K, pin.Bound{List: []string{"x"}}, pin.ErrBoundRefused},
+		{"a number where a list belongs", gatepolicy.PredicateCatalog, pin.Bound{Number: 3}, pin.ErrBoundRefused},
+		{"no bound at all", gatepolicy.K, pin.Bound{}, pin.ErrBoundMissing},
+		{"an empty list", gatepolicy.PredicateCatalog, pin.Bound{}, pin.ErrBoundMissing},
+		{"a number where a predicate belongs", gatepolicy.PinnedPredicate, pin.Bound{Number: 3}, pin.ErrBoundRefused},
+		{"no predicate at all", gatepolicy.PinnedPredicate, pin.Bound{}, pin.ErrBoundMissing},
+		{"a predicate kind nothing decides", gatepolicy.PinnedPredicate,
+			pin.Bound{Predicate: pin.Predicate{Kind: "shape"}}, gatepolicy.ErrPredicateKindUnknown},
+		{"an argument a kind does not take", gatepolicy.PinnedPredicate,
+			pin.Bound{Predicate: pin.Predicate{Kind: gatepolicy.PredicateRead, Argument: "millis"}}, pin.ErrBoundRefused},
+		{"a kind whose argument is missing", gatepolicy.PinnedPredicate,
+			pin.Bound{Predicate: pin.Predicate{Kind: gatepolicy.PredicateUnit}}, pin.ErrBoundRefused},
 	}
 	for _, c := range cases {
-		if _, err := pin.Insert(ctx, tx, owner, c.parameter, onAService, c.bound, c.list); !errors.Is(err, c.want) {
+		if _, err := pin.Insert(ctx, tx, owner, c.parameter, onAService, c.bound); !errors.Is(err, c.want) {
 			t.Errorf("Insert with %s = %v, want %v", c.name, err, c.want)
 		}
 	}
 
-	if _, err := pin.Insert(ctx, tx, owner, "no_such_parameter", onAService, 2, nil); !errors.Is(err, gatepolicy.ErrUnknown) {
+	two := pin.Bound{Number: 2}
+	if _, err := pin.Insert(ctx, tx, owner, "no_such_parameter", onAService, two); !errors.Is(err, gatepolicy.ErrUnknown) {
 		t.Errorf("a pin on a parameter that does not exist = %v, want ErrUnknown", err)
 	}
 	if _, err := pin.Insert(ctx, tx, owner, gatepolicy.K,
-		pin.Subject{Kind: "project", ID: "prj_a"}, 2, nil); !errors.Is(err, pin.ErrSubjectKindUnknown) {
+		pin.Subject{Kind: "project", ID: "prj_a"}, two); !errors.Is(err, pin.ErrSubjectKindUnknown) {
 		t.Errorf("a pin on a project = %v, want ErrSubjectKindUnknown", err)
 	}
 	if _, err := pin.Insert(ctx, tx, owner, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService}, 2, nil); !errors.Is(err, pin.ErrSubjectIDEmpty) {
+		pin.Subject{Kind: pin.SubjectService}, two); !errors.Is(err, pin.ErrSubjectIDEmpty) {
 		t.Errorf("a pin naming no subject = %v, want ErrSubjectIDEmpty", err)
 	}
-	if _, err := pin.Insert(ctx, tx, record.Actor{}, gatepolicy.K, onAService, 2, nil); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := pin.Insert(ctx, tx, record.Actor{}, gatepolicy.K, onAService, two); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("a pin with no actor = %v, want ErrKindUnknown", err)
 	}
 }
@@ -218,7 +242,7 @@ func TestDDLListsEverySubjectKind(t *testing.T) {
 func TestAWithdrawnPinIsNotInForceAndIsStillReadable(t *testing.T) {
 	ctx, pool := newTable(t)
 
-	placed := place(t, ctx, pool, gatepolicy.K, onAService, 2, nil)
+	placed := place(t, ctx, pool, gatepolicy.K, onAService, pin.Bound{Number: 2})
 	subjects := []pin.Subject{onAService, onAnArea, onARow}
 
 	inForce, err := pin.BySubjects(ctx, pool, gatepolicy.K, subjects)
@@ -271,10 +295,10 @@ func TestAWithdrawnPinIsNotInForceAndIsStillReadable(t *testing.T) {
 func TestBySubjectsReadsEverySubjectAtOnce(t *testing.T) {
 	ctx, pool := newTable(t)
 
-	onService := place(t, ctx, pool, gatepolicy.AttemptBound, onAService, 2, nil)
-	onArea := place(t, ctx, pool, gatepolicy.AttemptBound, onAnArea, 4, nil)
+	onService := place(t, ctx, pool, gatepolicy.AttemptBound, onAService, pin.Bound{Number: 2})
+	onArea := place(t, ctx, pool, gatepolicy.AttemptBound, onAnArea, pin.Bound{Number: 4})
 	elsewhere := place(t, ctx, pool, gatepolicy.AttemptBound,
-		pin.Subject{Kind: pin.SubjectArea, ID: "ar_somewhere_else"}, 1, nil)
+		pin.Subject{Kind: pin.SubjectArea, ID: "ar_somewhere_else"}, pin.Bound{Number: 1})
 
 	read, err := pin.BySubjects(ctx, pool, gatepolicy.AttemptBound, []pin.Subject{onAService, onAnArea})
 	if err != nil {

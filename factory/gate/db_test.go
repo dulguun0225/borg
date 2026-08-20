@@ -93,7 +93,7 @@ func applied(threshold float64) policy.Applied {
 // newGate gives a test a schema of its own, the log's DDL applied inside it, and
 // a gate over a writer, a score, and a policy. The schema is dropped when the
 // test ends, so a rerun on a database a previous run left dirty starts clean.
-func newGate(t *testing.T, s *fakeScore, p *fakePolicy) (context.Context, *pgxpool.Pool, *gate.Gate) {
+func newGate(t *testing.T, s gate.Score, p *fakePolicy) (context.Context, *pgxpool.Pool, *gate.Gate) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -758,4 +758,223 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 	if _, err := gate.ApprovalTimes(ctx, pool, gate.Row("some_other_row")); !errors.Is(err, gate.ErrRowUnknown) {
 		t.Errorf("ApprovalTimes at a row this package does not fire = %v, want ErrRowUnknown", err)
 	}
+}
+
+// TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember: the one row
+// where approving admits several threads at once, fired over the items the cut wrote.
+func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testing.T) {
+	// Two members and two answers: the score is asked per member and the row
+	// applies the higher of the numbers, because approving the set approves every
+	// item in it.
+	s, p := &varyingScore{by: map[string]float64{"it_a": 0.2, "it_b": 0.7}}, &fakePolicy{applied: applied(0.5)}
+	ctx, pool, g := newGate(t, s, p)
+
+	opened, err := g.FireSet(ctx, gate.SetFiring{
+		IntentID:      "in_0000000000000000000000000000000a",
+		EnvironmentID: "env_000000000000000000000000000000a",
+		Members: []gate.SetMember{
+			{ItemID: "it_a", ServiceID: "svc_a", AreaID: "ar_a"},
+			{ItemID: "it_b", ServiceID: "svc_b", AreaID: "ar_a", WaitsOn: []string{"it_a"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("FireSet: %v", err)
+	}
+	if opened.Gate != gate.Decomposition {
+		t.Fatalf("the row is %s", opened.Gate)
+	}
+	if opened.Assessment.Number != 0.7 || !opened.HumanDecides {
+		t.Fatalf("the row applied %v and human=%v, want the riskiest member's number over the threshold",
+			opened.Assessment.Number, opened.HumanDecides)
+	}
+
+	var payload gate.SetOpeningPayload
+	if err := json.Unmarshal([]byte(opened.Row.Payload), &payload); err != nil {
+		t.Fatalf("reading the opening payload: %v", err)
+	}
+	if payload.IntentID != "in_0000000000000000000000000000000a" {
+		t.Errorf("the opening row names intent %q", payload.IntentID)
+	}
+	if len(payload.Set) != 2 {
+		t.Fatalf("the opening row carries %d members, want the whole set whichever one drove the number", len(payload.Set))
+	}
+	if payload.NumberFrom != "it_b" {
+		t.Errorf("the number came from %q, want the riskier member", payload.NumberFrom)
+	}
+	if len(payload.Set[1].WaitsOn) != 1 {
+		t.Errorf("the row does not say what waits on what: %+v", payload.Set)
+	}
+	// The subject a decision names is what the score reads back when it counts
+	// outcomes, and this row names none: the cut proposes a set rather than an
+	// artifact, so a verdict here is an outcome on no author's work.
+	var subject score.Subject
+	if err := json.Unmarshal([]byte(opened.Row.Payload), &subject); err != nil {
+		t.Fatalf("reading the payload as a subject: %v", err)
+	}
+	if subject.ItemID != "" || subject.ArtifactID != "" {
+		t.Errorf("the Decomposition row names a subject %+v, and the cut is not an artifact", subject)
+	}
+	// The diff factors are unavailable at the cut, which the vector says rather
+	// than leaving a gap a reader has to interpret.
+	if s.asked.Measurement.Unavailable != gate.NoBuildAtTheCut {
+		t.Errorf("the score was asked with measurement %+v", s.asked.Measurement)
+	}
+
+	closing, err := g.Decide(ctx, opened, owner, gate.VerdictApprove, "")
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if err := decisionlog.Verify(ctx, pool); err != nil {
+		t.Fatalf("the chain does not verify after a set decision: %v", err)
+	}
+	if closing.Closes != opened.Row.ID {
+		t.Errorf("the closing row closes %q", closing.Closes)
+	}
+}
+
+// TestARejectAtDecompositionNamesNoStage: its reject re-cuts the set rather than
+// sending an item anywhere, so the field its closing row would carry stays unwritten.
+func TestARejectAtDecompositionNamesNoStage(t *testing.T) {
+	s, p := &varyingScore{by: map[string]float64{"it_a": 0.7, "it_b": 0.7}}, &fakePolicy{applied: applied(0.5)}
+	ctx, _, g := newGate(t, s, p)
+
+	opened, err := g.FireSet(ctx, gate.SetFiring{
+		IntentID:      "in_0000000000000000000000000000000a",
+		EnvironmentID: "env_000000000000000000000000000000a",
+		Members: []gate.SetMember{
+			{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("FireSet: %v", err)
+	}
+	closing, err := g.Decide(ctx, opened, owner, gate.VerdictReject, "this should have been three items")
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	var payload gate.ClosingPayload
+	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
+		t.Fatalf("reading the closing payload: %v", err)
+	}
+	if payload.ReturnsTo != "" {
+		t.Errorf("the reject returns the item to %q, and Decomposition names nothing at all", payload.ReturnsTo)
+	}
+}
+
+// TestASetFiringMissingSomethingIsRefused: the row fires where the cut yielded more
+// than one item, and a firing of one is not an error of shape but of occasion.
+func TestASetFiringMissingSomethingIsRefused(t *testing.T) {
+	s, p := &varyingScore{by: map[string]float64{}}, &fakePolicy{applied: applied(0.5)}
+	ctx, _, g := newGate(t, s, p)
+
+	two := []gate.SetMember{{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b"}}
+	for name, firing := range map[string]gate.SetFiring{
+		"no intent":      {EnvironmentID: "env_a", Members: two},
+		"no environment": {IntentID: "in_a", Members: two},
+		"one member":     {IntentID: "in_a", EnvironmentID: "env_a", Members: two[:1]},
+		"a member with no service": {IntentID: "in_a", EnvironmentID: "env_a",
+			Members: []gate.SetMember{{ItemID: "it_a"}, {ItemID: "it_b", ServiceID: "svc_b"}}},
+	} {
+		if _, err := g.FireSet(ctx, firing); !errors.Is(err, gate.ErrSetIncomplete) {
+			t.Errorf("a set firing with %s = %v, want ErrSetIncomplete", name, err)
+		}
+	}
+	// And a Decomposition firing given as an ordinary one is refused: that row
+	// decides over a set and not over one item's build.
+	f := mergeFiring
+	f.Row = gate.Decomposition
+	if _, err := g.Fire(ctx, f); !errors.Is(err, gate.ErrFiringIncomplete) {
+		t.Errorf("firing Decomposition through Fire = %v, want ErrFiringIncomplete", err)
+	}
+}
+
+// TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman: the factory may not approve
+// over a human and it rejects before one is asked, which is the one asymmetry between
+// the two calls.
+func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
+	// A number over the threshold, so the firing puts a human at the row.
+	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, g := newGate(t, s, p)
+
+	opened, err := g.Fire(ctx, mergeFiring)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if !opened.HumanDecides {
+		t.Fatal("the firing put no human at the row, and this test is about rejecting over one")
+	}
+	if _, err := g.AutoPass(ctx, opened); !errors.Is(err, gate.ErrHumanDecides) {
+		t.Fatalf("AutoPass over a human = %v, want ErrHumanDecides", err)
+	}
+
+	closing, err := g.AutoReject(ctx, opened, gate.AutoRejectedByContractDiff,
+		"health.Detail is removed and the reader still declares it")
+	if err != nil {
+		t.Fatalf("AutoReject: %v", err)
+	}
+	if closing.Actor.Kind != record.KindComponent || closing.Actor.Name != "gate.merge_to_master" {
+		t.Errorf("the closing row was written as %s %s, want the gate component", closing.Actor.Kind, closing.Actor.Name)
+	}
+	var payload gate.ClosingPayload
+	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
+		t.Fatalf("reading the closing payload: %v", err)
+	}
+	if payload.Verdict != string(gate.VerdictReject) || payload.AutoRejectedBy != gate.AutoRejectedByContractDiff {
+		t.Fatalf("the closing row reads %+v", payload)
+	}
+	if payload.Feedback == "" || payload.ReturnsTo != gate.ReturnsTo {
+		t.Errorf("a mechanical reject carries feedback %q and returns to %q", payload.Feedback, payload.ReturnsTo)
+	}
+	if err := decisionlog.Verify(ctx, pool); err != nil {
+		t.Fatalf("the chain does not verify after a mechanical reject: %v", err)
+	}
+
+	// A rejection that names no check is refused: it is only readable against the
+	// check it came from.
+	second, err := g.Fire(ctx, mergeFiring)
+	if err != nil {
+		t.Fatalf("the second Fire: %v", err)
+	}
+	if _, err := g.AutoReject(ctx, second, "", "something"); !errors.Is(err, gate.ErrCheckMissing) {
+		t.Errorf("a mechanical reject naming no check = %v, want ErrCheckMissing", err)
+	}
+	if _, err := g.AutoReject(ctx, second, gate.AutoRejectedByDeclaration, ""); !errors.Is(err, gate.ErrCheckMissing) {
+		t.Errorf("a mechanical reject saying nothing = %v, want ErrCheckMissing", err)
+	}
+	// And the production deploy row does not reject at all: by then the merge has
+	// happened and the number is assigned.
+	deploy, err := g.Fire(ctx, deployFiring())
+	if err != nil {
+		t.Fatalf("firing the deploy row: %v", err)
+	}
+	if _, err := g.AutoReject(ctx, deploy, gate.AutoRejectedByDeclaration, "anything"); !errors.Is(err, gate.ErrVerdictUnknown) {
+		t.Errorf("a mechanical reject at the production deploy row = %v, want ErrVerdictUnknown", err)
+	}
+}
+
+// TestEditInPlaceAtDecompositionIsRefusedWithItsReason: re-cutting is not built, so a
+// bad cut is rejected rather than repaired, and the vocabulary says so.
+func TestEditInPlaceAtDecompositionIsRefusedWithItsReason(t *testing.T) {
+	if gate.ErrEditInPlaceRefused == nil {
+		t.Fatal("the refusal has no reason to carry")
+	}
+	actions, err := gate.Actions(gate.Decomposition)
+	if err != nil {
+		t.Fatalf("Actions: %v", err)
+	}
+	if len(actions) != 2 {
+		t.Fatalf("Decomposition offers %v, want approve and reject — the third action is refused", actions)
+	}
+}
+
+// varyingScore answers a different number per item, which is what a set firing needs:
+// the row applies the riskiest member's.
+type varyingScore struct {
+	by    map[string]float64
+	asked score.Change
+}
+
+func (v *varyingScore) Assess(_ context.Context, c score.Change) (score.Assessment, error) {
+	v.asked = c
+	return assessed(v.by[c.ItemID]), nil
 }

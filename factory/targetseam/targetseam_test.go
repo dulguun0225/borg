@@ -83,7 +83,7 @@ func TestTheSeamRefusesAnIncompleteOperation(t *testing.T) {
 
 	cases := map[string]func() error{
 		"no service":    func() error { return fake.Deploy(ctx, Deployment{Build: "r-7", Credential: credential}) },
-		"no build":    func() error { return fake.Deploy(ctx, Deployment{Service: "checkout", Credential: credential}) },
+		"no build":      func() error { return fake.Deploy(ctx, Deployment{Service: "checkout", Credential: credential}) },
 		"no credential": func() error { return fake.Deploy(ctx, Deployment{Service: "checkout", Build: "r-7"}) },
 		"stop with no credential": func() error {
 			return fake.Stop(ctx, "checkout", secretref.Ref{})

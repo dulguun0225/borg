@@ -38,7 +38,7 @@ var DDL = []string{
 	content text not null,
 	` + record.Constraints + `,
 	constraint item_id_present check (item_id <> ''),
-	constraint kind_known check (kind in ('spec', 'implementation')),
+	constraint kind_known check (kind in ('spec', 'implementation', 'declaration')),
 	constraint version_starts_at_one check (version >= 1),
 	constraint authorship_known check (authorship in ('agent', 'human', 'gate')),
 	constraint author_present check (author <> ''),

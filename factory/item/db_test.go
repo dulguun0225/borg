@@ -254,8 +254,9 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 		t.Fatalf("ReportAttempt: %v", err)
 	}
 
-	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage, waits_on, priority)
-		values ($1, 'component', 'cut', $2, 'in_x', 'svc_x', 'ar_x', $3, $4, '', 0)`
+	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id,
+		branch, stage, waits_on, superseded_by, priority)
+		values ($1, 'component', 'cut', $2, 'in_x', 'svc_x', 'ar_x', $3, $4, '', '', 0)`
 	for _, refused := range []struct {
 		name       string
 		branch     string
@@ -263,7 +264,7 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 		constraint string
 	}{
 		{"an empty branch", "", "spec", "branch_present"},
-		{"a stage outside the four", "item/x", "shipped", "stage_known"},
+		{"a stage outside the five", "item/x", "shipped", "stage_known"},
 	} {
 		_, err := pool.Exec(ctx, insertItem, record.NewID(item.IDPrefix), record.Now(), refused.branch, refused.stage)
 		if err == nil || !strings.Contains(err.Error(), refused.constraint) {
@@ -273,8 +274,9 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 
 	// An empty link, at the column representing this package's three: the
 	// store refuses it around the writer too.
-	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage, waits_on, priority)
-		values ($1, 'component', 'cut', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec', '', 0)`,
+	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id,
+		branch, stage, waits_on, superseded_by, priority)
+		values ($1, 'component', 'cut', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec', '', '', 0)`,
 		record.NewID(item.IDPrefix), record.Now(),
 	); err == nil || !strings.Contains(err.Error(), "intent_id_present") {
 		t.Errorf("inserting an item naming no intent = %v, want a violation of intent_id_present", err)
@@ -451,5 +453,86 @@ func TestSetPriorityAndAtStage(t *testing.T) {
 	}
 	if _, err := dispatch.SetPriority(ctx, workActor, "it_missing", 1); !errors.Is(err, item.ErrNotFound) {
 		t.Errorf("SetPriority on a missing item = %v, want ErrNotFound", err)
+	}
+}
+
+// TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt: the cut's second write and its
+// only write to an existing item. A rejected set is superseded rather than discarded,
+// so what was cut wrong is readable beside what replaced it.
+func TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt(t *testing.T) {
+	ctx, pool, cut, _ := newWriters(t)
+
+	replaced := oneItem(ctx, t, cut)
+	first := oneItem(ctx, t, cut)
+	second := oneItem(ctx, t, cut)
+
+	ended, err := cut.Supersede(ctx, cutActor, replaced.ID, []string{first.ID, second.ID})
+	if err != nil {
+		t.Fatalf("Supersede: %v", err)
+	}
+	if ended.Stage != item.StageSuperseded {
+		t.Fatalf("the superseded item is at %s", ended.Stage)
+	}
+	read, err := item.Get(ctx, pool, replaced.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Stage != item.StageSuperseded {
+		t.Errorf("the stored stage is %s", read.Stage)
+	}
+	if len(read.SupersededBy) != 2 || read.SupersededBy[0] != first.ID || read.SupersededBy[1] != second.ID {
+		t.Fatalf("the item points at %v, want the two that replaced it", read.SupersededBy)
+	}
+
+	// A re-cut that replaced an item with nothing leaves the pointer unwritten, and
+	// what says why is the superseded stage beside the decision that rejected the set.
+	dropped := oneItem(ctx, t, cut)
+	if _, err := cut.Supersede(ctx, cutActor, dropped.ID, nil); err != nil {
+		t.Fatalf("superseding with no replacement: %v", err)
+	}
+	read, err = item.Get(ctx, pool, dropped.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(read.SupersededBy) != 0 || read.Stage != item.StageSuperseded {
+		t.Errorf("the dropped item reads back as %+v", read)
+	}
+}
+
+// TestSupersedingTwiceOrSupersedingAMergedItemIsRefused: superseding does not run
+// twice, and a merged item is out of a re-cut's reach.
+func TestSupersedingTwiceOrSupersedingAMergedItemIsRefused(t *testing.T) {
+	ctx, _, cut, dispatch := newWriters(t)
+
+	once := oneItem(ctx, t, cut)
+	if _, err := cut.Supersede(ctx, cutActor, once.ID, nil); err != nil {
+		t.Fatalf("the first Supersede: %v", err)
+	}
+	if _, err := cut.Supersede(ctx, cutActor, once.ID, nil); !errors.Is(err, item.ErrAlreadySuperseded) {
+		t.Errorf("superseding twice = %v, want ErrAlreadySuperseded", err)
+	}
+
+	merged := oneItem(ctx, t, cut)
+	for _, stage := range []item.Stage{item.StageImplementation, item.StageQueued, item.StageMerged} {
+		if _, err := dispatch.Advance(ctx, dispatchActor, merged.ID, stage); err != nil {
+			t.Fatalf("advancing to %s: %v", stage, err)
+		}
+	}
+	if _, err := cut.Supersede(ctx, cutActor, merged.ID, nil); !errors.Is(err, item.ErrMerged) {
+		t.Errorf("superseding a merged item = %v, want ErrMerged", err)
+	}
+}
+
+// TestNothingAdvancesToOrIsSentBackToSuperseded: it is a terminal value and is not in
+// [item.StageOrder], so dispatch refuses it in both directions.
+func TestNothingAdvancesToOrIsSentBackToSuperseded(t *testing.T) {
+	ctx, _, cut, dispatch := newWriters(t)
+
+	it := oneItem(ctx, t, cut)
+	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageSuperseded); !errors.Is(err, item.ErrStageUnknown) {
+		t.Errorf("advancing to superseded = %v, want ErrStageUnknown", err)
+	}
+	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageSuperseded); !errors.Is(err, item.ErrStageUnknown) {
+		t.Errorf("sending back to superseded = %v, want ErrStageUnknown", err)
 	}
 }

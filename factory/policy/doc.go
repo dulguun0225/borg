@@ -35,6 +35,19 @@
 // a human at the gate rather than moving the number — which is why [Applied]
 // carries both a threshold and whether a human is pinned.
 //
+// One parameter has a fourth read under the other three, and it is the predicate
+// catalog: the kinds the factory itself can decide. Gate policy has an owner extend
+// the catalog and a pin only add to it, which presupposes something to extend, and
+// the score supplies none — no outcome teaches a kind of assertion. So the value in
+// force is the factory's own kinds, extended by what an owner authored and again by
+// each pin, and [FromFactory] is the source a printer reports where an owner
+// authored nothing. It is the one parameter with that source.
+//
+// [Reader.PinnedPredicatesOn] is beside those reads and is not one of them. A
+// pinned predicate binds no parameter's value: it adds an assertion on one element
+// of one contract, so what it resolves to is a list of assertions rather than a
+// number. It is here because package pin has one reader and this is it.
+//
 // Which subjects a pin is read on is the mechanism's question and not the
 // parameter's: a gate firing reads the gate row, the item's service, and every
 // area in the item's chain, because a pin on any of them reaches the firing. A
@@ -43,11 +56,11 @@
 //
 // # What has no reader yet
 //
-// Four of the eight parameters resolve here and are read by nothing: the
-// item-size target waits for a cut that sizes anything, the predicate catalog
-// for contracts, and K and the window's parameters for the watch window.
-// [Effective] says so per parameter, so an owner who authors one is told that it
-// changes nothing yet rather than finding out by its having no effect.
+// One of the eight resolves here and is read by nothing: the item-size target,
+// which waits for a cut that sizes anything. [Effective] says so per parameter, so
+// an owner who authors it is told that it changes nothing yet rather than finding
+// out by its having no effect. The predicate catalog was the last of the others to
+// get a reader, which is the derivation of a consumer's declaration.
 //
 // Who may write what: this package owns the policy version table and appends to
 // it. Every other write it makes is a call into the package that owns the

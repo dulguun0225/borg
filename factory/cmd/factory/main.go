@@ -73,7 +73,7 @@ func main() {
 // at the production deploy row; and the other six are duty 8, duty 9, the priority an
 // owner reorders a queue with, and the People declaration a page routes on — none of
 // which has a surface until the four of M7 are built.
-const subcommands = "run, walk <deploy-id>, watch <service>, approve <item-id>, " +
+const subcommands = "run, walk <deploy-id>, watch <service>, approve <item-id>, contracts, " +
 	"area <name>, author, pin, policy, priority <item-id>, people [<human>]"
 
 func dispatch(args []string) error {
@@ -89,6 +89,8 @@ func dispatch(args []string) error {
 		return watchCommand(args[1:])
 	case "approve":
 		return approveCommand(args[1:])
+	case "contracts":
+		return contractsCommand(args[1:])
 	case "area":
 		return areaCommand(args[1:])
 	case "author":
@@ -147,21 +149,93 @@ func openReconciler(ctx context.Context) (*pgxpool.Pool, func(), error) {
 	return pool, pool.Close, nil
 }
 
-// statements is -intent given more than once, one intent per candidate. It is a
-// repeated flag rather than a count, because what a run needs per candidate is the
+// serviceFlag is -service given more than once, one name and repository per
+// service this install knows. It is a repeated flag rather than one name and one
+// path, because an interface has consumers and the consumers are other services in
+// the same factory: a run that could name only one service could never demonstrate
+// a contract at all.
+type serviceFlag []serviceRepo
+
+func (s *serviceFlag) String() string {
+	named := make([]string, 0, len(*s))
+	for _, one := range *s {
+		named = append(named, one.name+"="+one.repo)
+	}
+	return strings.Join(named, ", ")
+}
+
+func (s *serviceFlag) Set(value string) error {
+	name, repo, found := strings.Cut(value, "=")
+	name, repo = strings.TrimSpace(name), strings.TrimSpace(repo)
+	if !found || name == "" || repo == "" {
+		return errors.New("a service is written name=path, the path being its git repository")
+	}
+	for _, already := range *s {
+		if already.name == name {
+			return fmt.Errorf("service %q is named twice, and a service is one repository", name)
+		}
+	}
+	*s = append(*s, serviceRepo{name: name, repo: repo})
+	return nil
+}
+
+// statements is -intent given more than once, one intent per cut. It is a
+// repeated flag rather than a count, because what a run needs per cut is the
 // statement itself: two candidates at once is the whole of what an environment per
 // candidate buys, and one flag per intent is how the crude interface says it.
-type statements []string
+//
+// An intent that changes more than one service names them before the statement,
+// comma separated and then a colon — which is this interface being told what the cut
+// yields, the cut that decides a decomposition being a later milestone's. The
+// prefix is read only where every name in it is a service this install knows, so a
+// statement whose own text happens to hold a colon is still one statement.
+type statements []asked
 
-func (s *statements) String() string { return strings.Join(*s, "; ") }
+func (s *statements) String() string {
+	said := make([]string, 0, len(*s))
+	for _, one := range *s {
+		said = append(said, strings.Join(one.services, ",")+": "+one.statement)
+	}
+	return strings.Join(said, "; ")
+}
 
-func (s *statements) Set(value string) error {
+// setFor adds one -intent value, resolving its service prefix against the
+// services this install knows. A value with no readable prefix is one statement on
+// the first service named, which is what every single-service run is.
+func (s *statements) setFor(value string, known []serviceRepo) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return errors.New("an intent's statement is not empty")
 	}
-	*s = append(*s, value)
+	if len(known) == 0 {
+		return errors.New("an intent names the services it changes, and this install knows none")
+	}
+	statement, services := value, []string{known[0].name}
+	if prefix, rest, found := strings.Cut(value, ":"); found {
+		named := strings.Split(prefix, ",")
+		all := true
+		for n, name := range named {
+			named[n] = strings.TrimSpace(name)
+			if !namesService(known, named[n]) {
+				all = false
+				break
+			}
+		}
+		if all && len(named) > 0 && strings.TrimSpace(rest) != "" {
+			statement, services = strings.TrimSpace(rest), named
+		}
+	}
+	*s = append(*s, asked{statement: statement, services: services})
 	return nil
+}
+
+func namesService(known []serviceRepo, name string) bool {
+	for _, one := range known {
+		if one.name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // runCommand parses the flags, opens the database, applies the schema, and
@@ -172,13 +246,13 @@ func runCommand(args []string) error {
 	secrets := flags.String("secrets", "", "path of the secrets file (required)")
 	model := flags.String("model", "", "the provider's model id (required; the roadmap names the model in configuration)")
 	provider := flags.String("provider", "openrouter", "which provider answers the model — "+providers+"; each reads its own credential from the secrets file")
-	repo := flags.String("repo", "", "path of the service's git repository (required; created when absent)")
-	serviceName := flags.String("service", "", "the service's name (required)")
+	var services serviceFlag
+	flags.Var(&services, "service", "a service as name=path, the path being its git repository (created when absent); given once per service, and at least once")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
 	human := flags.String("human", "owner", "the deciding human's name, and the owner every authoring write is made as")
 	areaName := flags.String("area", "", "the area the item is in, declared where it does not exist; without one the score reads no context factor and a human decides every gate of the item")
-	var intents statements
-	flags.Var(&intents, "intent", "an intent's statement, given once per candidate; prompted for one when absent")
+	var raw stringList
+	flags.Var(&raw, "intent", "an intent's statement, given once per cut; `svcA,svcB: statement` cuts one item per service named, each waiting on the one before it")
 	pace := flags.Duration("pace", 2*time.Second, "the least time between two model calls; 0 sends them back to back")
 	ceiling := flags.Int("candidate-environments", 8, "how many candidate environments this substrate has room for at once; a candidate that meets it waits, and the wait is written into the log")
 	watchFor := flags.Duration("watch", time.Minute, "how long to watch this run's own windows before leaving what is open, open; `factory watch` continues from there")
@@ -187,11 +261,19 @@ func runCommand(args []string) error {
 		return err
 	}
 	for _, required := range []struct{ name, value string }{
-		{"secrets", *secrets}, {"model", *model}, {"repo", *repo},
-		{"service", *serviceName}, {"targets", *targets},
+		{"secrets", *secrets}, {"model", *model}, {"targets", *targets},
 	} {
 		if required.value == "" {
 			return fmt.Errorf("factory run: -%s is required", required.name)
+		}
+	}
+	if len(services) == 0 {
+		return errors.New("factory run: -service is required, at least once")
+	}
+	var intents statements
+	for _, value := range raw {
+		if err := intents.setFor(value, services); err != nil {
+			return fmt.Errorf("factory run: %w", err)
 		}
 	}
 
@@ -229,7 +311,7 @@ func runCommand(args []string) error {
 		if err != nil {
 			return fmt.Errorf("factory run: reading the statement: %w", err)
 		}
-		if err := intents.Set(line); err != nil {
+		if err := intents.setFor(line, services); err != nil {
 			return fmt.Errorf("factory run: %w", err)
 		}
 	}
@@ -252,9 +334,8 @@ func runCommand(args []string) error {
 		in:               in,
 		out:              os.Stdout,
 		human:            *human,
-		service:          *serviceName,
+		services:         services,
 		area:             *areaName,
-		repo:             *repo,
 		candidateCeiling: *ceiling,
 		reconciler:       reconcilerStore,
 		watchFor:         *watchFor,
@@ -275,4 +356,17 @@ func walkCommand(args []string) error {
 	}
 	defer pool.Close()
 	return walk(ctx, pool, os.Stdout, args[0])
+}
+
+// stringList is a repeated flag whose values are read later, because reading one
+// needs another flag's value. -intent is the only one: its service prefix is
+// resolved against the services -service named, and flag parsing gives no order
+// between two flags.
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, "; ") }
+
+func (s *stringList) Set(value string) error {
+	*s = append(*s, value)
+	return nil
 }

@@ -3,22 +3,34 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/comparison"
+	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // mergeGate is the Merge to master row: where the verdict on the candidate is
-// given. What it reads is the candidate's own run — the acceptance criteria
-// decided against the candidate environment, undecided read the way a failure is.
+// given. What it reads is the candidate's own run — the acceptance criteria decided
+// against the candidate environment with undecided read the way a failure is, every
+// consumer's declaration in force decided against that same run, and the producer's
+// own contract diff against the version production is running.
+//
+// The last two reject on their own terms before anyone gives a verdict, which is
+// what the design says of this row: the row fires so the vector exists and the
+// rejection is readable against it, and then the factory's own reject closes it. A
+// human who was going to approve is not overruled — there is nothing left to
+// approve, and a schema diff is not a judgment they could have made differently.
+//
 // Approving admits the candidate to the merge queue, which is the stage the item
 // advances to; rejecting sends the item back with an attempt counted where it goes.
 func (p *path) mergeGate(ctx context.Context, c *candidate) error {
@@ -27,12 +39,16 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		return nil
 	}
 
+	checked, err := p.enforceContracts(ctx, c, c.buildID)
+	if err != nil {
+		return err
+	}
 	opened, err := p.gate.Fire(ctx, gate.Firing{
 		Row:             gate.MergeToMaster,
 		ItemID:          c.itemID,
 		BuildID:         c.buildID,
 		ArtifactID:      c.implArtifactID,
-		ServiceID:       p.svc.ID,
+		ServiceID:       c.svc.ID,
 		AreaID:          p.areaID,
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(c.criteria),
@@ -43,6 +59,25 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		return err
 	}
 	report(p.d.out, opened, c.criteria)
+	reportContracts(p.d.out, checked)
+
+	// The mechanical rejection, before a verdict is asked for.
+	if check := checked.Check(); check != "" {
+		closing, err := p.gate.AutoReject(ctx, opened, check, checked.Why())
+		if err != nil {
+			return err
+		}
+		c.mergeGate = recordFiring(opened, closing)
+		c.autoRejected, c.autoRejectedBy = true, check
+		if _, err := p.dispatch.SendBack(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
+			return err
+		}
+		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, checked.Why())
+		fmt.Fprintf(p.d.out, "  closing row %s written as %s; item %s goes back to %s with an attempt counted there\n",
+			closing.ID, closing.Actor.Name, c.itemID, gate.ReturnsTo)
+		return nil
+	}
+
 	verdict, feedback, closing, err := p.settle(ctx, opened)
 	if err != nil {
 		return err
@@ -66,6 +101,79 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	return nil
 }
 
+// enforceContracts is the two contract checks over one candidate, kept on the
+// candidate so the merge row and the queue's re-verification report the same value
+// and the test can assert over it. The build is an argument and not read off the
+// candidate, because the two callers read two different builds: the merge row reads
+// the one the implementation stage made, and the re-verification reads the one it
+// just made from the candidate branch with master merged in.
+//
+// Neither baseline is written down: both are computed here, at the moment the row
+// fires, and again inside the queue at re-verification. So a candidate that waited
+// in the queue can fail on a baseline that moved after its own run passed, with no
+// record of the earlier pass to point at — which is the cost the design states for
+// computing them rather than recording them.
+func (p *path) enforceContracts(ctx context.Context, c *candidate, buildID string) (contractcheck.Checked, error) {
+	checked, err := p.contracts.Enforce(ctx, contractcheck.Candidate{
+		ItemID:        c.itemID,
+		ServiceID:     c.svc.ID,
+		ServiceName:   c.svc.Name,
+		BuildID:       buildID,
+		EnvironmentID: c.environmentID,
+	}, p.production.ID)
+	if err != nil {
+		return contractcheck.Checked{}, err
+	}
+	c.checked = &checked
+	return checked, nil
+}
+
+// reportContracts prints what enforcement found, as an owner at the row would read
+// it: what the build publishes and what that does to the version production runs,
+// what it declares of others, who consumes it, and what still names an element it
+// breaks.
+func reportContracts(out io.Writer, checked contractcheck.Checked) {
+	if len(checked.Publishes) == 0 && len(checked.Declares) == 0 {
+		fmt.Fprintln(out, "  this build publishes no contract and declares nothing of another service")
+		return
+	}
+	for _, broken := range checked.Broken {
+		from := "no version, so this candidate would create the contract"
+		if broken.Had {
+			from = "against " + broken.From.String() + ", the version production runs"
+		}
+		fmt.Fprintf(out, "  contract %s (%s) %s: %s\n",
+			broken.Contract.Name, broken.Contract.Kind, from, broken.Change.Describe())
+		if broken.Change.Moved() {
+			fmt.Fprintf(out, "    it would mint %s\n", broken.Next)
+		}
+		for _, element := range broken.Change.Breaking {
+			fmt.Fprintf(out, "    %s breaks the promise this kind of contract makes\n", element)
+		}
+		for _, blocking := range broken.Blocking {
+			for _, consumer := range blocking.Consumers() {
+				fmt.Fprintf(out, "    %s is still declared by %s\n", blocking.Element, consumer)
+			}
+			for _, pinned := range blocking.Pinned {
+				fmt.Fprintf(out, "    %s is still asserted by pin %s, placed by %s %s\n",
+					blocking.Element, pinned.PinID, pinned.Actor.Kind, pinned.Actor.Name)
+			}
+		}
+	}
+	for _, declared := range checked.Declares {
+		fmt.Fprintf(out, "  it declares %s on %s.%s.%s\n",
+			declared.Kind, declared.ProducerService, declared.Interface, declared.Element)
+	}
+	if len(checked.Affected) > 0 {
+		fmt.Fprintf(out, "  %d service(s) declare they consume what it publishes: %v\n",
+			len(checked.Affected), checked.Affected)
+	}
+	if checked.Observed > 0 {
+		fmt.Fprintf(out, "  %d exchange document(s) observed on its own environment, which is what every predicate was decided against\n",
+			checked.Observed)
+	}
+}
+
 // runQueue runs the merge queue once for the service and writes what it did onto
 // each candidate. The queue reaches the repository and the candidate environments
 // through this same value, which is the deploy agent: [path.Reverify] and
@@ -74,22 +182,22 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 // A merged candidate's environment is torn down here rather than inside the queue.
 // Teardown is the deploy agent's — it stops the software and then writes the time —
 // and the queue orders merges and reaches no deploy target.
-func (p *path) runQueue(ctx context.Context) ([]*candidate, error) {
-	members, err := p.queue.Members(ctx, p.svc.ID)
+func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate, error) {
+	members, err := p.queue.Members(ctx, svc.ID)
 	if err != nil {
 		return nil, err
 	}
 	if len(members) == 0 {
-		fmt.Fprintln(p.d.out, "The merge queue is empty; nothing is merged")
+		fmt.Fprintf(p.d.out, "The merge queue of %s is empty; nothing is merged\n", svc.Name)
 		return nil, nil
 	}
 	named := make([]string, 0, len(members))
 	for _, it := range members {
 		named = append(named, fmt.Sprintf("%s (priority %d)", it.ID, it.Priority))
 	}
-	fmt.Fprintf(p.d.out, "The merge queue for %s, in order: %v\n", p.svc.ID, named)
+	fmt.Fprintf(p.d.out, "The merge queue for %s, in order: %v\n", svc.Name, named)
 
-	outcomes, err := p.queue.Run(ctx, p.svc.ID)
+	outcomes, err := p.queue.Run(ctx, svc.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,8 +229,22 @@ func (p *path) runQueue(ctx context.Context) ([]*candidate, error) {
 		c.merged = true
 		c.releaseID = outcome.Release.ID
 		c.releaseNumber = outcome.Release.Number
+		c.published = outcome.Published
 		fmt.Fprintf(p.d.out, "Master fast-forwarded to %s; release %s minted, number %d\n",
 			outcome.Commit, outcome.Release.ID, outcome.Release.Number)
+		for _, published := range outcome.Published {
+			switch {
+			case published.Created && published.Moved:
+				fmt.Fprintf(p.d.out, "  contract %s created and published at %s: %s\n",
+					published.Contract.Name, published.Version.Semver, published.Change.Describe())
+			case published.Moved:
+				fmt.Fprintf(p.d.out, "  contract %s published at %s: %s\n",
+					published.Contract.Name, published.Version.Semver, published.Change.Describe())
+			default:
+				fmt.Fprintf(p.d.out, "  contract %s is unchanged, so this release publishes no version of it\n",
+					published.Contract.Name)
+			}
+		}
 		if err := p.tearDown(ctx, c); err != nil {
 			return adopted, err
 		}
@@ -147,7 +269,11 @@ func (p *path) candidateFor(ctx context.Context, itemID string) (*candidate, err
 	if err != nil {
 		return nil, err
 	}
-	c := &candidate{itemID: itemID, intentID: it.IntentID, branch: it.Branch}
+	svc, err := p.serviceOf(ctx, it.ServiceID)
+	if err != nil {
+		return nil, err
+	}
+	c := &candidate{itemID: itemID, intentID: it.IntentID, svc: svc, branch: it.Branch, waitsOn: it.WaitsOn}
 	env, found, err := environment.ForItem(ctx, p.d.pool, itemID)
 	if err != nil {
 		return nil, err
@@ -169,7 +295,7 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 	if c.environmentID == "" || c.tornDown {
 		return nil
 	}
-	if err := p.d.targets.at(c.environmentDir).Stop(ctx, p.svc.Name, p.d.credential); err != nil {
+	if err := p.d.targets.at(c.environmentDir).Stop(ctx, c.svc.Name, p.d.credential); err != nil {
 		return err
 	}
 	if err := p.candidates.TearDown(ctx, c.environmentID); err != nil {
@@ -205,11 +331,12 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 			"factory: item %s is in the queue and has no live candidate environment to re-verify on", it.ID)
 	}
 
-	if _, err := git(p.d.repo, "switch", it.Branch); err != nil {
+	repo := c.svc.Repository
+	if _, err := git(repo, "switch", it.Branch); err != nil {
 		return mergequeue.Verified{}, err
 	}
 
-	head, err := p.masterHead(ctx)
+	head, err := p.masterHead(ctx, c.svc)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
@@ -219,16 +346,16 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 		// this merge has two roots; the flag does nothing where the histories are
 		// related. Where the two trees then conflict, the candidate failed its own
 		// re-verification, which is the right answer and not a workaround.
-		out, err := git(p.d.repo, "merge", "--allow-unrelated-histories",
+		out, err := git(repo, "merge", "--allow-unrelated-histories",
 			"-m", "merge master into "+it.Branch+" for re-verification", "master")
 		if err != nil {
 			// The abort is what leaves the branch where it was. A merge that failed
 			// before it started nothing to abort, so its error is discarded.
-			_, _ = git(p.d.repo, "merge", "--abort")
+			_, _ = git(repo, "merge", "--abort")
 			return mergequeue.Verified{Why: "merging master into the candidate branch failed: " + firstLines(out)}, nil
 		}
 	}
-	commit, err := git(p.d.repo, "rev-parse", "HEAD")
+	commit, err := git(repo, "rev-parse", "HEAD")
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
@@ -259,22 +386,22 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	}
 	c.composedFrom = composed
 
-	if err := buildInto(p.d.repo, c.environmentDir, bl.ID); err != nil {
+	if err := buildInto(repo, c.environmentDir, bl.ID); err != nil {
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 			Why: "the tree does not compile with master merged into it: " + firstLines(err.Error())}, nil
 	}
 	dep, err := deploy.Straight(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
-		p.svc.ID, p.svc.Name, c.environmentID, deploy.OfBuild(bl.ID), p.d.credential)
+		c.svc.ID, c.svc.Name, c.environmentID, deploy.OfBuild(bl.ID), p.d.credential)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
 	c.candidateDeployID = dep.ID
 
-	inForce, err := p.inForceFor(ctx, it.ID)
+	inForce, err := p.inForceFor(ctx, c.svc, it.ID)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if err := criterion.CheckEncodings(p.d.repo, inForce); err != nil {
+	if err := criterion.CheckEncodings(repo, inForce); err != nil {
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 			Why: "the criteria and the encodings do not match with master merged in: " + firstLines(err.Error())}, nil
 	}
@@ -289,7 +416,7 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	// computed from the earlier diff would not be this build's. What is not
 	// overwritten is the build and the commit the implementation stage made — a
 	// rebuild is a new build, and the item has as many builds as it was built.
-	c.measurement = measure(p.d.repo, head != "")
+	c.measurement = measure(repo, head != "")
 
 	for _, result := range results {
 		if result.Outcome.Blocks() {
@@ -297,15 +424,36 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 				Why: fmt.Sprintf("criterion %s is %s against build %s", result.CriterionID, result.Outcome, bl.ID)}, nil
 		}
 	}
-	return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Passed: true}, nil
+
+	// The contract checks again, against the master that actually resulted. Both
+	// baselines are computed at the moment they are read and neither is recorded, so
+	// the queue rejects on the same terms with itself as the actor — which is how a
+	// baseline that moved while the candidate waited is caught rather than passed.
+	//
+	// The forms come back on the verified value: the queue writes the contract and
+	// its version inside the mint's transaction, and it reaches no checkout, so what
+	// the derivation read here is what it writes.
+	checked, err := p.enforceContracts(ctx, c, bl.ID)
+	if err != nil {
+		return mergequeue.Verified{}, err
+	}
+	if check := checked.Check(); check != "" {
+		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+			Why: check + " with master merged in: " + checked.Why()}, nil
+	}
+	return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Passed: true, Forms: checked.Publishes}, nil
 }
 
 // FastForward moves master to the commit the re-verification produced. It is one
 // command that creates master at that commit or fast-forwards it to there, and
 // refuses anything else — which is what makes the commit that merges the commit
 // that was verified.
-func (p *path) FastForward(ctx context.Context, _ item.Item, commit string) error {
-	_, err := git(p.d.repo, "fetch", ".", commit+":master")
+func (p *path) FastForward(ctx context.Context, it item.Item, commit string) error {
+	svc, err := p.serviceOf(ctx, it.ServiceID)
+	if err != nil {
+		return err
+	}
+	_, err = git(svc.Repository, "fetch", ".", commit+":master")
 	return err
 }
 
@@ -328,7 +476,7 @@ func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	held, err := p.factoryHolds(ctx, it)
+	held, err := p.factoryHolds(ctx, c.svc, it)
 	if err != nil {
 		return err
 	}
@@ -367,7 +515,7 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, e
 		Row:             gate.DeployToProduction,
 		ItemID:          c.itemID,
 		BuildID:         c.reverifiedBuildID,
-		ServiceID:       p.svc.ID,
+		ServiceID:       c.svc.ID,
 		AreaID:          p.areaID,
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(c.criteria),
@@ -407,7 +555,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	}
 
 	dep, err := deploy.Straight(ctx, p.deploys, d.targets.at(d.dir), deployActor,
-		p.svc.ID, p.svc.Name, p.production.ID,
+		c.svc.ID, c.svc.Name, p.production.ID,
 		deploy.OfRelease(c.releaseID, c.reverifiedBuildID), d.credential)
 	if err != nil {
 		return err
@@ -416,7 +564,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production\n", dep.ID, c.releaseID)
 
 	opened, isNew, err := p.comparison.Open(ctx, comparison.Watching{
-		ID: p.svc.ID, Name: p.svc.Name, EnvironmentID: p.production.ID,
+		ID: c.svc.ID, Name: c.svc.Name, EnvironmentID: p.production.ID,
 	}, dep.ID, c.releaseID, p.scoreVersion)
 	if err != nil {
 		return err
@@ -448,23 +596,23 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 // gate re-fired. What that costs is that how long the factory has been holding is
 // answerable for the substrate's ceiling alone, which is the one wait at a deploy row
 // that is written.
-func (p *path) factoryHolds(ctx context.Context, it item.Item) (string, error) {
+func (p *path) factoryHolds(ctx context.Context, svc service.Service, it item.Item) (string, error) {
 	held, err := p.dependencyHold(ctx, it)
 	if err != nil || held != "" {
 		return held, err
 	}
-	if held, err := p.windowHold(ctx); err != nil || held != "" {
+	if held, err := p.windowHold(ctx, svc); err != nil || held != "" {
 		return held, err
 	}
-	return p.rollbackHold(ctx, it)
+	return p.rollbackHold(ctx, svc, it)
 }
 
 // windowHold is K: an open window blocks nothing until the service holds as many as
 // K allows, and then the next production deploy waits. It is a wait on the factory
 // rather than on a human, so it does not page — it shows only to a reader who asks,
 // which on this interface is this line.
-func (p *path) windowHold(ctx context.Context) (string, error) {
-	room, open, k, err := p.comparison.Room(ctx, p.svc.ID)
+func (p *path) windowHold(ctx context.Context, svc service.Service) (string, error) {
+	room, open, k, err := p.comparison.Room(ctx, svc.ID)
 	if err != nil || room {
 		return "", err
 	}
@@ -480,8 +628,8 @@ func (p *path) windowHold(ctx context.Context) (string, error) {
 // would never lift — and what says which item is the revert is the intent the
 // rollback's own deploy record names. That link is the one stored fact connecting the
 // two, nothing on the item saying it is a revert.
-func (p *path) rollbackHold(ctx context.Context, it item.Item) (string, error) {
-	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, p.svc.ID, p.production.ID)
+func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
+	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, svc.ID, p.production.ID)
 	if err != nil || !found {
 		return "", err
 	}

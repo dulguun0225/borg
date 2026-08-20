@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,7 +12,10 @@ import (
 
 	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/comparison"
+	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
@@ -20,6 +24,7 @@ import (
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/reconciler"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
@@ -137,12 +142,12 @@ func (p *path) RollBack(ctx context.Context, r comparison.Rollback) error {
 // closed, or until the deadline. Nothing but the comparison closes a window, so a run
 // that gives up leaves them open — which fills K and holds the next deploy, and is
 // what `factory watch` is for.
-func (p *path) watchTo(ctx context.Context, deadline time.Time, every time.Duration) error {
+func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.Time, every time.Duration) error {
 	for {
-		if err := p.watchPass(ctx); err != nil {
+		if err := p.watchPass(ctx, svc); err != nil {
 			return err
 		}
-		open, err := window.CountOpen(ctx, p.d.pool, p.svc.ID)
+		open, err := window.CountOpen(ctx, p.d.pool, svc.ID)
 		if err != nil {
 			return err
 		}
@@ -151,7 +156,7 @@ func (p *path) watchTo(ctx context.Context, deadline time.Time, every time.Durat
 		}
 		if !time.Now().Add(every).Before(deadline) {
 			fmt.Fprintf(p.d.out, "%d watch window(s) are still open on %s; `factory watch %s` continues from here\n",
-				open, p.svc.Name, p.svc.Name)
+				open, svc.Name, svc.Name)
 			fmt.Fprintln(p.d.out, "  a window nothing closes fills K and holds this service's production deploys — a wait on the factory, which does not page")
 			return nil
 		}
@@ -162,8 +167,8 @@ func (p *path) watchTo(ctx context.Context, deadline time.Time, every time.Durat
 // watchPass is one evaluation of everything downstream of a deploy on one service:
 // every open window, the release whose window has closed, the incidents that have
 // settled, and the reconciler's own store.
-func (p *path) watchPass(ctx context.Context) error {
-	w := comparison.Watching{ID: p.svc.ID, Name: p.svc.Name, EnvironmentID: p.production.ID}
+func (p *path) watchPass(ctx context.Context, svc service.Service) error {
+	w := comparison.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
 
 	readings, err := p.comparison.Watch(ctx, w)
 	for _, reading := range readings {
@@ -188,7 +193,7 @@ func (p *path) watchPass(ctx context.Context) error {
 	for _, i := range resolved {
 		fmt.Fprintf(p.d.out, "Incident %s resolved: the crossing has stopped against what runs and what it raised has shipped\n", i.ID)
 	}
-	return p.reconcilerPages(ctx)
+	return p.reconcilerPages(ctx, svc)
 }
 
 // reportReading prints one reading as an owner would read it: the numbers the
@@ -237,7 +242,7 @@ func (p *path) reportReading(r comparison.Reading) {
 // A mismatch nobody has been reached about is paged. One still uncleared on a later
 // pass widens, once, to the owner. One a human has cleared is answered — here, at the
 // pass that finds it cleared, because clearing it happened where nothing calls.
-func (p *path) reconcilerPages(ctx context.Context) error {
+func (p *path) reconcilerPages(ctx context.Context, svc service.Service) error {
 	if p.d.reconciler == nil || p.notifier == nil {
 		return nil
 	}
@@ -246,7 +251,7 @@ func (p *path) reconcilerPages(ctx context.Context) error {
 		return err
 	}
 	for _, m := range all {
-		if m.ServiceID != p.svc.ID {
+		if m.ServiceID != svc.ID {
 			continue
 		}
 		w := notifier.Wait{
@@ -362,7 +367,7 @@ func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.V
 	if err != nil {
 		return err
 	}
-	held, err := p.factoryHolds(ctx, it)
+	held, err := p.factoryHolds(ctx, c.svc, it)
 	if err != nil {
 		return err
 	}
@@ -389,4 +394,95 @@ func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.V
 		return nil
 	}
 	return p.putOnProduction(ctx, c)
+}
+
+// exchangeFiles is [contractcheck.Exchanges]: the documents one build wrote on the
+// environment it ran on. One file per build in that environment's own directory,
+// which package localtarget names, being the thing that told the process where to
+// write it.
+//
+// A build that wrote nothing reads as no documents, which enforcement treats as a
+// failure wherever there is a declaration to decide — a producer that emitted
+// nothing has not shown that a consumer's assumption holds. That is right for a
+// build that ignored the instruction to write them and it is also what a build with
+// no run behind it looks like, and nothing here can tell the two apart.
+func (p *path) Observed(ctx context.Context, c contractcheck.Candidate) ([]declaration.Document, error) {
+	env, err := environment.Get(ctx, p.d.pool, c.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	if len(env.Targets) == 0 {
+		return nil, fmt.Errorf("factory: environment %s names no target to read an exchange from", c.EnvironmentID)
+	}
+	return readExchange(localtarget.ExchangeFile(env.Targets[0], c.BuildID))
+}
+
+// readExchange is the documents one file holds, one JSON object per line. A file
+// that is not there is nothing written rather than an error: a build deployed a
+// moment ago has written nothing yet, and so has one that was never started.
+//
+// A line that is not a JSON object is skipped and counted as nothing. It is the
+// lenient direction and it is the safe one here: a document the factory cannot read
+// shows nothing, and showing nothing is what fails a declaration rather than passing
+// it.
+func readExchange(path string) ([]declaration.Document, error) {
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("factory: reading the exchange at %s: %w", path, err)
+	}
+	var documents []declaration.Document
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var one declaration.Document
+		if err := json.Unmarshal([]byte(line), &one); err != nil {
+			continue
+		}
+		documents = append(documents, one)
+	}
+	return documents, nil
+}
+
+// raiseRemovals is the detector: one pass over every deprecation-marked element,
+// taking a removal intent in for each whose derived declarations are gone. Nobody
+// has to remember step three of a migration.
+//
+// It reports what it found either way, because a marked element with a list that
+// has not emptied is the mechanism working and an owner reading a run should see it.
+func (p *path) raiseRemovals(ctx context.Context) error {
+	marked, err := p.contracts.Deprecated(ctx)
+	if err != nil {
+		return err
+	}
+	if len(marked) == 0 {
+		return nil
+	}
+	for _, m := range marked {
+		if m.Empty() && len(m.Pinned) == 0 {
+			continue
+		}
+		fmt.Fprintf(p.d.out, "%s.%s is marked deprecated and the list still names: %v",
+			m.Contract.Name, m.Element.Name, m.Consumers())
+		for _, pinned := range m.Pinned {
+			fmt.Fprintf(p.d.out, " and pin %s", pinned.PinID)
+		}
+		fmt.Fprintln(p.d.out)
+	}
+	raised, err := p.contracts.RaiseRemovals(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range raised {
+		if !r.New {
+			fmt.Fprintf(p.d.out, "The removal of %s.%s is already asked for by intent %s; the detector takes nothing in\n",
+				r.Marked.Contract.Name, r.Marked.Element.Name, r.Intent.ID)
+			continue
+		}
+		fmt.Fprintf(p.d.out, "The list on %s.%s has emptied; intent %s taken in by the detector: %s\n",
+			r.Marked.Contract.Name, r.Marked.Element.Name, r.Intent.ID, r.Intent.Statement)
+	}
+	return nil
 }

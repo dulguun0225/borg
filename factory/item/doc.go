@@ -1,24 +1,28 @@
 // Package item owns the item and its per-stage bookkeeping. The item has two
-// writers and the seam is the event: [Cut] writes an item once, at the cut,
-// and never writes an item again — the type has no update method — and every
-// later write is [Dispatch]'s.
+// writers and the seam is the event: [Cut] writes an item at the cut and writes
+// one again only to point a superseded item at what replaced it, and every other
+// write is [Dispatch]'s.
 //
 // # The item
 //
 // An item names the intent it was cut from, the one service it changes, the
-// branch its work is committed on, and the items it waits on. Which stage it is
+// branch its work is committed on, the items it waits on, and — where a re-cut
+// replaced it — the items that replaced it. Which stage it is
 // at is a field on the item, and dispatch is what writes it: every stage reports
 // its transition to dispatch rather than writing the item itself, so the
 // record's rules are implemented once rather than once per stage. The priority
 // an owner reorders a queue with is dispatch's too, for the same reason.
 //
-// The stage CHECK in [DDL] lists spec, implementation, queued, and merged — the
-// stages the path touches. Queued is the merge queue's membership: the merge
-// gate approved the candidate and its fast-forward has not happened, and the
-// queue is a component with no record of its own, so this value is what says an
-// item is in it. The design has more (superseded, dropped, escalated), and later
-// milestones widen the CHECK as they build what writes each. What that costs: a
-// CHECK is a schema edit each time a value arrives.
+// The stage CHECK in [DDL] lists spec, implementation, queued, merged, and
+// superseded, which is [EveryStage]. Queued is the merge queue's membership: the
+// merge gate approved the candidate and its fast-forward has not happened, and
+// the queue is a component with no record of its own, so this value is what says
+// an item is in it. Superseded is where a re-cut leaves an item whose set the
+// Decomposition row rejected, and it is the first terminal value here: it is not
+// in [StageOrder], so nothing advances to it and nothing is sent back to it, and
+// [Cut.Supersede] is what writes it. The design has two more (dropped,
+// escalated), and later milestones widen the CHECK as they build what writes each.
+// What that costs: a CHECK is a schema edit each time a value arrives.
 //
 // An item moves both ways. [Dispatch.Advance] goes one stage forward and
 // [Dispatch.SendBack] goes to the stage the item is at or to one above it,
@@ -36,9 +40,9 @@
 //
 // # Links
 //
-// intent_id, service_id, and the ids in waits_on are id fields and not foreign
-// keys, like every link between records, and item_stage.item_id is written the
-// same way. The
+// intent_id, service_id, and the ids in waits_on and superseded_by are id fields
+// and not foreign keys, like every link between records, and item_stage.item_id is
+// written the same way. The
 // store checks a link for being present and not for pointing at anything; the
 // link walk reads the fields. What that costs: an item naming an intent or a
 // service that does not exist is stored without complaint, and the cut is
@@ -48,5 +52,6 @@
 // What defines it:
 // ../../end-goal/how-humans-do-it/02-intent-into-items.md#what-an-item-names,
 // which sets the fields, dispatch as the writer of the stage and the two
-// counts beside it, and the two-writer seam.
+// counts beside it, and the two-writer seam. A superseded item pointing at what
+// replaced it is ../../end-goal/how-humans-do-it/02-intent-into-items.md#the-cut.
 package item

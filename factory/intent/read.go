@@ -16,9 +16,9 @@ import (
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Intent, error) {
 	var in Intent
 	var kind, source, state string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, recuts
 		from `+Table+` where id = $1`, id).
-		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds)
+		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.Recuts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Intent{}, fmt.Errorf("%w: %s", ErrIntentNotFound, id)
 	} else if err != nil {
@@ -46,10 +46,10 @@ func Unrefined(ctx context.Context, pool *pgxpool.Pool, statement string) (Inten
 	}
 	var in Intent
 	var kind, source, state string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, recuts
 		from `+Table+` where statement = $1 and state = $2 order by at, id limit 1`,
 		statement, string(StateUnrefined)).
-		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds)
+		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.Recuts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Intent{}, false, nil
 	} else if err != nil {

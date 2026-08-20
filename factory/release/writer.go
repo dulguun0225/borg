@@ -44,11 +44,31 @@ type Writer struct {
 // NewWriter returns the writer over pool.
 func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 
-// Mint writes the release record and its number in one transaction: the
+// Mint is [Writer.MintWith] with nothing written beside the release.
+func (w *Writer) Mint(ctx context.Context, actor record.Actor, serviceID, buildID, itemID string) (Release, error) {
+	return w.MintWith(ctx, actor, serviceID, buildID, itemID, nil)
+}
+
+// MintWith writes the release record and its number in one transaction: the
 // number is one above the highest the service has, read under a per-service
 // advisory lock so two mints for one service serialise and take consecutive
 // numbers. Numbers are never reused — nothing here deletes, and a rolled-back
 // release keeps its number.
+//
+// inside is what the caller writes in the same transaction, given the release as
+// it is about to be committed. It is the merge queue's, and what it writes is the
+// contract versions the release publishes: a contract changes only inside its
+// service's items and every write to it happens at a release, so the mint is the
+// event, and one merge must not be able to leave a number with no version or a
+// version under a number nothing minted. A nil hook is a mint with nothing beside
+// it, which is what [Writer.Mint] is.
+//
+// The hook is an argument and not a second writer this package holds, so nothing
+// here imports what it writes: this package sees a function that takes a
+// transaction, and the caller sees the release it is writing against. What it
+// costs is that a hook which errors takes the number down with it — the release is
+// not minted and the item is re-verified on the next run, which is the safer of the
+// two half-writes and the same choice the queue's own ordering makes.
 //
 // The transaction runs at read committed, stated explicitly rather than
 // inherited: at repeatable read the snapshot is taken before the lock is
@@ -56,7 +76,8 @@ func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 // previous mint committed, and two releases would take one number. The unique
 // constraint would refuse the second, but as an error where the lock makes it
 // a wait.
-func (w *Writer) Mint(ctx context.Context, actor record.Actor, serviceID, buildID, itemID string) (Release, error) {
+func (w *Writer) MintWith(ctx context.Context, actor record.Actor, serviceID, buildID, itemID string,
+	inside func(context.Context, pgx.Tx, Release) error) (Release, error) {
 	if err := actor.Validate(); err != nil {
 		return Release{}, err
 	}
@@ -102,6 +123,12 @@ func (w *Writer) Mint(ctx context.Context, actor record.Actor, serviceID, buildI
 		r.ID, string(r.Actor.Kind), r.Actor.Name, r.At, r.ServiceID, r.Number, r.BuildID, r.ItemID,
 	); err != nil {
 		return Release{}, fmt.Errorf("release: minting number %d of %s: %w", r.Number, serviceID, err)
+	}
+
+	if inside != nil {
+		if err := inside(ctx, tx, r); err != nil {
+			return Release{}, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
