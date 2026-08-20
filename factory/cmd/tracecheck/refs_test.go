@@ -127,6 +127,48 @@ func TestCheckSkipsTheAnchorOnANonMarkdownTarget(t *testing.T) {
 	}
 }
 
+func TestUncitedFindsADocGoWithNoReference(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "pkg", "doc.go"), "package pkg\n")
+	mustWrite(t, filepath.Join(dir, "other", "doc.go"), "package other\n")
+	mustWrite(t, filepath.Join(dir, "other", "file.go"), "package other\n")
+
+	files := []string{
+		filepath.Join(dir, "pkg", "doc.go"),
+		filepath.Join(dir, "other", "doc.go"),
+		filepath.Join(dir, "other", "file.go"),
+	}
+	refs := []Reference{
+		{File: filepath.Join(dir, "pkg", "doc.go"), Line: 1, Target: "../guide.md"},
+	}
+
+	found := Uncited(files, refs)
+	want := []string{filepath.Join(dir, "other", "doc.go")}
+	if !slices.Equal(found, want) {
+		t.Fatalf("Uncited found %v, want %v — a doc.go that contributed a reference passes, a doc.go with none is reported, and a non-doc.go file with none stays passing", found, want)
+	}
+}
+
+func TestUncitedOrdersFindingsAsFilesGivesThem(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "b", "doc.go"), "package b\n")
+	mustWrite(t, filepath.Join(dir, "a", "doc.go"), "package a\n")
+
+	files := []string{
+		filepath.Join(dir, "b", "doc.go"),
+		filepath.Join(dir, "a", "doc.go"),
+	}
+
+	found := Uncited(files, nil)
+	want := []string{
+		filepath.Join(dir, "b", "doc.go"),
+		filepath.Join(dir, "a", "doc.go"),
+	}
+	if !slices.Equal(found, want) {
+		t.Fatalf("Uncited found %v, want %v in the order files gives them", found, want)
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

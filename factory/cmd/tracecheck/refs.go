@@ -144,6 +144,26 @@ func Check(refs []Reference) []string {
 	return found
 }
 
+// Uncited returns every doc.go path in files that contributed no Reference,
+// in the order files gives them. A doc.go with nothing cited out of it has
+// no "What defines it" line, or one a Go comment never carries a path from —
+// either way, this is what tracecheck's own doc.go claims to check and
+// Check alone does not.
+func Uncited(files []string, refs []Reference) []string {
+	cited := make(map[string]bool)
+	for _, ref := range refs {
+		cited[ref.File] = true
+	}
+
+	var uncited []string
+	for _, file := range files {
+		if filepath.Base(file) == "doc.go" && !cited[file] {
+			uncited = append(uncited, file)
+		}
+	}
+	return uncited
+}
+
 // headingSlugs reads a Markdown file and returns the slug of every heading
 // it has.
 func headingSlugs(path string) (map[string]bool, error) {

@@ -1,11 +1,11 @@
 // Command tracecheck fails the build on a reference from the code or its
 // documentation into a Markdown file that points at nothing — a target
 // whose file or directory does not exist, or a "#anchor" matching no
-// heading in the file it names. It is what checks the "What defines it"
-// line every package's doc.go carries: nothing else reads a path inside a
-// Go comment, because the consistency pass in
-// ../../../end-goal/CLAUDE.md scopes every command it runs to end-goal
-// alone. Run it from factory/.
+// heading in the file it names — and on a doc.go that names no target at
+// all. It is what checks the "What defines it" line every package's doc.go
+// carries: nothing else reads a path inside a Go comment, because the
+// consistency pass in ../../../end-goal/CLAUDE.md scopes every command it
+// runs to end-goal alone. Run it from factory/.
 //
 // It walks the working directory and reads every *.go and *.md file under
 // it, extracting a reference two ways. A Markdown link — a target in
@@ -20,14 +20,17 @@
 // read as one; in a .md file every line is read. Each target resolves
 // against the directory of the file it was found in.
 //
-// Two things are an error: a target whose file or directory does not
-// exist, and, where the target names an anchor and the target is
-// Markdown, an anchor matching no heading in that file. A heading is
-// slugged the way the consistency pass slugs one — lowercase, every
-// letter, digit, space, and hyphen kept, everything else dropped, and each
-// space turned to a hyphen — so the two agree; that differs from GitHub,
-// which appends "-1" to a repeated heading's second slug, and this check
-// does not.
+// Three things are an error: a target whose file or directory does not
+// exist; where the target names an anchor and the target is Markdown, an
+// anchor matching no heading in that file; and a doc.go, anywhere under
+// the walk, that contributed no reference at all. A heading is slugged
+// the way the consistency pass slugs one — lowercase, every letter,
+// digit, space, and hyphen kept, everything else dropped, and each space
+// turned to a hyphen — so the two agree; that differs from GitHub, which
+// appends "-1" to a repeated heading's second slug, and this check does
+// not. The third forces a cost: a doc.go whose concept is defined nowhere
+// in the tree now has to say so — "What defines it: nothing yet" or
+// similar — rather than stay silent about it.
 //
 // What it does not see: a link or a path split across a line break,
 // because extraction reads one line at a time; a scheme other than

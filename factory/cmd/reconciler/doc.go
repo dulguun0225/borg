@@ -26,4 +26,14 @@
 // What it reaches a target through is the same seam an agent does, and the read
 // operation is the one that changes nothing. That the read works from a process which
 // did not perform the deploy is what package localtarget had to change to allow.
+//
+// What defines it:
+// ../../../end-goal/how-humans-do-it/08-operations.md#the-reconciler — the one process
+// outside the pipeline, which the owner installs beside the factory they already host,
+// and where clearing a mismatch is the human act placed at the reconciler and refused
+// at Ops. The three subcommands are that section's comparison, its last comparison per
+// target read so a stopped reconciler is visible rather than silent, and that
+// clearing. What a mismatch then holds is
+// ../../../end-goal/how-humans-do-it/03-gates.md#deploy-to-production, and package
+// reconciler's own doc.go is what defines the two records this command writes.
 package main

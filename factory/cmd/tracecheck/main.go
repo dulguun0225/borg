@@ -31,11 +31,15 @@ func run() error {
 		refs = append(refs, ExtractFile(file, content)...)
 	}
 
-	found := Check(refs)
-	if len(found) == 0 {
+	var findings []string
+	findings = append(findings, Check(refs)...)
+	for _, file := range Uncited(files, refs) {
+		findings = append(findings, fmt.Sprintf("%s: a doc.go carrying no reference at all", file))
+	}
+	if len(findings) == 0 {
 		return nil
 	}
-	return errors.New("tracecheck: a reference points at nothing:\n\t" + strings.Join(found, "\n\t"))
+	return errors.New("tracecheck: a reference points at nothing, or a doc.go carries none:\n\t" + strings.Join(findings, "\n\t"))
 }
 
 // walkFiles returns every *.go and *.md file under root, in the order
