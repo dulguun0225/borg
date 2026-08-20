@@ -3,9 +3,10 @@
 ## What this repository is
 
 A monorepo for building the software factory [README.md](README.md) describes. It holds
-the design document under `end-goal/`. Code is added beside it as it arrives, never
-inside it — `end-goal/` is the state the repository is built toward, not a record of what
-it currently does.
+the design document under `end-goal/` — **the tree**, which is what this file and the
+document's own [glossary](end-goal/glossary.md) call it, and which the rest of this file
+uses bare. Code is added beside it as it arrives, never inside it — `end-goal/` is the
+state the repository is built toward, not a record of what it currently does.
 
 The factory is built as ordinary software and does not run its own pipeline over itself.
 
@@ -98,19 +99,20 @@ commit bodies — and anything written about them, a reply in the terminal inclu
 **A reply has a different reader, and that changes what these rules ask for.** The
 design document is read by somebody who has read the rest of it, so a settled term
 carries its whole meaning and a link finishes the introduction. A reply is read by the
-owner, deciding something, who does not hold the tree in their head and cannot follow a
-link mid-sentence — so a reply says what a thing is the first time it names it: a
-milestone, a package, a record, a file, a helper in a test. It leads with what changed
+owner, deciding something, who does not have the document in their head and cannot
+follow a link mid-sentence — so a reply says what a thing is the first time it names it:
+a milestone, a package, a record, a file, a helper in a test. It leads with what changed
 and what turns on it, and puts the mechanism after, in as much detail as the decision
-needs and no more. Where the owner has to decide, both ways are stated in ordinary
-words rather than in the tree's. This is *understandable* doing its work at the place
-the ordering already puts it, third and above concise: the register that is right for
+needs and no more. Where the owner has to decide, both ways are stated in ordinary words
+rather than in the document's. This is *understandable* doing its work where the
+ordering already puts it, third and above concise: the register that is right for
 `end-goal/` satisfies precise and concise in a reply while failing the reader in front
 of it, which is how a session can be exactly correct and useless at the same time. What
 it costs is length — a reply is longer than the same content written for the document —
 and the remedy is never to say less. (Owner rule, 2026-08-20, after a run of replies
 that named milestones, packages and test helpers with no introduction and lost the
-reader entirely.)
+reader entirely — and after the first draft of this very paragraph used **the tree**
+without introducing it, which is how easily the rule is broken by whoever wrote it.)
 
 **Precise, then literal, then understandable, then concise, then simple.** The order is
 the rule and only does work where they conflict. Simple is last, not absent: plain words
