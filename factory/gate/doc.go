@@ -72,7 +72,7 @@
 // [Opened.HeldOut] is on the opening row from that firing onward. A pin's human and
 // a mismatch's human stand: the sample is the score holding itself out of its own
 // gate, and it is asked with the pin's answer so that it cannot pass one. That is
-// the one mechanism in the tree that takes a human off a row, and what makes it
+// the one mechanism in the design that takes a human off a row, and what makes it
 // legitimate is whose human it is. [Opened.WhyHuman] says which, because a firing that reads the same to
 // an owner for two different reasons is one they cannot argue with, and
 // [Opened.Mismatch] says what disagreed, because a human approving through one is
@@ -91,7 +91,7 @@
 // row, and it refuses a firing that did. [Gate.AutoReject] is the factory
 // rejecting where a mechanical check failed, and it is allowed whatever the firing
 // decided about a human. That asymmetry is the whole difference between them: the
-// factory may not approve over a human, because nothing in the tree removes a
+// factory may not approve over a human, because nothing in the design removes a
 // human from a gate; and it rejects before a human is asked, because the design
 // has the merge row's checks — the acceptance criteria, every consumer's
 // declaration, and the producer's own contract diff — each rejecting on its own

@@ -113,7 +113,7 @@ ten that the score would have gated is held out instead: the item auto-passes ev
 would have gated from that firing onward, its closing row says the sample and not the threshold passed
 it, and its release is watched to the cap rather than stopping where the boundary would allow. It
 reaches nothing an owner pinned, because a gate pinned always-on is a human an owner added and no
-mechanism in the tree removes one. What the sample cannot have on this substrate is the strategy that
+mechanism in the design removes one. What the sample cannot have on this substrate is the strategy that
 keeps a control: every deploy here moves a process rather than traffic, so a held-out release is
 watched by the same confounded comparison as every other one and the longest watch available is all
 the sample gets.

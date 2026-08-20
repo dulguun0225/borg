@@ -3,10 +3,9 @@
 ## What this repository is
 
 A monorepo for building the software factory [README.md](README.md) describes. It holds
-the design document under `end-goal/` — **the tree**, which is what this file and the
-document's own [glossary](end-goal/glossary.md) call it, and which the rest of this file
-uses bare. Code is added beside it as it arrives, never inside it — `end-goal/` is the
-state the repository is built toward, not a record of what it currently does.
+the design document under `end-goal/`. Code is added beside it as it arrives, never
+inside it — `end-goal/` is the state the repository is built toward, not a record of
+what it currently does.
 
 The factory is built as ordinary software and does not run its own pipeline over itself.
 
@@ -33,7 +32,7 @@ the subject belongs to, and say which it is where the answer would differ by row
 
 ### What the product is
 
-| Discipline | What in the tree it owns |
+| Discipline | What in the design document it owns |
 |---|---|
 | Product management | Whether a self-hosted factory with one customer per install is worth having, and what the no-tenancy decision costs |
 | Product design | The four surfaces, and a home view that is empty whenever the factory is working |
@@ -42,7 +41,7 @@ the subject belongs to, and say which it is where the answer would differ by row
 
 ### What the factory decides
 
-| Discipline | What in the tree it owns |
+| Discipline | What in the design document it owns |
 |---|---|
 | Applied statistics and sequential testing | The watch window: a boundary valid at every point it is read, the size and confidence an owner authors, and whether `clean` is reachable at all on a quiet service |
 | Risk scoring | The score's factors, its published formula, its calibration, and a loop trained on outcomes its own decisions selected |
@@ -53,7 +52,7 @@ the subject belongs to, and say which it is where the answer would differ by row
 
 ### What the factory is made of
 
-| Discipline | What in the tree it owns |
+| Discipline | What in the design document it owns |
 |---|---|
 | Software architecture | Component boundaries, one writer per record, and the seam declared between two |
 | Backend engineering | The record graph and the components that write it |
@@ -64,7 +63,7 @@ the subject belongs to, and say which it is where the answer would differ by row
 
 ### What the factory runs
 
-| Discipline | What in the tree it owns |
+| Discipline | What in the design document it owns |
 |---|---|
 | Release engineering | The merge queue, the two rollout strategies, K, and a rollback's target |
 | Database migration engineering | The store's forward promise, which is what a rollback across a schema change rests on |
@@ -75,14 +74,14 @@ the subject belongs to, and say which it is where the answer would differ by row
 
 ### What the factory answers to
 
-| Discipline | What in the tree it owns |
+| Discipline | What in the design document it owns |
 |---|---|
 | Security engineering | The four seams, and the policy that attaches at the one between an agent and a deploy target |
 | Supply chain security | Dependencies the factory adds on its own — versions, vulnerabilities, and licenses |
 | Trust and safety | The report channel, which is the one way in from outside the factory |
 | Audit and compliance | Traceability as a claim made to an auditor, and segregation of duties in a system that authors, approves, and deploys |
 | Legal | Laws and regulations as standing constraints, and licensing a product a customer self-hosts |
-| Cost engineering | Cost per feature, the provider's quota, and the spend ceiling the tree refuses |
+| Cost engineering | Cost per feature, the provider's quota, and the spend ceiling the design refuses |
 
 What it costs: a list this long names something for every question and so settles none of
 them, and most sessions touch one row or two. It also describes a factory that does not
@@ -111,8 +110,9 @@ of it, which is how a session can be exactly correct and useless at the same tim
 it costs is length — a reply is longer than the same content written for the document —
 and the remedy is never to say less. (Owner rule, 2026-08-20, after a run of replies
 that named milestones, packages and test helpers with no introduction and lost the
-reader entirely — and after the first draft of this very paragraph used **the tree**
-without introducing it, which is how easily the rule is broken by whoever wrote it.)
+reader entirely — and after the first draft of this very paragraph named the design
+document by a word only this repository uses, without introducing it, which is how
+easily the rule is broken by whoever is writing it.)
 
 **Precise, then literal, then understandable, then concise, then simple.** The order is
 the rule and only does work where they conflict. Simple is last, not absent: plain words
@@ -141,6 +141,23 @@ under a parameter or a **ceiling** over it. What makes a term settled is that a 
 defines it, not that two paragraphs use it — so the exemption is checkable, and coining
 one to get around the ban is not it. Outside its definition the word is ordinary again:
 a record still does not hold its fields. (Owner rule, 2026-08-14.)
+
+**A term has to name something the plain words cannot say once.** A name earns its place
+when a mechanism would otherwise be described a slightly different way every time it
+came up, and a reader could not tell whether two descriptions meant the same thing — a
+**watch window**, a **restore floor**, a **held-out sample**. It does not earn its place
+by being shorter than the plain phrase for the same idea. **The tree** was that: it
+meant this design document, the glossary's own entry said so in those words, and it
+bought nothing except making every sentence around it sound like a conversation somebody
+else was already in. It was used forty-one times, twenty-four of them in the document,
+and it went on 2026-08-20 at the owner's instruction. The same two words also meant a
+git working tree at sixteen sites in the code, which is the sharper cost: a private
+synonym that collides with the ordinary word is worse than a private synonym, because
+only a reader who already knows can tell which is meant. So no new term where a plain
+phrase says the same thing, and a term already here that turns out to be one of those is
+removed rather than kept for the cost of removing it. What this rule costs is that the
+plain phrase is usually longer, and length is the thing the ordering above is willing to
+spend. (Owner rule, 2026-08-20.)
 
 **Understandable.** A term is introduced where it is first used, or linked to where it
 is introduced. A reader who has not read the rest of the document has to be able to
@@ -229,26 +246,26 @@ asks whether what those rules protect is any good. A reader below runs when the 
 names it, and readers run one at a time — the next starts after the previous returns. No
 phrase runs all of them, and no request means more readers than it names. There was one —
 **Audit this project** dispatched all thirty at once — and it was retired: one run spent
-a session limit in ten minutes and a fifth of a weekly model quota. What a partial run
-must not do is speak for the tree: its report names which readers ran, and a tree those
-readers found sound is not a tree found sound. A reader's subagent runs on a model and at
-an effort matched to what it judges — quality of the work decides first, tokens second,
-time last, so a doubt between two tiers resolves to the higher, and the cheap tier is
-never a default. (Owner rule, 2026-08-17.)
+a session limit in ten minutes and a fifth of a weekly model quota. What a partial run must not do is speak for the whole design: its report names which
+readers ran, and a design those readers found sound is not a design found sound. A
+reader's subagent runs on a model and at an effort matched to what it judges — quality
+of the work decides first, tokens second, time last, so a doubt between two tiers
+resolves to the higher, and the cheap tier is never a default. (Owner rule, 2026-08-17.)
 
-Neither substitutes for the other. The consistency pass finds a link pointing at nothing,
-a heading no longer matching the anchor aimed at it, a term used before it is introduced —
-defects the rules name, which is why a grep finds most of them. The review pass finds a
-design that would not work, a subject the tree never mentions, and a rule costing more
-than it returns. Nothing in the repository looked for those until 2026-08-16.
+Neither substitutes for the other. The consistency pass finds a link pointing at
+nothing, a heading no longer matching the anchor aimed at it, a term used before it is
+introduced — defects the rules name, which is why a grep finds most of them. The review
+pass finds a design that would not work, a subject the design never mentions, and a rule
+costing more than it returns. Nothing in the repository looked for those until
+2026-08-16.
 
 ### Why it is dispatched cold
 
-An agent that has read the instruction files audits against them and reports the tree
+An agent that has read the instruction files audits against them and reports the design
 sound, because every rule in it is satisfied. That is the failure this pass exists to
-defeat, and it is the blindness the cold-read check already names one level down: on each
-changed file, `end-goal/CLAUDE.md` sends a subagent nothing but the path, because one that
-has read the whole document resolves every term and returns an empty list.
+defeat, and it is the blindness the cold-read check already names one level down: on
+each changed file, `end-goal/CLAUDE.md` sends a subagent nothing but the path, because
+one that has read the whole document resolves every term and returns an empty list.
 
 So each reader runs in its own subagent, and each is told two things in its dispatch text
 — to judge what it reads on its own and ignore anything it was told about this repository
@@ -258,21 +275,21 @@ file whether or not it is asked to, which `end-goal/CLAUDE.md` records as a leak
 cold-read check. Here an unqualified copy of the rules reproduces the exact defect the
 pass is for.
 
-[_What the work spans_](#what-the-work-spans) is a second leak and a sharper one. It tells
-each discipline reader what in the tree it owns, which is a brief where half the job is
-finding what its field covers and the tree never mentions — a reader that audits its own
-rows confirms the table rather than the design. So a discipline reader is told to audit
-the whole tree from its field, and that its row is the tree's claim about what it owns
-rather than the boundary of what to read.
+[_What the work spans_](#what-the-work-spans) is a second leak and a sharper one. It
+tells each discipline reader what in the design document it owns, which is a brief where
+half the job is finding what its field covers and the document never mentions — a reader
+that audits its own rows confirms the table rather than the design. So a discipline
+reader is told to audit the whole document from its field, and that its row is the
+document's claim about what it owns rather than the boundary of what to read.
 
 ### The readers
 
 A roster of thirty, each run as one subagent reading the repository's Markdown —
 `end-goal/` and the instruction files — and none seeing another's work. Twenty-eight are
 the disciplines [_What the work spans_](#what-the-work-spans) names, one per row, each
-asking two things of the whole tree: what its field knows the design gets wrong, and what
-its field normally covers that the design never mentions. The rows are not repeated here — the table is one
-place, and a copy would be two able to disagree.
+asking two things of the whole design: what its field knows the design gets wrong, and
+what its field normally covers that the design never mentions. The rows are not repeated
+here — the table is one place, and a copy would be two able to disagree.
 
 Two stances survive beside them, because neither is any discipline's. A stance is a
 position with a reason to find something, not a checklist:
@@ -280,22 +297,22 @@ position with a reason to find something, not a checklist:
 | Stance | What it looks for |
 |---|---|
 | The absence reader | Subjects a design of this kind normally covers and this one never mentions |
-| The rule reader | Reads the instruction files alone: whether a rule earns the cost it states, whether two conflict, and whether one is followed anywhere in the tree |
+| The rule reader | Reads the instruction files alone: whether a rule earns the cost it states, whether two conflict, and whether one is followed anywhere in the design |
 
 Four stances went, each replaced by readers that know the field rather than occupy a
-position in it: the builder by software architecture and backend engineering, the operator
-by site reliability and observability engineering, the adversary by safety and security
-engineering, the cold reader by technical writing. The absence reader stays because the
-twenty-eight were derived by reading this tree and inherit its blind spots — a subject no
-discipline on the list owns is invisible to all twenty-eight and to nothing else. The rule
-reader stays because the instruction files are what it reads, and no discipline is pointed
-at them.
+position in it: the builder by software architecture and backend engineering, the
+operator by site reliability and observability engineering, the adversary by safety and
+security engineering, the cold reader by technical writing. The absence reader stays
+because the twenty-eight were derived by reading this document and inherit its blind spots —
+a subject no discipline on the list owns is invisible to all twenty-eight and to nothing
+else. The rule reader stays because the instruction files are what it reads, and no
+discipline is pointed at them.
 
 Each reader returns at most three findings, ranked by what turns on them. An uncapped
 reader returns what nobody reads, and the cap costs the fourth finding of a reader that
-had more to say. A reader that finds nothing returns nothing, and that is a result rather
-than a gap to fill: a discipline the tree never touches is either absent from the design
-or wrongly on the list.
+had more to say. A reader that finds nothing returns nothing, and that is a result
+rather than a gap to fill: a discipline the document never touches is either absent from
+the design or wrongly on the list.
 
 ### What happens to a finding
 
@@ -322,18 +339,18 @@ paragraph to read and is the text doing its job. What must not appear is a fourt
 a findings file, a report per run, a list of what each reader said. `next.md` was that
 shape, and `end-goal/` emptied it on 2026-08-14.
 
-What it costs: a subagent per reader named, and a result that is a judgment rather than a
-command's exit status. Running on request rather than after every edit means a defect can
-sit in the tree until someone thinks to look, and the readers are fixed, so they find
-thirty kinds of thing and no thirty-first. One reader per request means coverage is
-whatever the owner remembers to ask for — a defect in a field whose reader is never named
-sits indefinitely — and covering the roster costs thirty requests paid in latency where
-the retired full run paid in quota. The larger cost is downstream. Every taken
-finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read subagent
-per changed file and the eleven-file read-through — so ten taken findings cost ten of
-each. That makes refusal the cheapest disposition, which is the one it should be least
-eager to reach, and is why the triage is done with the owner rather than by the session
-that ran the pass. (Owner rule, 2026-08-16.)
+What it costs: a subagent per reader named, and a result that is a judgment rather than
+a command's exit status. Running on request rather than after every edit means a defect
+can sit in the document until someone thinks to look, and the readers are fixed, so they
+find thirty kinds of thing and no thirty-first. One reader per request means coverage is
+whatever the owner remembers to ask for — a defect in a field whose reader is never
+named sits indefinitely — and covering the roster costs thirty requests paid in latency
+where the retired full run paid in quota. The larger cost is downstream. Every taken
+finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read
+subagent per changed file and the eleven-file read-through — so ten taken findings cost
+ten of each. That makes refusal the cheapest disposition, which is the one it should be
+least eager to reach, and is why the triage is done with the owner rather than by the
+session that ran the pass. (Owner rule, 2026-08-16.)
 
 ## Commits
 
@@ -377,16 +394,16 @@ what actually stalled the earlier attempt — records were cited *to the owner* 
 against pivoting, rejected options and reversal conditions quoted as though they closed a
 question the owner was reopening.
 
-So, when the owner decides against something the tree says: state what it costs once,
+So, when the owner decides against something the design says: state what it costs once,
 briefly — what breaks, and what the text was protecting — then do the work and edit the
-tree to follow. Citing a cost as a refusal, or arguing it a second time after the owner
+design to follow. Citing a cost as a refusal, or arguing it a second time after the owner
 has heard it, is a defect in the session and not a defence of the design. Between owner
-decisions nothing changes: a session does not drift from the tree, and does not edit it
-without a reason it writes down.
+decisions nothing changes: a session does not drift from the design, and does not edit
+it without a reason it writes down.
 
-What it costs is real. An owner can pivot past a cost the tree was right about, and the
-only record that it was stated is the commit — nobody reads a warning twice, which is the
-point and also the risk. (Owner rule, 2026-08-17.)
+What it costs is real. An owner can pivot past a cost the design was right about, and
+the only record that it was stated is the commit — nobody reads a warning twice, which
+is the point and also the risk. (Owner rule, 2026-08-17.)
 
 ## graphify
 

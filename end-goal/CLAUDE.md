@@ -15,8 +15,8 @@ build, test suite, or linter for this directory. Do not go looking for one. Ever
 here is an edit to a design document, and the document says of itself that everything in
 it is open to revision.
 
-`README.md` indexes the tree; `how-humans-do-it/README.md` is the dependency-order table
-and only that.
+`README.md` indexes this document; `how-humans-do-it/README.md` is the dependency-order
+table and only that.
 
 There is no work list. `next.md` held one until 2026-08-14, when its two lists were emptied: the
 eight decided-but-unwritten entries were folded into the files that own their subjects, which
@@ -37,9 +37,9 @@ link where the name points at another file, with the name as the link text.
 The value of the doc is that its claims interlock. Most damage comes from editing one
 section and leaving another asserting the opposite. The links most easily broken:
 
-**The numbered duty list.** `what-humans-do.md` numbers twelve owner duties, and the rest
-of the tree cites them as bare numbers — `(7)`, `(10)`, `(11, 12)`. Inserting, removing,
-or reordering a duty silently repoints every reference in every other file.
+**The numbered duty list.** `what-humans-do.md` numbers twelve owner duties, and the
+rest of this document cites them as bare numbers — `(7)`, `(10)`, `(11, 12)`. Inserting,
+removing, or reordering a duty silently repoints every reference in every other file.
 
 **The gate table against the prose.** Every gate named in prose needs a row, and every
 action in a row must be possible at that point in the lifecycle. `Deploy to production`
@@ -192,13 +192,13 @@ for p in sorted(glob.glob('end-goal/**/*.md', recursive=True)):
 EOF
 ```
 
-The link check resolves each path against the directory of the file it appears in, which a
-one-liner resolving against `end-goal/` and `how-humans-do-it/` alike did not: a link
-written with the wrong prefix resolved under the other directory and passed. It cannot see
-anchors — it strips fragments and skips same-file links — which is why the anchor check
-is separate. That one matches an anchor against every heading in the tree rather than
-against the target file's own, so it catches a renamed heading and not a link pointed at
-the wrong file.
+The link check resolves each path against the directory of the file it appears in, which
+a one-liner resolving against `end-goal/` and `how-humans-do-it/` alike did not: a link
+written with the wrong prefix resolved under the other directory and passed. It cannot
+see anchors — it strips fragments and skips same-file links — which is why the anchor
+check is separate. That one matches an anchor against every heading in this document
+rather than against the target file's own, so it catches a renamed heading and not a
+link pointed at the wrong file.
 
 The coverage check enforces the link-at-first-use rule at the level a grep can: its term
 list is the glossary's multi-word terms plus **K**, and a file that uses one must link

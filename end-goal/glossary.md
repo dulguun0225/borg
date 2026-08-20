@@ -109,7 +109,6 @@ Read it when a sentence uses a name you cannot place. Nothing depends on reading
 - **targets** — the addresses an environment is reached at, a field of the environment rather than records of their own. [Records, and one long-lived branch](how-humans-do-it/05-environments.md#records-and-one-long-lived-branch)
 - **task** — an internal step of one item, never a unit that ships: no build, no number, no environment of its own. [Tasks](how-humans-do-it/03-gates.md#tasks)
 - **thread** — one item's whole timeline, from intent to the numbered release it ends in, which is how Work shows it. One item is one thread. [Work, Ops, Factory, People](how-humans-do-it/11-surfaces.md#work-ops-factory-people)
-- **the tree** — this design document: the Markdown files under `end-goal/` that [README](README.md) indexes. Sections use the word to refer to the document as a whole.
 - **trust number** — how much the factory auto-approved and how often that was later vetoed or rolled back. [The trust number](how-humans-do-it/11-surfaces.md#the-trust-number)
 - **UAT** — duty 7, performed at the merge gate against the candidate's own run. [What humans do](what-humans-do.md)
 - **veto after the fact** — duty 10, in two phases: a rollback while the release's control is still running, a revert once it is gone. [What humans do](what-humans-do.md)

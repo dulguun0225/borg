@@ -5,7 +5,7 @@
 //
 // The comparison is the one component that reads production behaviour and knows
 // which release and which deploy that behaviour belongs to, which is exactly what
-// an incident points at. A human-written one would put a judgment where the tree
+// an incident points at. A human-written one would put a judgment where the design
 // keeps arithmetic, and a human's judgment about live software already reaches
 // production through veto after the fact and the page they may fire — so [Writer]
 // refuses an actor that is not a component, the mirror of package policy refusing

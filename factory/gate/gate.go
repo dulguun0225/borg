@@ -27,7 +27,7 @@ var (
 	// a reject without it decides nothing the item's next attempt can use.
 	ErrFeedbackMissing = errors.New("gate: a reject carries feedback")
 	// ErrHumanDecides is returned by [Gate.AutoPass] for a firing that put a
-	// human at the row. Nothing in the tree removes a human from a gate, so the
+	// human at the row. Nothing in the design removes a human from a gate, so the
 	// factory may not close a decision it was not asked to make.
 	ErrHumanDecides = errors.New("gate: this firing put a human at the row, and the factory does not decide over one")
 	// ErrCheckMissing is returned by [Gate.AutoReject] for a rejection that does
@@ -319,7 +319,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 
 	// A held-out item removes the human the number put at the row and no other. A
 	// pin's human and a mismatch's stand: the sample is the score holding itself
-	// out of its own gate, and nothing in the tree lets it out of anyone else's.
+	// out of its own gate, and nothing in the design lets it out of anyone else's.
 	gatedByNumber := overThreshold && !selection.HeldOut
 	opened := Opened{
 		Gate:         f.Row,
@@ -396,7 +396,7 @@ func (g *Gate) Decide(ctx context.Context, opened Opened, actor record.Actor, ve
 	returnsTo := ""
 	if verdict == VerdictReject && opened.Gate != Decomposition {
 		// Decomposition names nothing: its reject re-cuts the set rather than
-		// sending an item anywhere, which is the one reject in the tree with no
+		// sending an item anywhere, which is the one reject in the design with no
 		// stage on the other end of it.
 		returnsTo = ReturnsTo
 	}
@@ -430,7 +430,7 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 //
 // It is allowed whatever the firing decided about a human, and [Gate.AutoPass] is
 // not. That asymmetry is the whole of the difference between the two: the factory
-// may not approve over a human, because nothing in the tree removes a human from a
+// may not approve over a human, because nothing in the design removes a human from a
 // gate; and it rejects before a human is asked, because a mechanical check rejects
 // on its own terms before anyone gives a verdict. A human at the row who was going
 // to approve is not being overruled — there is nothing left to approve, and the

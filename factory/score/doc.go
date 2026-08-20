@@ -112,7 +112,7 @@
 // a change the score wanted gated and did not gate.
 //
 // Two things bound it. It passes nothing a pin put a human at, because a gate
-// pinned always-on is a human an owner added and nothing in the tree removes one.
+// pinned always-on is a human an owner added and nothing in the design removes one.
 // And it selects an item and not a firing, so the selection is read forward off
 // the decisions already opened on that item rather than drawn again at each row.
 //

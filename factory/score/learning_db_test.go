@@ -179,7 +179,7 @@ func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T
 }
 
 // TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks: the one mechanism in
-// the tree that takes a human off a row, and the two fields it is recorded in.
+// the design that takes a human off a row, and the two fields it is recorded in.
 func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 	ctx, pool, _ := newScore(t)
 	version, found, err := score.Newest(ctx, pool)

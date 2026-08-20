@@ -89,7 +89,7 @@ const (
 //
 // Three rules, in this order. A pin is never passed: a gate pinned always-on is a
 // human an owner added, and a sample that could pass one would be the single
-// mechanism in the tree that removes a human from a gate, which is what a pin
+// mechanism in the design that removes a human from a gate, which is what a pin
 // exists to prevent. An item an earlier decision says was selected stays selected,
 // whatever the number reads now — that is what makes the selection an item's
 // property rather than a firing's. And otherwise the draw selects, but only where

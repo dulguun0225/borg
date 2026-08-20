@@ -19,7 +19,7 @@ The drawback is that a single path is a single point of failure. Almost nothing 
 
 ## Adopting an existing codebase
 
-Everything else in [the tree](glossary.md) assumes a factory that has always been there. A first run on software somebody else built has none of what that assumes, and how a factory takes such a codebase over is not designed here. What is settled is that it is sequenced away and what the wait costs, so that the section which eventually designs it starts from a known list rather than a discovery.
+Everything else in this document assumes a factory that has always been there. A first run on software somebody else built has none of what that assumes, and how a factory takes such a codebase over is not designed here. What is settled is that it is sequenced away and what the wait costs, so that the section which eventually designs it starts from a known list rather than a discovery.
 
 Five things a first run does not have, and what each costs until it does:
 

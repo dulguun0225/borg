@@ -98,7 +98,7 @@ func permits(row Row, verdict Verdict) error {
 // human deciding there is performing UAT. Neither deploy row names a duty,
 // because the design names none for either — a human at one is deciding whether
 // the deploy happens and not verifying an artifact, and inventing a duty number
-// for a row would put a claim on the opening row that the tree does not make.
+// for a row would put a claim on the opening row that the design does not make.
 // What such a row waits on is whoever holds it, and the surface that shows a
 // duty holder their rows is M7's.
 func WaitsOn(row Row) string {
