@@ -59,7 +59,17 @@ func AdvisoryLockKey() int64 {
 // versions down. A unique index over the five would refuse exactly that, so a
 // value that moved could never move back. This comment claimed such an index from
 // M2 until 2026-08-20, when building the learning found that no statement here
-// ever created one — the claim was wrong and the absence was right.
+// ever created one — the claim was wrong and the absence was right. Refusing it in
+// the store could only be a trigger anyway: it is a comparison between two rows
+// made at the insert, and a trigger is logic the source does not show.
+//
+// What the store does refuse is a sequence that is not one.
+// score_version_one_row_per_predecessor is unique over supersedes, which says two things at once: no two versions name
+// the same predecessor, so the chain cannot fork, and at most one names none, so it
+// has one beginning. That is what "the sequence is readable without a column that
+// orders it" actually rests on, and it went unenforced from M2 until 2026-08-20 —
+// found by looking for the index this comment used to claim. It is the arrangement
+// decisionlog's one-closing-per-opening index already has, one table along.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -74,6 +84,7 @@ var DDL = []string{
 	constraint formula_present check (formula <> ''),
 	constraint factor_set_present check (factor_set <> ''),
 	constraint rules_present check (rules <> ''),
-	constraint supplied_present check (supplied <> '')
+	constraint supplied_present check (supplied <> ''),
+	constraint score_version_one_row_per_predecessor unique (supersedes)
 )`,
 }

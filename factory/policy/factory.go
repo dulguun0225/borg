@@ -273,6 +273,16 @@ func (f *Factory) write(ctx context.Context, actor record.Actor, action Action,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// The lock covers the write and the append together. What it serialises is
+	// reading the version in force and appending the one that supersedes it: two
+	// writers doing that at once would each supersede the same version, and the
+	// sequence an auditor walks would fork. The unique constraint refuses the fork;
+	// this is what means a second owner authoring at the same moment waits for the
+	// first rather than being refused.
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey()); err != nil {
+		return Version{}, fmt.Errorf("policy: taking the version lock: %w", err)
+	}
+
 	if err := apply(tx); err != nil {
 		return Version{}, err
 	}
