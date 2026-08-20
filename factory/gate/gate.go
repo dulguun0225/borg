@@ -43,6 +43,11 @@ var (
 // implementation.
 type Score interface {
 	Assess(ctx context.Context, c score.Change) (score.Assessment, error)
+	// HoldOut is whether the score holds this item out of the gate the firing
+	// would otherwise put a human at. It is asked after the policy has answered,
+	// because the question is about a gate the score itself would have gated and
+	// the score does not know the threshold in force.
+	HoldOut(ctx context.Context, itemID string, wouldGate, pinned bool) (score.Selection, error)
 }
 
 // Policy is what the gate asks about the values in force: the threshold for this
@@ -142,6 +147,14 @@ type Opened struct {
 	HumanDecides bool
 	// WhyHuman is what put a human at the row, and is empty where none is.
 	WhyHuman string
+	// HeldOut is whether the score selected this item into its held-out sample.
+	// It is written on every decision on the item from the selection onward, so a
+	// row that reads held out where the number is under the threshold is an item
+	// selected at an earlier gate and passed here on the number.
+	HeldOut bool
+	// WhyHeldOut is which of the two ways it came to be held out, and is empty
+	// where it is not.
+	WhyHeldOut string
 	// Mismatch is what the reconciler found disagreeing with what runs, and is
 	// empty where it found nothing and at every row but the production deploy. It
 	// is a field of its own beside WhyHuman because a human deciding here has to
@@ -170,12 +183,12 @@ const (
 // decided over, the criteria results, the whole vector and the number it reduced
 // to, the values actually applied, and what the row waits on.
 //
-// [score.Subject] is embedded rather than restated: the score reads the item and
-// the artifact back off this payload when it counts outcomes, so the two field
-// names are declared once, in the package that reads them.
+// [score.Opening] is embedded rather than restated: the score reads the item, the
+// artifact, the row, the number, the threshold, and the selection back off this
+// payload when it learns from outcomes, so every one of those field names is
+// declared once, in the package that reads them.
 type OpeningPayload struct {
-	score.Subject
-	Gate           string            `json:"gate"`
+	score.Opening
 	BuildID        string            `json:"build_id"`
 	ServiceID      string            `json:"service_id"`
 	AreaID         string            `json:"area_id"`
@@ -186,14 +199,16 @@ type OpeningPayload struct {
 	Likelihood     float64           `json:"likelihood"`
 	Impact         float64           `json:"impact"`
 	Exposure       float64           `json:"exposure"`
-	Number         float64           `json:"number"`
-	Threshold      float64           `json:"threshold"`
 	ThresholdFrom  string            `json:"threshold_from"`
 	Pins           []string          `json:"pins"`
 	Unavailable    []string          `json:"unavailable_factors"`
 	HumanDecides   bool              `json:"human_decides"`
 	WhyHuman       string            `json:"why_human"`
-	WaitsOn        string            `json:"waits_on"`
+	// WhyHeldOut is which of the two ways the item came to be held out, and is
+	// empty where it is not. The selection itself is a field of the embedded
+	// opening, because the score reads that one back.
+	WhyHeldOut string `json:"why_held_out,omitempty"`
+	WaitsOn    string `json:"waits_on"`
 	// Mismatch is what the reconciler found disagreeing with what runs, and is
 	// empty on every row that found none. It is on the opening row because a human
 	// approving through it is saying the record is wrong and the deploy should
@@ -210,22 +225,19 @@ type OpeningPayload struct {
 // and is a note on a hold — what a human held for is worth showing beside the
 // wait, and nothing reads it.
 //
-// AutoPassedBy reads "threshold" and nothing else here. The design's other value
-// is the score's held-out sample, and nothing selects one yet, so the field says
-// which of the two it was on every auto-pass and one of the two is unreachable.
+// [score.Closing] is embedded for the reason [score.Opening] is: the verdict and
+// what auto-passed the firing are both read back by the score when it learns, and
+// the threshold's own calibration turns on telling an auto-pass on the number
+// apart from one its own sample made, so those two field names are declared once
+// in the package that reads them.
 type ClosingPayload struct {
-	Verdict      string `json:"verdict"`
-	Feedback     string `json:"feedback"`
-	ReturnsTo    string `json:"returns_to"`
-	AutoPassedBy string `json:"auto_passed_by"`
+	score.Closing
+	Feedback  string `json:"feedback"`
+	ReturnsTo string `json:"returns_to"`
 	// AutoRejectedBy is which mechanical check rejected, and is empty on every
 	// closing row but [Gate.AutoReject]'s.
 	AutoRejectedBy string `json:"auto_rejected_by,omitempty"`
 }
-
-// AutoPassedByThreshold is what the closing row says of an auto-pass: the number
-// was under the threshold in force.
-const AutoPassedByThreshold = "threshold"
 
 // The mechanical checks that reject on their own terms at the merge row, in the
 // words a closing row names one by. They are constants here so that a caller
@@ -295,13 +307,28 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		}
 	}
 
+	// The score's own sample, asked after the policy answered and before the human
+	// test: what it may pass is a gate the score itself would have gated, which is
+	// the number against the threshold in force, and it may pass nothing a pin put
+	// a human at.
 	overThreshold := assessment.Number >= applied.Threshold
+	selection, err := g.score.HoldOut(ctx, f.ItemID, overThreshold, applied.HumanPinned)
+	if err != nil {
+		return Opened{}, fmt.Errorf("gate: asking the score whether %s is held out: %w", f.ItemID, err)
+	}
+
+	// A held-out item removes the human the number put at the row and no other. A
+	// pin's human and a mismatch's stand: the sample is the score holding itself
+	// out of its own gate, and nothing in the tree lets it out of anyone else's.
+	gatedByNumber := overThreshold && !selection.HeldOut
 	opened := Opened{
 		Gate:         f.Row,
 		Assessment:   assessment,
 		Applied:      applied,
-		HumanDecides: overThreshold || applied.HumanPinned || mismatch != "",
-		WhyHuman:     why(overThreshold, applied.HumanPinned, mismatch != ""),
+		HumanDecides: gatedByNumber || applied.HumanPinned || mismatch != "",
+		WhyHuman:     why(gatedByNumber, applied.HumanPinned, mismatch != ""),
+		HeldOut:      selection.HeldOut,
+		WhyHeldOut:   selection.Why,
 		Mismatch:     mismatch,
 	}
 
@@ -310,8 +337,14 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		waitsOn = WaitsOn(f.Row)
 	}
 	payload, err := json.Marshal(OpeningPayload{
-		Subject:        score.Subject{ItemID: f.ItemID, ArtifactID: f.ArtifactID},
-		Gate:           string(f.Row),
+		Opening: score.Opening{
+			ItemID:     f.ItemID,
+			ArtifactID: f.ArtifactID,
+			Gate:       string(f.Row),
+			Number:     assessment.Number,
+			Threshold:  applied.Threshold,
+			HeldOut:    opened.HeldOut,
+		},
 		BuildID:        f.BuildID,
 		ServiceID:      f.ServiceID,
 		AreaID:         f.AreaID,
@@ -322,13 +355,12 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		Likelihood:     assessment.Likelihood,
 		Impact:         assessment.Impact,
 		Exposure:       assessment.Exposure,
-		Number:         assessment.Number,
-		Threshold:      applied.Threshold,
 		ThresholdFrom:  string(applied.ThresholdFrom),
 		Pins:           applied.Pins,
 		Unavailable:    assessment.UnavailableFactors(),
 		HumanDecides:   opened.HumanDecides,
 		WhyHuman:       opened.WhyHuman,
+		WhyHeldOut:     opened.WhyHeldOut,
 		WaitsOn:        waitsOn,
 		Mismatch:       opened.Mismatch,
 	})
@@ -369,7 +401,7 @@ func (g *Gate) Decide(ctx context.Context, opened Opened, actor record.Actor, ve
 		returnsTo = ReturnsTo
 	}
 	return g.close(ctx, opened, actor, ClosingPayload{
-		Verdict:   string(verdict),
+		Closing:   score.Closing{Verdict: string(verdict)},
 		Feedback:  feedback,
 		ReturnsTo: returnsTo,
 	})
@@ -384,8 +416,10 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 		return decisionlog.Row{}, fmt.Errorf("%w: %s", ErrHumanDecides, opened.WhyHuman)
 	}
 	return g.close(ctx, opened, component(opened.Gate), ClosingPayload{
-		Verdict:      string(VerdictApprove),
-		AutoPassedBy: AutoPassedByThreshold,
+		Closing: score.Closing{
+			Verdict:      string(VerdictApprove),
+			AutoPassedBy: autoPassedBy(opened),
+		},
 	})
 }
 
@@ -420,7 +454,7 @@ func (g *Gate) AutoReject(ctx context.Context, opened Opened, check, found strin
 		returnsTo = ""
 	}
 	return g.close(ctx, opened, component(opened.Gate), ClosingPayload{
-		Verdict:        string(VerdictReject),
+		Closing:        score.Closing{Verdict: string(VerdictReject)},
 		Feedback:       found,
 		ReturnsTo:      returnsTo,
 		AutoRejectedBy: check,
@@ -499,6 +533,18 @@ func blocked(criteria []CriterionResult) int {
 		}
 	}
 	return n
+}
+
+// autoPassedBy is what the closing row says passed the firing. It reads the
+// threshold at a gate the score would have passed anyway, whether or not the item
+// is held out, and the sample only where the number was at or above the threshold
+// — which is the one case the sample is evidence about, and the only case the
+// threshold's own calibration counts.
+func autoPassedBy(opened Opened) string {
+	if opened.HeldOut && opened.Assessment.Number >= opened.Applied.Threshold {
+		return score.AutoPassedBySample
+	}
+	return score.AutoPassedByThreshold
 }
 
 // why is what put a human at the row. The score's number and a pin are the two

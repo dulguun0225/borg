@@ -154,6 +154,62 @@ func AtStage(ctx context.Context, pool *pgxpool.Pool, serviceID string, stage St
 	return read, nil
 }
 
+// All is every item in the store, oldest cut first. It is what the score learns
+// from: the subjects it supplies a value for are the areas the items name and the
+// stages they reported at, so a reader asking per area or per service would first
+// have to be told which to ask about.
+//
+// The whole table at once is what learning over every outcome costs while the
+// store is small, and it is the cost the decision log's own whole-log read
+// already carries.
+func All(ctx context.Context, pool *pgxpool.Pool) ([]Item, error) {
+	rows, err := pool.Query(ctx, `select `+columns+` from `+Table+` order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("item: reading every item: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("item: reading an item: %w", err)
+		}
+		read = append(read, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("item: reading every item: %w", err)
+	}
+	return read, nil
+}
+
+// AllStages is every per-stage row of every item, in the order the stages first
+// reported. It is [Stages] over the whole table, and it is a read of its own
+// rather than a loop over [All] calling [Stages] for each, because what reads it
+// reads every attempt at one stage across every item — the attempt bound being
+// per stage and not per item.
+func AllStages(ctx context.Context, pool *pgxpool.Pool) ([]StageTotals, error) {
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_name, at, item_id, stage, attempts, spend_tokens
+		from `+StageTable+` order by at, stage`)
+	if err != nil {
+		return nil, fmt.Errorf("item: reading every stage: %w", err)
+	}
+	defer rows.Close()
+
+	var read []StageTotals
+	for rows.Next() {
+		s, err := scanStage(rows)
+		if err != nil {
+			return nil, fmt.Errorf("item: reading a stage: %w", err)
+		}
+		read = append(read, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("item: reading every stage: %w", err)
+	}
+	return read, nil
+}
+
 // Stages is every per-stage row of one item, in the order the stages first
 // reported — the timestamp of the first report, with the stage name breaking
 // a tie. The id column orders nothing, being random bytes.
@@ -167,18 +223,28 @@ func Stages(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]StageTota
 
 	var read []StageTotals
 	for rows.Next() {
-		var s StageTotals
-		var kind, stage string
-		if err := rows.Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.ItemID,
-			&stage, &s.Attempts, &s.SpendTokens); err != nil {
+		s, err := scanStage(rows)
+		if err != nil {
 			return nil, fmt.Errorf("item: reading a stage of %s: %w", itemID, err)
 		}
-		s.Actor.Kind = record.Kind(kind)
-		s.Stage = Stage(stage)
 		read = append(read, s)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("item: reading the stages of %s: %w", itemID, err)
 	}
 	return read, nil
+}
+
+// scanStage reads one per-stage row. Both reads of that table use it, so the
+// column order is written once.
+func scanStage(row pgx.Row) (StageTotals, error) {
+	var s StageTotals
+	var kind, stage string
+	if err := row.Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.ItemID,
+		&stage, &s.Attempts, &s.SpendTokens); err != nil {
+		return StageTotals{}, err
+	}
+	s.Actor.Kind = record.Kind(kind)
+	s.Stage = Stage(stage)
+	return s, nil
 }

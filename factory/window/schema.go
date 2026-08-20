@@ -26,6 +26,12 @@ const IDPrefix = "win"
 // time and no exit are both refused. That is the one place a window's two states
 // could disagree.
 //
+// held_out is copied onto the row for the reason clean_available is not enough on
+// its own: a window on a held-out release runs to the cap because the score is
+// measuring what it auto-passed, and one on a first release runs to the cap
+// because it has nothing to compare against. Both have clean_available false and
+// they are not the same window.
+//
 // The size, the confidence, the cap, and the boundary's formula are copied onto
 // the row at the open rather than read back from the service record later, and
 // doc.go says why. policy_version and score_version are the same thing for the
@@ -37,6 +43,7 @@ var DDL = []string{
 	release_id text not null unique,
 	service_id text not null,
 	clean_available boolean not null,
+	held_out boolean not null,
 	size double precision not null,
 	confidence double precision not null,
 	cap_seconds double precision not null,

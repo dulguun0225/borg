@@ -105,6 +105,12 @@ const NoBuildAtTheCut = "no build exists at the cut, and the diff is measured fr
 // The whole set's members are on the opening row whichever one the number came
 // from, so a human reading it sees what they are approving and not only what drove
 // the number.
+//
+// The score's held-out sample is not asked here, and that is the one thing this row
+// does not do that every row below it does. The sample selects an item, and one
+// draw over a set would select several on one number that is none of theirs. What
+// it costs is that this row produces no unbiased evidence, so the threshold the
+// score supplies for it can fall and never rise.
 func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 	if f.IntentID == "" {
 		return Opened{}, fmt.Errorf("%w: it names no intent", ErrSetIncomplete)

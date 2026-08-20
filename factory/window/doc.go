@@ -33,6 +33,16 @@
 // ending at the cap is readable as weak protection rather than as a comparison
 // that ran out of time.
 //
+// [Window.HeldOut] is the second way clean becomes unreachable and the reason one
+// field could not carry both. The score's own sample selects an item and runs its
+// release to the cap rather than stopping where the boundary would allow —
+// auto-passing a change the score wanted gated is where the factory is most openly
+// guessing, so it takes the longest watch available. A window that ran to the cap
+// for that reason and one that ran to the cap for want of a baseline are not the
+// same window, and a reader holding only CleanAvailable could not tell them apart.
+// Both are the caller's to hand over: what the score selected is read off the
+// decisions on the item, which this package does not read.
+//
 // What is not on it is the control. A control is named on the production deploy
 // record, not here — and on a substrate that moves a process rather than traffic
 // no control is ever started, so the field would be a column nothing writes.
@@ -43,7 +53,11 @@
 // release record is written once at the fast-forward and never again, so an
 // outcome settled by a window closing long afterwards cannot be a field of it,
 // and the fact is already implied by the records that exist.
-// [ClosedWithoutHarm] is what both are computed from: every window of the service
+// [Closed] is beside them and answers a different question: every closed window of
+// every service, which is what the score learns from — the subjects it supplies a
+// value for are the services the windows name, so a reader asking per service would
+// first have to be told which services to ask about. [ClosedWithoutHarm] is what
+// both of the two below are computed from: every window of the service
 // whose exit is clean or at the cap, which are the two exits that count. Closing
 // at the cap counts because a release that was never condemned is one the factory
 // can return to, and requiring a clean close would leave a service too quiet to

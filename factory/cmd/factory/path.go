@@ -93,6 +93,12 @@ type deps struct {
 	// wait: what it gives up on, `factory watch` continues.
 	watchFor   time.Duration
 	watchEvery time.Duration
+	// draw is what the score's held-out sample is drawn from. It is nil in a run,
+	// which is the runtime's own generator: the sample is one in ten of the firings
+	// the score would have gated, and a run that composed a fixed draw would either
+	// sample nothing or sample everything. A test composes one that answers a fixed
+	// sequence, which is the only way a selection is assertable.
+	draw score.Draw
 }
 
 // repoOf is the repository of the named service, and an error for a name this
@@ -622,11 +628,22 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		return nil, errors.New("factory: an install knows at least one service, and this one knows none")
 	}
 
+	// The score version first, because the policy reader is composed with it: the
+	// supplied half of every value in force is a field of the version in force, so
+	// a reader holding a different one would answer a gate firing with a number the
+	// decision's own row does not name. This is also where the score learns — the
+	// ensure computes the supplied table from every outcome in the store and appends
+	// a version where it has moved.
+	scoreVersion, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
+	if err != nil {
+		return nil, err
+	}
+
 	p := &path{
 		d:           d,
 		human:       record.Actor{Kind: record.KindHuman, Name: d.human},
 		lines:       bufio.NewScanner(d.in),
-		policy:      policy.NewReader(d.pool),
+		policy:      policy.NewReader(d.pool, scoreVersion),
 		log:         decisionlog.NewWriter(d.pool),
 		store:       artifact.NewStore(d.pool),
 		intake:      intent.NewIntake(d.pool),
@@ -640,20 +657,14 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 	p.candidates = environment.NewCandidates(d.pool)
 
-	// The install and the two versions. The factory policy record and production's
-	// environment record are what an owner authors on, and they exist before a
-	// project does — so this ensures both as the owner and takes the policy version
-	// in force from it. The score version is the score's own: what the source
-	// publishes, appended where it has stopped matching the newest stored version.
+	// The install. The factory policy record and production's environment record are
+	// what an owner authors on, and they exist before a project does — so this
+	// ensures both as the owner and takes the policy version in force from it.
 	installed, err := policy.NewFactory(d.pool).Install(ctx, p.human, []string{d.dir}, d.credential)
 	if err != nil {
 		return nil, err
 	}
 	p.production = installed.Production
-	scoreVersion, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
-	if err != nil {
-		return nil, err
-	}
 	p.scoreVersion = scoreVersion.ID
 
 	// The reconciler's store, read and never written. Where none is installed the
@@ -667,7 +678,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	} else {
 		fmt.Fprintln(d.out, "No reconciler is installed, so every check this factory makes reads a record it wrote itself")
 	}
-	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion), p.policy, mismatches)
+	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion, d.draw), p.policy, mismatches)
 	p.queue = mergequeue.New(d.pool, p.log, release.NewWriter(d.pool), p.dispatch, p)
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)

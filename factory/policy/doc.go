@@ -35,6 +35,21 @@
 // a human at the gate rather than moving the number — which is why [Applied]
 // carries both a threshold and whether a human is pinned.
 //
+// What the score supplies is read out of the score version this reader was
+// composed with, and per subject: the score supplies K for one service and the
+// item-size target for one area, which is the same key the authored field has. A
+// [Reader] holds that version rather than reading the newest at each answer,
+// because a supplied value moves as outcomes arrive — a reader that re-read it
+// could hand one gate firing a threshold from a version its own decision row does
+// not name, and a decision has to be readable against the policy it was decided
+// under. The zero version is the starting values, which is what a factory that has
+// appended none supplies.
+//
+// The direction of that edge is the other half of the rule. This package reads the
+// score and the score reads no authored value: what an owner wrote is an override
+// of what the score supplies, so a score that read the authored value would be
+// supplying a number against what an owner had already decided.
+//
 // One parameter has a fourth read under the other three, and it is the predicate
 // catalog: the kinds the factory itself can decide. Gate policy has an owner extend
 // the catalog and a pin only add to it, which presupposes something to extend, and

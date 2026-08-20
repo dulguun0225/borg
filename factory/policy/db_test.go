@@ -108,7 +108,9 @@ func newFactory(t *testing.T) (context.Context, installed) {
 		t.Fatalf("declaring the area: %v", err)
 	}
 	return ctx, installed{
-		pool: pool, factory: factory, reader: policy.NewReader(pool),
+		// The reader is composed with the version in force, which is what a run
+		// does: the supplied half of every value is a field of that version.
+		pool: pool, factory: factory, reader: policy.NewReader(pool, scoreVersion(t, ctx, pool)),
 		policy: install.Policy, prod: install.Production, service: svc, area: ar,
 	}
 }
@@ -193,7 +195,7 @@ func TestTheValueInForceIsAReadOfThreeThings(t *testing.T) {
 		t.Fatalf("All: %v", err)
 	}
 	k := effectiveOf(t, all, gatepolicy.K)
-	supplied, _ := score.Supplied(gatepolicy.K)
+	supplied := startingValue(t, gatepolicy.K)
 	if k.Source != policy.FromSupplied || k.Number != supplied {
 		t.Errorf("K with nothing authored reads %v from %s, want the supplied %v", k.Number, k.Source, supplied)
 	}
@@ -290,7 +292,7 @@ func TestAPinOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
-	supplied, _ := score.Supplied(gatepolicy.RiskThreshold)
+	supplied := startingValue(t, gatepolicy.RiskThreshold)
 	if before.HumanPinned || before.Threshold != supplied || before.ThresholdFrom != policy.FromSupplied {
 		t.Errorf("with nothing authored the gate reads %+v, want the supplied threshold and no pin", before)
 	}
@@ -511,7 +513,7 @@ func TestTheAttemptBoundIsReadThroughTheSameThreeReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttemptBound: %v", err)
 	}
-	supplied, _ := score.Supplied(gatepolicy.AttemptBound)
+	supplied := startingValue(t, gatepolicy.AttemptBound)
 	if bound.Source != policy.FromSupplied || bound.Number != supplied {
 		t.Errorf("the bound reads %v from %s, want the supplied %v", bound.Number, bound.Source, supplied)
 	}
@@ -682,7 +684,7 @@ func TestAGateWithNoRecordsToReadFallsBackToWhatTheScoreSupplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
-	supplied, _ := score.Supplied(gatepolicy.RiskThreshold)
+	supplied := startingValue(t, gatepolicy.RiskThreshold)
 	if applied.ThresholdFrom != policy.FromSupplied || applied.Threshold != supplied {
 		t.Errorf("a firing naming no environment reads %v from %s, want the supplied %v",
 			applied.Threshold, applied.ThresholdFrom, supplied)
@@ -719,7 +721,31 @@ func TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName(t *testing.T) {
 		t.Fatalf("applying the schema: %v", err)
 	}
 
-	if _, err := policy.NewReader(pool).AtGate(ctx, policy.Subjects{GateRow: "merge_to_master"}); !errors.Is(err, policy.ErrNoVersion) {
+	if _, err := policy.NewReader(pool, score.Version{}).AtGate(ctx, policy.Subjects{GateRow: "merge_to_master"}); !errors.Is(err, policy.ErrNoVersion) {
 		t.Errorf("AtGate on a factory nobody installed = %v, want ErrNoVersion", err)
 	}
+}
+
+// startingValue is what the score supplies for a parameter before any outcome has
+// moved it, which is what a factory with no outcomes in it reads.
+func startingValue(t *testing.T, parameter gatepolicy.Parameter) float64 {
+	t.Helper()
+	supplied, found := score.Starting(parameter)
+	if !found {
+		t.Fatalf("the score supplies no %s", parameter)
+	}
+	return supplied.Value
+}
+
+// scoreVersion is the version in force, appended if there is none. The reader is
+// composed with it rather than reading the newest at each answer: a supplied value
+// moves as outcomes arrive, and a reader that re-read it could give one gate
+// firing a threshold from a version its own decision row does not name.
+func scoreVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool) score.Version {
+	t.Helper()
+	version, err := score.NewWriter(pool).Ensure(ctx, record.Actor{Kind: record.KindComponent, Name: "score"})
+	if err != nil {
+		t.Fatalf("ensuring the score version: %v", err)
+	}
+	return version
 }

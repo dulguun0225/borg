@@ -81,3 +81,35 @@ func IDsByAuthor(ctx context.Context, pool *pgxpool.Pool, author string) ([]stri
 	}
 	return ids, nil
 }
+
+// ItemsByAuthor is every item this author wrote a version of, once each, in the
+// order the versions were written. The prior needs both this and [IDsByAuthor]
+// and they are not the same question: a human's verdict is given on an artifact
+// version, and a watch window's exit is an outcome on an item — the release, the
+// deploy, and the window all hang off the item and none of them names a version.
+//
+// An empty author is no items and no error, for the reason [IDsByAuthor] gives.
+func ItemsByAuthor(ctx context.Context, pool *pgxpool.Pool, author string) ([]string, error) {
+	if author == "" {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `select distinct on (item_id) item_id, at from `+Table+`
+		where author = $1 order by item_id, at`, author)
+	if err != nil {
+		return nil, fmt.Errorf("artifact: reading the items %s wrote a version of: %w", author, err)
+	}
+	defer rows.Close()
+
+	var items []string
+	for rows.Next() {
+		var id, at string
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, fmt.Errorf("artifact: reading an item %s wrote a version of: %w", author, err)
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("artifact: reading the items %s wrote a version of: %w", author, err)
+	}
+	return items, nil
+}

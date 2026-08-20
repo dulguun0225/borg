@@ -1,10 +1,17 @@
 package score
 
-// FormulaVersion names the published formula. It is authored rather than
-// learned: the weights, the breakpoints, and the last step were written by hand
-// and calibrated against a factory that has just been installed. Learning moves
-// this name, and nothing here learns.
-const FormulaVersion = "authored-1"
+// FormulaVersion names the published formula. It is authored and stays authored:
+// the weights, the breakpoints, and the last step were written by hand and
+// calibrated against a factory that has just been installed, and what learning
+// moves is the seven values the score supplies rather than any of those — an owner
+// authors what the number is compared against and never how it is computed.
+//
+// It moves when a line of [Formula] changes, which is the second thing it has
+// named: authored-1 read the authorship prior over human verdicts alone, and
+// authored-2 reads it over every outcome on that author's work, which is a
+// different number from the same arithmetic. What moves a supplied value instead
+// is [Rules], and [LearningVersion] is that text's own name.
+const FormulaVersion = "authored-2"
 
 // Formula is the published formula, in the words the score version stores and a
 // human disagreeing with a number reads. It states every breakpoint, and
@@ -17,7 +24,10 @@ const Formula = `Each factor resolves to a level between 0 and 1, where 1 is the
   change.area_churn      releases in this area lately: <=0 -> 0.0, <=2 -> 0.2, <=9 -> 0.5, above -> 1.0
   change.test_coverage   any criterion failed -> 1.0; otherwise criteria in force: <=0 -> 1.0, <=2 -> 0.5, <=9 -> 0.3, above -> 0.1
   change.reversibility   no earlier release to return to -> 1.0; an earlier release -> 0.3
-  authorship.prior       1 - approved / (approved + rejected + 1), over human verdicts on this author's artifacts
+  authorship.prior       1 - good / (good + bad + 1), over every outcome on this author's work: a human
+                         approving one of its versions and a release of its watched to a close without
+                         harm are good, a human rejecting one, a window condemning a release at harm,
+                         and a human vetoing one are bad, and a swept window is neither
   context.business_area  1 - approved / (approved + rejected + 1), over human verdicts on items in this area
   context.consumers      sibling services declaring they consume this one: <=0 -> 0.0, <=2 -> 0.4, <=9 -> 0.7, above -> 1.0
 

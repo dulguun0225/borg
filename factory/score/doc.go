@@ -1,30 +1,32 @@
 // Package score is the risk score: a vector of named factors, reduced to one
-// number by a published formula, computed once per gate firing.
+// number by a published formula, computed once per gate firing — and the loop
+// that moves what the score supplies as outcomes arrive.
 //
-// Both halves matter. The number is what a gate compares against the threshold
-// in force; the vector is what a human reads when they disagree with the
-// number, so every factor carries the quantity it was read from, the level that
-// quantity resolved to, the weight the formula gave it, and — where the score
-// could not compute it — the reason. A score nobody can argue with is a score
-// nobody will trust.
+// Both halves of the number matter. The number is what a gate compares against
+// the threshold in force; the vector is what a human reads when they disagree
+// with the number, so every factor carries the quantity it was read from, the
+// level that quantity resolved to, the weight the formula gave it, and — where the
+// score could not compute it — the reason. A score nobody can argue with is a
+// score nobody will trust, and [Rules] is that same rule applied to the seven
+// numbers this package supplies.
 //
 // # What it reads
 //
 // Every factor but two comes from records this package reads: the releases in
 // an item's area, the closed decisions in the log, the artifact the build was
-// made from and its author, the releases the service already has, and the
-// contracts it publishes with the declarations naming them. The two
-// that do not are the size and reach of the change, which are read from the
-// build's diff — measured where the repository is, by the component that built,
-// and handed here in [Measurement]. It is not stored, because the vector
-// computed from it is: a diff re-taken later against a repository other items
-// have merged into is not the diff the decision was made on, and a vector is
-// written where it was computed and never recomputed.
+// made from and its author with the outcomes of that author's releases, the
+// releases the service already has, and the contracts it publishes with the
+// declarations naming them. The two that do not are the size and reach of the
+// change, which are read from the build's diff — measured where the repository is,
+// by the component that built, and handed here in [Measurement]. It is not
+// stored, because the vector computed from it is: a diff re-taken later against a
+// repository other items have merged into is not the diff the decision was made
+// on, and a vector is written where it was computed and never recomputed.
 //
-// [ClosedDecisions] is read whole for every assessment, which is what an
-// authorship prior over one author's outcomes costs while the log is small. A
-// query narrowed by the payload's own fields is what a log that has grown
-// needs, and that would put the payload's shape inside the log.
+// [decisionlog.ClosedDecisions] is read whole for every assessment, which is what
+// an authorship prior over one author's outcomes costs while the log is small. A
+// query narrowed by the payload's own fields is what a log that has grown needs,
+// and that would put the payload's shape inside the log.
 //
 // # Empty evidence is a wide value
 //
@@ -35,24 +37,63 @@
 // outright, and treating an empty history that way would put a human at every
 // gate of a new install forever.
 //
-// What narrows them is a human's verdict and nothing else. A watch window
-// closing without harm is not built yet, and an auto-passed decision is the
-// factory agreeing with itself rather than evidence about the author. The cost
-// is the sharpest thing in this package: a prior narrowed by human verdicts
-// stops moving once the factory stops putting humans at gates, which is the
-// self-reinforcement the design holds out a random sample to break — and there
-// is no sample here, so nothing records a held-out selection either.
+// What narrows the prior is every outcome on that author's own work — a human's
+// verdict on a version it wrote, a watch window closing over a release of an item
+// it wrote, and a human's veto of one — so a prior keeps moving on a factory that
+// has stopped putting humans at gates, which is what it could not do until the
+// windows were built and read here.
 //
-// # The version
+// # The version, and what learning moves
 //
 // [Version] is a record of the score's own, append-only, naming the published
-// formula, the factor set, and every value the score supplies where an owner
-// authored nothing — six of gate policy's seven rows, and none for the predicate
-// catalog, which no outcome teaches. Every decision names the version in force.
-// [Writer.Ensure] appends one where what the source publishes has stopped
-// matching the newest stored version, which is how a change to the formula moves
-// the version; the formula here is authored rather than learned, so that is one
-// row until learning moves it.
+// formula, the factor set, the published rules, and every value the score supplies
+// where an owner authored nothing — six of gate policy's seven rows, and none for
+// the predicate catalog, which no outcome teaches. Every decision names the
+// version in force.
+//
+// [Writer.Ensure] computes the supplied table from every outcome in the store and
+// appends a version where what it computed, or what the source publishes, has
+// stopped matching the newest stored version. So a supplied value moving and a
+// change to the formula both move the version by one path, and starting the
+// factory twice over an unchanged store appends nothing.
+//
+// A supplied value is per subject and not per parameter: K and the watch window's
+// three are supplied per service, the item-size target per area, the attempt bound
+// per stage, and the threshold per gate row — the same key the authored value has,
+// because what the score supplies is what stands where that field is empty. The
+// version stores the starting value of each parameter and a row for every subject
+// an outcome has moved it for, so a factory with no outcomes in it has a table of
+// seven rows. What it costs is the design's own stated cost arriving in full: a
+// long sequence of versions, most of them differing in one number that the
+// decisions naming them never read.
+//
+// Learning is a pass and never a write at a firing. An outcome arrives long after
+// the decision it judges, so nothing at a gate could have computed one, and a
+// version that moved mid-process would leave two decisions of one run naming
+// different numbers. What that costs is that a run acts on what the store said
+// when it started.
+//
+// # The held-out sample
+//
+// [Score.HoldOut] is the sample: one firing in ten that the score would have gated
+// is held out instead, and the item auto-passes every gate the score would have
+// gated from that firing onward. It exists to break the one self-reinforcement
+// the score cannot get out of on its own — a gated change a human approved is not
+// evidence the gate was unnecessary, because the human's own scrutiny is part of
+// why it turned out well, so the only unbiased evidence for raising a threshold is
+// a change the score wanted gated and did not gate.
+//
+// Two things bound it. It passes nothing a pin put a human at, because a gate
+// pinned always-on is a human an owner added and nothing in the tree removes one.
+// And it selects an item and not a firing, so the selection is read forward off
+// the decisions already opened on that item rather than drawn again at each row.
+//
+// What this substrate cannot give it is the strategy that keeps a control: every
+// deploy here moves a process rather than traffic, so a held-out release is
+// watched by the same confounded comparison as every other and the longest watch
+// available — the window running to the cap — is the whole of what the sample gets.
+// A held-out release is therefore evidence that a comparison was available, and
+// not that an unsampled release on the same author would have read the same.
 //
 // Who may write what: this package owns the score version table and appends to
 // it through [Writer]. It writes nothing else and reads every other record
@@ -61,7 +102,12 @@
 // What defines it: ../../end-goal/how-humans-do-it/04-risk-score.md — the three
 // factor groups, the vector recorded where it was computed, what an
 // uncomputable factor resolves to, the two halves kept apart until the last
-// step, and the score version as a record of the score's own. The values it
-// supplies are the rows of
-// ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it.
+// step, the score version as a record of the score's own, the loop of
+// ../../end-goal/how-humans-do-it/04-risk-score.md#how-it-learns, and the
+// held-out sample with the two fields it is recorded in. The values it supplies
+// are the rows of
+// ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it; K's own
+// evidence is ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows
+// and the window's size and cap are
+// ../../end-goal/how-humans-do-it/08-operations.md#the-watch-window.
 package score

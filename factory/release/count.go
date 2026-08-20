@@ -37,6 +37,33 @@ func CountForItemsSince(ctx context.Context, pool *pgxpool.Pool, itemIDs []strin
 	return count, nil
 }
 
+// All is every release in the store, oldest first. It is what the score learns
+// from: an outcome the score reads is a window's exit or a rollback, both of which
+// name a release, and what the score needs from the release is the item behind it
+// and the service and the number in front of it. Asking per service would mean
+// being told which services to ask about, which is what the releases themselves
+// say.
+func All(ctx context.Context, pool *pgxpool.Pool) ([]Release, error) {
+	rows, err := pool.Query(ctx, selectRelease+` order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("release: reading every release: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Release
+	for rows.Next() {
+		r, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("release: reading a release: %w", err)
+		}
+		read = append(read, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("release: reading every release: %w", err)
+	}
+	return read, nil
+}
+
 // Highest is the service's highest-numbered release, and false where it has
 // none. It is master's head: the commit of that release, reached through the
 // build it names. Numbers are never reused and a rolled-back release keeps its

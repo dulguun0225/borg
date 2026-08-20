@@ -14,9 +14,11 @@ import (
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/declaration"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/window"
 )
 
 // ErrChangeIncomplete is returned by [Score.Assess] for a change naming no item
@@ -63,14 +65,51 @@ type Change struct {
 	CriteriaFailed  int
 }
 
-// Subject is the part of a decision's opening row this package reads back: the
-// item the decision was about and the artifact version under decision. Package
-// gate composes it into the payload it writes, so the two field names are
-// declared once and an outcome the score counts is an outcome a gate wrote.
-type Subject struct {
-	ItemID     string `json:"item_id"`
-	ArtifactID string `json:"artifact_id"`
+// Opening is the part of a decision's opening row this package reads back: the
+// item the decision was about, the artifact version under decision, the row it
+// fired at, the number and the threshold it was decided against, and whether the
+// score's own sample had selected the item. Package gate composes it into the
+// payload it writes, so every one of those field names is declared once and an
+// outcome the score counts is an outcome a gate wrote.
+//
+// It is the part and not the whole payload. What a gate writes beside these is the
+// vector, the criteria, the pins, and what the row waits on, none of which this
+// package reads back — the vector because a vector is written where it was
+// computed and never recomputed, and the rest because nothing here asks about it.
+type Opening struct {
+	ItemID     string  `json:"item_id"`
+	ArtifactID string  `json:"artifact_id"`
+	Gate       string  `json:"gate"`
+	Number     float64 `json:"number"`
+	Threshold  float64 `json:"threshold"`
+	// HeldOut is whether the score selected this item into its sample. It is
+	// written on every decision on the item from the selection onward, which is
+	// what makes an item selected once auto-pass every gate the score would have
+	// gated.
+	HeldOut bool `json:"held_out"`
 }
+
+// Closing is the part of a decision's closing row this package reads back: the
+// verdict, and what auto-passed the firing where the factory decided for itself.
+// The two are read together because neither answers a question on its own — an
+// approval by a human is evidence about an author, and an approval by the factory
+// is the factory agreeing with itself unless its own sample is what passed it.
+type Closing struct {
+	Verdict      string `json:"verdict"`
+	AutoPassedBy string `json:"auto_passed_by"`
+}
+
+// The two verdicts this package reads off a closing row. Package gate owns the
+// vocabulary and cannot be imported here, importing this package itself, so these
+// are the two words this package reads and TestTheVerdictsGateWritesAreTheOnesTheScoreReads
+// in that package is what holds the two spellings together.
+const (
+	// VerdictApproved is a decision approved.
+	VerdictApproved = "approve"
+	// VerdictRejected is a decision rejected. A hold is neither, and teaches the
+	// score nothing.
+	VerdictRejected = "reject"
+)
 
 // Score is the risk score over one pool, computing every vector under one
 // version — the one in force when the process started, which every decision it
@@ -78,11 +117,18 @@ type Subject struct {
 type Score struct {
 	pool    *pgxpool.Pool
 	version Version
+	draw    Draw
 }
 
-// New returns the score over pool, computing under version.
-func New(pool *pgxpool.Pool, version Version) *Score {
-	return &Score{pool: pool, version: version}
+// New returns the score over pool, computing under version and drawing its
+// held-out sample from draw. A nil draw is [RandomDraw]: a factory composed
+// without one still holds a sample out, because a factory that quietly stopped
+// sampling would be one whose threshold could only ever fall.
+func New(pool *pgxpool.Pool, version Version, draw Draw) *Score {
+	if draw == nil {
+		draw = RandomDraw{}
+	}
+	return &Score{pool: pool, version: version, draw: draw}
 }
 
 // Version is the score version every assessment this score produces names.
@@ -217,10 +263,31 @@ func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 	}, nil
 }
 
-// prior reads the human verdicts on the author's own artifacts. The author is
-// the one that wrote the implementation version the build was made from, and
-// the prior is kept per author and not per role, so two agents on one model
-// share it.
+// prior reads every outcome on the author's own work. The author is the one that
+// wrote the implementation version the build was made from, and the prior is kept
+// per model version and not per family or per role, so two agents on one model
+// version share it and a fleet entry moved to a newer version starts its evidence
+// over.
+//
+// Three kinds of outcome, and the design says all three move it: a human's
+// verdict on a version that author wrote, a watch window closing over a release of
+// an item that author wrote, and a human's veto of one of those releases. A window
+// closing without harm counts for the author and one closing at harm counts
+// against — which is what "every outcome on that author's artifact moves it, a
+// window closing without harm included" asks for, and it is what lets a prior
+// narrow on a factory that has stopped putting humans at gates.
+//
+// A swept window is not counted either way: a rollback aimed below the release
+// undid it, so its comparison stopped before it decided anything. A veto is
+// counted whatever reason the human gave — the restriction to evidence traceable
+// to the health signal is the watch window's parameters' rule and not this one's,
+// because building the wrong thing well says something about the author and
+// nothing about the comparison.
+//
+// It reads two rows per item the author wrote, on top of the whole log. That is
+// what an outcome-based prior costs while the store is small, and it is the same
+// cost, one level up, that reading the whole log for one author's verdicts already
+// carries.
 func (s *Score) prior(ctx context.Context, c Change) (reading, error) {
 	implementation, found, err := artifact.NewestOfKind(ctx, s.pool, c.ItemID, artifact.KindImplementation)
 	if err != nil {
@@ -233,17 +300,75 @@ func (s *Score) prior(ctx context.Context, c Change) (reading, error) {
 	if err != nil {
 		return reading{}, err
 	}
-	approved, rejected, err := s.humanVerdicts(ctx, func(subject Subject) bool {
-		return contains(authored, subject.ArtifactID)
+	approved, rejected, err := s.humanVerdicts(ctx, func(opening Opening) bool {
+		return contains(authored, opening.ArtifactID)
 	})
 	if err != nil {
 		return reading{}, err
 	}
+
+	shipped, condemned, vetoed, err := s.outcomesOfAuthor(ctx, implementation.Author)
+	if err != nil {
+		return reading{}, err
+	}
 	return reading{
-		level: evidenceLevel(approved, rejected),
-		words: fmt.Sprintf("%s: %d human approvals and %d rejections on its own artifacts",
-			implementation.Author, approved, rejected),
+		level: evidenceLevel(approved+shipped, rejected+condemned+vetoed),
+		words: fmt.Sprintf("%s: %d human approval(s) and %d rejection(s) on its own versions, %d release(s) watched without harm, %d condemned by a window, %d vetoed by a human",
+			implementation.Author, approved, rejected, shipped, condemned, vetoed),
 	}, nil
+}
+
+// outcomesOfAuthor is what became of the releases of the items this author wrote a
+// version of: how many were watched to a close without harm, how many a window
+// condemned, and how many a human vetoed.
+//
+// A release is counted once at most. A release condemned by its own window is
+// usually also the release a rollback undid, and counting both would be one
+// outcome told twice — so a veto is counted only where the window did not already
+// condemn it, which is the case the design means by veto: a human undoing
+// something the comparison did not catch.
+func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, condemned, vetoed int, err error) {
+	items, err := artifact.ItemsByAuthor(ctx, s.pool, author)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if len(items) == 0 {
+		return 0, 0, 0, nil
+	}
+
+	rollbacks, err := deploy.Rollbacks(ctx, s.pool)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	vetoedRelease := map[string]bool{}
+	for _, d := range rollbacks {
+		if d.Undoing.Source != deploy.SourceComparisonAtHarm {
+			vetoedRelease[d.Undoing.CondemnedReleaseID] = true
+		}
+	}
+
+	for _, itemID := range items {
+		rel, released, err := release.ForItem(ctx, s.pool, itemID)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		if !released {
+			continue
+		}
+		w, watched, err := window.ForRelease(ctx, s.pool, rel.ID)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		switch {
+		case watched && w.Exit == window.ExitHarm:
+			condemned++
+		case vetoedRelease[rel.ID]:
+			vetoed++
+		case watched && w.Exit.Counts():
+			shipped++
+		}
+	}
+	return shipped, condemned, vetoed, nil
 }
 
 // businessArea reads the human verdicts on items in the same area. What the
@@ -261,8 +386,8 @@ func (s *Score) businessArea(ctx context.Context, c Change) (reading, error) {
 	if err != nil {
 		return reading{}, err
 	}
-	approved, rejected, err := s.humanVerdicts(ctx, func(subject Subject) bool {
-		return contains(items, subject.ItemID)
+	approved, rejected, err := s.humanVerdicts(ctx, func(opening Opening) bool {
+		return contains(items, opening.ItemID)
 	})
 	if err != nil {
 		return reading{}, err
@@ -339,7 +464,7 @@ func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 // what separates it from a reject. An auto-passed decision is not counted
 // either — its closing row's actor is the gate component, so the human test
 // leaves it out, which is doc.go's point about what narrows a prior here.
-func (s *Score) humanVerdicts(ctx context.Context, wanted func(Subject) bool) (approved, rejected int, err error) {
+func (s *Score) humanVerdicts(ctx context.Context, wanted func(Opening) bool) (approved, rejected int, err error) {
 	closed, err := decisionlog.ClosedDecisions(ctx, s.pool)
 	if err != nil {
 		return 0, 0, err
@@ -348,26 +473,24 @@ func (s *Score) humanVerdicts(ctx context.Context, wanted func(Subject) bool) (a
 		if d.Closing.Actor.Kind != record.KindHuman {
 			continue
 		}
-		var subject Subject
-		if err := json.Unmarshal([]byte(d.Opening.Payload), &subject); err != nil {
+		var opening Opening
+		if err := json.Unmarshal([]byte(d.Opening.Payload), &opening); err != nil {
 			// A payload this package cannot read is a row some other component
 			// wrote in a shape it does not know, which is not evidence about an
 			// author and is not an error either.
 			continue
 		}
-		if !wanted(subject) {
+		if !wanted(opening) {
 			continue
 		}
-		var verdict struct {
-			Verdict string `json:"verdict"`
-		}
-		if err := json.Unmarshal([]byte(d.Closing.Payload), &verdict); err != nil {
+		var closing Closing
+		if err := json.Unmarshal([]byte(d.Closing.Payload), &closing); err != nil {
 			continue
 		}
-		switch verdict.Verdict {
-		case "approve":
+		switch closing.Verdict {
+		case VerdictApproved:
 			approved++
-		case "reject":
+		case VerdictRejected:
 			rejected++
 		}
 	}

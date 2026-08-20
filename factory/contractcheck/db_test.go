@@ -41,6 +41,7 @@ import (
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
@@ -169,7 +170,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		t.Fatalf("writing the consumer: %v", err)
 	}
 
-	g.check, err = contractcheck.New(pool, policy.NewReader(pool), intent.NewIntake(pool), g.checkout, g.exchanges)
+	g.check, err = contractcheck.New(pool, policy.NewReader(pool, score.Version{}), intent.NewIntake(pool), g.checkout, g.exchanges)
 	if err != nil {
 		t.Fatalf("composing the check: %v", err)
 	}
@@ -746,10 +747,10 @@ func TestACheckWithNoSeamIsRefused(t *testing.T) {
 	ctx, g := newGraph(t)
 	_ = ctx
 
-	if _, err := contractcheck.New(g.pool, policy.NewReader(g.pool), nil, nil, g.exchanges); err == nil {
+	if _, err := contractcheck.New(g.pool, policy.NewReader(g.pool, score.Version{}), nil, nil, g.exchanges); err == nil {
 		t.Error("a check with no checkout was composed")
 	}
-	if _, err := contractcheck.New(g.pool, policy.NewReader(g.pool), nil, g.checkout, nil); err == nil {
+	if _, err := contractcheck.New(g.pool, policy.NewReader(g.pool, score.Version{}), nil, g.checkout, nil); err == nil {
 		t.Error("a check with no run to observe was composed")
 	}
 }

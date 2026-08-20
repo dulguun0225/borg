@@ -41,10 +41,23 @@ const (
 // so that a gate can hold one behind an interface and a test can hold a fake.
 type Reader struct {
 	pool *pgxpool.Pool
+	// score is the score version the supplied half of every answer is read out
+	// of. It is held rather than read per answer because a supplied value moves
+	// as outcomes arrive: a reader that read the newest version at each resolve
+	// could give one gate firing a threshold from one version and a decision row
+	// naming another, and the row would not be readable against the policy it was
+	// decided under.
+	score score.Version
 }
 
-// NewReader returns the reader over pool.
-func NewReader(pool *pgxpool.Pool) *Reader { return &Reader{pool: pool} }
+// NewReader returns the reader over pool, reading what the score supplies out of
+// version. The zero version is the starting values — the numbers the formula was
+// calibrated at — which is what a factory that has appended no version yet
+// supplies, so a reader composed before the first ensure answers with those and
+// not with nothing.
+func NewReader(pool *pgxpool.Pool, version score.Version) *Reader {
+	return &Reader{pool: pool, score: version}
+}
 
 // Subjects is what a read is performed against: the records whose fields hold
 // each parameter, and through them the subjects a pin may be drawn on. A field
@@ -76,6 +89,11 @@ type Applied struct {
 	// Pins are the ids of the pins that applied, so a reader of the decision can
 	// follow them to the records rather than being told a number moved.
 	Pins []string
+	// Supplied is the score's own row behind the threshold where the score
+	// supplied it, and is empty where an owner authored one. It is what a firing
+	// prints beside the number so that an owner reading a gate can see which
+	// outcomes moved the threshold it was compared against.
+	Supplied score.Supplied
 }
 
 // AtGate is what applies at one gate firing: the threshold in force for the row
@@ -94,7 +112,7 @@ func (r *Reader) AtGate(ctx context.Context, s Subjects) (Applied, error) {
 			return Applied{}, err
 		}
 	}
-	supplied, _ := score.Supplied(gatepolicy.RiskThreshold)
+	supplied, _ := r.score.Value(gatepolicy.RiskThreshold, s.GateRow)
 
 	pins, err := r.pinsOn(ctx, gatepolicy.RiskThreshold, s)
 	if err != nil {
@@ -103,8 +121,11 @@ func (r *Reader) AtGate(ctx context.Context, s Subjects) (Applied, error) {
 
 	applied := Applied{
 		PolicyVersion: version.ID,
-		Threshold:     authored.Or(supplied),
+		Threshold:     authored.Or(supplied.Value),
 		ThresholdFrom: sourceOf(authored),
+	}
+	if !authored.Present {
+		applied.Supplied = supplied
 	}
 	for _, p := range pins {
 		applied.HumanPinned = true
@@ -198,6 +219,12 @@ type Effective struct {
 	// ReadBy is the mechanism that reads the value at this milestone, and is
 	// empty for a parameter nothing reads yet.
 	ReadBy string
+	// Supplied is the score's own row behind a value whose source is the score:
+	// the subject it was supplied for and why that number. It is empty where an
+	// owner authored the value, because then nothing the score supplies is in
+	// force, and it is what lets a printer say which outcomes moved a number
+	// rather than only that the score set it.
+	Supplied score.Supplied
 }
 
 // All is every parameter as it is in force against these subjects, in the order
@@ -226,6 +253,32 @@ func (r *Reader) All(ctx context.Context, s Subjects) ([]Effective, error) {
 		all = append(all, effective)
 	}
 	return all, nil
+}
+
+// suppliedSubject is the subject the score supplies a value for, which is the
+// same key the authored value has and is read off the same [Subjects]: the
+// service, the area, the stage. The risk threshold is the one that differs — its
+// authored value is a field of an environment record per gate row and what the
+// score supplies is per row alone, because what an outcome teaches is about the
+// row and every row of the default path reads production's environment anyway.
+//
+// A subject the caller named nothing for is empty, and an empty subject reads the
+// starting value: a firing that named no service gets the number the formula was
+// calibrated at rather than one learned about some other service.
+func suppliedSubject(d gatepolicy.Definition, s Subjects) string {
+	switch d.Parameter {
+	case gatepolicy.RiskThreshold:
+		return s.GateRow
+	case gatepolicy.AttemptBound:
+		return string(s.Stage)
+	case gatepolicy.ItemSizeTarget:
+		return s.AreaID
+	default:
+		if d.Scope == gatepolicy.ScopeService {
+			return s.ServiceID
+		}
+		return ""
+	}
 }
 
 // authored reads what an owner authored for one parameter from the record its
@@ -292,13 +345,16 @@ func (r *Reader) resolve(ctx context.Context, parameter gatepolicy.Parameter,
 	if err != nil {
 		return Effective{}, err
 	}
-	supplied, hasSupplied := score.Supplied(parameter)
+	supplied, hasSupplied := r.score.Value(parameter, suppliedSubject(definition, s))
 	effective := Effective{
 		Parameter: parameter,
 		Row:       definition.Row,
 		Source:    sourceOf(authored),
-		Number:    authored.Or(supplied),
+		Number:    authored.Or(supplied.Value),
 		ReadBy:    definition.ReaderAtThisMilestone,
+	}
+	if !authored.Present && hasSupplied {
+		effective.Supplied = supplied
 	}
 	if !authored.Present && !hasSupplied {
 		effective.Source = FromNothing

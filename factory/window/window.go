@@ -69,7 +69,16 @@ type Window struct {
 	// window can only be condemned by an absolute threshold and can never be
 	// cleared early — so a window ending at the cap is readable as weak
 	// protection rather than as a comparison that ran out of time.
+	//
+	// It is also false on a held-out release, and HeldOut is what tells the two
+	// apart: one had no baseline and the other has one and is not allowed to use
+	// it.
 	CleanAvailable bool
+	// HeldOut is whether the score selected the item this release came from into
+	// its sample. It is on the record because a window that runs to the cap for
+	// this reason is not the same window as one that ran to the cap for want of a
+	// baseline, and a reader with only CleanAvailable could not tell them apart.
+	HeldOut bool
 	// Size, Confidence, and CapSeconds are the parameters in force at the open,
 	// copied onto the record. doc.go says why they are copied.
 	Size       float64
@@ -116,14 +125,18 @@ type Opening struct {
 	ReleaseID string
 	ServiceID string
 	// CleanAvailable is false where the release has no baseline to be compared
-	// against, which the caller knows and this package does not.
+	// against or where the release was held out, which the caller knows and this
+	// package does not.
 	CleanAvailable bool
-	Size           float64
-	Confidence     float64
-	CapSeconds     float64
-	Formula        string
-	PolicyVersion  string
-	ScoreVersion   string
+	// HeldOut is whether the score selected this release's item into its sample,
+	// which is what the caller read off the decisions on that item.
+	HeldOut       bool
+	Size          float64
+	Confidence    float64
+	CapSeconds    float64
+	Formula       string
+	PolicyVersion string
+	ScoreVersion  string
 }
 
 func (o Opening) validate() error {

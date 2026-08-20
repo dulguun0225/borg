@@ -108,7 +108,7 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 
 	// One window per release watched: a second deploy of the same release opens none.
 	if _, isNew, err := p(ctx, t, d).comparison.Open(ctx, watching(res, "demo"),
-		c.deployID, c.releaseID, "score-again"); err != nil || isNew {
+		c.deployID, c.releaseID, "score-again", false); err != nil || isNew {
 		t.Errorf("a second Open over release %s = new %v, %v; one release is watched once", c.releaseID, isNew, err)
 	}
 }
@@ -473,7 +473,12 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 
 	// A fresh change while the revert is outstanding: it merges, it is minted a
 	// number, and its deploy is held.
-	d.in = strings.NewReader("")
+	// The runs after the rollback are given verdicts to type. The score has learned
+	// from the episode this test just drove — a change auto-passed on the number and
+	// then condemned by its window lowers the threshold that row supplies — so rows
+	// that auto-passed before it are decided by a human after it, which is the loop
+	// working rather than the test fighting it.
+	d.in = strings.NewReader(approvals)
 	d.model = interviewed(0)
 	held, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
@@ -494,7 +499,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	// intent the comparison already took in, it is not held, and it deploys ahead of the
 	// release the hold is holding — which is the one place the number does not order
 	// deploys.
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	res, err := run(ctx, d, of(theFourthStatement, rolled.revertStatement))
 	if err != nil {
 		t.Fatalf("the revert run stopped: %v\noutput so far:\n%s", err, out)
@@ -553,7 +558,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	// implementer rewrites every file whole, so it carries it by writing the same failing
 	// emitter again. The two are indistinguishable to everything downstream, which is what
 	// makes this the consequence the design names.
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	d.model = interviewed(2)
 	held, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {

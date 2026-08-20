@@ -16,6 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -563,9 +564,16 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	c.deployID = dep.ID
 	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production\n", dep.ID, c.releaseID)
 
+	// Whether the score held this item out is read off the decisions on it rather
+	// than carried down from the firing, because a window is opened at the deploy
+	// and the selection may have been made at any row above it.
+	heldOut, err := score.HeldOut(ctx, d.pool, c.itemID)
+	if err != nil {
+		return err
+	}
 	opened, isNew, err := p.comparison.Open(ctx, comparison.Watching{
 		ID: c.svc.ID, Name: c.svc.Name, EnvironmentID: p.production.ID,
-	}, dep.ID, c.releaseID, p.scoreVersion)
+	}, dep.ID, c.releaseID, p.scoreVersion, heldOut)
 	if err != nil {
 		return err
 	}
@@ -575,7 +583,10 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	}
 	c.windowID = opened.ID
 	clean := "clean is available to it"
-	if !opened.CleanAvailable {
+	switch {
+	case opened.HeldOut:
+		clean = "clean is not available to it: the score held this item out of the gate it would have gated, so its window runs to the cap — the longest watch there is"
+	case !opened.CleanAvailable:
 		clean = "clean is not available to it, nothing below it being there to compare against — so it can end only at its cap"
 	}
 	fmt.Fprintf(d.out, "Watch window %s opened over deploy %s: size %v, confidence %v, cap %vs; %s\n",

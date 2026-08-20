@@ -265,6 +265,47 @@ go run ./cmd/factory pin -parameter pinned_predicate -subject contract_element:g
 
 The detector still raises the removal — a pin never stops the item existing, only passing — and the removal candidate is rejected at its merge row naming the pin and its author, which is the blocked removal asking the consumer to confirm. `pin -withdraw <pin-id>` is the confirmation, and the next candidate goes through.
 
+## The sixth take, which is M6's demonstration
+
+This one needs no new service and no new statement. What it needs is outcomes, which the fourth take already produces — so run that one first, all the way through the rollback, and then ask the score what it learned:
+
+```sh
+go run ./cmd/factory learn
+go run ./cmd/factory learn -dry     # the same reading, appending nothing
+```
+
+The pass prints every value the score supplies, the subject each was learned about, and the evidence behind it — and it marks each one that has moved away from the version in force. After the fourth take there is at least one movement and it is the threshold: the bad release was auto-passed on the number at three rows and its window condemned it, so each of those rows now supplies a threshold one band below the number it passed it at. The line says so in as many words: `1 change(s) auto-passed on the number at this row turned out badly, the lowest of them scoring 0.14, so the threshold is one band below it`.
+
+Then run anything again. The rows that auto-passed before the rollback now ask for a verdict, and the firing prints why the threshold it was compared against is what it is. That is the milestone: a supplied parameter moved because outcomes moved it, and the same change is decided differently afterwards.
+
+**K, which is the value the design spells out.** It rises per three windows closing without harm and falls at a rollback that swept — and it only rises where nobody authored it, so leave the K the fourth take authored out and let three windows close:
+
+```sh
+go run ./cmd/factory watch greeter -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets
+go run ./cmd/factory learn
+go run ./cmd/factory policy -service greeter
+```
+
+`policy` is where the movement is read as what is in force: `k = 2 (supplied), moved by outcomes on svc_…`, with the evidence under it. Author a K and the same line reads `authored` and the score's own value is not in force at all — which is the division the design draws, and the reason the fourth take's authored parameters have to be left out of this one.
+
+**The movement as records.** A supplied value is a field of a score version, and every decision names the version it was decided under — so the movement is read by following a decision to its version and that version to the one it superseded:
+
+```sh
+docker compose exec -T postgres psql -U factory -d factory \
+  -c "select id, formula_version, supersedes, jsonb_pretty(supplied::jsonb) from score_version order by at"
+```
+
+The superseded version still says what it said. A decision taken before the movement is readable against the value it was decided under and not against today's, which is what an append-only record is for.
+
+**The held-out sample**, which is the one thing here that changes what the factory decides rather than what it supplies. It is random — one firing in ten of those the score would have gated — so it cannot be summoned, and it is worth watching for rather than demonstrating. When it selects, the firing reads:
+
+```
+  held out: the score's sample selected this item at this firing
+  no human decides: the score held this item out of a gate it would have gated, which is the one thing in the factory that removes a human from a row
+```
+
+and the deploy that follows says `its window runs to the cap — the longest watch there is`. Every row below that one on the same item reads `selected this item at an earlier gate`: the sample selects an item, not a firing, so an item selected once reaches production with a human removed at each gate the score would have gated. `learn` lists the items it has selected. A pinned row keeps its human however the draw falls — `pin -parameter risk_threshold -subject gate_row:merge_to_master` and the sample never passes that row again, which is the one guarantee a pin has to keep.
+
 ## Authoring gate policy
 
 Six subcommands are duty 8, duty 9, the priority a queue is reordered with, and the People declaration a page routes on, none of which has a surface of its own until M7:
@@ -332,7 +373,7 @@ docker compose exec -T postgres psql -U factory -d factory \
 
 # What the score published when those decisions were taken, and every write an owner made.
 docker compose exec -T postgres psql -U factory -d factory \
-  -c "select id, formula_version, supersedes from score_version order by at"
+  -c "select id, formula_version, supersedes, supplied from score_version order by at"
 docker compose exec -T postgres psql -U factory -d factory \
   -c "select action, parameter, subject_kind, qualifier, actor_name from policy_version order by at"
 
@@ -373,7 +414,7 @@ Dropping the schema drops the score version, the policy version, every pin, and 
 | `the queue rejected item … merging master into the candidate branch failed` | Two candidates wrote to one file. The item is back at implementation with an attempt counted there, which is the queue working; see [_The queue rejecting a candidate_](#the-queue-rejecting-a-candidate). |
 | `waits at deploy_to_candidate_environment: the substrate has no room` | `-candidate-environments` is set lower than the number of intents. The wait is in the log with the deploy agent as its actor, and it lifts when an item merges and frees one. |
 | `bind: address already in use` | A release from an earlier take still holds the port. `pkill -f borg-demo/targets`. |
-| `waits at deploy_to_production: the service holds as many watch windows open as K allows` | K is doing its work. One window open per service is what the score supplies, so the next release waits for that window to close — a wait on the factory, which writes nothing and pages nobody. `go run ./cmd/factory watch greeter …` closes what is open, or author K higher. |
+| `waits at deploy_to_production: the service holds as many watch windows open as K allows` | K is doing its work. One window open per service is where the score starts, and it rises only after three of that service's windows have closed without harm, so the next release waits for that window to close — a wait on the factory, which writes nothing and pages nobody. `go run ./cmd/factory watch greeter …` closes what is open, or author K higher. |
 | `waits at deploy_to_production: a rollback's revert has not shipped` | Master still holds the change that was rolled back, so deploying anything built on it would redeliver the defect. The revert is not held and deploys ahead of this; `approve <item-id>` pushes it through and accepts the defect. |
 | `neither exit is reachable: the release has no baseline` | A service's first release, or a release whose baseline's window has not closed yet. Nothing about it is discovered by watching and its window ends at the cap, which is the design's own account rather than a fault. |
 | `N watch window(s) are still open` at the end of a run | The run gave up before they closed, which a window's duration being measured and never set makes normal. `go run ./cmd/factory watch <service> …` continues from there, and nothing else closes one. |
@@ -395,6 +436,6 @@ K above one is honest and weak here for the same reason. Two windows may be open
 
 Two things about the candidate environment are worth saying plainly. It is composed from the [current releases](../end-goal/how-humans-do-it/06-releases.md#the-deploy-record) of the candidate's dependencies, and the cut here yields one item per intent — so no run of this interface declares a dependency and every composition names nothing. And the queue re-verifies serially: the design has a candidate re-verify against master plus every candidate ahead of it, which is what makes a long queue fast, and the speculation is the queue's own state that nothing outside it reads, so it can arrive later without changing a record. A queue of ten waits ten re-verifications here.
 
-Two things about the score are worth saying plainly. Its formula is authored rather than learned — the weights and the breakpoints were written by hand and calibrated so a first release is decided by a human and the item after it is not, and learning is M6. And what narrows an [authorship prior](../end-goal/how-humans-do-it/04-risk-score.md#factors-at-least) here is a human's verdict and nothing else, so a prior stops moving once the factory stops putting humans at gates — which is the self-reinforcement [_How it learns_](../end-goal/how-humans-do-it/04-risk-score.md#how-it-learns) holds out a random sample to break, and there is no sample yet.
+Three things about the score are worth saying plainly. Its formula is authored and stays authored — the weights and the breakpoints were written by hand and calibrated so a first release is decided by a human and the item after it is not, and what learning moves is the seven values the score supplies rather than how the number is computed, which is the division [gate policy](../end-goal/how-humans-do-it/09-gate-policy.md#what-is-not-in-it) draws. **Five of the six rows move only toward more protection**, because the evidence arrives one-sided: the factory finds out that it should have been more careful and never that it was careful enough, so a long-lived install ratchets and nothing but an owner authoring over it loosens anything. K is the one the design makes two-sided. And **the sample gets half of what the design gives it**: a held-out release should take a strategy that keeps a [control](../end-goal/how-humans-do-it/08-operations.md#the-health-signal), and every deploy here is straight — so it is watched by the same confounded comparison as every other release and the longest watch available is all it gets. What its evidence supports is that a comparison was available, not that an unsampled release on the same author would have read the same.
 
 And the terminal is the whole interface: the four [surfaces](../end-goal/how-humans-do-it/11-surfaces.md#work-ops-factory-people) come at M7, and a crude interface until then is what deferring them costs.

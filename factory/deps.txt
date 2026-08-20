@@ -55,6 +55,14 @@
 # that is not a record is the build's diff, measured by the component that
 # built and handed to it.
 #
+# Three of those edges arrive with the learning, and each is an outcome rather
+# than a factor: window for the exits, deploy for the rollbacks and what each
+# swept, and incident for the crossing that says a window's size was too coarse.
+# What it still does not import is policy — the direction is policy -> score,
+# because the value in force is the authored one where there is one and the
+# supplied one otherwise, and a score that read the authored value would be
+# supplying a value against what an owner wrote.
+#
 # policy is Factory's writer, so it imports every record an owner authors a
 # value on — the environment, the service, the area, the factory policy record,
 # and the pin — and calls the transaction-taking write each of them exposes,
@@ -141,7 +149,7 @@ window -> record
 incident -> record
 people -> record
 reconciler -> record
-score -> record gatepolicy artifact contract declaration decisionlog item release
+score -> record gatepolicy artifact contract declaration decisionlog deploy incident item release window
 policy -> record gatepolicy area environment factorypolicy item pin score secretref service
 gate -> criterion decisionlog policy record score
 mergequeue -> contract decisionlog gate item record release
@@ -176,8 +184,8 @@ test incident -> postgres
 test people -> postgres
 test notifier -> postgres decisionlog people record
 test comparison -> postgres boundary build deploy item record release window
-test contractcheck -> postgres artifact build contract declaration deploy gate gatepolicy intent item pin policy record release secretref service window
-test score -> postgres artifact contract criterion declaration gate policy
+test contractcheck -> postgres score artifact build contract declaration deploy gate gatepolicy intent item pin policy record release secretref service window
+test score -> postgres artifact boundary contract criterion declaration deploy factorypolicy gate policy release service window
 test policy -> postgres
 test gate -> postgres
 test mergequeue -> decisionlog gate item postgres record release

@@ -118,7 +118,7 @@ func TestEveryFactorSitsInAGroupTheDesignNames(t *testing.T) {
 func TestSuppliedCoversSixRowsAndNotTheCatalog(t *testing.T) {
 	rows := map[string]bool{}
 	for _, d := range gatepolicy.Definitions {
-		value, supplied := Supplied(d.Parameter)
+		value, supplied := Starting(d.Parameter)
 		if d.Parameter == gatepolicy.PredicateCatalog {
 			if supplied {
 				t.Errorf("the score supplies a catalog: %v", value)
@@ -130,7 +130,7 @@ func TestSuppliedCoversSixRowsAndNotTheCatalog(t *testing.T) {
 			continue
 		}
 		rows[d.Row] = true
-		if !strings.Contains(SuppliedText(), string(d.Parameter)) {
+		if !strings.Contains(StartingValues().Text(), string(d.Parameter)) {
 			t.Errorf("the supplied text does not name %s", d.Parameter)
 		}
 	}
@@ -139,9 +139,9 @@ func TestSuppliedCoversSixRowsAndNotTheCatalog(t *testing.T) {
 	}
 	// Every supplied value publishes its reason: a default nobody chose is still
 	// a decision, and it can stay invisible until it takes effect.
-	for _, s := range supplies {
-		if s.why == "" {
-			t.Errorf("the supplied value for %s carries no reason", s.parameter)
+	for _, s := range starting {
+		if s.Why == "" {
+			t.Errorf("the supplied value for %s carries no reason", s.Parameter)
 		}
 	}
 }
@@ -151,10 +151,11 @@ func TestSuppliedCoversSixRowsAndNotTheCatalog(t *testing.T) {
 // first item and for the one after it, and the supplied threshold sits between
 // them — which is what makes the milestone's demonstration reachable at all.
 func TestTheSuppliedThresholdGatesAFirstReleaseAndNotTheNextOne(t *testing.T) {
-	threshold, supplied := Supplied(gatepolicy.RiskThreshold)
+	start, supplied := Starting(gatepolicy.RiskThreshold)
 	if !supplied {
 		t.Fatal("the score supplies no risk threshold")
 	}
+	threshold := start.Value
 
 	first := []Factor{
 		{Name: "change.size", Half: HalfLikelihood, Weight: 0.30, Level: 0.1},
@@ -205,7 +206,8 @@ func TestAnUnlikelyCatastropheIsStillGated(t *testing.T) {
 	if number != likelihoodFloor {
 		t.Errorf("the number is %v, want the likelihood floor %v", number, likelihoodFloor)
 	}
-	threshold, _ := Supplied(gatepolicy.RiskThreshold)
+	start, _ := Starting(gatepolicy.RiskThreshold)
+	threshold := start.Value
 	if number < threshold {
 		t.Errorf("a catastrophe nothing is likely to have got wrong reads %v, under the supplied threshold %v",
 			number, threshold)

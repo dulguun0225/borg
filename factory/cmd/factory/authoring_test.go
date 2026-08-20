@@ -31,6 +31,7 @@ import (
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -388,7 +389,7 @@ func TestAPinIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 
 	// The catalog pin reaches the parameter it was drawn on: what an owner reads
 	// afterwards is the union, which is the whole of what a pin on a list does.
-	catalog, err := policy.NewReader(pool).All(ctx, policy.Subjects{
+	catalog, err := policy.NewReader(pool, score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
 	if err != nil {
@@ -489,7 +490,7 @@ func TestPolicyReadsWhatIsInForce(t *testing.T) {
 	// What the print reads is what the reader reads, so the assertion over its
 	// content is on the reader: every parameter resolves, and the two with a
 	// mechanism at this milestone say so.
-	effectives, err := policy.NewReader(pool).All(ctx, policy.Subjects{
+	effectives, err := policy.NewReader(pool, score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
 	if err != nil {

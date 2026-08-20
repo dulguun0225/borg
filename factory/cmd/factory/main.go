@@ -69,11 +69,12 @@ func main() {
 
 // subcommands is what the crude interface offers, in the order the usage message
 // lists them. run and walk are the path and the link walk; watch is the comparison,
-// which is the one thing that closes a watch window; approve is the emergency action
-// at the production deploy row; and the other six are duty 8, duty 9, the priority an
-// owner reorders a queue with, and the People declaration a page routes on — none of
-// which has a surface until the four of M7 are built.
-const subcommands = "run, walk <deploy-id>, watch <service>, approve <item-id>, contracts, " +
+// which is the one thing that closes a watch window; learn is the score's own pass
+// over the outcomes; approve is the emergency action at the production deploy row;
+// and the other six are duty 8, duty 9, the priority an owner reorders a queue
+// with, and the People declaration a page routes on — none of which has a surface
+// until the four of M7 are built.
+const subcommands = "run, walk <deploy-id>, watch <service>, learn, approve <item-id>, contracts, " +
 	"area <name>, author, pin, policy, priority <item-id>, people [<human>]"
 
 func dispatch(args []string) error {
@@ -87,6 +88,8 @@ func dispatch(args []string) error {
 		return walkCommand(args[1:])
 	case "watch":
 		return watchCommand(args[1:])
+	case "learn":
+		return learnCommand(args[1:])
 	case "approve":
 		return approveCommand(args[1:])
 	case "contracts":

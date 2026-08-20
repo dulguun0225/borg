@@ -41,6 +41,7 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o Opening) (Windo
 		ReleaseID:      o.ReleaseID,
 		ServiceID:      o.ServiceID,
 		CleanAvailable: o.CleanAvailable,
+		HeldOut:        o.HeldOut,
 		Size:           o.Size,
 		Confidence:     o.Confidence,
 		CapSeconds:     o.CapSeconds,
@@ -49,11 +50,11 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o Opening) (Windo
 		ScoreVersion:   o.ScoreVersion,
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available,
+		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available, held_out,
 		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '', '')`,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, '', '')`,
 		win.ID, string(win.Actor.Kind), win.Actor.Name, win.At,
-		win.DeployID, win.ReleaseID, win.ServiceID, win.CleanAvailable,
+		win.DeployID, win.ReleaseID, win.ServiceID, win.CleanAvailable, win.HeldOut,
 		win.Size, win.Confidence, win.CapSeconds, win.Formula, win.PolicyVersion, win.ScoreVersion,
 	)
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -277,7 +278,20 @@ func policyCommand(args []string) error {
 		fmt.Printf("Policy version %s in force: %s %s on %s by %s\n",
 			version.ID, version.Action, version.Parameter, version.Subject, version.Actor.Name)
 
-		effectives, err := policy.NewReader(pool).All(ctx, subjects)
+		// The newest score version and not an ensured one: this command prints what
+		// is in force and authors nothing, and an ensure here would have a read
+		// append a record.
+		scoreVersion, found, err := score.Newest(ctx, pool)
+		if err != nil {
+			return err
+		}
+		if found {
+			fmt.Printf("Score version %s in force: formula %s\n", scoreVersion.ID, scoreVersion.FormulaVersion)
+		} else {
+			fmt.Println("No score version has been appended, so every supplied value is where the formula was calibrated")
+		}
+
+		effectives, err := policy.NewReader(pool, scoreVersion).All(ctx, subjects)
 		if err != nil {
 			return err
 		}
@@ -321,6 +335,9 @@ func printEffectives(out io.Writer, effectives []policy.Effective) {
 			}
 		}
 		fmt.Fprintf(out, "  %s = %s (%s)", e.Parameter, value, e.Source)
+		if e.Supplied.Moved() {
+			fmt.Fprintf(out, ", moved by outcomes on %s", e.Supplied.Subject)
+		}
 		if e.Clamped {
 			fmt.Fprint(out, ", clamped by a pin")
 		}
@@ -333,6 +350,9 @@ func printEffectives(out io.Writer, effectives []policy.Effective) {
 			fmt.Fprintf(out, "; read by %s", e.ReadBy)
 		}
 		fmt.Fprintln(out)
+		if e.Source == policy.FromSupplied && e.Supplied.Why != "" {
+			fmt.Fprintf(out, "      the score supplies it: %s\n", e.Supplied.Why)
+		}
 	}
 }
 

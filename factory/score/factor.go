@@ -80,7 +80,7 @@ var definitions = []definition{
 	{"change.test_coverage", GroupChange, HalfLikelihood, 0.20,
 		"criteria in force that decided this build, and whether any failed", (*Score).coverage},
 	{"authorship.prior", GroupAuthorship, HalfLikelihood, 0.30,
-		"human verdicts on this author's own artifacts", (*Score).prior},
+		"every outcome on this author's own work: human verdicts on its versions, the watch windows of its releases, and the vetoes of them", (*Score).prior},
 	{"change.reach", GroupChange, HalfImpact, 0.50,
 		"share of the service's files the diff touches", (*Score).reach},
 	{"context.business_area", GroupContext, HalfImpact, 0.30,
@@ -133,11 +133,11 @@ var (
 )
 
 // evidenceLevel is how a factor computed from outcomes resolves: one minus the
-// share of that evidence which was a human approving, with one added to the
+// share of that evidence which was good, with one added to the
 // denominator so that no evidence is the top of the scale and a rejection
 // counts against the author rather than merely failing to count for them. It is
 // what makes an unseen author and an unseen area start wide and narrow with
 // evidence, which doc.go separates from a factor being unavailable.
-func evidenceLevel(approved, rejected int) float64 {
-	return 1 - float64(approved)/float64(approved+rejected+1)
+func evidenceLevel(good, bad int) float64 {
+	return 1 - float64(good)/float64(good+bad+1)
 }

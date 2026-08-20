@@ -77,11 +77,11 @@ const theCeiling = 8
 // rather than holding a number of their own, so authoring a different supplied
 // value moves the tests with it.
 var attemptBound = func() int {
-	supplied, ok := score.Supplied(gatepolicy.AttemptBound)
+	supplied, ok := score.Starting(gatepolicy.AttemptBound)
 	if !ok {
 		panic("the score supplies no attempt bound")
 	}
-	return int(supplied)
+	return int(supplied.Value)
 }()
 
 // The statements the tests give the run, and the spec and the criterion the fake
@@ -408,6 +408,11 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 		candidateCeiling: theCeiling,
 		watchFor:         theWatchFor,
 		watchEvery:       theWatchEvery,
+		// No draw selects: the sample is one firing in ten and a test that ran on
+		// the runtime's own generator would pass or fail by chance, an item held out
+		// being an item with no human at the row a test asserted one at. The test
+		// that drives the sample composes a draw that always selects.
+		draw: score.NeverDraw{},
 	}
 	installWindow(t, ctx, d, 1)
 	return ctx, d, out
@@ -1614,7 +1619,7 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 			t.Errorf("the second run's closing was written by %+v, want the gate component", row.Actor)
 		}
 		payload := closingPayload(t, row)
-		if payload.Verdict != string(gate.VerdictApprove) || payload.AutoPassedBy != gate.AutoPassedByThreshold {
+		if payload.Verdict != string(gate.VerdictApprove) || payload.AutoPassedBy != score.AutoPassedByThreshold {
 			t.Errorf("the closing says %+v, want an approve auto-passed by the threshold", payload)
 		}
 	}
@@ -1731,7 +1736,7 @@ func TestAPinPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 		record.Actor{Kind: record.KindHuman, Name: d.human}, placed.ID); err != nil {
 		t.Fatalf("withdrawing the pin: %v", err)
 	}
-	applied, err := policy.NewReader(d.pool).AtGate(ctx, policy.Subjects{
+	applied, err := policy.NewReader(d.pool, score.Version{}).AtGate(ctx, policy.Subjects{
 		GateRow:       string(gate.DeployToProduction),
 		EnvironmentID: res.environmentID,
 		ServiceID:     res.serviceID,

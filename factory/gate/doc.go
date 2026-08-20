@@ -63,7 +63,17 @@
 // or, at the production deploy row alone, the reconciler found a record
 // disagreeing with what runs. None of them removes a human another put there — a
 // pin can only add, and clearing a mismatch would not lift a human the number put
-// at the row. [Opened.WhyHuman] says which, because a firing that reads the same to
+// at the row.
+//
+// One thing removes a human, and it removes exactly one: the score's own held-out
+// sample, asked through [Score.HoldOut] after the policy has answered. Where the
+// score selected this item, the human the number would have put at the row is not
+// there, the closing row says the sample and not the threshold passed it, and
+// [Opened.HeldOut] is on the opening row from that firing onward. A pin's human and
+// a mismatch's human stand: the sample is the score holding itself out of its own
+// gate, and it is asked with the pin's answer so that it cannot pass one. That is
+// the one mechanism in the tree that takes a human off a row, and what makes it
+// legitimate is whose human it is. [Opened.WhyHuman] says which, because a firing that reads the same to
 // an owner for two different reasons is one they cannot argue with, and
 // [Opened.Mismatch] says what disagreed, because a human approving through one is
 // saying the record is wrong and the deploy should proceed anyway.

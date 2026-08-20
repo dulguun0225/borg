@@ -101,7 +101,8 @@ func TestAWindowOpensWithEveryFieldIntact(t *testing.T) {
 	if opened.DeployID != o.DeployID || opened.ReleaseID != o.ReleaseID || opened.ServiceID != o.ServiceID {
 		t.Errorf("Open = %+v, which does not name what it was opened over", opened)
 	}
-	if opened.CleanAvailable != o.CleanAvailable || opened.Size != o.Size || opened.Confidence != o.Confidence ||
+	if opened.CleanAvailable != o.CleanAvailable || opened.HeldOut != o.HeldOut ||
+		opened.Size != o.Size || opened.Confidence != o.Confidence ||
 		opened.CapSeconds != o.CapSeconds || opened.Formula != o.Formula ||
 		opened.PolicyVersion != o.PolicyVersion || opened.ScoreVersion != o.ScoreVersion {
 		t.Errorf("Open = %+v, does not carry the parameters it was given, %+v", opened, o)
@@ -220,9 +221,9 @@ func TestDDLListsEveryExit(t *testing.T) {
 	for _, exit := range window.Exits {
 		o := opening()
 		_, err := pool.Exec(ctx, `insert into `+window.Table+`
-			(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available,
+			(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available, held_out,
 			 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at)
-			values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.CleanAvailable,
 			o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, string(exit), record.Now())
 		if err != nil {
@@ -232,9 +233,9 @@ func TestDDLListsEveryExit(t *testing.T) {
 
 	o := opening()
 	_, err := pool.Exec(ctx, `insert into `+window.Table+`
-		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available,
+		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, clean_available, held_out,
 		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at)
-		values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'flaky', $13)`,
+		values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, 'flaky', $13)`,
 		record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.CleanAvailable,
 		o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, record.Now())
 	if err == nil {
@@ -389,5 +390,85 @@ func TestForReleaseAndForDeployAreFalseWhereNothingMatches(t *testing.T) {
 	}
 	if _, found, err := window.ForDeploy(ctx, pool, record.NewID("dep")); err != nil || found {
 		t.Errorf("ForDeploy on a deploy that opened no window = found %v, %v", found, err)
+	}
+}
+
+// TestAHeldOutWindowIsToldFromOneWithNoBaseline: both run to the cap and neither
+// may close clean, and a reader with only clean_available could not tell which was
+// which. The score's sample is why the second field exists.
+func TestAHeldOutWindowIsToldFromOneWithNoBaseline(t *testing.T) {
+	ctx, pool, w := newTable(t)
+
+	firstRelease := opening()
+	firstRelease.CleanAvailable = false
+	first, err := w.Open(ctx, comparison, firstRelease)
+	if err != nil {
+		t.Fatalf("Open over a release with no baseline: %v", err)
+	}
+
+	sampled := opening()
+	sampled.CleanAvailable, sampled.HeldOut = false, true
+	held, err := w.Open(ctx, comparison, sampled)
+	if err != nil {
+		t.Fatalf("Open over a held-out release: %v", err)
+	}
+
+	if first.HeldOut {
+		t.Error("a release with no baseline reads as held out")
+	}
+	if !held.HeldOut {
+		t.Error("a held-out release does not read as held out")
+	}
+	read, err := window.Get(ctx, pool, held.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !read.HeldOut || read.CleanAvailable {
+		t.Errorf("the window reads back as %+v, want held out with clean unavailable", read)
+	}
+	for _, w := range []window.Window{first, held} {
+		if w.CleanAvailable {
+			t.Error("a window that runs to the cap says clean is available to it")
+		}
+	}
+}
+
+// TestClosedReadsEveryClosedWindowAndNoOpenOne: the read the score learns from,
+// which is the one here that is not per service — the subjects it learns about are
+// the services the windows name.
+func TestClosedReadsEveryClosedWindowAndNoOpenOne(t *testing.T) {
+	ctx, pool, w := newTable(t)
+
+	var closedIDs []string
+	for _, exit := range window.Exits {
+		o := opening()
+		opened, err := w.Open(ctx, comparison, o)
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		if _, err := w.Close(ctx, opened.ID, exit); err != nil {
+			t.Fatalf("Close at %s: %v", exit, err)
+		}
+		closedIDs = append(closedIDs, opened.ID)
+	}
+	stillOpen, err := w.Open(ctx, comparison, opening())
+	if err != nil {
+		t.Fatalf("Open one more: %v", err)
+	}
+
+	closed, err := window.Closed(ctx, pool)
+	if err != nil {
+		t.Fatalf("Closed: %v", err)
+	}
+	if len(closed) != len(closedIDs) {
+		t.Fatalf("Closed read %d windows, want the %d that closed", len(closed), len(closedIDs))
+	}
+	for _, c := range closed {
+		if c.ID == stillOpen.ID {
+			t.Error("Closed read a window that is still open, and an open window has no exit to learn from")
+		}
+		if c.Exit == "" {
+			t.Errorf("Closed read %s with no exit", c.ID)
+		}
 	}
 }

@@ -313,6 +313,36 @@ func ByRelease(ctx context.Context, pool *pgxpool.Pool, environmentID, releaseID
 	return read, nil
 }
 
+// Rollbacks is every rollback in the store, oldest first, whatever the service
+// and whatever the environment. It is what the score learns from: a rollback is
+// an outcome on the release it condemned and on every release it swept, and the
+// score asks about every service at once, so a read per service would first have
+// to be told which services to ask about.
+//
+// It reads the condemned release for the reason [NewestRollback] does: what makes
+// a record a rollback's is that it names what it condemned, not its status.
+func Rollbacks(ctx context.Context, pool *pgxpool.Pool) ([]Deploy, error) {
+	rows, err := pool.Query(ctx, selectDeploy+`
+		where condemned_release_id <> '' order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: reading the rollbacks: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Deploy
+	for rows.Next() {
+		d, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("deploy: reading a rollback: %w", err)
+		}
+		read = append(read, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("deploy: reading the rollbacks: %w", err)
+	}
+	return read, nil
+}
+
 // NewestRollback is the most recent rollback of one service in one environment,
 // and false where none has happened. It is what the hold a rollback leaves is
 // computed from: the hold stands until the item cut from that rollback's revert

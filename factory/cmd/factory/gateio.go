@@ -26,6 +26,14 @@ type fired struct {
 	scoreVersion  string
 	policyVersion string
 	pins          []string
+	// heldOut is whether the score's own sample selected this item, and whyHeldOut
+	// which of the two ways. Both are on the opening row too; a row that reads held
+	// out with the number under the threshold is an item selected at an earlier gate.
+	heldOut    bool
+	whyHeldOut string
+	// row is which gate row fired, so a test asserting over three firings can say
+	// which one it means.
+	row gate.Row
 }
 
 // report prints one firing as a human at the row would read it: the number
@@ -60,11 +68,21 @@ func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
 	for _, r := range results {
 		fmt.Fprintf(out, "  criterion %s: %s\n", r.CriterionID, r.Outcome)
 	}
+	if applied.Supplied.Why != "" {
+		fmt.Fprintf(out, "  the score supplies that threshold: %s\n", applied.Supplied.Why)
+	}
 	for _, id := range applied.Pins {
 		fmt.Fprintf(out, "  pin %s applies here\n", id)
 	}
+	if opened.HeldOut {
+		fmt.Fprintf(out, "  held out: %s\n", opened.WhyHeldOut)
+	}
 	if opened.HumanDecides {
 		fmt.Fprintf(out, "  a human decides: %s; the row waits on %s\n", opened.WhyHuman, gate.WaitsOn(opened.Gate))
+		return
+	}
+	if opened.HeldOut && a.Number >= applied.Threshold {
+		fmt.Fprintln(out, "  no human decides: the score held this item out of a gate it would have gated, which is the one thing in the factory that removes a human from a row")
 		return
 	}
 	fmt.Fprintln(out, "  no human decides: the number is under the threshold and no pin adds one")
@@ -80,7 +98,11 @@ func (p *path) settle(ctx context.Context, opened gate.Opened) (gate.Verdict, st
 		if err != nil {
 			return "", "", decisionlog.Row{}, err
 		}
-		fmt.Fprintf(p.d.out, "Auto-passed by the threshold; closing row %s written as the gate component\n", closing.ID)
+		by := "the threshold"
+		if opened.HeldOut && opened.Assessment.Number >= opened.Applied.Threshold {
+			by = "the score's held-out sample"
+		}
+		fmt.Fprintf(p.d.out, "Auto-passed by %s; closing row %s written as the gate component\n", by, closing.ID)
 		return gate.VerdictApprove, "", closing, nil
 	}
 
@@ -147,6 +169,9 @@ func recordFiring(opened gate.Opened, closing decisionlog.Row) fired {
 		scoreVersion:  opened.Assessment.Version,
 		policyVersion: opened.Applied.PolicyVersion,
 		pins:          opened.Applied.Pins,
+		heldOut:       opened.HeldOut,
+		whyHeldOut:    opened.WhyHeldOut,
+		row:           opened.Gate,
 	}
 }
 

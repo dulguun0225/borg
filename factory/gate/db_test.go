@@ -40,11 +40,25 @@ type fakeScore struct {
 	assessment score.Assessment
 	asked      score.Change
 	err        error
+	// selection is what the sample answers, and askedHoldOut is what it was asked
+	// — the two facts the gate hands it, so a test can assert that the pin's answer
+	// and the number against the threshold both reached the score.
+	selection     score.Selection
+	askedHoldOut  [2]bool
+	askedItemID   string
+	selectionErr  error
+	holdOutsAsked int
 }
 
 func (f *fakeScore) Assess(_ context.Context, c score.Change) (score.Assessment, error) {
 	f.asked = c
 	return f.assessment, f.err
+}
+
+func (f *fakeScore) HoldOut(_ context.Context, itemID string, wouldGate, pinned bool) (score.Selection, error) {
+	f.askedItemID, f.askedHoldOut = itemID, [2]bool{wouldGate, pinned}
+	f.holdOutsAsked++
+	return f.selection, f.selectionErr
 }
 
 // fakePolicy answers with one applied policy and records the subjects it was
@@ -421,7 +435,7 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
 		t.Fatalf("unmarshalling the closing payload: %v", err)
 	}
-	if payload.Verdict != string(gate.VerdictApprove) || payload.AutoPassedBy != gate.AutoPassedByThreshold {
+	if payload.Verdict != string(gate.VerdictApprove) || payload.AutoPassedBy != score.AutoPassedByThreshold {
 		t.Errorf("the closing says %+v, want an approve auto-passed by the threshold", payload)
 	}
 
@@ -807,12 +821,15 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 	// The subject a decision names is what the score reads back when it counts
 	// outcomes, and this row names none: the cut proposes a set rather than an
 	// artifact, so a verdict here is an outcome on no author's work.
-	var subject score.Subject
-	if err := json.Unmarshal([]byte(opened.Row.Payload), &subject); err != nil {
-		t.Fatalf("reading the payload as a subject: %v", err)
+	var opening score.Opening
+	if err := json.Unmarshal([]byte(opened.Row.Payload), &opening); err != nil {
+		t.Fatalf("reading the payload as an opening: %v", err)
 	}
-	if subject.ItemID != "" || subject.ArtifactID != "" {
-		t.Errorf("the Decomposition row names a subject %+v, and the cut is not an artifact", subject)
+	if opening.ItemID != "" || opening.ArtifactID != "" {
+		t.Errorf("the Decomposition row names an item %+v, and the cut is not an artifact", opening)
+	}
+	if opening.HeldOut {
+		t.Error("the Decomposition row says the score held something out, and the sample does not reach a set")
 	}
 	// The diff factors are unavailable at the cut, which the vector says rather
 	// than leaving a gap a reader has to interpret.
@@ -970,11 +987,109 @@ func TestEditInPlaceAtDecompositionIsRefusedWithItsReason(t *testing.T) {
 // varyingScore answers a different number per item, which is what a set firing needs:
 // the row applies the riskiest member's.
 type varyingScore struct {
-	by    map[string]float64
-	asked score.Change
+	by           map[string]float64
+	asked        score.Change
+	heldOutAsked []string
 }
 
 func (v *varyingScore) Assess(_ context.Context, c score.Change) (score.Assessment, error) {
 	v.asked = c
 	return assessed(v.by[c.ItemID]), nil
+}
+
+// HoldOut selects nothing. The Decomposition row does not ask, and a test that
+// drives one asserts that: the sample selects an item and one draw over a set
+// would select several on a number that is none of theirs.
+func (v *varyingScore) HoldOut(_ context.Context, itemID string, _, _ bool) (score.Selection, error) {
+	v.heldOutAsked = append(v.heldOutAsked, itemID)
+	return score.Selection{}, nil
+}
+
+// TestTheVerdictsGateWritesAreTheOnesTheScoreReads holds two spellings together.
+// The score reads a closing row's verdict when it counts outcomes and cannot import
+// this package, importing it the other way, so it declares the two words itself —
+// and two packages naming one word are two able to disagree.
+func TestTheVerdictsGateWritesAreTheOnesTheScoreReads(t *testing.T) {
+	if string(gate.VerdictApprove) != score.VerdictApproved {
+		t.Errorf("the gate writes %q and the score reads %q", gate.VerdictApprove, score.VerdictApproved)
+	}
+	if string(gate.VerdictReject) != score.VerdictRejected {
+		t.Errorf("the gate writes %q and the score reads %q", gate.VerdictReject, score.VerdictRejected)
+	}
+}
+
+// TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere: the gate
+// asks the score's sample with the pin's answer and after the reconciler's, so a
+// held-out item passes the gate the number would have gated and neither of the
+// other two.
+func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testing.T) {
+	// Over the threshold and held out: no human, and the closing row says the
+	// sample passed it.
+	s := &fakeScore{assessment: assessed(0.6), selection: score.Selection{HeldOut: true, Why: score.SelectedHere}}
+	ctx, _, g := newGate(t, s, &fakePolicy{applied: applied(0.3)})
+	opened, err := g.Fire(ctx, mergeFiring)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if opened.HumanDecides {
+		t.Errorf("a held-out firing put a human at the row: %s", opened.WhyHuman)
+	}
+	if !opened.HeldOut || opened.WhyHeldOut != score.SelectedHere {
+		t.Errorf("the firing reads held out %v because %q", opened.HeldOut, opened.WhyHeldOut)
+	}
+	if s.askedHoldOut != [2]bool{true, false} || s.askedItemID != mergeFiring.ItemID {
+		t.Errorf("the gate asked the sample about %q with %v, want the item with the number over the threshold and no pin",
+			s.askedItemID, s.askedHoldOut)
+	}
+	closing, err := g.AutoPass(ctx, opened)
+	if err != nil {
+		t.Fatalf("AutoPass: %v", err)
+	}
+	var payload gate.ClosingPayload
+	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
+		t.Fatalf("reading the closing payload: %v", err)
+	}
+	if payload.AutoPassedBy != score.AutoPassedBySample {
+		t.Errorf("the closing row says %q, want the sample", payload.AutoPassedBy)
+	}
+
+	// A pin adds a human whatever the sample answers, and the gate hands the sample
+	// the pin's answer so that it cannot select at all.
+	pinned := &fakeScore{assessment: assessed(0.1), selection: score.Selection{HeldOut: true}}
+	pinnedApplied := applied(0.3)
+	pinnedApplied.HumanPinned = true
+	ctx, _, g = newGate(t, pinned, &fakePolicy{applied: pinnedApplied})
+	opened, err = g.Fire(ctx, mergeFiring)
+	if err != nil {
+		t.Fatalf("Fire over a pinned row: %v", err)
+	}
+	if !opened.HumanDecides {
+		t.Error("a pinned row auto-passed")
+	}
+	if pinned.askedHoldOut != [2]bool{false, true} {
+		t.Errorf("the gate asked the sample with %v, want the pin's answer", pinned.askedHoldOut)
+	}
+
+	// Under the threshold and held out: still held out — the selection is the
+	// item's — and the closing row says the threshold, because the score would have
+	// passed this one anyway and it is evidence about no gate.
+	under := &fakeScore{assessment: assessed(0.1), selection: score.Selection{HeldOut: true, Why: score.SelectedEarlier}}
+	ctx, _, g = newGate(t, under, &fakePolicy{applied: applied(0.3)})
+	opened, err = g.Fire(ctx, mergeFiring)
+	if err != nil {
+		t.Fatalf("Fire under the threshold: %v", err)
+	}
+	if !opened.HeldOut {
+		t.Error("an item selected earlier is not held out here")
+	}
+	closing, err = g.AutoPass(ctx, opened)
+	if err != nil {
+		t.Fatalf("AutoPass: %v", err)
+	}
+	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
+		t.Fatalf("reading the closing payload: %v", err)
+	}
+	if payload.AutoPassedBy != score.AutoPassedByThreshold {
+		t.Errorf("the closing row says %q, want the threshold", payload.AutoPassedBy)
+	}
 }

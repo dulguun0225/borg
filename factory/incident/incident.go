@@ -236,6 +236,35 @@ func Open(ctx context.Context, pool *pgxpool.Pool, serviceID, releaseID string) 
 	return i, true, nil
 }
 
+// All is every incident in the store, oldest first, whatever the service. It is
+// what the score learns from: an incident on a release whose own watch window had
+// already closed without harm is the crossing the comparison could have seen and
+// did not, which is the one outcome that says the window's size was too coarse.
+//
+// It is not per service for the reason every other whole-table read the score
+// makes is not: the subjects it learns about are the services the records name,
+// so asking per service would first mean being told which to ask about.
+func All(ctx context.Context, pool *pgxpool.Pool) ([]Incident, error) {
+	rows, err := pool.Query(ctx, selectIncident+` order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("incident: reading every incident: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Incident
+	for rows.Next() {
+		i, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("incident: reading an incident: %w", err)
+		}
+		read = append(read, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("incident: reading every incident: %w", err)
+	}
+	return read, nil
+}
+
 // ForService is every incident of one service, oldest first.
 func ForService(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Incident, error) {
 	rows, err := pool.Query(ctx, selectIncident+` where service_id = $1 order by at, id`, serviceID)

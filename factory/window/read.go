@@ -16,14 +16,15 @@ import (
 // arrangement every record package in the factory has.
 
 const selectWindow = `select id, actor_kind, actor_name, at, deploy_id, release_id, service_id,
-	clean_available, size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at
+	clean_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
+	exit, closed_at
 	from ` + Table
 
 func scan(row pgx.Row) (Window, error) {
 	var w Window
 	var kind, exit string
 	err := row.Scan(&w.ID, &kind, &w.Actor.Name, &w.At, &w.DeployID, &w.ReleaseID, &w.ServiceID,
-		&w.CleanAvailable, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
+		&w.CleanAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
 		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt)
 	if err != nil {
 		return Window{}, err
@@ -113,6 +114,37 @@ func ClosedWithoutHarm(ctx context.Context, pool *pgxpool.Pool, serviceID string
 // the service's history walks, and what the crude interface prints.
 func All(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID, ` order by at, id`, "the windows")
+}
+
+// Closed is every closed window of every service, oldest close first. It is the
+// one read here that is not per service: what the score learns from a window is
+// its exit, and the subjects it learns about are the services the windows name,
+// so a reader asking per service would first have to be told which services to
+// ask about.
+//
+// Open windows are left out because an open window has no exit and so says
+// nothing about an outcome yet. The whole table is read at once, which is what
+// learning over every outcome costs while the store is small, and it is the same
+// cost the decision log's own whole-log read already carries.
+func Closed(ctx context.Context, pool *pgxpool.Pool) ([]Window, error) {
+	rows, err := pool.Query(ctx, selectWindow+` where exit <> '' order by closed_at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("window: reading the closed windows: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Window
+	for rows.Next() {
+		w, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("window: reading a closed window: %w", err)
+		}
+		read = append(read, w)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("window: reading the closed windows: %w", err)
+	}
+	return read, nil
 }
 
 // list is every read that returns more than one window. The suffix is a constant

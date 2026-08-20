@@ -63,13 +63,20 @@ const (
 // fakePolicy answers with one threshold and no pin. What a gate does with a
 // threshold is package gate's demonstration; here it only has to be answerable
 // so a decision can be written.
-type fakePolicy struct{ threshold float64 }
+type fakePolicy struct {
+	threshold float64
+	// pinned is whether a pin adds a human at the row, which is the one answer the
+	// score's own sample reads: it may pass a gate the number gated and never one
+	// a pin gated.
+	pinned bool
+}
 
 func (f fakePolicy) AtGate(context.Context, policy.Subjects) (policy.Applied, error) {
 	return policy.Applied{
 		PolicyVersion: "pv_00000000000000000000000000000001",
 		Threshold:     f.threshold,
 		ThresholdFrom: policy.FromSupplied,
+		HumanPinned:   f.pinned,
 	}, nil
 }
 
@@ -106,7 +113,7 @@ func newScore(t *testing.T) (context.Context, *pgxpool.Pool, *score.Score) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	return ctx, pool, score.New(pool, version)
+	return ctx, pool, score.New(pool, version, score.NeverDraw{})
 }
 
 func inSchema(t *testing.T, base, schema string) string {
@@ -181,7 +188,8 @@ func levelOf(t *testing.T, a score.Assessment, name string) float64 {
 // after it reads under it.
 func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	threshold, _ := score.Supplied(gatepolicy.RiskThreshold)
+	supplied, _ := score.Starting(gatepolicy.RiskThreshold)
+	threshold := supplied.Value
 	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: threshold}, gate.NoReconciler{})
 
 	first, firstImplementation := cutItem(t, ctx, pool, "item/one")
@@ -503,8 +511,11 @@ func TestTheVersionIsAppendedOnlyWhenWhatItPublishesChanges(t *testing.T) {
 	if version.FormulaVersion != score.FormulaVersion || version.Formula != score.Formula {
 		t.Error("the version does not name the published formula")
 	}
-	if version.FactorSet != score.FactorSet() || version.Supplied != score.SuppliedText() {
-		t.Error("the version does not name the factor set and the supplied values")
+	if version.FactorSet != score.FactorSet() || version.Rules != score.Rules {
+		t.Error("the version does not name the factor set and the published rules")
+	}
+	if len(version.Supplied) == 0 {
+		t.Error("the version names no supplied value")
 	}
 	if version.Supersedes != "" {
 		t.Errorf("the first version supersedes %q", version.Supersedes)
@@ -517,16 +528,18 @@ func TestTheVersionIsAppendedOnlyWhenWhatItPublishesChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if read != version {
+	if read.ID != version.ID || read.Formula != version.Formula || read.Rules != version.Rules ||
+		len(read.Supplied) != len(version.Supplied) {
 		t.Errorf("the version reads back as %+v", read)
 	}
 
 	// A version whose supplied values differ is a version of its own, and it
 	// names the one it replaced.
 	if _, err := pool.Exec(ctx, `insert into `+score.Table+`
-		(id, actor_kind, actor_name, at, formula_version, formula, factor_set, supplied, supersedes)
-		values ('scv_next', 'component', 'score', $1, $2, $3, $4, 'risk_threshold = 0.9', $5)`,
-		record.Now(), version.FormulaVersion, version.Formula, version.FactorSet, version.ID); err != nil {
+		(id, actor_kind, actor_name, at, formula_version, formula, factor_set, rules, supplied, supersedes)
+		values ('scv_next', 'component', 'score', $1, $2, $3, $4, $5,
+			'[{"parameter":"risk_threshold","value":0.9,"why":"a hand-written row this test appended"}]', $6)`,
+		record.Now(), version.FormulaVersion, version.Formula, version.FactorSet, version.Rules, version.ID); err != nil {
 		t.Fatalf("appending a second version: %v", err)
 	}
 	newest, found, err := score.Newest(ctx, pool)
@@ -548,7 +561,7 @@ func TestTheVersionIsAppendedOnlyWhenWhatItPublishesChanges(t *testing.T) {
 	if ensured.Supersedes != "scv_next" {
 		t.Errorf("the appended version supersedes %q, want scv_next", ensured.Supersedes)
 	}
-	if ensured.Supplied != version.Supplied {
+	if len(ensured.Supplied) != len(version.Supplied) {
 		t.Error("the appended version does not say what the source publishes")
 	}
 	if ensured.ID == version.ID {
