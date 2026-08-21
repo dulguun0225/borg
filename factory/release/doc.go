@@ -28,9 +28,9 @@
 //
 // The design gives the fast-forward to the merge queue, whose per-service
 // ordering is what stops two merges taking one number. The queue is M3, and
-// the caller today is M1's crude path — the lock does for that caller what
-// the queue's ordering will do, and costs nothing when the queue arrives,
-// because a serialised caller waits on a lock nobody else holds.
+// the caller today is M1's crude interface — the lock does for that caller
+// what the queue's ordering will do, and costs nothing when the queue
+// arrives, because a serialised caller waits on a lock nobody else holds.
 //
 // Who may write what: [Writer.Mint] inserts into release and updates and
 // deletes nothing. Written once is a property of the API — there is no update

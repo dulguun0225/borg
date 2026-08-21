@@ -93,9 +93,9 @@ func IDsInArea(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]string
 }
 
 // ForIntent is every item cut from one intent, in the order they were cut. One
-// intent yields one item on the crude path and several where the cut divides the
-// work, and both readers of this want all of them: what a rollback's revert intent
-// became, and what an incident's intent became.
+// intent yields one item through the crude interface and several where the cut
+// divides the work, and both readers of this want all of them: what a rollback's
+// revert intent became, and what an incident's intent became.
 //
 // An empty intent is no items and no error, for the reason [IDsInArea] gives about
 // an empty area.

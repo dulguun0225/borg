@@ -236,12 +236,13 @@ Both lists are long on a file that summarises the whole document, and that is no
 the file: one link to the glossary at its first unlinked term is often the whole fix.
 
 The subagent has to be given nothing but the path. An agent that has read the rest of the
-document resolves every term and returns an empty list, which is exactly the blindness the
-check exists to defeat — the document has always been readable to whoever just wrote it.
-The instruction files are the leak in this: a subagent receives the repository's `CLAUDE.md`
-whether or not it is asked to, so a term defined there rather than here is resolvable to the
-check and not to a reader. Tell the subagent to judge the file on its own, and treat a term
-whose only definition is in an instruction file as unresolved however the check reports it.
+document resolves every term and returns an empty list, which is exactly the failure the
+check exists to defeat — the document has always been readable to whoever just wrote it. The
+instruction files are what the check cannot withhold: a subagent receives the repository's
+`CLAUDE.md` whether or not it is asked to, so a term defined there rather than here is
+resolvable to the check and not to a reader. Tell the subagent to judge the file on its own,
+and treat a term whose only definition is in an instruction file as unresolved however the
+check reports it.
 
 (Owner rule, 2026-08-15. What it costs is a subagent per changed file on every edit, and a
 check whose result is a judgment rather than a grep exit code.)

@@ -126,7 +126,7 @@ func ReadEvidence(ctx context.Context, pool *pgxpool.Pool) (*Evidence, error) {
 	return e, nil
 }
 
-// newEvidence is an empty evidence with its maps made.
+// newEvidence is an empty [Evidence] with its maps made.
 func newEvidence() *Evidence {
 	return &Evidence{
 		releaseOfItem:   map[string]release.Release{},

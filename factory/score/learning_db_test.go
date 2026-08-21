@@ -23,7 +23,7 @@ import (
 
 // This is the milestone's own demonstration at the level of the score: a supplied
 // value moving because outcomes moved it, read out of a real graph rather than out
-// of an evidence a test assembled — that one is learn_test.go's, in this package's
+// of outcomes a test assembled — that one is learn_test.go's, in this package's
 // own internal test.
 
 // alwaysDraw selects every firing the score would have gated. The sample is one in

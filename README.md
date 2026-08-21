@@ -13,8 +13,8 @@ The factory is built as ordinary software. It does not run its own pipeline over
 
 ## What building it takes
 
-More than one kind of engineering, and the design document's register — records, writers,
-seams — hides that. [CLAUDE.md](CLAUDE.md) names what each of these owns.
+More than one kind of engineering, and the design document's vocabulary — records,
+writers, seams — hides that. [CLAUDE.md](CLAUDE.md) names what each of these owns.
 
 - **What the product is** — product management, product design, design systems, technical
   writing.

@@ -23,12 +23,13 @@ roadmap excepted 2026-08-17.)
 
 ## What the work spans
 
-Building this needs more than one kind of expertise, and the design document is written in
-one register — records, writers, seams — which hides that. A question about the watch
-window reads as an architecture question and is answered as one, in a voice that sounds
-right and is wrong: what decides whether the window works is the arithmetic of a
-sequential test at the traffic one install has. So before answering, name which row below
-the subject belongs to, and say which it is where the answer would differ by row.
+Building this needs more than one kind of expertise, and the design document is written
+in one vocabulary — records, writers, seams — which hides that. A question about the
+watch window reads as an architecture question and is answered as one, in that
+vocabulary, which sounds right while the answer is wrong: what decides whether the
+window works is the arithmetic of a sequential test at the traffic one install has. So
+before answering, name which row below the subject belongs to, and say which it is
+where the answer would differ by row.
 
 ### What the product is
 
@@ -86,7 +87,7 @@ the subject belongs to, and say which it is where the answer would differ by row
 What it costs: a list this long names something for every question and so settles none of
 them, and most sessions touch one row or two. It also describes a factory that does not
 exist yet, so a row will turn out to be an afternoon's work rather than a discipline. Its
-use is to stop an answer being given in the wrong register, and it staffs nothing.
+use is to stop an answer being given from the wrong discipline, and it staffs nothing.
 [`README.md`](README.md) names the same disciplines and links here for what each owns.
 (Owner rule, 2026-08-16.)
 
@@ -104,7 +105,7 @@ a milestone, a package, a record, a file, a helper in a test. It leads with what
 and what turns on it, and puts the mechanism after, in as much detail as the decision
 needs and no more. Where the owner has to decide, both ways are stated in ordinary words
 rather than in the document's. This is *understandable* doing its work where the
-ordering already puts it, third and above concise: the register that is right for
+ordering already puts it, third and above concise: the way of writing that is right for
 `end-goal/` satisfies precise and concise in a reply while failing the reader in front
 of it, which is how a session can be exactly correct and useless at the same time. What
 it costs is length — a reply is longer than the same content written for the document —
@@ -126,7 +127,7 @@ service*, *at merge to master*. One name per concept, held constant across secti
 
 **Literal.** Name the thing and say what happens to it. A record does not carry, hold,
 walk, stand, ride, or land — a component writes it, reads it, or points at it. Nothing
-is bought, spent, or paid for unless money or a quota actually moves. Corporate register
+is bought, spent, or paid for unless money or a quota actually moves. Corporate vocabulary
 is the same rule: nothing **is key**, and work is **in progress** rather than **in
 flight**. Metaphor reads as precision and is not: *an intent carries a project* leaves a
 reader choosing between a field on the record, a link to another record, and something a
@@ -263,7 +264,7 @@ costing more than it returns. Nothing in the repository looked for those until
 
 An agent that has read the instruction files audits against them and reports the design
 sound, because every rule in it is satisfied. That is the failure this pass exists to
-defeat, and it is the blindness the cold-read check already names one level down: on
+defeat, and it is the same failure the cold-read check already names one level down: on
 each changed file, `end-goal/CLAUDE.md` sends a subagent nothing but the path, because
 one that has read the whole document resolves every term and returns an empty list.
 
@@ -271,16 +272,17 @@ So each reader runs in its own subagent, and each is told two things in its disp
 — to judge what it reads on its own and ignore anything it was told about this repository
 elsewhere, and that the instruction files it has been given are material to review rather
 than rules to obey. A discipline reader is told a third, below. A subagent receives this
-file whether or not it is asked to, which `end-goal/CLAUDE.md` records as a leak for the
-cold-read check. Here an unqualified copy of the rules reproduces the exact defect the
-pass is for.
+file whether or not it is asked to, which `end-goal/CLAUDE.md` records as context the
+cold-read check cannot withhold. Here an unqualified copy of the rules reproduces the
+exact defect the pass is for.
 
-[_What the work spans_](#what-the-work-spans) is a second leak and a sharper one. It
-tells each discipline reader what in the design document it owns, which is a brief where
-half the job is finding what its field covers and the document never mentions — a reader
-that audits its own rows confirms the table rather than the design. So a discipline
-reader is told to audit the whole document from its field, and that its row is the
-document's claim about what it owns rather than the boundary of what to read.
+[_What the work spans_](#what-the-work-spans) is a second thing the dispatch cannot
+withhold, and a sharper one. It tells each discipline reader what in the design document
+it owns, which is a brief where half the job is finding what its field covers and the
+document never mentions — a reader that audits its own rows confirms the table rather
+than the design. So a discipline reader is told to audit the whole document from its
+field, and that its row is the document's claim about what it owns rather than the
+boundary of what to read.
 
 ### The readers
 

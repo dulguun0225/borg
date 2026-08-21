@@ -264,8 +264,8 @@ func splitReleases(stored string) []string {
 // Completed deploys are ordered by at, the time each record was written: the
 // record advances in place, so when it completed is not a stored fact. The
 // two orders differ only where a deploy completes after a later-started one,
-// which one caller deploying one at a time — the crude path — does not
-// produce.
+// which one caller deploying one at a time — the crude interface — does
+// not produce.
 //
 // It reads only the deploys that name a release. A candidate deploy names a build
 // instead, and a candidate environment is a place where nothing is current: what

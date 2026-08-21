@@ -72,9 +72,9 @@
 //
 // Two deploys of one service into one directory at once are still a race: the
 // stop, the start, and the write of what runs are three steps and nothing guards
-// them, and the caller is the one crude path the surfaces are deferred with, which
-// deploys one thing at a time. The kill is a kill, not a graceful shutdown, and
-// Deploy does not wait for the old process to release anything — a port, a file —
+// them, and the caller is the one crude interface the surfaces are deferred with,
+// which deploys one thing at a time. The kill is a kill, not a graceful shutdown,
+// and Deploy does not wait for the old process to release anything — a port, a file —
 // before the new one starts.
 //
 // A process this value did not start has nobody waiting on it, so when it exits it
