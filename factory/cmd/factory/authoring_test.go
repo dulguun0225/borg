@@ -24,13 +24,13 @@ import (
 
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/environment"
-	"github.com/dulguun0225/borg/factory/factorypolicy"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/pin"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
@@ -38,7 +38,7 @@ import (
 
 // newOwner gives a test a schema of its own with the whole schema applied,
 // DATABASE_URL pointed at it for the length of the test, an installed factory,
-// and a service the cut wrote. What it returns is the pool, for reading back what
+// and a service decomposition wrote. What it returns is the pool, for reading back what
 // a subcommand wrote.
 func newOwner(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
@@ -89,10 +89,10 @@ func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.
 	return installed.Production
 }
 
-func cutService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) service.Service {
+func decomposeService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) service.Service {
 	t.Helper()
 	svc, err := service.NewWriter(pool).Create(ctx,
-		record.Actor{Kind: record.KindComponent, Name: "cut"}, name, "/repos/"+name)
+		record.Actor{Kind: record.KindComponent, Name: "decomposition"}, name, "/repos/"+name)
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestNothingToAuthorOnBeforeTheFactoryIsInstalled(t *testing.T) {
 	}{
 		{"policy", func() error { return policyCommand(nil) }},
 		{"author", func() error {
-			return authorCommand([]string{"-parameter", "attempt_bound", "-value", "5"})
+			return authorCommand([]string{"-parameter", "attempt_limit", "-value", "5"})
 		}},
 	} {
 		err := c.run()
@@ -167,7 +167,7 @@ func TestAnAreaIsDeclaredAndCanLieInsideAnother(t *testing.T) {
 func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 	ctx, pool := newOwner(t)
 	production := install(t, ctx, pool)
-	svc := cutService(t, ctx, pool, "checkout")
+	svc := decomposeService(t, ctx, pool, "checkout")
 	if err := areaCommand([]string{"payments"}); err != nil {
 		t.Fatalf("area: %v", err)
 	}
@@ -192,15 +192,15 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "attempt_bound", "-value", "5", "-stage", "implementation"}, 5,
+			[]string{"-parameter", "attempt_limit", "-value", "5", "-stage", "implementation"}, 5,
 			func() (float64, bool) {
-				fp, err := factorypolicy.Get(ctx, pool)
+				fp, err := factorysettings.Get(ctx, pool)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				authored, err := factorypolicy.AttemptBound(ctx, pool, fp.ID, item.StageImplementation)
+				authored, err := factorysettings.AttemptLimit(ctx, pool, fp.ID, item.StageImplementation)
 				if err != nil {
-					t.Fatalf("AttemptBound: %v", err)
+					t.Fatalf("AttemptLimit: %v", err)
 				}
 				return authored.Number, authored.Present
 			},
@@ -216,13 +216,13 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "k", "-value", "2", "-service", "checkout"}, 2,
+			[]string{"-parameter", "window_limit", "-value", "2", "-service", "checkout"}, 2,
 			func() (float64, bool) {
 				read, err := service.Get(ctx, pool, svc.ID)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				return read.Parameters.K.Number, read.Parameters.K.Present
+				return read.Parameters.WindowLimit.Number, read.Parameters.WindowLimit.Present
 			},
 		},
 		{
@@ -236,13 +236,13 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "risk_threshold", "-value", "0.15", "-gate", "brief_or_skill"}, 0.15,
+			[]string{"-parameter", "risk_threshold", "-value", "0.15", "-gate", "role_prompt_or_skill"}, 0.15,
 			func() (float64, bool) {
-				fp, err := factorypolicy.Get(ctx, pool)
+				fp, err := factorysettings.Get(ctx, pool)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				return fp.BriefOrSkillThreshold.Number, fp.BriefOrSkillThreshold.Present
+				return fp.RolePromptOrSkillThreshold.Number, fp.RolePromptOrSkillThreshold.Present
 			},
 		},
 	} {
@@ -259,16 +259,16 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 		}
 	}
 
-	// The catalog is the one list, and it is authored as one.
-	if err := authorCommand([]string{"-parameter", "predicate_catalog", "-value", "status,schema"}); err != nil {
-		t.Fatalf("author the catalog: %v", err)
+	// The allowed predicate kinds are the one list, and they are authored as one.
+	if err := authorCommand([]string{"-parameter", "allowed_predicate_kinds", "-value", "status,schema"}); err != nil {
+		t.Fatalf("author the allowed: %v", err)
 	}
-	fp, err := factorypolicy.Get(ctx, pool)
+	fp, err := factorysettings.Get(ctx, pool)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if len(fp.PredicateCatalog) != 2 {
-		t.Errorf("the catalog reads %v, want the two authored", fp.PredicateCatalog)
+	if len(fp.AllowedPredicateKinds) != 2 {
+		t.Errorf("the allowed reads %v, want the two authored", fp.AllowedPredicateKinds)
 	}
 
 	// Every authoring write appended a policy version, so the sequence is as long
@@ -296,11 +296,11 @@ func TestAuthoringRefusesWhatItCannotResolve(t *testing.T) {
 		{"no parameter", []string{"-value", "2"}},
 		{"no value", []string{"-parameter", "k"}},
 		{"a parameter that does not exist", []string{"-parameter", "gut_feel", "-value", "2"}},
-		{"a word where a number belongs", []string{"-parameter", "k", "-value", "two", "-service", "checkout"}},
-		{"no service for a service-scoped parameter", []string{"-parameter", "k", "-value", "2"}},
+		{"a word where a number belongs", []string{"-parameter", "window_limit", "-value", "two", "-service", "checkout"}},
+		{"no service for a service-scoped parameter", []string{"-parameter", "window_limit", "-value", "2"}},
 		{"no area for an area-scoped parameter", []string{"-parameter", "item_size_target", "-value", "400"}},
 		{"an area nobody declared", []string{"-parameter", "item_size_target", "-value", "400", "-area", "nothing"}},
-		{"a service nobody cut", []string{"-parameter", "k", "-value", "2", "-service", "nothing"}},
+		{"a service nobody decomposed", []string{"-parameter", "window_limit", "-value", "2", "-service", "nothing"}},
 	} {
 		if err := authorCommand(c.args); err == nil {
 			t.Errorf("author with %s was accepted", c.name)
@@ -318,13 +318,13 @@ func TestAuthoringRefusesWhatItCannotResolve(t *testing.T) {
 	}
 }
 
-// TestAPinIsPlacedOnASubjectByNameAndWithdrawnById: the direction is never typed,
-// the subject is written kind:name, and withdrawing is what stops a mechanism
-// reading it.
-func TestAPinIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
+// TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById: the direction is never
+// typed, the subject is written kind:name, and withdrawing is what stops a
+// mechanism reading it.
+func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	ctx, pool := newOwner(t)
 	install(t, ctx, pool)
-	cutService(t, ctx, pool, "checkout")
+	decomposeService(t, ctx, pool, "checkout")
 	if err := areaCommand([]string{"payments"}); err != nil {
 		t.Fatalf("area: %v", err)
 	}
@@ -336,100 +336,101 @@ func TestAPinIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	}{
 		{[]string{"-parameter", "risk_threshold", "-subject", "gate_row:deploy_to_production"},
 			gatepolicy.RiskThreshold, gatepolicy.DirectionAddsAHuman},
-		{[]string{"-parameter", "k", "-subject", "service:checkout", "-bound", "2"},
-			gatepolicy.K, gatepolicy.DirectionCeiling},
+		{[]string{"-parameter", "window_limit", "-subject", "service:checkout", "-bound", "2"},
+			gatepolicy.WindowLimit, gatepolicy.DirectionCeiling},
 		{[]string{"-parameter", "item_size_target", "-subject", "area:payments", "-bound", "300"},
 			gatepolicy.ItemSizeTarget, gatepolicy.DirectionCeiling},
-		{[]string{"-parameter", "predicate_catalog", "-subject", "factory_policy:", "-bound", "status,schema"},
-			gatepolicy.PredicateCatalog, gatepolicy.DirectionFloor},
+		{[]string{"-parameter", "allowed_predicate_kinds", "-subject", "factory_settings:", "-bound", "status,schema"},
+			gatepolicy.AllowedPredicateKinds, gatepolicy.DirectionFloor},
 	} {
-		if err := pinCommand(c.args); err != nil {
-			t.Fatalf("pin %v: %v", c.args, err)
+		if err := safeguardCommand(c.args); err != nil {
+			t.Fatalf("safeguard %v: %v", c.args, err)
 		}
 	}
 
-	pins, err := pin.All(ctx, pool)
+	safeguards, err := safeguard.All(ctx, pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	if len(pins) != 4 {
-		t.Fatalf("%d pins are placed, want four", len(pins))
+	if len(safeguards) != 4 {
+		t.Fatalf("%d safeguards are placed, want four", len(safeguards))
 	}
-	for _, p := range pins {
+	for _, p := range safeguards {
 		if p.Withdrawn {
-			t.Errorf("pin %s is withdrawn the moment it was placed", p.ID)
+			t.Errorf("safeguard %s is withdrawn the moment it was placed", p.ID)
 		}
-		if p.Subject.Kind == pin.SubjectService && !strings.HasPrefix(p.Subject.ID, "svc_") {
-			t.Errorf("the pin on a service names %q, want the record's id", p.Subject.ID)
+		if p.Subject.Kind == safeguard.SubjectService && !strings.HasPrefix(p.Subject.ID, "svc_") {
+			t.Errorf("the safeguard on a service names %q, want the record's id", p.Subject.ID)
 		}
-		if p.Subject.Kind == pin.SubjectArea && !strings.HasPrefix(p.Subject.ID, "ar_") {
-			t.Errorf("the pin on an area names %q, want the record's id", p.Subject.ID)
+		if p.Subject.Kind == safeguard.SubjectArea && !strings.HasPrefix(p.Subject.ID, "ar_") {
+			t.Errorf("the safeguard on an area names %q, want the record's id", p.Subject.ID)
 		}
 	}
 
-	// A pin on the factory policy record names the record's id, because that is
-	// what the mechanism reading pins on it reads them by — a pin naming the word
-	// would apply to nothing.
-	fp, err := factorypolicy.Get(ctx, pool)
+	// A safeguard on the factory-wide settings record names the record's id, because
+	// that is what the mechanism reading safeguards on it reads them by — a safeguard
+	// naming the word would apply to nothing.
+	fp, err := factorysettings.Get(ctx, pool)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	onTheRecord := 0
-	for _, p := range pins {
-		if p.Subject.Kind == pin.SubjectFactoryPolicy {
+	for _, p := range safeguards {
+		if p.Subject.Kind == safeguard.SubjectFactorySettings {
 			onTheRecord++
 			if p.Subject.ID != fp.ID {
-				t.Errorf("the pin on the factory policy record names %q, want %s", p.Subject.ID, fp.ID)
+				t.Errorf("the safeguard on the factory-wide settings record names %q, want %s", p.Subject.ID, fp.ID)
 			}
 		}
 	}
 	if onTheRecord != 1 {
-		t.Errorf("%d pins name the factory policy record, want the one", onTheRecord)
+		t.Errorf("%d safeguards name the factory-wide settings record, want the one", onTheRecord)
 	}
 
-	// The catalog pin reaches the parameter it was drawn on: what an owner reads
-	// afterwards is the union, which is the whole of what a pin on a list does.
-	catalog, err := policy.NewReader(pool, score.Version{}).All(ctx, policy.Subjects{
+	// The safeguard on the allowed predicate kinds reaches the parameter it was
+	// drawn on: what an owner reads afterwards is the union, which is the whole of
+	// what a safeguard on a list does.
+	allowed, err := policy.NewReader(pool, score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	for _, e := range catalog {
-		if e.Parameter != gatepolicy.PredicateCatalog {
+	for _, e := range allowed {
+		if e.Parameter != gatepolicy.AllowedPredicateKinds {
 			continue
 		}
-		// The factory's own kinds are the floor an owner extends, so the pin's two
-		// names are added to them rather than replacing them.
+		// The factory's own kinds are the floor an owner extends, so the safeguard's
+		// two names are added to them rather than replacing them.
 		want := len(gatepolicy.PredicateKinds) + 2
 		if len(e.List) != want || !e.Clamped {
-			t.Errorf("the catalog reads %v clamped %v, want the factory's own %d plus the two the pin added",
+			t.Errorf("the allowed reads %v clamped %v, want the factory's own %d plus the two the safeguard added",
 				e.List, e.Clamped, len(gatepolicy.PredicateKinds))
 		}
 	}
 
-	if err := pinCommand([]string{"-withdraw", pins[0].ID}); err != nil {
-		t.Fatalf("pin -withdraw: %v", err)
+	if err := safeguardCommand([]string{"-withdraw", safeguards[0].ID}); err != nil {
+		t.Fatalf("safeguard -withdraw: %v", err)
 	}
-	pins, err = pin.All(ctx, pool)
+	safeguards, err = safeguard.All(ctx, pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
 	withdrawn := 0
-	for _, p := range pins {
+	for _, p := range safeguards {
 		if p.Withdrawn {
 			withdrawn++
 		}
 	}
 	if withdrawn != 1 {
-		t.Errorf("%d pins are withdrawn, want the one", withdrawn)
+		t.Errorf("%d safeguards are withdrawn, want the one", withdrawn)
 	}
 }
 
-// TestAPinRefusesWhatItCannotBind: a subject kind this milestone has no record
-// for, a subject that is not written kind:name, a bound of the wrong shape, and a
-// gate row that is not one of the rows built.
-func TestAPinRefusesWhatItCannotBind(t *testing.T) {
+// TestASafeguardRefusesWhatItCannotBind: a subject kind this milestone has no
+// record for, a subject that is not written kind:name, a bound of the wrong
+// shape, and a gate row that is not one of the rows built.
+func TestASafeguardRefusesWhatItCannotBind(t *testing.T) {
 	ctx, pool := newOwner(t)
 	install(t, ctx, pool)
 
@@ -438,24 +439,24 @@ func TestAPinRefusesWhatItCannotBind(t *testing.T) {
 		args []string
 	}{
 		{"nothing at all", nil},
-		{"a project", []string{"-parameter", "k", "-subject", "project:payments", "-bound", "2"}},
-		{"a subject with no kind", []string{"-parameter", "k", "-subject", "checkout", "-bound", "2"}},
+		{"a project", []string{"-parameter", "window_limit", "-subject", "project:payments", "-bound", "2"}},
+		{"a subject with no kind", []string{"-parameter", "window_limit", "-subject", "checkout", "-bound", "2"}},
 		{"a gate row nobody built", []string{"-parameter", "risk_threshold", "-subject", "gate_row:deploy_to_staging"}},
-		{"a word where a bound belongs", []string{"-parameter", "k", "-subject", "factory_policy:", "-bound", "two"}},
-		{"a parameter that does not exist", []string{"-parameter", "gut_feel", "-subject", "factory_policy:", "-bound", "2"}},
-		{"a pin withdrawn that does not exist", []string{"-withdraw", "pin_nothing"}},
+		{"a word where a bound belongs", []string{"-parameter", "window_limit", "-subject", "factory_settings:", "-bound", "two"}},
+		{"a parameter that does not exist", []string{"-parameter", "gut_feel", "-subject", "factory_settings:", "-bound", "2"}},
+		{"a safeguard withdrawn that does not exist", []string{"-withdraw", "sfg_nothing"}},
 	} {
-		if err := pinCommand(c.args); err == nil {
-			t.Errorf("pin with %s was accepted", c.name)
+		if err := safeguardCommand(c.args); err == nil {
+			t.Errorf("safeguard with %s was accepted", c.name)
 		}
 	}
 
-	placed, err := pin.All(ctx, pool)
+	placed, err := safeguard.All(ctx, pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
 	if len(placed) != 0 {
-		t.Errorf("%d pins were placed by refused calls", len(placed))
+		t.Errorf("%d safeguards were placed by refused calls", len(placed))
 	}
 }
 
@@ -465,7 +466,7 @@ func TestAPinRefusesWhatItCannotBind(t *testing.T) {
 func TestPolicyReadsWhatIsInForce(t *testing.T) {
 	ctx, pool := newOwner(t)
 	install(t, ctx, pool)
-	cutService(t, ctx, pool, "checkout")
+	decomposeService(t, ctx, pool, "checkout")
 	if err := areaCommand([]string{"payments"}); err != nil {
 		t.Fatalf("area: %v", err)
 	}
@@ -477,14 +478,14 @@ func TestPolicyReadsWhatIsInForce(t *testing.T) {
 		"-gate", "deploy_to_production", "-stage", "spec"}); err != nil {
 		t.Errorf("policy over every subject: %v", err)
 	}
-	if err := pinCommand([]string{"-parameter", "k", "-subject", "service:checkout", "-bound", "2"}); err != nil {
-		t.Fatalf("pin: %v", err)
+	if err := safeguardCommand([]string{"-parameter", "window_limit", "-subject", "service:checkout", "-bound", "2"}); err != nil {
+		t.Fatalf("safeguard: %v", err)
 	}
 	if err := policyCommand([]string{"-service", "checkout"}); err != nil {
-		t.Errorf("policy with a pin placed: %v", err)
+		t.Errorf("policy with a safeguard placed: %v", err)
 	}
 	if err := policyCommand([]string{"-service", "nothing"}); err == nil {
-		t.Error("policy over a service nobody cut was accepted")
+		t.Error("policy over a service nobody decomposed was accepted")
 	}
 
 	// What the print reads is what the reader reads, so the assertion over its
@@ -521,16 +522,16 @@ func TestASubcommandOutsideTheSetIsRefused(t *testing.T) {
 
 // TestThePrioritySubcommandReordersAQueue is duty 9's other write on an item: an
 // owner reorders a queue, through dispatch rather than beside it. It is the fifth
-// subcommand and it has no surface until Work arrives.
+// subcommand and it has no screen until Work arrives.
 func TestThePrioritySubcommandReordersAQueue(t *testing.T) {
 	ctx, pool := newOwner(t)
 	install(t, ctx, pool)
-	svc := cutService(t, ctx, pool, "checkout")
+	svc := decomposeService(t, ctx, pool, "checkout")
 
-	it, err := item.NewCut(pool).Create(ctx, record.Actor{Kind: record.KindComponent, Name: "cut"},
+	it, err := item.NewDecomposition(pool).Create(ctx, record.Actor{Kind: record.KindComponent, Name: "decomposition"},
 		item.New{IntentID: "in_a", ServiceID: svc.ID, Branch: "item/a"})
 	if err != nil {
-		t.Fatalf("cutting the item: %v", err)
+		t.Fatalf("decomposing the item: %v", err)
 	}
 
 	if err := dispatch([]string{"priority", it.ID, "-priority", "7"}); err != nil {

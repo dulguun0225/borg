@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
-	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
 // Marked is one deprecation-marked element and the list that waits on it: the
-// consumers whose declarations in force still name it, plus any pinned predicate
-// naming it.
+// consumers whose consumer contracts in force still name it, plus any
+// safeguard's predicate naming it.
 //
 // Nothing writes this. It is computed, so it cannot go stale: a consumer that
 // stops reading the element leaves the list because its next release derives
@@ -29,24 +29,24 @@ type Marked struct {
 	// the mark is read out of.
 	Version contract.Version
 	Element contract.Element
-	// Predicates is the declarations in force naming the element, whichever
+	// Predicates is the consumer contracts in force naming the element, whichever
 	// consumer.
-	Predicates []declaration.Predicate
-	// Pinned is the pinned predicates naming it, which an owner placed and a
-	// derivation did not.
-	Pinned []policy.PinnedPredicate
+	Predicates []consumercontract.Predicate
+	// Safeguards is the safeguards' predicates naming it, which an owner placed
+	// and a derivation did not.
+	Safeguards []policy.SafeguardPredicate
 }
 
-// Empty reports whether the derived declarations naming the element are gone,
-// which is the condition the removal intent is raised on. A pin is deliberately
-// not part of it: a pin never stops the item existing, only passing — the removal
-// candidate is rejected at its merge gate on the pin, counts an attempt, and
-// appears as an escalation naming the pin and its author, which is the blocked
-// removal item asking the consumer to confirm.
+// Empty reports whether the derived consumer contracts naming the element are gone,
+// which is the condition the removal intent is raised on. A safeguard is deliberately
+// not part of it: a safeguard never stops the item existing, only passing — the
+// removal candidate is rejected at its Merge to master gate on the safeguard, counts
+// an attempt, and appears as an escalation naming the safeguard and its author, which
+// is the blocked removal item asking the consumer to confirm.
 func (m Marked) Empty() bool { return len(m.Predicates) == 0 }
 
-// Consumers is the distinct services whose declarations in force still name the
-// element, in the order the predicates came back.
+// Consumers is the distinct services whose consumer contracts in force still
+// name the element, in the order the predicates came back.
 func (m Marked) Consumers() []string {
 	var services []string
 	for _, p := range m.Predicates {
@@ -112,7 +112,7 @@ func (c *Check) Deprecated(ctx context.Context) ([]Marked, error) {
 		for _, element := range elements {
 			subjects = append(subjects, contract.ElementSubject(con.ID, element))
 		}
-		pinned, err := c.policy.PinnedPredicatesOn(ctx, subjects)
+		safeguards, err := c.policy.SafeguardPredicatesOn(ctx, subjects)
 		if err != nil {
 			return nil, err
 		}
@@ -120,11 +120,11 @@ func (c *Check) Deprecated(ctx context.Context) ([]Marked, error) {
 			element, _ := form.Element(name)
 			one := Marked{
 				Contract: con, ServiceName: svc.Name, Version: version, Element: element,
-				Predicates: declaration.NamingElement(binding, con.ServiceID, con.Name, name),
+				Predicates: consumercontract.NamingElement(binding, con.ServiceID, con.Name, name),
 			}
-			for _, p := range pinned {
+			for _, p := range safeguards {
 				if p.Subject == contract.ElementSubject(con.ID, name) {
-					one.Pinned = append(one.Pinned, p)
+					one.Safeguards = append(one.Safeguards, p)
 				}
 			}
 			marked = append(marked, one)
@@ -146,13 +146,13 @@ type Raised struct {
 }
 
 // RaiseRemovals is the detector: one pass over every marked element, taking a
-// removal intent in for each whose derived declarations are gone. Nobody has to
-// remember step three of a migration.
+// removal intent in for each whose derived consumer contracts are gone. Nobody
+// has to remember step three of a migration.
 //
 // It is deduplicated by the statement rather than by a record saying the detector
 // has fired. An unrefined intent with the same statement is that intent, and a
 // pass that finds one takes nothing in — which is the handle a revert already
-// reaches the pipeline by, and costs what that costs. Once the intent has been cut,
+// reaches the pipeline by, and costs what that costs. Once the intent has been decomposed,
 // it is no longer unrefined and this pass would raise a second one; what stops
 // that is the element leaving the newest form when the removal ships, which is the
 // same event that makes the removal unnecessary.

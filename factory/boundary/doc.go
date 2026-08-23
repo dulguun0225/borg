@@ -1,5 +1,5 @@
 // Package boundary is the watch window's boundary: the arithmetic that turns a
-// size and a confidence into a line the comparison may read as often as it
+// size and a confidence into a line the health monitor may read as often as it
 // likes without the reading losing its meaning.
 //
 // # Why a boundary rather than a threshold
@@ -56,7 +56,7 @@
 //
 // A baseline with no units at all is no baseline, and neither exit is reachable
 // from one: [Reading.Unavailable] says so, which is the design's statement that
-// a service's first release cannot close clean and can be condemned only by a
+// a service's first release cannot be cleared and can be condemned only by a
 // threshold an owner stated absolutely. A baseline rate so high that raising it
 // by the size passes one is the same answer for the opposite reason — a service
 // whose normal behaviour leaves no room above it to detect a regression in.
@@ -70,7 +70,7 @@
 // exits are the table in that section, of which this package decides two and
 // the elapsed cap and a rollback aimed below decide the other two. What the
 // comparison is made against is
-// ../../end-goal/how-humans-do-it/08-operations.md#the-health-signal, whose weak
-// fallback reads a release against the restore floor's recent history where no
-// control is running.
+// ../../end-goal/how-humans-do-it/08-operations.md#the-health-monitor, whose weak
+// fallback reads a release against the last known-good release's recent history
+// where no control is running.
 package boundary

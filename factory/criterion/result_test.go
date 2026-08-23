@@ -25,7 +25,7 @@ func TestDecideIsUndecidedWhereTheRunsDisagree(t *testing.T) {
 	}
 }
 
-// TestUndecidedBlocksLikeAFailure: undecided is read at the merge gate the way a
+// TestUndecidedBlocksLikeAFailure: undecided is read at the Merge to master gate the way a
 // failure is, which is the whole reason it is not a kind of pass — a passing
 // criterion is all that gate reads about the item's own behaviour.
 func TestUndecidedBlocksLikeAFailure(t *testing.T) {

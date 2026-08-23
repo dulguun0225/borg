@@ -2,49 +2,55 @@
 
 ## What this repository is
 
-A monorepo for building the software factory [README.md](README.md) describes. It holds
-the design document under `end-goal/`. Code is added beside it as it arrives, never
-inside it — `end-goal/` is the state the repository is built toward, not a record of
-what it currently does.
+Monorepo for the software factory [README.md](README.md) describes. `end-goal/` holds the
+design document: the state the repository is built toward, not a record of what it does.
+Code goes beside it in `factory/`, never inside it. The factory is built as ordinary
+software and does not run its own pipeline over itself.
 
-The factory is built as ordinary software and does not run its own pipeline over itself.
-
-**Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** It has its own
-editing rules and a consistency pass to run after every edit, which govern that directory
-alone and say nothing about code. **Writing style** below is what governs prose
-everywhere, that directory included; it sat in `end-goal/CLAUDE.md` until 2026-08-14.
+**Read `end-goal/CLAUDE.md` before touching anything under `end-goal/`.** Its editing
+rules and its consistency pass govern that directory alone and say nothing about code.
+[_Writing style_](#writing-style) governs prose everywhere, that directory included.
 
 A decision reached while working folds into the `end-goal/` file that owns the subject.
-The one other planning record is [`roadmap.md`](roadmap.md) — the order the factory is
-built in, as milestones — which records order and never progress. Beyond those two,
-nothing in the repository records a decision: there is still no status file and nothing
-that says what work is under way or how far along it is. (Owner rule, 2026-08-14;
-roadmap excepted 2026-08-17.)
+Two files record decisions and there is no third:
+
+| File | What it is | Authority |
+|---|---|---|
+| `end-goal/` | The design document | Authoritative |
+| [`roadmap.md`](roadmap.md) | Milestones in build order — order and never progress | — |
+
+There were three. `jargon-cleanup.md` held the vocabulary invented here and the plain
+words replacing it, and it was written down rather than done because the work did not fit
+one session. It ended on 2026-08-23 with the last of the code renamed, and it was deleted
+as its own rule required: a finished step was struck from it in the commit that finished
+it, so the file shrank to nothing. What it decided is in `end-goal/` and in the commits.
+
+[`end-goal/terms.txt`](end-goal/terms.txt) is not a third: it lists every name the
+document uses and the field that name comes from or `coined`, so the consistency pass can
+fail on a new one. It holds no reasons and no decisions — same kind of thing as
+[`factory/deps.txt`](factory/deps.txt). A contested attribution is argued in the commit
+and settled in the file.
 
 ## What the work spans
 
-Building this needs more than one kind of expertise, and the design document is written
-in one vocabulary — records, writers, seams — which hides that. A question about the
-watch window reads as an architecture question and is answered as one, in that
-vocabulary, which sounds right while the answer is wrong: what decides whether the
-window works is the arithmetic of a sequential test at the traffic one install has. So
-before answering, name which row below the subject belongs to, and say which it is
-where the answer would differ by row.
+Before answering, name which row below the subject belongs to, and say which row it is
+wherever the answer would differ by row. The list staffs nothing.
+[`README.md`](README.md) names the same disciplines and links here for what each owns.
 
 ### What the product is
 
 | Discipline | What in the design document it owns |
 |---|---|
 | Product management | Whether a self-hosted factory with one customer per install is worth having, and what the no-tenancy decision costs |
-| Product design | The four surfaces, and a home view that is empty whenever the factory is working |
-| Design systems | The design system a project holds as a standing constraint: what a machine can check, and what a designer has to produce as code before anything checks it |
-| Technical writing | The document itself — one name per concept held constant, the glossary, and the cross-references that make its claims interlock |
+| Product design | The four screens, and a home view that is empty whenever the factory is working |
+| Design systems | The design system a project holds as a permanent constraint: what a machine can check, and what a designer has to produce as code before anything checks it |
+| Technical writing | The document itself — the glossary, the cross-references that make its claims interlock, and consistency between the fields' vocabularies. It does not own the terms of art: each row below owns its own, which is what stops a name being traded away for a consistent one by a discipline whose job is consistency |
 
 ### What the factory decides
 
 | Discipline | What in the design document it owns |
 |---|---|
-| Applied statistics and sequential testing | The watch window: a boundary valid at every point it is read, the size and confidence an owner authors, and whether `clean` is reachable at all on a quiet service |
+| Applied statistics and sequential testing | The watch window: a boundary valid at every point it is read, the size and confidence an owner authors, and whether `cleared` is reachable at all on a quiet service |
 | Risk scoring | The score's factors, its published formula, its calibration, and a loop trained on outcomes its own decisions selected |
 | Requirements engineering | The six criterion patterns, and the unwanted conditions a pattern-perfect set can still omit |
 | Formal methods | The item, gate, hold, and rollback lifecycle as a state machine, and whether it deadlocks |
@@ -57,7 +63,7 @@ where the answer would differ by row.
 |---|---|
 | Software architecture | Component boundaries, one writer per record, and the seam declared between two |
 | Backend engineering | The record graph and the components that write it |
-| Frontend engineering | The four surfaces as software |
+| Frontend engineering | The four screens as software |
 | Data architecture | Backup, restore, retention, and records written by one version of a self-hosted product that the next version has to read |
 | Agent engineering | The fleet — a model in a role with a scope — what a stage's agent is given, and how one is evaluated |
 | Program analysis | Deriving a consumer's declaration from its build, which differs per toolchain |
@@ -66,12 +72,12 @@ where the answer would differ by row.
 
 | Discipline | What in the design document it owns |
 |---|---|
-| Release engineering | The merge queue, the two rollout strategies, K, and a rollback's target |
+| Release engineering | The merge queue, the two rollout strategies, the window limit, and a rollback's target |
 | Database migration engineering | The store's forward promise, which is what a rollback across a schema change rests on |
-| Site reliability engineering | Pages, escalation, incidents, and the reconciler |
-| Observability engineering | The quantity the comparison reads, and instrumenting software the factory wrote so that it emits one |
+| Site reliability engineering | Pages, escalation, incidents, and the independent checker |
+| Observability engineering | The quantity the health monitor reads, and instrumenting software the factory wrote so that it emits one |
 | Test architecture | What runs on a candidate environment, every pre-merge check being decided against that run |
-| Platform engineering | An environment per candidate, and a place for a service the cut creates |
+| Platform engineering | An environment per candidate, and a place for a service decomposition creates |
 
 ### What the factory answers to
 
@@ -81,338 +87,179 @@ where the answer would differ by row.
 | Supply chain security | Dependencies the factory adds on its own — versions, vulnerabilities, and licenses |
 | Trust and safety | The report channel, which is the one way in from outside the factory |
 | Audit and compliance | Traceability as a claim made to an auditor, and segregation of duties in a system that authors, approves, and deploys |
-| Legal | Laws and regulations as standing constraints, and licensing a product a customer self-hosts |
+| Legal | Laws and regulations as permanent constraints, and licensing a product a customer self-hosts |
 | Cost engineering | Cost per feature, the provider's quota, and the spend ceiling the design refuses |
-
-What it costs: a list this long names something for every question and so settles none of
-them, and most sessions touch one row or two. It also describes a factory that does not
-exist yet, so a row will turn out to be an afternoon's work rather than a discipline. Its
-use is to stop an answer being given from the wrong discipline, and it staffs nothing.
-[`README.md`](README.md) names the same disciplines and links here for what each owns.
-(Owner rule, 2026-08-16.)
 
 ## Writing style
 
-Governs every file in this repository — the design document under `end-goal/`, this file,
-commit bodies — and anything written about them, a reply in the terminal included.
-
-**A reply has a different reader, and that changes what these rules ask for.** The
-design document is read by somebody who has read the rest of it, so a settled term
-carries its whole meaning and a link finishes the introduction. A reply is read by the
-owner, deciding something, who does not have the document in their head and cannot
-follow a link mid-sentence — so a reply says what a thing is the first time it names it:
-a milestone, a package, a record, a file, a helper in a test. It leads with what changed
-and what turns on it, and puts the mechanism after, in as much detail as the decision
-needs and no more. Where the owner has to decide, both ways are stated in ordinary words
-rather than in the document's. This is *understandable* doing its work where the
-ordering already puts it, third and above concise: the way of writing that is right for
-`end-goal/` satisfies precise and concise in a reply while failing the reader in front
-of it, which is how a session can be exactly correct and useless at the same time. What
-it costs is length — a reply is longer than the same content written for the document —
-and the remedy is never to say less. (Owner rule, 2026-08-20, after a run of replies
-that named milestones, packages and test helpers with no introduction and lost the
-reader entirely — and after the first draft of this very paragraph named the design
-document by a word only this repository uses, without introducing it, which is how
-easily the rule is broken by whoever is writing it.)
-
-**Precise, then literal, then understandable, then concise, then simple.** The order is
-the rule and only does work where they conflict. Simple is last, not absent: plain words
-and short sentences wherever they take nothing away. (Owner rule, 2026-08-15.)
-
-**Precise.** If cutting a qualification blurs the claim, keep it: "a breaking diff
-without the migration already shipped ahead of it" is not "a bad diff." A true statement
-that needs a caveat gets the caveat: "the last place a human decides — by default, and
-by score, not because the gates downstream of it are missing." Name the scope — *per
-service*, *at merge to master*. One name per concept, held constant across sections.
-
-**Literal.** Name the thing and say what happens to it. A record does not carry, hold,
-walk, stand, ride, or land — a component writes it, reads it, or points at it. Nothing
-is bought, spent, or paid for unless money or a quota actually moves. Corporate vocabulary
-is the same rule: nothing **is key**, and work is **in progress** rather than **in
-flight**. Metaphor reads as precision and is not: *an intent carries a project* leaves a
-reader choosing between a field on the record, a link to another record, and something a
-later stage looks up. Where the literal sentence is longer or harder to take in, write
-it anyway — the remedy for hard is the next rule, never the figure. (Owner rule,
-2026-08-14.)
-
-**Settled technical terms exempt.** A term `end-goal/` defines keeps its word even where
-the word is on the list above: a **hold** at a gate, a **standing** constraint, a
-**control**, a **straight** deploy, a window closing **clean** or **swept**, a **floor**
-under a parameter or a **ceiling** over it. What makes a term settled is that a section
-defines it, not that two paragraphs use it — so the exemption is checkable, and coining
-one to get around the ban is not it. Outside its definition the word is ordinary again:
-a record still does not hold its fields. (Owner rule, 2026-08-14.)
-
-**A term has to name something the plain words cannot say once.** A name earns its place
-when a mechanism would otherwise be described a slightly different way every time it
-came up, and a reader could not tell whether two descriptions meant the same thing — a
-**watch window**, a **restore floor**, a **held-out sample**. It does not earn its place
-by being shorter than the plain phrase for the same idea. **The tree** was that: it
-meant this design document, the glossary's own entry said so in those words, and it
-bought nothing except making every sentence around it sound like a conversation somebody
-else was already in. It was used forty-one times, twenty-four of them in the document,
-and it went on 2026-08-20 at the owner's instruction. The same two words also meant a
-git working tree at sixteen sites in the code, which is the sharper cost: a private
-synonym that collides with the ordinary word is worse than a private synonym, because
-only a reader who already knows can tell which is meant. So no new term where a plain
-phrase says the same thing, and a term already here that turns out to be one of those is
-removed rather than kept for the cost of removing it. What this rule costs is that the
-plain phrase is usually longer, and length is the thing the ordering above is willing to
-spend. (Owner rule, 2026-08-20.)
-
-**Understandable.** A term is introduced where it is first used, or linked to where it
-is introduced. A reader who has not read the rest of the document has to be able to
-finish the sentence they are on. Where introducing a term needs another clause, write
-the clause. A term `end-goal/` defines is linked to its section or to
-[`end-goal/glossary.md`](end-goal/glossary.md), which is what a file outside that
-directory does rather than assuming the name. What it costs is length: a paragraph
-naming six records introduces six. (Owner rule, 2026-08-15.)
-
-A section opens with one sentence saying what it is about, in ordinary words. That
-sentence may restate the heading and may summarise what follows. It is the one place
-redundancy is not waste.
-
-**Concise.** The short true sentence over the longer gentle one. State reasons rather
-than announcing them — `This is the reason:` was cut for exactly that.
-
-Two habits follow. A rule is stated together with the downside it creates — no-batching
-with the human-UAT ceiling it creates. A qualification goes in an em-dash aside where
-the sentence still reads without it; where the aside is itself a claim the reader has to
-keep in mind, it becomes its own sentence. (Owner rule, 2026-08-15.)
-
-**Structure for a reader.** A long run of uniform paragraphs gets `###` subheadings; a
-set of parallel facts gets a table. When a table contains a definition, the prose around
-it must not restate the table — trim the prose to what the table cannot express.
-
-No hard wrap anywhere but the instruction files: one paragraph is one line, and the
-renderer does the rest. The instruction files — this one, `end-goal/CLAUDE.md`, and the
-root `README.md` — stay wrapped, which is how all three are written today. (Owner rule,
-2026-08-13.)
+- Use words according to their established meaning. Avoid figurative, anthropomorphic, or unnatural phrasing.
+- Use established terminology of the relevant field according to its established meaning.
+- Do not use terminology from another field as metaphor or analogy.
+- Do not invent terminology. If no established term exists, describe the concept in plain language.
+- Apply these rules to prose, code, schemas, and file names.
+- Use established terms of art normally; they are not considered borrowed terminology.
+- Be concise. Prefer the fewest words needed to convey the meaning accurately.
 
 ## Delegate by default
 
-Route work to the agent roster in `~/.claude/agents/` instead of doing it in the main
-context, without being asked. Each agent's definition already carries the model and
-effort matched to its tier — scout on haiku for lookups, coder for scoped edits,
-deep-worker at high effort for correctness-critical work — so routing to the right
-agent is routing to the right model. The routing table is the `description:` line of
-each agent file; when in doubt between two agents, the tier ladder is quality > tokens
-> time and a doubt resolves upward.
+Route work to the agents in `~/.claude/agents/` instead of doing it in the main
+context, without being asked. Each agent's definition carries the model and effort matched
+to its tier, so routing to the right agent is routing to the right model. The routing
+table is the `description:` line of each agent file. Between two agents the tier ladder is
+quality > tokens > time, and a doubt resolves upward.
 
-What stays in the main context: triage and routing itself, anything the user must
-decide, conversation-spanning work an agent cannot see, and answers so small that
-dispatch costs more than it saves.
+Stays in the main context: triage and routing itself, anything the user must decide,
+conversation-spanning work an agent cannot see, and answers so small that dispatch costs
+more than it saves.
 
-Agents run as the task shapes them — sequentially when dependent, in parallel only when
-genuinely independent and few. This does not touch the borg review pass: its readers
-still run only when the owner names them, one at a time, per that project's CLAUDE.md.
-(Owner rule, 2026-08-17.)
+Agents run sequentially when dependent, in parallel only when genuinely independent and
+few. This does not touch [_The review pass_](#the-review-pass), whose review agents still
+run only when the owner names them, one at a time.
 
 ## Code
 
 Code lives in `factory/` — beside `end-goal/`, never inside it — written in Go against
-PostgreSQL. Go because the compiler makes an import cycle an error and the ecosystem
-leans on neither reflection nor DI containers; PostgreSQL from the first record because
-the owner expects the project to need it, and starting there means the chained log is
-never migrated. `mise.toml` at the root pins the toolchain, and
-`factory/docker-compose.yml` runs the dev database.
+PostgreSQL, and PostgreSQL from the first record so the chained log is never migrated.
+`mise.toml` at the root pins the toolchain; `factory/docker-compose.yml` runs the dev
+database.
 
-Five rules govern how it is written, set because the code's readers are LLMs as much as
-humans (owner rule, 2026-08-17):
+Five rules, set because the code's readers are LLMs:
 
 - **Feature-sliced packages with hard boundaries.** One package owns one thing — its
-  schema, its writer, its doc — so a task touches a few files in one directory rather
-  than fifteen across five layers, and the relevant context fits in a window without
-  retrieval.
+  schema, its writer, its doc — so a task touches a few files in one directory rather than
+  fifteen across five layers.
 - **Explicit over implicit.** No runtime reflection, no DI container, no string-keyed
-  dispatch, no codegen the source does not show. Everything a static reader — human,
-  model, or graph extractor — needs is in the text.
+  dispatch, no codegen the source does not show. Everything a static reader needs is in
+  the text.
 - **Locality.** Small files, shallow indirection, low fan-out.
 - **Machine-checked dependency direction.** `factory/deps.txt` is the allowed package
-  graph, `cmd/depscheck` fails the build on an edge not in it, and the compiler already
-  refuses cycles — so a wrongly wired package is caught by the build, not by a reviewer.
-- **The map ships with the code.** `factory/README.md` names every package and the
-  allowed edges; each package's `doc.go` says what it owns, who may write what, and
-  which `end-goal/` section defines the concept it implements.
+  graph and `cmd/depscheck` fails the build on an edge not in it; the compiler already
+  refuses cycles.
+- **The map ships with the code.** `factory/README.md` names every package and the allowed
+  edges; each package's `doc.go` says what it owns, who may write what, and which
+  `end-goal/` section defines the concept it implements.
 
-What the rules cost: more packages than a layered design would have, and a duplicated
-line where two features would otherwise share a helper — locality is paid for in
-repetition, and the repetition is the cheaper of the two.
+Duplicate a line rather than share a helper across packages: locality is paid for in
+repetition, and the repetition is the cheaper of the two. Expect more packages than a
+layered design would have.
 
 ## The review pass
 
-`end-goal/CLAUDE.md` has a consistency pass that verifies the design document against
-rules the document sets, and it runs after every edit. This is the second pass, and it
-asks whether what those rules protect is any good. A reader below runs when the owner
-names it, and readers run one at a time — the next starts after the previous returns. No
-phrase runs all of them, and no request means more readers than it names. There was one —
-**Audit this project** dispatched all thirty at once — and it was retired: one run spent
-a session limit in ten minutes and a fifth of a weekly model quota. What a partial run must not do is speak for the whole design: its report names which
-readers ran, and a design those readers found sound is not a design found sound. A
-reader's subagent runs on a model and at an effort matched to what it judges — quality
-of the work decides first, tokens second, time last, so a doubt between two tiers
-resolves to the higher, and the cheap tier is never a default. (Owner rule, 2026-08-17.)
+`end-goal/CLAUDE.md`'s consistency pass verifies the design document against rules the
+document sets and runs after every edit. This second pass asks whether what those rules
+protect is any good. Neither substitutes for the other: the consistency pass finds a link
+pointing at nothing, a heading no longer matching its anchor, a term used before it is
+introduced; the review pass finds a design that would not work, a subject the design never
+mentions, and a rule costing more than it returns.
 
-Neither substitutes for the other. The consistency pass finds a link pointing at
-nothing, a heading no longer matching the anchor aimed at it, a term used before it is
-introduced — defects the rules name, which is why a grep finds most of them. The review
-pass finds a design that would not work, a subject the design never mentions, and a rule
-costing more than it returns. Nothing in the repository looked for those until
-2026-08-16.
+**Dispatch.** A review agent runs when the owner names it, and they run one at a time —
+the next starts after the previous returns. No phrase runs all of them, and no request
+means more of them than it names; **Audit this project** dispatched all thirty at once and
+was retired after one run spent a session limit in ten minutes and a fifth of a weekly
+model quota. A partial run must not speak for the whole design: its report names which
+agents ran, and a design those agents found sound is not a design found sound. Each one
+runs on a model and effort matched to what it judges — quality first, tokens
+second, time last, so a doubt between two tiers resolves to the higher and the cheap tier
+is never a default.
 
-### Why it is dispatched cold
+**Each review agent is dispatched cold**, in its own subagent, and told two things in its
+dispatch text: to judge what it reads on its own and ignore anything it was told about
+this repository elsewhere, and that the instruction files it has been given are material
+to review rather than rules to obey. A subagent receives this file whether or not it is
+asked to, and an unqualified copy of the rules reproduces the exact defect the pass exists
+to find — an agent that has read the instruction files audits against them and reports the
+design sound.
 
-An agent that has read the instruction files audits against them and reports the design
-sound, because every rule in it is satisfied. That is the failure this pass exists to
-defeat, and it is the same failure the cold-read check already names one level down: on
-each changed file, `end-goal/CLAUDE.md` sends a subagent nothing but the path, because
-one that has read the whole document resolves every term and returns an empty list.
+A discipline agent is told a third thing: to audit the whole document from its field, its
+row in [_What the work spans_](#what-the-work-spans) being the document's claim about what
+it owns rather than the boundary of what to read. That table is the other thing the
+dispatch cannot withhold, and one that audits only its own rows confirms the table rather
+than the design.
 
-So each reader runs in its own subagent, and each is told two things in its dispatch text
-— to judge what it reads on its own and ignore anything it was told about this repository
-elsewhere, and that the instruction files it has been given are material to review rather
-than rules to obey. A discipline reader is told a third, below. A subagent receives this
-file whether or not it is asked to, which `end-goal/CLAUDE.md` records as context the
-cold-read check cannot withhold. Here an unqualified copy of the rules reproduces the
-exact defect the pass is for.
+**The review agents** are a roster of thirty, each one subagent reading the repository's
+Markdown — `end-goal/` and the instruction files — and none seeing another's work.
+Twenty-eight are the disciplines [_What the work spans_](#what-the-work-spans) names, one
+per row, not repeated here. Each asks two things of the whole design: what its field knows
+the design gets wrong, and what its field normally covers that the design never mentions.
 
-[_What the work spans_](#what-the-work-spans) is a second thing the dispatch cannot
-withhold, and a sharper one. It tells each discipline reader what in the design document
-it owns, which is a brief where half the job is finding what its field covers and the
-document never mentions — a reader that audits its own rows confirms the table rather
-than the design. So a discipline reader is told to audit the whole document from its
-field, and that its row is the document's claim about what it owns rather than the
-boundary of what to read.
-
-### The readers
-
-A roster of thirty, each run as one subagent reading the repository's Markdown —
-`end-goal/` and the instruction files — and none seeing another's work. Twenty-eight are
-the disciplines [_What the work spans_](#what-the-work-spans) names, one per row, each
-asking two things of the whole design: what its field knows the design gets wrong, and
-what its field normally covers that the design never mentions. The rows are not repeated
-here — the table is one place, and a copy would be two able to disagree.
-
-Two stances survive beside them, because neither is any discipline's. A stance is a
-position with a reason to find something, not a checklist:
+Two stances survive beside them, because neither is any discipline's. Four earlier ones —
+the builder, the operator, the adversary, the cold reader — were replaced by discipline
+agents and are not on the roster:
 
 | Stance | What it looks for |
 |---|---|
-| The absence reader | Subjects a design of this kind normally covers and this one never mentions |
-| The rule reader | Reads the instruction files alone: whether a rule earns the cost it states, whether two conflict, and whether one is followed anywhere in the design |
+| Absence | Subjects a design of this kind normally covers and this one never mentions |
+| Rules | Reads the instruction files alone: whether a rule earns the cost it states, whether two conflict, and whether one is followed anywhere in the design |
 
-Four stances went, each replaced by readers that know the field rather than occupy a
-position in it: the builder by software architecture and backend engineering, the
-operator by site reliability and observability engineering, the adversary by safety and
-security engineering, the cold reader by technical writing. The absence reader stays
-because the twenty-eight were derived by reading this document and inherit its blind spots —
-a subject no discipline on the list owns is invisible to all twenty-eight and to nothing
-else. The rule reader stays because the instruction files are what it reads, and no
-discipline is pointed at them.
+Each review agent returns at most three findings, ranked by what turns on them. One that
+finds nothing returns nothing, and that is a result: a discipline the document never
+touches is either absent from the design or wrongly on the list.
 
-Each reader returns at most three findings, ranked by what turns on them. An uncapped
-reader returns what nobody reads, and the cap costs the fourth finding of a reader that
-had more to say. A reader that finds nothing returns nothing, and that is a result
-rather than a gap to fill: a discipline the document never touches is either absent from
-the design or wrongly on the list.
-
-### What happens to a finding
-
-Findings accumulate faster than sessions act on them — the first run, six stances
-dispatched together, returned about sixty — so this is a triage and not a queue to empty.
-Each finding takes one of three dispositions:
+**What happens to a finding.** This is a triage and not a queue to empty — the first run
+returned about sixty. Each finding takes one of three dispositions:
 
 - **Taken** — folded into the file that owns the subject, with its reason and its cost.
 - **Carried** — a question in [`end-goal/open.md`](end-goal/open.md), phrased as the
-  question and what turns on it. That file is the backlog, and it already sets what may
-  sit there: genuinely unsettled, with an owner as who decides it. A review-pass finding
-  meets the other test it sets too — the subject raised it, rather than a session
-  noticing a loose end while doing something else.
-- **Refused** — the reason written into the file that owns the subject.
+  question and what turns on it.
+- **Refused** — the reason written into the file that owns the subject. A refusal does not
+  bind a later run; a review agent raising the same thing again is answered by the text.
 
-Where more than one reader reached a finding separately, that is recorded with it wherever
-it lands, because independent arrival is evidence about the finding rather than about the
-reader. `end-goal/open.md` held that rule until the run it described was discarded.
+Where more than one agent reached a finding separately, record that with it wherever it
+lands. **No fourth place may appear** — no findings file, no report per run, no list of
+what each one said.
 
-A refusal is written because the document records why it is what it is, the way it
-records that `beta` was dropped and that an uncut intent is not an item. It does not bind
-a later run. A reader raising the same thing again is answered by the text, which costs a
-paragraph to read and is the text doing its job. What must not appear is a fourth place:
-a findings file, a report per run, a list of what each reader said. `next.md` was that
-shape, and `end-goal/` emptied it on 2026-08-14.
-
-What it costs: a subagent per reader named, and a result that is a judgment rather than
-a command's exit status. Running on request rather than after every edit means a defect
-can sit in the document until someone thinks to look, and the readers are fixed, so they
-find thirty kinds of thing and no thirty-first. One reader per request means coverage is
-whatever the owner remembers to ask for — a defect in a field whose reader is never
-named sits indefinitely — and covering the roster costs thirty requests paid in latency
-where the retired full run paid in quota. The larger cost is downstream. Every taken
-finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read
-subagent per changed file and the eleven-file read-through — so ten taken findings cost
-ten of each. That makes refusal the cheapest disposition, which is the one it should be
-least eager to reach, and is why the triage is done with the owner rather than by the
-session that ran the pass. (Owner rule, 2026-08-16.)
+Triage is done with the owner, never by the session that ran the pass, because refusal is
+the cheapest disposition and should be the one it is least eager to reach: every taken
+finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read subagent
+per changed file plus the eleven-file read-through. Running on request means a defect can
+sit until someone thinks to look, the thirty are fixed so they find thirty kinds of thing
+and no thirty-first, and coverage is whatever the owner remembers to ask for.
 
 ## Commits
 
-Commit straight to `main`. The project is early; branches start when it is ready for
-them, and not before. Do not create one unasked. (Owner rule, 2026-08-13.)
+Commit straight to `main`. Do not create a branch unasked; branches start when the project
+is ready for them.
 
-Push with `git push`. `origin` is an HTTPS URL and git pushes to it on its own, so
-whether the GitHub CLI is installed has nothing to do with a push — answering a request
-to push with `gh` being missing refuses work that would have succeeded. `gh` is for what
-git cannot do: pull requests, issues, the API. What it costs: `git push` publishes, so a
-commit is on the remote the moment it runs, and taking it back there is another commit.
-(Owner rule, 2026-08-17.)
+**The commit is the history.** Do not put dates, timestamps, change history, or version
+history in standing instruction text. Do not annotate rules or facts with when they were
+added, changed, or confirmed. If something needs to record when or why a rule changed, the
+commit records it.
+
+Push with `git push`. `origin` is an HTTPS URL and git pushes to it on its own, so whether
+the GitHub CLI is installed has nothing to do with a push — do not answer a request to
+push by reporting `gh` missing. `gh` is for what git cannot do: pull requests, issues, the
+API. `git push` publishes, so a commit is on the remote the moment it runs and taking it
+back there is another commit.
 
 ## How a change to the end goal is recorded
 
-Change `end-goal/` directly. The commit is the record: the edit goes in the file that
-owns the subject, and the body says what changed and why, which is the shape
-`end-goal/CLAUDE.md` already sets. That is a record of what happened and nothing that
-binds what comes next.
+Change `end-goal/` directly. The edit goes in the file that owns the subject, and the
+commit body says what changed and why, which is the shape `end-goal/CLAUDE.md` sets.
 
-No ADRs until the project has proved itself. A record claiming authority over future work
-is what made an earlier attempt unchangeable — the pile grew, an agent could always find
-one to cite and answer a change with pages of text, and a record read at face value
-yielded the wrong mechanism often enough that several said so about themselves: one told a
-reader not to cite its reasoning as precedent, another to read a note inside it before
-treating it as a control, and two dated the same day contradicted each other while both
-stayed citable. Removing what had stopped being true is not what went wrong — there was a
-convention for it and seven records were deleted by it. What the deletions could not fix
-is that a reader had no way to tell which of the survivors still meant what they said.
-The design document is a target, revised whenever something is learned; an ADR binds what
-comes next, and nothing here has earned that yet. They start when the factory is proved
-and keeping a decision fixed is worth more than staying cheap to change. (Owner decision,
-2026-08-14; the evidence behind the first paragraph added 2026-08-17.)
+**No ADRs.** They start when the factory is proved and keeping a decision fixed is worth
+more than staying cheap to change. The design document is a target, revised whenever
+something is learned.
 
 ## Standing text does not refuse a pivot
 
-Everything written here is quotable back at the owner, and `end-goal/` is the most
-quotable of it: every claim carries its cost by house style, and a cost is a ready-made
-argument against a change. Banning ADRs removed a form and not this behaviour, which is
-what actually stalled the earlier attempt — records were cited *to the owner* as grounds
-against pivoting, rejected options and reversal conditions quoted as though they closed a
-question the owner was reopening.
-
-So, when the owner decides against something the design says: state what it costs once,
+When the owner decides against something the design says: state what it costs once and
 briefly — what breaks, and what the text was protecting — then do the work and edit the
 design to follow. Citing a cost as a refusal, or arguing it a second time after the owner
-has heard it, is a defect in the session and not a defence of the design. Between owner
-decisions nothing changes: a session does not drift from the design, and does not edit
-it without a reason it writes down.
+has heard it, is a defect in the session and not a defence of the design.
 
-What it costs is real. An owner can pivot past a cost the design was right about, and
-the only record that it was stated is the commit — nobody reads a warning twice, which
-is the point and also the risk. (Owner rule, 2026-08-17.)
+Between owner decisions nothing changes: a session does not drift from the design, and
+does not edit it without a reason it writes down.
 
 ## graphify
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+Knowledge graph at `graphify-out/` with god nodes, community structure, and cross-file
+relationships.
 
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- For codebase questions, run `graphify query "<question>"` first when
+  `graphify-out/graph.json` exists. Use `graphify path "<A>" "<B>"` for relationships and
+  `graphify explain "<concept>"` for focused concepts.
+- Use `graphify-out/wiki/index.md` for broad navigation instead of raw source browsing
+  when it exists.
+- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review, or when
+  query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` (AST-only, no API cost).

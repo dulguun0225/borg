@@ -31,10 +31,10 @@ var Statuses = []Status{StatusOpen, StatusResolved}
 
 var (
 	// ErrNotAComponent is returned for an actor that is not a component. The
-	// comparison is the only writer of this record; a human's judgment about live
-	// software reaches production through veto after the fact and the page they
-	// may fire, and never by writing one of these.
-	ErrNotAComponent = errors.New("incident: an incident is written by the comparison and not by a human")
+	// health monitor is the only writer of this record; a human's judgment about live
+	// software reaches production through undoing a change after it shipped and
+	// the page they may fire, and never by writing one of these.
+	ErrNotAComponent = errors.New("incident: an incident is written by the health monitor and not by a human")
 	// ErrIncomplete is returned by [Writer.Raise] for an incident missing
 	// something every one of them names.
 	ErrIncomplete = errors.New("incident: the incident is missing something every one of them names")
@@ -52,7 +52,7 @@ type Incident struct {
 	Actor record.Actor
 	At    string
 	// EnvironmentID is the production environment the incident is on. An incident
-	// is a record on production and nowhere else, the comparison existing there
+	// is a record on production and nowhere else, the health monitor existing there
 	// and nowhere else.
 	EnvironmentID string
 	ServiceID     string
@@ -60,7 +60,7 @@ type Incident struct {
 	// always the release that caused it. doc.go says what that costs.
 	ReleaseID string
 	DeployID  string
-	// Crossing is what crossed, in the words the comparison reports it with: its
+	// Crossing is what crossed, in the words the health monitor reports it with: its
 	// own boundary, or a threshold an owner stated.
 	Crossing string
 	// IntentID is the intent the crossing raised through intake, and is empty
@@ -90,7 +90,7 @@ type Raising struct {
 	IntentID string
 }
 
-// Writer is the one writer of incident records: the comparison.
+// Writer is the one writer of incident records: the health monitor.
 type Writer struct {
 	pool *pgxpool.Pool
 }
@@ -145,7 +145,7 @@ func (w *Writer) Raise(ctx context.Context, actor record.Actor, r Raising) (Inci
 }
 
 // Observe records a further crossing on an open incident: one more observation
-// and nothing else. It is what the comparison does instead of raising a second
+// and nothing else. It is what the health monitor does instead of raising a second
 // intent, and it is one statement so two concurrent observations both land.
 func (w *Writer) Observe(ctx context.Context, id string) (Incident, error) {
 	tag, err := w.pool.Exec(ctx, `update `+Table+`
@@ -219,7 +219,7 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Incident, error) {
 }
 
 // Open is the open incident on one service and one release, and false where
-// there is none. It is what the comparison keys its deduplication on: an open one
+// there is none. It is what the health monitor keys its deduplication on: an open one
 // makes a further crossing an observation and never a second intent.
 func Open(ctx context.Context, pool *pgxpool.Pool, serviceID, releaseID string) (Incident, bool, error) {
 	if serviceID == "" || releaseID == "" {
@@ -237,9 +237,10 @@ func Open(ctx context.Context, pool *pgxpool.Pool, serviceID, releaseID string) 
 }
 
 // All is every incident in the store, oldest first, whatever the service. It is
-// what the score learns from: an incident on a release whose own watch window had
-// already closed without harm is the crossing the comparison could have seen and
-// did not, which is the one outcome that says the window's size was too coarse.
+// what the score learns from: an incident on a release whose own watch window
+// had already closed without condemning a release is the crossing the health
+// monitor could have seen and did not, which is the one outcome that says the
+// window's size was too coarse.
 //
 // It is not per service for the reason every other whole-table read the score
 // makes is not: the subjects it learns about are the services the records name,

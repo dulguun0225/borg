@@ -139,18 +139,18 @@ func printDecision(ctx context.Context, pool *pgxpool.Pool, out io.Writer,
 	if payload.HumanDecides {
 		fmt.Fprintf(out, "  a human decided: %s\n", payload.WhyHuman)
 	} else {
-		fmt.Fprintln(out, "  no human decided: the number was under the threshold and no pin added one")
+		fmt.Fprintln(out, "  no human decided: the number was under the threshold and no safeguard added one")
 	}
-	for _, id := range payload.Pins {
-		fmt.Fprintf(out, "  pin %s applied\n", id)
+	for _, id := range payload.Safeguards {
+		fmt.Fprintf(out, "  safeguard %s applied\n", id)
 	}
 	for _, name := range payload.Unavailable {
 		fmt.Fprintf(out, "  factor %s was unavailable\n", name)
 	}
 	fmt.Fprintf(out, "  closing row %s carries verdict %s, decided by %s %s\n",
 		closing.ID, verdict.Verdict, closing.Actor.Kind, closing.Actor.Name)
-	if verdict.AutoPassedBy != "" {
-		fmt.Fprintf(out, "  auto-passed by the %s\n", verdict.AutoPassedBy)
+	if verdict.WhyItAutoPassed != "" {
+		fmt.Fprintf(out, "  why it auto-passed: %s\n", verdict.WhyItAutoPassed)
 	}
 	if verdict.Feedback != "" {
 		fmt.Fprintf(out, "  feedback: %s\n", verdict.Feedback)

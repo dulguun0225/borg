@@ -155,7 +155,7 @@ func TestOpenRouterRefusesAnErrorCarriedAtTwoHundred(t *testing.T) {
 // on policy grounds: a 200 whose choice carries a refusal and no content. It is
 // ErrRefused and not ErrAnswer, because a stage that read it as a malformed
 // answer would retry a request that will be refused again and spend its attempt
-// bound doing it.
+// limit doing it.
 func TestOpenRouterNamesARefusalAsOne(t *testing.T) {
 	for name, body := range map[string]string{
 		"a refusal field": `{"choices":[{"finish_reason":"content_filter","message":{"content":"",` +

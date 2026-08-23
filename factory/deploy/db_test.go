@@ -107,8 +107,8 @@ func TestTheRecordAdvancesInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if d.Status != deploy.StatusStarted || d.Strategy != deploy.StrategyStraight {
-		t.Errorf("Start returned status %q, strategy %q; want started, straight", d.Status, d.Strategy)
+	if d.Status != deploy.StatusStarted || d.Strategy != deploy.StrategyWithoutControl {
+		t.Errorf("Start returned status %q, strategy %q; want started, without_control", d.Status, d.Strategy)
 	}
 	if _, err := time.Parse(record.TimeLayout, d.At); err != nil {
 		t.Errorf("the record has timestamp %q: %v", d.At, err)
@@ -198,11 +198,11 @@ func TestCurrentIsWhatIsRunningNotWhatIsNewest(t *testing.T) {
 	}
 }
 
-// TestStraightRolloutThroughTheSeam is the rollout against the seam's fake:
-// the record advances to complete, the target is asked for exactly one named
-// operation, and what was recorded is the credential's reference — no value
+// TestTheRolloutWithoutAControlThroughTheSeam is the rollout against the seam's
+// fake: the record advances to complete, the target is asked for exactly one
+// named operation, and what was recorded is the credential's reference — no value
 // anywhere, the fake's Call having no field that could hold one.
-func TestStraightRolloutThroughTheSeam(t *testing.T) {
+func TestTheRolloutWithoutAControlThroughTheSeam(t *testing.T) {
 	ctx, pool, w := newTable(t)
 	target := targetseam.NewFake()
 	credential := secretref.MustNew("target.production")
@@ -210,13 +210,13 @@ func TestStraightRolloutThroughTheSeam(t *testing.T) {
 	releaseID := record.NewID("rel")
 	buildID := record.NewID("bld")
 
-	d, err := deploy.Straight(ctx, w, target, deployer, serviceID, "checkout", productionID,
+	d, err := deploy.WithoutControl(ctx, w, target, deployer, serviceID, "checkout", productionID,
 		deploy.OfRelease(releaseID, buildID), credential)
 	if err != nil {
-		t.Fatalf("Straight: %v", err)
+		t.Fatalf("WithoutControl: %v", err)
 	}
 	if d.Status != deploy.StatusComplete {
-		t.Errorf("Straight returned status %q, want complete", d.Status)
+		t.Errorf("WithoutControl returned status %q, want complete", d.Status)
 	}
 	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusComplete {
 		t.Errorf("the store has status %q, want complete", got)
@@ -261,17 +261,17 @@ func TestATargetErrorLeavesTheRecordStarted(t *testing.T) {
 	unreachable := errors.New("the target is unreachable")
 	serviceID := record.NewID("svc")
 
-	d, err := deploy.Straight(ctx, w, brokenTarget{err: unreachable}, deployer,
+	d, err := deploy.WithoutControl(ctx, w, brokenTarget{err: unreachable}, deployer,
 		serviceID, "checkout", productionID, deploy.OfRelease(record.NewID("rel"), record.NewID("bld")),
 		secretref.MustNew("target.production"))
 	if !errors.Is(err, unreachable) {
-		t.Fatalf("Straight = %v, want the target's error", err)
+		t.Fatalf("WithoutControl = %v, want the target's error", err)
 	}
 	if d.ID == "" {
 		t.Fatal("the error path returns no record, and the started record is what a caller has to point at")
 	}
 	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusStarted {
-		t.Errorf("the store has status %q, want started — the reconciler that would settle it is M4", got)
+		t.Errorf("the store has status %q, want started — the independent checker that would settle it is M4", got)
 	}
 	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
 		t.Errorf("Current = running %v, err %v; a deploy that never completed is not running", running, err)
@@ -295,13 +295,13 @@ func TestTheStoreRefusesWhatTheWriterRefuses(t *testing.T) {
 			record.NewID("rel"), record.NewID("bld"), strategy, status)
 		return err
 	}
-	if err := insert("", "straight", "started"); err == nil {
+	if err := insert("", "without_control", "started"); err == nil {
 		t.Error("the store accepted a deploy with no environment")
 	}
 	if err := insert(productionID, "with_a_control", "started"); err == nil {
 		t.Error("the store accepted a strategy the CHECK does not list — with a control is M4's edit")
 	}
-	if err := insert(productionID, "straight", "watching"); err == nil {
+	if err := insert(productionID, "without_control", "watching"); err == nil {
 		t.Error("the store accepted a status the CHECK does not list")
 	}
 }
@@ -321,7 +321,7 @@ func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 	}
 
 	_, err := pool.Exec(ctx, `insert into deploy (id, actor_kind, actor_name, at, service_id, environment_id, release_id, build_id, strategy, status)
-		values ($1, 'component', 'deploy', $2, '', 'production', $3, $4, 'straight', 'started')`,
+		values ($1, 'component', 'deploy', $2, '', 'production', $3, $4, 'without_control', 'started')`,
 		record.NewID(deploy.IDPrefix), record.Now(), record.NewID("rel"), record.NewID("bld"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a deploy naming no service = %v, want a violation of service_id_present", err)

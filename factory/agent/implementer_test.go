@@ -13,12 +13,12 @@ func TestImplementParsesFileBlocks(t *testing.T) {
 			"=== FILE health_test.go ===\npackage main\n\n// cr_0123 is encoded here.\n=== END ===\n",
 		tokens: 9,
 	}
-	brief := Brief{
+	implementing := Implementing{
 		Criteria: []Criterion{{ID: "cr_0123", Sentence: "When /healthz is requested, the system shall answer 200."}},
 		Spec:     "The service exposes /healthz.",
 		Files:    []File{{Path: "main.go", Content: "package main\n"}},
 	}
-	change, err := Implementer{Model: model}.Implement(context.Background(), brief)
+	change, err := Implementer{Model: model}.Implement(context.Background(), implementing)
 	if err != nil {
 		t.Fatalf("Implement: %v", err)
 	}
@@ -38,27 +38,27 @@ func TestImplementParsesFileBlocks(t *testing.T) {
 	if model.system != ImplementerSystemPrompt {
 		t.Error("the system prompt sent is not ImplementerSystemPrompt")
 	}
-	for _, want := range []string{"cr_0123", brief.Criteria[0].Sentence, brief.Spec, "=== FILE main.go ===", "package main"} {
+	for _, want := range []string{"cr_0123", implementing.Criteria[0].Sentence, implementing.Spec, "=== FILE main.go ===", "package main"} {
 		if !strings.Contains(model.user, want) {
 			t.Errorf("the user message does not carry %q", want)
 		}
 	}
 }
 
-// TestImplementNamesEveryCriterionInForce: the brief carries the whole set in
+// TestImplementNamesEveryCriterionInForce: the role prompt carries the whole set in
 // force rather than the one criterion the item's spec introduced, because the
 // gate rejects a build where any criterion in force has no encoding naming it.
 // So the user message names every id with its sentence.
 func TestImplementNamesEveryCriterionInForce(t *testing.T) {
 	model := &fakeModel{text: "=== FILE health_test.go ===\npackage main\n=== END ==="}
-	brief := Brief{Criteria: []Criterion{
+	implementing := Implementing{Criteria: []Criterion{
 		{ID: "cr_0000000000000000000000000000000a", Sentence: "The system shall answer."},
 		{ID: "cr_0000000000000000000000000000000b", Sentence: "The system shall log every answer."},
 	}}
-	if _, err := (Implementer{Model: model}).Implement(context.Background(), brief); err != nil {
+	if _, err := (Implementer{Model: model}).Implement(context.Background(), implementing); err != nil {
 		t.Fatalf("Implement: %v", err)
 	}
-	for _, c := range brief.Criteria {
+	for _, c := range implementing.Criteria {
 		if !strings.Contains(model.user, c.ID+": "+c.Sentence) {
 			t.Errorf("the user message does not name %s with its sentence:\n%s", c.ID, model.user)
 		}
@@ -80,7 +80,7 @@ func TestImplementRefusesAReplyOutsideTheProtocol(t *testing.T) {
 	}
 	for name, text := range replies {
 		t.Run(name, func(t *testing.T) {
-			_, err := Implementer{Model: &fakeModel{text: text}}.Implement(context.Background(), Brief{})
+			_, err := Implementer{Model: &fakeModel{text: text}}.Implement(context.Background(), Implementing{})
 			if !errors.Is(err, ErrReply) {
 				t.Fatalf("Implement = %v, want ErrReply", err)
 			}
@@ -93,7 +93,7 @@ func TestImplementRefusesAReplyOutsideTheProtocol(t *testing.T) {
 // own text and nothing is opened by it.
 func TestImplementKeepsAFileMarkerInsideABlockAsContent(t *testing.T) {
 	model := &fakeModel{text: "=== FILE readme.md ===\nThe protocol uses lines like\n=== FILE <path> ===\nto open a block.\n=== END ==="}
-	change, err := Implementer{Model: model}.Implement(context.Background(), Brief{})
+	change, err := Implementer{Model: model}.Implement(context.Background(), Implementing{})
 	if err != nil {
 		t.Fatalf("Implement: %v", err)
 	}

@@ -1,6 +1,6 @@
-// Roadmap M5's demonstration, driven through the same run function the run
-// subcommand calls: two services, a contract derived from a producer's build, a
-// declaration derived from a consumer's build, a breaking change stopped at the merge
+// Roadmap M5's demonstration, driven through the same run function the run subcommand
+// calls: two services, a contract derived from a producer's build, a consumer
+// contract derived from a consumer's build, a breaking change stopped at the merge
 // row naming the consumer it would break, and the three items that get the same
 // change through.
 //
@@ -21,16 +21,16 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
-	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/pin"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -79,7 +79,7 @@ type field struct {
 //
 // The exchange expression is empty for a service that publishes no interface, which
 // is what a consumer is: a program that publishes nothing writes no document, and
-// there is nothing for a declaration to be decided against.
+// there is nothing for a consumer contract to be decided against.
 type shape struct {
 	spec      string
 	criterion string
@@ -191,7 +191,7 @@ func mirrorFiles(producer, interfaceName string, fields ...field) []agent.File {
 	}
 	reads.WriteString("\n}\n")
 	return []agent.File{
-		{Path: declaration.FileName(producer, interfaceName), Content: structFile(fields)},
+		{Path: consumercontract.FileName(producer, interfaceName), Content: structFile(fields)},
 		{Path: "reader.go", Content: "package main\n\nimport \"fmt\"\n" +
 			strings.TrimPrefix(reads.String(), "package main\n")},
 	}
@@ -269,7 +269,7 @@ var theServiceOfPrompt = regexp.MustCompile(`(?m)^The service this item changes:
 // contractModel is the fake model of these episodes: a spec author whose spec is
 // keyed by the statement and the service, and an implementer whose files are keyed by
 // the spec it was given. It asks no question — the interview is M1's demonstration and
-// these episodes are about what follows the cut.
+// these episodes are about what follows decomposition.
 type contractModel struct{}
 
 func (m *contractModel) Complete(_ context.Context, system, user string) (agent.Reply, error) {
@@ -292,7 +292,7 @@ func (m *contractModel) Complete(_ context.Context, system, user string) (agent.
 			if !strings.Contains(user, "\n"+s.spec+"\n") {
 				continue
 			}
-			text, err := contractReply(s, briefCriterion.FindAllStringSubmatch(user, -1))
+			text, err := contractReply(s, rolePromptCriterion.FindAllStringSubmatch(user, -1))
 			if err != nil {
 				return agent.Reply{}, err
 			}
@@ -304,7 +304,7 @@ func (m *contractModel) Complete(_ context.Context, system, user string) (agent.
 }
 
 // contractReply is the implementer's whole reply for one shape: the module, the
-// program, the shape's own files, and one encoding per criterion the brief names —
+// program, the shape's own files, and one encoding per criterion the role prompt names —
 // every criterion in force, because the check over the build rejects one that is not
 // encoded.
 func contractReply(s shape, named [][]string) (string, error) {
@@ -343,7 +343,7 @@ func newContractPath(t *testing.T) (context.Context, deps, *bytes.Buffer) {
 	return ctx, d, out
 }
 
-// pair is the first episode: one intent cut into two items, one per service, the
+// pair is the first episode: one intent decomposed into two items, one per service, the
 // consumer's waiting on the producer's. It is a helper because four of these tests
 // start from it.
 func pair(t *testing.T, ctx context.Context, d deps, out *bytes.Buffer) shipped {
@@ -370,15 +370,15 @@ func runOne(t *testing.T, ctx context.Context, d deps, out *bytes.Buffer, statem
 // episode: Decomposition fires over a set for the first time, the producer's release
 // publishes the contract at 1.0.0 inside the mint that gave it its number, the
 // consumer's environment is composed from what the producer is running, and the
-// consumer's release derives a declaration naming what its code reads.
+// consumer's release derives a consumer contract naming what its code reads.
 func TestOneIntentBecomesTwoItemsAndTheContractArrivesWithTheRelease(t *testing.T) {
 	ctx, d, out := newContractPath(t)
 	res := pair(t, ctx, d, out)
 
-	if len(res.cuts) != 1 || len(res.cuts[0].itemIDs) != 2 {
-		t.Fatalf("the run cut %+v, want one intent and two items", res.cuts)
+	if len(res.decompositions) != 1 || len(res.decompositions[0].itemIDs) != 2 {
+		t.Fatalf("the run decomposed %+v, want one intent and two items", res.decompositions)
 	}
-	set := res.cuts[0]
+	set := res.decompositions[0]
 	if !set.decided || !set.approved {
 		t.Fatalf("the Decomposition row decided=%v approved=%v over a set of two", set.decided, set.approved)
 	}
@@ -451,11 +451,11 @@ func TestOneIntentBecomesTwoItemsAndTheContractArrivesWithTheRelease(t *testing.
 			consumer.composedFrom, producer.releaseID)
 	}
 
-	// And its release derived a declaration naming what its code reads.
-	if consumer.declarationArtifactID == "" {
-		t.Fatal("the consumer's build derived no declaration, and its code reads two of the producer's elements")
+	// And its release derived a consumer contract naming what its code reads.
+	if consumer.consumerContractArtifactID == "" {
+		t.Fatal("the consumer's build derived no consumer contract, and its code reads two of the producer's elements")
 	}
-	predicates, err := declaration.ForArtifact(ctx, d.pool, consumer.declarationArtifactID)
+	predicates, err := consumercontract.ForArtifact(ctx, d.pool, consumer.consumerContractArtifactID)
 	if err != nil {
 		t.Fatalf("ForArtifact: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestOneIntentBecomesTwoItemsAndTheContractArrivesWithTheRelease(t *testing.
 	}
 	for _, want := range []string{"Status/read", "Status/populated", "Status/domain", "Detail/read"} {
 		if !kinds[want] {
-			t.Errorf("%s was not derived; the declaration is %v", want, kinds)
+			t.Errorf("%s was not derived; the consumer contract is %v", want, kinds)
 		}
 	}
 	if kinds["Detail/populated"] {
@@ -588,10 +588,10 @@ func TestTheThreeItemsOfAMigrationGetTheBreakingChangeThrough(t *testing.T) {
 	}
 }
 
-// TestAPinnedPredicateStopsTheRemovalUntilItIsWithdrawn: a pin never stops the item
-// existing, only passing, and what a reader of that rejection needs is the pin and
-// its author.
-func TestAPinnedPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
+// TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn: a safeguard never
+// stops the item existing, only passing, and what a reader of that rejection needs
+// is the safeguard and its author.
+func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	ctx, d, out := newContractPath(t)
 	migrated(t, ctx, d, out)
 
@@ -604,22 +604,22 @@ func TestAPinnedPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 		t.Fatalf("reading the contract: found %v, %v", found, err)
 	}
 	owner := record.Actor{Kind: record.KindHuman, Name: d.human}
-	placed, _, err := policy.NewFactory(d.pool).Pin(ctx, owner, gatepolicy.PinnedPredicate,
-		pin.Subject{Kind: pin.SubjectContractElement, ID: contract.ElementSubject(con.ID, "Detail")},
-		pin.Bound{Predicate: pin.Predicate{Kind: gatepolicy.PredicateRead}})
+	placed, _, err := policy.NewFactory(d.pool).AddSafeguard(ctx, owner, gatepolicy.SafeguardPredicate,
+		safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, "Detail")},
+		safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead}})
 	if err != nil {
-		t.Fatalf("pinning the predicate: %v", err)
+		t.Fatalf("adding the safeguard: %v", err)
 	}
 
 	blocked := only(t, runOne(t, ctx, d, out, removeStatement, theService))
 	if blocked.merged {
-		t.Fatalf("the removal merged with a pinned predicate naming the element:\n%s", out)
+		t.Fatalf("the removal merged with a safeguard's predicate naming the element:\n%s", out)
 	}
-	if blocked.autoRejectedBy != gate.AutoRejectedByPinnedPredicate {
-		t.Fatalf("the removal was rejected by %q, want the pinned predicate", blocked.autoRejectedBy)
+	if blocked.autoRejectedBy != gate.AutoRejectedBySafeguardPredicate {
+		t.Fatalf("the removal was rejected by %q, want the safeguard's predicate", blocked.autoRejectedBy)
 	}
 	if !strings.Contains(blocked.checked.Why(), placed.ID) || !strings.Contains(blocked.checked.Why(), d.human) {
-		t.Errorf("the rejection names neither the pin nor its author: %s", blocked.checked.Why())
+		t.Errorf("the rejection names neither the safeguard nor its author: %s", blocked.checked.Why())
 	}
 	// An attempt was counted at the stage the item went back to, which is what a
 	// blocked removal costs: a full pass of the pipeline on work the factory raised
@@ -638,12 +638,12 @@ func TestAPinnedPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 		t.Errorf("the implementation stage stands at %d attempts, and the rejection counts one there", attempts)
 	}
 
-	if _, err := policy.NewFactory(d.pool).WithdrawPin(ctx, owner, placed.ID); err != nil {
-		t.Fatalf("withdrawing the pin: %v", err)
+	if _, err := policy.NewFactory(d.pool).WithdrawSafeguard(ctx, owner, placed.ID); err != nil {
+		t.Fatalf("withdrawing the safeguard: %v", err)
 	}
 	through := only(t, runOne(t, ctx, d, out, removeStatement, theService))
 	if !through.merged {
-		t.Fatalf("the removal is still refused after the pin was withdrawn:\n%s", out)
+		t.Fatalf("the removal is still refused after the safeguard was withdrawn:\n%s", out)
 	}
 }
 
@@ -709,7 +709,7 @@ func TestTheContractsQueryReadsTheWholeGraph(t *testing.T) {
 		"1.0.0 at release 1",
 		"Status: string, always populated",
 		"production runs release 1, which publishes 1.0.0",
-		"restore floor release 1",
+		"last known-good release 1",
 		"read on demo.health.Status",
 	} {
 		if !strings.Contains(printed.String(), want) {
@@ -718,30 +718,30 @@ func TestTheContractsQueryReadsTheWholeGraph(t *testing.T) {
 	}
 }
 
-// TestADecompositionRejectionSupersedesTheSetAndCountsARecut: the row can stop a bad
-// cut and cannot repair one — the re-cut needs a cut that decides a decomposition
-// rather than one told what to produce, and this interface is told.
-func TestADecompositionRejectionSupersedesTheSetAndCountsARecut(t *testing.T) {
+// TestADecompositionRejectionSupersedesTheSetAndCountsAReDecomposition: the row can stop a bad
+// decomposition and cannot repair one — the re-decomposition needs a stage that
+// decides the decomposition rather than one told what to produce, and this interface is told.
+func TestADecompositionRejectionSupersedesTheSetAndCountsAReDecomposition(t *testing.T) {
 	ctx, d, out := newPathOn(t, "reject this should have been three items\n", theService, theSecondService)
 	d.model = &contractModel{}
 
 	res, err := run(ctx, d, []asked{across(pairStatement, theService, theSecondService)})
 	if err != nil {
-		t.Fatalf("the run stopped, and a rejected cut is the gate working: %v\noutput:\n%s", err, out)
+		t.Fatalf("the run stopped, and a rejected decomposition is the gate working: %v\noutput:\n%s", err, out)
 	}
-	if len(res.cuts) != 1 {
-		t.Fatalf("the run cut %d sets", len(res.cuts))
+	if len(res.decompositions) != 1 {
+		t.Fatalf("the run decomposed %d sets", len(res.decompositions))
 	}
-	set := res.cuts[0]
+	set := res.decompositions[0]
 	if !set.decided || set.approved {
 		t.Fatalf("the row decided=%v approved=%v, want a rejection", set.decided, set.approved)
 	}
-	if set.recuts != 1 {
-		t.Fatalf("the intent stands at %d re-cuts, want the one this rejection counted", set.recuts)
+	if set.reDecompositions != 1 {
+		t.Fatalf("the intent stands at %d re-decompositions, want the one this rejection counted", set.reDecompositions)
 	}
 
 	// Every item of the set is superseded, and none of them reached a stage below
-	// the cut: nothing was authored against a set the gate refused.
+	// decomposition: nothing was authored against a set the gate refused.
 	for _, c := range res.candidates {
 		if !c.superseded {
 			t.Errorf("item %s survived the rejection", c.itemID)
@@ -757,7 +757,7 @@ func TestADecompositionRejectionSupersedesTheSetAndCountsARecut(t *testing.T) {
 			t.Errorf("item %s is at %s, want superseded", c.itemID, it.Stage)
 		}
 		if len(it.SupersededBy) != 0 {
-			t.Errorf("item %s points at %v, and no re-cut replaced it", c.itemID, it.SupersededBy)
+			t.Errorf("item %s points at %v, and no re-decomposition replaced it", c.itemID, it.SupersededBy)
 		}
 	}
 	// The count is on the intent and in a field of its own beside the interview's
@@ -766,10 +766,10 @@ func TestADecompositionRejectionSupersedesTheSetAndCountsARecut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the intent: %v", err)
 	}
-	if in.Recuts != 1 || in.Rounds != 0 {
-		t.Errorf("the intent stands at %d re-cuts and %d rounds", in.Recuts, in.Rounds)
+	if in.ReDecompositions != 1 || in.Rounds != 0 {
+		t.Errorf("the intent stands at %d re-decompositions and %d rounds", in.ReDecompositions, in.Rounds)
 	}
-	if !strings.Contains(out.String(), "the re-cut itself is not built") {
-		t.Errorf("the run does not say what a rejected cut leaves:\n%s", out)
+	if !strings.Contains(out.String(), "the re-decomposition itself is not built") {
+		t.Errorf("the run does not say what a rejected decomposition leaves:\n%s", out)
 	}
 }

@@ -17,13 +17,13 @@ import (
 
 // ErrSetIncomplete is returned by [Gate.FireSet] for a firing missing the intent
 // or naming fewer than two items. Fewer than two is not an error of shape but of
-// occasion: the row fires where the cut yielded more than one item, and putting it
-// in front of a single-item cut would be a decision about nothing.
+// occasion: the row fires where decomposition yielded more than one item, and putting it
+// in front of a single-item decomposition would be a decision about nothing.
 var ErrSetIncomplete = errors.New("gate: the set firing is missing something every one has")
 
-// SetMember is one item of a cut as the row decides over it: the item, the
+// SetMember is one item of a decomposition as the row decides over it: the item, the
 // service it changes, the area it is in, and what it waits on. There is no build
-// and no artifact — the cut writes items and the gate decides over records that
+// and no artifact — decomposition writes items and the gate decides over records that
 // already exist, so what is decided is the shape of the set.
 type SetMember struct {
 	ItemID    string
@@ -32,9 +32,9 @@ type SetMember struct {
 	WaitsOn   []string
 }
 
-// SetFiring is what fires the Decomposition row: the intent the cut was over,
+// SetFiring is what fires the Decomposition row: the intent decomposition was over,
 // production's environment — whose record holds the threshold every row reads —
-// and every item the cut produced.
+// and every item decomposition produced.
 type SetFiring struct {
 	IntentID      string
 	EnvironmentID string
@@ -54,7 +54,7 @@ type SetMemberPayload struct {
 // applied.
 //
 // It does not embed [score.Subject], which every other opening row does, and the
-// omission is the point: the cut proposes a set rather than an artifact, so a
+// omission is the point: decomposition proposes a set rather than an artifact, so a
 // verdict here is an outcome on no author's work and on no one item. NumberFrom
 // names the member whose number was applied so a reader can see what drove it,
 // and it is a field of its own rather than the subject for exactly that reason —
@@ -75,16 +75,16 @@ type SetOpeningPayload struct {
 	Number         float64        `json:"number"`
 	Threshold      float64        `json:"threshold"`
 	ThresholdFrom  string         `json:"threshold_from"`
-	Pins           []string       `json:"pins"`
+	Safeguards     []string       `json:"safeguards"`
 	Unavailable    []string       `json:"unavailable_factors"`
 	HumanDecides   bool           `json:"human_decides"`
 	WhyHuman       string         `json:"why_human"`
 	WaitsOn        string         `json:"waits_on"`
 }
 
-// NoBuildAtTheCut is why the diff could not be measured at this row, written onto
+// NoBuildAtDecomposition is why the diff could not be measured at this row, written onto
 // every member's measurement. The change factors computed from a diff are
-// unavailable at the cut, because the cut happens before anything is built — and
+// unavailable at decomposition, because decomposition happens before anything is built — and
 // an unavailable factor resolves to the top of the scale, so the formula puts a
 // human at this row.
 //
@@ -94,9 +94,9 @@ type SetOpeningPayload struct {
 // What it buys is that the row is scored like every other, with the vector on the
 // opening row for the human to argue with, instead of a row that auto-passes on a
 // number computed from nothing.
-const NoBuildAtTheCut = "no build exists at the cut, and the diff is measured from one"
+const NoBuildAtDecomposition = "no build exists at decomposition, and the diff is measured from one"
 
-// FireSet fires the Decomposition row over one cut. It asks the score about each
+// FireSet fires the Decomposition row over one decomposition. It asks the score about each
 // member and applies the highest of their numbers, because approving the set
 // approves every item in it — a set is as risky as its riskiest item. What that
 // costs is that a set of ten small items and one large one is decided at the large
@@ -119,7 +119,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		return Opened{}, fmt.Errorf("%w: it names no environment to read the threshold from", ErrSetIncomplete)
 	}
 	if len(f.Members) < 2 {
-		return Opened{}, fmt.Errorf("%w: it names %d item(s), and this row fires where the cut yielded more than one",
+		return Opened{}, fmt.Errorf("%w: it names %d item(s), and this row fires where decomposition yielded more than one",
 			ErrSetIncomplete, len(f.Members))
 	}
 
@@ -135,10 +135,10 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 			ItemID:      m.ItemID,
 			ServiceID:   m.ServiceID,
 			AreaID:      m.AreaID,
-			Measurement: score.Measurement{Unavailable: NoBuildAtTheCut},
+			Measurement: score.Measurement{Unavailable: NoBuildAtDecomposition},
 		})
 		if err != nil {
-			return Opened{}, fmt.Errorf("gate: assessing item %s of the cut: %w", m.ItemID, err)
+			return Opened{}, fmt.Errorf("gate: assessing item %s of decomposition: %w", m.ItemID, err)
 		}
 		if from == "" || assessment.Number > applied.Number {
 			applied, from = assessment, m.ItemID
@@ -150,7 +150,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 
 	// The policy is read against the row and production's environment, which is
 	// what every row reads its threshold from. It is not read against a service:
-	// one cut changes several, and a threshold per service would make one row read
+	// one decomposition changes several, and a threshold per service would make one row read
 	// two.
 	policyApplied, err := g.policy.AtGate(ctx, subjectsFor(Decomposition, f))
 	if err != nil {
@@ -162,8 +162,8 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		Gate:         Decomposition,
 		Assessment:   applied,
 		Applied:      policyApplied,
-		HumanDecides: overThreshold || policyApplied.HumanPinned,
-		WhyHuman:     why(overThreshold, policyApplied.HumanPinned, false),
+		HumanDecides: overThreshold || policyApplied.HumanBySafeguard,
+		WhyHuman:     why(overThreshold, policyApplied.HumanBySafeguard, false),
 	}
 	waitsOn := ""
 	if opened.HumanDecides {
@@ -182,14 +182,14 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		Number:         applied.Number,
 		Threshold:      policyApplied.Threshold,
 		ThresholdFrom:  string(policyApplied.ThresholdFrom),
-		Pins:           policyApplied.Pins,
+		Safeguards:     policyApplied.Safeguards,
 		Unavailable:    applied.UnavailableFactors(),
 		HumanDecides:   opened.HumanDecides,
 		WhyHuman:       opened.WhyHuman,
 		WaitsOn:        waitsOn,
 	})
 	if err != nil {
-		return Opened{}, fmt.Errorf("gate: marshalling the opening payload of the cut: %w", err)
+		return Opened{}, fmt.Errorf("gate: marshalling the opening payload of decomposition: %w", err)
 	}
 	row, err := g.log.AppendDecisionOpening(ctx, decisionlog.Entry{
 		Actor:         component(Decomposition),
@@ -205,11 +205,11 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 }
 
 // subjectsFor is what the policy read at this row is performed against: the row,
-// production's environment record, and the area of the first member that has one.
-// A cut changes several services and may cross several areas, so there is no
-// single service to read a pin on — what a pin on one of those areas does is reach
-// the items in it at every gate below this one, which is where the design puts a
-// holder who wants to decide at the cut for their own service.
+// production's environment record, and the area of the first member that has one. A
+// decomposition changes several services and may cross several areas, so there is no
+// single service to read a safeguard on — what a safeguard on one of those areas does
+// is reach the items in it at every gate below this one, which is where the design
+// puts a holder who wants to decide at decomposition for their own service.
 func subjectsFor(row Row, f SetFiring) policy.Subjects {
 	subjects := policy.Subjects{GateRow: string(row), EnvironmentID: f.EnvironmentID}
 	for _, m := range f.Members {

@@ -16,8 +16,8 @@ import (
 // The subject is the record an authored value would be a field of — a service, an
 // area, a stage, a gate row — and is empty on a starting value, which stands for
 // every subject that has no row of its own. That is what makes the value in force
-// answerable per subject: an owner authors K on one service record, so the score
-// supplies K for one service, and the two are the same key.
+// answerable per subject: an owner authors the window limit on one service record,
+// so the score supplies it for one service, and the two are the same key.
 //
 // The threshold's subject is the gate row and not the environment its authored
 // value is a field of. What an outcome teaches is about the row — a change
@@ -42,11 +42,11 @@ func (s Supplied) Moved() bool { return s.Subject != "" }
 // [Version] stores and what package policy reads the value in force out of.
 type SuppliedValues []Supplied
 
-// Value is what the score supplies for one parameter on one subject: the row for
-// that subject where an outcome has moved it, the starting value otherwise, and
-// false for a parameter the score supplies nothing for. The predicate catalog is
-// the only one of those, and a caller reading false there has an empty catalog
-// rather than a missing value.
+// Value is what the score supplies for one parameter on one subject: the row
+// for that subject where an outcome has moved it, the starting value otherwise,
+// and false for a parameter the score supplies nothing for. The list of allowed
+// predicate kinds is the only one of those, and a caller reading false there
+// has an empty list rather than a missing value.
 func (v SuppliedValues) Value(p gatepolicy.Parameter, subject string) (Supplied, bool) {
 	if subject != "" {
 		for _, s := range v {
@@ -98,9 +98,9 @@ func (v SuppliedValues) movedFor(p gatepolicy.Parameter) []Supplied {
 }
 
 // starting is the value the score supplies for six of gate policy's seven rows
-// before any outcome has moved it. There is none for the predicate catalog, which
-// no outcome teaches, so a factory with nothing authored has an empty catalog and
-// not a supplied one.
+// before any outcome has moved it. There is none for the list of allowed
+// predicate kinds, which no outcome teaches, so a factory with nothing authored
+// has an empty list and not a supplied one.
 //
 // These are the numbers the formula was calibrated at against a factory that has
 // just been installed, and every one of them is where the movement starts rather
@@ -111,12 +111,12 @@ var starting = []Supplied{
 		Why: "calibrated so that a service's first release — no earlier release to return to, an author nobody has approved, an area with no history — is decided by a human, and the item after it is not",
 	},
 	{
-		Parameter: gatepolicy.AttemptBound, Value: 3,
-		Why: "a stage that fails once has usually had a reply the protocol refused rather than work the factory cannot do, and a bound this low turns solvable work into human work no more than a few tokens later",
+		Parameter: gatepolicy.AttemptLimit, Value: 3,
+		Why: "a stage that fails once has usually had a reply the protocol refused rather than work the factory cannot do, and a limit this low turns solvable work into human work no more than a few tokens later",
 	},
 	{
 		Parameter: gatepolicy.ItemSizeTarget, Value: 300,
-		Why: "lines, above the minimum that an item ships by itself; nothing reads it until a cut sizes anything",
+		Why: "lines, above the minimum that an item ships by itself; nothing reads it until a decomposition sizes anything",
 	},
 	{
 		Parameter: gatepolicy.WindowSize, Value: 0.02,
@@ -131,7 +131,7 @@ var starting = []Supplied{
 		Why: "seconds — a day, after which a window that will never reach its volume ends unresolved rather than holding the next deploy indefinitely",
 	},
 	{
-		Parameter: gatepolicy.K, Value: 1,
+		Parameter: gatepolicy.WindowLimit, Value: 1,
 		Why: "the serial factory: one window open per service, so a rollback undoes one release, which is the safe end of a parameter whose cost appears only at the first rollback",
 	},
 }

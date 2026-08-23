@@ -80,7 +80,8 @@ func learnCommand(args []string) error {
 // them.
 //
 // It walks the learned rows and then the moved rows of the version in force that
-// the learned table no longer holds. A value can move back — K rises on a service
+// the learned table no longer holds. A value can move back — the window limit rises
+// on a service
 // and falls at the next rollback that sweeps — and a row that has gone is a
 // movement a reader would otherwise never see.
 func printSupplied(out io.Writer, learned score.SuppliedValues, inForce score.Version) {

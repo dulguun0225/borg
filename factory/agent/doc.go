@@ -63,7 +63,7 @@
 // — rejects in both directions, a criterion in force with no encoding naming
 // it as well as an encoding naming a criterion not in force, so the stage that
 // authors encodings sees every criterion and not only the one this item's spec
-// introduced. What that costs: the brief grows with the service, and M1 sends
+// introduced. What that costs: the role prompt grows with the service, and M1 sends
 // the whole set the way it sends the whole repository.
 //
 // # Replies are parsed, never interpreted
@@ -112,14 +112,14 @@
 // source has to say them. A published interface is one exported struct type in a
 // file named for it; an interface this service reads is a mirror in a file named
 // for its producer; and a program that publishes an interface writes one document
-// per unit of work beside the quantity, which is what a consumer's declaration is
-// decided against. The unit goes in a field's own name rather than in a tag, which
-// is what makes a change of units read as a rename.
+// per unit of work beside the quantity, which is what a consumer contract is
+// decided against. The unit goes in a field's own name rather than in
+// a tag, which is what makes a change of units read as a rename.
 //
 // This one is worth less than an instruction usually is, because two of its three
 // parts do have a check. A build that declares a contract file the derivation
 // cannot read is refused, and a producer whose run wrote no document fails every
-// declaration in force against it. What has no check is the mirror: an
+// consumer contract in force against it. What has no check is the mirror: an
 // implementation that reads a field it left out of the mirror declares nothing
-// about it, and what covers that is a pin an owner places.
+// about it, and what covers that is a safeguard an owner places.
 package agent

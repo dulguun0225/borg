@@ -343,7 +343,7 @@ func TestRecordResultsRefusesWhatTheStoreAlsoRefuses(t *testing.T) {
 
 // TestInForceIsPerBuild is the query's own rule: a build is a set of items, and a
 // criterion introduced by an item not in that set is a promise the build's tree
-// could not keep. Holding it in force would reject every candidate cut in parallel
+// could not keep. Holding it in force would reject every candidate decomposed in parallel
 // with the one that introduced it.
 func TestInForceIsPerBuild(t *testing.T) {
 	ctx, pool := newSet(t)
@@ -378,7 +378,7 @@ func TestInForceIsPerBuild(t *testing.T) {
 	_ = theirs
 
 	// No items is no criteria and no error: a build with no items is not something
-	// the cut produces, and an empty set matching everything is the wrong direction.
+	// decomposition produces, and an empty set matching everything is the wrong direction.
 	if inForce, err = criterion.InForce(ctx, pool, "svc_a", nil); err != nil || len(inForce) != 0 {
 		t.Errorf("InForce over no items = %d criteria, %v", len(inForce), err)
 	}

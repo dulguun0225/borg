@@ -42,10 +42,10 @@ type Contract struct {
 //
 // The release's number is here and the release record is not read to get it,
 // which schema.go says the reason and the cost of. The item is here for the same
-// kind of reason one level along: the declarations in force over a range of
-// releases are the ones derived by those releases' items, and a reader walking
-// from a version to what it was authored from would otherwise read a release
-// record to find out.
+// kind of reason one level along: the consumer contracts in force over a range
+// of releases are the ones derived by those releases' items, and a reader
+// walking from a version to what it was authored from would otherwise read a
+// release record to find out.
 type Version struct {
 	ID            string
 	Actor         record.Actor
@@ -58,8 +58,8 @@ type Version struct {
 	Semver        Semver
 }
 
-// ElementSubject is how a pin names one element of one contract: the contract's
-// id and the element's name. It is not the element row's id — that changes at
-// every version, and a pin has to outlive one — and it is not the element's name
-// alone, which two contracts can share.
+// ElementSubject is how a safeguard names one element of one contract: the
+// contract's id and the element's name. It is not the element row's id — that
+// changes at every version, and a safeguard has to outlive one — and it is not
+// the element's name alone, which two contracts can share.
 func ElementSubject(contractID, element string) string { return contractID + "." + element }

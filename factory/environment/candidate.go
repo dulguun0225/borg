@@ -45,7 +45,7 @@ func NameForItem(itemID string) string { return "candidate/" + itemID }
 // Candidates is the candidate kind's one writer: the deploy agent, which is the
 // only component that reaches a deploy target at all. It creates an environment
 // at the approval of Deploy to candidate environment and tears it down when the
-// item merges, is dropped, or is superseded by a re-cut.
+// item merges, is dropped, or is superseded by a re-decomposition.
 type Candidates struct {
 	pool *pgxpool.Pool
 }
@@ -114,9 +114,9 @@ func (c *Candidates) Recompose(ctx context.Context, id string, composedFrom []Co
 }
 
 // TearDown writes the time the environment was torn down and keeps the row. Its
-// caller stops the software first: the record and the process are two facts, and
-// a record saying torn down over a process still running is the disagreement the
-// reconciler exists to find.
+// caller stops the software first: the record and the process are two facts,
+// and a record saying torn down over a process still running is the
+// disagreement the independent checker exists to find.
 func (c *Candidates) TearDown(ctx context.Context, id string) error {
 	return c.update(ctx, id, `update `+Table+` set torn_down_at = $1 where id = $2`,
 		record.Now(), "tearing down")

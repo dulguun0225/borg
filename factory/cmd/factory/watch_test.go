@@ -1,9 +1,10 @@
-// Roadmap M4's demonstration: everything downstream of a deploy, driven through the
-// same run function the run subcommand calls. The milestone's own claim is a
-// deliberately bad deploy — shipped, caught by its window, rolled back, and the whole
-// episode readable as links — and the rest of this file is the parts of that no single
-// run reaches: K, the hold a rollback leaves, approving through it, a crossing found
-// after the window closed, and a mismatch the reconciler raised.
+// Roadmap M4's demonstration: everything downstream of a deploy, driven through
+// the same run function the run subcommand calls. The milestone's own claim is
+// a deliberately bad deploy — shipped, caught by its window, rolled back, and
+// the whole episode readable as links — and the rest of this file is the parts
+// of that no single run reaches: the window limit, the hold a rollback leaves,
+// approving through it, a crossing found after the window closed, and a
+// mismatch the independent checker raised.
 //
 // The helpers every one of these shares are in main_test.go, including the watch
 // window these tests author and why the values the score supplies are unreachable
@@ -25,10 +26,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/boundary"
-	"github.com/dulguun0225/borg/factory/comparison"
+	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
@@ -36,14 +38,13 @@ import (
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/postgres"
-	"github.com/dulguun0225/borg/factory/reconciler"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
 // TestAWindowOpensOverEveryProductionDeploy is the watch window at its weakest, which
 // is where every service starts: a first release has nothing below it to be compared
-// against, so clean is not an exit available to it, nothing about it is discovered by
+// against, so the cleared exit is not available to it, nothing about it is discovered by
 // watching, and its window ends at the cap.
 func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
@@ -65,8 +66,8 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 		t.Errorf("the window names deploy %s and release %s, the run deployed %s of %s",
 			w.DeployID, w.ReleaseID, c.deployID, c.releaseID)
 	}
-	if w.Actor != comparison.Actor {
-		t.Errorf("the window's actor is %+v, and the comparison is what writes one", w.Actor)
+	if w.Actor != healthmonitor.Actor {
+		t.Errorf("the window's actor is %+v, and the health monitor is what writes one", w.Actor)
 	}
 
 	// The parameters are copied onto the record at the open, which is what makes a
@@ -84,12 +85,12 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 		t.Errorf("the window names policy version %q and score version %q", w.PolicyVersion, w.ScoreVersion)
 	}
 
-	// Clean is not available and the window closed at the cap, which is weak
+	// The cleared exit is not available and the window timed out, which is weak
 	// protection reported as weak rather than a comparison that ran out of time.
-	if w.CleanAvailable {
+	if w.ClearedAvailable {
 		t.Error("the window says clean was available to a service's first release, and there is nothing below it to compare against")
 	}
-	if w.Exit != window.ExitCap {
+	if w.Exit != window.ExitTimedOut {
 		t.Errorf("the window closed %q, want the cap: nothing can clear a first release early", w.Exit)
 	}
 	if !strings.Contains(out.String(), boundary.NoBaseline) {
@@ -102,12 +103,12 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 		t.Error("a window closed at the cap does not count as a release to return to, and a release nothing condemned is one")
 	}
 	// A rollback of it has no target all the same, there being nothing below it.
-	if _, found, err := comparison.TargetBelow(ctx, d.pool, res.serviceID, 1); err != nil || found {
+	if _, found, err := healthmonitor.TargetBelow(ctx, d.pool, res.serviceID, 1); err != nil || found {
 		t.Errorf("TargetBelow(1) = found %v, %v; a service's first release has no target at all", found, err)
 	}
 
 	// One window per release watched: a second deploy of the same release opens none.
-	if _, isNew, err := p(ctx, t, d).comparison.Open(ctx, watching(res, "demo"),
+	if _, isNew, err := p(ctx, t, d).healthMonitor.Open(ctx, watching(res, "demo"),
 		c.deployID, c.releaseID, "score-again", false); err != nil || isNew {
 		t.Errorf("a second Open over release %s = new %v, %v; one release is watched once", c.releaseID, isNew, err)
 	}
@@ -154,20 +155,20 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 			bad.deployGate.number, bad.deployGate.threshold)
 	}
 
-	// The window closed at harm, and it read the first release as its baseline.
+	// The window closed condemned, and it read the first release as its baseline.
 	w, err := window.Get(ctx, d.pool, bad.windowID)
 	if err != nil {
 		t.Fatalf("reading the window: %v", err)
 	}
-	if w.Exit != window.ExitHarm {
+	if w.Exit != window.ExitCondemned {
 		t.Fatalf("the window closed %q, want harm:\n%s", w.Exit, out)
 	}
-	if !w.CleanAvailable {
+	if !w.ClearedAvailable {
 		t.Error("clean was unavailable to the second release, and the first one's window closed at the cap")
 	}
 
 	// The incident: on production, naming the release and the deploy that was running,
-	// written by the comparison and by no human.
+	// written by the health monitor and by no human.
 	incidents, err := incident.ForService(ctx, d.pool, res.serviceID)
 	if err != nil {
 		t.Fatalf("reading the incidents: %v", err)
@@ -183,7 +184,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	if raised.EnvironmentID != res.environmentID {
 		t.Errorf("the incident is on environment %s, and an incident is a record on production", raised.EnvironmentID)
 	}
-	if raised.Actor != comparison.Actor || raised.Crossing != comparison.Crossing {
+	if raised.Actor != healthmonitor.Actor || raised.Crossing != healthmonitor.Crossing {
 		t.Errorf("the incident was written by %+v saying %q", raised.Actor, raised.Crossing)
 	}
 	if !raised.Open() {
@@ -203,7 +204,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 		t.Errorf("the revert intent is %s, and it takes the same stages and gates as any other", revert.State)
 	}
 	if items, err := item.ForIntent(ctx, d.pool, revert.ID); err != nil || len(items) != 0 {
-		t.Errorf("the revert intent has %d items, %v; the cut has not run over it yet", len(items), err)
+		t.Errorf("the revert intent has %d items, %v; decomposition has not run over it yet", len(items), err)
 	}
 
 	// The rollback: a deploy record of the release returned to, naming what it
@@ -222,11 +223,11 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	if len(rollback.Undoing.SweptReleaseIDs) != 0 {
 		t.Errorf("the rollback swept %v, and nothing was above the condemned release", rollback.Undoing.SweptReleaseIDs)
 	}
-	if rollback.Undoing.Source != deploy.SourceComparisonAtHarm {
-		t.Errorf("the rollback's source is %q, want the comparison at the harm exit", rollback.Undoing.Source)
+	if rollback.Undoing.Source != deploy.SourceHealthMonitorAtCondemned {
+		t.Errorf("the rollback's source is %q, want the health monitor at the condemned exit", rollback.Undoing.Source)
 	}
 	if rollback.Undoing.RevertIntentID != revert.ID {
-		t.Errorf("the rollback names revert intent %s, the comparison raised %s", rollback.Undoing.RevertIntentID, revert.ID)
+		t.Errorf("the rollback names revert intent %s, the health monitor raised %s", rollback.Undoing.RevertIntentID, revert.ID)
 	}
 	if rollback.Status != deploy.StatusComplete {
 		t.Errorf("the rollback's own status is %s, and it is a completed deploy of the release it returned to", rollback.Status)
@@ -286,11 +287,11 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	}
 }
 
-// TestKHoldsTheNextProductionDeploy is K at the value the score supplies, which is the
-// serial factory: one window open per service, so the second release of a run waits
+// TestTheWindowLimitHoldsTheNextProductionDeploy is the window limit at the value the
+// score supplies, which is the serial factory: one window open per service, so the second release of a run waits
 // behind the first. It is a wait on the factory rather than on anybody, so it writes
 // nothing and does not page.
-func TestKHoldsTheNextProductionDeploy(t *testing.T) {
+func TestTheWindowLimitHoldsTheNextProductionDeploy(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
 	if _, err := run(ctx, d, of(theStatement)); err != nil {
@@ -305,20 +306,20 @@ func TestKHoldsTheNextProductionDeploy(t *testing.T) {
 	a, b := res.candidates[0], res.candidates[1]
 
 	// Both merged and both were minted a number: an open window blocks nothing up to
-	// K, and what it blocks is the deploy and nothing above it.
+	// the window limit, and what it blocks is the deploy and nothing above it.
 	for _, c := range res.candidates {
 		if !c.merged || c.releaseID == "" {
-			t.Fatalf("item %s merged=%v release=%q, and K holds no merge:\n%s", c.itemID, c.merged, c.releaseID, out)
+			t.Fatalf("item %s merged=%v release=%q, and the window limit holds no merge:\n%s", c.itemID, c.merged, c.releaseID, out)
 		}
 	}
 	if a.deployID == "" {
 		t.Fatalf("the first release of the run did not deploy with no window open:\n%s", out)
 	}
 	if b.deployID != "" {
-		t.Errorf("the second release deployed %s with K at one and a window already open", b.deployID)
+		t.Errorf("the second release deployed %s with the window limit at one and a window already open", b.deployID)
 	}
-	if !strings.Contains(b.factoryHold, gate.HoldKWindowsOpen) {
-		t.Errorf("the second release's hold is %q, want K's", b.factoryHold)
+	if !strings.Contains(b.factoryHold, gate.HoldWindowLimitReached) {
+		t.Errorf("the second release's hold is %q, want the window limit's", b.factoryHold)
 	}
 	if b.deployGate.opening != "" {
 		t.Error("the production deploy row fired for the held release, and a hold that lifts itself opens no decision")
@@ -340,23 +341,25 @@ func TestKHoldsTheNextProductionDeploy(t *testing.T) {
 	}
 	for _, row := range rows {
 		if row.Shape == decisionlog.ShapeWait {
-			t.Errorf("the log holds a wait row %s, and K's hold writes nothing", row.ID)
+			t.Errorf("the log holds a wait row %s, and the window limit's hold writes nothing", row.ID)
 		}
 		if row.Shape == decisionlog.ShapePageEvent {
-			t.Errorf("the log holds a page event %s, and a deploy queued behind K waits on the factory", row.ID)
+			t.Errorf("the log holds a page event %s, and a deploy queued behind the window limit waits on the factory", row.ID)
 		}
 	}
 }
 
-// TestARollbackSweepsTheReleaseAboveItsTarget is K above one and what it costs. Master
+// TestARollbackSweepsTheReleaseAboveItsTarget is the window limit above one and what
+// it costs. Master
 // is linear, so returning to a target below a condemned release undoes every release
-// above it — the condemned one at harm, the rest swept.
+// above it — the condemned one condemned, the rest skipped.
 //
 // The steps are driven one at a time rather than through a run, because this substrate
 // replaces the process rather than shifting traffic: the lower release stops emitting
 // the moment the upper one deploys, so a run that deploys both back to back leaves the
 // lower one with nothing for its comparison to read. The pause between the two deploys
-// is what a substrate keeping a control would not need, and it is where K above one is
+// is what a substrate keeping a control would not need, and it is where a window limit
+// above one is
 // weakest here.
 func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
@@ -383,7 +386,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 			t.Fatalf("the candidate environment of %s: %v\noutput so far:\n%s", c.itemID, err, out)
 		}
 		if err := path.mergeGate(ctx, c); err != nil {
-			t.Fatalf("the merge gate of %s: %v\noutput so far:\n%s", c.itemID, err, out)
+			t.Fatalf("the Merge to master gate of %s: %v\noutput so far:\n%s", c.itemID, err, out)
 		}
 	}
 	if _, err := path.runQueue(ctx, theServiceRecord(t, ctx, path)); err != nil {
@@ -401,14 +404,14 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 		t.Fatalf("deploying the upper release: %v\noutput so far:\n%s", err, out)
 	}
 	if lower.windowID == "" || upper.windowID == "" {
-		t.Fatalf("windows opened %q and %q, and K is two:\n%s", lower.windowID, upper.windowID, out)
+		t.Fatalf("windows opened %q and %q, and the window limit is two:\n%s", lower.windowID, upper.windowID, out)
 	}
 
 	if err := path.watchTo(ctx, theServiceRecord(t, ctx, path), time.Now().Add(theWatchFor), theWatchEvery); err != nil {
 		t.Fatalf("the watch stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	// The lower one is condemned at harm and the upper one is swept: its comparison
+	// The lower one is condemned and the upper one is skipped: its health monitor
 	// simply stopped, master being linear and the release being above the target.
 	lowerWindow, err := window.Get(ctx, d.pool, lower.windowID)
 	if err != nil {
@@ -418,10 +421,10 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the upper window: %v", err)
 	}
-	if lowerWindow.Exit != window.ExitHarm {
+	if lowerWindow.Exit != window.ExitCondemned {
 		t.Fatalf("the lower window closed %q, want harm:\n%s", lowerWindow.Exit, out)
 	}
-	if upperWindow.Exit != window.ExitSwept {
+	if upperWindow.Exit != window.ExitSkipped {
 		t.Errorf("the upper window closed %q, want swept", upperWindow.Exit)
 	}
 	if upperWindow.Exit.Counts() {
@@ -435,7 +438,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 		t.Fatalf("NewestRollback = found %v, %v", found, err)
 	}
 	if rollback.ReleaseID != firstRelease.ID {
-		t.Errorf("the rollback returned to release %s, want the first one %s — the newest below the condemned one whose window closed without harm",
+		t.Errorf("the rollback returned to release %s, want the first one %s — the newest below the condemned one whose window closed without condemning a release",
 			rollback.ReleaseID, firstRelease.ID)
 	}
 	if rollback.Undoing.CondemnedReleaseID != lower.releaseID {
@@ -465,8 +468,9 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 // itself is not held, and deploys ahead of every release the hold is holding.
 func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
-	// K at two, so that what holds the release behind the revert is the rollback and
-	// not the revert's own open window. At the K of one the score supplies, both holds
+	// The window limit at two, so that what holds the release behind the revert is the
+	// rollback and not the revert's own open window. At the limit of one the score
+	// supplies, both holds
 	// stand at once and a test could not tell which of them stopped the deploy.
 	installWindow(t, ctx, d, 2)
 	rolled := rollBackABadRelease(ctx, t, d, out)
@@ -496,9 +500,9 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	}
 
 	// The revert and one more change, in one run. The revert is authored from the
-	// intent the comparison already took in, it is not held, and it deploys ahead of the
-	// release the hold is holding — which is the one place the number does not order
-	// deploys.
+	// intent the health monitor already took in, it is not held, and it deploys
+	// ahead of the release the hold is holding — which is the one place the number
+	// does not order deploys.
 	d.in = strings.NewReader(approvals)
 	res, err := run(ctx, d, of(theFourthStatement, rolled.revertStatement))
 	if err != nil {
@@ -531,7 +535,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	if other == nil || other.deployID == "" {
 		t.Errorf("the change behind the revert did not deploy after it shipped:\n%s", out)
 	}
-	shipped, err := comparison.Shipped(ctx, d.pool, res.environmentID, rolled.revertIntentID)
+	shipped, err := healthmonitor.Shipped(ctx, d.pool, res.environmentID, rolled.revertIntentID)
 	if err != nil || !shipped {
 		t.Errorf("Shipped(the revert intent) = %v, %v", shipped, err)
 	}
@@ -597,17 +601,17 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	if err != nil || !watched {
 		t.Fatalf("ForRelease = watched %v, %v", watched, err)
 	}
-	if w.Exit != window.ExitHarm {
+	if w.Exit != window.ExitCondemned {
 		t.Errorf("the window over the approved-through release closed %q, and what was approved through was the defect itself",
 			w.Exit)
 	}
 }
 
-// TestACrossingAfterTheWindowClosedRaisesAnIntent is the other side of the window's
-// authority. The comparison keeps running after the window closes; what it finds then
-// is not a rollback candidate, because the change has been live for a week and the
-// window's authority ended long before. It is an incident and an unrefined intent at
-// the start of the pipeline.
+// TestACrossingAfterTheWindowClosedRaisesAnIntent is the other side of the
+// window's authority. The health monitor keeps running after the window closes;
+// what it finds then is not a rollback candidate, because the change has been
+// live for a week and the window's authority ended long before. It is an
+// incident and an unrefined intent at the start of the pipeline.
 func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
@@ -697,32 +701,33 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	}
 }
 
-// TestAReconcilerMismatchHoldsTheProductionDeployAndPages is the one hold the factory
+// TestACheckerMismatchHoldsTheProductionDeployAndPages is the one hold the factory
 // cannot lift by gathering evidence, and so the one that fires the row and pages. What
 // the factory recorded about the service is not what is running, so nothing here can be
 // decided on the record.
-func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
+func TestACheckerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
-	d.reconciler = newReconcilerStore(t, ctx)
+	d.checker = newCheckerStore(t, ctx)
 
 	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
-	if !strings.Contains(out.String(), "A reconciler is installed") {
-		t.Errorf("the run does not report a reconciler installed:\n%s", out)
+	if !strings.Contains(out.String(), "An independent checker is installed") {
+		t.Errorf("the run does not report an independent checker installed:\n%s", out)
 	}
 
-	// Installing the reconciler is substrate outside the twelve duties, so the page a
-	// mismatch fires reaches whoever the declaration says installed it.
+	// Installing the independent checker is substrate outside the twelve duties,
+	// so the page a mismatch fires reaches whoever the declaration says installed
+	// it.
 	installer := "sre"
 	if _, err := people.NewWriter(d.pool).Declare(ctx, owner(d.human), installer,
-		people.OfObligation(people.ObligationReconciler)); err != nil {
-		t.Fatalf("declaring who installed the reconciler: %v", err)
+		people.OfObligation(people.ObligationChecker)); err != nil {
+		t.Fatalf("declaring who installed the independent checker: %v", err)
 	}
 
-	// A target changed underneath: the reconciler's own store now holds a mismatch,
-	// written by the reconciler and by nothing in the factory.
-	raised, err := reconciler.NewWriter(d.reconciler).Record(ctx, reconciler.Pass{
+	// A target changed underneath: the independent checker's own store now holds a
+	// mismatch, written by the independent checker and by nothing in the factory.
+	raised, err := checker.NewWriter(d.checker).Record(ctx, checker.Pass{
 		ServiceID: serviceOf(ctx, t, d), Target: d.dir, Reached: true,
 		RunningBuild: "bl_somebodyelses", RecordedBuildID: "bl_thefactorys",
 		RecordedReleaseID: "rel_thefactorys",
@@ -766,12 +771,12 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		}
 	}
 	payload := openingPayload(t, opening)
-	if payload.Mismatch == "" || !strings.Contains(payload.Mismatch, reconciler.HoldWords) {
+	if payload.Mismatch == "" || !strings.Contains(payload.Mismatch, checker.HoldWords) {
 		t.Errorf("the opening row's mismatch reads %q, and a human approving through has to read what disagreed",
 			payload.Mismatch)
 	}
 
-	// The page: reached, to whoever installed the reconciler, because a mismatch
+	// The page: reached, to whoever installed the independent checker, because a mismatch
 	// belongs to no duty of the twelve.
 	events, err := notifier.EventsFor(ctx, d.pool, raised.Raised)
 	if err != nil {
@@ -781,7 +786,7 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		t.Fatalf("the page's events are %+v, want one reached", events)
 	}
 	if events[0].Reached != installer {
-		t.Errorf("the page reached %q, and %q is who the declaration says installed the reconciler",
+		t.Errorf("the page reached %q, and %q is who the declaration says installed the independent checker",
 			events[0].Reached, installer)
 	}
 	if !strings.Contains(out.String(), "PAGE reached to "+installer) {
@@ -812,9 +817,10 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		t.Errorf("the page widened %d times, and unanswered it widens exactly once", widened)
 	}
 
-	// Cleared at the reconciler and nowhere else, and the answered event is written by
-	// the pass that finds it cleared — because that store calls nothing.
-	if _, err := reconciler.NewWriter(d.reconciler).Clear(ctx, raised.Raised, installer); err != nil {
+	// Cleared at the independent checker and nowhere else, and the answered event
+	// is written by the pass that finds it cleared — because that store calls
+	// nothing.
+	if _, err := checker.NewWriter(d.checker).Clear(ctx, raised.Raised, installer); err != nil {
 		t.Fatalf("clearing the mismatch: %v", err)
 	}
 	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
@@ -830,7 +836,7 @@ func TestAReconcilerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	}
 
 	// And with the mismatch cleared, the row is the score's again.
-	stillHeld, why, err := reconciler.NewStore(d.reconciler).Mismatch(ctx, serviceOf(ctx, t, d))
+	stillHeld, why, err := checker.NewStore(d.checker).Mismatch(ctx, serviceOf(ctx, t, d))
 	if err != nil || stillHeld {
 		t.Errorf("Mismatch = %v %q, %v; a cleared one holds nothing", stillHeld, why, err)
 	}
@@ -847,7 +853,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
 	// An owner's request the factory cannot do: no page.
-	d.model = &refusingModel{inner: &fakeModel{}, refusals: attemptBound + 5}
+	d.model = &refusingModel{inner: &fakeModel{}, refusals: attemptLimit + 5}
 	if _, err := run(ctx, d, of(theStatement)); err == nil {
 		t.Fatalf("the run finished, and every implementer reply was refused:\n%s", out)
 	}
@@ -868,7 +874,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	// because the defect it describes is live.
 	// The statement is one this fake can author a spec for, because what makes this
 	// page is where the intent came from and not the words in it.
-	detected, err := intent.NewIntake(d.pool).TakeIn(ctx, comparison.Actor, intent.SourceDetector, theSecondStatement)
+	detected, err := intent.NewIntake(d.pool).TakeIn(ctx, healthmonitor.Actor, intent.SourceDetector, theSecondStatement)
 	if err != nil {
 		t.Fatalf("taking in the detector's intent: %v", err)
 	}
@@ -913,7 +919,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 }
 
 // rolledBack is what [rollBackABadRelease] leaves behind: the revert intent the
-// comparison raised and the statement a later run works it through.
+// health monitor raised and the statement a later run works it through.
 type rolledBack struct {
 	revertIntentID  string
 	revertStatement string
@@ -940,7 +946,7 @@ func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.B
 	if err != nil {
 		t.Fatalf("reading the bad release's window: %v", err)
 	}
-	if w.Exit != window.ExitHarm {
+	if w.Exit != window.ExitCondemned {
 		t.Fatalf("the bad release's window closed %q, want harm:\n%s", w.Exit, out)
 	}
 
@@ -966,9 +972,9 @@ func p(ctx context.Context, t *testing.T, d deps) *path {
 	return composed
 }
 
-// watching is the service one call of the comparison is about.
-func watching(s shipped, name string) comparison.Watching {
-	return comparison.Watching{ID: s.serviceID, Name: name, EnvironmentID: s.environmentID}
+// watching is the service one call of the health monitor is about.
+func watching(s shipped, name string) healthmonitor.Watching {
+	return healthmonitor.Watching{ID: s.serviceID, Name: name, EnvironmentID: s.environmentID}
 }
 
 // serviceOf is the id of the service these tests run against.
@@ -981,28 +987,28 @@ func serviceOf(ctx context.Context, t *testing.T, d deps) string {
 	return id
 }
 
-// newReconcilerStore is the reconciler's own store for one test: a schema of its own,
-// its own schema applied by its own applier, and nothing of the factory's in it. The
-// factory reads it and never writes it, which is what a pool handed to the path as its
-// reconciler is.
+// newCheckerStore is the independent checker's own store for one test: a schema
+// of its own, its own schema applied by its own applier, and nothing of the
+// factory's in it. The factory reads it and never writes it, which is what a
+// pool handed to the path as its checker is.
 //
 // It is opened on the same server the factory's tests use, with a schema of its own,
-// rather than on [reconciler.DefaultURL]. What makes this store independent is that no
+// rather than on [checker.DefaultURL]. What makes this store independent is that no
 // factory component writes it and that it is reached through a URL of its own — not
 // which machine it is on — so a test naming a second server would be checking the
 // deployment rather than the code, and would fail wherever the factory's database is
 // not where that default says.
-func newReconcilerStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
+func newCheckerStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
-		t.Fatalf("naming the reconciler's schema: %v", err)
+		t.Fatalf("naming the independent checker's schema: %v", err)
 	}
-	schema := "reconciler_" + hex.EncodeToString(suffix[:])
+	schema := "checker_" + hex.EncodeToString(suffix[:])
 
-	pool, err := reconciler.Open(ctx, inSchema(t, postgres.URL(), schema))
+	pool, err := checker.Open(ctx, inSchema(t, postgres.URL(), schema))
 	if err != nil {
-		t.Fatalf("the reconciler's store is not reachable, and these tests do not skip: %v", err)
+		t.Fatalf("the independent checker's store is not reachable, and these tests do not skip: %v", err)
 	}
 	t.Cleanup(func() {
 		drop, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1015,8 +1021,8 @@ func newReconcilerStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
-	if err := reconciler.Apply(ctx, pool); err != nil {
-		t.Fatalf("applying the reconciler's schema: %v", err)
+	if err := checker.Apply(ctx, pool); err != nil {
+		t.Fatalf("applying the independent checker's schema: %v", err)
 	}
 	return pool
 }

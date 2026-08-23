@@ -11,11 +11,11 @@ import (
 type Row string
 
 const (
-	// Decomposition is the cut's own gate: the one row where approving admits
-	// several threads at once. It fires where the cut yielded more than one item
-	// and nowhere else — a cut that yields one produced no set to ratify — and what
+	// Decomposition is the stage's own gate: the one row where approving admits
+	// several timelines at once. It fires where decomposition yielded more than one item
+	// and nowhere else — a decomposition that yields one produced no set to ratify — and what
 	// is approved is the set: how many items, which service each changes, and what
-	// waits on what. One verdict covers the whole cut however many services it
+	// waits on what. One verdict covers the whole decomposition however many services it
 	// changes, which is the design's refusal of a per-service approval.
 	Decomposition Row = "decomposition"
 	// DeployToCandidateEnvironment is where the candidate's own environment is
@@ -99,7 +99,7 @@ func permits(row Row, verdict Verdict) error {
 // because the design names none for either — a human at one is deciding whether
 // the deploy happens and not verifying an artifact, and inventing a duty number
 // for a row would put a claim on the opening row that the design does not make.
-// What such a row waits on is whoever holds it, and the surface that shows a
+// What such a row waits on is whoever holds it, and the screen that shows a
 // duty holder their rows is M7's.
 func WaitsOn(row Row) string {
 	switch row {
@@ -118,11 +118,11 @@ func WaitsOn(row Row) string {
 const ReturnsTo = "implementation"
 
 // ErrEditInPlaceRefused is returned for Decomposition's third action. Edit in
-// place at that row is a human re-cutting the set by hand, and re-cutting is not
-// built: it needs a cut that decides a decomposition rather than one told what to
-// produce, and the crude interface is told. A rejection is what stops a bad cut
-// here, and repairing one is what the next thing to touch the cut owes.
-var ErrEditInPlaceRefused = errors.New("gate: no set to edit in place — re-cutting is not built, so a bad cut is rejected rather than repaired")
+// place at that row is a human re-decomposing the set by hand, and re-decomposing is not
+// built: it needs a stage that decides the decomposition rather than one told what to
+// produce, and the crude interface is told. A rejection is what stops a bad decomposition
+// here, and repairing one is what the next thing to touch decomposition owes.
+var ErrEditInPlaceRefused = errors.New("gate: no set to edit in place — re-decomposing is not built, so a bad decomposition is rejected rather than repaired")
 
 // The conditions the factory's own hold is computed from, in the words a caller
 // reports it with. A hold of this kind is not a verdict and writes nothing: it is
@@ -143,37 +143,37 @@ const (
 	HoldDependencyNotLive = "a declared dependency is not its service's current release"
 	// HoldNoRoomForAnotherEnvironment is the substrate with no room for another
 	// candidate environment. It is the one condition at the candidate deploy row
-	// the cut could not have declared, and the one hold here that is written
+	// decomposition could not have declared, and the one hold here that is written
 	// anywhere: it is not a record and no parameter of an owner's limits it, so it
 	// goes into the log as a wait, with the component that met it as the actor.
 	HoldNoRoomForAnotherEnvironment = "the substrate has no room for another candidate environment"
-	// HoldKWindowsOpen is the service already holding as many watch windows open
-	// as K allows. It is computed from records that already exist — the open
+	// HoldWindowLimitReached is the service already holding as many watch windows open
+	// as the window limit allows. It is computed from records that already exist — the open
 	// windows — so it writes nothing and is recomputed at every firing, and it
 	// lifts itself when one of those windows closes. It is a wait on the factory
 	// and not on a human, which is why it does not page.
-	HoldKWindowsOpen = "the service holds as many watch windows open as K allows"
+	HoldWindowLimitReached = "the service holds as many watch windows open as the window limit allows"
 	// HoldRollbackAwaitingRevert is a rollback whose revert has not shipped. Master
 	// keeps the change that was rolled back and the next item was built on master,
 	// so deploying it would redeliver the defect just removed. It writes nothing,
 	// it lifts itself when the revert ships, and it does not hold the revert — a
 	// dependency hold that blocked its own dependency would never lift.
 	HoldRollbackAwaitingRevert = "a rollback's revert has not shipped, so deploying would redeliver the defect it removed"
-	// HoldReconcilerMismatch is a record the reconciler found disagreeing with what
+	// HoldCheckerMismatch is a record the independent checker found disagreeing with what
 	// runs. It is the other kind of hold and the only one of it: no evidence the
 	// factory can gather lifts it, because every remedy the factory has reads the
 	// record in question. So this is the one factory hold that fires the row rather
 	// than stopping the deploy before a decision is opened — a human decides, and
 	// the notifier pages, because the service cannot receive its own fixes until
 	// one of them ends it.
-	HoldReconcilerMismatch = "the reconciler found a record disagreeing with what runs"
+	HoldCheckerMismatch = "the independent checker found a record disagreeing with what runs"
 )
 
-// ErrStrategyPinRefused is returned for the production deploy row's third
+// ErrStrategySafeguardRefused is returned for the production deploy row's third
 // action. A strategy that keeps a control needs a substrate that decides what
 // share of arriving traffic reaches each of two builds; a target that runs a
 // release as a local process moves a process instead, so the row is unavailable
-// here and every deploy is straight — the same exemption a service's first
-// release already takes, arriving for the whole install rather than for one
-// release.
-var ErrStrategyPinRefused = errors.New("gate: no strategy to pin — this substrate moves a process rather than traffic, so every deploy is straight")
+// here and every deploy goes without a control — the same exemption a service's
+// first release already takes, arriving for the whole install rather than for
+// one release.
+var ErrStrategySafeguardRefused = errors.New("gate: no strategy a safeguard can keep — this substrate moves a process rather than traffic, so every deploy goes without a control")

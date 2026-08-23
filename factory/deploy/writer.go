@@ -47,8 +47,8 @@ type Writer struct {
 // NewWriter returns the writer over pool.
 func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 
-// Start writes the deploy record: status started, strategy straight — straight
-// being the only strategy a target that moves a process rather than traffic can
+// Start writes the deploy record: status started, strategy without a control —
+// the only strategy a target that moves a process rather than traffic can
 // perform, so nothing here chooses one. The environment is the id of an
 // environment record, which is what keys a service's current release per
 // environment. What names the build the deploy put there and, where the deploy is
@@ -62,7 +62,7 @@ func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, envir
 // it, and the intent it raised. Every other field is an ordinary deploy's, because
 // a rollback is a deploy event and not a record of its own — every field it would
 // need is on this record already, and a second writer on the fact of what is
-// running is the fact the reconciler exists to check.
+// running is the fact the independent checker exists to check.
 func (w *Writer) StartUndoing(ctx context.Context, actor record.Actor, serviceID, environmentID string,
 	what What, undoing Undoing) (Deploy, error) {
 	if !undoing.Any() {
@@ -106,7 +106,7 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, serviceID, envir
 		EnvironmentID: environmentID,
 		ReleaseID:     what.ReleaseID,
 		BuildID:       what.BuildID,
-		Strategy:      StrategyStraight,
+		Strategy:      StrategyWithoutControl,
 		Status:        StatusStarted,
 		Undoing:       undoing,
 	}
@@ -242,7 +242,7 @@ func scan(row pgx.Row) (Deploy, error) {
 // record.NewID's alphabet, which holds no line ending, so the separator needs no
 // escaping. It is a column rather than a table because what reads it reads all of
 // one rollback's at once, and a table would be a row per edge for a list bounded
-// by K.
+// by the window limit.
 
 func joinReleases(ids []string) string { return strings.Join(ids, "\n") }
 
@@ -345,7 +345,7 @@ func Rollbacks(ctx context.Context, pool *pgxpool.Pool) ([]Deploy, error) {
 
 // NewestRollback is the most recent rollback of one service in one environment,
 // and false where none has happened. It is what the hold a rollback leaves is
-// computed from: the hold stands until the item cut from that rollback's revert
+// computed from: the hold stands until the item decomposed from that rollback's revert
 // intent has a release running, and the newest rollback is the one whose revert is
 // outstanding.
 //

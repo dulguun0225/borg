@@ -33,7 +33,7 @@ const (
 // agreeing.
 var Outcomes = []Outcome{OutcomePassed, OutcomeFailed, OutcomeUndecided}
 
-// Blocks says whether the outcome stops the item at the merge gate. Undecided is
+// Blocks says whether the outcome stops the item at the Merge to master gate. Undecided is
 // read there the way a failure is, which is the whole reason the value exists.
 func (o Outcome) Blocks() bool { return o != OutcomePassed }
 

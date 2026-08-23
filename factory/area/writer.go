@@ -121,11 +121,11 @@ func ByName(ctx context.Context, pool *pgxpool.Pool, name string) (Area, bool, e
 }
 
 // Chain is the area of that id and every area it lies inside, narrowest first.
-// A mechanism a pin binds reads the chain rather than the one area, because a
-// pin drawn on any area in it reaches an item in the narrowest.
+// A mechanism a safeguard binds reads the chain rather than the one area,
+// because a safeguard drawn on any area in it reaches an item in the narrowest.
 //
 // An empty id is no areas and no error: an item may name no area, and the
-// caller's answer for one is the same as for an area nothing is pinned on.
+// caller's answer for one is the same as for an area with no safeguard on it.
 func Chain(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]Area, error) {
 	var chain []Area
 	seen := map[string]bool{}

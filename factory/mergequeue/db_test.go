@@ -35,9 +35,9 @@ import (
 const serviceID = "svc_00000000000000000000000000000000"
 
 var (
-	cutActor      = record.Actor{Kind: record.KindComponent, Name: "cut"}
-	dispatchActor = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
-	owner         = record.Actor{Kind: record.KindHuman, Name: "owner"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
+	dispatchActor      = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
+	owner              = record.Actor{Kind: record.KindHuman, Name: "owner"}
 )
 
 // fakeRepository answers a re-verification from a script keyed by item, and
@@ -113,17 +113,17 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-// queued cuts an item and advances it to the stage the queue's membership is: the
-// merge gate approved it and its fast-forward has not happened.
+// queued decomposes an item and advances it to the stage the queue's membership is: the
+// Merge to master gate approved it and its fast-forward has not happened.
 func queued(ctx context.Context, t *testing.T, pool *pgxpool.Pool, n int) item.Item {
 	t.Helper()
-	it, err := item.NewCut(pool).Create(ctx, cutActor, item.New{
+	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
 		IntentID:  fmt.Sprintf("in_%032d", n),
 		ServiceID: serviceID,
 		Branch:    fmt.Sprintf("item/%d", n),
 	})
 	if err != nil {
-		t.Fatalf("cutting item %d: %v", n, err)
+		t.Fatalf("decomposing item %d: %v", n, err)
 	}
 	dispatch := item.NewDispatch(pool)
 	for _, stage := range []item.Stage{item.StageImplementation, item.StageQueued} {
@@ -207,7 +207,7 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 	}
 
 	// The rejection is a wait row the log wrote with the queue as caller and actor:
-	// no gate fired, the merge gate's own having closed as an approval.
+	// no gate fired, the Merge to master gate's own having closed as an approval.
 	rows, err := decisionlog.Read(ctx, pool)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
@@ -244,14 +244,14 @@ func TestTheOrderIsThePriorityThenTheApproval(t *testing.T) {
 	second := queued(ctx, t, pool, 2)
 	third := queued(ctx, t, pool, 3)
 
-	// The queue with nothing else to go on takes them in the order they were cut,
+	// The queue with nothing else to go on takes them in the order they were decomposed,
 	// no approval being in the log yet.
 	members, err := q.Members(ctx, serviceID)
 	if err != nil {
 		t.Fatalf("Members: %v", err)
 	}
 	if len(members) != 3 || members[0].ID != first.ID || members[2].ID != third.ID {
-		t.Fatalf("the members are %+v, want them in the order they were cut", ids(members))
+		t.Fatalf("the members are %+v, want them in the order they were decomposed", ids(members))
 	}
 
 	// An owner pushes the last one to the front.
@@ -266,7 +266,7 @@ func TestTheOrderIsThePriorityThenTheApproval(t *testing.T) {
 	}
 
 	// Nothing here fires a gate, so no approval time is in the log and the order
-	// falls back to the cut's. What the approval time does to the order is package
+	// falls back to decomposition's. What the approval time does to the order is package
 	// gate's own demonstration, that being where the payload's shape lives.
 	_ = second
 

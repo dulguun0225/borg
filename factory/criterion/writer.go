@@ -113,20 +113,20 @@ const selectInForce = `select id, actor_kind, actor_name, at, service_id, spec_a
 	from ` + Table + ` where service_id = $1 and item_id = any($2) order by at`
 
 // InForce is every criterion in force for one build of the service, in the order
-// they were written. A build is a set of items — the ones merged into the tree it
-// was made from, plus the item whose branch it is — and itemIDs is that set,
-// assembled by the caller.
+// they were written. A build is a set of items — the ones merged into the
+// repository it was made from, plus the item whose branch it is — and itemIDs
+// is that set, assembled by the caller.
 //
 // In force is per build and not per service, which is what the design's query
 // already says: a criterion introduced by a sibling item that has not merged is a
 // promise this build's tree could not keep, and holding it in force here would
-// reject every candidate cut in parallel with the one that introduced it. The
+// reject every candidate decomposed in parallel with the one that introduced it. The
 // other half of that query, withdrawal, is not written anywhere yet — a spec
 // version withdrawing a criterion arrives with the milestone that authors one — so
 // what is filtered so far is introduction alone.
 //
 // No items is no criteria and no error: a build with no items is not something the
-// cut produces, and an empty set would otherwise match nothing rather than
+// decomposition produces, and an empty set would otherwise match nothing rather than
 // everything, which is the safe direction of the two.
 //
 // It takes the pool and no transaction, because reading the set is not a

@@ -40,11 +40,11 @@ import (
 )
 
 var (
-	owner            = record.Actor{Kind: record.KindHuman, Name: "owner"}
-	scoreActor       = record.Actor{Kind: record.KindComponent, Name: "score"}
-	cutActor         = record.Actor{Kind: record.KindComponent, Name: "cut"}
-	implementerActor = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
-	mergeActor       = record.Actor{Kind: record.KindComponent, Name: "merge"}
+	owner              = record.Actor{Kind: record.KindHuman, Name: "owner"}
+	scoreActor         = record.Actor{Kind: record.KindComponent, Name: "score"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
+	implementerActor   = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
+	mergeActor         = record.Actor{Kind: record.KindComponent, Name: "merge"}
 )
 
 // modelVersion is the author every artifact here is written by, which is the
@@ -60,23 +60,23 @@ const (
 	areaID        = "ar_0000000000000000000000000000000a"
 )
 
-// fakePolicy answers with one threshold and no pin. What a gate does with a
-// threshold is package gate's demonstration; here it only has to be answerable
-// so a decision can be written.
+// fakePolicy answers with one threshold and no safeguard. What a gate does with
+// a threshold is package gate's demonstration; here it only has to be
+// answerable so a decision can be written.
 type fakePolicy struct {
 	threshold float64
-	// pinned is whether a pin adds a human at the row, which is the one answer the
-	// score's own sample reads: it may pass a gate the number gated and never one
-	// a pin gated.
-	pinned bool
+	// bySafeguard is whether a safeguard adds a human at the row, which is the one
+	// answer the score's own sample reads: it may pass a gate the number gated and
+	// never one a safeguard gated.
+	bySafeguard bool
 }
 
 func (f fakePolicy) AtGate(context.Context, policy.Subjects) (policy.Applied, error) {
 	return policy.Applied{
-		PolicyVersion: "pv_00000000000000000000000000000001",
-		Threshold:     f.threshold,
-		ThresholdFrom: policy.FromSupplied,
-		HumanPinned:   f.pinned,
+		PolicyVersion:    "pv_00000000000000000000000000000001",
+		Threshold:        f.threshold,
+		ThresholdFrom:    policy.FromSupplied,
+		HumanBySafeguard: f.bySafeguard,
 	}, nil
 }
 
@@ -128,18 +128,18 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-// cutItem writes one item in the area and an implementation version on it by
+// decomposeItem writes one item in the area and an implementation version on it by
 // modelVersion, which is the pair the score follows to an author.
-func cutItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, branch string) (item.Item, artifact.Artifact) {
+func decomposeItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, branch string) (item.Item, artifact.Artifact) {
 	t.Helper()
-	it, err := item.NewCut(pool).Create(ctx, cutActor, item.New{
+	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
 		IntentID:  "in_0000000000000000000000000000000a",
 		ServiceID: serviceID,
 		AreaID:    areaID,
 		Branch:    branch,
 	})
 	if err != nil {
-		t.Fatalf("cutting the item: %v", err)
+		t.Fatalf("decomposing the item: %v", err)
 	}
 	implementation, err := artifact.NewStore(pool).SubmitImplementation(ctx, implementerActor,
 		artifact.By{Authorship: artifact.AuthorshipAgent, Author: modelVersion}, it.ID, "a commit")
@@ -190,9 +190,9 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 	ctx, pool, s := newScore(t)
 	supplied, _ := score.Starting(gatepolicy.RiskThreshold)
 	threshold := supplied.Value
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: threshold}, gate.NoReconciler{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: threshold}, gate.NoChecker{})
 
-	first, firstImplementation := cutItem(t, ctx, pool, "item/one")
+	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
 	opened, err := g.Fire(ctx, firing(first, firstImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 2, FilesInTree: 2}))
 	if err != nil {
@@ -207,7 +207,7 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 		name string
 		want float64
 	}{
-		{"authorship.prior", 1},
+		{"author.prior", 1},
 		{"context.business_area", 1},
 		{"change.reversibility", 1},
 		{"change.reach", 1},
@@ -228,7 +228,7 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 		t.Fatalf("Mint: %v", err)
 	}
 
-	second, secondImplementation := cutItem(t, ctx, pool, "item/two")
+	second, secondImplementation := decomposeItem(t, ctx, pool, "item/two")
 	openedAgain, err := g.Fire(ctx, firing(second, secondImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 2, FilesInTree: 4}))
 	if err != nil {
@@ -242,7 +242,7 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 		name string
 		want float64
 	}{
-		{"authorship.prior", 0.5},
+		{"author.prior", 0.5},
 		{"context.business_area", 0.5},
 		{"change.reversibility", 0.3},
 		{"change.area_churn", 0.2},
@@ -257,13 +257,13 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 
 	// The auto-pass is not evidence about the author: it is the factory agreeing
 	// with itself, so a third item's prior reads what the second's did.
-	third, thirdImplementation := cutItem(t, ctx, pool, "item/three")
+	third, thirdImplementation := decomposeItem(t, ctx, pool, "item/three")
 	openedThird, err := g.Fire(ctx, firing(third, thirdImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 2, FilesInTree: 4}))
 	if err != nil {
 		t.Fatalf("Fire over the third item: %v", err)
 	}
-	if got := levelOf(t, openedThird.Assessment, "authorship.prior"); got != 0.5 {
+	if got := levelOf(t, openedThird.Assessment, "author.prior"); got != 0.5 {
 		t.Errorf("the prior after an auto-pass reads %v, want the 0.5 one human approval left it at", got)
 	}
 }
@@ -272,9 +272,9 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 // it leaves the event queued with the change still good — so no factor moves.
 func TestAHoldTeachesTheScoreNothing(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoReconciler{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoChecker{})
 
-	first, firstImplementation := cutItem(t, ctx, pool, "item/one")
+	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
 	deployRow := firing(first, firstImplementation, score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4})
 	deployRow.Row = gate.DeployToProduction
 	deployRow.ArtifactID = ""
@@ -286,13 +286,13 @@ func TestAHoldTeachesTheScoreNothing(t *testing.T) {
 		t.Fatalf("Decide(hold): %v", err)
 	}
 
-	second, secondImplementation := cutItem(t, ctx, pool, "item/two")
+	second, secondImplementation := decomposeItem(t, ctx, pool, "item/two")
 	openedAgain, err := g.Fire(ctx, firing(second, secondImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	if got := levelOf(t, openedAgain.Assessment, "authorship.prior"); got != 1 {
+	if got := levelOf(t, openedAgain.Assessment, "author.prior"); got != 1 {
 		t.Errorf("the prior after a hold reads %v, want the top of the scale a hold leaves it at", got)
 	}
 	if got := levelOf(t, openedAgain.Assessment, "context.business_area"); got != 1 {
@@ -304,9 +304,9 @@ func TestAHoldTeachesTheScoreNothing(t *testing.T) {
 // what separates it from a hold.
 func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoReconciler{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoChecker{})
 
-	first, firstImplementation := cutItem(t, ctx, pool, "item/one")
+	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
 	opened, err := g.Fire(ctx, firing(first, firstImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
@@ -316,7 +316,7 @@ func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 		t.Fatalf("Decide(reject): %v", err)
 	}
 
-	second, secondImplementation := cutItem(t, ctx, pool, "item/two")
+	second, secondImplementation := decomposeItem(t, ctx, pool, "item/two")
 	openedAgain, err := g.Fire(ctx, firing(second, secondImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
@@ -325,7 +325,7 @@ func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 	// One rejection and no approval leaves the level at the top of the scale, the
 	// same place an unseen author sits: what the level says is how far the score
 	// trusts the author, and it cannot trust one less than not at all.
-	if got := levelOf(t, openedAgain.Assessment, "authorship.prior"); got != 1 {
+	if got := levelOf(t, openedAgain.Assessment, "author.prior"); got != 1 {
 		t.Errorf("the prior after a reject reads %v, want the top of the scale", got)
 	}
 	// An approval after the rejection narrows it less than an approval alone
@@ -333,13 +333,13 @@ func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 	if _, err := g.Decide(ctx, openedAgain, owner, gate.VerdictApprove, ""); err != nil {
 		t.Fatalf("Decide(approve): %v", err)
 	}
-	third, thirdImplementation := cutItem(t, ctx, pool, "item/three")
+	third, thirdImplementation := decomposeItem(t, ctx, pool, "item/three")
 	openedThird, err := g.Fire(ctx, firing(third, thirdImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	if got := levelOf(t, openedThird.Assessment, "authorship.prior"); got <= 0.5 {
+	if got := levelOf(t, openedThird.Assessment, "author.prior"); got <= 0.5 {
 		t.Errorf("one approval against one rejection reads %v, want worse than the 0.5 an approval alone leaves", got)
 	}
 }
@@ -351,7 +351,7 @@ func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 func TestAMeasurementThatCouldNotBeTakenGatesTheChange(t *testing.T) {
 	ctx, pool, s := newScore(t)
 
-	it, _ := cutItem(t, ctx, pool, "item/one")
+	it, _ := decomposeItem(t, ctx, pool, "item/one")
 	const reason = "the diff against master could not be taken: the commit is not in the repository"
 	assessment, err := s.Assess(ctx, score.Change{
 		ItemID:          it.ID,
@@ -405,13 +405,13 @@ func TestAMeasurementThatCouldNotBeTakenGatesTheChange(t *testing.T) {
 func TestAnItemWithNoAreaCannotBeScoredOnContext(t *testing.T) {
 	ctx, pool, s := newScore(t)
 
-	it, err := item.NewCut(pool).Create(ctx, cutActor, item.New{
+	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
 		IntentID:  "in_a",
 		ServiceID: serviceID,
 		Branch:    "item/no-area",
 	})
 	if err != nil {
-		t.Fatalf("cutting the item: %v", err)
+		t.Fatalf("decomposing the item: %v", err)
 	}
 	if _, err = artifact.NewStore(pool).SubmitImplementation(ctx, implementerActor,
 		artifact.By{Authorship: artifact.AuthorshipAgent, Author: modelVersion}, it.ID, "a commit"); err != nil {
@@ -440,11 +440,11 @@ func TestAnItemWithNoAreaCannotBeScoredOnContext(t *testing.T) {
 func TestAnItemWithNoImplementationHasNoAuthorToHoldAPriorOn(t *testing.T) {
 	ctx, pool, s := newScore(t)
 
-	it, err := item.NewCut(pool).Create(ctx, cutActor, item.New{
+	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_a", ServiceID: serviceID, AreaID: areaID, Branch: "item/unbuilt",
 	})
 	if err != nil {
-		t.Fatalf("cutting the item: %v", err)
+		t.Fatalf("decomposing the item: %v", err)
 	}
 	assessment, err := s.Assess(ctx, score.Change{
 		ItemID: it.ID, ServiceID: serviceID, AreaID: areaID,
@@ -454,8 +454,8 @@ func TestAnItemWithNoImplementationHasNoAuthorToHoldAPriorOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Assess: %v", err)
 	}
-	if got := assessment.UnavailableFactors(); len(got) != 1 || got[0] != "authorship.prior" {
-		t.Errorf("%v are unavailable, want authorship.prior alone", got)
+	if got := assessment.UnavailableFactors(); len(got) != 1 || got[0] != "author.prior" {
+		t.Errorf("%v are unavailable, want author.prior alone", got)
 	}
 }
 
@@ -465,7 +465,7 @@ func TestAnItemWithNoImplementationHasNoAuthorToHoldAPriorOn(t *testing.T) {
 func TestAFailedCriterionIsTheTopOfItsScale(t *testing.T) {
 	ctx, pool, s := newScore(t)
 
-	it, _ := cutItem(t, ctx, pool, "item/one")
+	it, _ := decomposeItem(t, ctx, pool, "item/one")
 	assessment, err := s.Assess(ctx, score.Change{
 		ItemID: it.ID, ServiceID: serviceID, AreaID: areaID,
 		Measurement:     score.Measurement{LinesChanged: 5, FilesChanged: 1, FilesInTree: 10},
@@ -626,9 +626,9 @@ func TestEnsuringAtOnceAppendsOneVersion(t *testing.T) {
 // against what the score published when it was taken.
 func TestEveryDecisionNamesTheVersionInForce(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoReconciler{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoChecker{})
 
-	it, implementation := cutItem(t, ctx, pool, "item/one")
+	it, implementation := decomposeItem(t, ctx, pool, "item/one")
 	opened, err := g.Fire(ctx, firing(it, implementation,
 		score.Measurement{LinesChanged: 5, FilesChanged: 1, FilesInTree: 10}))
 	if err != nil {

@@ -19,7 +19,7 @@ const (
 	// anything the service wrote.
 	OpStop Op = "stop"
 	// OpReadRunning asks the target what is running, which is the one
-	// operation that changes nothing. The reconciler is its first caller.
+	// operation that changes nothing. The independent checker is its first caller.
 	OpReadRunning Op = "read_running"
 )
 

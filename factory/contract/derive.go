@@ -204,10 +204,9 @@ func readTag(tag *ast.BasicLit) (populated, deprecated bool) {
 }
 
 // TagWords is the comma-separated words of one field's `borg` tag, and none where
-// the field has no tag or no `borg` key. It is exported because package
-// declaration reads the same tag on a consumer's mirror, with words of its own,
-// and two packages parsing one tag two ways would be two spellings of one
-// convention.
+// the field has no tag or no `borg` key. It is exported because package consumer
+// contract reads the same tag on a consumer's mirror, with words of its own, and
+// two packages parsing one tag two ways would be two spellings of one convention.
 func TagWords(quoted string) []string {
 	if quoted == "" {
 		return nil

@@ -14,37 +14,38 @@ import (
 type Exit string
 
 const (
-	// ExitHarm is the comparison crossing the boundary against the release. What
+	// ExitCondemned is the comparison crossing the boundary against the release. What
 	// follows is a rollback with no human involved.
-	ExitHarm Exit = "harm"
-	// ExitClean is the comparison ruling out a regression of the size worth
+	ExitCondemned Exit = "condemned"
+	// ExitCleared is the comparison ruling out a regression of the size worth
 	// catching. The window closed early, on evidence.
-	ExitClean Exit = "clean"
-	// ExitCap is neither, by the cap. The window closed unresolved, and on a
+	ExitCleared Exit = "cleared"
+	// ExitTimedOut is neither, by the cap. The window closed unresolved, and on a
 	// service too quiet to receive the traffic a comparison needs this is where
 	// every window ends — weak protection, reported as weak.
-	ExitCap Exit = "cap"
-	// ExitSwept is a rollback aimed below this release having undone it. The
-	// release is neither condemned nor running, and a swept release is one the
-	// factory skipped over rather than one it can return to.
-	ExitSwept Exit = "swept"
+	ExitTimedOut Exit = "timed_out"
+	// ExitSkipped is a rollback aimed below this release having undone it. The
+	// release is neither condemned nor running, and a release skipped this way is
+	// one the factory passed over rather than one it can return to.
+	ExitSkipped Exit = "skipped"
 )
 
 // Exits is every exit a window may close at. The CHECK in [DDL] lists the same
 // four, and TestDDLListsEveryExit fails if the two stop agreeing.
-var Exits = []Exit{ExitHarm, ExitClean, ExitCap, ExitSwept}
+var Exits = []Exit{ExitCondemned, ExitCleared, ExitTimedOut, ExitSkipped}
 
 // Counts reports whether closing at this exit leaves a release the factory can
-// return to, which is what a restore floor and a rollback's target are both
-// computed from. Clean and cap count: a release that was never condemned is one
-// the factory can return to, and requiring a clean close would leave a service
-// too quiet to ever reach one with no target at all. Harm and swept do not —
-// the first was condemned, and the second has nothing left running its build.
-func (e Exit) Counts() bool { return e == ExitClean || e == ExitCap }
+// return to, which is what a last known-good release and a rollback's target are
+// both computed from. Cleared and timed out count: a release that was never
+// condemned is one the factory can return to, and requiring a cleared close would
+// leave a service too quiet to ever reach one with no target at all. Condemned and
+// skipped do not — the first was condemned, and the second has nothing left
+// running its build.
+func (e Exit) Counts() bool { return e == ExitCleared || e == ExitTimedOut }
 
 var (
 	// ErrExitUnknown is returned for an exit outside [Exits].
-	ErrExitUnknown = errors.New("window: the exit is none of harm, clean, cap, swept")
+	ErrExitUnknown = errors.New("window: the exit is none of condemned, cleared, timed out, skipped")
 	// ErrNotFound is returned where no window has the id, the deploy, or the
 	// release.
 	ErrNotFound = errors.New("window: no window has that")
@@ -55,7 +56,7 @@ var (
 	// something every window has.
 	ErrOpeningIncomplete = errors.New("window: the opening is missing something every window has")
 	// ErrReadRefused is returned by [Writer.Close] for a read that is not a pair of
-	// counts, and for a swept close carrying one. Swept is the exit that is not a
+	// counts, and for a skipped close carrying one. Skipped is the exit that is not a
 	// reading: a rollback aimed below the release ended the window, so a read there
 	// would be a reading nothing performed.
 	ErrReadRefused = errors.New("window: the read the window closed on is not a read of the quantity")
@@ -70,7 +71,7 @@ type Window struct {
 	DeployID  string
 	ReleaseID string
 	ServiceID string
-	// CleanAvailable is whether the clean exit was reachable at the open. It is
+	// ClearedAvailable is whether the cleared exit was reachable at the open. It is
 	// false for a release with nothing below it to be compared against, whose
 	// window can only be condemned by an absolute threshold and can never be
 	// cleared early — so a window ending at the cap is readable as weak
@@ -79,11 +80,11 @@ type Window struct {
 	// It is also false on a held-out release, and HeldOut is what tells the two
 	// apart: one had no baseline and the other has one and is not allowed to use
 	// it.
-	CleanAvailable bool
+	ClearedAvailable bool
 	// HeldOut is whether the score selected the item this release came from into
 	// its sample. It is on the record because a window that runs to the cap for
 	// this reason is not the same window as one that ran to the cap for want of a
-	// baseline, and a reader with only CleanAvailable could not tell them apart.
+	// baseline, and a reader with only ClearedAvailable could not tell them apart.
 	HeldOut bool
 	// Size, Confidence, and CapSeconds are the parameters in force at the open,
 	// copied onto the record. doc.go says why they are copied.
@@ -98,7 +99,7 @@ type Window struct {
 	ScoreVersion  string
 	// ClosedOn is the read of the quantity the window closed on: what the release
 	// served and failed, and what its baseline did. It is empty while the window is
-	// open and at the swept exit, which is the one close that is not a reading — a
+	// open and at the skipped exit, which is the one close that is not a reading — a
 	// rollback aimed below the release ended it, and nothing was evaluated.
 	//
 	// It is here because an exit nobody can recompute is an exit nobody can argue
@@ -123,7 +124,7 @@ func (w Window) Open() bool { return w.Exit == "" }
 // never reach that volume cannot be.
 //
 // A closed window is never past its cap, whatever the clock says: the question is
-// about a window the comparison is still deciding.
+// about a window the health monitor is still deciding.
 func (w Window) PastCap(now time.Time) (bool, error) {
 	if !w.Open() {
 		return false, nil
@@ -142,10 +143,10 @@ type Opening struct {
 	DeployID  string
 	ReleaseID string
 	ServiceID string
-	// CleanAvailable is false where the release has no baseline to be compared
+	// ClearedAvailable is false where the release has no baseline to be compared
 	// against or where the release was held out, which the caller knows and this
 	// package does not.
-	CleanAvailable bool
+	ClearedAvailable bool
 	// HeldOut is whether the score selected this release's item into its sample,
 	// which is what the caller read off the decisions on that item.
 	HeldOut       bool

@@ -13,10 +13,10 @@
 //
 // The state has three values. An intent arrives unrefined, and
 // [Intake.MarkRefined] is the one transition this package writes: refined
-// means the factory has enough to cut it and author a spec per item. Nothing
-// in M1 writes escalated — the attempt bound that would is not built — and the
+// means the factory has enough to decompose it and author a spec per item. Nothing
+// in M1 writes escalated — the attempt limit that would is not built — and the
 // value is in the CHECK because the design names it, so the schema does not
-// change when the bound arrives.
+// change when the limit arrives.
 //
 // # The question
 //
@@ -31,21 +31,21 @@
 // question stamped answered that says nothing, and the round is spent.
 //
 // Each question names the round it was asked in, and the intent's rounds
-// field counts rounds rather than questions, because the attempt bound counts
+// field counts rounds rather than questions, because the attempt limit counts
 // rounds. M1's interview stopping rule is one round or none: the factory asks
 // what it cannot author without and proceeds on the answer.
 //
 // # The two counts, in two fields
 //
-// The intent keeps the interview's rounds and the cut's re-cuts, and they are two
-// fields and never one. Both are counted against the same attempt bound, and both
+// The intent keeps the interview's rounds and decomposition's re-decompositions, and they are two
+// fields and never one. Both are counted against the same attempt limit, and both
 // are on the intent because both are upstream of an item's first stage — the
-// interview has no gate of its own, and the cut's gate decides a set rather than an
+// interview has no gate of its own, and decomposition's gate decides a set rather than an
 // item, whose replacements start at nothing. What separates them is that they are
 // different stretches of work: an owner answering an escalated interview clears
 // that count alone, and one field would spend an interview's rounds out of the
-// cut's budget. [Intake.CountRecut] is the second of the two, and its one caller is
-// the cut — the one write the cut makes to an intent rather than to items.
+// decomposition's budget. [Intake.CountReDecomposition] is the second of the two, and its one caller is
+// decomposition — the one write decomposition makes to an intent rather than to items.
 //
 // # Who may write what
 //

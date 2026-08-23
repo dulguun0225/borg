@@ -82,12 +82,12 @@ const realModelStatement = "A Go HTTP service, module borg.demo/realmodel, packa
 	"Test the handler through net/http/httptest rather than by binding the port."
 
 // TestTheDemonstrationAgainstARealModel is M1's demonstration end to end, under
-// M2's score and along M3's path: an intent taken in, an item cut, a spec and an
+// M2's score and along M3's path: an intent taken in, an item decomposed, a spec and an
 // implementation authored by a real model, a candidate environment of the item's
 // own with the build running on it and the criteria decided there, all three gate
 // rows approved by the human the score puts there, release 1 minted by the merge
-// queue, a straight deploy running on the target, and the walk back to the intent
-// over a clean chain.
+// queue, a deploy without a control running on the target, and the walk back to
+// the intent over a clean chain.
 //
 // It asserts that a human decided rather than what the number was. A real
 // model's diff is whatever it wrote, so the number moves run to run — but every
@@ -157,7 +157,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	// text alone. A passing run has nothing to look at, so that one is removed.
 	//
 	// It is named before the install rather than swapped in afterwards, because the
-	// repository a run works in is the service record's own field and the cut writes
+	// repository a run works in is the service record's own field and decomposition writes
 	// that record — so a directory chosen after the record exists reaches nothing.
 	repo, err := os.MkdirTemp("", "factory-realmodel-")
 	if err != nil {
@@ -167,7 +167,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		[]serviceRepo{{name: theService, repo: repo}})
 	d.model = agent.NewPaced(provided, realModelPace)
 	// The author every version this take writes names is the model that wrote it,
-	// which is what an authorship prior is kept on.
+	// which is what a per-author prior is kept on.
 	d.modelName = name
 
 	t.Cleanup(func() {
@@ -273,12 +273,12 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the window: %v", err)
 	}
-	t.Logf("window %s: size %v, confidence %v, cap %vs, clean available %v, exit %q",
-		w.ID, w.Size, w.Confidence, w.CapSeconds, w.CleanAvailable, w.Exit)
-	if w.CleanAvailable {
+	t.Logf("window %s: size %v, confidence %v, cap %vs, cleared available %v, exit %q",
+		w.ID, w.Size, w.Confidence, w.CapSeconds, w.ClearedAvailable, w.Exit)
+	if w.ClearedAvailable {
 		t.Error("the window says clean was available to a service's first release, and there is nothing below it to compare against")
 	}
-	if w.Exit != window.ExitCap {
+	if w.Exit != window.ExitTimedOut {
 		t.Errorf("the window closed %q, and a first release can end at the cap and nowhere else", w.Exit)
 	}
 

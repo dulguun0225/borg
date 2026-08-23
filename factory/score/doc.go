@@ -12,25 +12,25 @@
 //
 // # What it reads
 //
-// Every factor but two comes from records this package reads: the releases in
-// an item's area, the closed decisions in the log, the artifact the build was
-// made from and its author with the outcomes of that author's releases, the
-// releases the service already has, and the contracts it publishes with the
-// declarations naming them. The two that do not are the size and reach of the
-// change, which are read from the build's diff — measured where the repository is,
-// by the component that built, and handed here in [Measurement]. It is not
-// stored, because the vector computed from it is: a diff re-taken later against a
+// Every factor but two comes from records this package reads: the releases in an
+// item's area, the closed decisions in the log, the artifact the build was made
+// from and its author with the outcomes of that author's releases, the releases
+// the service already has, and the contracts it publishes with the consumer
+// contracts naming them. The two that do not are the size and reach of the change,
+// which are read from the build's diff — measured where the repository is, by the
+// component that built, and handed here in [Measurement]. It is not stored,
+// because the vector computed from it is: a diff re-taken later against a
 // repository other items have merged into is not the diff the decision was made
 // on, and a vector is written where it was computed and never recomputed.
 //
 // [decisionlog.ClosedDecisions] is read whole for every assessment, which is what
-// an authorship prior over one author's outcomes costs while the log is small. A
+// a per-author prior over one author's outcomes costs while the log is small. A
 // query narrowed by the payload's own fields is what a log that has grown needs,
 // and that would put the payload's shape inside the log.
 //
 // # Empty evidence is a wide value
 //
-// The authorship prior and the context group's business-area factor start wide
+// The per-author prior and the context group's business-area factor start wide
 // for an author or an area the factory has not seen, and narrow as outcomes
 // arrive. That is not the same as a factor being unavailable: an unavailable
 // factor resolves to the top of the scale and the formula gates the change
@@ -39,17 +39,17 @@
 //
 // What narrows the prior is every outcome on that author's own work — a human's
 // verdict on a version it wrote, a watch window closing over a release of an item
-// it wrote, and a human's veto of one — so a prior keeps moving on a factory that
-// has stopped putting humans at gates, which is what it could not do until the
-// windows were built and read here.
+// it wrote, and a human undoing one after it shipped — so a prior keeps moving on
+// a factory that has stopped putting humans at gates, which is what it could not
+// do until the windows were built and read here.
 //
 // # The version, and what learning moves
 //
 // [Version] is a record of the score's own, append-only, naming the published
-// formula, the factor set, the published rules, and every value the score supplies
-// where an owner authored nothing — six of gate policy's seven rows, and none for
-// the predicate catalog, which no outcome teaches. Every decision names the
-// version in force.
+// formula, the factor set, the published rules, and every value the score
+// supplies where an owner authored nothing — six of gate policy's seven rows,
+// and none for the list of allowed predicate kinds, which no outcome teaches.
+// Every decision names the version in force.
 //
 // [Writer.Ensure] computes the supplied table from every outcome in the store and
 // appends a version where what it computed, or what the source publishes, has
@@ -57,8 +57,9 @@
 // change to the formula both move the version by one path, and starting the
 // factory twice over an unchanged store appends nothing.
 //
-// A supplied value is per subject and not per parameter: K and the watch window's
-// three are supplied per service, the item-size target per area, the attempt bound
+// A supplied value is per subject and not per parameter: the window limit and the
+// watch window's
+// three are supplied per service, the item-size target per area, the attempt limit
 // per stage, and the threshold per gate row — the same key the authored value has,
 // because what the score supplies is what stands where that field is empty. The
 // version stores the starting value of each parameter and a row for every subject
@@ -79,9 +80,9 @@
 // Gate policy's own table says what goes wrong at each end of each of them, and
 // both ends are inputs: one end is something going wrong, the other is the
 // parameter costing more than it returns. Five of the seven move both ways on that
-// reading — the threshold through the sample, the attempt bound on attempts that
+// reading — the threshold through the sample, the attempt limit on attempts that
 // never needed the retry, the cap on how long a window actually takes, the size on
-// what the traffic can resolve, and K, which the design already gave both
+// what the traffic can resolve, and the window limit, which the design already gave both
 // directions.
 //
 // The window's size is where that mattered most. What harm asks for gets finer per
@@ -111,8 +112,9 @@
 // why it turned out well, so the only unbiased evidence for raising a threshold is
 // a change the score wanted gated and did not gate.
 //
-// Two things bound it. It passes nothing a pin put a human at, because a gate
-// pinned always-on is a human an owner added and nothing in the design removes one.
+// Two things bound it. It passes nothing a safeguard put a human at, because a
+// human a safeguard added at a gate is a human an owner added and nothing in the
+// design removes one.
 // And it selects an item and not a firing, so the selection is read forward off
 // the decisions already opened on that item rather than drawn again at each row.
 //
@@ -139,7 +141,8 @@
 // ../../end-goal/how-humans-do-it/04-risk-score.md#how-it-learns, and the
 // held-out sample with the two fields it is recorded in. The values it supplies
 // are the rows of
-// ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it; K's own
+// ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it; the window
+// limit's own
 // evidence is ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows
 // and the window's size and cap are
 // ../../end-goal/how-humans-do-it/08-operations.md#the-watch-window.

@@ -11,12 +11,12 @@ import (
 // that form.
 func TestClassifyTheSixPatterns(t *testing.T) {
 	sentences := map[string]criterion.Pattern{
-		"The system shall respond within one second.":                                      criterion.PatternAlwaysTrue,
-		"When a report arrives, the system shall open an intent.":                          criterion.PatternEvent,
-		"While a deploy is running, the system shall refuse a second one.":                 criterion.PatternState,
-		"If the credential is unreachable, then the system shall append a wait.":           criterion.PatternUnwantedCondition,
-		"Where the service has a user interface, the system shall record its state flow.":  criterion.PatternOptionalFeature,
-		"While the queue is full, when an item arrives, the system shall hold it outside.": criterion.PatternStateWithEvent,
+		"The system shall respond within one second.":                                        criterion.PatternAlwaysTrue,
+		"When a report arrives, the system shall open an intent.":                            criterion.PatternEvent,
+		"While a deploy is running, the system shall refuse a second one.":                   criterion.PatternState,
+		"If the credential is unreachable, then the system shall append a wait.":             criterion.PatternUnwantedCondition,
+		"Where the service has a user interface, the system shall record its state machine.": criterion.PatternOptionalFeature,
+		"While the queue is full, when an item arrives, the system shall hold it outside.":   criterion.PatternStateWithEvent,
 	}
 	for sentence, want := range sentences {
 		got, matched := criterion.Classify(sentence)

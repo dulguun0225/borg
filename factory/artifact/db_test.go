@@ -276,7 +276,7 @@ func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 	}
 }
 
-// TestAVersionWithNoAuthorIsRefusedTwice: an authorship prior is computed from
+// TestAVersionWithNoAuthorIsRefusedTwice: a per-author prior is computed from
 // that author's own work, so a version whose author is not on the record is one
 // no prior can read. The store refuses it around the writer too.
 func TestAVersionWithNoAuthorIsRefusedTwice(t *testing.T) {

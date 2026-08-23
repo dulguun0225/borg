@@ -59,7 +59,7 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       that produces one that does, which is why it is the only evidence for a rise.
                       A fall outranks a rise: it names a number the score is known to have got wrong.
 
-  attempt bound       per stage, both ways, once 3 items have reported at that stage. One above the
+  attempt limit       per stage, both ways, once 3 items have reported at that stage. One above the
                       highest attempt at which the stage produced work that got past it, floored at 2
                       and ceilinged at 6 — so a stage that has needed a third attempt gets a fourth,
                       and a stage nothing has ever needed more than one attempt at keeps one retry and
@@ -67,14 +67,14 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       refused, which one retry is what covers.
 
   item-size target    per area. Halved per stall in that area — an item whose attempts at a stage
-                      reached the bound above and which has no release, which is work spent and thrown
+                      reached the limit above and which has no release, which is work spent and thrown
                       away — floored at 50. One way only: the other end of a bad size is cost per
                       feature and rework rate, and cost per feature needs features counted, which
-                      nothing here does. Nothing reads the value either, until a cut sizes something.
+                      nothing here does. Nothing reads the value either, until a decomposition sizes something.
 
   watch window size   per service, and the coarser of two numbers. What harm asks for is the starting
-                      size halved per miss — a window closed clean or at the cap over a release an
-                      incident was later raised against, which is the crossing the comparison could
+                      size halved per miss — a window closed cleared or timed out over a release an
+                      incident was later raised against, which is the crossing the health monitor could
                       have seen and did not — floored at 0.002. What the traffic reaches is the finest
                       size on that same lattice whose units to clean this service's newest closed
                       window's read supplies inside the cap in force, and never coarser than the
@@ -84,36 +84,36 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       different questions — what is worth catching, and whether anything can be caught
                       — and only the first is about harm.
 
-  window confidence   per service. Each false clean — a miss whose window closed at the clean exit
-                      rather than at the cap — halves the distance from the confidence in force to
+  window confidence   per service. Each false clearing — a miss whose window closed cleared rather
+                      than timing out — halves the distance from the confidence in force to
                       one, ceilinged at 0.999. One way only, and the reason is arithmetic: the units a
                       window needs grow as the log of one over one-minus-confidence, where they grow as
                       the inverse square of the size, so tightening this costs about a doubling where
                       two halvings of the size cost sixteen times. It does not compound.
 
   watch window cap    per service, both ways. Twice the longest a window of that service took to close
-                      on evidence — clean or harm, the two exits that read the quantity rather than the
+                      on evidence — cleared or condemned, the two exits that read the quantity rather than the
                       clock — floored at 60 and ceilinged at a week. A cap under what a window actually
                       needed closes unresolved one that would have resolved; a cap far above it holds
                       the next deploy for nothing.
 
-  K                   per service. Folded over that service's own history in order: from 1, every 3
-                      windows closing without harm raise it by one, ceilinged at 5, and a rollback that
+  window limit        per service. Folded over that service's own history in order: from 1, every 3
+                      windows closing without condemning a release raise it by one, ceilinged at 5, and a rollback that
                       swept a release lowers it by one and resets the count, floored at 1. Windows
-                      closing without harm are one-sided evidence — a service that has never rolled
-                      back has seen the throughput K gives and none of the rollback size it causes —
-                      which is why the rise is slow and the fall is immediate.
+                      closing without condemning a release are one-sided evidence — a service that has never rolled
+                      back has seen the throughput a higher limit gives and none of the rollback size
+                      it causes — which is why the rise is slow and the fall is immediate.
 
-  the predicate       nothing. No outcome teaches which kinds of assertion a declaration may draw
-  catalog             from, so the score supplies none and the value in force is the kinds this
-                      factory can decide, what an owner authored, and what a pin adds.
+  allowed predicate   nothing. No outcome teaches which kinds of assertion a consumer contract may draw
+  kinds               from, so the score supplies none and the value in force is the kinds this
+                      factory can decide, what an owner authored, and what a safeguard adds.
 
 The held-out sample is how the threshold gets evidence its own decisions did not select. One firing in
 ten that the score would have gated is held out instead: the item auto-passes every gate the score
 would have gated from that firing onward, its closing row says the sample and not the threshold passed
 it, and its release is watched to the cap rather than stopping where the boundary would allow. It
-reaches nothing an owner pinned, because a gate pinned always-on is a human an owner added and no
-mechanism in the design removes one. What the sample cannot have on this substrate is the strategy that
+reaches no row a safeguard reached, because a human a safeguard added at a gate is a human an owner
+added and no mechanism in the design removes one. What the sample cannot have on this substrate is the strategy that
 keeps a control: every deploy here moves a process rather than traffic, so a held-out release is
 watched by the same confounded comparison as every other one and the longest watch available is all
 the sample gets.
@@ -141,17 +141,17 @@ const (
 	// heldOutPerBand is how many held-out firings that turned out well it takes to
 	// raise the threshold one band.
 	heldOutPerBand = 3
-	// attemptBoundCeiling is as high as the bound goes, whatever the evidence: a
+	// attemptLimitCeiling is as high as the limit goes, whatever the evidence: a
 	// stage retried more than this has stopped being a stage that retries.
-	attemptBoundCeiling = 6
-	// attemptBoundFloor is as low as it goes. One retry is the one the design's own
+	attemptLimitCeiling = 6
+	// attemptLimitFloor is as low as it goes. One retry is the one the design's own
 	// reasoning is about — a stage that failed once has usually had a reply the
-	// protocol refused — so a bound of two survives whatever the evidence says.
-	attemptBoundFloor = 2
-	// attemptBoundEvidence is how many items must have reported at a stage before
-	// the bound moves off its starting value at all. One item that got past a stage
-	// first time is not grounds for supplying a bound the whole factory reads.
-	attemptBoundEvidence = 3
+	// protocol refused — so a limit of two survives whatever the evidence says.
+	attemptLimitFloor = 2
+	// attemptLimitEvidence is how many items must have reported at a stage before
+	// the limit moves off its starting value at all. One item that got past a stage
+	// first time is not grounds for supplying a limit the whole factory reads.
+	attemptLimitEvidence = 3
 	// itemSizeFloor is as small as the target goes. Below this an item is smaller
 	// than the overhead of shipping one.
 	itemSizeFloor = 50
@@ -168,12 +168,12 @@ const (
 	// window before traffic had arrived to read, which is not a cap but a refusal
 	// to watch.
 	windowCapFloor = 60
-	// kCeiling is as many windows as one service holds open, whatever the
+	// windowLimitCeiling is as many windows as one service holds open, whatever the
 	// evidence. Every increment is one more release a rollback undoes.
-	kCeiling = 5
-	// windowsPerK is how many windows closing without harm it takes to raise K by
-	// one.
-	windowsPerK = 3
+	windowLimitCeiling = 5
+	// windowsPerRaise is how many windows closing without condemning a release it takes to raise the
+	// window limit by one.
+	windowsPerRaise = 3
 )
 
 // Learn is the table the score supplies, computed from every outcome in the
@@ -195,11 +195,11 @@ func Learn(ctx context.Context, pool *pgxpool.Pool) (SuppliedValues, error) {
 func LearnFrom(e *Evidence) (SuppliedValues, error) {
 	values := StartingValues()
 
-	bounds := attemptBounds(e)
-	values = append(values, bounds...)
-	values = append(values, itemSizeTargets(e, boundOf(bounds))...)
+	limits := attemptLimits(e)
+	values = append(values, limits...)
+	values = append(values, itemSizeTargets(e, limitOf(limits))...)
 	values = append(values, thresholds(e)...)
-	values = append(values, ks(e)...)
+	values = append(values, windowLimits(e)...)
 
 	sizes, err := windowParameters(e)
 	if err != nil {
@@ -223,12 +223,12 @@ func thresholds(e *Evidence) []Supplied {
 			}
 			outcome := e.Outcome(f.Opening.ItemID)
 			switch {
-			case f.Closing.AutoPassedBy == AutoPassedByThreshold && outcome == OutcomeBadly:
+			case f.Closing.WhyItAutoPassed == AutoPassThreshold && outcome == OutcomeBadly:
 				bad++
 				if math.IsNaN(lowestBad) || f.Opening.Number < lowestBad {
 					lowestBad = f.Opening.Number
 				}
-			case f.Closing.AutoPassedBy == AutoPassedBySample && outcome == OutcomeWell:
+			case f.Closing.WhyItAutoPassed == AutoPassSample && outcome == OutcomeWell:
 				good++
 			}
 		}
@@ -252,23 +252,23 @@ func thresholds(e *Evidence) []Supplied {
 	return moved
 }
 
-// attemptBounds is the attempt bound per stage, and it moves both ways: up to one
+// attemptLimits is the attempt limit per stage, and it moves both ways: up to one
 // above the highest attempt at which that stage ever produced work that got past
 // it, and down where every item that got past it did so on fewer attempts than the
-// bound allows. The loose end is the one gate policy's own table states — a bound
+// limit allows. The loose end is the one gate policy's own table states — a limit
 // higher than the evidence spends agent time before anyone sees the item — and it
 // is observable in the per-stage rows, so there is no reason for this one to be
 // one-way.
 //
-// Nothing moves until [attemptBoundEvidence] items have reported at the stage, and
-// the floor is [attemptBoundFloor]: one retry is what the design's reasoning about
+// Nothing moves until [attemptLimitEvidence] items have reported at the stage, and
+// the floor is [attemptLimitFloor]: one retry is what the design's reasoning about
 // a refused reply is for, and no amount of evidence takes that away.
-func attemptBounds(e *Evidence) []Supplied {
-	start, _ := Starting(gatepolicy.AttemptBound)
+func attemptLimits(e *Evidence) []Supplied {
+	start, _ := Starting(gatepolicy.AttemptLimit)
 	var moved []Supplied
 	for _, stage := range e.Stages() {
 		reached := e.reachedStage(stage)
-		if reached < attemptBoundEvidence {
+		if reached < attemptLimitEvidence {
 			continue
 		}
 		highest := e.succeededAt(stage)
@@ -277,7 +277,7 @@ func attemptBounds(e *Evidence) []Supplied {
 			// worked and nothing to read either way.
 			continue
 		}
-		value := math.Min(attemptBoundCeiling, math.Max(attemptBoundFloor, float64(highest+1)))
+		value := math.Min(attemptLimitCeiling, math.Max(attemptLimitFloor, float64(highest+1)))
 		if value == start.Value {
 			continue
 		}
@@ -286,7 +286,7 @@ func attemptBounds(e *Evidence) []Supplied {
 			how = "and nothing has ever needed more, so the attempts above that are spent before anybody sees the item"
 		}
 		moved = append(moved, Supplied{
-			Parameter: gatepolicy.AttemptBound, Subject: string(stage), Value: value,
+			Parameter: gatepolicy.AttemptLimit, Subject: string(stage), Value: value,
 			Why: fmt.Sprintf("over %d item(s) at this stage the highest attempt that produced work getting past it is %d, %s",
 				reached, highest, how),
 		})
@@ -294,15 +294,15 @@ func attemptBounds(e *Evidence) []Supplied {
 	return moved
 }
 
-// boundOf is the bound the item-size target's rule reads, which is the value this
+// limitOf is the limit the item-size target's rule reads, which is the value this
 // pass has just supplied for the stage or the starting value where it supplied
 // none. The two rules run in one pass and in this order, so the target is halved
-// against the bound the score supplies now and not against the one it supplied
+// against the limit the score supplies now and not against the one it supplied
 // before the same pass moved it.
-func boundOf(bounds []Supplied) func(item.Stage) float64 {
-	start, _ := Starting(gatepolicy.AttemptBound)
+func limitOf(limits []Supplied) func(item.Stage) float64 {
+	start, _ := Starting(gatepolicy.AttemptLimit)
 	return func(stage item.Stage) float64 {
-		for _, b := range bounds {
+		for _, b := range limits {
 			if b.Subject == string(stage) {
 				return b.Value
 			}
@@ -313,15 +313,15 @@ func boundOf(bounds []Supplied) func(item.Stage) float64 {
 
 // itemSizeTargets is the item-size target per area, halved per stall.
 //
-// The value moves and nothing reads it: no cut sizes anything yet, so an area
-// whose target has halved twice cuts exactly as it did before. That is worth
-// supplying anyway — the movement is what a later cut reads, and an owner can see
+// The value moves and nothing reads it: no decomposition sizes anything yet, so an area
+// whose target has halved twice decomposes exactly as it did before. That is worth
+// supplying anyway — the movement is what a later decomposition reads, and an owner can see
 // today that the score thinks this area's items are too large.
-func itemSizeTargets(e *Evidence, bound func(item.Stage) float64) []Supplied {
+func itemSizeTargets(e *Evidence, limit func(item.Stage) float64) []Supplied {
 	start, _ := Starting(gatepolicy.ItemSizeTarget)
 	var moved []Supplied
 	for _, area := range e.Areas() {
-		stalls := e.stalls(area, bound)
+		stalls := e.stalls(area, limit)
 		if len(stalls) == 0 {
 			continue
 		}
@@ -331,7 +331,7 @@ func itemSizeTargets(e *Evidence, bound func(item.Stage) float64) []Supplied {
 		}
 		moved = append(moved, Supplied{
 			Parameter: gatepolicy.ItemSizeTarget, Subject: area, Value: value,
-			Why: fmt.Sprintf("%d item(s) in this area reached the attempt bound at a stage and never shipped, which is what a cut too coarse spends and throws away", len(stalls)),
+			Why: fmt.Sprintf("%d item(s) in this area reached the attempt limit at a stage and never shipped, which is what a decomposition too coarse spends and throws away", len(stalls)),
 		})
 	}
 	return moved
@@ -343,9 +343,9 @@ func itemSizeTargets(e *Evidence, bound func(item.Stage) float64) []Supplied {
 // The cap tracks how long that service's windows actually take to resolve, in both
 // directions: a cap under what a window needed closes unresolved one that would
 // have resolved, and a cap far above it holds the next deploy for nothing. The
-// pin's direction on this parameter is a floor, and that is an owner's bound rather
-// than a direction for evidence — reading it as one is what made this rule one-way
-// until 2026-08-20.
+// safeguard's direction on this parameter is a floor, and that is an owner's bound
+// rather than a direction for evidence — reading it as one is what made this rule
+// one-way until 2026-08-20.
 //
 // The size is the coarser of two numbers, and that is the whole of the answer to
 // the ratchet. What harm asks for gets finer per miss and never coarser. What the
@@ -374,10 +374,10 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 	var moved []Supplied
 	for _, service := range e.Services() {
 		misses := e.Misses(service)
-		falseCleans := 0
+		falseClearings := 0
 		for _, w := range misses {
-			if w.Exit == window.ExitClean {
-				falseCleans++
+			if w.Exit == window.ExitCleared {
+				falseClearings++
 			}
 		}
 
@@ -408,12 +408,12 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 			}
 		}
 
-		if confidenceValue := 1 - (1-confidence.Value)/math.Pow(2, float64(falseCleans)); falseCleans > 0 {
+		if confidenceValue := 1 - (1-confidence.Value)/math.Pow(2, float64(falseClearings)); falseClearings > 0 {
 			value := math.Min(windowConfidenceCeiling, confidenceValue)
 			if value != confidence.Value {
 				moved = append(moved, Supplied{
 					Parameter: gatepolicy.WindowConfidence, Subject: service, Value: value,
-					Why: fmt.Sprintf("%d window(s) on this service closed clean over a release an incident was raised against, so the boundary said it had ruled out what it had not", falseCleans),
+					Why: fmt.Sprintf("%d window(s) on this service closed cleared over a release an incident was raised against, so the boundary said it had ruled out what it had not", falseClearings),
 				})
 			}
 		}
@@ -422,7 +422,7 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 		wanted := math.Max(windowSizeFloor, size.Value/math.Pow(2, float64(len(misses))))
 		why := ""
 		if len(misses) > 0 {
-			why = fmt.Sprintf("%d window(s) on this service closed without harm over a release an incident was raised against, so the size they watched at was too coarse",
+			why = fmt.Sprintf("%d window(s) on this service closed without condemning a release over a release an incident was raised against, so the size they watched at was too coarse",
 				len(misses))
 		}
 		traffic, known, err := e.traffic(service)
@@ -467,7 +467,7 @@ func prefix(why string) string {
 // could have been halved twice.
 //
 // The units a size needs come from [boundary.Boundary.UnitsToClean], which is the
-// same arithmetic the comparison reads the window against. A second copy of it
+// same arithmetic the health monitor reads the window against. A second copy of it
 // here would be two able to disagree, and this is the one number in the factory
 // whose whole point is that it matches what the boundary actually does.
 func reachable(t Traffic, capSeconds, confidence, startingSize float64) (float64, error) {
@@ -507,16 +507,16 @@ func sizeLattice(startingSize float64) []float64 {
 	return descending
 }
 
-// ks is K per service, folded over that service's own history in order. The fold
-// and not a count, because the two kinds of evidence are not commutative: three
-// windows closing without harm after a rollback are a service earning its
+// windowLimits is the window limit per service, folded over that service's own
+// history in order. The fold and not a count, because the two kinds of evidence are not commutative: three
+// windows closing without condemning a release after a rollback are a service earning its
 // throughput back, and the same three before it are a service that had it and
 // lost it.
-func ks(e *Evidence) []Supplied {
-	start, _ := Starting(gatepolicy.K)
+func windowLimits(e *Evidence) []Supplied {
+	start, _ := Starting(gatepolicy.WindowLimit)
 	var moved []Supplied
 	for _, service := range e.Services() {
-		k := start.Value
+		limit := start.Value
 		noHarm, rollbacks := 0, 0
 		since := 0
 		for _, event := range e.serviceHistory(service) {
@@ -524,22 +524,22 @@ func ks(e *Evidence) []Supplied {
 			case event.noHarm:
 				noHarm++
 				since++
-				if since >= windowsPerK {
+				if since >= windowsPerRaise {
 					since = 0
-					k = math.Min(kCeiling, k+1)
+					limit = math.Min(windowLimitCeiling, limit+1)
 				}
 			case event.sweeping:
 				rollbacks++
 				since = 0
-				k = math.Max(start.Value, k-1)
+				limit = math.Max(start.Value, limit-1)
 			}
 		}
-		if k == start.Value {
+		if limit == start.Value {
 			continue
 		}
 		moved = append(moved, Supplied{
-			Parameter: gatepolicy.K, Subject: service, Value: k,
-			Why: fmt.Sprintf("%d window(s) of this service closed without harm and %d rollback(s) swept a release, folded in order", noHarm, rollbacks),
+			Parameter: gatepolicy.WindowLimit, Subject: service, Value: limit,
+			Why: fmt.Sprintf("%d window(s) of this service closed without condemning a release and %d rollback(s) swept a release, folded in order", noHarm, rollbacks),
 		})
 	}
 	return moved

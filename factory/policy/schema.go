@@ -42,9 +42,9 @@ const IDPrefix = "pv"
 //
 // The columns name the write. parameter is empty on a creation, which authors no
 // parameter; qualifier is the gate row or the stage the value was authored for,
-// and is empty for a parameter whose scope needs no second name; pin_id names
-// the pin a pinning or a withdrawal was about, and is empty otherwise. doc.go
-// says why the value itself is not among them.
+// and is empty for a parameter whose scope needs no second name; safeguard_id
+// names the safeguard an addition or a withdrawal was about, and is empty
+// otherwise. doc.go says why the value itself is not among them.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -53,19 +53,19 @@ var DDL = []string{
 	subject_kind text not null,
 	subject_id text not null,
 	qualifier text not null,
-	pin_id text not null,
+	safeguard_id text not null,
 	supersedes text not null,
 	` + record.Constraints + `,
-	constraint action_known check (action in ('created', 'authored', 'pinned', 'withdrawn')),
+	constraint action_known check (action in ('created', 'authored', 'safeguard_added', 'withdrawn')),
 	constraint subject_kind_present check (subject_kind <> ''),
 	constraint subject_id_present check (subject_id <> ''),
 	constraint parameter_matches_action check (
 		(action = 'created' and parameter = '')
 		or (action <> 'created' and parameter <> '')
 	),
-	constraint pin_matches_action check (
-		(action in ('pinned', 'withdrawn') and pin_id <> '')
-		or (action not in ('pinned', 'withdrawn') and pin_id = '')
+	constraint safeguard_matches_action check (
+		(action in ('safeguard_added', 'withdrawn') and safeguard_id <> '')
+		or (action not in ('safeguard_added', 'withdrawn') and safeguard_id = '')
 	),
 	constraint policy_version_one_row_per_predecessor unique (supersedes)
 )`,

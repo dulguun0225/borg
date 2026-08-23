@@ -1,7 +1,8 @@
-// Package artifact is the artifact store: one entrance for every artifact,
-// the version chain and the authorship attribute on each, and the two calls in
+// Package artifact is the artifact store: one entrance for every artifact, the
+// version chain and the authorship attribute on each, and the two calls in
 // which a version and the records it introduces are submitted together — a spec
-// version with its criteria, and a declaration version with its predicates.
+// version with its criteria, and a consumer contract version with its
+// predicates.
 //
 // # One entrance
 //
@@ -25,23 +26,23 @@
 //
 // For a spec the content is the spec text; for an implementation it is the
 // commit hash the stage produced — the code lives in the repository, and the
-// record names it; for a declaration it is the words a human reads the version
-// by, the predicates being what the factory decides.
+// record names it; for a consumer contract it is the words a human reads the
+// version by, the predicates being what the factory decides.
 //
-// A declaration is a third kind rather than a field of the implementation
+// A consumer contract is a third kind rather than a field of the implementation
 // version. Both are derived from the same build at the same stage, and either can
 // be authored again while the other stands — a re-derivation that finds the
-// consumer reading one field fewer is a new declaration version and not a new
-// implementation.
+// consumer reading one field fewer is a new consumer contract version and not a
+// new implementation.
 //
 // # The store is the criterion's writer, and the predicate's
 //
 // [Store.SubmitSpec] writes the artifact row and each criterion the version
-// introduces through [criterion.Insert], in one transaction, so the spec and
-// its criteria commit together or not at all — a draft the criterion package
-// refuses takes the artifact row down with it. [Store.SubmitDeclaration] is the
-// same arrangement with [declaration.Insert]: a version whose predicates were not
-// written would be a declaration nothing can be decided against.
+// introduces through [criterion.Insert], in one transaction, so the spec and its
+// criteria commit together or not at all — a draft the criterion package refuses
+// takes the artifact row down with it. [Store.SubmitConsumerContract] is the same
+// arrangement with [consumercontract.Insert]: a version whose predicates were not
+// written would be a consumer contract nothing can be decided against.
 //
 // Those are the two record-to-record imports in the factory, and both are here
 // for one reason: this package is the one writer of both of those tables, and the
@@ -49,11 +50,10 @@
 // record packages is an id field.
 //
 // The item_id column, and the service_id [Store.SubmitSpec] and
-// [Store.SubmitDeclaration] pass through to the criteria and the predicates, are
-// id fields and not foreign keys, which is the rule for
-// every link between record packages. The store checks each for being present
-// and not for pointing at anything; record's doc.go states that rule and its
-// cost once.
+// [Store.SubmitConsumerContract] pass through to the criteria and the
+// predicates, are id fields and not foreign keys, which is the rule for every
+// link between record packages. The store checks each for being present and not
+// for pointing at anything; record's doc.go states that rule and its cost once.
 //
 // What defines it: the store, its three callers, and the version chain are
 // the "One entrance for every artifact" arrangement in

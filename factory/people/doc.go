@@ -2,13 +2,13 @@
 // duties each named human holds, and who holds an obligation that is not one of
 // the twelve.
 //
-// # It arrives with its reader and not with its surface
+// # It arrives with its reader and not with its screen
 //
-// People is one of the four surfaces, and the surfaces are a later milestone. The
+// People is one of the four screens, and the screens are a later milestone. The
 // record is here because the notifier routes on it and routing cannot be built
 // without it — the arrangement the watch window's four parameters already had one
 // milestone earlier, authorable on the service record before anything read them.
-// What writes it until the surface exists is the crude interface.
+// What writes it until the screen exists is the crude interface.
 //
 // # Two kinds of holding, and exactly one per row
 //
@@ -19,13 +19,14 @@
 // itself, every other section citing its duties as bare numbers.
 //
 // The obligations are the three that fall outside the twelve because they are
-// substrate rather than work: hosting the factory, installing the reconciler, and
-// composing the fleet. They are here because routing needs a named human where a
-// row belongs to no duty, which is what a reconciler mismatch is — installing the
-// reconciler is not one of the twelve, so the page it fires reaches whoever this
-// record says installed it. Inventing a thirteenth duty instead is what the design
-// refuses: a duty would score an obligation the twelve deliberately leave
-// unscored, where a named human only has to be reachable.
+// substrate rather than work: hosting the factory, installing the independent
+// checker, and composing the fleet. They are here because routing needs a named
+// human where a row belongs to no duty, which is what an independent checker's
+// mismatch is — installing the independent checker is not one of the twelve, so
+// the page it fires reaches whoever this record says installed it. Inventing a
+// thirteenth duty instead is what the design refuses: a duty would score an
+// obligation the twelve deliberately leave unscored, where a named human only
+// has to be reachable.
 //
 // # The owner is not a row
 //
@@ -52,8 +53,8 @@
 // obligations. Nothing updates the holding on a row and nothing deletes.
 //
 // What defines it: the twelve duties and the three obligations outside them are
-// ../../end-goal/what-humans-do.md; the record and the surface that writes it are
-// ../../end-goal/how-humans-do-it/11-surfaces.md#work-ops-factory-people; and what
+// ../../end-goal/what-humans-do.md; the record and the screen that writes it are
+// ../../end-goal/how-humans-do-it/11-screens.md#work-ops-factory-people; and what
 // reads it is ../../end-goal/how-humans-do-it/08-operations.md#pages, where the
 // notifier routes all three channels on it.
 package people

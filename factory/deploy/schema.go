@@ -57,7 +57,7 @@ var DDL = []string{
 	constraint service_id_present check (service_id <> ''),
 	constraint environment_id_present check (environment_id <> ''),
 	constraint build_id_present check (build_id <> ''),
-	constraint strategy_known check (strategy in ('straight', 'with_control')),
+	constraint strategy_known check (strategy in ('without_control', 'with_control')),
 	constraint status_known check (status in ('started', 'complete', 'rolled_back')),
 	constraint undoing_together check ((condemned_release_id <> '') = (source <> '')),
 	constraint undoing_is_a_rollbacks check (

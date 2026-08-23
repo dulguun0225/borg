@@ -62,8 +62,8 @@
 // [Diff] is what one form does to the one before it, with the elements whose
 // change the promise does not allow already computed from the kind — a caller
 // recomputing that would be a second place the rule lives. What [Diff] does not
-// answer is who is affected: that is a query over the declarations, and it belongs
-// to whatever reads both.
+// answer is who is affected: that is a query over the consumer contracts, and it
+// belongs to whatever reads both.
 //
 // # Who may write what
 //

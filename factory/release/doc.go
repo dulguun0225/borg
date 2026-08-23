@@ -38,8 +38,8 @@
 //
 // What defines it: the release record in
 // ../../end-goal/how-humans-do-it/06-releases.md#the-release-record — written
-// at the fast-forward, the record the whole graph joins on — and the number
-// in ../../end-goal/how-humans-do-it/06-releases.md#the-number, an ordinal
-// per service that orders builds and names rollback targets and does nothing
-// else.
+// at the fast-forward, the record the whole graph joins on — and the release
+// number in ../../end-goal/how-humans-do-it/06-releases.md#the-release-number,
+// an ordinal per service that orders builds and names rollback targets and
+// does nothing else.
 package release

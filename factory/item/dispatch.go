@@ -34,7 +34,7 @@ var (
 	ErrItemIDEmpty = errors.New("item: the item id is empty")
 )
 
-// Dispatch is the item's one writer after the cut. Every stage reports its
+// Dispatch is the item's one writer after decomposition. Every stage reports its
 // transition and its spend here rather than writing the item itself.
 type Dispatch struct {
 	pool *pgxpool.Pool
@@ -144,7 +144,7 @@ func reportAttempt(ctx context.Context, q executor, actor record.Actor, itemID s
 
 // SendBack moves the item back up the pipeline and counts one attempt at the
 // stage it is sent to, in one transaction: the rework is booked against the thing
-// that was wrong, and a move that counted nothing would leave the attempt bound
+// that was wrong, and a move that counted nothing would leave the attempt limit
 // comparing against a number the item never spent.
 //
 // The three callers are the two gate rows that reject and the merge queue's
@@ -196,7 +196,7 @@ func (d *Dispatch) SendBack(ctx context.Context, actor record.Actor, itemID stri
 
 // SetPriority writes the priority an owner reorders a queue with. It goes
 // through dispatch rather than beside it, the way Work calls intake to answer a
-// question: the item has one writer after the cut, and reordering is a write to
+// question: the item has one writer after decomposition, and reordering is a write to
 // the item.
 //
 // Reordering changes when a candidate is re-verified and never what it has to

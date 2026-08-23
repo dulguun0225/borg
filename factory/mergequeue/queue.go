@@ -57,9 +57,9 @@ var ErrServiceIDEmpty = errors.New("mergequeue: the service id is empty")
 //
 // Why is what failed, in words a human reads on the rejection row, and is empty
 // where it passed. A merge conflict, a criterion that failed, a breaking contract
-// diff, and a consumer's declaration the candidate does not satisfy all arrive here
-// as a candidate that failed its own re-verification, which is the same disposition
-// for several reasons — so the reason is on the row.
+// diff, and a consumer contract the candidate does not satisfy all
+// arrive here as a candidate that failed its own re-verification, which is the same
+// disposition for several reasons — so the reason is on the row.
 //
 // Forms is what the re-verified build publishes, derived from the checkout the
 // re-verification produced. The queue does not reach a checkout, so the derivation
@@ -113,12 +113,12 @@ const RejectionKind = "merge_queue_rejection"
 
 // RejectionPayload is what the queue writes into the log when a candidate fails
 // its own re-verification. It is a wait and not a decision: no gate fired — the
-// merge gate's own having closed as an approval — so there is no firing to open a
+// Merge to master gate's own having closed as an approval — so there is no firing to open a
 // row at and no factor vector computed for it.
 //
 // It says that an attempt was counted, which is the one thing about this row that
 // a reader cannot see from the row: the count is on the item's per-stage row, and
-// the design counts this rejection against the bound at the stage the item is sent
+// the design counts this rejection against the limit at the stage the item is sent
 // back to.
 type RejectionPayload struct {
 	Kind            string `json:"kind"`
@@ -180,7 +180,7 @@ func (q *Queue) Members(ctx context.Context, serviceID string) ([]item.Item, err
 		if firstAt == secondAt {
 			// The sort is stable and this is the last word, so a tie keeps the
 			// order the membership query returned — which is the time the item was
-			// cut. Ordering on the id instead would be an order derived from random
+			// decomposition. Ordering on the id instead would be an order derived from random
 			// bytes, and it would throw away the one the store already gave.
 			return false
 		}

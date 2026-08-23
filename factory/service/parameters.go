@@ -10,15 +10,16 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 )
 
-// The service record's second writer is an owner at Factory, putting K and the
+// The service record's second writer is an owner at Factory, putting the window limit and the
 // watch window's parameters on it, and the seam between the two writers is the
-// field: the cut writes the service's identity and never a parameter, an owner
+// field: decomposition writes the service's identity and never a parameter, an owner
 // writes parameters and never creates a service. That is why these are functions
-// taking a transaction rather than methods on [Writer], which is the cut's.
+// taking a transaction rather than methods on [Writer], which is decomposition's.
 //
 // Each takes the transaction package policy appends the policy version in, so
 // the field and the version commit together or not at all. Nothing reads any of
-// the four yet: K and the window's parameters are read by the watch window and
+// the four yet: the window limit and the window's parameters are read by the
+// watch window and
 // the overlapping-windows limit, which are a later milestone, and authoring one
 // here changes nothing until then. They are authorable now because the
 // parameter is a field of this record, and a field of a record that has to exist
@@ -28,10 +29,11 @@ var (
 	// ErrShareOutOfRange is returned for a window size or confidence outside
 	// nothing to one. Both are shares.
 	ErrShareOutOfRange = errors.New("service: a window size and a confidence are between 0 and 1")
-	// ErrNotPositive is returned for a cap or a K that is not above zero. A cap
-	// of nothing would end every window at the moment it opened, and a K of
-	// nothing would let a service hold no window and so ship nothing.
-	ErrNotPositive = errors.New("service: a window cap and a K are above zero")
+	// ErrNotPositive is returned for a cap or a window limit that is not above
+	// zero. A cap of nothing would end every window at the moment it opened, and
+	// a window limit of nothing would let a service hold no window and so ship
+	// nothing.
+	ErrNotPositive = errors.New("service: a window cap and a window limit are above zero")
 )
 
 // SetWindowSize writes the smallest regression the comparison must rule out to
@@ -60,12 +62,12 @@ func SetWindowCap(ctx context.Context, tx pgx.Tx, serviceID string, seconds floa
 	return set(ctx, tx, serviceID, `window_cap_seconds`, seconds)
 }
 
-// SetK writes how many watch windows this service may hold open at once.
-func SetK(ctx context.Context, tx pgx.Tx, serviceID string, k float64) error {
-	if k <= 0 {
-		return fmt.Errorf("%w: K %v", ErrNotPositive, k)
+// SetWindowLimit writes how many watch windows this service may hold open at once.
+func SetWindowLimit(ctx context.Context, tx pgx.Tx, serviceID string, limit float64) error {
+	if limit <= 0 {
+		return fmt.Errorf("%w: the window limit %v", ErrNotPositive, limit)
 	}
-	return set(ctx, tx, serviceID, `k`, k)
+	return set(ctx, tx, serviceID, `window_limit`, limit)
 }
 
 // set writes one authored column. The column name is a constant of this package
@@ -88,5 +90,5 @@ type Parameters struct {
 	WindowSize       gatepolicy.Authored
 	WindowConfidence gatepolicy.Authored
 	WindowCapSeconds gatepolicy.Authored
-	K                gatepolicy.Authored
+	WindowLimit      gatepolicy.Authored
 }

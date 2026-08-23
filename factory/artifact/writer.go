@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/criterion"
-	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -24,19 +24,19 @@ const (
 	// KindImplementation is an implementation version; its content is the
 	// commit hash the stage produced.
 	KindImplementation Kind = "implementation"
-	// KindDeclaration is a declaration version, authored at the implementation
-	// stage from the same build: its content is the words a human reads the
-	// declaration by, and what it introduces is the predicates. A kind of its own
-	// rather than a field of the implementation version, because the two are
-	// derived from that build separately and either can be authored again while
-	// the other stands.
-	KindDeclaration Kind = "declaration"
+	// KindConsumerContract is a consumer contract version, authored at the
+	// implementation stage from the same build: its content is the words a human
+	// reads the consumer contract by, and what it introduces is the predicates. A
+	// kind of its own rather than a field of the implementation version, because
+	// the two are derived from that build separately and either can be authored
+	// again while the other stands.
+	KindConsumerContract Kind = "consumer_contract"
 )
 
 // Kinds is every kind an artifact may be a version of. The CHECK constraint in
 // [DDL] lists the same three, and TestDDLListsEveryKind fails if the two lists
 // stop agreeing.
-var Kinds = []Kind{KindSpec, KindImplementation, KindDeclaration}
+var Kinds = []Kind{KindSpec, KindImplementation, KindConsumerContract}
 
 // Authorship is which of the store's three callers authored the version. It
 // is an attribute of the version and not of the item, because authorship is
@@ -67,7 +67,7 @@ var (
 	// item. record's doc.go states what a link is checked for.
 	ErrItemIDEmpty = errors.New("artifact: the item id is empty")
 	// ErrAuthorEmpty is returned for a version naming no author. A version
-	// whose author is not on the record is one no authorship prior can be
+	// whose author is not on the record is one no per-author prior can be
 	// computed from, which is what the field is for.
 	ErrAuthorEmpty = errors.New("artifact: the author is empty")
 )
@@ -97,9 +97,9 @@ type Draft struct {
 }
 
 // Store is the one writer of artifacts, and — through [criterion.Insert] and
-// [declaration.Insert] — of criteria and of the predicates a declaration version
-// introduces. Its three callers are the ones [Authorships] names; nothing else
-// inserts into any of the three tables.
+// [consumercontract.Insert] — of criteria and of the predicates a consumer
+// contract version introduces. Its three callers are the ones [Authorships]
+// names; nothing else inserts into any of the three tables.
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -172,22 +172,23 @@ func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, by
 	return submitted, nil
 }
 
-// SubmitDeclaration writes a declaration version and every predicate it
-// introduces, in one transaction — the same arrangement [Store.SubmitSpec] has
-// with the criteria, and taken for the same reason: a version whose predicates
-// were not written would be a declaration nobody can decide against, and one
-// [declaration.Insert] refuses rolls the version back with it.
+// SubmitConsumerContract writes a consumer contract version and every predicate
+// it introduces, in one transaction — the same arrangement [Store.SubmitSpec]
+// has with the criteria, and taken for the same reason: a version whose
+// predicates were not written would be a consumer contract nobody can decide
+// against, and one [consumercontract.Insert] refuses rolls the version back
+// with it.
 //
 // serviceID is the consumer's, which the predicates carry so that a reader of one
 // knows whose assumption it is without walking to the item. The content is what a
 // human reads the version by; the predicates are what the factory decides.
-func (s *Store) SubmitDeclaration(ctx context.Context, actor record.Actor, by By,
-	itemID, serviceID, content string, drafts []declaration.Draft) (Artifact, []declaration.Predicate, error) {
+func (s *Store) SubmitConsumerContract(ctx context.Context, actor record.Actor, by By,
+	itemID, serviceID, content string, drafts []consumercontract.Draft) (Artifact, []consumercontract.Predicate, error) {
 	if err := refuse(actor, by, itemID); err != nil {
 		return Artifact{}, nil, err
 	}
 	if serviceID == "" {
-		return Artifact{}, nil, fmt.Errorf("artifact: the declaration version of %s names no service", itemID)
+		return Artifact{}, nil, fmt.Errorf("artifact: the consumer contract version of %s names no service", itemID)
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -196,11 +197,11 @@ func (s *Store) SubmitDeclaration(ctx context.Context, actor record.Actor, by By
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindDeclaration, content)
+	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindConsumerContract, content)
 	if err != nil {
 		return Artifact{}, nil, err
 	}
-	written, err := declaration.Insert(ctx, tx, actor, declaration.Of{
+	written, err := consumercontract.Insert(ctx, tx, actor, consumercontract.Of{
 		ItemID: itemID, ServiceID: serviceID, ArtifactID: submitted.ID,
 	}, drafts)
 	if err != nil {

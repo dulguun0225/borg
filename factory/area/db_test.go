@@ -124,8 +124,9 @@ func TestOneNamePerArea(t *testing.T) {
 	}
 }
 
-// TestTheChainIsWalkedNarrowestFirst: a pin drawn on any area in the chain
-// reaches an item in the narrowest, so the walk is what a mechanism reads.
+// TestTheChainIsWalkedNarrowestFirst: a safeguard drawn on any area in the
+// chain reaches an item in the narrowest, so the walk is what a mechanism
+// reads.
 func TestTheChainIsWalkedNarrowestFirst(t *testing.T) {
 	ctx, pool, w := newTable(t)
 

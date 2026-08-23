@@ -32,13 +32,13 @@ var DDL = []string{
 	statement text not null,
 	state text not null,
 	rounds int not null,
-	recuts int not null,
+	re_decompositions int not null,
 	` + record.Constraints + `,
 	constraint source_known check (source in ('owner', 'reports', 'detector')),
 	constraint statement_present check (statement <> ''),
 	constraint state_known check (state in ('unrefined', 'refined', 'escalated')),
 	constraint rounds_not_negative check (rounds >= 0),
-	constraint recuts_not_negative check (recuts >= 0)
+	constraint re_decompositions_not_negative check (re_decompositions >= 0)
 )`,
 
 	`create table if not exists ` + QuestionTable + ` (

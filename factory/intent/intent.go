@@ -30,11 +30,11 @@ type State string
 const (
 	// StateUnrefined is how every intent arrives.
 	StateUnrefined State = "unrefined"
-	// StateRefined means the factory has enough to cut the intent and author
-	// a spec per item, which is the same thing as ready to cut.
+	// StateRefined means the factory has enough to decompose the intent and author
+	// a spec per item, which is the same thing as ready to decompose.
 	StateRefined State = "refined"
 	// StateEscalated is where the interview's rounds exceeded the attempt
-	// bound. Nothing in M1 writes it — the bound is not built — and the value
+	// limit. Nothing in M1 writes it — the limit is not built — and the value
 	// is in the CHECK because the design names it.
 	StateEscalated State = "escalated"
 )
@@ -53,13 +53,13 @@ type Intent struct {
 	Statement string
 	State     State
 	Rounds    int
-	// Recuts is how many times the cut has been re-cut over this intent, which
+	// ReDecompositions is how many times decomposition has been re-decomposition over this intent, which
 	// is the second of the two counts an intent keeps. It is counted against the
-	// same attempt bound the rounds are and in a field of its own, because the two
+	// same attempt limit the rounds are and in a field of its own, because the two
 	// are different stretches of work: an owner answering an escalated interview
 	// clears that count alone, and one field would spend an interview's rounds out
-	// of the cut's budget.
-	Recuts int
+	// of decomposition's budget.
+	ReDecompositions int
 }
 
 // Question is one question of an intent's interview as it is stored. Answer

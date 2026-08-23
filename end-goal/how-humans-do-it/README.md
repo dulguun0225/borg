@@ -5,7 +5,7 @@ The sections run in dependency order — each depends on the ones before it. The
 | Section | What it settles |
 |---|---|
 | [One pipeline](01-one-pipeline.md) | The unit of work, and that there is only one path |
-| [Intent into items](02-intent-into-items.md) | How a request becomes items, and what happens before the cut |
+| [Intent into items](02-intent-into-items.md) | How a request becomes items, and what happens before decomposition |
 | [Gates](03-gates.md) | Where a decision happens, and what may be decided there |
 | [Risk score](04-risk-score.md) | What decides whether a human decides at a gate at all |
 | [Environments](05-environments.md) | Where software runs, and how a change reaches it |
@@ -14,4 +14,4 @@ The sections run in dependency order — each depends on the ones before it. The
 | [Operations](08-operations.md) | What happens after the deploy |
 | [Gate policy](09-gate-policy.md) | Everything an owner authors, and what the score supplies where they do not |
 | [The fleet](10-fleet.md) | What an agent runs on, and what a borrowed account costs |
-| [Surfaces](11-surfaces.md) | Where a human sees any of it |
+| [Screens](11-screens.md) | Where a human sees any of it |

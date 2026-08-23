@@ -34,10 +34,10 @@ const (
 	// ObligationHosting is hosting the factory, which includes bringing it up to
 	// date: a self-hosted product is upgraded by whoever runs it.
 	ObligationHosting Obligation = "hosting"
-	// ObligationReconciler is installing the reconciler beside the factory. It is
+	// ObligationChecker is installing the independent checker beside the factory. It is
 	// the one obligation this milestone reads: a mismatch belongs to no duty, so
 	// the page it fires reaches whoever this record says installed it.
-	ObligationReconciler Obligation = "reconciler"
+	ObligationChecker Obligation = "checker"
 	// ObligationFleet is composing the fleet — the entries the factory dispatches
 	// against, the credentials they run on, and giving a fleet proposal a
 	// disposition. Nothing reads it until the fleet is built.
@@ -46,7 +46,7 @@ const (
 
 // Obligations is every obligation outside the twelve. The CHECK in [DDL] lists
 // the same three, and TestDDLListsEveryObligation fails if the two stop agreeing.
-var Obligations = []Obligation{ObligationHosting, ObligationReconciler, ObligationFleet}
+var Obligations = []Obligation{ObligationHosting, ObligationChecker, ObligationFleet}
 
 var (
 	// ErrNotAnOwner is returned for an actor that is not a human. Distributing the

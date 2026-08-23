@@ -78,7 +78,7 @@ func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, source Source, 
 		Rounds:    0,
 	}
 	_, err := i.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, source, statement, state, rounds, recuts)
+		(id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, 0)`,
 		in.ID, string(in.Actor.Kind), in.Actor.Name, in.At,
 		string(in.Source), in.Statement, string(in.State), in.Rounds,
@@ -89,21 +89,21 @@ func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, source Source, 
 	return in, nil
 }
 
-// CountRecut adds one to the intent's re-cut count and returns the count it
-// reached. Its one caller is the cut, which is the one write the cut makes to an
+// CountReDecomposition adds one to the intent's re-decomposition count and returns the count it
+// reached. Its one caller is decomposition, which is the one write decomposition makes to an
 // intent rather than to items: the Decomposition row rejected the set, and the
 // round is booked against the intent because the items of a rejected round are
 // superseded and their replacements start at nothing, so a count kept on them
-// would never reach a bound however many rounds were spent.
+// would never reach a limit however many rounds were spent.
 //
 // It is a field of its own beside the rounds and never the same field. The two
 // are different stretches of work: an owner answering an escalated interview
 // clears that count alone, and one field would spend an interview's rounds out of
-// the cut's budget.
+// decomposition's budget.
 //
 // The row is locked for the transaction, which is what keeps two concurrent
 // rejections out of one count.
-func (i *Intake) CountRecut(ctx context.Context, actor record.Actor, intentID string) (int, error) {
+func (i *Intake) CountReDecomposition(ctx context.Context, actor record.Actor, intentID string) (int, error) {
 	if err := actor.Validate(); err != nil {
 		return 0, err
 	}
@@ -113,24 +113,24 @@ func (i *Intake) CountRecut(ctx context.Context, actor record.Actor, intentID st
 
 	tx, err := i.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("intent: beginning the re-cut count of %s: %w", intentID, err)
+		return 0, fmt.Errorf("intent: beginning the re-decomposition count of %s: %w", intentID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var recuts int
-	err = tx.QueryRow(ctx, `select recuts from `+Table+` where id = $1 for update`, intentID).Scan(&recuts)
+	var reDecompositions int
+	err = tx.QueryRow(ctx, `select re_decompositions from `+Table+` where id = $1 for update`, intentID).Scan(&reDecompositions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("%w: %s", ErrIntentNotFound, intentID)
 	} else if err != nil {
-		return 0, fmt.Errorf("intent: reading the re-cuts of %s: %w", intentID, err)
+		return 0, fmt.Errorf("intent: reading the re-decompositions of %s: %w", intentID, err)
 	}
-	if _, err := tx.Exec(ctx, `update `+Table+` set recuts = $1 where id = $2`, recuts+1, intentID); err != nil {
-		return 0, fmt.Errorf("intent: counting a re-cut of %s: %w", intentID, err)
+	if _, err := tx.Exec(ctx, `update `+Table+` set re_decompositions = $1 where id = $2`, reDecompositions+1, intentID); err != nil {
+		return 0, fmt.Errorf("intent: counting a re-decomposition of %s: %w", intentID, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("intent: committing the re-cut count of %s: %w", intentID, err)
+		return 0, fmt.Errorf("intent: committing the re-decomposition count of %s: %w", intentID, err)
 	}
-	return recuts + 1, nil
+	return reDecompositions + 1, nil
 }
 
 // Ask writes a question and starts a new round: the question's round is the

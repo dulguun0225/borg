@@ -1,15 +1,15 @@
 // Package incident owns the incident record: something wrong with what is
-// running, written by the comparison at the crossing.
+// running, written by the health monitor at the crossing.
 //
-// # The comparison is the only writer, and no human is one
+// # The health monitor is the only writer, and no human is one
 //
-// The comparison is the one component that reads production behaviour and knows
+// The health monitor is the one component that reads production behaviour and knows
 // which release and which deploy that behaviour belongs to, which is exactly what
 // an incident points at. A human-written one would put a judgment where the design
 // keeps arithmetic, and a human's judgment about live software already reaches
-// production through veto after the fact and the page they may fire — so [Writer]
-// refuses an actor that is not a component, the mirror of package policy refusing
-// one that is not a human.
+// production through undoing a change after it shipped and the page they may
+// fire — so [Writer] refuses an actor that is not a component, the mirror of
+// package policy refusing one that is not a human.
 //
 // It is written whether or not the release's window is still open. Inside the
 // window the crossing also condemns the release; outside it the crossing raises an
@@ -27,7 +27,7 @@
 //
 // # Deduplication is a query and not a field
 //
-// [Open] is what the comparison keys its deduplication on before it calls intake:
+// [Open] is what the health monitor keys its deduplication on before it calls intake:
 // an open incident on this service and this release makes a further crossing an
 // observation on it and never a second intent. The partial unique index in [DDL]
 // is the same rule in the store, so two components crossing at once produce one
@@ -37,14 +37,14 @@
 // writes nothing else. The count is there because an incident nobody added to
 // reads the same as one crossing every second, and it is a count rather than a row
 // per observation because a row per crossing would size the store by how often
-// the comparison runs — the reason the log holds no record per delivery either.
+// the health monitor runs — the reason the log holds no record per delivery either.
 //
 // # Resolved is two conditions and the second is the caller's
 //
 // [Writer.Resolve] advances the status, and what it requires is that the crossing
 // has stopped against what is running *and* that what was raised from the incident
 // has finished. This package checks neither: both are facts about other records —
-// the comparison's own current reading, and the item cut from the intent it
+// the health monitor's own current reading, and the item decomposed from the intent it
 // raised — and a package that checked them would read half the graph. What it does
 // enforce is that an incident resolves once and from open.
 //

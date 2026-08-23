@@ -102,7 +102,7 @@ func TestTheWeightsSumToOneWithinEachHalf(t *testing.T) {
 func TestEveryFactorSitsInAGroupTheDesignNames(t *testing.T) {
 	for _, d := range definitions {
 		switch d.group {
-		case GroupChange, GroupAuthorship, GroupContext:
+		case GroupChange, GroupAuthor, GroupContext:
 		default:
 			t.Errorf("%s is in group %q, and the design names three", d.name, d.group)
 		}
@@ -113,15 +113,15 @@ func TestEveryFactorSitsInAGroupTheDesignNames(t *testing.T) {
 }
 
 // TestSuppliedCoversSixRowsAndNotTheCatalog: the score supplies a value for six
-// of gate policy's seven rows and none for the predicate catalog, which no
-// outcome teaches.
+// of gate policy's seven rows and none for the list of allowed predicate kinds,
+// which no outcome teaches.
 func TestSuppliedCoversSixRowsAndNotTheCatalog(t *testing.T) {
 	rows := map[string]bool{}
 	for _, d := range gatepolicy.Definitions {
 		value, supplied := Starting(d.Parameter)
-		if d.Parameter == gatepolicy.PredicateCatalog {
+		if d.Parameter == gatepolicy.AllowedPredicateKinds {
 			if supplied {
-				t.Errorf("the score supplies a catalog: %v", value)
+				t.Errorf("the score supplies a list of allowed predicate kinds: %v", value)
 			}
 			continue
 		}
@@ -161,7 +161,7 @@ func TestTheSuppliedThresholdGatesAFirstReleaseAndNotTheNextOne(t *testing.T) {
 		{Name: "change.size", Half: HalfLikelihood, Weight: 0.30, Level: 0.1},
 		{Name: "change.area_churn", Half: HalfLikelihood, Weight: 0.20, Level: 0.0},
 		{Name: "change.test_coverage", Half: HalfLikelihood, Weight: 0.20, Level: 0.5},
-		{Name: "authorship.prior", Half: HalfLikelihood, Weight: 0.30, Level: 1.0},
+		{Name: "author.prior", Half: HalfLikelihood, Weight: 0.30, Level: 1.0},
 		{Name: "change.reach", Half: HalfImpact, Weight: 0.50, Level: 1.0},
 		{Name: "context.business_area", Half: HalfImpact, Weight: 0.30, Level: 1.0},
 		{Name: "context.consumers", Half: HalfImpact, Weight: 0.20, Level: 0.0},
@@ -177,7 +177,7 @@ func TestTheSuppliedThresholdGatesAFirstReleaseAndNotTheNextOne(t *testing.T) {
 		{Name: "change.size", Half: HalfLikelihood, Weight: 0.30, Level: 0.1},
 		{Name: "change.area_churn", Half: HalfLikelihood, Weight: 0.20, Level: 0.2},
 		{Name: "change.test_coverage", Half: HalfLikelihood, Weight: 0.20, Level: 0.5},
-		{Name: "authorship.prior", Half: HalfLikelihood, Weight: 0.30, Level: 0.5},
+		{Name: "author.prior", Half: HalfLikelihood, Weight: 0.30, Level: 0.5},
 		{Name: "change.reach", Half: HalfImpact, Weight: 0.50, Level: 0.6},
 		{Name: "context.business_area", Half: HalfImpact, Weight: 0.30, Level: 0.5},
 		{Name: "context.consumers", Half: HalfImpact, Weight: 0.20, Level: 0.0},

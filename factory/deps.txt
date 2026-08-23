@@ -23,13 +23,13 @@
 #
 # Five edges deserve their reason stated.
 #
-# artifact -> criterion and artifact -> declaration are the two imports between
+# artifact -> criterion and artifact -> consumercontract are the two imports between
 # record packages that both own tables: the artifact store is the one writer of
 # both, so a spec version and the criteria it introduces are written in one
-# transaction, and so are a declaration version and the predicates it introduces.
+# transaction, and so are a consumer contract version and the predicates it introduces.
 # The alternative in each case is two writers of one table.
 #
-# declaration -> contract is the third and it is an import for a type. A
+# consumercontract -> contract is the third and it is an import for a type. A
 # predicate is an assertion about one element of a contract, and deciding one
 # against a form is what the predicate means — so the vocabulary of a form belongs
 # to the package that owns the contract, and a second spelling of an element here
@@ -37,20 +37,20 @@
 # has one level along.
 #
 # gate imports criterion for one type: what deciding a criterion against a build
-# produced, which is what the merge gate reads about the item's own behaviour. The
+# produced, which is what the Merge to master gate reads about the item's own behaviour. The
 # vocabulary of an outcome — passed, failed, and undecided read the way a failure
 # is — belongs to the package that owns the criterion, so the gate names it rather
 # than keeping a second spelling of it.
 #
 # gatepolicy is imported by everything that holds an authored value and by
 # nothing it imports itself. It owns no table and is the vocabulary of gate
-# policy — the parameters, what each value means, and the direction a pin on it
+# policy — the parameters, what each value means, and the direction a safeguard on it
 # points — which two packages would otherwise each keep a copy of.
 #
 # score reads the graph, so it imports the record packages the factors are
 # computed from: the artifacts an author wrote, the closed decisions in the
 # log, the items in an area, the releases of a service, and the contracts it
-# publishes with the declarations naming them. It writes only its
+# publishes with the consumer contracts naming them. It writes only its
 # own version record. What it does not import is a repository: the one input
 # that is not a record is the build's diff, measured by the component that
 # built and handed to it.
@@ -61,7 +61,7 @@
 # size was too coarse. The fourth is boundary, and it is an import for arithmetic:
 # whether a size the score is asking for is reachable at all is the units that size
 # needs against the traffic a service receives, and the units it needs are what the
-# comparison already reads the window against. A second copy of that arithmetic
+# health monitor already reads the window against. A second copy of that arithmetic
 # here would be two able to disagree about the one number whose whole purpose is to
 # match what the boundary does.
 # What it still does not import is policy — the direction is policy -> score,
@@ -70,8 +70,8 @@
 # supplying a value against what an owner wrote.
 #
 # policy is Factory's writer, so it imports every record an owner authors a
-# value on — the environment, the service, the area, the factory policy record,
-# and the pin — and calls the transaction-taking write each of them exposes,
+# value on — the environment, the service, the area, the factory-wide settings record,
+# and the safeguard — and calls the transaction-taking write each of them exposes,
 # appending the policy version inside the same transaction. It imports score
 # for the value the score supplies where an owner authored nothing.
 #
@@ -83,22 +83,22 @@
 # behind an interface its caller implements.
 #
 # cmd/factory imports nearly everything, because it is the crude interface the
-# four surfaces are deferred with — the one place the whole path is composed,
-# and the one place an owner can author a parameter or place a pin.
+# four screens are deferred with — the one place the whole path is composed,
+# and the one place an owner can author a parameter or place a safeguard.
 #
 # Four more edges arrive with everything downstream of a deploy.
 #
 # window -> boundary is an import for a type. The read a window closed on is a
 # boundary.Observed — the counts the exit was decided from — and a second spelling
 # of those four counts here would be two able to disagree with the package that
-# evaluates them. It is the arrangement declaration -> contract already has.
+# evaluates them. It is the arrangement consumercontract -> contract already has.
 #
 # boundary imports nothing, inside this module or out of it beyond the standard
 # library. It is the watch window's arithmetic over numbers its caller has
 # already read, and a package with no dependencies is what makes the one part of
 # this milestone that is a claim about statistics testable as arithmetic alone.
 #
-# comparison is the health signal and imports what it writes and what it reads
+# healthmonitor is the health monitor and imports what it writes and what it reads
 # the graph through: the window and the incident it writes, the intake it raises a
 # revert intent through, the notifier it reports a rollback on, the policy for the
 # window's four parameters, and release, item, and deploy for the records a
@@ -121,16 +121,17 @@
 # without a database.
 #
 # contractcheck is enforcement and imports what it reads the graph through: the
-# contract and the declaration it decides between, the deploy record that says what
-# is running, the release and window records a service's restore floor is computed
-# from, the policy for the predicate catalog and the pinned predicates, the service
-# for the name a removal statement is written with, the intent it raises a removal
-# through, and gate for the vocabulary of which mechanical check rejected. What it
-# does not import is a repository or a deploy target — a form and a declaration are
-# derived behind an interface its caller implements, and so is the run it observes.
-# That is the arrangement comparison already has.
+# contract and the consumer contract it decides between, the deploy record that says what
+# is running, the release and window records a service's last known-good release
+# is computed from, the policy for the list of allowed predicate kinds and the
+# safeguards' predicates, the service for the name a removal statement is written with, the
+# intent it raises a removal through, and gate for the vocabulary of which
+# mechanical check rejected. What it does not import is a repository or a deploy
+# target — a form and a consumer contract are derived behind an interface its caller
+# implements, and so is the run it observes. That is the arrangement healthmonitor
+# already has.
 #
-# reconciler imports record and nothing else. Its store is not the factory's — no
+# checker imports record and nothing else. Its store is not the factory's — no
 # factory component may write it — so it brings its own opener and its own
 # applier rather than reaching for package postgres, and postgres does not name
 # it. What it shares with the factory is the column conventions, which are about
@@ -147,33 +148,33 @@ service -> record gatepolicy
 item -> record
 criterion -> record
 contract -> record
-declaration -> contract gatepolicy record
-artifact -> criterion declaration record
+consumercontract -> contract gatepolicy record
+artifact -> consumercontract criterion record
 build -> record
 release -> record
 deploy -> record secretref targetseam
 area -> record gatepolicy
 environment -> record gatepolicy secretref
-factorypolicy -> record gatepolicy item
-pin -> record gatepolicy
+factorysettings -> record gatepolicy item
+safeguard -> record gatepolicy
 window -> boundary record
 incident -> record
 people -> record
-reconciler -> record
-score -> record gatepolicy boundary artifact contract declaration decisionlog deploy incident item release window
-policy -> record gatepolicy area environment factorypolicy item pin score secretref service
+checker -> record
+score -> record gatepolicy boundary artifact consumercontract contract decisionlog deploy incident item release window
+policy -> record gatepolicy area environment factorysettings item safeguard score secretref service
 gate -> criterion decisionlog policy record score
 mergequeue -> contract decisionlog gate item record release
 notifier -> decisionlog people record
-comparison -> boundary deploy incident intent item notifier policy record release window
-contractcheck -> contract declaration deploy gate intent policy record release service window
+healthmonitor -> boundary deploy incident intent item notifier policy record release window
+contractcheck -> consumercontract contract deploy gate intent policy record release service window
 agent -> secretref
 localtarget -> secretref targetseam
-postgres -> area artifact build contract criterion declaration decisionlog deploy environment factorypolicy incident intent item people pin policy release score service window
+postgres -> area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings incident intent item people policy release safeguard score service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent area artifact boundary build comparison contract contractcheck criterion declaration decisionlog deploy environment factorypolicy gate gatepolicy incident intent item localtarget mergequeue notifier people pin policy postgres reconciler record release score secretref service targetseam window
-cmd/reconciler -> deploy environment localtarget postgres reconciler release secretref service targetseam window
+cmd/factory -> agent area artifact boundary build checker consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy healthmonitor incident intent item localtarget mergequeue notifier people policy postgres record release safeguard score secretref service targetseam window
+cmd/checker -> checker deploy environment localtarget postgres release secretref service targetseam window
 
 test decisionlog -> postgres secretref
 test intent -> postgres
@@ -181,23 +182,23 @@ test service -> postgres
 test item -> postgres
 test criterion -> postgres
 test contract -> postgres
-test declaration -> postgres artifact contract gatepolicy record
+test consumercontract -> postgres artifact contract gatepolicy record
 test artifact -> postgres
 test build -> postgres
 test release -> postgres
 test deploy -> postgres
 test area -> postgres
 test environment -> postgres
-test factorypolicy -> postgres
-test pin -> postgres
+test factorysettings -> postgres
+test safeguard -> postgres
 test window -> postgres
 test incident -> postgres
 test people -> postgres
 test notifier -> postgres decisionlog people record
-test comparison -> postgres boundary build deploy item record release window
-test contractcheck -> postgres boundary score artifact build contract declaration deploy gate gatepolicy intent item pin policy record release secretref service window
-test score -> postgres artifact boundary contract criterion declaration deploy factorypolicy gate policy release service window
+test healthmonitor -> postgres boundary build deploy item record release window
+test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item policy record release safeguard secretref service window
+test score -> postgres artifact boundary consumercontract contract criterion deploy factorysettings gate policy release service window
 test policy -> postgres
 test gate -> postgres
 test mergequeue -> decisionlog gate item postgres record release
-test cmd/reconciler -> build decisionlog record
+test cmd/checker -> build decisionlog record

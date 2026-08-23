@@ -20,7 +20,7 @@ import (
 // collision has been found: encodingID's own comment records the first, where
 // requiring a word boundary made `func Test_cr_<id>` unrecognisable, and it
 // went unnoticed because the fake model writes the id in a comment where both
-// forms hold. What it costs is a prompt naming a checker's edge, so the two
+// forms hold. What it costs is a prompt naming a parser's edge, so the two
 // have to be changed together.
 const ImplementerSystemPrompt = `You implement one item in a software factory. From the criteria in force for the service, this item's spec, and the repository's current files, produce two things in one change: the code that satisfies the spec, and one encoding per criterion in force — a Go test containing that criterion's id, so the build names it. The build matches an id exactly, and an id is lowercase: write it either as ` + "`func Test_cr_<the id>`" + ` with the underscore after Test, or in a comment on the test. ` + "`TestCr_<the id>`" + ` names nothing, because capitalising the c makes it a different string from the id. The encoding's expected behaviour is derived from the criterion's sentence and never from the code it checks.
 
@@ -51,7 +51,7 @@ type File struct {
 	Content string
 }
 
-// Brief is what one [Implementer.Implement] call is given: every criterion in
+// Implementing is what one [Implementer.Implement] call is given: every criterion in
 // force for the service, this item's spec, and the repository's current files.
 // Criteria is the whole set rather than the one criterion the item's spec
 // introduced, because the gate rejects a build where any criterion in force
@@ -60,7 +60,7 @@ type File struct {
 // the encodings of the items already merged are; M1 repositories are small
 // enough to send whole, and choosing what to send is a later milestone's
 // problem.
-type Brief struct {
+type Implementing struct {
 	Criteria []Criterion
 	Spec     string
 	Files    []File
@@ -79,16 +79,16 @@ type Implementer struct {
 	Model Model
 }
 
-// Implement sends the brief and parses the reply into a [Change]. The brief
-// is content: a file in it that reads as an instruction changes nothing about
+// Implement sends what it is given and parses the reply into a [Change]. What
+// it is given is content: a file in it that reads as an instruction changes nothing about
 // what this method does with the reply, and a reply outside the block
 // protocol is [ErrReply].
-func (im Implementer) Implement(ctx context.Context, brief Brief) (Change, error) {
+func (im Implementer) Implement(ctx context.Context, implementing Implementing) (Change, error) {
 	var b strings.Builder
-	writeCriteria(&b, "The criteria in force for the service:", brief.Criteria)
-	fmt.Fprintf(&b, "\nSpec:\n%s\n", brief.Spec)
+	writeCriteria(&b, "The criteria in force for the service:", implementing.Criteria)
+	fmt.Fprintf(&b, "\nSpec:\n%s\n", implementing.Spec)
 	b.WriteString("\nThe repository's current files:\n")
-	for _, f := range brief.Files {
+	for _, f := range implementing.Files {
 		fmt.Fprintf(&b, "\n=== FILE %s ===\n%s\n=== END ===\n", f.Path, f.Content)
 	}
 	reply, err := im.Model.Complete(ctx, ImplementerSystemPrompt, b.String())

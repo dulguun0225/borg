@@ -24,12 +24,12 @@ import (
 // the restored build serving, during which production is running the condemned
 // release.
 //
-// The order is the one [Straight] keeps and for the same reason. The rollback's own
-// record is written first and completed before anything is marked undone: a store
-// that said a release was rolled back with nothing put back in its place would
-// describe a service running nothing. A target error leaves the rollback's record
-// started and nothing marked undone, which is the disagreement the reconciler reads
-// targets to raise.
+// The order is the one [WithoutControl] keeps and for the same reason. The
+// rollback's own record is written first and completed before anything is
+// marked undone: a store that said a release was rolled back with nothing put
+// back in its place would describe a service running nothing. A target error
+// leaves the rollback's record started and nothing marked undone, which is the
+// disagreement the independent checker reads targets to raise.
 func Restore(ctx context.Context, w *Writer, target targetseam.Target, actor record.Actor,
 	serviceID, serviceName, environmentID string, what What, undoing Undoing,
 	credential secretref.Ref) (Deploy, error) {

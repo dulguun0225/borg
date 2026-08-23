@@ -30,8 +30,8 @@
 //
 // What defines it: seam 1 of "Security comes last" in
 // ../../end-goal/deferred.md#security-comes-last — an actor on every gate
-// decision, edit, approval, and veto, populated from the first record, because
-// identity cannot be added to a history written without it. There is no
-// authentication and no enforcement behind the name: the field is the whole of
-// the seam today.
+// decision, edit, approval, and undo of a shipped change, populated from the
+// first record, because identity cannot be added to a history written without
+// it. There is no authentication and no enforcement behind the name: the field
+// is the whole of the seam today.
 package record

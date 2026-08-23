@@ -11,27 +11,27 @@ import (
 	"time"
 
 	"github.com/dulguun0225/borg/factory/boundary"
-	"github.com/dulguun0225/borg/factory/comparison"
+	"github.com/dulguun0225/borg/factory/checker"
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
-	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
-	"github.com/dulguun0225/borg/factory/reconciler"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// The three things the comparison and the notifier are handed, all three
+// The three things the health monitor and the notifier are handed, all three
 // substrate: where the quantity comes from, what performs a rollback, and where a
 // delivery goes. Each is an interface in the package that needs it, so neither the
-// comparison nor the notifier knows it is running against a local process and a
+// health monitor nor the notifier knows it is running against a local process and a
 // terminal.
 
 // signalFiles reads the quantity out of the file each deployed process emits into.
@@ -46,7 +46,7 @@ import (
 // nothing here can tell the two apart.
 type signalFiles struct{ dir string }
 
-func (s signalFiles) Read(_ context.Context, q comparison.Quantity) (boundary.Observed, error) {
+func (s signalFiles) Read(_ context.Context, q healthmonitor.Quantity) (boundary.Observed, error) {
 	units, failures, err := countSignal(localtarget.SignalFile(s.dir, q.BuildID))
 	if err != nil {
 		return boundary.Observed{}, err
@@ -107,16 +107,16 @@ func (t terminal) Deliver(_ context.Context, d notifier.Delivery) error {
 	return nil
 }
 
-// RollBack is [comparison.Rollbacker]: the deploy agent performing the slow
-// rollback the comparison called for. It is the deploy agent's because reaching a
-// deploy target is, and the comparison reaches none.
+// RollBack is [healthmonitor.Rollbacker]: the deploy agent performing the slow
+// rollback the health monitor called for. It is the deploy agent's because reaching a
+// deploy target is, and the health monitor reaches none.
 //
 // The target's build is already in production's directory, put there by the deploy
 // that shipped it and never removed — so restoring it is a deploy of a binary that is
 // still on disk, and there is nothing to rebuild. What that costs is that a directory
 // pruned between the deploy and the rollback would leave the rollback with nothing to
 // put back, which nothing here prunes.
-func (p *path) RollBack(ctx context.Context, r comparison.Rollback) error {
+func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	dep, err := deploy.Restore(ctx, p.deploys, p.d.targets.at(p.d.dir), deployActor,
 		r.ServiceID, r.ServiceName, r.EnvironmentID,
 		deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
@@ -138,10 +138,10 @@ func (p *path) RollBack(ctx context.Context, r comparison.Rollback) error {
 	return nil
 }
 
-// watchTo runs the comparison over one service until every window it holds open has
-// closed, or until the deadline. Nothing but the comparison closes a window, so a run
-// that gives up leaves them open — which fills K and holds the next deploy, and is
-// what `factory watch` is for.
+// watchTo runs the health monitor over one service until every window it holds
+// open has closed, or until the deadline. Nothing but the health monitor closes
+// a window, so a run that gives up leaves them open — which fills the window
+// limit and holds the next deploy, and is what `factory watch` is for.
 func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.Time, every time.Duration) error {
 	for {
 		if err := p.watchPass(ctx, svc); err != nil {
@@ -157,7 +157,7 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 		if !time.Now().Add(every).Before(deadline) {
 			fmt.Fprintf(p.d.out, "%d watch window(s) are still open on %s; `factory watch %s` continues from here\n",
 				open, svc.Name, svc.Name)
-			fmt.Fprintln(p.d.out, "  a window nothing closes fills K and holds this service's production deploys — a wait on the factory, which does not page")
+			fmt.Fprintln(p.d.out, "  a window nothing closes reaches the window limit and holds this service's production deploys — a wait on the factory, which does not page")
 			return nil
 		}
 		time.Sleep(every)
@@ -166,11 +166,11 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 
 // watchPass is one evaluation of everything downstream of a deploy on one service:
 // every open window, the release whose window has closed, the incidents that have
-// settled, and the reconciler's own store.
+// settled, and the independent checker's own store.
 func (p *path) watchPass(ctx context.Context, svc service.Service) error {
-	w := comparison.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
+	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
 
-	readings, err := p.comparison.Watch(ctx, w)
+	readings, err := p.healthMonitor.Watch(ctx, w)
 	for _, reading := range readings {
 		p.reportReading(reading)
 	}
@@ -178,7 +178,7 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 		return err
 	}
 
-	after, found, err := p.comparison.AfterWindow(ctx, w)
+	after, found, err := p.healthMonitor.AfterWindow(ctx, w)
 	if err != nil {
 		return err
 	}
@@ -186,25 +186,25 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 		p.reportReading(after)
 	}
 
-	resolved, err := p.comparison.ResolveSettled(ctx, w)
+	resolved, err := p.healthMonitor.ResolveSettled(ctx, w)
 	if err != nil {
 		return err
 	}
 	for _, i := range resolved {
 		fmt.Fprintf(p.d.out, "Incident %s resolved: the crossing has stopped against what runs and what it raised has shipped\n", i.ID)
 	}
-	return p.reconcilerPages(ctx, svc)
+	return p.checkerPages(ctx, svc)
 }
 
 // reportReading prints one reading as an owner would read it: the numbers the
 // verdict came from, the exit where there was one, and what followed.
-func (p *path) reportReading(r comparison.Reading) {
+func (p *path) reportReading(r healthmonitor.Reading) {
 	out := p.d.out
 	where := "the window over release " + fmt.Sprint(r.Release.Number)
 	if r.Window.ID == "" {
 		where = "release " + fmt.Sprint(r.Release.Number) + ", whose window has closed"
 	}
-	fmt.Fprintf(out, "The comparison read %s: %d unit(s), %d failed (rate %.4f)\n",
+	fmt.Fprintf(out, "The health monitor read %s: %d unit(s), %d failed (rate %.4f)\n",
 		where, r.Observed.Units, r.Observed.Failures, r.Boundary.Rate)
 	if r.HasBaseline {
 		fmt.Fprintf(out, "  against release %d: %d unit(s), %d failed — baseline rate %.4f, alternative %.4f\n",
@@ -218,11 +218,11 @@ func (p *path) reportReading(r comparison.Reading) {
 			r.Boundary.Log, r.Boundary.Crossing, r.Window.Size, r.Window.Confidence, r.Window.Formula)
 	}
 	switch r.Exit {
-	case window.ExitClean:
+	case window.ExitCleared:
 		fmt.Fprintln(out, "  clean: a regression of the size worth catching is ruled out, and the window closed early on evidence")
-	case window.ExitCap:
+	case window.ExitTimedOut:
 		fmt.Fprintln(out, "  cap: neither exit was reached in the time allowed, so the window closed unresolved — weak protection, reported as weak")
-	case window.ExitHarm:
+	case window.ExitCondemned:
 		fmt.Fprintf(out, "  harm: the release is condemned, incident %s raised, revert intent %s taken in\n",
 			r.IncidentID, r.RaisedIntentID)
 	}
@@ -235,18 +235,19 @@ func (p *path) reportReading(r comparison.Reading) {
 	}
 }
 
-// reconcilerPages is the notifier reading the reconciler's own store, which is the
-// one wait nothing calls the notifier about: that store writes into nothing of the
-// factory's and calls nothing, so both ends of its page are read rather than told.
+// checkerPages is the notifier reading the independent checker's own store,
+// which is the one wait nothing calls the notifier about: that store writes
+// into nothing of the factory's and calls nothing, so both ends of its page are
+// read rather than told.
 //
 // A mismatch nobody has been reached about is paged. One still uncleared on a later
 // pass widens, once, to the owner. One a human has cleared is answered — here, at the
 // pass that finds it cleared, because clearing it happened where nothing calls.
-func (p *path) reconcilerPages(ctx context.Context, svc service.Service) error {
-	if p.d.reconciler == nil || p.notifier == nil {
+func (p *path) checkerPages(ctx context.Context, svc service.Service) error {
+	if p.d.checker == nil || p.notifier == nil {
 		return nil
 	}
-	all, err := reconciler.All(ctx, p.d.reconciler)
+	all, err := checker.All(ctx, p.d.checker)
 	if err != nil {
 		return err
 	}
@@ -256,9 +257,9 @@ func (p *path) reconcilerPages(ctx context.Context, svc service.Service) error {
 		}
 		w := notifier.Wait{
 			Row:     m.ID,
-			Kind:    notifier.KindReconcilerMismatch,
+			Kind:    notifier.KindCheckerMismatch,
 			Waiting: m.Why(),
-			Holding: people.OfObligation(people.ObligationReconciler),
+			Holding: people.OfObligation(people.ObligationChecker),
 			Worse:   true,
 		}
 		events, err := notifier.EventsFor(ctx, p.d.pool, m.ID)
@@ -402,11 +403,11 @@ func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.V
 // write it.
 //
 // A build that wrote nothing reads as no documents, which enforcement treats as a
-// failure wherever there is a declaration to decide — a producer that emitted
+// failure wherever there is a consumer contract to decide — a producer that emitted
 // nothing has not shown that a consumer's assumption holds. That is right for a
 // build that ignored the instruction to write them and it is also what a build with
 // no run behind it looks like, and nothing here can tell the two apart.
-func (p *path) Observed(ctx context.Context, c contractcheck.Candidate) ([]declaration.Document, error) {
+func (p *path) Observed(ctx context.Context, c contractcheck.Candidate) ([]consumercontract.Document, error) {
 	env, err := environment.Get(ctx, p.d.pool, c.EnvironmentID)
 	if err != nil {
 		return nil, err
@@ -423,21 +424,21 @@ func (p *path) Observed(ctx context.Context, c contractcheck.Candidate) ([]decla
 //
 // A line that is not a JSON object is skipped and counted as nothing. It is the
 // lenient direction and it is the safe one here: a document the factory cannot read
-// shows nothing, and showing nothing is what fails a declaration rather than passing
-// it.
-func readExchange(path string) ([]declaration.Document, error) {
+// shows nothing, and showing nothing is what fails a consumer contract rather than
+// passing it.
+func readExchange(path string) ([]consumercontract.Document, error) {
 	content, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("factory: reading the exchange at %s: %w", path, err)
 	}
-	var documents []declaration.Document
+	var documents []consumercontract.Document
 	for _, line := range strings.Split(string(content), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		var one declaration.Document
+		var one consumercontract.Document
 		if err := json.Unmarshal([]byte(line), &one); err != nil {
 			continue
 		}
@@ -447,8 +448,8 @@ func readExchange(path string) ([]declaration.Document, error) {
 }
 
 // raiseRemovals is the detector: one pass over every deprecation-marked element,
-// taking a removal intent in for each whose derived declarations are gone. Nobody
-// has to remember step three of a migration.
+// taking a removal intent in for each whose derived consumer contracts are gone.
+// Nobody has to remember step three of a migration.
 //
 // It reports what it found either way, because a marked element with a list that
 // has not emptied is the mechanism working and an owner reading a run should see it.
@@ -461,13 +462,13 @@ func (p *path) raiseRemovals(ctx context.Context) error {
 		return nil
 	}
 	for _, m := range marked {
-		if m.Empty() && len(m.Pinned) == 0 {
+		if m.Empty() && len(m.Safeguards) == 0 {
 			continue
 		}
 		fmt.Fprintf(p.d.out, "%s.%s is marked deprecated and the list still names: %v",
 			m.Contract.Name, m.Element.Name, m.Consumers())
-		for _, pinned := range m.Pinned {
-			fmt.Fprintf(p.d.out, " and pin %s", pinned.PinID)
+		for _, s := range m.Safeguards {
+			fmt.Fprintf(p.d.out, " and safeguard %s", s.SafeguardID)
 		}
 		fmt.Fprintln(p.d.out)
 	}

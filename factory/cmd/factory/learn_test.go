@@ -81,8 +81,8 @@ func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
 	if !w.HeldOut {
 		t.Error("the window does not say the release was held out")
 	}
-	if w.CleanAvailable {
-		t.Error("clean is available to a held-out release's window, and the sample runs it to the cap")
+	if w.ClearedAvailable {
+		t.Error("the cleared exit is available to a held-out release's window, and the sample runs it to the cap")
 	}
 
 	// And the selection is readable off the decisions, which is where the design
@@ -198,17 +198,17 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 func TestThePassPrintsWhatMovedAndWhatMovedIt(t *testing.T) {
 	inForce := score.Version{Supplied: score.StartingValues()}
 	moved := append(score.StartingValues(), score.Supplied{
-		Parameter: gatepolicy.K, Subject: "svc_a", Value: 2,
-		Why: "3 window(s) of this service closed without harm and 0 rollback(s) swept a release, folded in order",
+		Parameter: gatepolicy.WindowLimit, Subject: "svc_a", Value: 2,
+		Why: "3 window(s) of this service closed without condemning a release and 0 rollback(s) swept a release, folded in order",
 	})
 
 	out := &bytes.Buffer{}
 	printSupplied(out, moved, inForce)
 	printed := out.String()
-	if !strings.Contains(printed, "k on svc_a = 2 — moved from 1") {
+	if !strings.Contains(printed, "window_limit on svc_a = 2 — moved from 1") {
 		t.Errorf("the pass does not print the movement:\n%s", printed)
 	}
-	if !strings.Contains(printed, "closed without harm") {
+	if !strings.Contains(printed, "closed without condemning a release") {
 		t.Errorf("the pass does not print what moved it:\n%s", printed)
 	}
 
@@ -217,7 +217,7 @@ func TestThePassPrintsWhatMovedAndWhatMovedIt(t *testing.T) {
 	out = &bytes.Buffer{}
 	printSupplied(out, score.StartingValues(), score.Version{Supplied: moved})
 	printed = out.String()
-	if !strings.Contains(printed, "k on svc_a = 1 — moved from 2") {
+	if !strings.Contains(printed, "window_limit on svc_a = 1 — moved from 2") {
 		t.Errorf("the pass does not print a value that moved back:\n%s", printed)
 	}
 	if !strings.Contains(printed, "the outcomes no longer move it") {

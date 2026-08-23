@@ -23,37 +23,37 @@ import (
 
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/environment"
-	"github.com/dulguun0225/borg/factory/factorypolicy"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/pin"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
 var (
-	owner    = record.Actor{Kind: record.KindHuman, Name: "owner"}
-	cutActor = record.Actor{Kind: record.KindComponent, Name: "cut"}
+	owner              = record.Actor{Kind: record.KindHuman, Name: "owner"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
 )
 
 var credential = secretref.MustNew("deploy.local")
 
 // installed is a factory an owner could author on: the two records Install
 // creates, plus a service and an area for the parameters that are fields of
-// those. The service is written by the cut, which is its other writer, and the
+// those. The service is written by decomposition, which is its other writer, and the
 // area by an owner.
 type installed struct {
-	pool    *pgxpool.Pool
-	factory *policy.Factory
-	reader  *policy.Reader
-	policy  factorypolicy.Policy
-	prod    environment.Environment
-	service service.Service
-	area    area.Area
+	pool     *pgxpool.Pool
+	factory  *policy.Factory
+	reader   *policy.Reader
+	settings factorysettings.Settings
+	prod     environment.Environment
+	service  service.Service
+	area     area.Area
 }
 
 // subjects is what a gate firing on this service in this area reads against.
@@ -101,7 +101,7 @@ func newFactory(t *testing.T) (context.Context, installed) {
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	svc, err := service.NewWriter(pool).Create(ctx, cutActor, "checkout", "/repos/checkout")
+	svc, err := service.NewWriter(pool).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
@@ -113,7 +113,7 @@ func newFactory(t *testing.T) (context.Context, installed) {
 		// The reader is composed with the version in force, which is what a run
 		// does: the supplied half of every value is a field of that version.
 		pool: pool, factory: factory, reader: policy.NewReader(pool, scoreVersion(t, ctx, pool)),
-		policy: install.Policy, prod: install.Production, service: svc, area: ar,
+		settings: install.Settings, prod: install.Production, service: svc, area: ar,
 	}
 }
 
@@ -140,8 +140,8 @@ func effectiveOf(t *testing.T, all []policy.Effective, parameter gatepolicy.Para
 	return policy.Effective{}
 }
 
-// TestInstallIsTheTwoRecordsAnOwnerAuthorsOnAndIsIdempotent: the factory policy
-// record exists before any project does and production's environment is one an
+// TestInstallIsTheTwoRecordsAnOwnerAuthorsOnAndIsIdempotent: the factory-wide
+// settings record exists before any project does and production's environment is one an
 // owner does not choose, so both are created here — and creating them is an
 // authoring write, so the factory has a policy version in force with nothing
 // authored.
@@ -177,7 +177,7 @@ func TestInstallIsTheTwoRecordsAnOwnerAuthorsOnAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install again: %v", err)
 	}
-	if again.Policy.ID != in.policy.ID || again.Production.ID != in.prod.ID {
+	if again.Settings.ID != in.settings.ID || again.Production.ID != in.prod.ID {
 		t.Errorf("a second install created new records: %+v", again)
 	}
 	if again.Version.ID != version.ID {
@@ -186,7 +186,7 @@ func TestInstallIsTheTwoRecordsAnOwnerAuthorsOnAndIsIdempotent(t *testing.T) {
 }
 
 // TestTheValueInForceIsAReadOfThreeThings: what an owner authored, what the score
-// supplies where they authored nothing, and the clamp a pin applies.
+// supplies where they authored nothing, and the clamp a safeguard applies.
 func TestTheValueInForceIsAReadOfThreeThings(t *testing.T) {
 	ctx, in := newFactory(t)
 
@@ -196,98 +196,99 @@ func TestTheValueInForceIsAReadOfThreeThings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	k := effectiveOf(t, all, gatepolicy.K)
-	supplied := startingValue(t, gatepolicy.K)
-	if k.Source != policy.FromSupplied || k.Number != supplied {
-		t.Errorf("K with nothing authored reads %v from %s, want the supplied %v", k.Number, k.Source, supplied)
+	limit := effectiveOf(t, all, gatepolicy.WindowLimit)
+	supplied := startingValue(t, gatepolicy.WindowLimit)
+	if limit.Source != policy.FromSupplied || limit.Number != supplied {
+		t.Errorf("the window limit with nothing authored reads %v from %s, want the supplied %v", limit.Number, limit.Source, supplied)
 	}
 
 	// Authored: the owner's value stands, and the score's does not.
-	if _, err := in.factory.AuthorK(ctx, owner, in.service.ID, 4); err != nil {
-		t.Fatalf("AuthorK: %v", err)
+	if _, err := in.factory.AuthorWindowLimit(ctx, owner, in.service.ID, 4); err != nil {
+		t.Fatalf("AuthorWindowLimit: %v", err)
 	}
 	all, err = in.reader.All(ctx, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	if k = effectiveOf(t, all, gatepolicy.K); k.Source != policy.FromAuthored || k.Number != 4 {
-		t.Errorf("K reads %v from %s, want the authored 4", k.Number, k.Source)
+	if limit = effectiveOf(t, all, gatepolicy.WindowLimit); limit.Source != policy.FromAuthored || limit.Number != 4 {
+		t.Errorf("the window limit reads %v from %s, want the authored 4", limit.Number, limit.Source)
 	}
 
-	// Pinned: a ceiling over K caps the authored value, and the pin that did it
-	// is named.
-	placed, _, err := in.factory.Pin(ctx, owner, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 2})
+	// A safeguard: a ceiling over the window limit caps the authored value, and the safeguard
+	// that did it is named.
+	placed, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.WindowLimit,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2})
 	if err != nil {
-		t.Fatalf("Pin: %v", err)
+		t.Fatalf("AddSafeguard: %v", err)
 	}
 	all, err = in.reader.All(ctx, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	k = effectiveOf(t, all, gatepolicy.K)
-	if k.Number != 2 || !k.Clamped {
-		t.Errorf("K reads %v clamped %v, want the pinned ceiling of 2", k.Number, k.Clamped)
+	limit = effectiveOf(t, all, gatepolicy.WindowLimit)
+	if limit.Number != 2 || !limit.Clamped {
+		t.Errorf("the window limit reads %v clamped %v, want the safeguard's ceiling of 2", limit.Number, limit.Clamped)
 	}
-	if !slices.Contains(k.Pins, placed.ID) {
-		t.Errorf("K names pins %v, want the one placed", k.Pins)
+	if !slices.Contains(limit.Safeguards, placed.ID) {
+		t.Errorf("the window limit names safeguards %v, want the one placed", limit.Safeguards)
 	}
-	if k.Source != policy.FromAuthored {
-		t.Errorf("K says its value came from %s, and a pin is a bound rather than a source", k.Source)
+	if limit.Source != policy.FromAuthored {
+		t.Errorf("the window limit says its value came from %s, and a safeguard is a bound rather than a source", limit.Source)
 	}
 }
 
-// TestAPinNeverWidens: a pin is a bound and not a precedence, so a pinned ceiling
-// of five over an authored two leaves the two — read as a precedence it would
-// raise the number, which is a pin adding throughput and removing safety.
-func TestAPinNeverWidens(t *testing.T) {
+// TestASafeguardNeverWidens: a safeguard is a bound and not a precedence, so a
+// ceiling of five over an authored two leaves the two — read as a precedence it
+// would raise the number, which is a safeguard adding throughput and removing
+// safety.
+func TestASafeguardNeverWidens(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	if _, err := in.factory.AuthorK(ctx, owner, in.service.ID, 2); err != nil {
-		t.Fatalf("AuthorK: %v", err)
+	if _, err := in.factory.AuthorWindowLimit(ctx, owner, in.service.ID, 2); err != nil {
+		t.Fatalf("AuthorWindowLimit: %v", err)
 	}
-	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 5}); err != nil {
-		t.Fatalf("Pin: %v", err)
+	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.WindowLimit,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 5}); err != nil {
+		t.Fatalf("AddSafeguard: %v", err)
 	}
 
 	all, err := in.reader.All(ctx, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	k := effectiveOf(t, all, gatepolicy.K)
-	if k.Number != 2 {
-		t.Errorf("a pinned ceiling of 5 over an authored 2 reads %v, want 2", k.Number)
+	limit := effectiveOf(t, all, gatepolicy.WindowLimit)
+	if limit.Number != 2 {
+		t.Errorf("a safeguard's ceiling of 5 over an authored 2 reads %v, want 2", limit.Number)
 	}
-	if k.Clamped {
-		t.Error("the pin is recorded as having clamped a value already narrower than itself")
+	if limit.Clamped {
+		t.Error("the safeguard is recorded as having clamped a value already narrower than itself")
 	}
-	if len(k.Pins) != 1 {
-		t.Errorf("the pin that clamped nothing is not named: %v", k.Pins)
+	if len(limit.Safeguards) != 1 {
+		t.Errorf("the safeguard that clamped nothing is not named: %v", limit.Safeguards)
 	}
 
-	// A floor is the same rule the other way: the window's confidence is pinned
-	// from below, and a pin under the authored value leaves it.
+	// A floor is the same rule the other way: a safeguard puts a floor under the
+	// window's confidence, and one under the authored value leaves it.
 	if _, err := in.factory.AuthorWindowConfidence(ctx, owner, in.service.ID, 0.99); err != nil {
 		t.Fatalf("AuthorWindowConfidence: %v", err)
 	}
-	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.WindowConfidence,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 0.9}); err != nil {
-		t.Fatalf("Pin: %v", err)
+	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.WindowConfidence,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 0.9}); err != nil {
+		t.Fatalf("AddSafeguard: %v", err)
 	}
 	all, err = in.reader.All(ctx, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
 	if confidence := effectiveOf(t, all, gatepolicy.WindowConfidence); confidence.Number != 0.99 {
-		t.Errorf("a pinned floor of 0.9 under an authored 0.99 reads %v, want 0.99", confidence.Number)
+		t.Errorf("a safeguard's floor of 0.9 under an authored 0.99 reads %v, want 0.99", confidence.Number)
 	}
 }
 
-// TestAPinOnTheThresholdAddsAHumanRatherThanMovingTheNumber: the risk threshold's
-// pin is the one that is not arithmetic, and what it does is the whole of what a
-// gate reads from it.
-func TestAPinOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.T) {
+// TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber: the risk
+// threshold's safeguard is the one that is not arithmetic, and what it does is
+// the whole of what a gate reads from it.
+func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	before, err := in.reader.AtGate(ctx, in.subjects("deploy_to_production"))
@@ -295,69 +296,71 @@ func TestAPinOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.T) {
 		t.Fatalf("AtGate: %v", err)
 	}
 	supplied := startingValue(t, gatepolicy.RiskThreshold)
-	if before.HumanPinned || before.Threshold != supplied || before.ThresholdFrom != policy.FromSupplied {
-		t.Errorf("with nothing authored the gate reads %+v, want the supplied threshold and no pin", before)
+	if before.HumanBySafeguard || before.Threshold != supplied || before.ThresholdFrom != policy.FromSupplied {
+		t.Errorf("with nothing authored the gate reads %+v, want the supplied threshold and no safeguard", before)
 	}
 
-	placed, version, err := in.factory.Pin(ctx, owner, gatepolicy.RiskThreshold,
-		pin.Subject{Kind: pin.SubjectGateRow, ID: "deploy_to_production"}, pin.Bound{Number: 0})
+	placed, version, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RiskThreshold,
+		safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: "deploy_to_production"}, safeguard.Bound{Number: 0})
 	if err != nil {
-		t.Fatalf("Pin: %v", err)
+		t.Fatalf("AddSafeguard: %v", err)
 	}
 
 	after, err := in.reader.AtGate(ctx, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
-	if !after.HumanPinned {
-		t.Error("the pin adds no human at the row")
+	if !after.HumanBySafeguard {
+		t.Error("the safeguard adds no human at the row")
 	}
 	if after.Threshold != before.Threshold {
-		t.Errorf("the pin moved the threshold to %v from %v", after.Threshold, before.Threshold)
+		t.Errorf("the safeguard moved the threshold to %v from %v", after.Threshold, before.Threshold)
 	}
-	if !slices.Contains(after.Pins, placed.ID) {
-		t.Errorf("the firing names pins %v, want the one placed", after.Pins)
+	if !slices.Contains(after.Safeguards, placed.ID) {
+		t.Errorf("the firing names safeguards %v, want the one placed", after.Safeguards)
 	}
 	if after.PolicyVersion != version.ID {
-		t.Errorf("the firing names policy version %q, want the one the pin appended %q", after.PolicyVersion, version.ID)
+		t.Errorf("the firing names policy version %q, want the one the safeguard appended %q", after.PolicyVersion, version.ID)
 	}
 
-	// The other row is not pinned: a pin on a gate row reaches that row and no
-	// other.
+	// The other row has no safeguard: a safeguard on a gate row reaches that row
+	// and no other.
 	elsewhere, err := in.reader.AtGate(ctx, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
-	if elsewhere.HumanPinned {
-		t.Error("a pin on the deploy row reached the merge row")
+	if elsewhere.HumanBySafeguard {
+		t.Error("a safeguard on the deploy row reached the merge row")
 	}
 
-	// Withdrawing it stops it applying, and the firing that follows names no pin.
-	if _, err := in.factory.WithdrawPin(ctx, owner, placed.ID); err != nil {
-		t.Fatalf("WithdrawPin: %v", err)
+	// Withdrawing it stops it applying, and the firing that follows names no
+	// safeguard.
+	if _, err := in.factory.WithdrawSafeguard(ctx, owner, placed.ID); err != nil {
+		t.Fatalf("WithdrawSafeguard: %v", err)
 	}
 	withdrawn, err := in.reader.AtGate(ctx, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
-	if withdrawn.HumanPinned || len(withdrawn.Pins) != 0 {
-		t.Errorf("a withdrawn pin still applies: %+v", withdrawn)
+	if withdrawn.HumanBySafeguard || len(withdrawn.Safeguards) != 0 {
+		t.Errorf("a withdrawn safeguard still applies: %+v", withdrawn)
 	}
 }
 
-// TestAPinOnAnAreaReachesAnItemInTheChain: a pin drawn on any area in the chain
-// reaches an item in the narrowest, which is why the walk exists — without it an
-// owner who declared a narrower area inside a pinned one would lose the pin.
-func TestAPinOnAnAreaReachesAnItemInTheChain(t *testing.T) {
+// TestASafeguardOnAnAreaReachesAnItemInTheChain: a safeguard drawn on any area
+// in the chain reaches an item in the narrowest, which is why the walk exists —
+// without it an owner who declared a narrower area inside one with a safeguard
+// on it would lose it.
+func TestASafeguardOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	inner, err := area.NewWriter(in.pool).Declare(ctx, owner, "payments/refunds", in.area.ID)
 	if err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
-	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.RiskThreshold,
-		pin.Subject{Kind: pin.SubjectArea, ID: in.area.ID}, pin.Bound{Number: 0}); err != nil {
-		t.Fatalf("Pin: %v", err)
+	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RiskThreshold,
+		safeguard.Subject{Kind: safeguard.SubjectArea, ID: in.area.ID}, safeguard.Bound{Number: 0}); err != nil {
+		t.Fatalf("AddSafeguard: %v", err)
 	}
 
 	subjects := in.subjects("merge_to_master")
@@ -366,50 +369,51 @@ func TestAPinOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
-	if !applied.HumanPinned {
-		t.Error("a pin on the outer area does not reach an item in the inner one")
+	if !applied.HumanBySafeguard {
+		t.Error("a safeguard on the outer area does not reach an item in the inner one")
 	}
 }
 
-// TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt: the score supplies no
-// catalog, so an unauthored one is the kinds the factory itself can decide rather
-// than empty — gate policy has an owner extend the catalog, which presupposes
-// something to extend — and both an authored value and a pin are a union over it.
-func TestTheCatalogIsTheOneListAndAPinMayOnlyExtendIt(t *testing.T) {
+// TestTheAllowedKindsAreTheOneListAndASafeguardMayOnlyExtendIt: the score
+// supplies no list, so an unauthored one is the kinds the factory itself can
+// decide rather than empty — gate policy has an owner extend the list, which
+// presupposes something to extend — and both an authored value and a safeguard
+// are a union over it.
+func TestTheAllowedKindsAreTheOneListAndASafeguardMayOnlyExtendIt(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	all, err := in.reader.All(ctx, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	catalog := effectiveOf(t, all, gatepolicy.PredicateCatalog)
-	own := gatepolicy.PredicateCatalogNames()
+	allowed := effectiveOf(t, all, gatepolicy.AllowedPredicateKinds)
+	own := gatepolicy.AllowedPredicateKindNames()
 	slices.Sort(own)
-	if catalog.Source != policy.FromFactory || !slices.Equal(catalog.List, own) {
-		t.Errorf("an unauthored catalog reads %v from %s, want the factory's own %v",
-			catalog.List, catalog.Source, own)
+	if allowed.Source != policy.FromFactory || !slices.Equal(allowed.List, own) {
+		t.Errorf("an unauthored allowed reads %v from %s, want the factory's own %v",
+			allowed.List, allowed.Source, own)
 	}
 
-	if _, err := in.factory.AuthorPredicateCatalog(ctx, owner, []string{"status", "field-present"}); err != nil {
-		t.Fatalf("AuthorPredicateCatalog: %v", err)
+	if _, err := in.factory.AuthorAllowedPredicateKinds(ctx, owner, []string{"status", "field-present"}); err != nil {
+		t.Fatalf("AuthorAllowedPredicateKinds: %v", err)
 	}
-	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.PredicateCatalog,
-		pin.Subject{Kind: pin.SubjectFactoryPolicy, ID: in.policy.ID}, pin.Bound{List: []string{"schema", "status"}}); err != nil {
-		t.Fatalf("Pin: %v", err)
+	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.AllowedPredicateKinds,
+		safeguard.Subject{Kind: safeguard.SubjectFactorySettings, ID: in.settings.ID}, safeguard.Bound{List: []string{"schema", "status"}}); err != nil {
+		t.Fatalf("AddSafeguard: %v", err)
 	}
 
 	all, err = in.reader.All(ctx, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	catalog = effectiveOf(t, all, gatepolicy.PredicateCatalog)
+	allowed = effectiveOf(t, all, gatepolicy.AllowedPredicateKinds)
 	want := append([]string{"field-present", "schema", "status"}, own...)
 	slices.Sort(want)
-	if !slices.Equal(catalog.List, want) {
-		t.Errorf("the catalog reads %v, want the union %v", catalog.List, want)
+	if !slices.Equal(allowed.List, want) {
+		t.Errorf("the allowed reads %v, want the union %v", allowed.List, want)
 	}
-	if !catalog.Clamped || catalog.Source != policy.FromAuthored {
-		t.Errorf("the catalog reads clamped %v from %s", catalog.Clamped, catalog.Source)
+	if !allowed.Clamped || allowed.Source != policy.FromAuthored {
+		t.Errorf("the allowed reads clamped %v from %s", allowed.Clamped, allowed.Source)
 	}
 }
 
@@ -427,8 +431,8 @@ func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 		{gatepolicy.RiskThreshold, func() (policy.Version, error) {
 			return in.factory.AuthorGateThreshold(ctx, owner, in.prod.ID, "merge_to_master", 0.5)
 		}, 0.5},
-		{gatepolicy.AttemptBound, func() (policy.Version, error) {
-			return in.factory.AuthorAttemptBound(ctx, owner, item.StageImplementation, 5)
+		{gatepolicy.AttemptLimit, func() (policy.Version, error) {
+			return in.factory.AuthorAttemptLimit(ctx, owner, item.StageImplementation, 5)
 		}, 5},
 		{gatepolicy.ItemSizeTarget, func() (policy.Version, error) {
 			return in.factory.AuthorItemSizeTarget(ctx, owner, in.area.ID, 400)
@@ -442,8 +446,8 @@ func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 		{gatepolicy.WindowCap, func() (policy.Version, error) {
 			return in.factory.AuthorWindowCap(ctx, owner, in.service.ID, 3600)
 		}, 3600},
-		{gatepolicy.K, func() (policy.Version, error) {
-			return in.factory.AuthorK(ctx, owner, in.service.ID, 3)
+		{gatepolicy.WindowLimit, func() (policy.Version, error) {
+			return in.factory.AuthorWindowLimit(ctx, owner, in.service.ID, 3)
 		}, 3},
 	}
 	for _, a := range authorings {
@@ -455,8 +459,8 @@ func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 			t.Errorf("authoring %s appended a version naming %s", a.parameter, version.Parameter)
 		}
 	}
-	if _, err := in.factory.AuthorPredicateCatalog(ctx, owner, []string{"status"}); err != nil {
-		t.Fatalf("AuthorPredicateCatalog: %v", err)
+	if _, err := in.factory.AuthorAllowedPredicateKinds(ctx, owner, []string{"status"}); err != nil {
+		t.Fatalf("AuthorAllowedPredicateKinds: %v", err)
 	}
 
 	all, err := in.reader.All(ctx, in.subjects("merge_to_master"))
@@ -480,9 +484,9 @@ func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 		}
 	}
 	// Seven of the eight are read by something now that contracts are built: the
-	// threshold, the bound, the window's four, and the predicate catalog, whose
-	// reader is the derivation of a consumer's declaration. The one left is the
-	// item-size target, which nothing sizes an item against yet.
+	// threshold, the limit, the window's four, and the list of allowed predicate
+	// kinds, whose reader is the derivation of a consumer contract. The
+	// one left is the item-size target, which nothing sizes an item against yet.
 	if read != 7 {
 		t.Errorf("%d parameters are read by something at this milestone, want all but the item-size target", read)
 	}
@@ -492,68 +496,68 @@ func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 		}
 	}
 
-	// The brief-or-skill threshold is the same parameter on the factory policy
-	// record, which is where the row that decides what an agent is told reads it.
-	if _, err := in.factory.AuthorBriefOrSkillThreshold(ctx, owner, 0.15); err != nil {
-		t.Fatalf("AuthorBriefOrSkillThreshold: %v", err)
+	// The role-prompt-or-skill threshold is the same parameter on the factory-wide
+	// settings record, which is where the row that decides what an agent is told reads it.
+	if _, err := in.factory.AuthorRolePromptOrSkillThreshold(ctx, owner, 0.15); err != nil {
+		t.Fatalf("AuthorRolePromptOrSkillThreshold: %v", err)
 	}
-	stored, err := factorypolicy.Get(ctx, in.pool)
+	stored, err := factorysettings.Get(ctx, in.pool)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if !stored.BriefOrSkillThreshold.Present || stored.BriefOrSkillThreshold.Number != 0.15 {
-		t.Errorf("the brief-or-skill threshold reads back as %+v", stored.BriefOrSkillThreshold)
+	if !stored.RolePromptOrSkillThreshold.Present || stored.RolePromptOrSkillThreshold.Number != 0.15 {
+		t.Errorf("the role-prompt-or-skill threshold reads back as %+v", stored.RolePromptOrSkillThreshold)
 	}
 }
 
-// TestTheAttemptBoundIsReadThroughTheSameThreeReads: the one parameter besides
+// TestTheAttemptLimitIsReadThroughTheSameThreeReads: the one parameter besides
 // the threshold that a mechanism reads at this milestone.
-func TestTheAttemptBoundIsReadThroughTheSameThreeReads(t *testing.T) {
+func TestTheAttemptLimitIsReadThroughTheSameThreeReads(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	bound, err := in.reader.AttemptBound(ctx, in.subjects("merge_to_master"))
+	limit, err := in.reader.AttemptLimit(ctx, in.subjects("merge_to_master"))
 	if err != nil {
-		t.Fatalf("AttemptBound: %v", err)
+		t.Fatalf("AttemptLimit: %v", err)
 	}
-	supplied := startingValue(t, gatepolicy.AttemptBound)
-	if bound.Source != policy.FromSupplied || bound.Number != supplied {
-		t.Errorf("the bound reads %v from %s, want the supplied %v", bound.Number, bound.Source, supplied)
+	supplied := startingValue(t, gatepolicy.AttemptLimit)
+	if limit.Source != policy.FromSupplied || limit.Number != supplied {
+		t.Errorf("the limit reads %v from %s, want the supplied %v", limit.Number, limit.Source, supplied)
 	}
 
-	if _, err := in.factory.AuthorAttemptBound(ctx, owner, item.StageImplementation, 6); err != nil {
-		t.Fatalf("AuthorAttemptBound: %v", err)
+	if _, err := in.factory.AuthorAttemptLimit(ctx, owner, item.StageImplementation, 6); err != nil {
+		t.Fatalf("AuthorAttemptLimit: %v", err)
 	}
-	if _, _, err := in.factory.Pin(ctx, owner, gatepolicy.AttemptBound,
-		pin.Subject{Kind: pin.SubjectFactoryPolicy, ID: in.policy.ID}, pin.Bound{Number: 4}); err != nil {
-		t.Fatalf("Pin: %v", err)
+	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.AttemptLimit,
+		safeguard.Subject{Kind: safeguard.SubjectFactorySettings, ID: in.settings.ID}, safeguard.Bound{Number: 4}); err != nil {
+		t.Fatalf("AddSafeguard: %v", err)
 	}
-	bound, err = in.reader.AttemptBound(ctx, in.subjects("merge_to_master"))
+	limit, err = in.reader.AttemptLimit(ctx, in.subjects("merge_to_master"))
 	if err != nil {
-		t.Fatalf("AttemptBound: %v", err)
+		t.Fatalf("AttemptLimit: %v", err)
 	}
-	if bound.Number != 4 || !bound.Clamped {
-		t.Errorf("the bound reads %v clamped %v, want the pinned ceiling of 4", bound.Number, bound.Clamped)
+	if limit.Number != 4 || !limit.Clamped {
+		t.Errorf("the limit reads %v clamped %v, want the safeguard's ceiling of 4", limit.Number, limit.Clamped)
 	}
 
-	// A bound authored on another stage is that stage's and not this one's.
+	// A limit authored on another stage is that stage's and not this one's.
 	other := in.subjects("merge_to_master")
 	other.Stage = item.StageSpec
-	spec, err := in.reader.AttemptBound(ctx, other)
+	spec, err := in.reader.AttemptLimit(ctx, other)
 	if err != nil {
-		t.Fatalf("AttemptBound: %v", err)
+		t.Fatalf("AttemptLimit: %v", err)
 	}
 	if spec.Source != policy.FromSupplied {
-		t.Errorf("the spec stage's bound reads from %s, want the supplied value", spec.Source)
+		t.Errorf("the spec stage's limit reads from %s, want the supplied value", spec.Source)
 	}
-	// The pin over the factory policy record reaches this stage too, and clamps
-	// nothing: the supplied value is already under its ceiling, which is a pin
-	// being a bound rather than a precedence on a stage nobody authored.
+	// The safeguard over the factory-wide settings record reaches this stage too, and
+	// clamps nothing: the supplied value is already under its ceiling, which is a
+	// safeguard being a bound rather than a precedence on a stage nobody authored.
 	if spec.Number != supplied || spec.Clamped {
-		t.Errorf("the spec stage's bound reads %v clamped %v, want the supplied %v untouched",
+		t.Errorf("the spec stage's limit reads %v clamped %v, want the supplied %v untouched",
 			spec.Number, spec.Clamped, supplied)
 	}
-	if len(spec.Pins) != 1 {
-		t.Errorf("the pin over the record does not reach the spec stage: %v", spec.Pins)
+	if len(spec.Safeguards) != 1 {
+		t.Errorf("the safeguard over the record does not reach the spec stage: %v", spec.Safeguards)
 	}
 }
 
@@ -564,17 +568,17 @@ func TestGatePolicyIsAuthoredByAHuman(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	component := record.Actor{Kind: record.KindComponent, Name: "score"}
-	if _, err := in.factory.AuthorK(ctx, component, in.service.ID, 2); !errors.Is(err, policy.ErrNotAnOwner) {
-		t.Errorf("a component authoring K = %v, want ErrNotAnOwner", err)
+	if _, err := in.factory.AuthorWindowLimit(ctx, component, in.service.ID, 2); !errors.Is(err, policy.ErrNotAnOwner) {
+		t.Errorf("a component authoring the window limit = %v, want ErrNotAnOwner", err)
 	}
-	if _, _, err := in.factory.Pin(ctx, component, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 2}); !errors.Is(err, policy.ErrNotAnOwner) {
-		t.Errorf("a component placing a pin = %v, want ErrNotAnOwner", err)
+	if _, _, err := in.factory.AddSafeguard(ctx, component, gatepolicy.WindowLimit,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2}); !errors.Is(err, policy.ErrNotAnOwner) {
+		t.Errorf("a component placing a safeguard = %v, want ErrNotAnOwner", err)
 	}
 	if _, err := in.factory.Install(ctx, component, []string{"/srv"}, credential); !errors.Is(err, policy.ErrNotAnOwner) {
 		t.Errorf("a component installing = %v, want ErrNotAnOwner", err)
 	}
-	if _, err := in.factory.AuthorK(ctx, record.Actor{}, in.service.ID, 2); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := in.factory.AuthorWindowLimit(ctx, record.Actor{}, in.service.ID, 2); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("authoring with no actor = %v, want ErrKindUnknown", err)
 	}
 }
@@ -594,8 +598,8 @@ func TestAFailedWriteAppendsNoVersion(t *testing.T) {
 	if _, err := in.factory.AuthorItemSizeTarget(ctx, owner, "ar_nothing", 400); !errors.Is(err, area.ErrNotFound) {
 		t.Fatalf("authoring on an area that does not exist = %v, want ErrNotFound", err)
 	}
-	if _, err := in.factory.AuthorK(ctx, owner, in.service.ID, 0); !errors.Is(err, service.ErrNotPositive) {
-		t.Fatalf("authoring a K of zero = %v, want ErrNotPositive", err)
+	if _, err := in.factory.AuthorWindowLimit(ctx, owner, in.service.ID, 0); !errors.Is(err, service.ErrNotPositive) {
+		t.Fatalf("authoring a window limit of zero = %v, want ErrNotPositive", err)
 	}
 
 	after, err := policy.All(ctx, in.pool)
@@ -636,21 +640,21 @@ func TestEveryAuthoringWriteMovesTheVersion(t *testing.T) {
 		t.Errorf("the version's actor is %+v, want the owner", authored.Actor)
 	}
 
-	placed, pinned, err := in.factory.Pin(ctx, owner, gatepolicy.K,
-		pin.Subject{Kind: pin.SubjectService, ID: in.service.ID}, pin.Bound{Number: 2})
+	placed, added, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.WindowLimit,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2})
 	if err != nil {
-		t.Fatalf("Pin: %v", err)
+		t.Fatalf("AddSafeguard: %v", err)
 	}
-	if pinned.Action != policy.ActionPinned || pinned.PinID != placed.ID {
-		t.Errorf("the pin's version says %q of pin %q", pinned.Action, pinned.PinID)
+	if added.Action != policy.ActionSafeguardAdded || added.SafeguardID != placed.ID {
+		t.Errorf("the safeguard's version says %q of safeguard %q", added.Action, added.SafeguardID)
 	}
 
-	withdrawn, err := in.factory.WithdrawPin(ctx, owner, placed.ID)
+	withdrawn, err := in.factory.WithdrawSafeguard(ctx, owner, placed.ID)
 	if err != nil {
-		t.Fatalf("WithdrawPin: %v", err)
+		t.Fatalf("WithdrawSafeguard: %v", err)
 	}
-	if withdrawn.Action != policy.ActionWithdrawn || withdrawn.PinID != placed.ID {
-		t.Errorf("the withdrawal's version says %q of pin %q", withdrawn.Action, withdrawn.PinID)
+	if withdrawn.Action != policy.ActionWithdrawn || withdrawn.SafeguardID != placed.ID {
+		t.Errorf("the withdrawal's version says %q of safeguard %q", withdrawn.Action, withdrawn.SafeguardID)
 	}
 
 	inForce, err := policy.InForce(ctx, in.pool)
@@ -668,8 +672,8 @@ func TestEveryAuthoringWriteMovesTheVersion(t *testing.T) {
 	if read != authored {
 		t.Errorf("the version reads back as %+v", read)
 	}
-	if _, err := in.factory.WithdrawPin(ctx, owner, "pin_nothing"); !errors.Is(err, pin.ErrNotFound) {
-		t.Errorf("withdrawing a pin that does not exist = %v, want ErrNotFound", err)
+	if _, err := in.factory.WithdrawSafeguard(ctx, owner, "sfg_nothing"); !errors.Is(err, safeguard.ErrNotFound) {
+		t.Errorf("withdrawing a safeguard that does not exist = %v, want ErrNotFound", err)
 	}
 }
 
@@ -780,8 +784,8 @@ func TestTheSequenceCannotFork(t *testing.T) {
 
 	// A second version naming the same predecessor is refused by the store.
 	_, err = in.pool.Exec(ctx, `insert into `+policy.Table+`
-		(id, actor_kind, actor_name, at, action, parameter, subject_kind, subject_id, qualifier, pin_id, supersedes)
-		values ($1, 'human', 'owner', $2, 'created', '', 'factory_policy', 'fp_x', '', '', $3)`,
+		(id, actor_kind, actor_name, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
+		values ($1, 'human', 'owner', $2, 'created', '', 'factory_settings', 'fs_x', '', '', $3)`,
 		record.NewID(policy.IDPrefix), record.Now(), inForce.Supersedes)
 	if err == nil {
 		t.Error("the store accepted two versions naming one predecessor, and the sequence would fork")
@@ -790,8 +794,8 @@ func TestTheSequenceCannotFork(t *testing.T) {
 	// And a second version naming none is refused for the same reason: a sequence
 	// has one beginning.
 	_, err = in.pool.Exec(ctx, `insert into `+policy.Table+`
-		(id, actor_kind, actor_name, at, action, parameter, subject_kind, subject_id, qualifier, pin_id, supersedes)
-		values ($1, 'human', 'owner', $2, 'created', '', 'factory_policy', 'fp_y', '', '', '')`,
+		(id, actor_kind, actor_name, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
+		values ($1, 'human', 'owner', $2, 'created', '', 'factory_settings', 'fs_y', '', '', '')`,
 		record.NewID(policy.IDPrefix), record.Now())
 	if err == nil {
 		t.Error("the store accepted a second version superseding nothing, and the sequence would have two beginnings")
@@ -803,7 +807,7 @@ func TestTheSequenceCannotFork(t *testing.T) {
 	done := make(chan error, writers)
 	for i := range writers {
 		go func(n int) {
-			_, err := in.factory.AuthorK(ctx, owner, in.service.ID, float64(n+1))
+			_, err := in.factory.AuthorWindowLimit(ctx, owner, in.service.ID, float64(n+1))
 			done <- err
 		}(i)
 	}

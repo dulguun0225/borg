@@ -6,25 +6,26 @@ import "github.com/dulguun0225/borg/factory/record"
 type Strategy string
 
 const (
-	// StrategyStraight is all of the traffic, in place, with none of the
+	// StrategyWithoutControl is all of the traffic, in place, with none of the
 	// build it replaces left running. It is the one strategy anything writes
 	// here.
-	StrategyStraight Strategy = "straight"
+	StrategyWithoutControl Strategy = "without_control"
 	// StrategyWithControl is a share of the traffic, with the build it replaces
 	// serving the rest throughout. Nothing writes it: serving a share means
-	// deciding what fraction of arriving traffic reaches each of two builds, and
-	// a target that runs a release as a local process moves a process instead —
-	// so the row is unavailable on this substrate and every deploy is straight,
-	// which is what [gate.ErrStrategyPinRefused] says at the row that would pin
-	// one. The value is in the CHECK because the record's definition names two
-	// strategies, the arrangement [StatusRolledBack] had until M4 wrote it.
+	// deciding what fraction of arriving traffic reaches each of two builds, and a
+	// target that runs a release as a local process moves a process instead — so
+	// the row is unavailable on this substrate and every deploy goes without a
+	// control, which is what [gate.ErrStrategySafeguardRefused] says at the row
+	// where a safeguard would set one. The value is in the CHECK because the
+	// record's definition names two strategies, the arrangement [StatusRolledBack]
+	// had until M4 wrote it.
 	StrategyWithControl Strategy = "with_control"
 )
 
 // Strategies is every strategy a deploy may have. The CHECK constraint in
 // [DDL] lists the same two, and TestDDLListsEveryStrategyAndStatus fails if
 // the two stop agreeing.
-var Strategies = []Strategy{StrategyStraight, StrategyWithControl}
+var Strategies = []Strategy{StrategyWithoutControl, StrategyWithControl}
 
 // Status is where a deploy is. It advances in place: the deploy record is an
 // ordinary record and not a row of the log, and nothing chains it, so a
@@ -81,21 +82,21 @@ type Deploy struct {
 //
 // The source is beside the actor rather than instead of it. The actor stays the
 // deploy agent that performed the rollback, and the source is what called for it:
-// [SourceComparisonAtHarm], or [SourceOfHuman] for the named human at Ops with the
-// reason they state.
+// [SourceHealthMonitorAtCondemned], or [SourceOfHuman] for the named human at Ops
+// with the reason they state.
 //
 // The revert intent is the one stored link from a rollback to the item that
 // undoes it. Nothing on that item says it is a revert — the design keeps it an
 // ordinary item — so this is where the fact lives, on the record of the event that
 // raised it, which is what "revert names what raised its intent" already says. It
-// is what makes the hold computable: the hold stands until the item cut from this
+// is what makes the hold computable: the hold stands until the item decomposed from this
 // intent has a release running.
 type Undoing struct {
 	CondemnedReleaseID string
 	SweptReleaseIDs    []string
 	Source             string
 	// RevertIntentID is empty where the rollback raised none, which is not a
-	// state the comparison produces — it raises the intent before it calls for the
+	// state the health monitor produces — it raises the intent before it calls for the
 	// rollback, so a rollback with no intent is one performed by something else.
 	RevertIntentID string
 }
@@ -104,15 +105,16 @@ type Undoing struct {
 // release it condemned and a source; nothing else names either.
 func (u Undoing) Any() bool { return u.CondemnedReleaseID != "" }
 
-// SourceComparisonAtHarm is the source of every rollback the factory performs on
-// its own: the comparison having crossed the boundary against the release inside
-// its watch window. A rollback from this source is reported and not requested, and
+// SourceHealthMonitorAtCondemned is the source of every rollback the factory
+// performs on its own: the comparison having crossed the boundary against the
+// release inside its watch window. A rollback from this source is reported and not requested, and
 // reporting is not paging.
-const SourceComparisonAtHarm = "the comparison at the watch window's harm exit"
+const SourceHealthMonitorAtCondemned = "the health monitor at the watch window's condemned exit"
 
 // SourceOfHuman is the source of a rollback a human called for from Ops, which is
-// the first phase of veto after the fact. The reason is required because a human's
-// judgment about live software is the whole of the evidence for one.
+// the first phase of undoing a change after it shipped. The reason is required
+// because a human's judgment about live software is the whole of the evidence
+// for one.
 func SourceOfHuman(name, reason string) string {
 	return "the human " + name + " at Ops: " + reason
 }

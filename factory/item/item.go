@@ -7,21 +7,21 @@ import "github.com/dulguun0225/borg/factory/record"
 type Stage string
 
 const (
-	// StageSpec is where [Cut.Create] writes every item.
+	// StageSpec is where [Decomposition.Create] writes every item.
 	StageSpec Stage = "spec"
 	// StageImplementation follows spec.
 	StageImplementation Stage = "implementation"
-	// StageQueued follows implementation: the merge gate approved the candidate
+	// StageQueued follows implementation: the Merge to master gate approved the candidate
 	// and its fast-forward has not happened. It is the merge queue's membership
 	// — the queue is a component with no record, so what says an item is in it
 	// is this value.
 	StageQueued Stage = "queued"
 	// StageMerged follows queued, written by the queue at the fast-forward.
 	StageMerged Stage = "merged"
-	// StageSuperseded is where an item ends when a cut replaces it: the
+	// StageSuperseded is where an item ends when a decomposition replaces it: the
 	// Decomposition row rejected the set it was part of, and the item points at
 	// whatever replaced it. It is not in [StageOrder] — nothing advances or is
-	// sent back to it, and it is written at one event by [Cut.Supersede] — so it
+	// sent back to it, and it is written at one event by [Decomposition.Supersede] — so it
 	// is a terminal value the way dropped and escalated will be.
 	StageSuperseded Stage = "superseded"
 )
@@ -39,7 +39,7 @@ var StageOrder = []Stage{StageSpec, StageImplementation, StageQueued, StageMerge
 // item.
 var EveryStage = append(append([]Stage{}, StageOrder...), StageSuperseded)
 
-// Item is one item as it is stored. The actor and the time are the cut's —
+// Item is one item as it is stored. The actor and the time are decomposition's —
 // [Dispatch] advances the stage and rewrites nothing else.
 type Item struct {
 	ID        string
@@ -47,20 +47,20 @@ type Item struct {
 	At        string
 	IntentID  string
 	ServiceID string
-	// AreaID is the area the cut wrote, and is empty where no declared area
+	// AreaID is the area decomposition wrote, and is empty where no declared area
 	// covered the work.
 	AreaID string
 	Branch string
 	Stage  Stage
 	// WaitsOn is the items this one cannot be verified until they have shipped,
-	// declared by the cut. Both deploy gates hold on each of them: the candidate
+	// declared by decomposition. Both deploy gates hold on each of them: the candidate
 	// deploy until the dependency is live, the production deploy if it has
 	// stopped being.
 	WaitsOn []string
-	// SupersededBy is the items of the re-cut that replaced this one, written by
-	// [Cut.Supersede] and empty on every item nothing replaced. It is a list
-	// because a re-cut may replace four items with two, and it stays unwritten
-	// where a re-cut replaced an item with nothing — what says why then is the
+	// SupersededBy is the items of the re-decomposition that replaced this one, written by
+	// [Decomposition.Supersede] and empty on every item nothing replaced. It is a list
+	// because a re-decomposition may replace four items with two, and it stays unwritten
+	// where a re-decomposition replaced an item with nothing — what says why then is the
 	// superseded stage beside the decision that rejected the set.
 	SupersededBy []string
 	// Priority is what an owner reorders a queue with, written through

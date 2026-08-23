@@ -34,7 +34,7 @@ import (
 // newWriters gives a test a schema of its own, this package's DDL applied
 // inside it, and both writers over it. The schema is dropped when the test
 // ends, so a rerun on a database a previous run left dirty starts clean.
-func newWriters(t *testing.T) (context.Context, *pgxpool.Pool, *item.Cut, *item.Dispatch) {
+func newWriters(t *testing.T) (context.Context, *pgxpool.Pool, *item.Decomposition, *item.Dispatch) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -66,7 +66,7 @@ func newWriters(t *testing.T) (context.Context, *pgxpool.Pool, *item.Cut, *item.
 			t.Fatalf("applying item statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, item.NewCut(pool), item.NewDispatch(pool)
+	return ctx, pool, item.NewDecomposition(pool), item.NewDispatch(pool)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -83,14 +83,14 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var cutActor = record.Actor{Kind: record.KindComponent, Name: "cut"}
+var decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
 var dispatchActor = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
 
-// oneItem is an item freshly cut, for the tests that need one to advance or
+// oneItem is an item freshly decomposed, for the tests that need one to advance or
 // report against.
-func oneItem(ctx context.Context, t *testing.T, cut *item.Cut) item.Item {
+func oneItem(ctx context.Context, t *testing.T, decomposition *item.Decomposition) item.Item {
 	t.Helper()
-	it, err := cut.Create(ctx, cutActor, item.New{
+	it, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID:  "in_" + strings.Repeat("0", 32),
 		ServiceID: "svc_" + strings.Repeat("0", 32),
 		AreaID:    "ar_" + strings.Repeat("0", 32),
@@ -102,10 +102,10 @@ func oneItem(ctx context.Context, t *testing.T, cut *item.Cut) item.Item {
 	return it
 }
 
-func TestCutWritesOnceAtSpec(t *testing.T) {
-	ctx, pool, cut, _ := newWriters(t)
+func TestDecompositionWritesOnceAtSpec(t *testing.T) {
+	ctx, pool, decomposition, _ := newWriters(t)
 
-	it := oneItem(ctx, t, cut)
+	it := oneItem(ctx, t, decomposition)
 	if it.Stage != item.StageSpec {
 		t.Errorf("a new item is at %s, want spec", it.Stage)
 	}
@@ -118,32 +118,32 @@ func TestCutWritesOnceAtSpec(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	if !reflect.DeepEqual(read, it) {
-		t.Errorf("Get = %+v, want the item as cut, %+v", read, it)
+		t.Errorf("Get = %+v, want the item as decomposed, %+v", read, it)
 	}
 
 	if _, err := item.Get(ctx, pool, "it_missing"); !errors.Is(err, item.ErrNotFound) {
 		t.Errorf("Get on a missing id = %v, want ErrNotFound", err)
 	}
-	if _, err := cut.Create(ctx, cutActor, item.New{IntentID: "in_x", ServiceID: "svc_x"}); !errors.Is(err, item.ErrBranchEmpty) {
+	if _, err := decomposition.Create(ctx, decompositionActor, item.New{IntentID: "in_x", ServiceID: "svc_x"}); !errors.Is(err, item.ErrBranchEmpty) {
 		t.Errorf("Create with no branch = %v, want ErrBranchEmpty", err)
 	}
 	// An empty link names nothing, and the writer refuses it the way it
 	// refuses every other required field. record's doc.go states what a link
 	// is checked for.
-	if _, err := cut.Create(ctx, cutActor, item.New{ServiceID: "svc_x", Branch: "item/x"}); !errors.Is(err, item.ErrIntentIDEmpty) {
+	if _, err := decomposition.Create(ctx, decompositionActor, item.New{ServiceID: "svc_x", Branch: "item/x"}); !errors.Is(err, item.ErrIntentIDEmpty) {
 		t.Errorf("Create naming no intent = %v, want ErrIntentIDEmpty", err)
 	}
-	if _, err := cut.Create(ctx, cutActor, item.New{IntentID: "in_x", Branch: "item/x"}); !errors.Is(err, item.ErrServiceIDEmpty) {
+	if _, err := decomposition.Create(ctx, decompositionActor, item.New{IntentID: "in_x", Branch: "item/x"}); !errors.Is(err, item.ErrServiceIDEmpty) {
 		t.Errorf("Create naming no service = %v, want ErrServiceIDEmpty", err)
 	}
-	if _, err := cut.Create(ctx, record.Actor{}, item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x"}); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := decomposition.Create(ctx, record.Actor{}, item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x"}); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("Create with no actor = %v, want record.ErrKindUnknown", err)
 	}
 }
 
 func TestAdvanceMovesOneStageForward(t *testing.T) {
-	ctx, pool, cut, dispatch := newWriters(t)
-	it := oneItem(ctx, t, cut)
+	ctx, pool, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
 
 	advanced, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageImplementation)
 	if err != nil {
@@ -155,7 +155,7 @@ func TestAdvanceMovesOneStageForward(t *testing.T) {
 	// The advance rewrites the stage and nothing else.
 	advanced.Stage = it.Stage
 	if !reflect.DeepEqual(advanced, it) {
-		t.Errorf("Advance rewrote more than the stage: %+v, cut as %+v", advanced, it)
+		t.Errorf("Advance rewrote more than the stage: %+v, decomposed as %+v", advanced, it)
 	}
 
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageQueued); err != nil {
@@ -179,8 +179,8 @@ func TestAdvanceMovesOneStageForward(t *testing.T) {
 }
 
 func TestAdvanceRefusesSkipsAndBackwardsMoves(t *testing.T) {
-	ctx, _, cut, dispatch := newWriters(t)
-	it := oneItem(ctx, t, cut)
+	ctx, _, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
 
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageQueued); !errors.Is(err, item.ErrNotNextStage) {
 		t.Errorf("Advance skipping implementation = %v, want ErrNotNextStage", err)
@@ -205,8 +205,8 @@ func TestAdvanceRefusesSkipsAndBackwardsMoves(t *testing.T) {
 }
 
 func TestReportAttemptAccumulatesPerStage(t *testing.T) {
-	ctx, pool, cut, dispatch := newWriters(t)
-	it := oneItem(ctx, t, cut)
+	ctx, pool, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
 
 	if err := dispatch.ReportAttempt(ctx, dispatchActor, it.ID, item.StageSpec, 100); err != nil {
 		t.Fatalf("ReportAttempt: %v", err)
@@ -248,15 +248,15 @@ func TestReportAttemptAccumulatesPerStage(t *testing.T) {
 // exercises is the CHECK and unique constraints and not the writers' own
 // refusals.
 func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
-	ctx, pool, cut, dispatch := newWriters(t)
-	it := oneItem(ctx, t, cut)
+	ctx, pool, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
 	if err := dispatch.ReportAttempt(ctx, dispatchActor, it.ID, item.StageSpec, 100); err != nil {
 		t.Fatalf("ReportAttempt: %v", err)
 	}
 
 	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id,
 		branch, stage, waits_on, superseded_by, priority)
-		values ($1, 'component', 'cut', $2, 'in_x', 'svc_x', 'ar_x', $3, $4, '', '', 0)`
+		values ($1, 'component', 'decomposition', $2, 'in_x', 'svc_x', 'ar_x', $3, $4, '', '', 0)`
 	for _, refused := range []struct {
 		name       string
 		branch     string
@@ -276,7 +276,7 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 	// store refuses it around the writer too.
 	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id,
 		branch, stage, waits_on, superseded_by, priority)
-		values ($1, 'component', 'cut', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec', '', '', 0)`,
+		values ($1, 'component', 'decomposition', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec', '', '', 0)`,
 		record.NewID(item.IDPrefix), record.Now(),
 	); err == nil || !strings.Contains(err.Error(), "intent_id_present") {
 		t.Errorf("inserting an item naming no intent = %v, want a violation of intent_id_present", err)
@@ -316,14 +316,14 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 // through dispatch rather than beside it.
 var workActor = record.Actor{Kind: record.KindHuman, Name: "owner"}
 
-// TestTheCutDeclaresWhatAnItemWaitsOn: the cut records the order, so a dependency
+// TestDecompositionDeclaresWhatAnItemWaitsOn: the decomposition records the order, so a dependency
 // is declared there and not discovered at deploy time. It reads back as the ids
-// the cut named, and an empty one is refused.
-func TestTheCutDeclaresWhatAnItemWaitsOn(t *testing.T) {
-	ctx, pool, cut, _ := newWriters(t)
+// the decomposition named, and an empty one is refused.
+func TestDecompositionDeclaresWhatAnItemWaitsOn(t *testing.T) {
+	ctx, pool, decomposition, _ := newWriters(t)
 
 	waits := []string{"it_" + strings.Repeat("a", 32), "it_" + strings.Repeat("b", 32)}
-	it, err := cut.Create(ctx, cutActor, item.New{
+	it, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID:  "in_" + strings.Repeat("0", 32),
 		ServiceID: "svc_" + strings.Repeat("0", 32),
 		Branch:    "item/dependent",
@@ -337,13 +337,13 @@ func TestTheCutDeclaresWhatAnItemWaitsOn(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	if !reflect.DeepEqual(read.WaitsOn, waits) {
-		t.Errorf("the item waits on %v, the cut declared %v", read.WaitsOn, waits)
+		t.Errorf("the item waits on %v, decomposition declared %v", read.WaitsOn, waits)
 	}
 	if read.Priority != 0 {
-		t.Errorf("a freshly cut item has priority %d, the cut writes nothing", read.Priority)
+		t.Errorf("a freshly decomposed item has priority %d, decomposition writes nothing", read.Priority)
 	}
 
-	if _, err := cut.Create(ctx, cutActor, item.New{
+	if _, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x", WaitsOn: []string{""},
 	}); !errors.Is(err, item.ErrItemIDEmpty) {
 		t.Errorf("Create waiting on an empty id = %v, want ErrItemIDEmpty", err)
@@ -355,8 +355,8 @@ func TestTheCutDeclaresWhatAnItemWaitsOn(t *testing.T) {
 // target may be the stage the item is at — a reject at the stage that fired is
 // another attempt at the same artifact — and may not be below it.
 func TestSendBackMovesUpAndCountsTheAttempt(t *testing.T) {
-	ctx, pool, cut, dispatch := newWriters(t)
-	it := oneItem(ctx, t, cut)
+	ctx, pool, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
 		t.Fatalf("Advance to implementation: %v", err)
 	}
@@ -410,12 +410,12 @@ func TestSendBackMovesUpAndCountsTheAttempt(t *testing.T) {
 // through dispatch, and the query the merge queue's membership is read with returns
 // the items of one service at one stage, greater priority first.
 func TestSetPriorityAndAtStage(t *testing.T) {
-	ctx, pool, cut, dispatch := newWriters(t)
+	ctx, pool, decomposition, dispatch := newWriters(t)
 	const serviceID = "svc_" + "00000000000000000000000000000000"
 
 	var queued []item.Item
 	for n, branch := range []string{"item/first", "item/second", "item/third"} {
-		it, err := cut.Create(ctx, cutActor, item.New{
+		it, err := decomposition.Create(ctx, decompositionActor, item.New{
 			IntentID: fmt.Sprintf("in_%032d", n), ServiceID: serviceID, Branch: branch,
 		})
 		if err != nil {
@@ -456,17 +456,17 @@ func TestSetPriorityAndAtStage(t *testing.T) {
 	}
 }
 
-// TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt: the cut's second write and its
+// TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt: the decomposition's second write and its
 // only write to an existing item. A rejected set is superseded rather than discarded,
-// so what was cut wrong is readable beside what replaced it.
+// so what was decomposed wrong is readable beside what replaced it.
 func TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt(t *testing.T) {
-	ctx, pool, cut, _ := newWriters(t)
+	ctx, pool, decomposition, _ := newWriters(t)
 
-	replaced := oneItem(ctx, t, cut)
-	first := oneItem(ctx, t, cut)
-	second := oneItem(ctx, t, cut)
+	replaced := oneItem(ctx, t, decomposition)
+	first := oneItem(ctx, t, decomposition)
+	second := oneItem(ctx, t, decomposition)
 
-	ended, err := cut.Supersede(ctx, cutActor, replaced.ID, []string{first.ID, second.ID})
+	ended, err := decomposition.Supersede(ctx, decompositionActor, replaced.ID, []string{first.ID, second.ID})
 	if err != nil {
 		t.Fatalf("Supersede: %v", err)
 	}
@@ -484,10 +484,10 @@ func TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt(t *testing.T) {
 		t.Fatalf("the item points at %v, want the two that replaced it", read.SupersededBy)
 	}
 
-	// A re-cut that replaced an item with nothing leaves the pointer unwritten, and
+	// A re-decomposition that replaced an item with nothing leaves the pointer unwritten, and
 	// what says why is the superseded stage beside the decision that rejected the set.
-	dropped := oneItem(ctx, t, cut)
-	if _, err := cut.Supersede(ctx, cutActor, dropped.ID, nil); err != nil {
+	dropped := oneItem(ctx, t, decomposition)
+	if _, err := decomposition.Supersede(ctx, decompositionActor, dropped.ID, nil); err != nil {
 		t.Fatalf("superseding with no replacement: %v", err)
 	}
 	read, err = item.Get(ctx, pool, dropped.ID)
@@ -500,25 +500,25 @@ func TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt(t *testing.T) {
 }
 
 // TestSupersedingTwiceOrSupersedingAMergedItemIsRefused: superseding does not run
-// twice, and a merged item is out of a re-cut's reach.
+// twice, and a merged item is out of a re-decomposition's reach.
 func TestSupersedingTwiceOrSupersedingAMergedItemIsRefused(t *testing.T) {
-	ctx, _, cut, dispatch := newWriters(t)
+	ctx, _, decomposition, dispatch := newWriters(t)
 
-	once := oneItem(ctx, t, cut)
-	if _, err := cut.Supersede(ctx, cutActor, once.ID, nil); err != nil {
+	once := oneItem(ctx, t, decomposition)
+	if _, err := decomposition.Supersede(ctx, decompositionActor, once.ID, nil); err != nil {
 		t.Fatalf("the first Supersede: %v", err)
 	}
-	if _, err := cut.Supersede(ctx, cutActor, once.ID, nil); !errors.Is(err, item.ErrAlreadySuperseded) {
+	if _, err := decomposition.Supersede(ctx, decompositionActor, once.ID, nil); !errors.Is(err, item.ErrAlreadySuperseded) {
 		t.Errorf("superseding twice = %v, want ErrAlreadySuperseded", err)
 	}
 
-	merged := oneItem(ctx, t, cut)
+	merged := oneItem(ctx, t, decomposition)
 	for _, stage := range []item.Stage{item.StageImplementation, item.StageQueued, item.StageMerged} {
 		if _, err := dispatch.Advance(ctx, dispatchActor, merged.ID, stage); err != nil {
 			t.Fatalf("advancing to %s: %v", stage, err)
 		}
 	}
-	if _, err := cut.Supersede(ctx, cutActor, merged.ID, nil); !errors.Is(err, item.ErrMerged) {
+	if _, err := decomposition.Supersede(ctx, decompositionActor, merged.ID, nil); !errors.Is(err, item.ErrMerged) {
 		t.Errorf("superseding a merged item = %v, want ErrMerged", err)
 	}
 }
@@ -526,9 +526,9 @@ func TestSupersedingTwiceOrSupersedingAMergedItemIsRefused(t *testing.T) {
 // TestNothingAdvancesToOrIsSentBackToSuperseded: it is a terminal value and is not in
 // [item.StageOrder], so dispatch refuses it in both directions.
 func TestNothingAdvancesToOrIsSentBackToSuperseded(t *testing.T) {
-	ctx, _, cut, dispatch := newWriters(t)
+	ctx, _, decomposition, dispatch := newWriters(t)
 
-	it := oneItem(ctx, t, cut)
+	it := oneItem(ctx, t, decomposition)
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageSuperseded); !errors.Is(err, item.ErrStageUnknown) {
 		t.Errorf("advancing to superseded = %v, want ErrStageUnknown", err)
 	}

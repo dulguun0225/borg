@@ -1,114 +1,110 @@
 # CLAUDE.md
 
-This file governs `end-goal/` and nothing else in the repository. Every path below is
-relative to this directory; the verification commands are the exception and say so.
+Governs `end-goal/` and nothing else. Every path below is relative to this directory,
+except the verification commands, which say so.
 
 ## What this is
 
-`end-goal/` is a directory of Markdown files. It is one design document for a fully
-autonomous software factory — a product each customer self-hosts, which refines intent,
-builds, deploys, monitors, and fixes software on its own.
+`end-goal/` is Markdown files plus one that is not: [`terms.txt`](terms.txt), the
+inventory of every name the document introduces, read by the consistency pass and by
+nothing else. Together they are one design document for a fully autonomous software
+factory — a product each customer self-hosts, which refines intent, builds, deploys,
+monitors, and fixes software on its own.
 
-The repository around it is the monorepo that will build that thing. This directory is
-the state it is built toward, so code is added beside it and never in it. There is no
-build, test suite, or linter for this directory. Do not go looking for one. Every task
-here is an edit to a design document, and the document says of itself that everything in
-it is open to revision.
+The repository around it is the monorepo that will build that thing, and this directory is
+the state it is built toward, so code is added beside it and never in it. There is no build
+or test suite here and none to go looking for: the consistency pass below is the whole of
+what checks this directory. Every task here is an edit to a design document, and the
+document says of itself that everything in it is open to revision.
 
-`README.md` indexes this document; `how-humans-do-it/README.md` is the dependency-order
+`README.md` indexes the document; `how-humans-do-it/README.md` is the dependency-order
 table and only that.
 
-There is no work list. `next.md` held one until 2026-08-14, when its two lists were emptied: the
-eight decided-but-unwritten entries were folded into the files that own their subjects, which
-is where a decision belongs, and the fifteen cut candidates were each taken or refused with
-the reason written into the same files. A list of answers kept outside the sections that own
-them is the shape `open.md`'s own rule refuses, and it was that shape.
+There is no work list. A decision belongs in the file that owns its subject, and a cut
+candidate is taken or refused with the reason written into that same file. A list of
+answers kept outside the sections that own them is the shape `open.md`'s own rule refuses.
 
-One file per section, split on 2026-08-13. Each file's own heading is `#`, its
-subsections `##` and `###` — a section that is its own file owns the top level. A new
-part of the document is a new file in this directory; a new section of _How humans do
-it_ is a new numbered file plus a row in that directory's table.
+One file per section. Each file's own heading is `#`, its subsections `##` and `###` — a
+section that is its own file owns the top level. A new part of the document is a new file
+in this directory; a new section of _How humans do it_ is a new numbered file plus a row in
+that directory's table.
 
-Keep each file readable on its own, and keep cross-section references by name — as a
-link where the name points at another file, with the name as the link text.
+Keep each file readable on its own, and keep cross-section references by name — as a link
+where the name points at another file, with the name as the link text.
 
 ## The document is a graph, and edits break it in predictable ways
 
-The value of the doc is that its claims interlock. Most damage comes from editing one
-section and leaving another asserting the opposite. The links most easily broken:
+The value of the document is that its claims interlock, and most damage comes from editing
+one section and leaving another asserting the opposite. The links most easily broken:
 
-**The numbered duty list.** `what-humans-do.md` numbers twelve owner duties, and the
-rest of this document cites them as bare numbers — `(7)`, `(10)`, `(11, 12)`. Inserting,
+**The numbered duty list.** `what-humans-do.md` numbers twelve owner duties, and the rest
+of the document cites them as bare numbers — `(7)`, `(10)`, `(11, 12)`. Inserting,
 removing, or reordering a duty silently repoints every reference in every other file.
 
 **The gate table against the prose.** Every gate named in prose needs a row, and every
 action in a row must be possible at that point in the lifecycle. `Deploy to production`
 deliberately has no Reject: by then the merge has happened and the number is already
-assigned, so hold is the only stop, and undoing it once it deploys is veto after the fact
-— a rollback while its control is still running, a revert after.
+assigned, so hold is the only stop, and once it deploys all that is left is a human's undo
+of a shipped change (10) — a rollback while its control is still running, a revert after.
 
-**The lifecycle vocabulary.** It must run unbroken end to end. A **candidate**
-is identified by item plus build and runs on an environment of its own; at merge to
-master it becomes a **release** with an ordinal number, per service. Contract versions
-are a separate axis — semver, one per published interface, because compatibility is the
-contract's job and not the release's. Do not let a fifth name for any of these appear.
-Upstream of all of it is the **intent** — what intake writes, what the cut turns into
-items, and what everything links back to. An uncut intent is not an item: it was called an
-unrefined item in two places until 2026-08-13, and both now say intent. **Current
-release** is not a fifth name either — it is which release a service is running, a fact of
-the production deploy record, and every cross-service check reads it rather than the
-newest number.
-`beta` was one and was dropped on 2026-08-13 — it named the build occupying the shared UAT
-slot, and there is no such slot.
+**The lifecycle vocabulary.** It must run unbroken end to end. A **candidate** is
+identified by item plus build and runs on an environment of its own; at merge to master it
+becomes a **release** with an ordinal number, per service. Contract versions are a separate
+axis — semver, one per published interface, because compatibility is the contract's job and
+not the release's. Do not let a fifth name for any of these appear. Upstream of all of it
+is the **intent** — what intake writes, what decomposition turns into items, and what
+everything links back to; an uncut intent is not an item. **Current release** is not a fifth
+name either — it is which release a service is running, a fact of the production deploy
+record, and every cross-service check reads it rather than the newest number. `beta` was a
+fifth name and was dropped: it named the build occupying the shared UAT slot, and there is
+no such slot.
 
 **Section order encodes dependency.** One pipeline (the unit of work) → Intent into items
-(how a request becomes items, and the cut) → Gates (where a
-decision happens) → Risk score (what decides whether a human decides at one) → Environments
-(the branch, the per-candidate environment, the merge queue) → Releases (what ships) →
-Contracts (what binds services to each other) → Operations (the control, the watch window,
-K, the page) → Gate policy (everything an owner authors, gathered from the sections
-that define each parameter) → The fleet (what an agent runs on, and what a borrowed
-account costs) → Surfaces (where a human sees it). A concept should be defined before
-the section that leans on it. The numeric filename prefixes under `how-humans-do-it/` are
-that order and nothing else — reordering means renaming files and fixing the links that
-point at them.
+(how a request becomes items, and decomposition) → Gates (where a decision happens) → Risk
+score (what decides whether a human decides at one) → Environments (the branch, the
+per-candidate environment, the merge queue) → Releases (what ships) → Contracts (what binds
+services to each other) → Operations (the control, the watch window, the window limit, the
+page) → Gate policy (everything an owner authors, gathered from the sections that define
+each parameter) → The fleet (what an agent runs on, and what a borrowed account costs) →
+Screens (where a human sees it). A concept should be defined before the section that leans
+on it. The numeric filename prefixes under `how-humans-do-it/` are that order and nothing
+else — reordering means renaming files and fixing the links that point at them.
 
 Seven forward references are known and left in place, each defined below a section that
 depends on it because moving the definition up would put something more depended-on out of
-order: the **watch window** and **K**; the **gate** and the **score** that Intent into items
-leans on, with **current release** the same shape at smaller scale; the **page**; the
-**reconciler**; **the fleet**, and with it the **brief** and the **skill** an agent works
-from, which One pipeline, Gates, Risk score and Gate policy all lean on and The fleet
-defines; the **restore floor**, which Contracts leans on and
-Operations defines; and the four surfaces — **Work**, **Ops**, **Factory**,
-**People** — which _What humans do_ leans on and _Surfaces_ defines last. One treatment
-covers the first six — a link forward at each early use, so a reader meeting the term
-there can reach the definition — and a new early use is expected to keep that true. The
-surfaces take that treatment at the first use of each name in a file rather than at every
-use: the four recur as ordinary nouns in nearly every file, and a link on each would put
-one in most paragraphs.
+order: the **watch window** and the **window limit**; the **gate** and the **score** that
+Intent into items leans on, with **current release** the same shape at smaller scale; the
+**page**; the **independent checker**; **the fleet**, and with it the **role prompt** and
+the **skill** an agent works from, which One pipeline, Gates, Risk score and Gate policy
+all lean on and The fleet defines; the **last known-good release**, which Contracts leans
+on and Operations defines; and the four screens — **Work**, **Ops**, **Factory**,
+**People** — which _What humans do_ leans on and _Screens_ defines last. One treatment
+covers the first six — a link forward at each early use, so a reader meeting the term there
+can reach the definition — and a new early use is expected to keep that true. The screens
+take that treatment at the first use of each name in a file rather than at every use: the
+four recur as ordinary nouns in nearly every file, and a link on each would put one in most
+paragraphs.
 
-**Link a term at its first use in each file.** A term defined in another file is linked
-at its first use in each file that uses it, to the section that defines it, with
-[`glossary.md`](glossary.md) as the fallback; later uses stay bare. The glossary is the
-registry: a term worth linking is a term with a glossary line, so a new term enters
-`end-goal/` by getting its line there. What stays bare, deliberately: the bare duty
-numbers, which `README.md` already makes a convention; **the factory** and the
-**owner**, the document's subject and its reader; a file's own defined terms; external
-proper nouns — EARS, REST, gRPC, protobuf, Kafka, OpenAPI; and ordinary words that are
-not the settled term — a builder of the product, substrate, a queue's rotation. What it
-costs is that a first edit to an old paragraph sometimes owes a link the paragraph
-never had. (Owner rule, 2026-08-17.)
+**Introduce a term at its first use in each file.** A reader meeting a term for the first
+time in a file has to be able to finish the sentence they are on. Two ways give them that:
+a clause in the prose saying what the term names, or a link to the section that defines it.
+Either satisfies the rule, and the clause is the better one wherever it fits in a few
+words, because a link is a page the reader has to leave. A glossary line is neither, and
+having one is not what admits a term: a term earns its place by naming something the plain
+words cannot say once, which the root `CLAUDE.md` sets, and [`glossary.md`](glossary.md) is
+a list of industry words this document uses in a narrower or different sense rather than an
+index of its vocabulary. What stays bare, deliberately: the bare duty numbers, which
+`README.md` already makes a convention; **the factory** and the **owner**, the document's
+subject and its reader; a file's own defined terms; external proper nouns — EARS, REST,
+gRPC, protobuf, Kafka, OpenAPI; and an ordinary word that merely matches a term the
+document defines — a builder of the product, a queue's rotation. What it costs is more than
+the rule it replaced: a link was one edit wherever it was owed, and a clause is written
+afresh in each file, so a term used in six files is introduced six times in six different
+sentences.
 
-**Never cross-reference by position.** "The second open question" broke the moment a
-bullet was resolved and removed. Refer to things by name. A link's path may contain a
+**Never cross-reference by position.** "The second open question" breaks the moment a
+bullet is resolved and removed. Refer to things by name. A link's path may contain a
 number; its text never does.
-
-## Writing style
-
-Moved to the repository root `CLAUDE.md` on 2026-08-14, unchanged. It always governed
-every file here and not this directory alone, and a rule over the whole repository belongs
-where the repository's rules are. The no-hard-wrap rule for `end-goal/` went with it.
 
 ## Resolved questions get folded, not deleted
 
@@ -118,19 +114,16 @@ leaves the reasoning in git history where nobody will look. This follows the own
 standing rule on abandoning a unit of work and the precedent in commit `98b5430`.
 
 The inverse matters as much: material that is genuinely unsettled belongs in `open.md`,
-phrased as the question and what turns on it. Do not resolve an open question by
-asserting an answer in the body — the split between what is decided and what is not is
-information the document deliberately records.
+phrased as the question and what turns on it. Do not resolve an open question by asserting
+an answer in the body — the split between what is decided and what is not is information
+the document deliberately records.
 
-Two kinds of question do not earn a place there. One the document can already answer by
-applying a pattern it holds is not open — apply the pattern and fold it. A pin (9) adds a
-human at a gate, an owner authors a parameter with gate policy (8) and the score supplies
-the default, and the score learns from outcomes: those three were reached for late three
-times rather than at the time. Nor is a loose end a session noticed while doing something
-else — the subject has to raise it, and an owner has to be who decides it. Six questions
-accumulated by that second route before 2026-08-13, each raised in a trailing `Open:`
-line by a commit doing something else, and one asserted a premise the body of that same
-commit contradicted. (Owner rule, 2026-08-13.)
+Two kinds of question do not earn a place there. A question the document can already answer
+by applying a pattern it holds is not open — apply the pattern and fold it. Three such
+patterns: a safeguard (9) adds a human at a gate; an owner authors a parameter with gate policy
+(8) and the score supplies the default; the score learns from outcomes. Nor is a loose end
+a session noticed while doing something else — the subject has to raise it, and an owner
+has to be who decides it.
 
 ## Verification
 
@@ -141,7 +134,7 @@ request. Every command below is scoped to `end-goal/` and run from the repositor
 nothing in a sibling directory is included in a check written for this one:
 
 ```bash
-grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 10: end-goal index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a brief and a skill reach
+grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 10: end-goal index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a role prompt and a skill reach
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
@@ -159,96 +152,185 @@ for p in glob.glob('end-goal/**/*.md', recursive=True):
 # every anchor matches a heading — expect no output
 comm -23 <(grep -rho "]([^)]*#[^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
          <(grep -rh "^#\{1,3\} " --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/^#* //; s/[^A-Za-z0-9 -]//g; s/ /-/g' | tr 'A-Z' 'a-z' | sort -u)
-# every distinctive glossary term a file uses is linked in that file — expect no output
+# every bolded name is on the inventory — expect no output
 python3 - <<'EOF'
-import os, re, glob
-gl = open('end-goal/glossary.md', encoding='utf-8').read()
-terms = {}  # term -> the defining target its glossary line ends with; deleting a line removes its coverage
-for line in gl.splitlines():
-    m = re.match(r'- \*\*(.+?)\*\*.*\]\(([^)]+)\)\s*$', line)
-    if m and (' ' in m.group(1) or m.group(1) == 'K'):
-        terms[m.group(1)] = m.group(2)
-SKIP = {  # (file, term) where the bare phrase is a different sense
-    ('04-risk-score.md', 'the number'),   # the score's number
-    ('09-gate-policy.md', 'the number'),  # the score's number
-    ('10-fleet.md', 'the number'),        # the cost number
-}
+import re, glob, os
+# Bolding is how this document introduces a name. A bolded run that is not a paragraph
+# lead-in is a name, and a name not in terms.txt is one this edit invented. Each line
+# there is the name, a tab, and the field the word comes from; only the name is matched,
+# and a line with no field fails so the attribution cannot be skipped.
+BOLD = re.compile(r'\*\*(.+?)\*\*', re.S)
+LINK = re.compile(r'\[([^\]]*)\]\([^)]*\)')
+known = set()
+for l in open('end-goal/terms.txt', encoding='utf-8'):
+    if not l.strip() or l.startswith('#'): continue
+    name, tab, field = l.rstrip('\n').partition('\t')
+    if not field.strip(): print('no field in terms.txt:', name)
+    known.add(name.strip().lower())
 for p in sorted(glob.glob('end-goal/**/*.md', recursive=True)):
-    base = os.path.basename(p)
-    if base in ('CLAUDE.md', 'glossary.md', 'README.md'): continue
-    text = open(p, encoding='utf-8').read()
-    links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', text)
-    bare = re.sub(r'\[[^\]]*\]\([^)]*\)', ' ', text)
-    for term, target in terms.items():
-        if (base, term) in SKIP or os.path.basename(target.split('#')[0]) == base: continue
-        if re.search(r'\*\*' + re.escape(term) + r's?\*\*', text, re.I): continue
-        if not re.search(r'\b' + re.escape(term) + r's?\b', bare, 0 if term == 'K' else re.I): continue
-        anchor = '#' + target.split('#')[1] if '#' in target else None
-        tfile = os.path.basename(target.split('#')[0])
-        if not any(term.lower() in lt.lower() or (anchor and lt2.endswith(anchor))
-                   or (not anchor and os.path.basename(lt2.split('#')[0]) == tfile)
-                   for lt, lt2 in links):
-            print(f'{p}: {term}')
+    if os.path.basename(p) == 'CLAUDE.md': continue
+    for raw in BOLD.findall(open(p, encoding='utf-8').read()):
+        t = LINK.sub(r'\1', raw).strip()
+        if '\n' in t or t.endswith(('.', '?', ':', '!')): continue
+        if t.lower() not in known: print('name not in terms.txt:', p, '->', t)
+EOF
+# the glossary is exactly the bent terms — expect no output
+python3 - <<'EOF'
+import re
+# The glossary is a list of words the industry owns that this document uses in a
+# narrower or different sense. These are those words. A missing line is a reader left
+# with the industry meaning and no warning; a line for anything else is the pile
+# growing back, which is what the second direction catches.
+BENT = ['item', 'service', 'intent', 'release', 'rollback', 'candidate', 'hold',
+        'decision', 'page', 'incident', 'Edit in place', 'the pipeline', 'seam',
+        'the graph', 'store', 'artifact', 'detector']
+roster = {t.lower() for t in BENT}
+have = set()
+for line in open('end-goal/glossary.md', encoding='utf-8'):
+    m = re.match(r'- \*\*(.+?)\*\*', line)
+    if m: have.add(m.group(1).lower())
+for term in sorted(roster - have): print('no glossary line:', term)
+for term in sorted(have - roster): print('glossary line for a term not on the roster:', term)
 EOF
 ```
 
-The link check resolves each path against the directory of the file it appears in, which
-a one-liner resolving against `end-goal/` and `how-humans-do-it/` alike did not: a link
-written with the wrong prefix resolved under the other directory and passed. It cannot
-see anchors — it strips fragments and skips same-file links — which is why the anchor
-check is separate. That one matches an anchor against every heading in this document
-rather than against the target file's own, so it catches a renamed heading and not a
-link pointed at the wrong file.
+The link check resolves each path against the directory of the file it appears in, which a
+one-liner resolving against `end-goal/` and `how-humans-do-it/` alike did not: a link
+written with the wrong prefix resolved under the other directory and passed. It cannot see
+anchors — it strips fragments and skips same-file links — which is why the anchor check is
+separate. That one matches an anchor against every heading in this document rather than
+against the target file's own, so it catches a renamed heading and not a link pointed at
+the wrong file.
 
-The coverage check enforces the link-at-first-use rule at the level a grep can: its term
-list is the glossary's multi-word terms plus **K**, and a file that uses one must link
-the term itself or link a section the glossary names as defining it. A term is skipped
-in the file whose section defines it, in a file that introduces it in bold, and where
-the `SKIP` set names the pair — a bare phrase meaning something else, which is what put
-the score's number there against the release's. What it cannot judge stays the
-cold-read check's: single-word terms, whose bare uses are usually ordinary English, and
-whether the link sits at the first use rather than a later one.
+The inventory check is the only command here that is a gate rather than a reading. Every
+other one finds a link or an anchor pointing at nothing; this one finds a name that did not
+exist before this edit, which is the defect the vocabulary cleanup of 2026-08-20 to
+2026-08-23 spent millions of tokens undoing. It runs one way on purpose: a name added
+fails, a name removed does not, because that cleanup removed names constantly and a check
+that fought it would have blocked the work it exists to protect. The pile is gone and this
+is what stops it growing back.
+
+It costs two things. It reads bolding rather than meaning, so a bolded run that is emphasis
+and not a name has to be seeded in `terms.txt` like one — `git`, `always true` and `the
+change` are there for that reason — and a name introduced without bold is invisible to it,
+which makes bolding at introduction a convention this check depends on. And a legitimate
+new name costs a line plus a commit body saying which of the root `CLAUDE.md`'s two grounds
+it survives on, which is the point rather than the price: the cost is paid where it is one
+line, instead of later where it was forty terms. The check cannot tell a good name from a
+bad one, and is not meant to — the cold-read check's coined list is what does that.
+
+The roster check reads the glossary against the seventeen bent words it is for. It checks
+the roster and not usage, and it now runs both ways: every bent term has a line, and
+nothing but a bent term has one. The second direction waited for the last coined line to
+go, because until then it would have failed on every edit; with the glossary at seventeen
+lines it is what stops the pile growing back, and a term added to the roster is a decision
+made in the commit that adds it rather than a line somebody appended. Whether a term is
+introduced where it is used is the cold-read check's, which finds a name pointing at
+nothing and is the better instrument for it.
 
 ### The cold-read check
 
-The greps above find a link pointing at nothing. This finds a name pointing at nothing,
-which is the same defect one level down and the one that made the document unreadable.
+The greps above find a link pointing at nothing. This finds two things no grep can. One is
+a name pointing at nothing, which is the same defect one level down and the one that made
+the document unreadable. The other is a name that should not exist at all — a coinage in
+the commit that introduces it, which every other check in this file passes over, because a
+coined term properly introduced satisfies all of them.
 
 For each file this edit changed, dispatch a subagent with no other context and this
-instruction, verbatim:
+instruction, verbatim, with `<fields>` filled in from the rows
+[_What the work spans_](../CLAUDE.md#what-the-work-spans) gives for that file's subjects:
 
 > Read only this file: `<path>`. Do not open any other file and do not follow any link. Judge
 > the file on its own, ignoring anything you were told about this repository elsewhere.
 >
-> List every term it uses as though already defined and does not define. Put each in one of
-> two groups: **unlinked**, where the sentence using the term offers no link to follow, and
-> **linked**, where it does. Quote the sentence where each first appears. Return the two
-> lists and nothing else.
+> The fields this file speaks from are: `<fields>`. That is the only thing you are told
+> about it, and it is told to you so that you can tell a field's term of art from a name
+> this document invented. It does not tell you the file is right about anything.
+>
+> Return four lists and nothing else.
+>
+> **Unlinked** — every term the file uses as though already defined, that it does not
+> define, where the sentence using it offers no link to follow. Quote the sentence where
+> each first appears.
+>
+> **Linked** — the same, but where the sentence does offer a link. Quote the sentence where
+> each first appears.
+>
+> **Coined** — every term that reads as this document's private vocabulary: a name for a
+> concept where an ordinary word or phrase would have said the same thing, and that you
+> cannot place in any established field. Include a term even where the file introduces it
+> properly. For each, give the plain phrase you expected instead.
+>
+> **Borrowed** — every term you recognise as a field's term of art, used here in that
+> field's sense. For each, name the field and say where in it the term is established — a
+> standard, a practice, a tool, a body of literature — so that the claim can be checked
+> rather than taken. Put a term here rather than under Coined whenever a field uses it
+> this way, even if a commoner sense exists elsewhere, and say so where it does. A field
+> you cannot name that way is not one, and the term belongs under Coined.
 
-Only the unlinked list is a failure, and a non-empty one means the edit is not finished. Fix
-each by introducing the term where it is first used, linking it to the section that defines
-it, or adding it to [`glossary.md`](glossary.md) and linking there. The linked list is the
-rule already satisfied — a term linked to its definition is introduced, which is the
-treatment six of the seven known forward references get — and it is worth reading once for a link
-that points somewhere too far from the sentence to help.
+Only the unlinked list is a failure, and a non-empty one means the edit is not finished.
+Fix each by introducing the term in the prose where it is first used, or by linking it to
+the section that defines it. Adding it to [`glossary.md`](glossary.md) is not a third fix:
+a line there is for a word the industry owns and this document bends, and it never was what
+made a term readable. The linked list is the rule already satisfied — a term linked to its
+definition is introduced, which is the treatment six of the seven known forward references
+get — and it is worth reading once for a link that points somewhere too far from the
+sentence to help.
 
-Both lists are long on a file that summarises the whole document, and that is not a fault in
-the file: one link to the glossary at its first unlinked term is often the whole fix.
+The borrowed list is neither a failure nor a candidate list. It is the attribution
+[`terms.txt`](terms.txt) records, arriving from the one reader with no stake in the name,
+and a term on it is answered by writing the field beside that name rather than by renaming
+anything. Where it and `terms.txt` disagree, the disagreement is the finding: a name the
+file calls `coined` that a reader places in a field is a rename this cleanup should not
+make, and the reverse is a term the document inherited without knowing it. The list is
+split out of the coined list because a cold reader with no field context cannot tell a term
+of art from a coinage inside one file, and neither could the session triaging its list;
+without that split the check converted field vocabulary into plain English. Requiring the
+reader to say where the field establishes the term is what keeps the list from acquitting
+everything: without it, a naming of any field at all moved a term off the coined list, and
+a coinage escapes removal on a claim nobody can check. What it costs is that the reader now
+claims a field for a word, and a claim is sometimes wrong: `terms.txt` takes the
+attribution only where the session agrees with it, and a citation the session cannot place
+leaves the term coined.
 
-The subagent has to be given nothing but the path. An agent that has read the rest of the
-document resolves every term and returns an empty list, which is exactly the failure the
-check exists to defeat — the document has always been readable to whoever just wrote it. The
-instruction files are what the check cannot withhold: a subagent receives the repository's
-`CLAUDE.md` whether or not it is asked to, so a term defined there rather than here is
-resolvable to the check and not to a reader. Tell the subagent to judge the file on its own,
-and treat a term whose only definition is in an instruction file as unresolved however the
-check reports it.
+The coined list is neither, and it is not meant to be empty: **watch window** will be on it
+every run and stays every time. It is a candidate list, read against the root `CLAUDE.md`'s
+two grounds — the industry owns the word, or the plain word was never a figure — and
+against the one test that admits a coinage at all, that the term names something the plain
+words cannot say once. A name meeting none of the three is removed in the commit that
+introduced it. That is the only cheap moment there is:
+the vocabulary cleanup of 2026-08-20 to 2026-08-23 is what the same removal cost once the
+names had been in the document a while, and it ran to millions of tokens over about forty
+terms, a document-wide pass each, and every one of them named again in the code. A cold reader is the right
+one to ask because it has no investment in the name — the session that just wrote a term
+can always say what it means, which is the same reason the check withholds the rest of the
+document. What it costs is that the settled vocabulary comes back every run: a reader with
+no memory cannot know which names were already argued for, so triaging the list is a
+session's job and never the subagent's.
 
-(Owner rule, 2026-08-15. What it costs is a subagent per changed file on every edit, and a
-check whose result is a judgment rather than a grep exit code.)
+The first two lists are long on a file that summarises the whole document, and that is not
+a fault in the file. Each term on them is either introduced in a clause or linked to the
+section that defines it.
+
+The subagent has to be given nothing but the path and the fields. An agent that has read
+the rest of the document resolves every term and returns nothing unlinked, and one that has
+read the rules argues every coinage back — which is exactly the failure the check exists to
+defeat, twice over. The fields are not an exception to that and are the one thing the check
+cannot work without: they say what the file is about and never that it is right, so nothing
+in them resolves a term or defends a name. Withholding them was the defect, not the
+discipline — a reader that does not know the file is speaking as sequential analysis
+reports `boundary` and `crossing` as private vocabulary, correctly by what it was given and
+wrongly about the document. The instruction files are what the check cannot withhold: a
+subagent receives the repository's `CLAUDE.md` whether or not it is asked to, so a term
+defined there rather than here is resolvable to the check and not to a reader. Tell the
+subagent to judge the file on its own, and treat a term whose only definition is in an
+instruction file as unresolved however the check reports it.
+
+The check costs a subagent per changed file on every edit, and its result is a judgment
+rather than a grep exit code.
 
 Then read One pipeline → Intent into items → Gates → Risk score → Environments → Releases →
-Contracts → Operations → Gate policy → The fleet → Surfaces straight through and confirm one
+Contracts → Operations → Gate policy → The fleet → Screens straight through and confirm one
 identity survives end to end: item plus build as a candidate, the same build in production,
 an ordinal attached at merge, contracts versioned alongside it.
 

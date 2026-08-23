@@ -1,0 +1,153 @@
+# The names this document uses, and the field each comes from.
+#
+# Every run of **bold** in end-goal/ that is not a paragraph lead-in, lowercased
+# and sorted, then a tab and the field that owns the word in the sense used here —
+# or `coined` where no field does, and `ordinary` where the run is a plain word or
+# emphasis rather than a name. The consistency pass in CLAUDE.md fails on a bolded
+# name that is not here; it reads the name alone and ignores what follows the tab.
+#
+# A line is not a decision, an endorsement, or a definition. It says the name
+# exists and where the word comes from, the way factory/deps.txt says an edge
+# exists, and nothing more. A field is a checkable fact about the outside world
+# rather than a judgment about this design, which is what keeps this file out of
+# the authority problem the root CLAUDE.md describes; the reasoning for a
+# contested one goes in the commit body and never in this file.
+#
+# Adding a line means the commit that adds it says which of the two grounds in
+# the root CLAUDE.md the name survives on. Additions fail the check; removals do
+# not — the vocabulary cleanup that ran to 2026-08-23 removed names constantly,
+# and a check that fought that would have blocked the work it exists to protect.
+# So the one thing this stops is the pile growing back.
+#
+# A few of these are emphasis rather than names — git, always true, the change —
+# and are here because the extraction cannot tell the difference, not because
+# they are terms.
+#
+a role prompt	agent engineering
+a skill	agent engineering
+agent	agent engineering
+always true	ordinary
+an actor on every record	ordinary
+area	ordinary
+artifact	process engineering
+artifact gate	ordinary
+artifact store	process engineering
+attempt limit	ordinary
+backstop the factory	ordinary
+backward	ordinary
+baseline	statistics
+build	release engineering
+candidate	release engineering
+cleared	coined
+closing row	coined
+condemned	coined
+consumer contract	contract testing
+context	ordinary
+contract version	contract testing
+control	statistics
+crossing	sequential analysis
+current release	release engineering
+decision	ordinary
+decomposition	requirements engineering
+departure	ordinary
+deployer	release engineering
+design system	design systems
+detector	observability
+dispatch	software architecture
+disposition	ordinary
+dropped	ordinary
+edit in place	ordinary
+effort	agent engineering
+element	contract testing
+escalated	site reliability engineering
+event	ordinary
+event gate	ordinary
+factory	coined
+factory-wide settings record	ordinary
+feed back as end users	ordinary
+firing	ordinary
+fleet	release engineering
+fleet proposal	coined
+form	contract testing
+forward	ordinary
+fully autonomous software factory and operations	coined
+gate component	coined
+git	version control
+health monitor	coined
+held out	statistics
+hold	release engineering
+incident	site reliability engineering
+independent checker	coined
+intent	ordinary
+item	ordinary
+item-size target	ordinary
+kind	ordinary
+last check	ordinary
+last known-good release	release engineering
+marked	ordinary
+mismatch	ordinary
+notifier	software architecture
+opening row	coined
+ops	site reliability engineering
+optional feature	ordinary
+organic traffic	applied statistics
+originate intent	ordinary
+page	site reliability engineering
+page event	coined
+people	ordinary
+per-author prior	statistics
+platform	platform engineering
+provider account	ordinary
+question	ordinary
+re-decomposing	requirements engineering
+reach	coined
+refined	ordinary
+release	release engineering
+release number	release engineering
+report	ordinary
+report store	ordinary
+risk threshold	risk scoring
+role	agent engineering
+role prompt	agent engineering
+rollback	release engineering
+rollback's target	coined
+rollout strategy	release engineering
+safeguard	ordinary
+scope	agent engineering
+score version	ordinary
+screens	product design
+seam	software architecture
+send-back	coined
+service	software architecture
+set the rules	ordinary
+skill	agent engineering
+skipped	coined
+source	ordinary
+state	ordinary
+state machine	formal methods
+state with an event inside it	ordinary
+statement	ordinary
+store	databases
+targets	ordinary
+the author	ordinary
+the change	ordinary
+the fast-forward	version control
+the graph	coined
+the list of allowed predicate kinds	ordinary
+the pipeline	release engineering
+the watch window's cap	coined
+the watch window's size and confidence	sequential analysis
+timed out	ordinary
+traceability is the second	ordinary
+undecided	ordinary
+unrefined	ordinary
+unwanted condition	requirements engineering
+verdict	ordinary
+verify against intent	ordinary
+watch window	coined
+why it auto-passed	ordinary
+window limit	coined
+with a control	statistics
+without a control	statistics
+work	ordinary
+writer	software architecture

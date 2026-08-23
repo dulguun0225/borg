@@ -4,7 +4,7 @@
 // One record type with a kind fixed at creation. The design has three —
 // production, a deploy target a customer defines, and a candidate's own — and
 // the CHECK in [DDL] lists the two this milestone writes. A customer's own
-// arrives with the surface an owner defines it on. What that costs is a CHECK
+// arrives with the screen an owner defines it on. What that costs is a CHECK
 // widened once per kind, which is the arrangement package item's stage column
 // already has.
 //
@@ -24,7 +24,7 @@
 // environment persists across a rebuild. What it was composed from is the
 // current release of each of the candidate's dependencies as it was when the
 // environment was composed, rewritten at each re-verification. The teardown time
-// is written when the item merges, is dropped, or is superseded by a re-cut, and
+// is written when the item merges, is dropped, or is superseded by a re-decomposition, and
 // the row is kept rather than deleted because the deploy records naming it would
 // otherwise point at nothing.
 //

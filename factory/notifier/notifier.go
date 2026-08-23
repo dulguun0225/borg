@@ -55,8 +55,8 @@ func New(pool *pgxpool.Pool, log *decisionlog.Writer, deliverer Deliverer, owner
 // where the wait qualifies — a page to every one of them, with one reached event
 // appended per human. The first delivery reaches every human holding the duty at
 // once: there is no rotation naming which one it reaches first, because a rotation
-// would be a declaration enforced by nothing and what a stale one does is what
-// happens here without it.
+// would be a declaration enforced by nothing and what a stale one does is
+// what happens here without it.
 //
 // It returns the page events it appended, which is empty for a wait that does not
 // qualify — that wait went out on mail and chat, and neither writes anything.
@@ -120,7 +120,7 @@ func (n *Notifier) Widen(ctx context.Context, w Wait) (decisionlog.Row, error) {
 
 // Answered is written when the wait stops waiting, naming who ended it. Its
 // caller is the component that ends the wait, at the same write it ends it with —
-// except for a mismatch cleared inside the reconciler's own store, which calls
+// except for a mismatch cleared inside the independent checker's own store, which calls
 // nothing, so there the caller is whoever read that store and found it cleared.
 func (n *Notifier) Answered(ctx context.Context, w Wait, by string) (decisionlog.Row, error) {
 	if _, err := prepare(w); err != nil {

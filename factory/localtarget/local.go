@@ -31,7 +31,7 @@ type Local struct {
 var _ targetseam.Target = (*Local)(nil)
 
 // SignalEnv is the environment variable each started process is told the file to
-// emit its quantity into. The comparison reads that file, so the name is here — one
+// emit its quantity into. The health monitor reads that file, so the name is here — one
 // place, named by the substrate that wires it, rather than agreed between the target
 // and whatever reads it.
 const SignalEnv = "BORG_SIGNAL"
@@ -50,20 +50,20 @@ const ExchangeEnv = "BORG_EXCHANGE"
 // ExchangeFile is where the build running in dir writes one document per unit of
 // work — what it published, as the elements its contract names. One file per build,
 // for the reason the signal file is one per build: a candidate's own documents are
-// what a consumer's declaration is decided against, and the documents of the build
-// that ran there before it are not.
+// what a consumer contract is decided against, and the documents of the
+// build that ran there before it are not.
 //
 // It is a second file rather than a second field of the signal's lines. The signal
-// is what the comparison counts and the exchange is what a predicate is decided
+// is what the health monitor counts and the exchange is what a predicate is decided
 // against, and folding them into one format would make every reader of either parse
 // the other's — and would rewrite a mechanism a milestone already built.
 func ExchangeFile(dir, build string) string { return filepath.Join(dir, build+".exchange") }
 
 // RunningFile is where the target records what it started for one service: the
-// build, a space, and the process id. It is a file rather than a field, so that a
-// process which did not start the software can still read what is running there —
-// which is exactly what the reconciler is, and what the seam's read operation is
-// for.
+// build, a space, and the process id. It is a file rather than a field, so that
+// a process which did not start the software can still read what is running
+// there — which is exactly what the independent checker is, and what the seam's
+// read operation is for.
 func RunningFile(dir, service string) string { return filepath.Join(dir, service+".running") }
 
 var (
@@ -86,11 +86,11 @@ var (
 // placed before Deploy is called, named exactly by the build string.
 func New(dir string) *Local { return &Local{dir: dir} }
 
-// Deploy stops whatever runs for the service and starts dir/<build>, so a
-// deploy is a replacement and two builds of one service never run at once. The
-// process is started knowing two files: the one it emits its quantity into, which
-// is what makes the software the factory wrote observable at all, and the one it
-// writes its exchange documents into, which is what a consumer's declaration is
+// Deploy stops whatever runs for the service and starts dir/<build>, so a deploy
+// is a replacement and two builds of one service never run at once. The process
+// is started knowing two files: the one it emits its quantity into, which is what
+// makes the software the factory wrote observable at all, and the one it writes
+// its exchange documents into, which is what a consumer contract is
 // decided against.
 //
 // A build or a service name that is not a local path is refused before the stop,
@@ -168,11 +168,12 @@ func (l *Local) stop(service string) error {
 // nothing running: the target reports what runs, not what was started.
 //
 // It reads the file the deploy wrote rather than this value's own memory, so a
-// process that did not perform the deploy gets the same answer — which is what the
-// reconciler needs and the one thing the design requires of this operation. What it
-// costs is that a process nobody is waiting on may sit in the process table as a
-// zombie after it exits and answer signal 0, so a build started by an earlier
-// factory run and since crashed can read as running until something reaps it.
+// process that did not perform the deploy gets the same answer — which is what
+// the independent checker needs and the one thing the design requires of this
+// operation. What it costs is that a process nobody is waiting on may sit in
+// the process table as a zombie after it exits and answer signal 0, so a build
+// started by an earlier factory run and since crashed can read as running until
+// something reaps it.
 func (l *Local) ReadRunning(_ context.Context, service string, credential secretref.Ref) (targetseam.Running, error) {
 	if err := check(service, credential); err != nil {
 		return targetseam.Running{}, err
@@ -191,10 +192,10 @@ func (l *Local) ReadRunning(_ context.Context, service string, credential secret
 }
 
 // read is what the file says: the build and the process id, and false where
-// nothing has been started for the service in this directory. A file this package
-// cannot read as those two is an error rather than nothing running — something
-// changed the target underneath, which is what the reconciler exists to raise and
-// not something to report as an empty target.
+// nothing has been started for the service in this directory. A file this
+// package cannot read as those two is an error rather than nothing running —
+// something changed the target underneath, which is what the independent
+// checker exists to raise and not something to report as an empty target.
 func (l *Local) read(service string) (string, int, bool, error) {
 	content, err := os.ReadFile(RunningFile(l.dir, service))
 	if errors.Is(err, os.ErrNotExist) {

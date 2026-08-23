@@ -14,8 +14,8 @@ type Group string
 const (
 	// GroupChange is computed from the change itself.
 	GroupChange Group = "change"
-	// GroupAuthorship is the prior on whoever authored the change.
-	GroupAuthorship Group = "authorship"
+	// GroupAuthor is the prior on whoever authored the change.
+	GroupAuthor Group = "author"
 	// GroupContext is what the change touches around it.
 	GroupContext Group = "context"
 )
@@ -70,7 +70,7 @@ type definition struct {
 }
 
 // definitions is the factor set: the design's three groups, with the change
-// group's five factors, the authorship prior, and the context group's two. The
+// group's five factors, the per-author prior, and the context group's two. The
 // weights are the authored formula's and sum to one within each half.
 var definitions = []definition{
 	{"change.size", GroupChange, HalfLikelihood, 0.30,
@@ -79,8 +79,8 @@ var definitions = []definition{
 		"releases minted in this item's area lately", (*Score).churn},
 	{"change.test_coverage", GroupChange, HalfLikelihood, 0.20,
 		"criteria in force that decided this build, and whether any failed", (*Score).coverage},
-	{"authorship.prior", GroupAuthorship, HalfLikelihood, 0.30,
-		"every outcome on this author's own work: human verdicts on its versions, the watch windows of its releases, and the vetoes of them", (*Score).prior},
+	{"author.prior", GroupAuthor, HalfLikelihood, 0.30,
+		"every outcome on this author's own work: human verdicts on its versions, the watch windows of its releases, and any of them a human undid", (*Score).prior},
 	{"change.reach", GroupChange, HalfImpact, 0.50,
 		"share of the service's files the diff touches", (*Score).reach},
 	{"context.business_area", GroupContext, HalfImpact, 0.30,

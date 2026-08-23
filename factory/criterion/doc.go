@@ -23,10 +23,11 @@
 // # The in-force query
 //
 // In force is per build and not per service, and a build is a set of items: the
-// ones merged into the tree it was made from, plus the item whose branch it is.
+// ones merged into the repository it was made from, plus the item whose branch
+// it is.
 // [InForce] takes that set. A criterion introduced by a sibling item that has not
 // merged is a promise this build's tree could not keep, so holding it in force
-// against this build would reject every candidate cut in parallel with the one
+// against this build would reject every candidate decomposed in parallel with the one
 // that introduced it — which is what two candidates at once on one service found.
 //
 // The other half of the design's query, withdrawal, is not written anywhere yet:
@@ -61,7 +62,7 @@
 //
 // There are three [Outcome] values and the third is not a kind of pass:
 // [OutcomeUndecided] is an encoding that produced a failure and a pass over the
-// same build, and [Outcome.Blocks] is what says it is read at the merge gate the
+// same build, and [Outcome.Blocks] is what says it is read at the Merge to master gate the
 // way a failure is. [Decide] is the whole of how one is reached, which is why the
 // encodings are run twice.
 //

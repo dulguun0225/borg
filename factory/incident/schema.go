@@ -18,7 +18,7 @@ const IDPrefix = "inc"
 // what is open, not about what ever happened.
 //
 // actor_is_a_component is here as well as in the writer, for the reason package
-// policy's owner-only rule is in both: the comparison is the only writer of this
+// policy's owner-only rule is in both: the health monitor is the only writer of this
 // record, and a human's judgment about live software reaches production by
 // another road.
 //

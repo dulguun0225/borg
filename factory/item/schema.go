@@ -32,12 +32,12 @@ const stages = `('spec', 'implementation', 'queued', 'merged', 'superseded')`
 // row per edge for a list of two.
 //
 // waits_on holds the ids of the items this one waits on, one per line, and is
-// empty where the cut declared none. It is a field and not a table because what
+// empty where decomposition declared none. It is a field and not a table because what
 // reads it reads all of one item's at once — the two deploy gates — and a table
 // would be a row per edge for a list of two.
 //
 // priority is signed, so an owner can push an item behind the default as well as
-// in front of it, and defaults to nothing at the cut.
+// in front of it, and defaults to nothing at decomposition.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,

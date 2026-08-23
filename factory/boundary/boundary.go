@@ -40,7 +40,7 @@ var (
 const (
 	// NoBaseline is a release with nothing below it to be compared against,
 	// which is a service's first release. Nothing about it is discovered by
-	// watching, and the design says so: clean is not an exit available to it.
+	// watching, and the design says so: the cleared exit is not available to it.
 	NoBaseline = "the release has no baseline to be compared against, so no regression can be ruled out or found"
 	// NoHeadroom is a baseline rate so high that raising it by the size passes
 	// one. There is no rate above it for the alternative to name, so the
@@ -102,9 +102,9 @@ func (b Boundary) Crossing() float64 { return math.Log(1 / (1 - b.Confidence)) }
 type Observed struct {
 	Units    int64
 	Failures int64
-	// BaselineUnits and BaselineFailures are the restore floor's, which is the
-	// newest release whose window closed without condemning it. Nothing is the
-	// answer for a service's first release, and it makes both exits unreachable.
+	// BaselineUnits and BaselineFailures are the last known-good release's, which
+	// is the newest release whose window closed without condemning it. Nothing is
+	// the answer for a service's first release, and it makes both exits unreachable.
 	BaselineUnits    int64
 	BaselineFailures int64
 }

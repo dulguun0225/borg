@@ -81,12 +81,12 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var cut = record.Actor{Kind: record.KindComponent, Name: "cut"}
+var decomposition = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
 
 func TestCreateAndGet(t *testing.T) {
 	ctx, pool, w := newWriter(t)
 
-	created, err := w.Create(ctx, cut, "checkout", "/srv/repos/checkout")
+	created, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -110,16 +110,16 @@ func TestCreateAndGet(t *testing.T) {
 	}
 }
 
-// TestByNameIsWhatTheCutReads is the look-up the cut does before it creates:
+// TestByNameIsWhatDecompositionReads is the look-up the decomposition does before it creates:
 // the name it is given either names a service already or names none.
-func TestByNameIsWhatTheCutReads(t *testing.T) {
+func TestByNameIsWhatDecompositionReads(t *testing.T) {
 	ctx, pool, w := newWriter(t)
 
 	if _, found, err := service.ByName(ctx, pool, "checkout"); err != nil || found {
 		t.Errorf("ByName before any create = found %t, %v, want false and no error", found, err)
 	}
 
-	created, err := w.Create(ctx, cut, "checkout", "/srv/repos/checkout")
+	created, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -134,14 +134,14 @@ func TestByNameIsWhatTheCutReads(t *testing.T) {
 
 // TestDuplicateNameRefusedByTheStore creates one name twice. The second
 // create is refused by the unique constraint, not by a pre-check the writer
-// makes, so the refusal holds against two concurrent cuts too.
+// makes, so the refusal holds against two concurrent decompositions too.
 func TestDuplicateNameRefusedByTheStore(t *testing.T) {
 	ctx, _, w := newWriter(t)
 
-	if _, err := w.Create(ctx, cut, "checkout", "/srv/repos/checkout"); err != nil {
+	if _, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout"); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, err := w.Create(ctx, cut, "checkout", "/srv/repos/checkout-again")
+	_, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout-again")
 	if err == nil {
 		t.Fatal("Create with a taken name returned nil, want the unique constraint's refusal")
 	}
@@ -154,10 +154,10 @@ func TestDuplicateNameRefusedByTheStore(t *testing.T) {
 func TestCreateRefusals(t *testing.T) {
 	ctx, _, w := newWriter(t)
 
-	if _, err := w.Create(ctx, cut, "", "/srv/repos/checkout"); !errors.Is(err, service.ErrNameEmpty) {
+	if _, err := w.Create(ctx, decomposition, "", "/srv/repos/checkout"); !errors.Is(err, service.ErrNameEmpty) {
 		t.Errorf("Create with no name = %v, want ErrNameEmpty", err)
 	}
-	if _, err := w.Create(ctx, cut, "checkout", ""); !errors.Is(err, service.ErrRepositoryEmpty) {
+	if _, err := w.Create(ctx, decomposition, "checkout", ""); !errors.Is(err, service.ErrRepositoryEmpty) {
 		t.Errorf("Create with no repository = %v, want ErrRepositoryEmpty", err)
 	}
 	if _, err := w.Create(ctx, record.Actor{}, "checkout", "/srv/repos/checkout"); !errors.Is(err, record.ErrKindUnknown) {
@@ -171,7 +171,7 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 	ctx, pool, _ := newWriter(t)
 
 	insert := `insert into service (id, actor_kind, actor_name, at, name, repository)
-		values ($1, 'component', 'cut', $2, $3, $4)`
+		values ($1, 'component', 'decomposition', $2, $3, $4)`
 	for _, refused := range []struct {
 		name       string
 		serviceN   string

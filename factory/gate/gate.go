@@ -47,62 +47,64 @@ type Score interface {
 	// would otherwise put a human at. It is asked after the policy has answered,
 	// because the question is about a gate the score itself would have gated and
 	// the score does not know the threshold in force.
-	HoldOut(ctx context.Context, itemID string, wouldGate, pinned bool) (score.Selection, error)
+	HoldOut(ctx context.Context, itemID string, wouldGate, bySafeguard bool) (score.Selection, error)
 }
 
 // Policy is what the gate asks about the values in force: the threshold for this
-// row, where it came from, whether a pin adds a human, and the policy version
-// the firing is decided under. Package policy is the implementation.
+// row, where it came from, whether a safeguard adds a human, and the policy
+// version the firing is decided under. Package policy is the implementation.
 type Policy interface {
 	AtGate(ctx context.Context, s policy.Subjects) (policy.Applied, error)
 }
 
-// Reconciler is what the gate asks about the reconciler's own store when the
+// Checker is what the gate asks about the independent checker's own store when the
 // production deploy row fires: whether a mismatch stands for this service, and
 // what disagrees. It is an interface because that store is not the factory's — no
 // factory component may write it, and a gate that imported the package owning it
-// would be a gate holding a second pool. [NoReconciler] is what a factory with
+// would be a gate holding a second pool. [NoChecker] is what a factory with
 // none installed is composed with.
 //
 // The design puts this read at the moment the row fires and nowhere else, which
 // is the same rule every other check a gate makes keeps.
-type Reconciler interface {
+type Checker interface {
 	// Mismatch is whether an uncleared mismatch stands for the service, and what
 	// disagrees, in words a human reads on the opening row.
 	Mismatch(ctx context.Context, serviceID string) (bool, string, error)
 }
 
-// NoReconciler is the answer of a factory with no reconciler installed: no
+// NoChecker is the answer of a factory with no independent checker installed: no
 // mismatch, ever. It is a value rather than a nil interface, so that a factory
 // composed without one says so and a caller cannot forget to check.
 //
-// What it costs is what the design says installing the reconciler buys: with none
-// installed, every check the factory makes reads a record the factory wrote, so a
-// factory whose records are wrong reports itself healthy and nothing contradicts
-// it. That is visible in what the crude interface prints and nowhere else.
-type NoReconciler struct{}
+// What it costs is what the design says installing the independent checker
+// buys: with none installed, every check the factory makes reads a record the
+// factory wrote, so a factory whose records are wrong reports itself healthy
+// and nothing contradicts it. That is visible in what the crude interface
+// prints and nowhere else.
+type NoChecker struct{}
 
 // Mismatch is never one.
-func (NoReconciler) Mismatch(context.Context, string) (bool, string, error) { return false, "", nil }
+func (NoChecker) Mismatch(context.Context, string) (bool, string, error) { return false, "", nil }
 
 // Gate is the gate component: it appends a decision's two rows through the log's
 // writer, asking the score and the policy before the first.
 type Gate struct {
-	log        *decisionlog.Writer
-	score      Score
-	policy     Policy
-	reconciler Reconciler
+	log     *decisionlog.Writer
+	score   Score
+	policy  Policy
+	checker Checker
 }
 
-// New returns the gate over the log, the score, the policy, and the reconciler's
-// store. A nil reconciler is [NoReconciler]: composing a factory without one is
-// something a caller does deliberately, and a gate that panicked on it would make
-// the reconciler required where the design makes installing it the owner's.
-func New(log *decisionlog.Writer, s Score, p Policy, r Reconciler) *Gate {
+// New returns the gate over the log, the score, the policy, and the independent
+// checker's store. A nil checker is [NoChecker]: composing a factory without
+// one is something a caller does deliberately, and a gate that panicked on it
+// would make the independent checker required where the design makes installing
+// it the owner's.
+func New(log *decisionlog.Writer, s Score, p Policy, r Checker) *Gate {
 	if r == nil {
-		r = NoReconciler{}
+		r = NoChecker{}
 	}
-	return &Gate{log: log, score: s, policy: p, reconciler: r}
+	return &Gate{log: log, score: s, policy: p, checker: r}
 }
 
 // Firing is what fires the gate: the row, the records it decides over, what the
@@ -155,7 +157,7 @@ type Opened struct {
 	// WhyHeldOut is which of the two ways it came to be held out, and is empty
 	// where it is not.
 	WhyHeldOut string
-	// Mismatch is what the reconciler found disagreeing with what runs, and is
+	// Mismatch is what the independent checker found disagreeing with what runs, and is
 	// empty where it found nothing and at every row but the production deploy. It
 	// is a field of its own beside WhyHuman because a human deciding here has to
 	// read what disagrees and not only that something does.
@@ -166,17 +168,17 @@ type Opened struct {
 const (
 	// WhyOverThreshold is the number being at or above the threshold in force.
 	WhyOverThreshold = "the number is at or above the threshold in force"
-	// WhyPinned is a pin adding a human, which a pin may do whatever the number
-	// reads.
-	WhyPinned = "a pin adds a human at this row"
+	// WhySafeguard is a safeguard adding a human, which a safeguard may do
+	// whatever the number reads.
+	WhySafeguard = "a safeguard adds a human at this row"
 	// WhyBoth is both at once, which is worth telling apart from either: an
-	// owner withdrawing the pin would not remove the human.
-	WhyBoth = "the number is at or above the threshold in force, and a pin adds a human"
-	// WhyMismatch is a record the reconciler found disagreeing with what runs. It
+	// owner withdrawing the safeguard would not remove the human.
+	WhyBoth = "the number is at or above the threshold in force, and a safeguard adds a human"
+	// WhyMismatch is a record the independent checker found disagreeing with what runs. It
 	// is the one reason a human decides that is neither the score's nor an owner's,
 	// and it is appended to whichever of the three above also holds — an owner
 	// clearing the mismatch would not remove a human the number put there.
-	WhyMismatch = HoldReconcilerMismatch
+	WhyMismatch = HoldCheckerMismatch
 )
 
 // OpeningPayload is what the opening row says. It names the row, the records
@@ -200,7 +202,7 @@ type OpeningPayload struct {
 	Impact         float64           `json:"impact"`
 	Exposure       float64           `json:"exposure"`
 	ThresholdFrom  string            `json:"threshold_from"`
-	Pins           []string          `json:"pins"`
+	Safeguards     []string          `json:"safeguards"`
 	Unavailable    []string          `json:"unavailable_factors"`
 	HumanDecides   bool              `json:"human_decides"`
 	WhyHuman       string            `json:"why_human"`
@@ -209,12 +211,12 @@ type OpeningPayload struct {
 	// opening, because the score reads that one back.
 	WhyHeldOut string `json:"why_held_out,omitempty"`
 	WaitsOn    string `json:"waits_on"`
-	// Mismatch is what the reconciler found disagreeing with what runs, and is
+	// Mismatch is what the independent checker found disagreeing with what runs, and is
 	// empty on every row that found none. It is on the opening row because a human
 	// approving through it is saying the record is wrong and the deploy should
 	// proceed anyway, which is a verdict nobody can read against a row that does
 	// not say what disagreed.
-	Mismatch string `json:"reconciler_mismatch,omitempty"`
+	Mismatch string `json:"checker_mismatch,omitempty"`
 }
 
 // ClosingPayload is what the closing row says: the verdict, what the human typed
@@ -243,20 +245,21 @@ type ClosingPayload struct {
 // words a closing row names one by. They are constants here so that a caller
 // cannot report a rejection under a name of its own, which is the arrangement the
 // five holds already have; what computes each of them reads the contracts and the
-// declarations, and this package imports neither.
+// consumer contracts, and this package imports neither.
 const (
 	// AutoRejectedByContractDiff is the producer's own diff: the form the
 	// candidate publishes against the version its service's current release
 	// publishes, breaking, with the migration not shipped ahead of it.
 	AutoRejectedByContractDiff = "the producer's own contract diff"
-	// AutoRejectedByDeclaration is a consumer's declaration in force that the
-	// candidate does not satisfy, decided against the candidate's own run.
-	AutoRejectedByDeclaration = "a consumer's declaration"
-	// AutoRejectedByPinnedPredicate is a pinned predicate naming an element the
-	// candidate removes. It is told apart from a declaration because an owner
-	// placed it and a derivation did not, and what a reader of the rejection needs
-	// is the pin and its author.
-	AutoRejectedByPinnedPredicate = "a pinned predicate"
+	// AutoRejectedByConsumerContract is a consumer contract in force
+	// that the candidate does not satisfy, decided against the candidate's own
+	// run.
+	AutoRejectedByConsumerContract = "a consumer contract"
+	// AutoRejectedBySafeguardPredicate is a safeguard's predicate naming an
+	// element the candidate removes. It is told apart from a consumer contract
+	// because an owner placed it and a derivation did not, and what a reader of
+	// the rejection needs is the safeguard and its author.
+	AutoRejectedBySafeguardPredicate = "a safeguard's predicate"
 )
 
 // Fire fires the gate: it asks the score about the change and the policy about
@@ -291,16 +294,16 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", f.Row, err)
 	}
 
-	// The reconciler's store, read at the production deploy row and at no other:
+	// The independent checker's store, read at the production deploy row and at no other:
 	// what it holds is a disagreement about what is running in production, and no
 	// other row decides a deploy into it. A mismatch puts a human here whatever the
 	// number reads, because nothing the factory can decide on the record is worth
 	// deciding while the record is the thing in doubt.
 	mismatch := ""
 	if f.Row == DeployToProduction {
-		found, why, err := g.reconciler.Mismatch(ctx, f.ServiceID)
+		found, why, err := g.checker.Mismatch(ctx, f.ServiceID)
 		if err != nil {
-			return Opened{}, fmt.Errorf("gate: reading the reconciler's store for %s: %w", f.ServiceID, err)
+			return Opened{}, fmt.Errorf("gate: reading the independent checker's store for %s: %w", f.ServiceID, err)
 		}
 		if found {
 			mismatch = why
@@ -309,24 +312,25 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 
 	// The score's own sample, asked after the policy answered and before the human
 	// test: what it may pass is a gate the score itself would have gated, which is
-	// the number against the threshold in force, and it may pass nothing a pin put
-	// a human at.
+	// the number against the threshold in force, and it may pass nothing a
+	// safeguard put a human at.
 	overThreshold := assessment.Number >= applied.Threshold
-	selection, err := g.score.HoldOut(ctx, f.ItemID, overThreshold, applied.HumanPinned)
+	selection, err := g.score.HoldOut(ctx, f.ItemID, overThreshold, applied.HumanBySafeguard)
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: asking the score whether %s is held out: %w", f.ItemID, err)
 	}
 
 	// A held-out item removes the human the number put at the row and no other. A
-	// pin's human and a mismatch's stand: the sample is the score holding itself
-	// out of its own gate, and nothing in the design lets it out of anyone else's.
+	// safeguard's human and a mismatch's stand: the sample is the score holding
+	// itself out of its own gate, and nothing in the design lets it out of anyone
+	// else's.
 	gatedByNumber := overThreshold && !selection.HeldOut
 	opened := Opened{
 		Gate:         f.Row,
 		Assessment:   assessment,
 		Applied:      applied,
-		HumanDecides: gatedByNumber || applied.HumanPinned || mismatch != "",
-		WhyHuman:     why(gatedByNumber, applied.HumanPinned, mismatch != ""),
+		HumanDecides: gatedByNumber || applied.HumanBySafeguard || mismatch != "",
+		WhyHuman:     why(gatedByNumber, applied.HumanBySafeguard, mismatch != ""),
 		HeldOut:      selection.HeldOut,
 		WhyHeldOut:   selection.Why,
 		Mismatch:     mismatch,
@@ -356,7 +360,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		Impact:         assessment.Impact,
 		Exposure:       assessment.Exposure,
 		ThresholdFrom:  string(applied.ThresholdFrom),
-		Pins:           applied.Pins,
+		Safeguards:     applied.Safeguards,
 		Unavailable:    assessment.UnavailableFactors(),
 		HumanDecides:   opened.HumanDecides,
 		WhyHuman:       opened.WhyHuman,
@@ -395,7 +399,7 @@ func (g *Gate) Decide(ctx context.Context, opened Opened, actor record.Actor, ve
 
 	returnsTo := ""
 	if verdict == VerdictReject && opened.Gate != Decomposition {
-		// Decomposition names nothing: its reject re-cuts the set rather than
+		// Decomposition names nothing: its reject re-decomposes the set rather than
 		// sending an item anywhere, which is the one reject in the design with no
 		// stage on the other end of it.
 		returnsTo = ReturnsTo
@@ -417,8 +421,8 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 	}
 	return g.close(ctx, opened, component(opened.Gate), ClosingPayload{
 		Closing: score.Closing{
-			Verdict:      string(VerdictApprove),
-			AutoPassedBy: autoPassedBy(opened),
+			Verdict:         string(VerdictApprove),
+			WhyItAutoPassed: whyItAutoPassed(opened),
 		},
 	})
 }
@@ -448,7 +452,7 @@ func (g *Gate) AutoReject(ctx context.Context, opened Opened, check, found strin
 	}
 	returnsTo := ReturnsTo
 	if opened.Gate == Decomposition {
-		// Decomposition names nothing at all: its reject re-cuts the set rather
+		// Decomposition names nothing at all: its reject re-decomposes the set rather
 		// than sending an item anywhere, so the field its closing row would carry
 		// stays unwritten.
 		returnsTo = ""
@@ -522,7 +526,7 @@ func complete(f Firing) error {
 }
 
 // blocked is how many of the criteria decided against the build stop it at the
-// merge gate. Undecided is counted with failed, which is what the design says of
+// Merge to master gate. Undecided is counted with failed, which is what the design says of
 // it: an encoding that produced a failure and a pass over the same build decided
 // nothing, and it is read there the way a failure is.
 func blocked(criteria []CriterionResult) int {
@@ -535,31 +539,31 @@ func blocked(criteria []CriterionResult) int {
 	return n
 }
 
-// autoPassedBy is what the closing row says passed the firing. It reads the
+// whyItAutoPassed is what the closing row says passed the firing. It reads the
 // threshold at a gate the score would have passed anyway, whether or not the item
 // is held out, and the sample only where the number was at or above the threshold
 // — which is the one case the sample is evidence about, and the only case the
 // threshold's own calibration counts.
-func autoPassedBy(opened Opened) string {
+func whyItAutoPassed(opened Opened) string {
 	if opened.HeldOut && opened.Assessment.Number >= opened.Applied.Threshold {
-		return score.AutoPassedBySample
+		return score.AutoPassSample
 	}
-	return score.AutoPassedByThreshold
+	return score.AutoPassThreshold
 }
 
-// why is what put a human at the row. The score's number and a pin are the two
-// the design gives every row, and their four combinations are the three constants
-// above; a mismatch is appended rather than replacing either, because clearing it
-// would not remove a human the number put there.
-func why(overThreshold, pinned, mismatch bool) string {
+// why is what put a human at the row. The score's number and a safeguard are the
+// two the design gives every row, and their four combinations are the three
+// constants above; a mismatch is appended rather than replacing either, because
+// clearing it would not remove a human the number put there.
+func why(overThreshold, bySafeguard, mismatch bool) string {
 	reason := ""
 	switch {
-	case overThreshold && pinned:
+	case overThreshold && bySafeguard:
 		reason = WhyBoth
 	case overThreshold:
 		reason = WhyOverThreshold
-	case pinned:
-		reason = WhyPinned
+	case bySafeguard:
+		reason = WhySafeguard
 	}
 	switch {
 	case !mismatch:

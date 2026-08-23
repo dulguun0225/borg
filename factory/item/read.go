@@ -62,9 +62,9 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Item, error) {
 }
 
 // IDsInArea is every item whose area is the one named, in the order they were
-// cut. It answers one area and not a chain: a caller wanting every item a pin
-// on an area reaches walks the chain itself and asks for each, the chain being
-// package area's to read.
+// decomposition. It answers one area and not a chain: a caller wanting every item a
+// safeguard on an area reaches walks the chain itself and asks for each, the chain
+// being package area's to read.
 //
 // An empty area is no items and no error. An item may name no area, and an
 // empty id would otherwise match every one of them.
@@ -92,8 +92,8 @@ func IDsInArea(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]string
 	return ids, nil
 }
 
-// ForIntent is every item cut from one intent, in the order they were cut. One
-// intent yields one item through the crude interface and several where the cut
+// ForIntent is every item decomposed from one intent, in the order they were decomposed. One
+// intent yields one item through the crude interface and several where decomposition
 // divides the work, and both readers of this want all of them: what a rollback's
 // revert intent became, and what an incident's intent became.
 //
@@ -125,12 +125,12 @@ func ForIntent(ctx context.Context, pool *pgxpool.Pool, intentID string) ([]Item
 }
 
 // AtStage is every item of one service at one stage, ordered by the priority an
-// owner set — greater first — and then by the time the item was cut.
+// owner set — greater first — and then by the time the item was decomposed.
 //
 // It is what the merge queue's membership is read with, and the order it returns
 // is not the queue's own: the queue orders by that priority and then by the time
 // of the merge approval in the log, which is a fact this package does not hold.
-// The tie-break here is the cut's time, so a caller that reads no log still gets
+// The tie-break here is decomposition's time, so a caller that reads no log still gets
 // a stable order.
 func AtStage(ctx context.Context, pool *pgxpool.Pool, serviceID string, stage Stage) ([]Item, error) {
 	rows, err := pool.Query(ctx, `select `+columns+` from `+Table+`
@@ -154,7 +154,7 @@ func AtStage(ctx context.Context, pool *pgxpool.Pool, serviceID string, stage St
 	return read, nil
 }
 
-// All is every item in the store, oldest cut first. It is what the score learns
+// All is every item in the store, oldest decomposed first. It is what the score learns
 // from: the subjects it supplies a value for are the areas the items name and the
 // stages they reported at, so a reader asking per area or per service would first
 // have to be told which to ask about.
@@ -186,7 +186,7 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Item, error) {
 // AllStages is every per-stage row of every item, in the order the stages first
 // reported. It is [Stages] over the whole table, and it is a read of its own
 // rather than a loop over [All] calling [Stages] for each, because what reads it
-// reads every attempt at one stage across every item — the attempt bound being
+// reads every attempt at one stage across every item — the attempt limit being
 // per stage and not per item.
 func AllStages(ctx context.Context, pool *pgxpool.Pool) ([]StageTotals, error) {
 	rows, err := pool.Query(ctx, `select id, actor_kind, actor_name, at, item_id, stage, attempts, spend_tokens

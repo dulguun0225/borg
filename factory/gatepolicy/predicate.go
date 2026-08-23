@@ -6,15 +6,15 @@ import (
 	"slices"
 )
 
-// PredicateKind is what a consumer's declaration asserts about one element of a
-// contract it reads. The five here are the ones this factory can decide, and they
-// are the sentences [PredicateCatalog]'s own definition lists, with "the field is
+// PredicateKind is what a consumer contract asserts about one element of a
+// contract it reads. The five here are the ones this factory can decide, and they are
+// the sentences [AllowedPredicateKinds]'s own definition lists, with "the field is
 // read at all" and "it arrives populated" told apart — one is derived from the
-// consumer reading the element and the other from what the consumer says about it,
-// so a declaration can hold either without the other.
+// consumer reading the element and the other from what the consumer says about it, so
+// a consumer contract can hold either without the other.
 //
 // They are vocabulary and not a table, which is why they are here: package
-// declaration derives one, package policy resolves the catalog they are the
+// consumer contract derives one, package policy resolves the list they are the
 // unauthored value of, and neither should hold a second copy of the list.
 type PredicateKind string
 
@@ -37,18 +37,20 @@ const (
 	PredicateRange PredicateKind = "range"
 )
 
-// PredicateKinds is the catalog the factory owns: every kind a declaration may
-// draw from before an owner extends it. An owner authors more on the factory
-// policy record and a pin adds more still, and the value in force is the union —
-// which is what makes this the floor rather than the whole catalog.
+// PredicateKinds is the list of allowed predicate kinds the factory owns: every
+// kind a consumer contract may draw from before an owner extends it. An owner
+// authors more on the factory-wide settings record and a safeguard adds more
+// still, and the value in force is the union — which is what makes this the
+// floor rather than the whole list.
 var PredicateKinds = []PredicateKind{
 	PredicateRead, PredicatePopulated, PredicateUnit, PredicateDomain, PredicateRange,
 }
 
-// PredicateCatalogNames is [PredicateKinds] as the list a printer and a pin's
-// union work in. The catalog is a list-valued parameter, so its value in force is
-// a list of names and not a list of this type.
-func PredicateCatalogNames() []string {
+// AllowedPredicateKindNames is [PredicateKinds] as the list a printer and a
+// safeguard's union work in. The list of allowed predicate kinds is a
+// list-valued parameter, so its value in force is a list of names and not a
+// list of this type.
+func AllowedPredicateKindNames() []string {
 	names := make([]string, 0, len(PredicateKinds))
 	for _, k := range PredicateKinds {
 		names = append(names, string(k))
@@ -57,16 +59,16 @@ func PredicateCatalogNames() []string {
 }
 
 // ErrPredicateKindUnknown is returned by [DecidablePredicate] for a kind this
-// factory has no decider for. A catalog an owner widened admits the name; what
+// factory has no decider for. A list an owner widened admits the name; what
 // refuses it is the derivation, which is where the design's cost of a wide
-// catalog — an assertion that cannot be decided against one observed exchange —
+// list — an assertion that cannot be decided against one observed exchange —
 // actually falls on this substrate.
 var ErrPredicateKindUnknown = errors.New("gatepolicy: this factory has no decider for that kind of predicate")
 
 // DecidablePredicate is the kind by that name, and an error for a name outside
-// [PredicateKinds]. A caller that took the name from a catalog an owner extended
+// [PredicateKinds]. A caller that took the name from a list an owner extended
 // calls this rather than casting, so a kind nothing can decide is refused where
-// the declaration is derived and not where it is read.
+// the consumer contract is derived and not where it is read.
 func DecidablePredicate(name string) (PredicateKind, error) {
 	kind := PredicateKind(name)
 	if !slices.Contains(PredicateKinds, kind) {

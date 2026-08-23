@@ -38,7 +38,7 @@ type Version struct {
 // Value is what this version supplies for one parameter on one subject. It is the
 // read package policy makes: the value in force is what an owner authored where
 // they authored one and what the version in force supplies otherwise, clamped by
-// any pin.
+// any safeguard.
 //
 // A zero version answers the starting values, which is the answer for a factory
 // that has appended no version yet — so a factory with an empty table still runs

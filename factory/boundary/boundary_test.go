@@ -25,7 +25,7 @@ func TestTheCrossingIsWhatTheConfidenceMeans(t *testing.T) {
 	}
 }
 
-// TestARegressionCrosses is the harm exit: a release failing far above its
+// TestARegressionCrosses is the condemned exit: a release failing far above its
 // baseline crosses, and the reading carries every number the verdict came from.
 func TestARegressionCrosses(t *testing.T) {
 	reading, err := theBoundary.Evaluate(boundary.Observed{
@@ -57,7 +57,7 @@ func TestARegressionCrosses(t *testing.T) {
 	}
 }
 
-// TestNoRegressionCloses is the clean exit: a release failing at its baseline's
+// TestNoRegressionCloses is the cleared exit: a release failing at its baseline's
 // own rate rules out a regression of the size, and it takes about as many units
 // as the arithmetic says it should.
 func TestNoRegressionCloses(t *testing.T) {
@@ -100,7 +100,7 @@ func TestNoRegressionCloses(t *testing.T) {
 }
 
 // TestTheUnitsNeededScaleAsTheInverseSquareOfTheSize is the design's own claim
-// about this arithmetic, checked as a property of it: cutting the size tenfold
+// about this arithmetic, checked as a property of it: decomposing the size tenfold
 // multiplies the units a comparison needs by about a hundred, which is why
 // closing a window faster by coarsening the boundary runs out quickly.
 func TestTheUnitsNeededScaleAsTheInverseSquareOfTheSize(t *testing.T) {
@@ -120,15 +120,15 @@ func TestTheUnitsNeededScaleAsTheInverseSquareOfTheSize(t *testing.T) {
 
 	ratio := fine / coarse
 	if ratio < 90 || ratio > 110 {
-		t.Errorf("cutting the size tenfold multiplied the units by %v, want about a hundred (%v then %v)",
+		t.Errorf("decomposing the size tenfold multiplied the units by %v, want about a hundred (%v then %v)",
 			ratio, coarse, fine)
 	}
 }
 
-// TestAFirstReleaseCanNeitherCloseCleanNorBeCondemned is the exit table's own
+// TestAFirstReleaseCanNeitherBeClearedNorCondemned is the exit table's own
 // exception: a release with no baseline has no comparison, so nothing about it
 // is discovered by watching and its window ends at the cap.
-func TestAFirstReleaseCanNeitherCloseCleanNorBeCondemned(t *testing.T) {
+func TestAFirstReleaseCanNeitherBeClearedNorCondemned(t *testing.T) {
 	reading, err := theBoundary.Evaluate(boundary.Observed{Units: 100000, Failures: 100000})
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)

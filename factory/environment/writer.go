@@ -24,7 +24,7 @@ const (
 	KindProduction Kind = "production"
 	// KindCandidate is a candidate's own environment, created from master plus
 	// that candidate and torn down when the item merges, is dropped, or is
-	// superseded by a re-cut. It holds nothing an owner authored, being created
+	// superseded by a re-decomposition. It holds nothing an owner authored, being created
 	// at the gate that decides its deploy, and its writer is [Candidates] and
 	// never [Writer].
 	KindCandidate Kind = "candidate"

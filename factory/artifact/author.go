@@ -12,7 +12,7 @@ import (
 )
 
 // By is who authored a version: which of the store's three callers it came
-// through, and the identity an authorship prior is kept on. The two are
+// through, and the identity a per-author prior is kept on. The two are
 // separate facts and both are stored — the authorship says whether an agent, a
 // human at the stage, or a human at a gate wrote it, and the author says which
 // one, so a prior can be computed from that author's own work.
@@ -52,7 +52,7 @@ func NewestOfKind(ctx context.Context, pool *pgxpool.Pool, itemID string, kind K
 }
 
 // IDsByAuthor is every version that author wrote, of any kind and any item. It
-// is the set an authorship prior is computed over: every outcome on that
+// is the set a per-author prior is computed over: every outcome on that
 // author's artifact moves the prior, so what the score needs is the artifacts
 // and not the items.
 //

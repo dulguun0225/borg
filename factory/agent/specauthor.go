@@ -99,7 +99,7 @@ type Refining struct {
 	InForce   []Criterion
 }
 
-// Refine sends the brief and parses the reply into a [Refined].
+// Refine sends the role prompt and parses the reply into a [Refined].
 //
 // The statement, the answers, and the sentences are content: nothing they say
 // changes what this method does with the reply, and a reply outside the

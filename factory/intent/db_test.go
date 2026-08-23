@@ -291,7 +291,7 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		t.Fatalf("TakeIn: %v", err)
 	}
 
-	insertIntent := `insert into intent (id, actor_kind, actor_name, at, source, statement, state, rounds, recuts)
+	insertIntent := `insert into intent (id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions)
 		values ($1, 'human', 'owner', $2, $3, $4, $5, $6, 0)`
 	for _, refused := range []struct {
 		name       string
@@ -347,21 +347,21 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 	}
 }
 
-// TestTheRecutCountIsAFieldOfItsOwnBesideTheRounds: both are counted against the same
-// attempt bound and both live on the intent, and they are two fields because they are
+// TestTheReDecompositionCountIsAFieldOfItsOwnBesideTheRounds: both are counted against the same
+// attempt limit and both live on the intent, and they are two fields because they are
 // two stretches of work — an owner answering an escalated interview clears one alone.
-func TestTheRecutCountIsAFieldOfItsOwnBesideTheRounds(t *testing.T) {
+func TestTheReDecompositionCountIsAFieldOfItsOwnBesideTheRounds(t *testing.T) {
 	ctx, pool, intake := newIntake(t)
 
-	in, err := intake.TakeIn(ctx, owner, intent.SourceOwner, "a request that is cut wrong twice")
+	in, err := intake.TakeIn(ctx, owner, intent.SourceOwner, "a request that is decomposed wrong twice")
 	if err != nil {
 		t.Fatalf("TakeIn: %v", err)
 	}
-	if in.Recuts != 0 {
-		t.Fatalf("an intent arrives with %d re-cuts", in.Recuts)
+	if in.ReDecompositions != 0 {
+		t.Fatalf("an intent arrives with %d re-decompositions", in.ReDecompositions)
 	}
 
-	// One round of the interview, which must not move the re-cut count.
+	// One round of the interview, which must not move the re-decomposition count.
 	if _, err := intake.Ask(ctx, owner, in.ID, "which service?"); err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -369,28 +369,28 @@ func TestTheRecutCountIsAFieldOfItsOwnBesideTheRounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if read.Rounds != 1 || read.Recuts != 0 {
-		t.Fatalf("after one round the intent stands at %d rounds and %d re-cuts", read.Rounds, read.Recuts)
+	if read.Rounds != 1 || read.ReDecompositions != 0 {
+		t.Fatalf("after one round the intent stands at %d rounds and %d re-decompositions", read.Rounds, read.ReDecompositions)
 	}
 
 	for want := 1; want <= 2; want++ {
-		reached, err := intake.CountRecut(ctx, owner, in.ID)
+		reached, err := intake.CountReDecomposition(ctx, owner, in.ID)
 		if err != nil {
-			t.Fatalf("CountRecut: %v", err)
+			t.Fatalf("CountReDecomposition: %v", err)
 		}
 		if reached != want {
-			t.Fatalf("the re-cut count reached %d, want %d", reached, want)
+			t.Fatalf("the re-decomposition count reached %d, want %d", reached, want)
 		}
 	}
 	read, err = intent.Get(ctx, pool, in.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if read.Rounds != 1 || read.Recuts != 2 {
-		t.Fatalf("the intent stands at %d rounds and %d re-cuts, and one field would have spent the other's budget",
-			read.Rounds, read.Recuts)
+	if read.Rounds != 1 || read.ReDecompositions != 2 {
+		t.Fatalf("the intent stands at %d rounds and %d re-decompositions, and one field would have spent the other's budget",
+			read.Rounds, read.ReDecompositions)
 	}
-	if _, err := intake.CountRecut(ctx, owner, "in_nothing"); !errors.Is(err, intent.ErrIntentNotFound) {
-		t.Errorf("counting a re-cut on an intent that does not exist = %v", err)
+	if _, err := intake.CountReDecomposition(ctx, owner, "in_nothing"); !errors.Is(err, intent.ErrIntentNotFound) {
+		t.Errorf("counting a re-decomposition on an intent that does not exist = %v", err)
 	}
 }

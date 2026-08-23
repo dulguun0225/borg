@@ -24,9 +24,11 @@ node-ID rule `{path_stem}_{entity}` lowercased `[a-z0-9_]`, relations
 explicit relations).
 
 And the relations in `end-goal/` are fully explicit and mechanically checked (the
-2026-08-17 relinking sweep plus the coverage check in `end-goal/CLAUDE.md`): glossary
-lines = term nodes with defining sections, markdown links = reference edges, headings =
-section structure, bare `(1)`–`(12)` = duty citations. Nothing needs inferring, so
+2026-08-17 relinking sweep plus the inventory and roster checks in
+`end-goal/CLAUDE.md`): [`end-goal/terms.txt`](../../end-goal/terms.txt) lines = term
+nodes with the field each name comes from, bold introductions = where a term is defined,
+markdown links = reference edges, headings = section structure, bare `(1)`–`(12)` = duty
+citations. Nothing needs inferring, so
 nothing needs an LLM. We emit the extraction JSON ourselves — every edge honestly
 `EXTRACTED` at 1.0 — and drive graphify's own library for build/cluster/export. Rebuild
 cost: milliseconds, zero tokens, every time the docs change. When code lands in the
@@ -41,9 +43,9 @@ Two small stdlib-only python files in this directory, plus a gitignore line.
 
 Walks `end-goal/**/*.md` (skipping `CLAUDE.md`) and emits graphify extraction JSON to
 `graphify-out/.graphify_docs.json`. Reuse the parsing already proven in the repo: the
-glossary-line regex and term matcher from the coverage check in `end-goal/CLAUDE.md`
-(verification block), and the link/anchor extraction from the existing consistency-pass
-snippets.
+bold-run extractor and the `terms.txt` reader from the inventory check in
+`end-goal/CLAUDE.md` (verification block), and the link/anchor extraction from the
+existing consistency-pass snippets.
 
 **Nodes** (schema per extraction-spec: `id`, `label`, `file_type`, `source_file`
 absolute, `source_location` = line number):
@@ -51,8 +53,10 @@ absolute, `source_location` = line number):
 - One per heading (`#`/`##`/`###`): `file_type:"document"`, id = graphify's rule
   applied to path + anchor slug, e.g.
   `end_goal_how_humans_do_it_08_operations_the_watch_window`.
-- One per glossary term: `file_type:"concept"`, id `end_goal_glossary_<term_slug>`,
-  from each `- **term** — … [Name](target)` line.
+- One per name in `terms.txt`: `file_type:"concept"`, id `end_goal_term_<term_slug>`,
+  carrying the field the line gives it. The glossary is not the source: it holds a line
+  only for the seventeen industry words this document bends, where `terms.txt` holds
+  every name the document introduces.
 - One per duty (1–12): `file_type:"concept"`, from `what-humans-do.md`'s numbered
   list.
 
@@ -62,9 +66,11 @@ absolute, `source_location` = line number):
 - `references`: section → target section, one per markdown link, resolved file+anchor
   → node (anchor-less link → the target file's `#` node). Resolution logic = the
   consistency pass's link checker, kept identical.
-- `references`: glossary term → its defining section (the line's last link).
+- `references`: term → the section that introduces it, found at the bold run naming it;
+  a term bolded in more than one section gets one edge per site.
 - `conceptually_related_to`: section → term, for each distinctive term occurrence
-  (multi-word terms plus `K`, same matcher and same SKIP pairs as the coverage check)
+  (multi-word terms, matched against `terms.txt` and skipping the lines it marks
+  `ordinary`)
   — this is what makes "what touches the watch window" a one-hop query.
 - `references`: subsection → parent section (heading nesting is explicit structure).
 - `cites`: section → duty node, one per bare `(n)` reference.
@@ -115,14 +121,14 @@ opt-out by construction.
 
 ## Verification
 
-1. Build once; sanity-check counts against known ground truth: ~100 term nodes
-   (glossary lines), ~300 section nodes, `references` edge count ≥ the markdown link
+1. Build once; sanity-check counts against known ground truth: one term node per
+   `terms.txt` line, ~300 section nodes, `references` edge count ≥ the markdown link
    count in `end-goal/`, zero health warnings, `input_tokens: 0` in the report.
 2. Idempotence: run the build twice, `diff graphify-out/graph.json` runs clean.
 3. Three live queries, answers eyeballed against `end-goal/`:
    - `graphify query "what depends on the watch window"`
-   - `graphify path "the cut" "rollback"`
-   - `graphify explain "restore floor"`
+   - `graphify path "decomposition" "rollback"`
+   - `graphify explain "last known-good release"`
 4. Regression probe: temporarily remove one link in one file, rebuild, confirm the
    corresponding edge disappears (the graph tracks source exactly); restore.
 5. `graphify export html`, open, confirm communities look like the real neighborhoods

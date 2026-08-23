@@ -8,7 +8,7 @@
 // implemented once rather than beside each thing that waits. Its callers are the
 // components that create a wait: the gate component when it opens a decision a
 // human must close, intake when it writes a round of interview questions or an
-// intent escalated, dispatch when it writes an item escalated, the comparison when
+// intent escalated, dispatch when it writes an item escalated, the health monitor when
 // it reports a rollback, and an owner firing one from Ops.
 //
 // What a channel does is [Deliverer], an interface its caller implements, because
@@ -26,11 +26,13 @@
 //
 //   - [PagesNever]: the condition cannot be met by this kind. A UAT assignment
 //     delays its own item, an escalation on a feature item has nothing live that is
-//     worse, a deploy queued behind K open windows is waiting on the factory, and a
+//     worse, a deploy queued behind open windows at the window limit is waiting on
+//     the factory, and a
 //     rollback the factory performed is reported rather than requested — the factory
 //     does not page to inform.
-//   - [PagesAlways]: the condition is met by definition. A mismatch the reconciler
-//     found holds that service's production deploys and does not lift itself; a page
+//   - [PagesAlways]: the condition is met by definition. A mismatch the
+//     independent checker found holds that service's production deploys and does
+//     not lift itself; a page
 //     an owner fires from Ops is their judgment that production is worse, and nothing
 //     scores it.
 //   - [PagesIfWorse]: the condition depends on what the wait is about, and
@@ -66,12 +68,13 @@
 // # Answered is the caller's, with one exception the store forced
 //
 // The component that ends a wait calls [Answered] at the same write it ends it
-// with, so a caller which fails to make that call leaves a page widening against a
-// wait already answered. One wait ends where nothing calls: a reconciler mismatch
-// is cleared by a human inside the reconciler's own store, which no factory
-// component may write and which calls nothing. So [Answered] for that one is called
-// by whoever reads that store and finds the mismatch cleared, and the event's time
-// is the time of that read rather than of the clearing.
+// with, so a caller which fails to make that call leaves a page widening
+// against a wait already answered. One wait ends where nothing calls: a
+// mismatch the independent checker found is cleared by a human inside the
+// independent checker's own store, which no factory component may write and
+// which calls nothing. So [Answered] for that one is called by whoever reads
+// that store and finds the mismatch cleared, and the event's time is the time
+// of that read rather than of the clearing.
 //
 // Who may write what: this package owns no table. It appends page events into the
 // decision log through [decisionlog.Writer] and reads the [people] declaration, and

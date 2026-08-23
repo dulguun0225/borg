@@ -25,7 +25,7 @@ type fired struct {
 	thresholdFrom string
 	scoreVersion  string
 	policyVersion string
-	pins          []string
+	safeguards    []string
 	// heldOut is whether the score's own sample selected this item, and whyHeldOut
 	// which of the two ways. Both are on the opening row too; a row that reads held
 	// out with the number under the threshold is an item selected at an earlier gate.
@@ -71,8 +71,8 @@ func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
 	if applied.Supplied.Why != "" {
 		fmt.Fprintf(out, "  the score supplies that threshold: %s\n", applied.Supplied.Why)
 	}
-	for _, id := range applied.Pins {
-		fmt.Fprintf(out, "  pin %s applies here\n", id)
+	for _, id := range applied.Safeguards {
+		fmt.Fprintf(out, "  safeguard %s applies here\n", id)
 	}
 	if opened.HeldOut {
 		fmt.Fprintf(out, "  held out: %s\n", opened.WhyHeldOut)
@@ -85,7 +85,7 @@ func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
 		fmt.Fprintln(out, "  no human decides: the score held this item out of a gate it would have gated, which is the one thing in the factory that removes a human from a row")
 		return
 	}
-	fmt.Fprintln(out, "  no human decides: the number is under the threshold and no pin adds one")
+	fmt.Fprintln(out, "  no human decides: the number is under the threshold and no safeguard adds one")
 }
 
 // settle closes one firing: the factory's own verdict where the firing put no
@@ -168,7 +168,7 @@ func recordFiring(opened gate.Opened, closing decisionlog.Row) fired {
 		thresholdFrom: string(opened.Applied.ThresholdFrom),
 		scoreVersion:  opened.Assessment.Version,
 		policyVersion: opened.Applied.PolicyVersion,
-		pins:          opened.Applied.Pins,
+		safeguards:    opened.Applied.Safeguards,
 		heldOut:       opened.HeldOut,
 		whyHeldOut:    opened.WhyHeldOut,
 		row:           opened.Gate,

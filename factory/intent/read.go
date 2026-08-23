@@ -16,9 +16,9 @@ import (
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Intent, error) {
 	var in Intent
 	var kind, source, state string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, recuts
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions
 		from `+Table+` where id = $1`, id).
-		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.Recuts)
+		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.ReDecompositions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Intent{}, fmt.Errorf("%w: %s", ErrIntentNotFound, id)
 	} else if err != nil {
@@ -36,7 +36,7 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Intent, error) {
 // should not take in a second copy of what a detector already asked for.
 //
 // It is what a caller working from a statement rather than an intent id needs, which
-// is every caller that has not got a surface to pick one on. What matching on the
+// is every caller that has not got a screen to pick one on. What matching on the
 // statement costs is a false match where two intents say exactly the same thing, so an
 // owner typing a statement character for character equal to one already waiting joins
 // that intent instead of raising their own.
@@ -46,10 +46,10 @@ func Unrefined(ctx context.Context, pool *pgxpool.Pool, statement string) (Inten
 	}
 	var in Intent
 	var kind, source, state string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, recuts
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions
 		from `+Table+` where statement = $1 and state = $2 order by at, id limit 1`,
 		statement, string(StateUnrefined)).
-		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.Recuts)
+		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.ReDecompositions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Intent{}, false, nil
 	} else if err != nil {

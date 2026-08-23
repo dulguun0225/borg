@@ -24,7 +24,7 @@ const chatCompletionsURL = "https://openrouter.ai/api/v1/chat/completions"
 // `anthropic/claude-opus-4.8` — and it comes from configuration, as
 // [Anthropic]'s does. An id prefixed `~` is this provider's floating alias for
 // a family's newest member, and naming one is not what this factory does: the
-// id is the author every artifact version records, and an authorship prior is
+// id is the author every artifact version records, and a per-author prior is
 // kept per model version, so an id whose meaning changes underneath makes two
 // versions recorded under one author that two models wrote. The credential is a name: the value is resolved inside
 // [OpenRouter.Complete], sent in a header, and stored in no field.
@@ -66,15 +66,15 @@ var ErrUpstream = errors.New("agent: the model API answered 200 carrying an erro
 // own sentence in a refusal field. It is its own error and not [ErrAnswer]
 // because a refusal is not a malformed answer: nothing about the request's
 // shape is wrong, the same request will be refused again, and a stage that
-// retried it would spend its attempt bound on a verdict that has already been
+// retried it would spend its attempt limit on a verdict that has already been
 // given.
 //
 // Measured on 2026-08-20 through this endpoint: anthropic/claude-opus-5 is
-// served the spec stage and refuses the implementer's brief four times out of
-// four under the cyber category, for a brief asking for a health-check HTTP
+// served the spec stage and refuses the implementer's role prompt four times out of
+// four under the cyber category, for a role prompt asking for a health-check HTTP
 // handler — its own reasoning showing it part-way through writing that handler
 // when the classifier stopped it. anthropic/claude-opus-4.8 and
-// anthropic/claude-sonnet-5 author the same brief, as does
+// anthropic/claude-sonnet-5 author the same role prompt, as does
 // deepseek/deepseek-v4-flash, which is what the runbook names. So a refusal
 // here is as
 // likely to be a false positive as a request worth refusing, which of the two

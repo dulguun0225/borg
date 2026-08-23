@@ -110,7 +110,8 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Release, b
 // above that target.
 //
 // It answers what is above and not how far above. How many a rollback may sweep is
-// bounded by K, which is how many watch windows a service may hold open at once and
+// bounded by the window limit, which is how many watch windows a service may hold
+// open at once and
 // is a parameter of an owner's rather than anything this package reads.
 func Above(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int64) ([]Release, error) {
 	rows, err := pool.Query(ctx, selectRelease+`
@@ -135,7 +136,7 @@ func Above(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int
 }
 
 // Below is whether the service has any release numbered below number. It is what
-// says whether the clean exit is available to a window at all: a release with
+// says whether the cleared exit is available to a window at all: a release with
 // nothing below it has no baseline to be compared against, so nothing about it is
 // ruled out by watching, and the design gives the choice of a control from the
 // second release onward.
@@ -162,9 +163,10 @@ func CountForService(ctx context.Context, pool *pgxpool.Pool, serviceID, exceptI
 }
 
 // Between is every release of the service numbered from lowest to highest
-// inclusive, lowest first. It is what the range of declarations in force is
-// resolved through: the range is the service's restore floor up to its newest
-// release, and the items of those releases are the ones whose declarations bind.
+// inclusive, lowest first. It is what the range of consumer contracts in force is
+// resolved through: the range is the service's last known-good release up to its
+// newest release, and the items of those releases are the ones whose consumer
+// contracts bind.
 //
 // A lowest above the highest is no releases and no error, which is the answer for
 // a range that has nothing in it.
@@ -195,9 +197,9 @@ func Between(ctx context.Context, pool *pgxpool.Pool, serviceID string, lowest, 
 }
 
 // ItemsWithRelease is which of these items have a release, in the order given. It
-// is what filters a declaration derived for a candidate that never merged: a
-// declaration is written at the implementation stage, before any release exists, so
-// what says one is a release's is the release naming the same item.
+// is what filters a consumer contract derived for a candidate that never merged: a
+// consumer contract is written at the implementation stage, before any release
+// exists, so what says one is a release's is the release naming the same item.
 //
 // No items is none and no error.
 func ItemsWithRelease(ctx context.Context, pool *pgxpool.Pool, itemIDs []string) ([]string, error) {

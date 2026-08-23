@@ -16,7 +16,7 @@ import (
 // arrangement every record package in the factory has.
 
 const selectWindow = `select id, actor_kind, actor_name, at, deploy_id, release_id, service_id,
-	clean_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
+	cleared_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
 	exit, closed_at, closed_on_units, closed_on_failures,
 	closed_on_baseline_units, closed_on_baseline_failures
 	from ` + Table
@@ -25,7 +25,7 @@ func scan(row pgx.Row) (Window, error) {
 	var w Window
 	var kind, exit string
 	err := row.Scan(&w.ID, &kind, &w.Actor.Name, &w.At, &w.DeployID, &w.ReleaseID, &w.ServiceID,
-		&w.CleanAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
+		&w.ClearedAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
 		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt,
 		&w.ClosedOn.Units, &w.ClosedOn.Failures,
 		&w.ClosedOn.BaselineUnits, &w.ClosedOn.BaselineFailures)
@@ -80,13 +80,14 @@ func ForDeploy(ctx context.Context, pool *pgxpool.Pool, deployID string) (Window
 
 // AllOpen is every open window of one service, oldest first. That order is the
 // order they opened, which is the order a rollback sweeps and the order the
-// comparison evaluates them in.
+// health monitor evaluates them in.
 func AllOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID, ` and exit = '' order by at, id`, "the open windows")
 }
 
-// CountOpen is how many windows the service holds open, which is what K is
-// compared against. K itself is what an owner authored on the service record or
+// CountOpen is how many windows the service holds open, which is what the window
+// limit is compared against. The limit itself is what an owner authored on the
+// service record or
 // what the score supplies, read through package policy — not a field here.
 func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, error) {
 	var count int
@@ -98,19 +99,19 @@ func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, 
 	return count, nil
 }
 
-// ClosedWithoutHarm is every window of the service whose exit leaves a release
-// the factory can return to — clean or at the cap, which is what [Exit.Counts]
-// says. It is what both the restore floor and a rollback's target are computed
-// from, and neither is computed here: the order is the release's number, which
+// ClosedWithoutCondemning is every window of the service whose exit leaves a release
+// the factory can return to — cleared or timed out, which is what [Exit.Counts]
+// says. It is what both the last known-good release and a rollback's target are
+// computed from, and neither is computed here: the order is the release's number, which
 // this package does not read, and copying that number onto a window would be one
 // fact in two places able to disagree.
 //
 // The rows come back newest close first, which is a stable order and not the
 // answer to either question — a caller ordering by number is the answer.
-func ClosedWithoutHarm(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
+func ClosedWithoutCondemning(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID,
-		` and exit in ('`+string(ExitClean)+`', '`+string(ExitCap)+`') order by closed_at desc, id`,
-		"the windows closed without harm")
+		` and exit in ('`+string(ExitCleared)+`', '`+string(ExitTimedOut)+`') order by closed_at desc, id`,
+		"the windows closed without condemning a release")
 }
 
 // All is every window of one service, oldest open first. It is what a reader of

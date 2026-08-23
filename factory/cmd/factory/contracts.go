@@ -16,16 +16,17 @@ import (
 	"github.com/dulguun0225/borg/factory/service"
 )
 
-// contractsCommand prints the graph a contract and a declaration make, which is
-// the milestone's own claim read off the records: what does this break is a query
-// rather than an estimate. Four things, in this order.
+// contractsCommand prints the graph a contract and a consumer contract make,
+// which is the milestone's own claim read off the records: what does this break
+// is a query rather than an estimate. Four things, in this order.
 //
 // Every contract with its versions, the elements of the newest, and the
 // deprecation mark on each — which is what a producer promises and to which
-// version. The declarations in force per service with the release range they were
-// derived over, so a reader sees what made them binding rather than only what they
-// say. The deprecation list per marked element, which nothing writes and which
-// cannot go stale. And, for one item, what its candidate would break and whom.
+// version. The consumer contracts in force per service with the release range they
+// were derived over, so a reader sees what made them binding rather than only what
+// they say. The deprecation list per marked element, which nothing writes and
+// which cannot go stale. And, for one item, what its candidate would break and
+// whom.
 //
 // It reaches no target and needs no model, so it composes the path the way every
 // other read-only subcommand does.
@@ -67,8 +68,8 @@ func contractsCommand(args []string) error {
 		})
 }
 
-// printContracts is the whole graph: the contracts, the declarations in force, and
-// the deprecation list.
+// printContracts is the whole graph: the contracts, the consumer contracts in
+// force, and the deprecation list.
 func printContracts(ctx context.Context, p *path, services []service.Service) error {
 	names := map[string]string{}
 	for _, svc := range services {
@@ -148,16 +149,16 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 	}
 
 	for _, svc := range services {
-		in, err := p.contracts.DeclarationsInForce(ctx, svc.ID)
+		in, err := p.contracts.ConsumerContractsInForce(ctx, svc.ID)
 		if err != nil {
 			return err
 		}
-		floor := "no restore floor: no window of this service has closed clean or at the cap, so the range is every release it has"
-		if in.HasFloor {
-			floor = fmt.Sprintf("restore floor release %d, set by window %s", in.FloorNumber, in.FloorWindowID)
+		lastGood := "no last known-good release: no window of this service has closed cleared or timed out, so the range is every release it has"
+		if in.HasLastKnownGood {
+			lastGood = fmt.Sprintf("last known-good release %d, set by window %s", in.LastKnownGoodNumber, in.LastKnownGoodWindowID)
 		}
 		fmt.Fprintf(p.d.out, "%s declares %d predicate(s) in force, derived over releases %d..%d (%s)\n",
-			svc.Name, len(in.Predicates), lowestOf(in), in.HighestNumber, floor)
+			svc.Name, len(in.Predicates), lowestOf(in), in.HighestNumber, lastGood)
 		for _, pr := range in.Predicates {
 			producer := pr.ProducerService
 			if pr.ProducerServiceID == "" {
@@ -183,20 +184,20 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 		}
 		fmt.Fprintf(p.d.out, "%s.%s of %s is marked deprecated in %s — %s\n",
 			m.Contract.Name, m.Element.Name, m.ServiceName, m.Version.Semver, state)
-		for _, pinned := range m.Pinned {
-			fmt.Fprintf(p.d.out, "  pin %s, placed by %s %s, asserts %s on it: the removal item exists and is rejected at its merge gate\n",
-				pinned.PinID, pinned.Actor.Kind, pinned.Actor.Name, pinned.Kind)
+		for _, s := range m.Safeguards {
+			fmt.Fprintf(p.d.out, "  safeguard %s, placed by %s %s, asserts %s on it: the removal item exists and is rejected at its Merge to master gate\n",
+				s.SafeguardID, s.Actor.Kind, s.Actor.Name, s.Kind)
 		}
 	}
 	return nil
 }
 
-// lowestOf is the bottom of the range declarations in force were derived over,
-// which is the restore floor where there is one and the service's first release
-// where there is not.
+// lowestOf is the bottom of the range consumer contracts in force were derived
+// over, which is the last known-good release where there is one and the service's
+// first release where there is not.
 func lowestOf(in contractcheck.InForce) int64 {
-	if in.HasFloor {
-		return in.FloorNumber
+	if in.HasLastKnownGood {
+		return in.LastKnownGoodNumber
 	}
 	if in.HighestNumber == 0 {
 		return 0
@@ -218,7 +219,7 @@ func printBreaks(ctx context.Context, p *path, itemID string) error {
 		return err
 	}
 	if c.environmentID == "" {
-		return fmt.Errorf("factory contracts: item %s has no candidate environment, so there is no run to decide a declaration against", itemID)
+		return fmt.Errorf("factory contracts: item %s has no candidate environment, so there is no run to decide a consumer contract against", itemID)
 	}
 	newest, err := newestBuildOf(ctx, p, itemID)
 	if err != nil {

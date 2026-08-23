@@ -10,7 +10,7 @@ import (
 	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
-	"github.com/dulguun0225/borg/factory/factorypolicy"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/policy"
@@ -33,30 +33,31 @@ type alwaysDraw struct{}
 func (alwaysDraw) Fraction() float64 { return 0 }
 
 // TestASuppliedValueMovesBecauseOutcomesMovedIt: three windows of one service
-// close without harm, and the K the score supplies for that service rises — with
+// close without condemning a release, and the window limit the score supplies for that service rises
+// — with
 // the movement readable as a version naming the one it superseded and every
 // decision after it naming the new one.
 func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	start, _ := score.Starting(gatepolicy.K)
+	start, _ := score.Starting(gatepolicy.WindowLimit)
 
 	// A real service record, because what package policy reads in force is the
 	// authored value on that record and the supplied one where the field is empty —
 	// and a service nobody declared has no field to be empty.
-	svc, err := service.NewWriter(pool).Create(ctx, cutActor, "checkout", "/repos/checkout")
+	svc, err := service.NewWriter(pool).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
-	// The factory policy record too: every read of what is in force asks which pins
-	// are placed, and a pin may name that record, so a factory nobody installed has
-	// no record for the question to be asked against.
-	if _, err := factorypolicy.NewWriter(pool).Ensure(ctx, owner); err != nil {
-		t.Fatalf("ensuring the factory policy record: %v", err)
+	// The factory-wide settings record too: every read of what is in force asks which
+	// safeguards are placed, and a safeguard may name that record, so a factory nobody
+	// installed has no record for the question to be asked against.
+	if _, err := factorysettings.NewWriter(pool).Ensure(ctx, owner); err != nil {
+		t.Fatalf("ensuring the factory-wide settings record: %v", err)
 	}
 
-	before, found := s.Version().Value(gatepolicy.K, svc.ID)
+	before, found := s.Version().Value(gatepolicy.WindowLimit, svc.ID)
 	if !found || before.Value != start.Value || before.Moved() {
-		t.Fatalf("K on a fresh factory reads %+v, want the starting value for every subject", before)
+		t.Fatalf("the window limit on a fresh factory reads %+v, want the starting value for every subject", before)
 	}
 
 	// Two windows closed at the cap move nothing: the rise is per three, and a
@@ -66,8 +67,8 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
-	if k, _ := twoClosed.Value(gatepolicy.K, svc.ID); k.Value != start.Value {
-		t.Errorf("two windows without harm supply K = %v, want the starting %v", k.Value, start.Value)
+	if limit, _ := twoClosed.Value(gatepolicy.WindowLimit, svc.ID); limit.Value != start.Value {
+		t.Errorf("two windows that condemned nothing supply a window limit of %v, want the starting %v", limit.Value, start.Value)
 	}
 
 	// The third moves it, and the row says what moved it.
@@ -76,14 +77,14 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
-	k, found := learned.Value(gatepolicy.K, svc.ID)
-	if !found || k.Value != start.Value+1 {
-		t.Fatalf("three windows without harm supply K = %+v, want %v", k, start.Value+1)
+	limit, found := learned.Value(gatepolicy.WindowLimit, svc.ID)
+	if !found || limit.Value != start.Value+1 {
+		t.Fatalf("three windows that condemned nothing supply a window limit of %+v, want %v", limit, start.Value+1)
 	}
-	if !k.Moved() || k.Subject != svc.ID {
-		t.Errorf("the moved value names subject %q, want the service it was learned about", k.Subject)
+	if !limit.Moved() || limit.Subject != svc.ID {
+		t.Errorf("the moved value names subject %q, want the service it was learned about", limit.Subject)
 	}
-	if k.Why == "" {
+	if limit.Why == "" {
 		t.Error("the moved value carries no evidence, and a learned number nobody can argue with is one nobody will trust")
 	}
 
@@ -100,13 +101,13 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	if moved.Supersedes != s.Version().ID {
 		t.Errorf("the moved version supersedes %q, want %q", moved.Supersedes, s.Version().ID)
 	}
-	if now, _ := moved.Value(gatepolicy.K, svc.ID); now.Value != start.Value+1 {
-		t.Errorf("the appended version supplies K = %v", now.Value)
+	if now, _ := moved.Value(gatepolicy.WindowLimit, svc.ID); now.Value != start.Value+1 {
+		t.Errorf("the appended version supplies a window limit of %v", now.Value)
 	}
 	if was, err := score.Get(ctx, pool, s.Version().ID); err != nil {
 		t.Fatalf("Get the superseded version: %v", err)
-	} else if k, _ := was.Value(gatepolicy.K, svc.ID); k.Value != start.Value {
-		t.Errorf("the superseded version now supplies K = %v, and an append-only record does not change", k.Value)
+	} else if limit, _ := was.Value(gatepolicy.WindowLimit, svc.ID); limit.Value != start.Value {
+		t.Errorf("the superseded version now supplies a window limit of %v, and an append-only record does not change", limit.Value)
 	}
 
 	// A second ensure over the same store appends nothing: the rules are a function
@@ -125,11 +126,11 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WindowParameters: %v", err)
 	}
-	if effective.K.Source != policy.FromSupplied || effective.K.Number != start.Value+1 {
-		t.Errorf("K in force reads %v from %s, want the moved %v", effective.K.Number, effective.K.Source, start.Value+1)
+	if effective.WindowLimit.Source != policy.FromSupplied || effective.WindowLimit.Number != start.Value+1 {
+		t.Errorf("the window limit in force reads %v from %s, want the moved %v", effective.WindowLimit.Number, effective.WindowLimit.Source, start.Value+1)
 	}
-	if effective.K.Supplied.Why != k.Why {
-		t.Errorf("K in force carries the evidence %q, want the score's own", effective.K.Supplied.Why)
+	if effective.WindowLimit.Supplied.Why != limit.Why {
+		t.Errorf("the window limit in force carries the evidence %q, want the score's own", effective.WindowLimit.Supplied.Why)
 	}
 }
 
@@ -139,11 +140,11 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 // number it passed.
 func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoReconciler{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoChecker{})
 
 	// A threshold of nine tenths auto-passes anything, which is the state the
 	// calibration is evidence against.
-	it, implementation := cutItem(t, ctx, pool, "item/passed")
+	it, implementation := decomposeItem(t, ctx, pool, "item/passed")
 	opened, err := g.Fire(ctx, firing(it, implementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 10}))
 	if err != nil {
@@ -158,7 +159,7 @@ func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T
 
 	// It ships, and its window condemns it.
 	rel := mint(t, ctx, pool, serviceID, it.ID, 1)
-	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitHarm, false)
+	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitCondemned, false)
 	rollBack(t, ctx, pool, rel.ID)
 
 	learned, err := score.Learn(ctx, pool)
@@ -187,9 +188,9 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 		t.Fatalf("Newest: %v", err)
 	}
 	s := score.New(pool, version, alwaysDraw{})
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoReconciler{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoChecker{})
 
-	it, implementation := cutItem(t, ctx, pool, "item/sampled")
+	it, implementation := decomposeItem(t, ctx, pool, "item/sampled")
 	opened, err := g.Fire(ctx, firing(it, implementation,
 		score.Measurement{LinesChanged: 900, FilesChanged: 10, FilesInTree: 10}))
 	if err != nil {
@@ -213,8 +214,8 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
 		t.Fatalf("reading the closing payload: %v", err)
 	}
-	if payload.AutoPassedBy != score.AutoPassedBySample {
-		t.Errorf("the closing row says it was auto-passed by %q, want the sample", payload.AutoPassedBy)
+	if payload.WhyItAutoPassed != score.AutoPassSample {
+		t.Errorf("the closing row says it was auto-passed by %q, want the sample", payload.WhyItAutoPassed)
 	}
 
 	// The selection is the item's and not the firing's: a second row on the same
@@ -233,21 +234,22 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 		t.Errorf("a second firing on a selected item reads held out %v because %q", small.HeldOut, small.WhyHeldOut)
 	}
 
-	// A pin is never passed. The sample is asked with the pin's answer, so a gate
-	// pinned always-on keeps its human however the draw falls.
-	pinned := gate.New(decisionlog.NewWriter(pool), s,
-		fakePolicy{threshold: 0.1, pinned: true}, gate.NoReconciler{})
-	other, otherImplementation := cutItem(t, ctx, pool, "item/pinned")
-	opened, err = pinned.Fire(ctx, firing(other, otherImplementation,
+	// A safeguard is never passed. The sample is asked with the safeguard's
+	// answer, so a gate a safeguard holds always-on keeps its human however the
+	// draw falls.
+	safeguarded := gate.New(decisionlog.NewWriter(pool), s,
+		fakePolicy{threshold: 0.1, bySafeguard: true}, gate.NoChecker{})
+	other, otherImplementation := decomposeItem(t, ctx, pool, "item/safeguarded")
+	opened, err = safeguarded.Fire(ctx, firing(other, otherImplementation,
 		score.Measurement{LinesChanged: 900, FilesChanged: 10, FilesInTree: 10}))
 	if err != nil {
-		t.Fatalf("Fire over the pinned row: %v", err)
+		t.Fatalf("Fire over the row the safeguard reached: %v", err)
 	}
 	if !opened.HumanDecides {
-		t.Error("the sample passed a pinned gate, which is the one thing a pin exists to prevent")
+		t.Error("the sample passed a gate a safeguard reached, which is the one thing a safeguard exists to prevent")
 	}
 	if opened.HeldOut {
-		t.Error("the score selected an item at a pinned row")
+		t.Error("the score selected an item at a row a safeguard reached")
 	}
 }
 
@@ -257,43 +259,43 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 func TestAWindowClosingWithoutHarmNarrowsThePrior(t *testing.T) {
 	ctx, pool, s := newScore(t)
 
-	first, _ := cutItem(t, ctx, pool, "item/one")
+	first, _ := decomposeItem(t, ctx, pool, "item/one")
 	wide, err := s.Assess(ctx, score.Change{ItemID: first.ID, ServiceID: serviceID, AreaID: areaID})
 	if err != nil {
 		t.Fatalf("Assess: %v", err)
 	}
-	before := levelOf(t, wide, "authorship.prior")
+	before := levelOf(t, wide, "author.prior")
 
 	// The first item ships and its window closes at the cap, which counts: a
 	// release that was never condemned is one the factory can return to.
 	rel := mint(t, ctx, pool, serviceID, first.ID, 1)
-	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitCap, false)
+	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitTimedOut, false)
 
-	second, _ := cutItem(t, ctx, pool, "item/two")
+	second, _ := decomposeItem(t, ctx, pool, "item/two")
 	narrowed, err := s.Assess(ctx, score.Change{ItemID: second.ID, ServiceID: serviceID, AreaID: areaID})
 	if err != nil {
 		t.Fatalf("Assess again: %v", err)
 	}
-	after := levelOf(t, narrowed, "authorship.prior")
+	after := levelOf(t, narrowed, "author.prior")
 	if after >= before {
-		t.Errorf("the prior reads %v after a window closed without harm, and %v before it", after, before)
+		t.Errorf("the prior reads %v after a window closed without condemning a release, and %v before it", after, before)
 	}
 
 	// A window that condemned a release widens it again, and the reading says
 	// which of the outcomes it counted.
-	third, _ := cutItem(t, ctx, pool, "item/three")
+	third, _ := decomposeItem(t, ctx, pool, "item/three")
 	condemned := mint(t, ctx, pool, serviceID, third.ID, 2)
-	openWindow(t, ctx, pool, serviceID, condemned.ID, window.ExitHarm, false)
-	fourth, _ := cutItem(t, ctx, pool, "item/four")
+	openWindow(t, ctx, pool, serviceID, condemned.ID, window.ExitCondemned, false)
+	fourth, _ := decomposeItem(t, ctx, pool, "item/four")
 	widened, err := s.Assess(ctx, score.Change{ItemID: fourth.ID, ServiceID: serviceID, AreaID: areaID})
 	if err != nil {
 		t.Fatalf("Assess a fourth time: %v", err)
 	}
-	if levelOf(t, widened, "authorship.prior") <= after {
+	if levelOf(t, widened, "author.prior") <= after {
 		t.Error("a window that condemned a release did not widen the prior")
 	}
 	for _, f := range widened.Vector {
-		if f.Name == "authorship.prior" && f.Reading == "" {
+		if f.Name == "author.prior" && f.Reading == "" {
 			t.Error("the prior's reading says nothing about what it counted")
 		}
 	}
@@ -313,9 +315,9 @@ func closeWindows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID s
 	}
 	for i := range n {
 		number := int64(len(existing) + i + 1)
-		it, _ := cutItem(t, ctx, pool, "item/window")
+		it, _ := decomposeItem(t, ctx, pool, "item/window")
 		rel := mint(t, ctx, pool, svcID, it.ID, number)
-		openWindow(t, ctx, pool, svcID, rel.ID, window.ExitCap, false)
+		openWindow(t, ctx, pool, svcID, rel.ID, window.ExitTimedOut, false)
 	}
 }
 
@@ -339,18 +341,18 @@ func mint(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, itemID s
 func openWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, releaseID string, exit window.Exit, heldOut bool) window.Window {
 	t.Helper()
 	writer := window.NewWriter(pool)
-	opened, err := writer.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "comparison"}, window.Opening{
-		DeployID:       record.NewID("dep"),
-		ReleaseID:      releaseID,
-		ServiceID:      svcID,
-		CleanAvailable: !heldOut,
-		HeldOut:        heldOut,
-		Size:           0.02,
-		Confidence:     0.95,
-		CapSeconds:     60,
-		Formula:        boundary.Formula,
-		PolicyVersion:  "pv_00000000000000000000000000000001",
-		ScoreVersion:   "scv_0000000000000000000000000000001",
+	opened, err := writer.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "health_monitor"}, window.Opening{
+		DeployID:         record.NewID("dep"),
+		ReleaseID:        releaseID,
+		ServiceID:        svcID,
+		ClearedAvailable: !heldOut,
+		HeldOut:          heldOut,
+		Size:             0.02,
+		Confidence:       0.95,
+		CapSeconds:       60,
+		Formula:          boundary.Formula,
+		PolicyVersion:    "pv_00000000000000000000000000000001",
+		ScoreVersion:     "scv_0000000000000000000000000000001",
 	})
 	if err != nil {
 		t.Fatalf("opening a window: %v", err)
@@ -371,7 +373,7 @@ func rollBack(t *testing.T, ctx context.Context, pool *pgxpool.Pool, condemned s
 		serviceID, environmentID, deploy.OfRelease(condemned, "bl_0000000000000000000000000000000a"),
 		deploy.Undoing{
 			CondemnedReleaseID: condemned,
-			Source:             deploy.SourceComparisonAtHarm,
+			Source:             deploy.SourceHealthMonitorAtCondemned,
 			RevertIntentID:     "in_0000000000000000000000000000000b",
 		})
 	if err != nil {

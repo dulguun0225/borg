@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 
 	"github.com/dulguun0225/borg/factory/build"
-	"github.com/dulguun0225/borg/factory/comparison"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/score"
@@ -23,8 +23,8 @@ import (
 // mergeGate is the Merge to master row: where the verdict on the candidate is
 // given. What it reads is the candidate's own run — the acceptance criteria decided
 // against the candidate environment with undecided read the way a failure is, every
-// consumer's declaration in force decided against that same run, and the producer's
-// own contract diff against the version production is running.
+// consumer contract in force decided against that same run, and the
+// producer's own contract diff against the version production is running.
 //
 // The last two reject on their own terms before anyone gives a verdict, which is
 // what the design says of this row: the row fires so the vector exists and the
@@ -36,7 +36,7 @@ import (
 // advances to; rejecting sends the item back with an attempt counted where it goes.
 func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	if c.environmentID == "" {
-		fmt.Fprintf(p.d.out, "Item %s reached no candidate environment, so its merge gate does not fire\n", c.itemID)
+		fmt.Fprintf(p.d.out, "Item %s reached no candidate environment, so its Merge to master gate does not fire\n", c.itemID)
 		return nil
 	}
 
@@ -155,9 +155,9 @@ func reportContracts(out io.Writer, checked contractcheck.Checked) {
 			for _, consumer := range blocking.Consumers() {
 				fmt.Fprintf(out, "    %s is still declared by %s\n", blocking.Element, consumer)
 			}
-			for _, pinned := range blocking.Pinned {
-				fmt.Fprintf(out, "    %s is still asserted by pin %s, placed by %s %s\n",
-					blocking.Element, pinned.PinID, pinned.Actor.Kind, pinned.Actor.Name)
+			for _, s := range blocking.Safeguards {
+				fmt.Fprintf(out, "    %s is still asserted by safeguard %s, placed by %s %s\n",
+					blocking.Element, s.SafeguardID, s.Actor.Kind, s.Actor.Name)
 			}
 		}
 	}
@@ -320,7 +320,7 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified, error) {
 	// The queue's membership is every item of the service at the queued stage, which
 	// is not the same set as the candidates this run authored: a run that stopped
-	// after one merge gate approved leaves an item there, and the next run's queue
+	// after one Merge to master gate approved leaves an item there, and the next run's queue
 	// has it. Everything a re-verification needs is a record, so a candidate the run
 	// does not hold is read from the store rather than refused.
 	c, err := p.candidateFor(ctx, it.ID)
@@ -342,7 +342,7 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 		return mergequeue.Verified{}, err
 	}
 	if head != "" {
-		// Unrelated histories are allowed rather than special-cased. A candidate cut
+		// Unrelated histories are allowed rather than special-cased. A candidate decomposed
 		// before the first release has no base, so two of them share no commit and
 		// this merge has two roots; the flag does nothing where the histories are
 		// related. Where the two trees then conflict, the candidate failed its own
@@ -391,7 +391,7 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 			Why: "the tree does not compile with master merged into it: " + firstLines(err.Error())}, nil
 	}
-	dep, err := deploy.Straight(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
+	dep, err := deploy.WithoutControl(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
 		c.svc.ID, c.svc.Name, c.environmentID, deploy.OfBuild(bl.ID), p.d.credential)
 	if err != nil {
 		return mergequeue.Verified{}, err
@@ -468,9 +468,9 @@ func (p *path) FastForward(ctx context.Context, it item.Item, commit string) err
 // its own. Approving through them all the same is `factory approve`, which is the
 // emergency action the design keeps at this row.
 //
-// The fifth is the reconciler's mismatch, and it is not computed here: the gate
-// reads that store itself at the firing, puts a human at the row, and carries what
-// disagreed on the opening row.
+// The fifth is the independent checker's mismatch, and it is not computed here:
+// the gate reads that store itself at the firing, puts a human at the row, and
+// carries what disagreed on the opening row.
 func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 	d := p.d
 	it, err := item.Get(ctx, d.pool, c.itemID)
@@ -529,10 +529,11 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, e
 // on production's target, and the watch window opened over the deploy record that
 // results.
 //
-// The window is opened after the deploy record is written, which is what the design
-// says of it — and the deploy having completed first is what makes the release the
-// window watches one that is actually running. Nothing here closes it: the comparison
-// evaluates every exit, so what this leaves is a window for the watch to finish.
+// The window is opened after the deploy record is written, which is what the
+// design says of it — and the deploy having completed first is what makes the
+// release the window watches one that is actually running. Nothing here closes
+// it: the health monitor evaluates every exit, so what this leaves is a window
+// for the watch to finish.
 func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	d := p.d
 	// The binary the re-verification built is where it ran, which is the candidate
@@ -555,7 +556,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 			c.reverifiedBuildID, err)
 	}
 
-	dep, err := deploy.Straight(ctx, p.deploys, d.targets.at(d.dir), deployActor,
+	dep, err := deploy.WithoutControl(ctx, p.deploys, d.targets.at(d.dir), deployActor,
 		c.svc.ID, c.svc.Name, p.production.ID,
 		deploy.OfRelease(c.releaseID, c.reverifiedBuildID), d.credential)
 	if err != nil {
@@ -571,7 +572,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	opened, isNew, err := p.comparison.Open(ctx, comparison.Watching{
+	opened, isNew, err := p.healthMonitor.Open(ctx, healthmonitor.Watching{
 		ID: c.svc.ID, Name: c.svc.Name, EnvironmentID: p.production.ID,
 	}, dep.ID, c.releaseID, p.scoreVersion, heldOut)
 	if err != nil {
@@ -582,21 +583,22 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 		return nil
 	}
 	c.windowID = opened.ID
-	clean := "clean is available to it"
+	cleared := "the cleared exit is available to it"
 	switch {
 	case opened.HeldOut:
-		clean = "clean is not available to it: the score held this item out of the gate it would have gated, so its window runs to the cap — the longest watch there is"
-	case !opened.CleanAvailable:
-		clean = "clean is not available to it, nothing below it being there to compare against — so it can end only at its cap"
+		cleared = "the cleared exit is not available to it: the score held this item out of the gate it would have gated, so its window runs to the cap — the longest watch there is"
+	case !opened.ClearedAvailable:
+		cleared = "the cleared exit is not available to it, nothing below it being there to compare against — so it can end only at its cap"
 	}
 	fmt.Fprintf(d.out, "Watch window %s opened over deploy %s: size %v, confidence %v, cap %vs; %s\n",
-		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, clean)
+		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, cleared)
 	return nil
 }
 
 // factoryHolds is every hold the factory sets at the production deploy row that
 // lifts itself, in the order it is worth reporting them: a declared dependency that
-// is not live still, the service already holding as many watch windows open as K
+// is not live still, the service already holding as many watch windows open as the
+// window limit
 // allows, and a rollback whose revert has not shipped. It returns the words the first
 // one found is reported with, and nothing where none holds.
 //
@@ -618,17 +620,17 @@ func (p *path) factoryHolds(ctx context.Context, svc service.Service, it item.It
 	return p.rollbackHold(ctx, svc, it)
 }
 
-// windowHold is K: an open window blocks nothing until the service holds as many as
-// K allows, and then the next production deploy waits. It is a wait on the factory
+// windowHold is the window limit: an open window blocks nothing until the service
+// holds as many as it allows, and then the next production deploy waits. It is a wait on the factory
 // rather than on a human, so it does not page — it shows only to a reader who asks,
 // which on this interface is this line.
 func (p *path) windowHold(ctx context.Context, svc service.Service) (string, error) {
-	room, open, k, err := p.comparison.Room(ctx, svc.ID)
+	room, open, limit, err := p.healthMonitor.Room(ctx, svc.ID)
 	if err != nil || room {
 		return "", err
 	}
-	return fmt.Sprintf("%s — %d open against a K of %d, and this is a wait on the factory rather than on anybody",
-		gate.HoldKWindowsOpen, open, k), nil
+	return fmt.Sprintf("%s — %d open against a window limit of %d, and this is a wait on the factory rather than on anybody",
+		gate.HoldWindowLimitReached, open, limit), nil
 }
 
 // rollbackHold is the hold a rollback leaves: master keeps the change that was
@@ -644,7 +646,7 @@ func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.It
 	if err != nil || !found {
 		return "", err
 	}
-	shipped, err := comparison.Shipped(ctx, p.d.pool, p.production.ID, rollback.Undoing.RevertIntentID)
+	shipped, err := healthmonitor.Shipped(ctx, p.d.pool, p.production.ID, rollback.Undoing.RevertIntentID)
 	if err != nil || shipped {
 		return "", err
 	}

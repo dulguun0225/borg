@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
-	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
@@ -73,8 +73,8 @@ type Change struct {
 // outcome the score counts is an outcome a gate wrote.
 //
 // It is the part and not the whole payload. What a gate writes beside these is the
-// vector, the criteria, the pins, and what the row waits on, none of which this
-// package reads back — the vector because a vector is written where it was
+// vector, the criteria, the safeguards, and what the row waits on, none of which
+// this package reads back — the vector because a vector is written where it was
 // computed and never recomputed, and the rest because nothing here asks about it.
 type Opening struct {
 	ItemID     string  `json:"item_id"`
@@ -95,8 +95,8 @@ type Opening struct {
 // approval by a human is evidence about an author, and an approval by the factory
 // is the factory agreeing with itself unless its own sample is what passed it.
 type Closing struct {
-	Verdict      string `json:"verdict"`
-	AutoPassedBy string `json:"auto_passed_by"`
+	Verdict         string `json:"verdict"`
+	WhyItAutoPassed string `json:"why_it_auto_passed"`
 }
 
 // The two verdicts this package reads off a closing row. Package gate owns the
@@ -247,7 +247,7 @@ func (s *Score) churn(ctx context.Context, c Change) (reading, error) {
 
 // reversibility reads whether the service has a release to return to, this
 // item's own excluded. A first release has none, which is what the design says
-// of one: no control, nothing able to close a window clean, and no rollback
+// of one: no control, nothing able to close a window cleared, and no rollback
 // target.
 func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 	earlier, err := release.CountForService(ctx, s.pool, c.ServiceID, c.ItemID)
@@ -271,18 +271,19 @@ func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 //
 // Three kinds of outcome, and the design says all three move it: a human's
 // verdict on a version that author wrote, a watch window closing over a release of
-// an item that author wrote, and a human's veto of one of those releases. A window
-// closing without harm counts for the author and one closing at harm counts
-// against — which is what "every outcome on that author's artifact moves it, a
-// window closing without harm included" asks for, and it is what lets a prior
+// an item that author wrote, and a human undoing one of those releases after it
+// shipped. A window closing without condemning the release counts for the author
+// and one that condemns it counts against — which is what "every outcome on that
+// author's artifact moves it, a window closing without condemning the release
+// included" asks for, and it is what lets a prior
 // narrow on a factory that has stopped putting humans at gates.
 //
 // A swept window is not counted either way: a rollback aimed below the release
-// undid it, so its comparison stopped before it decided anything. A veto is
+// undid it, so its health monitor stopped before it decided anything. An undo is
 // counted whatever reason the human gave — the restriction to evidence traceable
-// to the health signal is the watch window's parameters' rule and not this one's,
+// to the health monitor is the watch window's parameters' rule and not this one's,
 // because building the wrong thing well says something about the author and
-// nothing about the comparison.
+// nothing about the health monitor.
 //
 // It reads two rows per item the author wrote, on top of the whole log. That is
 // what an outcome-based prior costs while the store is small, and it is the same
@@ -307,27 +308,27 @@ func (s *Score) prior(ctx context.Context, c Change) (reading, error) {
 		return reading{}, err
 	}
 
-	shipped, condemned, vetoed, err := s.outcomesOfAuthor(ctx, implementation.Author)
+	shipped, condemned, undone, err := s.outcomesOfAuthor(ctx, implementation.Author)
 	if err != nil {
 		return reading{}, err
 	}
 	return reading{
-		level: evidenceLevel(approved+shipped, rejected+condemned+vetoed),
-		words: fmt.Sprintf("%s: %d human approval(s) and %d rejection(s) on its own versions, %d release(s) watched without harm, %d condemned by a window, %d vetoed by a human",
-			implementation.Author, approved, rejected, shipped, condemned, vetoed),
+		level: evidenceLevel(approved+shipped, rejected+condemned+undone),
+		words: fmt.Sprintf("%s: %d human approval(s) and %d rejection(s) on its own versions, %d release(s) watched without being condemned, %d condemned by a window, %d undone by a human",
+			implementation.Author, approved, rejected, shipped, condemned, undone),
 	}, nil
 }
 
 // outcomesOfAuthor is what became of the releases of the items this author wrote a
-// version of: how many were watched to a close without harm, how many a window
-// condemned, and how many a human vetoed.
+// version of: how many were watched to a close without being condemned, how many a window
+// condemned, and how many a human undid.
 //
 // A release is counted once at most. A release condemned by its own window is
 // usually also the release a rollback undid, and counting both would be one
-// outcome told twice — so a veto is counted only where the window did not already
-// condemn it, which is the case the design means by veto: a human undoing
-// something the comparison did not catch.
-func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, condemned, vetoed int, err error) {
+// outcome told twice — so an undo is counted only where the window did not
+// already condemn it, which is the case the design means: a human undoing
+// something the health monitor did not catch.
+func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, condemned, undone int, err error) {
 	items, err := artifact.ItemsByAuthor(ctx, s.pool, author)
 	if err != nil {
 		return 0, 0, 0, err
@@ -340,10 +341,10 @@ func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, c
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	vetoedRelease := map[string]bool{}
+	undoneRelease := map[string]bool{}
 	for _, d := range rollbacks {
-		if d.Undoing.Source != deploy.SourceComparisonAtHarm {
-			vetoedRelease[d.Undoing.CondemnedReleaseID] = true
+		if d.Undoing.Source != deploy.SourceHealthMonitorAtCondemned {
+			undoneRelease[d.Undoing.CondemnedReleaseID] = true
 		}
 	}
 
@@ -360,15 +361,15 @@ func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, c
 			return 0, 0, 0, err
 		}
 		switch {
-		case watched && w.Exit == window.ExitHarm:
+		case watched && w.Exit == window.ExitCondemned:
 			condemned++
-		case vetoedRelease[rel.ID]:
-			vetoed++
+		case undoneRelease[rel.ID]:
+			undone++
 		case watched && w.Exit.Counts():
 			shipped++
 		}
 	}
-	return shipped, condemned, vetoed, nil
+	return shipped, condemned, undone, nil
 }
 
 // businessArea reads the human verdicts on items in the same area. What the
@@ -399,17 +400,18 @@ func (s *Score) businessArea(ctx context.Context, c Change) (reading, error) {
 }
 
 // consumers reads which sibling services declare they consume what this one
-// publishes. It is a query over the graph a contract and a declaration make: the
-// contracts this service publishes, and the other services whose declarations name
-// one of them.
+// publishes. It is a query over the graph a contract and a consumer contract make:
+// the contracts this service publishes, and the other services whose consumer
+// contracts name one of them.
 //
-// Two filters and both are deliberate. A declaration whose item has no release is
-// left out, because a declaration is written at the implementation stage and a
-// candidate that never merges leaves one behind; what says it is a release's is a
-// release naming the same item. And this service's own declarations are left out,
-// because a service declaring against its own store contract is its own past and
-// not a sibling — that consumer is real and is what a store's forward promise is
-// for, and it is not what this factor is asking about.
+// Two filters and both are deliberate. A consumer contract whose item has no
+// release is left out, because a consumer contract is written at the
+// implementation stage and a candidate that never merges leaves one behind; what
+// says it is a release's is a release naming the same item. And this service's
+// own consumer contracts are left out, because a service declaring against its
+// own store contract is its own past and not a sibling — that consumer is real
+// and is what a store's forward promise is for, and it is not what this factor is
+// asking about.
 //
 // What it does not filter by is the in-force range. That range is enforcement's
 // question about one candidate at one moment; this is a reading about the service,
@@ -429,7 +431,7 @@ func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 		}, nil
 	}
 
-	predicates, err := declaration.AgainstProducer(ctx, s.pool, c.ServiceID)
+	predicates, err := consumercontract.AgainstProducer(ctx, s.pool, c.ServiceID)
 	if err != nil {
 		return reading{}, err
 	}

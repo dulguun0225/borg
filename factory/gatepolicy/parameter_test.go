@@ -59,9 +59,9 @@ func TestEveryParameterIsDefinedOnce(t *testing.T) {
 	}
 }
 
-// TestOnlyTheThresholdAddsAHuman: the risk threshold's pin adds a human and
-// carries no bound, and every other parameter's pin is a number or a list that
-// clamps.
+// TestOnlyTheThresholdAddsAHuman: the risk threshold's safeguard adds a human
+// and carries no bound, and every other parameter's safeguard is a number or a
+// list that clamps.
 func TestOnlyTheThresholdAddsAHuman(t *testing.T) {
 	for _, d := range Definitions {
 		adds := d.Direction == DirectionAddsAHuman
@@ -72,30 +72,30 @@ func TestOnlyTheThresholdAddsAHuman(t *testing.T) {
 }
 
 // TestOnlyTheCatalogIsAList: a list-valued parameter is clamped by union, and
-// the catalog is the only one, so nothing else reaches ClampList.
+// the allowed predicate kinds are the only one, so nothing else reaches ClampList.
 func TestOnlyTheCatalogIsAList(t *testing.T) {
 	for _, d := range Definitions {
-		if (d.Kind == KindList) != (d.Parameter == PredicateCatalog) {
+		if (d.Kind == KindList) != (d.Parameter == AllowedPredicateKinds) {
 			t.Errorf("%q is of kind %q", d.Parameter, d.Kind)
 		}
 	}
 }
 
-// TestAPinNeverWidens is the rule stated as arithmetic: a ceiling over a value
-// already lower leaves it, a floor under a value already higher leaves it, and
-// neither moves a value the wrong way.
-func TestAPinNeverWidens(t *testing.T) {
+// TestASafeguardNeverWidens is the rule stated as arithmetic: a ceiling over a
+// value already lower leaves it, a floor under a value already higher leaves
+// it, and neither moves a value the wrong way.
+func TestASafeguardNeverWidens(t *testing.T) {
 	cases := []struct {
 		direction Direction
 		bound     float64
 		value     float64
 		want      float64
 	}{
-		{DirectionCeiling, 5, 2, 2},        // the authored two stands against a pinned five
-		{DirectionCeiling, 2, 5, 2},        // the pin caps the wider value
+		{DirectionCeiling, 5, 2, 2},        // the authored two stands against a safeguard's five
+		{DirectionCeiling, 2, 5, 2},        // the safeguard caps the wider value
 		{DirectionFloor, 0.9, 0.95, 0.95},  // the authored confidence is already higher
-		{DirectionFloor, 0.9, 0.5, 0.9},    // the pin raises the weaker value
-		{DirectionAddsAHuman, 0, 0.3, 0.3}, // a threshold pin moves no number
+		{DirectionFloor, 0.9, 0.5, 0.9},    // the safeguard raises the weaker value
+		{DirectionAddsAHuman, 0, 0.3, 0.3}, // a safeguard on the threshold moves no number
 	}
 	for _, c := range cases {
 		if got := Clamp(c.direction, c.bound, c.value); got != c.want {
@@ -104,8 +104,9 @@ func TestAPinNeverWidens(t *testing.T) {
 	}
 }
 
-// TestClampListIsTheUnion: a pinned catalog may only extend the value in force,
-// and the answer does not depend on the order the pins were applied in.
+// TestClampListIsTheUnion: a safeguard on a list may only extend the value in
+// force, and the answer does not depend on the order the safeguards were
+// applied in.
 func TestClampListIsTheUnion(t *testing.T) {
 	got := ClampList([]string{"status", "field-present"}, []string{"field-present", "schema"})
 	want := []string{"field-present", "schema", "status"}

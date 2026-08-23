@@ -20,7 +20,7 @@ const IDPrefix = "art"
 // for being present and not for pointing at anything — doc.go says what that
 // costs.
 //
-// author is required, and that is what makes an authorship prior computable:
+// author is required, and that is what makes a per-author prior computable:
 // the prior is kept per model version and per human and is computed from that
 // author's own work, so a version naming the role that wrote it and not the
 // author would leave the score with nothing to group outcomes by. It is not the
@@ -38,7 +38,7 @@ var DDL = []string{
 	content text not null,
 	` + record.Constraints + `,
 	constraint item_id_present check (item_id <> ''),
-	constraint kind_known check (kind in ('spec', 'implementation', 'declaration')),
+	constraint kind_known check (kind in ('spec', 'implementation', 'consumer_contract')),
 	constraint version_starts_at_one check (version >= 1),
 	constraint authorship_known check (authorship in ('agent', 'human', 'gate')),
 	constraint author_present check (author <> ''),

@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
-	"github.com/dulguun0225/borg/factory/reconciler"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
@@ -68,14 +68,14 @@ func main() {
 }
 
 // subcommands is what the crude interface offers, in the order the usage message
-// lists them. run and walk are the path and the link walk; watch is the comparison,
+// lists them. run and walk are the path and the link walk; watch is the health monitor,
 // which is the one thing that closes a watch window; learn is the score's own pass
 // over the outcomes; approve is the emergency action at the production deploy row;
 // and the other six are duty 8, duty 9, the priority an owner reorders a queue
-// with, and the People declaration a page routes on — none of which has a surface
+// with, and the People declaration a page routes on — none of which has a screen
 // until the four of M7 are built.
 const subcommands = "run, walk <deploy-id>, watch <service>, learn, approve <item-id>, contracts, " +
-	"area <name>, author, pin, policy, priority <item-id>, people [<human>]"
+	"area <name>, author, safeguard, policy, priority <item-id>, people [<human>]"
 
 func dispatch(args []string) error {
 	if len(args) == 0 {
@@ -98,8 +98,8 @@ func dispatch(args []string) error {
 		return areaCommand(args[1:])
 	case "author":
 		return authorCommand(args[1:])
-	case "pin":
-		return pinCommand(args[1:])
+	case "safeguard":
+		return safeguardCommand(args[1:])
 	case "policy":
 		return policyCommand(args[1:])
 	case "priority":
@@ -126,26 +126,27 @@ func deployCredential() secretref.Ref { return secretref.MustNew(deployCredentia
 // process per service in one directory.
 func localTargetAt(dir string) targetseam.Target { return localtarget.New(dir) }
 
-// openReconciler opens the reconciler's own store where one is reachable, and
-// returns nothing where it is not. Nothing here applies its schema — that store is
-// the reconciler's and a factory that created it would own it — so a store the
-// reconciler has never run against reads as absent, which is a factory with no
-// reconciler installed and is a state the design has.
+// openChecker opens the independent checker's own store where one is reachable,
+// and returns nothing where it is not. Nothing here applies its schema — that
+// store is the independent checker's and a factory that created it would own it
+// — so a store the independent checker has never run against reads as absent,
+// which is a factory with no independent checker installed and is a state the
+// design has.
 //
-// The absence is not an error. Installing the reconciler is substrate outside the
-// twelve duties, and a factory that refused to run without one would make it a
-// requirement the design does not make.
-func openReconciler(ctx context.Context) (*pgxpool.Pool, func(), error) {
-	pool, err := reconciler.Open(ctx, reconciler.URL())
+// The absence is not an error. Installing the independent checker is substrate
+// outside the twelve duties, and a factory that refused to run without one
+// would make it a requirement the design does not make.
+func openChecker(ctx context.Context) (*pgxpool.Pool, func(), error) {
+	pool, err := checker.Open(ctx, checker.URL())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "no reconciler store at %s, so nothing checks this factory's records against what runs: %v\n",
-			reconciler.URL(), err)
+		fmt.Fprintf(os.Stderr, "no independent checker store at %s, so nothing checks this factory's records against what runs: %v\n",
+			checker.URL(), err)
 		return nil, func() {}, nil
 	}
-	if _, err := reconciler.LastComparisons(ctx, pool, ""); err != nil {
-		// The store is reachable and holds no schema, which is a reconciler that has
-		// never run. Applying it here is what this must not do.
-		fmt.Fprintln(os.Stderr, "the reconciler's store holds no schema, so it has never run; `reconciler pass` is what creates it")
+	if _, err := checker.LastChecks(ctx, pool, ""); err != nil {
+		// The store is reachable and holds no schema, which is an independent checker
+		// that has never run. Applying it here is what this must not do.
+		fmt.Fprintln(os.Stderr, "the independent checker's store holds no schema, so it has never run; `checker pass` is what creates it")
 		pool.Close()
 		return nil, func() {}, nil
 	}
@@ -182,14 +183,15 @@ func (s *serviceFlag) Set(value string) error {
 	return nil
 }
 
-// statements is -intent given more than once, one intent per cut. It is a
-// repeated flag rather than a count, because what a run needs per cut is the
+// statements is -intent given more than once, one intent per decomposition. It is a
+// repeated flag rather than a count, because what a run needs per decomposition is the
 // statement itself: two candidates at once is the whole of what an environment per
 // candidate buys, and one flag per intent is how the crude interface says it.
 //
 // An intent that changes more than one service names them before the statement,
-// comma separated and then a colon — which is this interface being told what the cut
-// yields, the cut that decides a decomposition being a later milestone's. The
+// comma separated and then a colon — which is this interface being told what
+// decomposition yields, a stage that decides the decomposition being a later
+// milestone's. The
 // prefix is read only where every name in it is a service this install knows, so a
 // statement whose own text happens to hold a colon is still one statement.
 type statements []asked
@@ -255,7 +257,7 @@ func runCommand(args []string) error {
 	human := flags.String("human", "owner", "the deciding human's name, and the owner every authoring write is made as")
 	areaName := flags.String("area", "", "the area the item is in, declared where it does not exist; without one the score reads no context factor and a human decides every gate of the item")
 	var raw stringList
-	flags.Var(&raw, "intent", "an intent's statement, given once per cut; `svcA,svcB: statement` cuts one item per service named, each waiting on the one before it")
+	flags.Var(&raw, "intent", "an intent's statement, given once per decomposition; `svcA,svcB: statement` decomposes one item per service named, each waiting on the one before it")
 	pace := flags.Duration("pace", 2*time.Second, "the least time between two model calls; 0 sends them back to back")
 	ceiling := flags.Int("candidate-environments", 8, "how many candidate environments this substrate has room for at once; a candidate that meets it waits, and the wait is written into the log")
 	watchFor := flags.Duration("watch", time.Minute, "how long to watch this run's own windows before leaving what is open, open; `factory watch` continues from there")
@@ -298,7 +300,7 @@ func runCommand(args []string) error {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		return err
 	}
-	reconcilerStore, shut, err := openReconciler(ctx)
+	checkerStore, shut, err := openChecker(ctx)
 	if err != nil {
 		return err
 	}
@@ -322,7 +324,7 @@ func runCommand(args []string) error {
 	_, err = run(ctx, deps{
 		pool: pool,
 		// The model's id is the author every version this run writes names, the
-		// authorship prior being kept per model version.
+		// per-author prior being kept per model version.
 		modelName: *model,
 		// Paced around the provider client, so every call a stage makes —
 		// including a retry after a refused reply, which would otherwise follow
@@ -340,7 +342,7 @@ func runCommand(args []string) error {
 		services:         services,
 		area:             *areaName,
 		candidateCeiling: *ceiling,
-		reconciler:       reconcilerStore,
+		checker:          checkerStore,
 		watchFor:         *watchFor,
 		watchEvery:       *watchEvery,
 	}, intents)

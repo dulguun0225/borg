@@ -136,7 +136,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	}
 
 	// The environment: composed from the current release of each of the
-	// candidate's dependencies, which is none on a path where the cut declares
+	// candidate's dependencies, which is none on a path where decomposition declares
 	// none. Its target is a directory of its own under the install's, which is what
 	// makes two candidates of one service not read each other's.
 	composed, err := p.compositionFor(ctx, it)
@@ -175,7 +175,7 @@ func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buil
 	if err := buildInto(c.svc.Repository, c.environmentDir, buildID); err != nil {
 		return deploy.Deploy{}, err
 	}
-	return deploy.Straight(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
+	return deploy.WithoutControl(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
 		c.svc.ID, c.svc.Name, c.environmentID, deploy.OfBuild(buildID), p.d.credential)
 }
 

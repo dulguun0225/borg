@@ -16,7 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
-	"github.com/dulguun0225/borg/factory/comparison"
+	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
@@ -24,13 +24,13 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/policy"
-	"github.com/dulguun0225/borg/factory/reconciler"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/score"
@@ -43,7 +43,7 @@ import (
 // serviceRepo is one service this install knows: its name, and the git repository
 // that is it. A service is one repository with one long-lived branch and no
 // repository holds two, so this pair is the whole of what the interface has to be
-// told before a cut can write the record.
+// told before a decomposition can write the record.
 //
 // It is a list on [deps] rather than one name and one path because contracts need
 // a second service: an interface has consumers, and the consumers are other
@@ -59,7 +59,7 @@ type serviceRepo struct {
 type deps struct {
 	pool      *pgxpool.Pool
 	model     agent.Model
-	modelName string // the provider's model id, which is the author an authorship prior is kept on
+	modelName string // the provider's model id, which is the author a per-author prior is kept on
 	// targets is one target per environment. There is one per environment and not
 	// one per install, because a candidate's environment is a place of its own.
 	targets *targetSet
@@ -81,12 +81,12 @@ type deps struct {
 	// owner's limits it. A candidate that meets it waits, and the wait is written
 	// into the log because it is not a record and no gate fired.
 	candidateCeiling int
-	// reconciler is the reconciler's own store, read and never written: the gate
+	// checker is the independent checker's own store, read and never written: the gate
 	// asks it for a mismatch at the production deploy row, and the notifier reads
-	// it for both ends of the page about one. It is nil where no reconciler is
+	// it for both ends of the page about one. It is nil where no independent checker is
 	// installed, which is a factory whose every check reads a record the factory
-	// wrote — the state the reconciler exists to remove.
-	reconciler *pgxpool.Pool
+	// wrote — the state the independent checker exists to remove.
+	checker *pgxpool.Pool
 	// watchFor is how long a run watches its own windows before it leaves them open,
 	// and watchEvery is how often it reads the quantity while it does. A window's
 	// duration is measured and never set, so a run cannot know in advance how long to
@@ -152,14 +152,14 @@ func (s *targetSet) at(dir string) targetseam.Target {
 }
 
 // asked is one intent a run is given: the statement, and the services it changes
-// in the order the cut declares them, each item waiting on the one before it. One
+// in the order decomposition declares them, each item waiting on the one before it. One
 // service is the ordinary case and several is what a contract migration is.
 type asked struct {
 	statement string
 	services  []string
 }
 
-// shipped is what the run did, which is the install's own records, one [cutSet]
+// shipped is what the run did, which is the install's own records, one [decompositionSet]
 // per intent, and one [candidate] per item. The run subcommand discards it; the
 // end-to-end test asserts over it.
 type shipped struct {
@@ -170,26 +170,26 @@ type shipped struct {
 	areaID     string
 	// environmentID is production's, which is the record every gate row reads its
 	// threshold from.
-	environmentID string
-	cuts          []*cutSet
-	candidates    []*candidate
+	environmentID  string
+	decompositions []*decompositionSet
+	candidates     []*candidate
 }
 
-// cutSet is one intent's set as the cut produced it and the Decomposition row
-// decided it. A cut that yielded one item has no firing here: the row fires where
+// decompositionSet is one intent's set as decomposition produced it and the Decomposition row
+// decided it. A decomposition that yielded one item has no firing here: the row fires where
 // there is a set to ratify and nowhere else.
-type cutSet struct {
+type decompositionSet struct {
 	intentID string
 	itemIDs  []string
-	// fired is the Decomposition row's firing, and is empty where the cut yielded
+	// fired is the Decomposition row's firing, and is empty where decomposition yielded
 	// one item.
 	fired fired
 	// decided is whether the row fired at all, and approved whether it approved.
 	decided  bool
 	approved bool
-	// recuts is the intent's re-cut count after a rejection, which is what the
-	// attempt bound is compared against.
-	recuts int
+	// reDecompositions is the intent's re-decomposition count after a rejection, which is what the
+	// attempt limit is compared against.
+	reDecompositions int
 }
 
 // candidate is one item followed as far as the run took it, each field filled as
@@ -206,17 +206,18 @@ type candidate struct {
 	svc            service.Service
 	branch         string
 	implArtifactID string
-	// declarationArtifactID is the declaration version derived from the same
-	// build, and is empty where the build declares nothing about another service.
-	declarationArtifactID string
-	criterionIDs          []string
-	buildID               string
-	commit                string
+	// consumerContractArtifactID is the consumer contract version derived from the
+	// same build, and is empty where the build declares nothing about another
+	// service.
+	consumerContractArtifactID string
+	criterionIDs               []string
+	buildID                    string
+	commit                     string
 	// measurement is the build's diff, taken where the repository is and handed to
 	// every firing over that build. It is re-taken after the re-verification,
 	// because that produced a different build against a master that had moved.
 	measurement score.Measurement
-	// waitsOn is the items the cut declared this one waiting on, which is how a
+	// waitsOn is the items decomposition declared this one waiting on, which is how a
 	// consumer's item is ordered behind its producer's.
 	waitsOn []string
 
@@ -229,7 +230,7 @@ type candidate struct {
 	tornDown          bool
 
 	// The three firings, each as it was decided. The Decomposition row is not
-	// among them: it decides a set and is on the [cutSet].
+	// among them: it decides a set and is on the [decompositionSet].
 	candidateGate fired
 	mergeGate     fired
 	deployGate    fired
@@ -282,14 +283,14 @@ type candidate struct {
 // authoring agents are components too — an agent is a part of the factory,
 // in a role.
 var (
-	scoreActor       = record.Actor{Kind: record.KindComponent, Name: "score"}
-	intakeActor      = record.Actor{Kind: record.KindComponent, Name: "intake"}
-	specAuthorActor  = record.Actor{Kind: record.KindComponent, Name: "agent.spec_author"}
-	cutActor         = record.Actor{Kind: record.KindComponent, Name: "cut"}
-	dispatchActor    = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
-	implementerActor = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
-	buildActor       = record.Actor{Kind: record.KindComponent, Name: "build"}
-	deployActor      = record.Actor{Kind: record.KindComponent, Name: "deploy"}
+	scoreActor         = record.Actor{Kind: record.KindComponent, Name: "score"}
+	intakeActor        = record.Actor{Kind: record.KindComponent, Name: "intake"}
+	specAuthorActor    = record.Actor{Kind: record.KindComponent, Name: "agent.spec_author"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
+	dispatchActor      = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
+	implementerActor   = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
+	buildActor         = record.Actor{Kind: record.KindComponent, Name: "build"}
+	deployActor        = record.Actor{Kind: record.KindComponent, Name: "deploy"}
 )
 
 // path is one run's collaborators, composed once. It is also the deploy agent: it
@@ -304,33 +305,34 @@ type path struct {
 	production environment.Environment
 	areaID     string
 
-	policy     *policy.Reader
-	log        *decisionlog.Writer
-	gate       *gate.Gate
-	store      *artifact.Store
-	intake     *intent.Intake
-	cut        *item.Cut
-	dispatch   *item.Dispatch
-	builds     *build.Writer
-	deploys    *deploy.Writer
-	candidates *environment.Candidates
-	queue      *mergequeue.Queue
-	contracts  *contractcheck.Check
+	policy        *policy.Reader
+	log           *decisionlog.Writer
+	gate          *gate.Gate
+	store         *artifact.Store
+	intake        *intent.Intake
+	decomposition *item.Decomposition
+	dispatch      *item.Dispatch
+	builds        *build.Writer
+	deploys       *deploy.Writer
+	candidates    *environment.Candidates
+	queue         *mergequeue.Queue
+	contracts     *contractcheck.Check
 	// scoreVersion is the version in force for this run, held because a window
-	// stores the two versions in force at its open and the comparison does not append
+	// stores the two versions in force at its open and the health monitor does not append
 	// one of its own.
 	scoreVersion string
-	// The three of everything downstream of a deploy: the comparison the run watches
-	// with, the notifier it tells a human through, and the reads of the reconciler's
-	// own store. The notifier is nil for no install and the mismatch reads are nil
-	// where no reconciler is installed, which is what [gate.NoReconciler] answers for.
-	comparison *comparison.Comparison
-	notifier   *notifier.Notifier
+	// The three of everything downstream of a deploy: the health monitor the run
+	// watches with, the notifier it tells a human through, and the reads of the
+	// independent checker's own store. The notifier is nil for no install and the
+	// mismatch reads are nil where no independent checker is installed, which is
+	// what [gate.NoChecker] answers for.
+	healthMonitor *healthmonitor.HealthMonitor
+	notifier      *notifier.Notifier
 
 	// byItem is the candidate of each item the run has touched, so the queue's
 	// re-verification can write what it produced onto the candidate the run reports.
 	byItem map[string]*candidate
-	// authored is the items this run cut. The queue's membership is the service's, so
+	// authored is the items this run decomposed. The queue's membership is the service's, so
 	// an outcome for an item outside this set is one another run left queued — and
 	// telling the two apart is what says which candidates the run has to add to what
 	// it reports.
@@ -341,10 +343,10 @@ type path struct {
 }
 
 var (
-	_ mergequeue.Repository   = (*path)(nil)
-	_ comparison.Rollbacker   = (*path)(nil)
-	_ contractcheck.Checkout  = (*path)(nil)
-	_ contractcheck.Exchanges = (*path)(nil)
+	_ mergequeue.Repository    = (*path)(nil)
+	_ healthmonitor.Rollbacker = (*path)(nil)
+	_ contractcheck.Checkout   = (*path)(nil)
+	_ contractcheck.Exchanges  = (*path)(nil)
 )
 
 // run walks the whole path once for each intent it is given, from a statement to
@@ -371,7 +373,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 	s.environmentID = p.production.ID
 	s.areaID = p.areaID
 
-	// 1. Every intent taken in, refined, cut into its items, ratified at
+	// 1. Every intent taken in, refined, decomposed into its items, ratified at
 	// Decomposition where it yielded more than one, and every item's spec,
 	// implementation, and build authored.
 	for n, one := range statements {
@@ -379,7 +381,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		if err != nil {
 			return s, err
 		}
-		s.cuts = append(s.cuts, set)
+		s.decompositions = append(s.decompositions, set)
 		s.candidates = append(s.candidates, candidates...)
 		for _, c := range candidates {
 			p.byItem[c.itemID] = c
@@ -399,9 +401,9 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		s.serviceID = s.serviceIDs[0]
 	}
 
-	// 2. The path below the cut, one dependency layer at a time. A superseded
+	// 2. The path below decomposition, one dependency layer at a time. A superseded
 	// candidate is left out: the Decomposition row rejected the set it was part of,
-	// so it has no artifact below the cut and nothing under it fires.
+	// so it has no artifact below decomposition and nothing under it fires.
 	var live []*candidate
 	for _, c := range s.candidates {
 		if !c.superseded {
@@ -423,10 +425,10 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		}
 	}
 
-	// 3. The detector: every deprecation-marked element whose derived declarations
-	// are gone gets a removal intent, so nobody has to remember step three of a
-	// migration. It runs once at the end of a run rather than per layer, because what
-	// empties a list is a release deploying and the layers above are where those
+	// 3. The detector: every deprecation-marked element whose derived consumer
+	// contracts are gone gets a removal intent, so nobody has to remember step three
+	// of a migration. It runs once at the end of a run rather than per layer, because
+	// what empties a list is a release deploying and the layers above are where those
 	// happened.
 	if err := p.raiseRemovals(ctx); err != nil {
 		return s, err
@@ -471,8 +473,8 @@ func itemOfDeploy(ctx context.Context, pool *pgxpool.Pool, deployID string) stri
 // the design puts it.
 //
 // A cycle among the run's own items would leave candidates unplaced, and the
-// remainder goes into a last layer rather than being dropped: the cut declares the
-// order and a cut that declared a cycle is a bad cut, which the deploy rows' holds
+// remainder goes into a last layer rather than being dropped: decomposition declares the
+// order and a decomposition that declared a cycle is a bad decomposition, which the deploy rows' holds
 // then never lift. Losing the candidates entirely would be worse — nothing would say
 // they existed.
 func layers(candidates []*candidate) [][]*candidate {
@@ -496,7 +498,7 @@ func layers(candidates []*candidate) [][]*candidate {
 			next = append(next, c)
 		}
 		if len(layer) == 0 {
-			// Nothing is ready and something is left, which is a cycle the cut
+			// Nothing is ready and something is left, which is a cycle decomposition
 			// declared. The rest goes through together.
 			out = append(out, next)
 			return out
@@ -519,8 +521,8 @@ func inRun(candidates []*candidate, itemID string) bool {
 	return false
 }
 
-// layer is the whole path below the cut for one dependency layer: every
-// candidate's own environment, every merge gate, the queue once per service, the
+// layer is the whole path below decomposition for one dependency layer: every
+// candidate's own environment, every Merge to master gate, the queue once per service, the
 // production deploys in the number's order, and the watch.
 //
 // It returns the last production deploy it wrote, which is where the link walk
@@ -535,8 +537,8 @@ func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*c
 		}
 	}
 
-	// Every candidate's merge gate. What it reads is the candidate's own run — the
-	// criteria, every consumer's declaration, and the producer's own contract diff —
+	// Every candidate's Merge to master gate. What it reads is the candidate's own run — the
+	// criteria, every consumer contract, and the producer's own contract diff —
 	// and the last two reject on their own terms before a verdict is asked for.
 	for _, c := range candidates {
 		if err := p.mergeGate(ctx, c); err != nil {
@@ -597,8 +599,8 @@ func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*c
 	// layer opened has closed. A window's duration is measured and never set, so what
 	// this gives up on is left open for `factory watch` to finish rather than waited
 	// out here. It runs before the next layer, because a layer below is composed from
-	// what this one is running and a declaration in force is read over a range whose
-	// floor a closing window moves.
+	// what this one is running and a consumer contract in force is read over a range
+	// whose floor a closing window moves.
 	for _, name := range p.d.serviceNames() {
 		svc, found, err := service.ByName(ctx, p.d.pool, name)
 		if err != nil {
@@ -640,26 +642,27 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 
 	p := &path{
-		d:           d,
-		human:       record.Actor{Kind: record.KindHuman, Name: d.human},
-		lines:       bufio.NewScanner(d.in),
-		policy:      policy.NewReader(d.pool, scoreVersion),
-		log:         decisionlog.NewWriter(d.pool),
-		store:       artifact.NewStore(d.pool),
-		intake:      intent.NewIntake(d.pool),
-		cut:         item.NewCut(d.pool),
-		dispatch:    item.NewDispatch(d.pool),
-		builds:      build.NewWriter(d.pool),
-		deploys:     deploy.NewWriter(d.pool),
-		byItem:      map[string]*candidate{},
-		authored:    map[string]bool{},
-		serviceByID: map[string]service.Service{},
+		d:             d,
+		human:         record.Actor{Kind: record.KindHuman, Name: d.human},
+		lines:         bufio.NewScanner(d.in),
+		policy:        policy.NewReader(d.pool, scoreVersion),
+		log:           decisionlog.NewWriter(d.pool),
+		store:         artifact.NewStore(d.pool),
+		intake:        intent.NewIntake(d.pool),
+		decomposition: item.NewDecomposition(d.pool),
+		dispatch:      item.NewDispatch(d.pool),
+		builds:        build.NewWriter(d.pool),
+		deploys:       deploy.NewWriter(d.pool),
+		byItem:        map[string]*candidate{},
+		authored:      map[string]bool{},
+		serviceByID:   map[string]service.Service{},
 	}
 	p.candidates = environment.NewCandidates(d.pool)
 
-	// The install. The factory policy record and production's environment record are
-	// what an owner authors on, and they exist before a project does — so this
-	// ensures both as the owner and takes the policy version in force from it.
+	// The install. The factory-wide settings record and production's environment
+	// record are what an owner authors on, and they exist before a project does —
+	// so this ensures both as the owner and takes the policy version in force from
+	// it.
 	installed, err := policy.NewFactory(d.pool).Install(ctx, p.human, []string{d.dir}, d.credential)
 	if err != nil {
 		return nil, err
@@ -667,31 +670,31 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	p.production = installed.Production
 	p.scoreVersion = scoreVersion.ID
 
-	// The reconciler's store, read and never written. Where none is installed the
-	// gate is composed with [gate.NoReconciler], which answers no mismatch ever — so a
+	// The independent checker's store, read and never written. Where none is installed the
+	// gate is composed with [gate.NoChecker], which answers no mismatch ever — so a
 	// factory without one decides exactly as it did before this milestone, and the
 	// absence shows in the line below rather than as a failure.
-	var mismatches gate.Reconciler = gate.NoReconciler{}
-	if d.reconciler != nil {
-		mismatches = reconciler.NewStore(d.reconciler)
-		fmt.Fprintln(d.out, "A reconciler is installed; the production deploy row reads its store at every firing")
+	var mismatches gate.Checker = gate.NoChecker{}
+	if d.checker != nil {
+		mismatches = checker.NewStore(d.checker)
+		fmt.Fprintln(d.out, "An independent checker is installed; the production deploy row reads its store at every firing")
 	} else {
-		fmt.Fprintln(d.out, "No reconciler is installed, so every check this factory makes reads a record it wrote itself")
+		fmt.Fprintln(d.out, "No independent checker is installed, so every check this factory makes reads a record it wrote itself")
 	}
 	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion, d.draw), p.policy, mismatches)
 	p.queue = mergequeue.New(d.pool, p.log, release.NewWriter(d.pool), p.dispatch, p)
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
 
-	// The notifier and the comparison. The notifier is composed with the owner's
+	// The notifier and the health monitor. The notifier is composed with the owner's
 	// name because a page widens to the owner and the design gives the owner no record;
-	// the comparison is composed with this same value as its rollbacker, the deploy
+	// the health monitor is composed with this same value as its rollbacker, the deploy
 	// agent being what reaches a target.
 	p.notifier, err = notifier.New(d.pool, p.log, terminal{out: d.out}, d.human)
 	if err != nil {
 		return nil, err
 	}
-	p.comparison, err = comparison.New(d.pool, window.NewWriter(d.pool), incident.NewWriter(d.pool),
+	p.healthMonitor, err = healthmonitor.New(d.pool, window.NewWriter(d.pool), incident.NewWriter(d.pool),
 		p.intake, p.policy, p.notifier, signalFiles{dir: d.dir}, p)
 	if err != nil {
 		return nil, err
@@ -741,11 +744,11 @@ func (p *path) serviceOf(ctx context.Context, serviceID string) (service.Service
 	return svc, nil
 }
 
-// subjectsFor is what a policy read about one candidate is performed against: the
-// item's service and the area of this run. The service is empty on a first item of
-// a service — the spec is authored before the cut writes the record — so a pin on a
-// service the factory has not seen does not bound that run's spec stage, and does
-// bound every run after it.
+// subjectsFor is what a policy read about one candidate is performed against: the item's
+// service and the area of this run. The service is empty on a first item of a service —
+// the spec is authored before decomposition writes the record — so a safeguard on a
+// service the factory has not seen does not bound that run's spec stage, and does bound
+// every run after it.
 func (p *path) subjectsFor(c *candidate) policy.Subjects {
 	return policy.Subjects{ServiceID: c.svc.ID, AreaID: p.areaID}
 }
@@ -799,7 +802,7 @@ func (p *path) deployOrder(ctx context.Context, svc service.Service, candidates 
 // introduced by an item already merged, plus the ones this item's own spec
 // versions introduced. A build is a set of items and this is that set — an item
 // whose branch predates a sibling's spec version is not deciding that sibling's
-// promise, and holding it in force would reject every candidate cut in parallel
+// promise, and holding it in force would reject every candidate decomposed in parallel
 // with the one that introduced it.
 //
 // itemID is empty where the caller wants what the service already promises rather

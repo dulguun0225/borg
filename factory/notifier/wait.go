@@ -77,29 +77,29 @@ const (
 	// owner's silence there consumes no compute, which is why no bound applies to
 	// that wait — and a page would be the same mistake made more loudly.
 	KindInterview Kind = "interview"
-	// KindIntentEscalated is an intent whose interview rounds exceeded the bound.
+	// KindIntentEscalated is an intent whose interview rounds exceeded the limit.
 	// Whether it pages depends on where the intent came from, the same way an item's
 	// escalation does.
 	KindIntentEscalated Kind = "intent_escalated"
-	// KindItemEscalated is an item stopped at the attempt bound. It pages where the
+	// KindItemEscalated is an item stopped at the attempt limit. It pages where the
 	// intent behind it was not an owner's: the factory giving up on a defect that is
 	// live is production staying worse until a human takes it over, and giving up on
 	// a feature is not.
 	KindItemEscalated Kind = "item_escalated"
-	// KindReconcilerMismatch is a record the reconciler found disagreeing with what
+	// KindCheckerMismatch is a record the independent checker found disagreeing with what
 	// runs. It holds that service's production deploys and does not lift itself, so
 	// the service cannot receive its own fixes until a human ends it.
-	KindReconcilerMismatch Kind = "reconciler_mismatch"
+	KindCheckerMismatch Kind = "checker_mismatch"
 	// KindOwnerFired is a page a human fired on their own judgment from Ops, which
-	// is the parallel veto after the fact already has. Nothing scores it and no bound
-	// applies to it; what limits it is that a page nobody needed makes its recipient
-	// slower to answer the next one.
+	// is the parallel that undoing a change after it shipped already has. Nothing
+	// scores it and no bound applies to it; what limits it is that a page nobody
+	// needed makes its recipient slower to answer the next one.
 	KindOwnerFired Kind = "owner_fired"
 	// KindRollbackPerformed is a rollback the factory performed on its own. It is
 	// reported, not requested, and reporting is not paging.
 	KindRollbackPerformed Kind = "rollback_performed"
 	// KindCredentialUnreachable is a credential a component could not reach. Whether
-	// it pages depends on which: a deploy target's while the comparison is calling for
+	// it pages depends on which: a deploy target's while the health monitor is calling for
 	// a rollback leaves production worse, and a provider account that has run out
 	// stops work rather than making anything live worse.
 	KindCredentialUnreachable Kind = "credential_unreachable"
@@ -112,7 +112,7 @@ var Kinds = map[Kind]Pages{
 	KindGateDecision:          PagesNever,
 	KindInterview:             PagesNever,
 	KindRollbackPerformed:     PagesNever,
-	KindReconcilerMismatch:    PagesAlways,
+	KindCheckerMismatch:       PagesAlways,
 	KindOwnerFired:            PagesAlways,
 	KindIntentEscalated:       PagesIfWorse,
 	KindItemEscalated:         PagesIfWorse,
@@ -149,7 +149,7 @@ type Wait struct {
 	Row  string
 	Kind Kind
 	// Waiting is what it is waiting for, in words a human reads. It is the whole of
-	// what a delivery says, there being no surface to link to yet.
+	// what a delivery says, there being no screen to link to yet.
 	Waiting string
 	// Holding is whose wait it is: a duty, or an obligation outside the twelve. Its
 	// zero value is a wait belonging to neither, which routes to the owner — the

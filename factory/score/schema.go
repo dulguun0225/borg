@@ -54,7 +54,8 @@ func AdvisoryLockKey() int64 {
 // deliberate rather than missing. What would be wrong is a version saying what the
 // one below it says, and only the lock Writer.Ensure holds can refuse that — two
 // versions saying the same thing where they are not adjacent are legitimate, and
-// with a learned value they are ordinary: K rises to 2 on a service and falls back
+// with a learned value they are ordinary: the window limit rises to 2 on a service and falls
+// back
 // to 1 at the next rollback that sweeps, which is a table equal to one two
 // versions down. A unique index over the five would refuse exactly that, so a
 // value that moved could never move back. This comment claimed such an index from

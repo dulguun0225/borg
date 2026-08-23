@@ -15,29 +15,29 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/environment"
-	"github.com/dulguun0225/borg/factory/factorypolicy"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/pin"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
 // The four subcommands of duty 8 and duty 9. An owner authors a parameter,
-// places a pin, withdraws one, and reads what is in force — which is the whole
-// of what the design has an owner do with gate policy, on a terminal until the
-// Factory surface replaces it.
+// places a safeguard, withdraws one, and reads what is in force — which is the
+// whole of what the design has an owner do with gate policy, on a terminal
+// until the Factory screen replaces it.
 //
 // Every one of them writes as a human, because gate policy is authored by an
 // owner and package policy refuses a component. -human names which.
 
-// areaCommand declares an area, which is what a pin or an item-size target is
-// drawn on. It is duty 9's other write: an owner declares the groupings the rest
-// of the factory is scoped against.
+// areaCommand declares an area, which is what a safeguard or an item-size target
+// is drawn on. It is duty 9's other write: an owner declares the groupings the
+// rest of the factory is scoped against.
 func areaCommand(args []string) error {
 	flags := flag.NewFlagSet("area", flag.ContinueOnError)
 	inside := flags.String("inside", "", "the area this one lies inside, by name; empty at the outermost")
@@ -81,16 +81,16 @@ func areaCommand(args []string) error {
 // authorCommand authors one parameter. Which subject flags are read follows from
 // the parameter, because the record a parameter is a field of is a fact of the
 // parameter and not a choice: a threshold is authored on an environment for one
-// gate row, a bound on the factory policy record for one stage, a target on an
+// gate row, a limit on the factory-wide settings record for one stage, a target on an
 // area, and the window's four on a service.
 func authorCommand(args []string) error {
 	flags := flag.NewFlagSet("author", flag.ContinueOnError)
 	name := flags.String("parameter", "", "the parameter to author (required); factory policy lists them")
-	value := flags.String("value", "", "the number to author, or a comma-separated list for the predicate catalog")
+	value := flags.String("value", "", "the number to author, or a comma-separated list for the list of allowed predicate kinds")
 	serviceName := flags.String("service", "", "the service, for a parameter that is a field of one")
 	areaName := flags.String("area", "", "the area, for a parameter that is a field of one")
-	gateRow := flags.String("gate", string(gate.MergeToMaster), "the gate row a threshold applies at, or brief_or_skill for the factory's own row")
-	stage := flags.String("stage", string(item.StageImplementation), "the stage an attempt bound applies to")
+	gateRow := flags.String("gate", string(gate.MergeToMaster), "the gate row a threshold applies at, or role_prompt_or_skill for the factory's own row")
+	stage := flags.String("stage", string(item.StageImplementation), "the stage an attempt limit applies to")
 	human := flags.String("human", "owner", "the owner authoring it")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -107,8 +107,8 @@ func authorCommand(args []string) error {
 		factory := policy.NewFactory(pool)
 		actor := owner(*human)
 
-		if parameter == gatepolicy.PredicateCatalog {
-			version, err := factory.AuthorPredicateCatalog(ctx, actor, strings.Split(*value, ","))
+		if parameter == gatepolicy.AllowedPredicateKinds {
+			version, err := factory.AuthorAllowedPredicateKinds(ctx, actor, strings.Split(*value, ","))
 			if err != nil {
 				return err
 			}
@@ -123,8 +123,8 @@ func authorCommand(args []string) error {
 		var version policy.Version
 		switch parameter {
 		case gatepolicy.RiskThreshold:
-			if *gateRow == "brief_or_skill" {
-				version, err = factory.AuthorBriefOrSkillThreshold(ctx, actor, number)
+			if *gateRow == "role_prompt_or_skill" {
+				version, err = factory.AuthorRolePromptOrSkillThreshold(ctx, actor, number)
 				break
 			}
 			production, found, err2 := environment.ByName(ctx, pool, environment.ProductionName)
@@ -135,8 +135,8 @@ func authorCommand(args []string) error {
 				return errors.New("factory author: production's environment record does not exist yet — run the path once, which installs it")
 			}
 			version, err = factory.AuthorGateThreshold(ctx, actor, production.ID, *gateRow, number)
-		case gatepolicy.AttemptBound:
-			version, err = factory.AuthorAttemptBound(ctx, actor, item.Stage(*stage), int(number))
+		case gatepolicy.AttemptLimit:
+			version, err = factory.AuthorAttemptLimit(ctx, actor, item.Stage(*stage), int(number))
 		case gatepolicy.ItemSizeTarget:
 			ar, err2 := namedArea(ctx, pool, *areaName)
 			if err2 != nil {
@@ -155,8 +155,8 @@ func authorCommand(args []string) error {
 				version, err = factory.AuthorWindowConfidence(ctx, actor, svc.ID, number)
 			case gatepolicy.WindowCap:
 				version, err = factory.AuthorWindowCap(ctx, actor, svc.ID, number)
-			case gatepolicy.K:
-				version, err = factory.AuthorK(ctx, actor, svc.ID, number)
+			case gatepolicy.WindowLimit:
+				version, err = factory.AuthorWindowLimit(ctx, actor, svc.ID, number)
 			}
 		}
 		if err != nil {
@@ -166,15 +166,15 @@ func authorCommand(args []string) error {
 	})
 }
 
-// pinCommand places a pin or withdraws one. The direction is not a flag: it
-// differs per parameter and points the same way in each, so an owner chooses the
-// subject and the bound and never which way the bound points.
-func pinCommand(args []string) error {
-	flags := flag.NewFlagSet("pin", flag.ContinueOnError)
+// safeguardCommand places a safeguard or withdraws one. The direction is not a
+// flag: it differs per parameter and points the same way in each, so an owner
+// chooses the subject and the bound and never which way the bound points.
+func safeguardCommand(args []string) error {
+	flags := flag.NewFlagSet("safeguard", flag.ContinueOnError)
 	name := flags.String("parameter", "", "the parameter to bind")
-	subject := flags.String("subject", "", "what the pin is drawn on, as kind:name — service:x, area:y, gate_row:merge_to_master, factory_policy:, contract_element:<service>/<contract>/<element>")
-	bound := flags.String("bound", "", "the number the pin bounds by, a comma-separated list for the predicate catalog, or kind[=argument] for a pinned predicate; a pin on the risk threshold takes none")
-	withdraw := flags.String("withdraw", "", "the id of a pin to withdraw instead of placing one")
+	subject := flags.String("subject", "", "what the safeguard is drawn on, as kind:name — service:x, area:y, gate_row:merge_to_master, factory_settings:, contract_element:<service>/<contract>/<element>")
+	bound := flags.String("bound", "", "the number the safeguard bounds by, a comma-separated list for the list of allowed predicate kinds, or kind[=argument] for a safeguard's predicate; a safeguard on the risk threshold takes none")
+	withdraw := flags.String("withdraw", "", "the id of a safeguard to withdraw instead of placing one")
 	human := flags.String("human", "owner", "the owner placing it")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -185,15 +185,15 @@ func pinCommand(args []string) error {
 		actor := owner(*human)
 
 		if *withdraw != "" {
-			version, err := factory.WithdrawPin(ctx, actor, *withdraw)
+			version, err := factory.WithdrawSafeguard(ctx, actor, *withdraw)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Pin %s withdrawn; policy version %s\n", *withdraw, version.ID)
+			fmt.Printf("Safeguard %s withdrawn; policy version %s\n", *withdraw, version.ID)
 			return nil
 		}
 		if *name == "" || *subject == "" {
-			return errors.New("factory pin: -parameter and -subject are required, or -withdraw <pin-id>")
+			return errors.New("factory safeguard: -parameter and -subject are required, or -withdraw <safeguard-id>")
 		}
 
 		parameter := gatepolicy.Parameter(*name)
@@ -201,48 +201,48 @@ func pinCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		on, err := pinSubject(ctx, pool, *subject)
+		on, err := safeguardSubject(ctx, pool, *subject)
 		if err != nil {
 			return err
 		}
 
-		var of pin.Bound
+		var of safeguard.Bound
 		switch {
 		case definition.Direction == gatepolicy.DirectionAddsAHuman:
-			// A pin on the risk threshold adds a human and bounds no value.
+			// A safeguard on the risk threshold adds a human and bounds no value.
 		case definition.Kind == gatepolicy.KindList:
 			of.List = strings.Split(*bound, ",")
 		case definition.Kind == gatepolicy.KindPredicate:
 			kind, argument, _ := strings.Cut(*bound, "=")
-			of.Predicate = pin.Predicate{
+			of.Predicate = safeguard.Predicate{
 				Kind: gatepolicy.PredicateKind(strings.TrimSpace(kind)), Argument: strings.TrimSpace(argument),
 			}
 		default:
 			of.Number, err = strconv.ParseFloat(*bound, 64)
 			if err != nil {
-				return fmt.Errorf("factory pin: a pin on %s takes a number as its bound, not %q", parameter, *bound)
+				return fmt.Errorf("factory safeguard: a safeguard on %s takes a number as its bound, not %q", parameter, *bound)
 			}
 		}
 
-		placed, version, err := factory.Pin(ctx, actor, parameter, on, of)
+		placed, version, err := factory.AddSafeguard(ctx, actor, parameter, on, of)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Pin %s placed: %s on %s as a %s; policy version %s\n",
+		fmt.Printf("Safeguard %s placed: %s on %s as a %s; policy version %s\n",
 			placed.ID, parameter, on, placed.Direction, version.ID)
 		return nil
 	})
 }
 
 // policyCommand prints what is in force: every parameter, where its value came
-// from, the pins that reached it, and what reads it at this milestone. It is the
-// one place an owner sees that four of the eight are read by nothing yet.
+// from, the safeguards that reached it, and what reads it at this milestone. It
+// is the one place an owner sees that four of the eight are read by nothing yet.
 func policyCommand(args []string) error {
 	flags := flag.NewFlagSet("policy", flag.ContinueOnError)
 	serviceName := flags.String("service", "", "read the service-scoped parameters of this service")
 	areaName := flags.String("area", "", "read the area-scoped parameters of this area")
 	gateRow := flags.String("gate", string(gate.MergeToMaster), "read the threshold of this gate row")
-	stage := flags.String("stage", string(item.StageImplementation), "read the attempt bound of this stage")
+	stage := flags.String("stage", string(item.StageImplementation), "read the attempt limit of this stage")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -297,16 +297,16 @@ func policyCommand(args []string) error {
 		}
 		printEffectives(os.Stdout, effectives)
 
-		pins, err := pin.All(ctx, pool)
+		safeguards, err := safeguard.All(ctx, pool)
 		if err != nil {
 			return err
 		}
-		if len(pins) == 0 {
-			fmt.Println("\nNo pins are placed.")
+		if len(safeguards) == 0 {
+			fmt.Println("\nNo safeguards are placed.")
 			return nil
 		}
-		fmt.Println("\nThe pins:")
-		for _, p := range pins {
+		fmt.Println("\nThe safeguards:")
+		for _, p := range safeguards {
 			state := "in force"
 			if p.Withdrawn {
 				state = "withdrawn"
@@ -328,7 +328,7 @@ func printEffectives(out io.Writer, effectives []policy.Effective) {
 			row = e.Row
 		}
 		value := fmt.Sprintf("%v", e.Number)
-		if len(e.List) > 0 || e.Parameter == gatepolicy.PredicateCatalog {
+		if len(e.List) > 0 || e.Parameter == gatepolicy.AllowedPredicateKinds {
 			value = strings.Join(e.List, ", ")
 			if value == "" {
 				value = "(empty)"
@@ -339,10 +339,10 @@ func printEffectives(out io.Writer, effectives []policy.Effective) {
 			fmt.Fprintf(out, ", moved by outcomes on %s", e.Supplied.Subject)
 		}
 		if e.Clamped {
-			fmt.Fprint(out, ", clamped by a pin")
+			fmt.Fprint(out, ", clamped by a safeguard")
 		}
-		if e.HumanPinned {
-			fmt.Fprint(out, ", a pin adds a human")
+		if e.HumanBySafeguard {
+			fmt.Fprint(out, ", a safeguard adds a human")
 		}
 		if e.ReadBy == "" {
 			fmt.Fprint(out, "; read by nothing at this milestone")
@@ -356,68 +356,68 @@ func printEffectives(out io.Writer, effectives []policy.Effective) {
 	}
 }
 
-// pinSubject reads a subject written as kind:name and resolves the name to the
-// record's id where the kind names a record. The factory policy record takes no
+// safeguardSubject reads a subject written as kind:name and resolves the name to the
+// record's id where the kind names a record. The factory-wide settings record takes no
 // name, being the one there is.
-func pinSubject(ctx context.Context, pool *pgxpool.Pool, written string) (pin.Subject, error) {
+func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written string) (safeguard.Subject, error) {
 	kind, name, found := strings.Cut(written, ":")
 	if !found {
-		return pin.Subject{}, fmt.Errorf("factory pin: a subject is written kind:name, not %q", written)
+		return safeguard.Subject{}, fmt.Errorf("factory safeguard: a subject is written kind:name, not %q", written)
 	}
-	switch pin.SubjectKind(kind) {
-	case pin.SubjectService:
+	switch safeguard.SubjectKind(kind) {
+	case safeguard.SubjectService:
 		svc, err := namedService(ctx, pool, name)
 		if err != nil {
-			return pin.Subject{}, err
+			return safeguard.Subject{}, err
 		}
-		return pin.Subject{Kind: pin.SubjectService, ID: svc.ID}, nil
-	case pin.SubjectArea:
+		return safeguard.Subject{Kind: safeguard.SubjectService, ID: svc.ID}, nil
+	case safeguard.SubjectArea:
 		ar, err := namedArea(ctx, pool, name)
 		if err != nil {
-			return pin.Subject{}, err
+			return safeguard.Subject{}, err
 		}
-		return pin.Subject{Kind: pin.SubjectArea, ID: ar.ID}, nil
-	case pin.SubjectGateRow:
+		return safeguard.Subject{Kind: safeguard.SubjectArea, ID: ar.ID}, nil
+	case safeguard.SubjectGateRow:
 		if _, err := gate.Actions(gate.Row(name)); err != nil {
-			return pin.Subject{}, err
+			return safeguard.Subject{}, err
 		}
-		return pin.Subject{Kind: pin.SubjectGateRow, ID: name}, nil
-	case pin.SubjectContractElement:
-		// A contract element is named by its service, its contract, and the
-		// element — three names an owner has — and stored as the contract's id and
-		// the element, which is what outlives a version. Resolving it here rather
-		// than storing the three names is what makes a pin follow the contract when
-		// the producer publishes a new version of it.
+		return safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: name}, nil
+	case safeguard.SubjectContractElement:
+		// A contract element is named by its service, its contract, and the element —
+		// three names an owner has — and stored as the contract's id and the element,
+		// which is what outlives a version. Resolving it here rather than storing the
+		// three names is what makes a safeguard follow the contract when the producer
+		// publishes a new version of it.
 		parts := strings.Split(name, "/")
 		if len(parts) != 3 {
-			return pin.Subject{}, fmt.Errorf(
-				"factory pin: a contract element is written <service>/<contract>/<element>, not %q", name)
+			return safeguard.Subject{}, fmt.Errorf(
+				"factory safeguard: a contract element is written <service>/<contract>/<element>, not %q", name)
 		}
 		svc, err := namedService(ctx, pool, parts[0])
 		if err != nil {
-			return pin.Subject{}, err
+			return safeguard.Subject{}, err
 		}
 		con, found, err := contract.ByName(ctx, pool, svc.ID, parts[1])
 		if err != nil {
-			return pin.Subject{}, err
+			return safeguard.Subject{}, err
 		}
 		if !found {
-			return pin.Subject{}, fmt.Errorf(
-				"factory pin: %s publishes no contract named %q, and a contract exists from the merge that first published it",
+			return safeguard.Subject{}, fmt.Errorf(
+				"factory safeguard: %s publishes no contract named %q, and a contract exists from the merge that first published it",
 				parts[0], parts[1])
 		}
-		return pin.Subject{Kind: pin.SubjectContractElement, ID: contract.ElementSubject(con.ID, parts[2])}, nil
-	case pin.SubjectFactoryPolicy:
-		// The record's own id, and not the word: there is one factory policy
-		// record and it takes no name, but a mechanism reading pins on it reads
-		// them by that id, so a pin naming anything else applies to nothing.
-		policyRecord, err := factorypolicy.Get(ctx, pool)
+		return safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, parts[2])}, nil
+	case safeguard.SubjectFactorySettings:
+		// The record's own id, and not the word: there is one factory-wide settings
+		// record and it takes no name, but a mechanism reading safeguards on it reads
+		// them by that id, so a safeguard naming anything else applies to nothing.
+		settings, err := factorysettings.Get(ctx, pool)
 		if err != nil {
-			return pin.Subject{}, err
+			return safeguard.Subject{}, err
 		}
-		return pin.Subject{Kind: pin.SubjectFactoryPolicy, ID: policyRecord.ID}, nil
+		return safeguard.Subject{Kind: safeguard.SubjectFactorySettings, ID: settings.ID}, nil
 	default:
-		return pin.Subject{}, fmt.Errorf("%w: %q", pin.ErrSubjectKindUnknown, kind)
+		return safeguard.Subject{}, fmt.Errorf("%w: %q", safeguard.ErrSubjectKindUnknown, kind)
 	}
 }
 
@@ -482,8 +482,8 @@ func withPool(command func(context.Context, *pgxpool.Pool) error) error {
 		return err
 	}
 	err = command(ctx, pool)
-	if errors.Is(err, policy.ErrNoVersion) || errors.Is(err, factorypolicy.ErrNotFound) {
-		return fmt.Errorf("%w\nthe factory is not installed: the run's first take creates the factory policy record and production's environment, and there is nothing to author on until it has", err)
+	if errors.Is(err, policy.ErrNoVersion) || errors.Is(err, factorysettings.ErrNotFound) {
+		return fmt.Errorf("%w\nthe factory is not installed: the run's first take creates the factory-wide settings record and production's environment, and there is nothing to author on until it has", err)
 	}
 	return err
 }
@@ -495,10 +495,10 @@ func withPool(command func(context.Context, *pgxpool.Pool) error) error {
 // has no way at all to reorder a deploy.
 //
 // It goes through dispatch and not beside it, the item having one writer after the
-// cut. Work is the surface that will call this, and there is none yet.
+// decomposition. Work is the screen that will call this, and there is none yet.
 func priorityCommand(args []string) error {
 	flags := flag.NewFlagSet("priority", flag.ContinueOnError)
-	priority := flags.Int("priority", 0, "the priority; a greater number goes first, and the cut writes nothing")
+	priority := flags.Int("priority", 0, "the priority; a greater number goes first, and decomposition writes nothing")
 	human := flags.String("human", "owner", "the owner reordering the queue")
 
 	// The item id is taken off the front before the flags are parsed, the way

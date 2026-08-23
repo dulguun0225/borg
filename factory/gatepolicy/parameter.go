@@ -5,26 +5,26 @@ import (
 	"fmt"
 )
 
-// Parameter is one value an owner may author, or one a pin binds without anyone
-// authoring it. Eight are authored across gate policy's seven rows — doc.go says
-// which row carries two — and one is pinnable and not authorable, which is
-// [PinnedPredicate].
+// Parameter is one value an owner may author, or one a safeguard binds without
+// anyone authoring it. Eight are authored across gate policy's seven rows — doc.go
+// says which row carries two — and one that only a safeguard sets, which is
+// [SafeguardPredicate].
 type Parameter string
 
 const (
 	// RiskThreshold is where the score stops auto-passing and puts a human at
 	// the gate. It is a field of an environment record per gate row, and of the
-	// factory policy record for the row that decides what an agent is told.
+	// factory-wide settings record for the row that decides what an agent is told.
 	RiskThreshold Parameter = "risk_threshold"
-	// AttemptBound is how many times a stage is retried before the item
-	// escalates. It is a field of the factory policy record, per stage.
-	AttemptBound Parameter = "attempt_bound"
+	// AttemptLimit is how many times a stage is retried before the item
+	// escalates. It is a field of the factory-wide settings record, per stage.
+	AttemptLimit Parameter = "attempt_limit"
 	// ItemSizeTarget is how large an item is meant to be, above the minimum
 	// that it ships by itself. It is a field of the area record.
 	ItemSizeTarget Parameter = "item_size_target"
-	// PredicateCatalog is what kinds of assertion a consumer's declaration may
-	// draw from. It is a field of the factory policy record.
-	PredicateCatalog Parameter = "predicate_catalog"
+	// AllowedPredicateKinds is what kinds of assertion a consumer contract may
+	// draw from. It is a field of the factory-wide settings record.
+	AllowedPredicateKinds Parameter = "allowed_predicate_kinds"
 	// WindowSize is the smallest regression the comparison must rule out to
 	// close a watch window clean. It is a field of the service record.
 	WindowSize Parameter = "window_size"
@@ -34,17 +34,17 @@ const (
 	// WindowCap is the elapsed time that ends a window which will never reach
 	// its volume. It is a field of the service record.
 	WindowCap Parameter = "window_cap"
-	// K is how many watch windows one service may hold open at once. It is a
-	// field of the service record.
-	K Parameter = "k"
-	// PinnedPredicate is a predicate an owner asserts on one element of a
-	// contract, where the derivation of a consumer's declaration cannot see the
-	// read. Nothing authors it: it exists as a pin and only as a pin, so it is
-	// listed in [PinOnly] rather than in [Definitions].
-	PinnedPredicate Parameter = "pinned_predicate"
+	// WindowLimit is how many watch windows one service may hold open at once.
+	// It is a field of the service record.
+	WindowLimit Parameter = "window_limit"
+	// SafeguardPredicate is a predicate an owner asserts on one element of a
+	// contract, where the derivation of a consumer contract cannot see the read.
+	// Nothing authors it: it exists as a safeguard and only as one, so it is listed
+	// in [SafeguardOnly] rather than in [Definitions].
+	SafeguardPredicate Parameter = "safeguard_predicate"
 )
 
-// Kind is what a parameter's value is, which decides how a pin clamps it and
+// Kind is what a parameter's value is, which decides how a safeguard clamps it and
 // how a value is written and printed.
 type Kind string
 
@@ -58,14 +58,14 @@ const (
 	// KindList is a list of names, clamped by union.
 	KindList Kind = "list"
 	// KindPredicate is one predicate on one element of a contract: a
-	// [PredicateKind] and, where that kind takes one, its argument. It is the
-	// shape of a pinned predicate's bound and of nothing else, and it is not a
-	// number, so nothing clamps it arithmetically — a pin of this kind adds a
+	// [PredicateKind] and, where that kind takes one, its argument. It is the shape a
+	// safeguard's predicate takes as its bound and of nothing else, and it is not a
+	// number, so nothing clamps it arithmetically — a safeguard of this kind adds a
 	// predicate to the ones derived and removes none.
 	KindPredicate Kind = "predicate"
 )
 
-// Direction is which way a pin on a parameter may move the value in force. All
+// Direction is which way a safeguard on a parameter may move the value in force. All
 // three point toward more protection; doc.go says why that is the whole rule.
 type Direction string
 
@@ -73,7 +73,7 @@ const (
 	// DirectionCeiling caps the value in force.
 	DirectionCeiling Direction = "ceiling"
 	// DirectionFloor raises the value in force, and for a list is the union of
-	// the pinned names and the value in force.
+	// the names a safeguard adds and the value in force.
 	DirectionFloor Direction = "floor"
 	// DirectionAddsAHuman adds a human at the gate and carries no bound. It is
 	// the risk threshold's direction and no other's.
@@ -90,9 +90,9 @@ const (
 	ScopeService Scope = "service"
 	// ScopeArea is a field of the area record.
 	ScopeArea Scope = "area"
-	// ScopeFactoryPolicy is a field of the factory policy record.
-	ScopeFactoryPolicy Scope = "factory_policy"
-	// ScopeNothing is no record at all: the parameter is a pin's and nobody
+	// ScopeFactorySettings is a field of the factory-wide settings record.
+	ScopeFactorySettings Scope = "factory_settings"
+	// ScopeNothing is no record at all: the parameter is a safeguard's and nobody
 	// authors a value for it, so there is no field for one to be a field of.
 	ScopeNothing Scope = "nothing"
 )
@@ -102,7 +102,7 @@ type Definition struct {
 	Parameter Parameter
 	// Row is the gate-policy row the parameter belongs to. Two parameters
 	// share one row; every other row has one parameter; and a parameter in
-	// [PinOnly] has none, gate policy being what an owner authors.
+	// [SafeguardOnly] has none, gate policy being what an owner authors.
 	Row       string
 	Kind      Kind
 	Direction Direction
@@ -118,7 +118,7 @@ type Definition struct {
 }
 
 // Definitions is every parameter an owner authors, in the order gate policy's own
-// table lists the rows. What is not here is [PinOnly].
+// table lists the rows. What is not here is [SafeguardOnly].
 var Definitions = []Definition{
 	{
 		Parameter: RiskThreshold, Row: "risk threshold",
@@ -127,8 +127,8 @@ var Definitions = []Definition{
 		ReaderAtThisMilestone: "both gate rows",
 	},
 	{
-		Parameter: AttemptBound, Row: "attempt bound",
-		Kind: KindCount, Direction: DirectionCeiling, Scope: ScopeFactoryPolicy,
+		Parameter: AttemptLimit, Row: "attempt limit",
+		Kind: KindCount, Direction: DirectionCeiling, Scope: ScopeFactorySettings,
 		Unit:                  "attempts at one stage",
 		ReaderAtThisMilestone: "the stages that retry",
 	},
@@ -138,10 +138,10 @@ var Definitions = []Definition{
 		Unit: "lines an item changes",
 	},
 	{
-		Parameter: PredicateCatalog, Row: "the predicate catalog",
-		Kind: KindList, Direction: DirectionFloor, Scope: ScopeFactoryPolicy,
-		Unit:                  "kinds of assertion a declaration may draw from",
-		ReaderAtThisMilestone: "the derivation of a consumer's declaration",
+		Parameter: AllowedPredicateKinds, Row: "the list of allowed predicate kinds",
+		Kind: KindList, Direction: DirectionFloor, Scope: ScopeFactorySettings,
+		Unit:                  "kinds of assertion a consumer contract may draw from",
+		ReaderAtThisMilestone: "the derivation of a consumer contract",
 	},
 	{
 		Parameter: WindowSize, Row: "the watch window's size and confidence",
@@ -159,46 +159,48 @@ var Definitions = []Definition{
 		Parameter: WindowCap, Row: "the watch window's cap",
 		Kind: KindSeconds, Direction: DirectionFloor, Scope: ScopeService,
 		Unit:                  "seconds",
-		ReaderAtThisMilestone: "the comparison, as the exit a window that will never reach its volume takes",
+		ReaderAtThisMilestone: "the health monitor, as the exit a window that will never reach its volume takes",
 	},
 	{
-		Parameter: K, Row: "K",
+		Parameter: WindowLimit, Row: "window limit",
 		Kind: KindCount, Direction: DirectionCeiling, Scope: ScopeService,
 		Unit:                  "windows open at once, per service",
 		ReaderAtThisMilestone: "the production deploy row's hold, and how many releases one rollback undoes",
 	},
 }
 
-// PinOnly is every parameter that a pin binds and nobody authors. There is one.
-// It is a list of its own rather than a row of [Definitions] because gate policy
-// is what an owner authors — seven rows, counted by TestSevenRows — and a
-// pinnable-only parameter listed among them would make that count eight while
-// changing nothing about what an owner may write.
+// SafeguardOnly is every parameter that a safeguard binds and nobody authors.
+// There is one. It is a list of its own rather than a row of [Definitions] because
+// gate policy is what an owner authors — seven rows, counted by TestSevenRows — and
+// a parameter only a safeguard sets, listed among them, would make that count eight
+// while changing nothing about what an owner may write.
 //
 // The direction is derived rather than read off the design's list, which names ten
-// pins and their directions and not this one, while that same section's argument
-// for a pin being a record rather than a field rests on it: a pinned predicate's
-// subject is a contract element, whose writer is the merge queue. So the direction
-// comes from the rule the whole list is an instance of — a pin can only add — and a
-// pinned predicate adds a declaration and removes none, which is a floor.
-var PinOnly = []Definition{
+// safeguards and their directions and not this one, while that same section's
+// argument for a safeguard being a record rather than a field rests on it: a
+// safeguard's predicate names a contract element as its subject, whose writer is
+// the merge queue. So the direction comes from the rule the whole list is an
+// instance of — a safeguard can only add — and a safeguard's predicate adds a
+// consumer contract and removes none, which is a floor.
+var SafeguardOnly = []Definition{
 	{
-		Parameter: PinnedPredicate, Row: "",
+		Parameter: SafeguardPredicate, Row: "",
 		Kind: KindPredicate, Direction: DirectionFloor, Scope: ScopeNothing,
 		Unit:                  "one predicate on one element of a contract",
-		ReaderAtThisMilestone: "enforcement, beside the declarations derived from a consumer's build",
+		ReaderAtThisMilestone: "enforcement, beside the consumer contracts derived from a consumer's build",
 	},
 }
 
 // ErrUnknown is returned by [Define] for a name that is neither one of the eight
-// nor one of [PinOnly].
+// nor one of [SafeguardOnly].
 var ErrUnknown = errors.New("gatepolicy: not one of gate policy's parameters")
 
-// Define is one parameter's definition, from [Definitions] or from [PinOnly]. A
-// name in neither is [ErrUnknown] rather than a zero definition, so a caller that
-// took a parameter from an owner's input cannot resolve one that does not exist.
+// Define is one parameter's definition, from [Definitions] or from
+// [SafeguardOnly]. A name in neither is [ErrUnknown] rather than a zero definition,
+// so a caller that took a parameter from an owner's input cannot resolve one that
+// does not exist.
 func Define(p Parameter) (Definition, error) {
-	for _, d := range append(append([]Definition{}, Definitions...), PinOnly...) {
+	for _, d := range append(append([]Definition{}, Definitions...), SafeguardOnly...) {
 		if d.Parameter == p {
 			return d, nil
 		}

@@ -30,14 +30,14 @@ const IDPrefix = "win"
 // columns rather than one because a count is a count: what a reader wants of them
 // is arithmetic, and JSON holding four integers would be structure where nothing
 // needs structure. closed_on_read_only_when_closed refuses a read on an open
-// window, which is the one way these could disagree with the exit; a swept close
+// window, which is the one way these could disagree with the exit; a skipped close
 // carries zeros, that exit being the one that is not a reading, and the writer is
 // what refuses a read there.
 //
-// held_out is copied onto the row for the reason clean_available is not enough on
+// held_out is copied onto the row for the reason cleared_available is not enough on
 // its own: a window on a held-out release runs to the cap because the score is
 // measuring what it auto-passed, and one on a first release runs to the cap
-// because it has nothing to compare against. Both have clean_available false and
+// because it has nothing to compare against. Both have cleared_available false and
 // they are not the same window.
 //
 // The size, the confidence, the cap, and the boundary's formula are copied onto
@@ -50,7 +50,7 @@ var DDL = []string{
 	deploy_id text not null unique,
 	release_id text not null unique,
 	service_id text not null,
-	clean_available boolean not null,
+	cleared_available boolean not null,
 	held_out boolean not null,
 	size double precision not null,
 	confidence double precision not null,
@@ -74,7 +74,7 @@ var DDL = []string{
 	constraint formula_present check (formula <> ''),
 	constraint policy_version_present check (policy_version <> ''),
 	constraint score_version_present check (score_version <> ''),
-	constraint exit_known check (exit in ('', 'harm', 'clean', 'cap', 'swept')),
+	constraint exit_known check (exit in ('', 'condemned', 'cleared', 'timed_out', 'skipped')),
 	constraint exit_and_closed_together check ((exit <> '') = (closed_at <> '')),
 	constraint closed_on_counts check (
 		closed_on_units >= 0 and closed_on_failures >= 0 and closed_on_failures <= closed_on_units and

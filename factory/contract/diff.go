@@ -62,7 +62,7 @@ func (c Change) Describe() string {
 // removed, an element whose type changed, and an element that was always
 // populated becoming optional. Each breaks a consumer that reads the element, and
 // nothing here asks whether one does — who is affected is a separate query over
-// the declarations, and this is the diff.
+// the consumer contracts, and this is the diff.
 //
 // A store breaks on a fourth, because its promise runs forward as well: an
 // element added and always populated. The build being restored does not write it,

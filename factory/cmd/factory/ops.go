@@ -20,8 +20,8 @@ import (
 // The three subcommands of everything downstream of a deploy: who a page reaches,
 // the watch that closes a window, and a human approving through a factory hold.
 //
-// The first is the People declaration, which is the surface People will write and
-// this reaches until it exists. The second is the comparison, which nothing else
+// The first is the People declaration, which is the screen People will write and
+// this reaches until it exists. The second is the health monitor, which nothing else
 // closes a window with — so a run that left one open is finished here. The third is
 // the emergency action the design keeps at the production deploy row: approve now, not
 // skip.
@@ -33,7 +33,7 @@ import (
 func peopleCommand(args []string) error {
 	flags := flag.NewFlagSet("people", flag.ContinueOnError)
 	duty := flags.Int("duty", 0, "one of the owner's twelve duties, by number")
-	obligation := flags.String("obligation", "", "an obligation outside the twelve: hosting, reconciler, or fleet")
+	obligation := flags.String("obligation", "", "an obligation outside the twelve: hosting, checker, or fleet")
 	withdraw := flags.Bool("withdraw", false, "end this holding rather than declaring it")
 	human := flags.String("human", "owner", "the owner writing the declaration")
 
@@ -112,11 +112,12 @@ func holdingOf(d people.Declaration) people.Holding {
 	return people.OfDuty(d.Duty)
 }
 
-// watchCommand is the comparison over one service, run against an existing
+// watchCommand is the health monitor over one service, run against an existing
 // database until every window closes or the time allowed runs out.
 //
-// Nothing but the comparison closes a window, so this is what finishes what a run
-// gave up on — and a window nothing closes fills K and holds that service's
+// Nothing but the health monitor closes a window, so this is what finishes what a run
+// gave up on — and a window nothing closes reaches the window limit and holds that
+// service's
 // production deploys, which is a wait on the factory and does not page.
 func watchCommand(args []string) error {
 	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
@@ -170,7 +171,7 @@ func printWindows(ctx context.Context, p *path, svc service.Service) error {
 			state = string(w.Exit) + " at " + w.ClosedAt
 		}
 		clean := ""
-		if !w.CleanAvailable {
+		if !w.ClearedAvailable {
 			clean = "; clean was never available to it"
 		}
 		fmt.Fprintf(p.d.out, "window %s over deploy %s: %s (size %v, confidence %v, cap %vs)%s\n",
@@ -245,7 +246,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 		return err
 	}
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
-		reconcilerStore, shut, err := openReconciler(ctx)
+		checkerStore, shut, err := openChecker(ctx)
 		if err != nil {
 			return err
 		}
@@ -273,7 +274,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 			human:            f.human,
 			services:         known,
 			candidateCeiling: 1,
-			reconciler:       reconcilerStore,
+			checker:          checkerStore,
 		})
 		if err != nil {
 			return err

@@ -44,9 +44,9 @@ func git(repo string, args ...string) (string, error) {
 // repository is where master actually is.
 //
 // The two are compared, and a disagreement is an error naming both. That is the
-// shape the reconciler exists for and nothing else in the factory looks for this
-// one — a fast-forward that landed with no release minted leaves exactly it, which
-// is the window the merge queue names and does not close.
+// shape the independent checker exists for and nothing else in the factory
+// looks for this one — a fast-forward that landed with no release minted leaves
+// exactly it, which is the window the merge queue names and does not close.
 func (p *path) masterHead(ctx context.Context, svc service.Service) (string, error) {
 	inGit, err := masterCommit(svc.Repository)
 	if err != nil {
@@ -158,7 +158,7 @@ func criterionIDs(inForce []criterion.Criterion) []string {
 }
 
 // repoFiles is the repository's current files, whole, for the implementer's
-// brief — none on a candidate whose branch has no base, and the tree master
+// role prompt — none on a candidate whose branch has no base, and the tree master
 // points at for every candidate after the first release. The .git directory is
 // the repository's bookkeeping, not part of the change, and is skipped.
 func repoFiles(repo string) ([]agent.File, error) {

@@ -22,9 +22,9 @@ const VersionIDPrefix = "conv"
 
 // ElementIDPrefix is what [record.NewID] is called with for an element row. The
 // identity of an element is its version and its name, so the id is the row's and
-// never what anything points at — a pinned predicate names an element by the
-// contract and the name, which [ElementSubject] composes, because the row's id
-// changes at every version and a pin has to outlive one.
+// never what anything points at — a safeguard's predicate names an element by
+// the contract and the name, which [ElementSubject] composes, because the row's
+// id changes at every version and a safeguard has to outlive one.
 const ElementIDPrefix = "cone"
 
 // kinds is the kind CHECK's value list, written once because doc.go's claim that

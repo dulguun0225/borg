@@ -14,7 +14,7 @@ import (
 // SampleRate is the share of firings the score would have gated that it holds
 // out of the gate instead. It is the score's own number and not an owner's: gate
 // policy is seven rows and the sample is not one of them, and an owner who wants
-// a row never sampled pins it, which the sample may not pass.
+// a row never sampled adds a safeguard at it, which the sample may not pass.
 //
 // One in ten is where it starts. Lower and the unbiased evidence the threshold's
 // rise depends on arrives too slowly to move anything on an install shipping a
@@ -72,14 +72,14 @@ const (
 // score auto-passed on the number apart from what its own sample auto-passed, and
 // a second spelling of either word here would be two able to disagree.
 const (
-	// AutoPassedByThreshold is the number having been under the threshold in
+	// AutoPassThreshold is the number having been under the threshold in
 	// force. It is what a firing the score would have passed anyway reads, whether
 	// or not the item is held out.
-	AutoPassedByThreshold = "threshold"
-	// AutoPassedBySample is the number having been at or above the threshold with
+	AutoPassThreshold = "threshold"
+	// AutoPassSample is the number having been at or above the threshold with
 	// the item held out. This is the value the threshold's rise is counted over,
 	// and it is the whole reason the sample exists.
-	AutoPassedBySample = "the score's held-out sample"
+	AutoPassSample = "the score's held-out sample"
 )
 
 // HoldOut is whether the score holds this item out of the gate the firing would
@@ -87,22 +87,22 @@ const (
 // the question is about a gate the score itself would have gated and the score
 // does not know the threshold in force.
 //
-// Three rules, in this order. A pin is never passed: a gate pinned always-on is a
-// human an owner added, and a sample that could pass one would be the single
-// mechanism in the design that removes a human from a gate, which is what a pin
-// exists to prevent. An item an earlier decision says was selected stays selected,
-// whatever the number reads now — that is what makes the selection an item's
-// property rather than a firing's. And otherwise the draw selects, but only where
-// the score would have gated: holding out what it was going to pass anyway would
-// produce no evidence about a gate.
+// Three rules, in this order. A safeguard is never passed: a human a safeguard
+// added at a gate is a human an owner added, and a sample that could pass one
+// would be the single mechanism in the design that removes a human from a gate,
+// which is what a safeguard exists to prevent. An item an earlier decision says
+// was selected stays selected, whatever the number reads now — that is what makes
+// the selection an item's property rather than a firing's. And otherwise the draw
+// selects, but only where the score would have gated: holding out what it was
+// going to pass anyway would produce no evidence about a gate.
 //
 // A firing over a set is not sampled. Decomposition decides over several items at
 // once, so one draw there would select several items on one number, and the row's
 // number is its riskiest member's rather than any one item's. What that costs is
-// that the cut's own row never produces unbiased evidence, and the threshold an
+// that decomposition's own row never produces unbiased evidence, and the threshold an
 // owner authors there moves only by falling.
-func (s *Score) HoldOut(ctx context.Context, itemID string, wouldGate, pinned bool) (Selection, error) {
-	if itemID == "" || pinned {
+func (s *Score) HoldOut(ctx context.Context, itemID string, wouldGate, bySafeguard bool) (Selection, error) {
+	if itemID == "" || bySafeguard {
 		return Selection{}, nil
 	}
 	selected, err := heldOutBefore(ctx, s.pool, itemID)
@@ -176,7 +176,7 @@ func HeldOutItems(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
 }
 
 // HeldOut is whether the score selected one item, read off the decisions. It is
-// what the comparison asks before it opens a window: a held-out release runs to
+// what the health monitor asks before it opens a window: a held-out release runs to
 // the cap rather than stopping where the boundary would allow, so the exit it may
 // take is a fact of the open and is copied onto the record there.
 func HeldOut(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool, error) {

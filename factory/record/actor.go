@@ -10,7 +10,7 @@ import (
 type Kind string
 
 const (
-	// KindHuman is a person: the owner, an approver, whoever vetoed.
+	// KindHuman is a person: the owner, an approver, whoever undid a shipped change.
 	KindHuman Kind = "human"
 	// KindComponent is a part of the factory: a gate, a writer, an agent.
 	KindComponent Kind = "component"

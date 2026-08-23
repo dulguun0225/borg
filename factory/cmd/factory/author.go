@@ -10,10 +10,10 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
-	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
@@ -21,45 +21,46 @@ import (
 	"github.com/dulguun0225/borg/factory/service"
 )
 
-// stageAttempts is one stage's bound, its remaining attempts, and what each of
-// them spent. The bound is per stage and not per call, which is what the design
+// stageAttempts is one stage's limit, its remaining attempts, and what each of
+// them spent. The limit is per stage and not per call, which is what the design
 // compares it against: a stage that asks the model twice — the interview's
 // question and then the spec — has its attempts across both calls and not that
 // many of each. The spends are kept because a refused attempt cost tokens and
 // dispatch is told about every one of them, so the item's stored count is the
-// count the bound was applied to.
+// count the limit was applied to.
 //
-// The bound is read through package policy, so it is what an owner authored, or
-// what the score supplies where they authored nothing, clamped by any pin.
+// The limit is read through package policy, so it is what an owner authored, or
+// what the score supplies where they authored nothing, clamped by any
+// safeguard.
 type stageAttempts struct {
-	bound  int
+	limit  int
 	left   int
 	spends []int64
 }
 
-// boundFor is one stage's attempt bound as it is in force. The read happens once
-// per stage rather than once per attempt: an owner re-authoring the bound while a
+// limitFor is one stage's attempt limit as it is in force. The read happens once
+// per stage rather than once per attempt: an owner re-authoring the limit while a
 // stage is retrying would otherwise change the number the stage is being held to
 // half way through it.
-func boundFor(ctx context.Context, reader *policy.Reader, stage item.Stage, s policy.Subjects) (*stageAttempts, error) {
+func limitFor(ctx context.Context, reader *policy.Reader, stage item.Stage, s policy.Subjects) (*stageAttempts, error) {
 	s.Stage = stage
-	effective, err := reader.AttemptBound(ctx, s)
+	effective, err := reader.AttemptLimit(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	bound := int(effective.Number)
-	if bound < 1 {
-		return nil, fmt.Errorf("factory: the attempt bound in force at %s is %v, and a stage gets at least one attempt",
+	limit := int(effective.Number)
+	if limit < 1 {
+		return nil, fmt.Errorf("factory: the attempt limit in force at %s is %v, and a stage gets at least one attempt",
 			stage, effective.Number)
 	}
-	return &stageAttempts{bound: bound, left: bound}, nil
+	return &stageAttempts{limit: limit, left: limit}, nil
 }
 
-// ErrOutOfAttempts is what a stage that spent its bound returns. It is a sentinel
+// ErrOutOfAttempts is what a stage that spent its limit returns. It is a sentinel
 // because the escalation page turns on it: the factory giving up on an item is what
 // the design shows in Work as an escalation, and whether it also pages depends on the
 // intent behind the item, which the caller reads and this generic function cannot.
-var ErrOutOfAttempts = errors.New("factory: the stage used every attempt its bound allows")
+var ErrOutOfAttempts = errors.New("factory: the stage used every attempt its limit allows")
 
 // attempt runs one authoring call, retrying while the stage has attempts left
 // and returning what the call produced as soon as a reply parses.
@@ -69,13 +70,13 @@ var ErrOutOfAttempts = errors.New("factory: the stage used every attempt its bou
 // may say correctly. Nothing else is: a rate-limited or unauthorised account is
 // not an attempt at the work, and what the design does with an account that has
 // run out is a hold — ../../../end-goal/how-humans-do-it/10-fleet.md#an-account-that-runs-out-is-a-hold
-// — so those return on the first failure rather than spending the bound on a
+// — so those return on the first failure rather than spending the limit on a
 // refusal that will not change. There is no wait between attempts, which costs
 // nothing on a refused reply and would be the wrong shape for a rate limit
 // anyway.
 //
 // A stage out of attempts is the factory saying it cannot do this one, which the
-// design shows in Work as an escalation. There is no surface to show it on yet, so
+// design shows in Work as an escalation. There is no screen to show it on yet, so
 // the run stops and the message says so, the human being at the terminal already.
 func attempt[T any](out io.Writer, a *stageAttempts, role string, call func() (T, int64, error)) (T, error) {
 	var zero T
@@ -94,21 +95,21 @@ func attempt[T any](out io.Writer, a *stageAttempts, role string, call func() (T
 		fmt.Fprintf(out, "The %s's reply was refused; %d attempt(s) left: %v\n", role, a.left, err)
 	}
 	return zero, fmt.Errorf("%w: the %s used all %d without a reply the protocol accepts, and the factory is stuck on this item: %w",
-		ErrOutOfAttempts, role, a.bound, last)
+		ErrOutOfAttempts, role, a.limit, last)
 }
 
-// take is the intent this cut is authored from: the unrefined one already
+// take is the intent this decomposition is authored from: the unrefined one already
 // waiting with exactly this statement, or one intake takes in for it.
 //
-// The first is how a revert and a removal reach the pipeline. The comparison took a
+// The first is how a revert and a removal reach the pipeline. The health monitor took a
 // revert's intent in at the rollback and the detector takes a removal's in at the
 // pass that finds the list empty, and this interface's run is given a statement
 // rather than an intent id — so a run given one of those statements works that
 // intent rather than taking in a second one saying the same thing.
 //
-// Matching on the statement is what an interface with no surface can do. What it
+// Matching on the statement is what an interface with no screen can do. What it
 // costs is a false match where an owner types a statement character for character
-// equal to one already waiting; the surface that replaces this shows an owner the
+// equal to one already waiting; the screen that replaces this shows an owner the
 // intents that are waiting and has them pick.
 func (p *path) take(ctx context.Context, statement string) (intent.Intent, error) {
 	waiting, found, err := intent.Unrefined(ctx, p.d.pool, statement)
@@ -123,20 +124,20 @@ func (p *path) take(ctx context.Context, statement string) (intent.Intent, error
 	return p.intake.TakeIn(ctx, p.human, intent.SourceOwner, statement)
 }
 
-// authorIntent takes one intent in, refines it, cuts every item it yields,
+// authorIntent takes one intent in, refines it, decomposes every item it yields,
 // ratifies the set at Decomposition where it yielded more than one, and authors
 // each item's spec, implementation, and build.
 //
-// The order is the design's: intake, the interview, the cut, the cut's own gate,
+// The order is the design's: intake, the interview, decomposition, decomposition's own gate,
 // and then the stages per item. One simplification is kept from M1 and it shows
 // here: the interview's own call is what authors the first item's spec, so on a set
 // that spec exists before Decomposition ratified the set. What that costs is one
-// spec thrown away on a rejected cut, which is what a rejected round throws away
+// spec thrown away on a rejected decomposition, which is what a rejected round throws away
 // anyway — its items are superseded and their replacements start at nothing.
-func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet, []*candidate, error) {
+func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompositionSet, []*candidate, error) {
 	d := p.d
 	if len(one.services) == 0 {
-		return nil, nil, fmt.Errorf("factory: the intent %q names no service to cut an item on", one.statement)
+		return nil, nil, fmt.Errorf("factory: the intent %q names no service to decompose an item on", one.statement)
 	}
 
 	// 1. Intake: the intent arrives from the owner, unrefined — unless one is
@@ -146,11 +147,11 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 	if err != nil {
 		return nil, nil, err
 	}
-	set := &cutSet{intentID: in.ID}
+	set := &decompositionSet{intentID: in.ID}
 	fmt.Fprintf(d.out, "Intent %s taken in (%s): %s\n", in.ID, of, in.Statement)
 	fmt.Fprintf(d.out, "  it changes %d service(s): %v\n", len(one.services), one.services)
 
-	// gaveUp is the escalation page. A stage that spent its bound is the factory
+	// gaveUp is the escalation page. A stage that spent its limit is the factory
 	// saying it cannot do this one, and whether that also reaches a human out of the
 	// product turns on the intent: an owner's request has nothing live that is worse,
 	// and an intent a detector wrote is a defect that is live.
@@ -177,7 +178,7 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 	if err != nil {
 		return nil, nil, err
 	}
-	specStage, err := boundFor(ctx, p.policy, item.StageSpec,
+	specStage, err := limitFor(ctx, p.policy, item.StageSpec,
 		policy.Subjects{ServiceID: firstSvc.ID, AreaID: p.areaID})
 	if err != nil {
 		return nil, nil, err
@@ -191,9 +192,9 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 	}
 	fmt.Fprintf(d.out, "Intent %s refined after %d round(s)\n", in.ID, rounds)
 
-	// 3. The cut: one item per service the intent changes, each waiting on the one
+	// 3. Decomposition: one item per service the intent changes, each waiting on the one
 	// before it, and the service record written where the service does not exist yet.
-	candidates, err := p.cutItems(ctx, in, one.services)
+	candidates, err := p.decomposeItems(ctx, in, one.services)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -201,8 +202,8 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 		set.itemIDs = append(set.itemIDs, c.itemID)
 	}
 
-	// 4. Decomposition, where the cut yielded more than one item. One verdict
-	// covers the whole cut however many services it changes.
+	// 4. Decomposition, where decomposition yielded more than one item. One verdict
+	// covers the whole decomposition however many services it changes.
 	if len(candidates) > 1 {
 		approved, err := p.decompositionGate(ctx, in, set, candidates)
 		if err != nil {
@@ -213,7 +214,7 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 		}
 	}
 
-	// 5. The stages, per item: the spec, the implementation, the declaration
+	// 5. The stages, per item: the spec, the implementation, the consumer contract
 	// derived from the same build, and the build record.
 	for n, c := range candidates {
 		authored := refined
@@ -222,7 +223,7 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 			// Every item after the first authors its own spec, against the criteria
 			// its own service already promises. The interview is not re-run: it is
 			// the intent's and it is over.
-			stage, err = boundFor(ctx, p.policy, item.StageSpec, p.subjectsFor(c))
+			stage, err = limitFor(ctx, p.policy, item.StageSpec, p.subjectsFor(c))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -233,7 +234,7 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 			author := agent.SpecAuthor{Model: d.model}
 			authored, err = attempt(d.out, stage, "spec author", func() (agent.Refined, int64, error) {
 				r, err := author.Refine(ctx, agent.Refining{
-					Statement: in.Statement, Service: c.svc.Name, InForce: briefCriteria(itsPromised),
+					Statement: in.Statement, Service: c.svc.Name, InForce: rolePromptCriteria(itsPromised),
 				})
 				return r, r.Tokens, err
 			})
@@ -265,7 +266,7 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*cutSet,
 // than assumed.
 //
 // It returns what the interview spent apart from the spec, because the design
-// counts a round against the same bound and keeps it on the intent, upstream of the
+// counts a round against the same limit and keeps it on the intent, upstream of the
 // item's first stage — and an intent has no spend field, so the round's tokens are
 // charged to the item's first attempt where that is reported.
 func (p *path) interview(ctx context.Context, in intent.Intent, serviceName string,
@@ -274,7 +275,7 @@ func (p *path) interview(ctx context.Context, in intent.Intent, serviceName stri
 	author := agent.SpecAuthor{Model: d.model}
 	refined, err := attempt(d.out, stage, "spec author", func() (agent.Refined, int64, error) {
 		r, err := author.Refine(ctx, agent.Refining{
-			Statement: in.Statement, Service: serviceName, InForce: briefCriteria(promised),
+			Statement: in.Statement, Service: serviceName, InForce: rolePromptCriteria(promised),
 		})
 		return r, r.Tokens, err
 	})
@@ -317,7 +318,7 @@ func (p *path) interview(ctx context.Context, in intent.Intent, serviceName stri
 		r, err := author.Refine(ctx, agent.Refining{
 			Statement: in.Statement, Service: serviceName,
 			Answered: []agent.QA{{Question: q.Question, Answer: q.Answer}},
-			InForce:  briefCriteria(promised),
+			InForce:  rolePromptCriteria(promised),
 		})
 		return r, r.Tokens, err
 	})
@@ -331,20 +332,20 @@ func (p *path) interview(ctx context.Context, in intent.Intent, serviceName stri
 	return refined, spend, 1, nil
 }
 
-// cutItems is the cut: one item per service the intent changes, in the order the
+// decomposeItems is decomposition: one item per service the intent changes, in the order the
 // intent named them, each declared to wait on the one before it.
 //
-// A service the work changes may not exist yet and nothing about the cut changes:
-// the item that creates it is cut first and the service record is written in the
+// A service the work changes may not exist yet and nothing about decomposition changes:
+// the item that creates it is decomposed first and the service record is written in the
 // same step, because an item names one service and the record has to exist for the
 // item's only outbound link to point at anything.
 //
-// The order is what the cut records. Where one item cannot be verified until
+// The order is what decomposition records. Where one item cannot be verified until
 // another has shipped — the producing release of a migration — that dependency is
 // declared here, and both deploy gates hold on it. This interface declares a chain
 // rather than deducing a graph: the services are given in order, and each item waits
 // on the one before it.
-func (p *path) cutItems(ctx context.Context, in intent.Intent, services []string) ([]*candidate, error) {
+func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []string) ([]*candidate, error) {
 	d := p.d
 	candidates := make([]*candidate, 0, len(services))
 	previous := ""
@@ -358,7 +359,7 @@ func (p *path) cutItems(ctx context.Context, in intent.Intent, services []string
 			if err != nil {
 				return nil, err
 			}
-			svc, err = service.NewWriter(d.pool).Create(ctx, cutActor, name, repo)
+			svc, err = service.NewWriter(d.pool).Create(ctx, decompositionActor, name, repo)
 			if err != nil {
 				return nil, err
 			}
@@ -378,7 +379,7 @@ func (p *path) cutItems(ctx context.Context, in intent.Intent, services []string
 		if n > 0 {
 			branch = "item/" + in.ID + "/" + name
 		}
-		it, err := p.cut.Create(ctx, cutActor, item.New{
+		it, err := p.decomposition.Create(ctx, decompositionActor, item.New{
 			IntentID:  in.ID,
 			ServiceID: svc.ID,
 			AreaID:    p.areaID,
@@ -406,21 +407,21 @@ func (p *path) cutItems(ctx context.Context, in intent.Intent, services []string
 		if len(waitsOn) > 0 {
 			waited = fmt.Sprintf(", waiting on item %s", waitsOn[0])
 		}
-		fmt.Fprintf(d.out, "Service %s %s; item %s cut on branch %s%s\n", svc.ID, was, it.ID, branch, waited)
+		fmt.Fprintf(d.out, "Service %s %s; item %s decomposed on branch %s%s\n", svc.ID, was, it.ID, branch, waited)
 	}
 	return candidates, nil
 }
 
-// decompositionGate is the cut's own gate: the one row where approving admits
-// several threads at once. It fires over the set that already exists — how many
+// decompositionGate is the stage's own gate: the one row where approving admits
+// several timelines at once. It fires over the set that already exists — how many
 // items, which service each changes, and what waits on what — and one verdict covers
-// the whole cut however many services it changes.
+// the whole decomposition however many services it changes.
 //
-// A rejection supersedes every item of the set and counts a re-cut on the intent.
-// It does not re-cut: that needs a cut which decides a decomposition rather than one
-// told what to produce, and this interface is told. What that leaves is a gate that
-// can stop a bad cut and cannot repair one.
-func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *cutSet, candidates []*candidate) (bool, error) {
+// A rejection supersedes every item of the set and counts a re-decomposition on the intent.
+// It does not re-decompose: that needs a stage which decides the decomposition
+// rather than one told what to produce, and this interface is told. What that leaves is a gate that
+// can stop a bad decomposition and cannot repair one.
+func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *decompositionSet, candidates []*candidate) (bool, error) {
 	members := make([]gate.SetMember, 0, len(candidates))
 	for _, c := range candidates {
 		members = append(members, gate.SetMember{
@@ -436,7 +437,7 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *cut
 	set.decided = true
 	report(p.d.out, opened, nil)
 	fmt.Fprintf(p.d.out, "  the set is %d item(s): %v\n", len(set.itemIDs), set.itemIDs)
-	fmt.Fprintln(p.d.out, "  the diff factors are unavailable here, the cut happening before anything is built, so this row is scored on a vector with holes in it")
+	fmt.Fprintln(p.d.out, "  the diff factors are unavailable here, decomposition happening before anything is built, so this row is scored on a vector with holes in it")
 
 	verdict, feedback, closing, err := p.settle(ctx, opened)
 	if err != nil {
@@ -445,35 +446,35 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *cut
 	set.fired = recordFiring(opened, closing)
 	if verdict != gate.VerdictReject {
 		set.approved = true
-		fmt.Fprintf(p.d.out, "Approved; the cut of intent %s stands\n", in.ID)
+		fmt.Fprintf(p.d.out, "Approved; decomposition of intent %s stands\n", in.ID)
 		return true, nil
 	}
 
-	recuts, err := p.intake.CountRecut(ctx, cutActor, in.ID)
+	reDecompositions, err := p.intake.CountReDecomposition(ctx, decompositionActor, in.ID)
 	if err != nil {
 		return false, err
 	}
-	set.recuts = recuts
+	set.reDecompositions = reDecompositions
 	for _, c := range candidates {
 		// Every item of the set is superseded and points at nothing, because no
-		// re-cut replaced it. What says why is the superseded stage beside the
+		// re-decomposition replaced it. What says why is the superseded stage beside the
 		// decision that rejected the set.
-		if _, err := p.cut.Supersede(ctx, cutActor, c.itemID, nil); err != nil {
+		if _, err := p.decomposition.Supersede(ctx, decompositionActor, c.itemID, nil); err != nil {
 			return false, err
 		}
 		c.superseded = true
 	}
 	fmt.Fprintf(p.d.out, "Rejected: %s\n", feedback)
-	fmt.Fprintf(p.d.out, "  every item of the set is superseded and re-cut %d is counted on intent %s\n", recuts, in.ID)
-	fmt.Fprintln(p.d.out, "  the re-cut itself is not built: this interface is told what to cut, so a bad cut is stopped here and not repaired")
+	fmt.Fprintf(p.d.out, "  every item of the set is superseded and re-decomposition %d is counted on intent %s\n", reDecompositions, in.ID)
+	fmt.Fprintln(p.d.out, "  the re-decomposition itself is not built: this interface is told what to decompose, so a bad decomposition is stopped here and not repaired")
 	return false, nil
 }
 
 // specStage is one item's spec version and the criteria it introduces, and then
 // the attempt reports and the advance.
 //
-// The reports come after the fact because the spec is authored before the cut
-// writes the item, so the count the bound was applied to is in memory until here and
+// The reports come after the fact because the spec is authored before decomposition
+// writes the item, so the count the limit was applied to is in memory until here and
 // stored after — the same number either way, this being the item's only writer.
 // interviewSpend is charged to the first attempt, an intent having no spend field.
 func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refined,
@@ -511,13 +512,13 @@ func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refine
 	return err
 }
 
-// implementationStage is one item's implementation version, the declaration
-// derived from the same build, the build record, and the measurement.
+// implementationStage is one item's implementation version, the consumer
+// contract derived from the same build, the build record, and the measurement.
 //
 // The repository may not exist yet, so the stage initialises it, and what the
-// candidate branch is based on follows from whether master exists. The cut says
+// candidate branch is based on follows from whether master exists. Decomposition says
 // master does not exist until the first release and the implementation role commits
-// the candidate branch with no base — which is every candidate cut before the first
+// the candidate branch with no base — which is every candidate decomposed before the first
 // one merges, not only the very first. Every candidate after that is based on
 // master, so the tree the branch starts from holds what the items already merged put
 // there: their code, and the encodings the check on the candidate environment
@@ -555,13 +556,13 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	// Each attempt is reported as it is made, the item being there to report it
 	// against, so an item the factory gave up on carries the count in the store
 	// and not only in what the run printed.
-	implStage, err := boundFor(ctx, p.policy, item.StageImplementation, p.subjectsFor(c))
+	implStage, err := limitFor(ctx, p.policy, item.StageImplementation, p.subjectsFor(c))
 	if err != nil {
 		return err
 	}
 	change, err := attempt(d.out, implStage, "implementer", func() (agent.Change, int64, error) {
-		ch, err := agent.Implementer{Model: d.model}.Implement(ctx, agent.Brief{
-			Criteria: briefCriteria(inForce),
+		ch, err := agent.Implementer{Model: d.model}.Implement(ctx, agent.Implementing{
+			Criteria: rolePromptCriteria(inForce),
 			Spec:     spec,
 			Files:    current,
 		})
@@ -596,11 +597,11 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	c.implArtifactID = implArt.ID
 	fmt.Fprintf(d.out, "Implementation %s submitted: commit %s on %s\n", implArt.ID, commit, c.branch)
 
-	// The declaration, derived from the same build at the same stage and written
-	// through the same store. It is derived and never typed, so what the record says
-	// is what the code reads — and an item that reads nothing of another service
-	// declares nothing, which is not a missing declaration.
-	if err := p.declarationStage(ctx, c); err != nil {
+	// The consumer contract, derived from the same build at the same stage and
+	// written through the same store. It is derived and never typed, so what the
+	// record says is what the code reads — and an item that reads nothing of another
+	// service declares nothing, which is not a missing consumer contract.
+	if err := p.consumerContractStage(ctx, c); err != nil {
 		return err
 	}
 
@@ -631,21 +632,21 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	return nil
 }
 
-// declarationStage writes the declaration version this build derives, where it
-// derives anything. It is authored at the implementation stage from that item's
-// build, by whoever authored the stage, and derived by the factory either way rather
-// than typed.
+// consumerContractStage writes the consumer contract version this build derives,
+// where it derives anything. It is authored at the implementation stage from that
+// item's build, by whoever authored the stage, and derived by the factory either way
+// rather than typed.
 //
 // A build that declares nothing about another service submits no version. That is
 // not a version introducing nothing: a version with no predicate would say the
 // factory looked and found nothing, and what the records should say is that this
 // build reads nothing of anyone.
-func (p *path) declarationStage(ctx context.Context, c *candidate) error {
-	catalog, err := p.policy.PredicateCatalog(ctx)
+func (p *path) consumerContractStage(ctx context.Context, c *candidate) error {
+	allowed, err := p.policy.AllowedPredicateKinds(ctx)
 	if err != nil {
 		return err
 	}
-	drafts, err := declaration.Derive(c.svc.Repository, catalog.List)
+	drafts, err := consumercontract.Derive(c.svc.Repository, allowed.List)
 	if err != nil {
 		return err
 	}
@@ -654,7 +655,7 @@ func (p *path) declarationStage(ctx context.Context, c *candidate) error {
 	}
 	// The producer's name resolved to a record, where there is one. A consumer may
 	// declare against an interface no release has published yet, and the empty id is
-	// that answer: the declaration still says which service the build named.
+	// that answer: the consumer contract still says which service the build named.
 	said := make([]string, 0, len(drafts))
 	for n := range drafts {
 		producer, found, err := service.ByName(ctx, p.d.pool, drafts[n].ProducerService)
@@ -668,13 +669,13 @@ func (p *path) declarationStage(ctx context.Context, c *candidate) error {
 			drafts[n].Interface, drafts[n].Element, drafts[n].Kind))
 	}
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: p.d.modelName}
-	art, written, err := p.store.SubmitDeclaration(ctx, implementerActor, by, c.itemID, c.svc.ID,
+	art, written, err := p.store.SubmitConsumerContract(ctx, implementerActor, by, c.itemID, c.svc.ID,
 		fmt.Sprintf("%d predicate(s) derived from the build of item %s", len(drafts), c.itemID), drafts)
 	if err != nil {
 		return err
 	}
-	c.declarationArtifactID = art.ID
-	fmt.Fprintf(p.d.out, "Declaration %s derived from the build: %d predicate(s) — %v\n",
+	c.consumerContractArtifactID = art.ID
+	fmt.Fprintf(p.d.out, "Consumer contract %s derived from the build: %d predicate(s) — %v\n",
 		art.ID, len(written), said)
 	return nil
 }
@@ -691,13 +692,13 @@ func (p *path) Publishes(ctx context.Context, c contractcheck.Candidate) ([]cont
 }
 
 // Declares is [contractcheck.Checkout]: what the candidate's build declares about
-// what it reads, drawn from the catalog in force.
-func (p *path) Declares(ctx context.Context, c contractcheck.Candidate, catalog []string) ([]declaration.Draft, error) {
+// what it reads, drawn from the allowed predicate kinds in force.
+func (p *path) Declares(ctx context.Context, c contractcheck.Candidate, allowed []string) ([]consumercontract.Draft, error) {
 	repo, err := p.repoOfItem(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	drafts, err := declaration.Derive(repo, catalog)
+	drafts, err := consumercontract.Derive(repo, allowed)
 	if err != nil {
 		return nil, err
 	}
@@ -741,10 +742,10 @@ func writeFiles(repo string, files []agent.File) error {
 	return nil
 }
 
-// briefCriteria is the criteria in force as the two authoring roles are told
+// rolePromptCriteria is the criteria in force as the two authoring roles are told
 // them: the id an encoding names and the sentence an encoding is derived from,
 // and no other field of the stored record.
-func briefCriteria(inForce []criterion.Criterion) []agent.Criterion {
+func rolePromptCriteria(inForce []criterion.Criterion) []agent.Criterion {
 	told := make([]agent.Criterion, 0, len(inForce))
 	for _, c := range inForce {
 		told = append(told, agent.Criterion{ID: c.ID, Sentence: c.Sentence})

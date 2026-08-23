@@ -19,8 +19,8 @@ type Authored struct {
 
 // Or is the number an owner authored, or supplied where they authored none. It
 // is the first two of the three reads an effective value is — the third, the
-// clamp a pin applies, is package policy's, which is where a pin's subjects are
-// known.
+// clamp a safeguard applies, is package policy's, which is where a safeguard's
+// subjects are known.
 func (a Authored) Or(supplied float64) float64 {
 	if a.Present {
 		return a.Number

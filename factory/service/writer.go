@@ -22,7 +22,7 @@ var (
 	ErrNotFound = errors.New("service: no service has that id")
 )
 
-// Service is one service as it is stored: the identity and repository the cut
+// Service is one service as it is stored: the identity and repository decomposition
 // wrote, and the parameters an owner authored on it.
 type Service struct {
 	ID         string
@@ -33,7 +33,7 @@ type Service struct {
 	Parameters Parameters
 }
 
-// Writer is the table's one writer, held by the cut.
+// Writer is the table's one writer, held by decomposition.
 type Writer struct {
 	pool *pgxpool.Pool
 }
@@ -44,7 +44,7 @@ func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 // Create writes a service. A name already taken is refused by the store's
 // unique constraint, and the error carries that refusal rather than this
 // package pre-checking — a pre-check and an insert are two statements a
-// concurrent cut can interleave.
+// concurrent decomposition can interleave.
 func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repository string) (Service, error) {
 	if err := actor.Validate(); err != nil {
 		return Service{}, err
@@ -65,7 +65,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
 		(id, actor_kind, actor_name, at, name, repository,
-		window_size, window_confidence, window_cap_seconds, k)
+		window_size, window_confidence, window_cap_seconds, window_limit)
 		values ($1, $2, $3, $4, $5, $6, null, null, null, null)`,
 		s.ID, string(s.Actor.Kind), s.Actor.Name, s.At, s.Name, s.Repository,
 	)
@@ -76,7 +76,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 }
 
 const selectService = `select id, actor_kind, actor_name, at, name, repository,
-	window_size, window_confidence, window_cap_seconds, k
+	window_size, window_confidence, window_cap_seconds, window_limit
 	from ` + Table
 
 // Get is one service by id. It takes the pool and not a [Writer], because
@@ -90,14 +90,14 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Service, error) {
 // pool and not a [Writer], for the same reason [Get] does: reading a service
 // is not a reason to be handed the thing that creates them.
 //
-// This is what the cut calls before it creates: a service the work changes
-// may not exist yet, and the cut writes a service's identity once, so the
+// This is what decomposition calls before it creates: a service the work changes
+// may not exist yet, and decomposition writes a service's identity once, so the
 // second item on that service reaches the record the first one wrote. An
 // absent service is false and not an error, because absence is the case the
 // caller acts on.
 //
 // What the pair costs: the look-up and the create are two statements, so two
-// cuts of one new service name can both find nothing, and what refuses the
+// decompositions of one new service name can both find nothing, and what refuses the
 // second create is the store's unique constraint rather than this function.
 func ByName(ctx context.Context, pool *pgxpool.Pool, name string) (Service, bool, error) {
 	s, err := scan(pool.QueryRow(ctx, selectService+` where name = $1`, name), name)
@@ -110,12 +110,12 @@ func ByName(ctx context.Context, pool *pgxpool.Pool, name string) (Service, bool
 }
 
 // All is every service, in the order they were created. Its reader is the
-// reconciler's own process, which is the one thing that has to walk every service
-// there is: it compares what each production target runs against what the factory
-// recorded, and nothing tells it which services to ask about.
+// independent checker's own process, which is the one thing that has to walk
+// every service there is: it compares what each production target runs against
+// what the factory recorded, and nothing tells it which services to ask about.
 //
 // It takes the pool and not a [Writer], for the reason [Get] does — and the
-// reconciler holds no writer of anything in the factory at all.
+// independent checker holds no writer of anything in the factory at all.
 func All(ctx context.Context, pool *pgxpool.Pool) ([]Service, error) {
 	rows, err := pool.Query(ctx, selectService+` order by at, id`)
 	if err != nil {
@@ -142,9 +142,9 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Service, error) {
 func scan(row pgx.Row, named string) (Service, error) {
 	var s Service
 	var kind string
-	var size, confidence, cap, k *float64
+	var size, confidence, cap, limit *float64
 	err := row.Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.Name, &s.Repository,
-		&size, &confidence, &cap, &k)
+		&size, &confidence, &cap, &limit)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Service{}, fmt.Errorf("%w: %s", ErrNotFound, named)
 	} else if err != nil {
@@ -155,7 +155,7 @@ func scan(row pgx.Row, named string) (Service, error) {
 		WindowSize:       authored(size),
 		WindowConfidence: authored(confidence),
 		WindowCapSeconds: authored(cap),
-		K:                authored(k),
+		WindowLimit:      authored(limit),
 	}
 	return s, nil
 }

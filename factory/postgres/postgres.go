@@ -10,20 +10,20 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
-	"github.com/dulguun0225/borg/factory/declaration"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
-	"github.com/dulguun0225/borg/factory/factorypolicy"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/people"
-	"github.com/dulguun0225/borg/factory/pin"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
@@ -65,10 +65,11 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // into the list here and nothing else — nothing is discovered and nothing
 // registers itself.
 //
-// One store the factory uses is deliberately not here: the reconciler's. It writes
-// into a store of its own that no factory component may write, and a store this
-// function applied would be a store the factory owns — so package reconciler brings
-// its own opener and applier, and its own process calls them.
+// One store the factory uses is deliberately not here: the independent
+// checker's. It writes into a store of its own that no factory component may
+// write, and a store this function applied would be a store the factory owns —
+// so package checker brings its own opener and applier, and its own process
+// calls them.
 //
 // Each statement is written so that applying it to a database that already has
 // it changes nothing, so Apply may run at the start of every process, one
@@ -83,7 +84,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"service", service.DDL},
 		{"item", item.DDL},
 		{"criterion", criterion.DDL},
-		{"declaration", declaration.DDL},
+		{"consumer_contract", consumercontract.DDL},
 		{"artifact", artifact.DDL},
 		{"build", build.DDL},
 		{"release", release.DDL},
@@ -91,8 +92,8 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"deploy", deploy.DDL},
 		{"area", area.DDL},
 		{"environment", environment.DDL},
-		{"factorypolicy", factorypolicy.DDL},
-		{"pin", pin.DDL},
+		{"factorysettings", factorysettings.DDL},
+		{"safeguard", safeguard.DDL},
 		{"score", score.DDL},
 		{"policy", policy.DDL},
 		{"window", window.DDL},

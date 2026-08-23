@@ -24,9 +24,9 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// comparison is the one writer of incidents, the way doc.go names it. A human
+// healthMonitor is the one writer of incidents, the way doc.go names it. A human
 // is never one; TestAHumanActorIsRefused is the mirror of that.
-var comparison = record.Actor{Kind: record.KindComponent, Name: "comparison"}
+var healthMonitor = record.Actor{Kind: record.KindComponent, Name: "health_monitor"}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *incident.Writer) {
 	t.Helper()
@@ -90,7 +90,7 @@ func TestRaiseWritesTheIncidentOpenWithNoObservations(t *testing.T) {
 	ctx, pool, w := newTable(t)
 	r := raising()
 
-	raised, err := w.Raise(ctx, comparison, r)
+	raised, err := w.Raise(ctx, healthMonitor, r)
 	if err != nil {
 		t.Fatalf("Raise: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestOpenFindsItAndASecondRaiseOnOneServiceAndReleaseIsRefused(t *testing.T)
 		t.Fatalf("Open before anything was raised = found %v, %v", found, err)
 	}
 
-	raised, err := w.Raise(ctx, comparison, r)
+	raised, err := w.Raise(ctx, healthMonitor, r)
 	if err != nil {
 		t.Fatalf("Raise: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestOpenFindsItAndASecondRaiseOnOneServiceAndReleaseIsRefused(t *testing.T)
 
 	again := raising()
 	again.ServiceID, again.ReleaseID = r.ServiceID, r.ReleaseID
-	if _, err := w.Raise(ctx, comparison, again); err == nil {
+	if _, err := w.Raise(ctx, healthMonitor, again); err == nil {
 		t.Error("a second open incident on one service and release was accepted")
 	}
 
@@ -170,14 +170,14 @@ func TestOpenFindsItAndASecondRaiseOnOneServiceAndReleaseIsRefused(t *testing.T)
 	if _, found, err := incident.Open(ctx, pool, r.ServiceID, r.ReleaseID); err != nil || found {
 		t.Errorf("Open after Resolve = found %v, %v", found, err)
 	}
-	if _, err := w.Raise(ctx, comparison, again); err != nil {
+	if _, err := w.Raise(ctx, healthMonitor, again); err != nil {
 		t.Errorf("Raise for the same pair after the earlier one resolved = %v, want it accepted", err)
 	}
 }
 
 func TestObserveRaisesTheCount(t *testing.T) {
 	ctx, _, w := newTable(t)
-	raised, err := w.Raise(ctx, comparison, raising())
+	raised, err := w.Raise(ctx, healthMonitor, raising())
 	if err != nil {
 		t.Fatalf("Raise: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestObserveRaisesTheCount(t *testing.T) {
 
 func TestObserveAndResolveOnAResolvedIncidentAreNotOpen(t *testing.T) {
 	ctx, _, w := newTable(t)
-	raised, err := w.Raise(ctx, comparison, raising())
+	raised, err := w.Raise(ctx, healthMonitor, raising())
 	if err != nil {
 		t.Fatalf("Raise: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestDDLListsEveryStatus(t *testing.T) {
 		_, err := pool.Exec(ctx, `insert into `+incident.Table+`
 			(id, actor_kind, actor_name, at, environment_id, service_id, release_id, deploy_id,
 			 crossing, intent_id, observations, status, resolved_at)
-			values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, $7, '', 0, $8, $9)`,
+			values ($1, 'component', 'health_monitor', $2, $3, $4, $5, $6, $7, '', 0, $8, $9)`,
 			record.NewID(incident.IDPrefix), record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
 			r.Crossing, string(status), resolvedAt)
 		if err != nil {
@@ -257,7 +257,7 @@ func TestDDLListsEveryStatus(t *testing.T) {
 	_, err := pool.Exec(ctx, `insert into `+incident.Table+`
 		(id, actor_kind, actor_name, at, environment_id, service_id, release_id, deploy_id,
 		 crossing, intent_id, observations, status, resolved_at)
-		values ($1, 'component', 'comparison', $2, $3, $4, $5, $6, $7, '', 0, 'flaky', '')`,
+		values ($1, 'component', 'health_monitor', $2, $3, $4, $5, $6, $7, '', 0, 'flaky', '')`,
 		record.NewID(incident.IDPrefix), record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID, r.Crossing)
 	if err == nil {
 		t.Error("the store accepted a status outside incident.Statuses")
@@ -272,7 +272,7 @@ func TestForServiceIsInOrder(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r := raising()
 		r.ServiceID = serviceID
-		got, err := w.Raise(ctx, comparison, r)
+		got, err := w.Raise(ctx, healthMonitor, r)
 		if err != nil {
 			t.Fatalf("Raise: %v", err)
 		}
@@ -308,7 +308,7 @@ func TestARaisingMissingAFieldIsIncomplete(t *testing.T) {
 	} {
 		r := raising()
 		c.mut(&r)
-		if _, err := w.Raise(ctx, comparison, r); !errors.Is(err, incident.ErrIncomplete) {
+		if _, err := w.Raise(ctx, healthMonitor, r); !errors.Is(err, incident.ErrIncomplete) {
 			t.Errorf("Raise missing %s = %v, want ErrIncomplete", c.what, err)
 		}
 	}

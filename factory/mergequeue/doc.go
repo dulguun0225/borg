@@ -45,13 +45,14 @@
 // never reached master is worse than a commit no release names, because a deploy
 // could put the first one live.
 //
-// Two of the three windows are closed here and one is not. A member that already has
-// a release is finished rather than re-verified, so an advance that failed is
-// repaired on the next run and one merge never mints two numbers — [Queue.one] says
-// how. A mint that failed after the fast-forward leaves master at a commit no
-// release names, and that one is open: what repairs a record disagreeing with what is
-// there is the reconciler, and it is now installed beside the factory: its pass finds a
-// record disagreeing with what runs, and a human clears it at the reconciler.
+// Two of the three windows are closed here and one is not. A member that
+// already has a release is finished rather than re-verified, so an advance that
+// failed is repaired on the next run and one merge never mints two numbers —
+// [Queue.one] says how. A mint that failed after the fast-forward leaves master
+// at a commit no release names, and that one is open: what repairs a record
+// disagreeing with what is there is the independent checker, and it is now
+// installed beside the factory: its pass finds a record disagreeing with what
+// runs, and a human clears it at the independent checker.
 //
 // The contract versions add no fourth window. They are written inside the mint's
 // own transaction, so a release either exists with its versions or does not exist —

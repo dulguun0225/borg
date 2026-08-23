@@ -60,10 +60,11 @@ func Get(ctx context.Context, q Querier, id string) (Contract, error) {
 // build, and false where the service publishes none by that name. The pair is
 // unique in the store, so at most one row can answer.
 //
-// It is what a declaration is resolved through: a consumer's build names the
-// producer's service and the interface, and a contract exists only from the merge
-// that first published it — so a declaration against an interface no release has
-// published yet resolves to nothing here, which is absence and not an error.
+// It is what a consumer contract is resolved through: a consumer's build names
+// the producer's service and the interface, and a contract exists only from the
+// merge that first published it — so a consumer contract against an interface no
+// release has published yet resolves to nothing here, which is absence and not an
+// error.
 func ByName(ctx context.Context, q Querier, serviceID, name string) (Contract, bool, error) {
 	if serviceID == "" || name == "" {
 		return Contract{}, false, nil
@@ -149,9 +150,9 @@ func VersionAt(ctx context.Context, q Querier, contractID string, releaseNumber 
 }
 
 // NewestVersion is the newest version of one contract, and false where it has
-// none. It is one of the design's two baselines: a consumer's declaration is
-// checked against the version its producer's newest release publishes, because
-// that is what the consumer will meet.
+// none. It is one of the design's two baselines: a consumer contract
+// is checked against the version its producer's newest release publishes,
+// because that is what the consumer will meet.
 func NewestVersion(ctx context.Context, q Querier, contractID string) (Version, bool, error) {
 	v, err := scanVersion(q.QueryRow(ctx, selectVersion+`
 		where contract_id = $1 order by release_number desc, major desc, minor desc, patch desc limit 1`,

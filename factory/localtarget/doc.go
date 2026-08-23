@@ -1,7 +1,7 @@
 // Package localtarget is a [targetseam.Target] that runs the software as a
 // local process, one per service. It is what the demonstrations deploy
-// against: a straight deploy through the seam against a target that runs the
-// software, per ../../roadmap.md#m1--one-change-ships.
+// against: a deploy without a control through the seam against a target that
+// runs the software, per ../../roadmap.md#m1--one-change-ships.
 //
 // [New] takes a directory, and there is one target per environment rather than
 // one per install — an environment names the addresses a deploy into it is
@@ -18,39 +18,39 @@
 //
 // # What is running is on disk, because a second process has to read it
 //
-// [RunningFile] is where the target records the build it started and its process
-// id, and [Local.ReadRunning] reads that file rather than this value's memory. It
-// was memory until 2026-08-19, and the reconciler is what made that impossible:
-// the reconciler is one process outside the factory that reads what is actually
-// running on each production target, so a target whose answer lived in the
-// factory's own address space could not be read by the one thing the design has
-// read it. A read operation on the seam that only its own writer can answer is not
-// a read operation.
+// [RunningFile] is where the target records the build it started and its
+// process id, and [Local.ReadRunning] reads that file rather than this value's
+// memory. It was memory until 2026-08-19, and the independent checker is what
+// made that impossible: the independent checker is one process outside the
+// factory that reads what is actually running on each production target, so a
+// target whose answer lived in the factory's own address space could not be
+// read by the one thing the design has read it. A read operation on the seam
+// that only its own writer can answer is not a read operation.
 //
-// What that buys beside the reconciler is that two [Local] values over one
+// What that buys beside the independent checker is that two [Local] values over one
 // directory are two views of one place rather than two places, and that a factory
 // process which restarts reads what its predecessor started.
 //
 // # The two files the software writes
 //
-// Deploy starts the process knowing [SignalFile] through the [SignalEnv]
-// environment variable and [ExchangeFile] through [ExchangeEnv], and the software
-// the factory wrote appends one line per unit of work to the first and one document
-// per unit of work to the second. That is the substrate wiring observability rather
-// than the factory doing it: what emits them is the build, where they land is the
-// target's arrangement, and the comparison and enforcement each read one through an
-// interface knowing neither. One file per build of each, so a release's counts are
-// told apart from those of the build that ran there before it — which is what the
-// comparison's baseline is, and what makes a candidate's own documents the ones its
-// consumers' declarations are decided against.
+// Deploy starts the process knowing [SignalFile] through the [SignalEnv] environment
+// variable and [ExchangeFile] through [ExchangeEnv], and the software the factory wrote
+// appends one line per unit of work to the first and one document per unit of work to
+// the second. That is the substrate wiring observability rather than the factory doing
+// it: what emits them is the build, where they land is the target's arrangement, and
+// the health monitor and enforcement each read one through an interface knowing
+// neither. One file per build of each, so a release's counts are told apart from those
+// of the build that ran there before it — which is what the comparison's baseline is,
+// and what makes a candidate's own documents the ones its consumers' consumer contracts
+// are decided against.
 //
-// Two files and not one. The signal is what the comparison counts and the exchange
+// Two files and not one. The signal is what the health monitor counts and the exchange
 // is what a predicate is decided against; one format carrying both would make every
 // reader of either parse the other's, and it would rewrite a mechanism a milestone
 // already built.
 //
-// A service the factory did not write writes nothing into either file, so it
-// cannot be watched and its consumers' declarations cannot be decided against it —
+// A service the factory did not write writes nothing into either file, so it cannot
+// be watched and its consumers' consumer contracts cannot be decided against it —
 // the adopted-service case ../../end-goal/deferred.md sequences away, one milestone
 // on and now costing two things rather than one.
 //
@@ -72,7 +72,7 @@
 //
 // Two deploys of one service into one directory at once are still a race: the
 // stop, the start, and the write of what runs are three steps and nothing guards
-// them, and the caller is the one crude interface the surfaces are deferred with,
+// them, and the caller is the one crude interface the screens are deferred with,
 // which deploys one thing at a time. The kill is a kill, not a graceful shutdown,
 // and Deploy does not wait for the old process to release anything — a port, a file —
 // before the new one starts.
@@ -90,15 +90,14 @@
 // factory's.
 //
 // What defines it: seam 4 of "Security comes last" in
-// ../../end-goal/deferred.md#security-comes-last — an agent reaches an
-// environment through a small set of named operations, the seam being where
-// policy attaches later — and the M1 demonstration in
-// ../../roadmap.md#m1--one-change-ships, which needs a target that runs the
-// software so the straight deploy ships something. What reads
-// [Local.ReadRunning] from outside the factory is
-// ../../end-goal/how-humans-do-it/08-operations.md#the-reconciler, and the
+// ../../end-goal/deferred.md#security-comes-last — an agent reaches an environment
+// through a small set of named operations, the seam being where policy attaches
+// later — and the M1 demonstration in ../../roadmap.md#m1--one-change-ships, which
+// needs a target that runs the software so the deploy without a control ships
+// something. What reads [Local.ReadRunning] from outside the factory is
+// ../../end-goal/how-humans-do-it/08-operations.md#the-independent-checker, and the
 // quantity the started process emits is
-// ../../end-goal/how-humans-do-it/08-operations.md#the-health-signal, and the
-// exchange document a consumer's declaration is decided against is
+// ../../end-goal/how-humans-do-it/08-operations.md#the-health-monitor, and the
+// exchange document a consumer contract is decided against is
 // ../../end-goal/how-humans-do-it/07-contracts.md#what-a-consumer-declares.
 package localtarget
