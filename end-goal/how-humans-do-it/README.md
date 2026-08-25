@@ -8,7 +8,7 @@ The sections run in dependency order — each depends on the ones before it. The
 | [Intent into items](02-intent-into-items/README.md) | How a request becomes items, and what happens before decomposition |
 | [Gates](03-gates/README.md) | Where a decision happens, and what may be decided there |
 | [Risk score](04-risk-score/README.md) | What decides whether a human decides at a gate at all |
-| [Environments](05-environments.md) | Where software runs, and how a change reaches it |
+| [Environments](05-environments/README.md) | Where software runs, and how a change reaches it |
 | [Releases](06-releases.md) | What ships, and what it is called at each point |
 | [Contracts](07-contracts.md) | What binds services to each other, and to their own past |
 | [Operations](08-operations.md) | What happens after the deploy |

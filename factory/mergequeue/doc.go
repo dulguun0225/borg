@@ -96,7 +96,7 @@
 // deploy agent: the queue orders merges and does not reach a deploy target.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/05-environments.md#the-merge-queue — the
+// ../../end-goal/how-humans-do-it/05-environments/03-the-merge-queue.md — the
 // membership, the order, the re-verification, the rejection and where it goes, and
 // the queue being a component rather than a record;
 // ../../end-goal/how-humans-do-it/06-releases.md#the-release-record for the queue
