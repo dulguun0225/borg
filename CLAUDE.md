@@ -237,7 +237,7 @@ there.
 Triage is done with the owner, never by the session that ran the pass, because refusal is
 the cheapest disposition and should be the one it is least eager to reach: every taken
 finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read subagent
-per changed file plus the eleven-file read-through. Running on request means a defect can
+per changed section plus the eleven-section read-through. Running on request means a defect can
 sit until someone thinks to look, the thirty are fixed so they find thirty kinds of thing
 and no thirty-first, and coverage is whatever the owner remembers to ask for.
 

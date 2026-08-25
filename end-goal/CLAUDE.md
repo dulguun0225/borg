@@ -18,18 +18,24 @@ Every task here is an edit to a design document, and the document says everythin
 is open to revision.
 
 `README.md` indexes the document; `how-humans-do-it/README.md` is the dependency-order
-table and only that.
+table and only that; each section directory's `README.md` is the same kind of thing one
+level down — the section's lead-in prose and the table of its subsections, and only that.
 
 There is no work list. A decision belongs in the file that owns its subject, and a cut
 candidate is taken or refused with the reason written into that same file. Keeping answers
 outside the sections that own them is the shape `open.md`'s own rule refuses.
 
-One file per section. Each file's own heading is `#`, its subsections `##` and `###` — a
-section that is its own file owns the top level. A new part of the document is a new file
-in this directory; a new section of _How humans do it_ is a new numbered file plus a row in
-that directory's table.
+One file per subsection. A section is a numbered directory: its `README.md` holds the
+section's lead-in prose and the table of its subsections, each subsection is a numbered
+file in it, and a subsection with subsections of its own is a directory of the same shape.
+A section with no subsections stays a numbered file. Every file's own heading is `#` and no
+heading is deeper — a subsection's heading is its file's own. A new part of the document is
+a new file in this directory; a new section of _How humans do it_ is a new numbered
+directory plus a row in that directory's table; a new subsection is a new numbered file
+plus a row in its section's table, and it renames every file after it in its section and
+every link into them.
 
-Keep each file readable on its own, and keep cross-section references by name — as a link
+Keep each section readable on its own, and keep cross-file references by name — as a link
 where the name points at another file, with the name as the link text.
 
 ## The document is a graph, and edits break it in predictable ways
@@ -74,8 +80,10 @@ services to each other) → Operations (the control, the analysis window, the wi
 page) → Gate policy (everything an owner authors, gathered from the sections that define
 each parameter) → The fleet (what an agent runs on, and what a borrowed account costs) →
 Screens (where a human sees it). A concept should be defined before the section that leans
-on it. The numeric filename prefixes under `how-humans-do-it/` are that order and nothing
-else — reordering means renaming files and fixing the links that point at them.
+on it. The numeric prefixes on the section directories under `how-humans-do-it/` are that
+order and nothing else; the prefixes on the files inside a section are that section's
+reading order, and nothing else either. Reordering one means renaming what moved and
+repointing every link into it.
 
 Seven forward references are known and left in place, each defined below a section that
 depends on it because moving the definition up would put something more depended-on out of
@@ -88,11 +96,14 @@ on and Operations defines; and the four screens — **Work**, **Ops**, **Factory
 **People** — which _What humans do_ leans on and _Screens_ defines last. One treatment
 covers the first six — a link forward at each early use, so a reader meeting the term there
 can reach the definition — and a new early use must keep that true. The screens take that
-treatment at the first use of each name in a file rather than at every use: the four recur
-as ordinary nouns in nearly every file, and a link on each would put one in most paragraphs.
+treatment at the first use of each name in a section rather than at every use: the four
+recur as ordinary nouns in nearly every section, and a link on each would put one in most
+paragraphs.
 
-**Introduce a term at its first use in each file.** A reader meeting a term for the first
-time in a file has to be able to finish the sentence they are on. Two ways give them that:
+**Introduce a term at its first use in each section.** A section is read as one thing, so
+the introduction lives in the section's `README.md` or in the first file of the section
+that uses the term. A reader meeting a term for the first time in a section has to be able
+to finish the sentence they are on. Two ways give them that:
 a clause in the prose saying what the term names, or a link to the section that defines it.
 Either satisfies the rule, and the clause is the better one wherever it fits in a few
 words, because a link is a page the reader has to leave. A glossary line is neither, and
@@ -101,12 +112,12 @@ words cannot say once, which the root `CLAUDE.md` sets, and [`glossary.md`](glos
 a list of industry words this document uses in a narrower or different sense rather than an
 index of its vocabulary. What stays bare, deliberately: the bare duty numbers, which
 `README.md` already makes a convention; **the factory** and the **owner**, the document's
-subject and its reader; a file's own defined terms; external proper nouns — EARS, REST,
+subject and its reader; a section's own defined terms; external proper nouns — EARS, REST,
 gRPC, protobuf, Kafka, OpenAPI; and an ordinary word that merely matches a term the
 document defines — a builder of the product, a queue's rotation. What it costs is more than
 the rule it replaced: a link was one edit wherever it was owed, and a clause is written
-afresh in each file, so a term used in six files is introduced six times in six different
-sentences.
+afresh in each section, so a term used in six sections is introduced six times in six
+different sentences.
 
 **Never cross-reference by position.** "The second open question" breaks the moment a
 bullet is resolved and removed. Refer to things by name. A link's path may contain a
@@ -137,19 +148,22 @@ There are no tests. After editing, run the consistency pass. It checks this docu
 against rules this file and the root `CLAUDE.md` set, and finds nothing they do not name —
 the review pass in the root `CLAUDE.md` is what looks for the rest, dispatched cold and on
 request. Every command below is scoped to `end-goal/` and run from the repository root, so
-no sibling directory enters a check written for this one:
+no sibling directory enters a check written for this one — except the link resolver, which
+reads the repository's Markdown because `roadmap.md` and the factory's docs link into this
+document and a file that moves here would break them silently otherwise:
 
 ```bash
-grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 10: end-goal index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a role prompt and a skill reach
+# 8 content tables — what comes from outside, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a role prompt and a skill reach — plus the one index table every README holds
+[ $(grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l) -eq $((8 + $(find end-goal/ -name README.md | wc -l))) ] && echo "tables: ok"
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
 grep -rc "^# " --include='*.md' end-goal/ --exclude=CLAUDE.md | grep -v ':1$'    # one "# " per file — expect none
-# every link resolves against the directory of the file it appears in — expect no output
+# every link resolves against the directory of the file it appears in, repository-wide — expect no output
 python3 -c "
 import os, re, glob
-for p in glob.glob('end-goal/**/*.md', recursive=True):
-    if os.path.basename(p) == 'CLAUDE.md': continue
+for p in glob.glob('**/*.md', recursive=True):
+    if p.startswith('graphify-out/') or os.path.basename(p) == 'CLAUDE.md': continue
     for t in re.findall(r'\]\(([^)]+)\)', open(p).read()):
         f = t.split('#')[0]
         if not f or f.startswith('http'): continue
@@ -246,20 +260,25 @@ the document unreadable. The other is a name that should not exist at all — a 
 the commit that introduces it, which every other check in this file passes over, because a
 coined term properly introduced satisfies all of them.
 
-For each file this edit changed, dispatch a subagent with no other context and this
-instruction, verbatim, with `<fields>` filled in from the rows
-[_What the work spans_](../CLAUDE.md#what-the-work-spans) gives for that file's subjects:
+For each section directory this edit changed, dispatch one subagent; a changed file that
+is not in a section directory dispatches on the file alone. A change confined to link
+paths, adding and removing no prose, does not fire the check for what it touched: a cold
+reader has nothing to judge in a path, and the link and anchor checks above are what verify
+one. Dispatch with no other context and this instruction, verbatim, with `<target>` the
+directory or the file and `<fields>` filled in from the rows
+[_What the work spans_](../CLAUDE.md#what-the-work-spans) gives for its subjects:
 
-> Read only this file: `<path>`. Do not open any other file and do not follow any link. Judge
-> the file on its own, ignoring anything you were told about this repository elsewhere.
+> Read only `<target>` — the one file, or every file in the one directory. Do not open
+> anything else and do not follow a link that leaves it. Judge what you read on its own,
+> ignoring anything you were told about this repository elsewhere.
 >
-> The fields this file speaks from are: `<fields>`. That is the only thing you are told
+> The fields this material speaks from are: `<fields>`. That is the only thing you are told
 > about it, and it is told to you so that you can tell a field's term of art from a name
-> this document invented. It does not tell you the file is right about anything.
+> this document invented. It does not tell you the material is right about anything.
 >
 > Return four lists and nothing else.
 >
-> **Unlinked** — every term the file uses as though already defined, that it does not
+> **Unlinked** — every term the material uses as though already defined, that it does not
 > define, where the sentence using it offers no link to follow. Quote the sentence where
 > each first appears.
 >
@@ -268,8 +287,8 @@ instruction, verbatim, with `<fields>` filled in from the rows
 >
 > **Coined** — every term that reads as this document's private vocabulary: a name for a
 > concept where an ordinary word or phrase would have said the same thing, and that you
-> cannot place in any established field. Include a term even where the file introduces it
-> properly. For each, give the plain phrase you expected instead.
+> cannot place in any established field. Include a term even where the material introduces
+> it properly. For each, give the plain phrase you expected instead.
 >
 > **Borrowed** — every term you recognise as a field's term of art, used here in that
 > field's sense. For each, name the field and say where in it the term is established — a
@@ -333,10 +352,10 @@ reports `boundary` and `crossing` as private vocabulary, correctly by what it wa
 wrongly about the document. The instruction files are what the check cannot withhold: a
 subagent receives the repository's `CLAUDE.md` whether or not it is asked to, so a term
 defined there rather than here is resolvable to the check and not to a reader. Tell the
-subagent to judge the file on its own, and treat a term whose only definition is in an
+subagent to judge what it reads on its own, and treat a term whose only definition is in an
 instruction file as unresolved however the check reports it.
 
-The check costs a subagent per changed file on every edit, and its result is a judgment
+The check costs a subagent per changed section on every edit, and its result is a judgment
 rather than a grep exit code.
 
 Then read One pipeline → Intent into items → Gates → Risk score → Environments → Releases →
