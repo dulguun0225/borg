@@ -27,7 +27,7 @@
 // property of the API and not a discipline of the callers.
 //
 // What defines it: the Implementation gate in
-// ../../end-goal/how-humans-do-it/03-gates.md#implementation, the first gate
+// ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/05-implementation.md, the first gate
 // that decides over a build — the build is made from the item's candidate
 // branch when the stage finishes — and the M1 decisions in
 // ../../roadmap.md#m1--one-change-ships, which put the criterion's run

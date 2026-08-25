@@ -117,7 +117,7 @@
 // the log is kept is a setting an owner authors,
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-not-in-it, and
 // nothing here deletes anything yet. The two-row decision is
-// ../../end-goal/how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it:
+// ../../end-goal/how-humans-do-it/03-gates/01-where-a-gate-is-and-what-decides-it.md:
 // the open event exists so the human has the factor vector to argue with,
 // and the verdict is a second row because writing it onto a chained row would
 // be a rewrite.

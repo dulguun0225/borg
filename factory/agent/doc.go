@@ -59,7 +59,7 @@
 // [Criterion] values carrying the id and the sentence and nothing else.
 // [SpecAuthor.Refine] is told them so the one criterion it authors is not one
 // the service already promises; [Implementer.Implement] is told them because
-// the Implementation gate — ../../end-goal/how-humans-do-it/03-gates.md#implementation
+// the Implementation gate — ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/05-implementation.md
 // — rejects in both directions, a criterion in force with no encoding naming
 // it as well as an encoding naming a criterion not in force, so the stage that
 // authors encodings sees every criterion and not only the one this item's spec

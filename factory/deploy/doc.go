@@ -91,7 +91,7 @@
 // ../../end-goal/how-humans-do-it/06-releases.md#the-deploy-record — written
 // by the agent performing the deploy through seam 4, advancing to complete or
 // rolled back, keyed by service and environment — and the strategy table in
-// ../../end-goal/how-humans-do-it/03-gates.md#the-rollout-strategy, whose two
+// ../../end-goal/how-humans-do-it/03-gates/02-the-rollout-strategy.md, whose two
 // rows differ on whether the build being replaced is still serving; a
 // service's first release goes without a control whatever the score would prefer,
 // and on a substrate that moves a process rather than traffic every release does. What a

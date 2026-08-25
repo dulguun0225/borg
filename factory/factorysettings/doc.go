@@ -31,5 +31,5 @@
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them,
 // which sets what shares this record and why the two that share it could not go
 // on production's environment record; the limit itself is
-// ../../end-goal/how-humans-do-it/03-gates.md#the-attempt-limit.
+// ../../end-goal/how-humans-do-it/03-gates/05-the-attempt-limit.md.
 package factorysettings

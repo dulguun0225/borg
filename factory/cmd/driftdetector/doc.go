@@ -35,6 +35,6 @@
 // driftdetector and refused at Ops. The three subcommands are that section's
 // comparison, its last check per target read so a stopped drift detector is
 // visible rather than silent, and that clearing. What a mismatch then holds is
-// ../../../end-goal/how-humans-do-it/03-gates.md#deploy-to-production, and package
+// ../../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md, and package
 // driftdetector's own doc.go is what defines the two records this command writes.
 package main

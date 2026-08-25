@@ -104,6 +104,6 @@
 // ../../end-goal/how-humans-do-it/07-contracts.md#two-versioned-things for the
 // queue as the contract's writer, at the fast-forward of the first release that
 // publishes it and in the same write as that release's first version; and
-// ../../end-goal/how-humans-do-it/03-gates.md#going-back-up for the attempt being
+// ../../end-goal/how-humans-do-it/03-gates/06-going-back-up.md for the attempt being
 // counted at what the item is sent to.
 package mergequeue
