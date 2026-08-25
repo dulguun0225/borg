@@ -37,9 +37,9 @@
 // method.
 //
 // What defines it: the release record in
-// ../../end-goal/how-humans-do-it/06-releases.md#the-release-record — written
+// ../../end-goal/how-humans-do-it/06-releases/02-the-release-record.md — written
 // at the fast-forward, the record the whole graph joins on — and the release
-// number in ../../end-goal/how-humans-do-it/06-releases.md#the-release-number,
+// number in ../../end-goal/how-humans-do-it/06-releases/04-the-release-number.md,
 // an ordinal per service that orders builds and names rollback targets and
 // does nothing else.
 package release

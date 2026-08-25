@@ -99,7 +99,7 @@
 // ../../end-goal/how-humans-do-it/05-environments/03-the-merge-queue.md — the
 // membership, the order, the re-verification, the rejection and where it goes, and
 // the queue being a component rather than a record;
-// ../../end-goal/how-humans-do-it/06-releases.md#the-release-record for the queue
+// ../../end-goal/how-humans-do-it/06-releases/02-the-release-record.md for the queue
 // as the release's writer;
 // ../../end-goal/how-humans-do-it/07-contracts.md#two-versioned-things for the
 // queue as the contract's writer, at the fast-forward of the first release that

@@ -1,0 +1,7 @@
+# The release number
+
+The **release number** is an ordinal, per service, assigned at merge to master. It orders builds and names rollback targets, and does no more; compatibility is the contract's business, not the release's. Numbers are never reused. A release that is rolled back keeps its number, and the fix that follows takes the next one. Never reused is enforced where the records are kept and not only by the queue: a second release naming one service and one number is a refused write, and how a number is minted — and re-derived where the queue stopped mid-merge or the records were restored from a backup — is stated at [_The merge queue_](../05-environments/03-the-merge-queue.md).
+
+A numbered release that has never run anywhere is normal, not an anomaly. The release number is minted at merge, one gate before production, so it records that a change was accepted — not that it is live. A [hold](../03-gates/04-what-a-gate-may-change.md) at the production deploy gate produces exactly this. Where a release is running is a deploy record and never the release number.
+
+Master's only inbound path is [_The merge queue_](../05-environments/03-the-merge-queue.md), and a candidate fast-forwards only after re-verifying against the master it will actually merge into. The commit that was verified is the commit on master. What was tested is what ships — a structural property of the queue, not a discipline anyone has to keep.

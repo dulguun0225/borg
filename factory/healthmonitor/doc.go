@@ -108,6 +108,6 @@
 // ../../end-goal/how-humans-do-it/08-operations.md#after-the-analysis-window for the
 // intent a later crossing writes;
 // ../../end-goal/how-humans-do-it/08-operations.md#incidents for the incident and its
-// deduplication; and ../../end-goal/how-humans-do-it/06-releases.md#rollback for
+// deduplication; and ../../end-goal/how-humans-do-it/06-releases/06-rollback.md for
 // what a rollback is and what its record names.
 package healthmonitor

@@ -88,7 +88,7 @@
 // store checks an id for being present and not for pointing at anything.
 //
 // What defines it: the deploy record in
-// ../../end-goal/how-humans-do-it/06-releases.md#the-deploy-record — written
+// ../../end-goal/how-humans-do-it/06-releases/05-the-deploy-record.md — written
 // by the agent performing the deploy through seam 4, advancing to complete or
 // rolled back, keyed by service and environment — and the strategy table in
 // ../../end-goal/how-humans-do-it/03-gates/02-the-rollout-strategy.md, whose two
@@ -96,7 +96,7 @@
 // service's first release goes without a control whatever the score would prefer,
 // and on a substrate that moves a process rather than traffic every release does. What a
 // rollback is and what its record names is
-// ../../end-goal/how-humans-do-it/06-releases.md#rollback, and which release it
+// ../../end-goal/how-humans-do-it/06-releases/06-rollback.md, and which release it
 // returns to is
 // ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows —
 // computed for one rollback by the health monitor, which is what calls [Restore].
