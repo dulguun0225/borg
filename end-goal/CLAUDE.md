@@ -6,23 +6,23 @@ except the verification commands, which say so.
 ## What this is
 
 `end-goal/` is Markdown files plus one that is not: [`terms.txt`](terms.txt), the
-inventory of every name the document introduces, read by the consistency pass and by
-nothing else. Together they are one design document for a fully autonomous software
-factory — a product each customer self-hosts, which refines intent, builds, deploys,
-monitors, and fixes software on its own.
+inventory of every name the document introduces, read only by the consistency pass.
+Together they are one design document for a fully autonomous software factory — a
+product each customer self-hosts, which refines intent, builds, deploys, monitors, and
+fixes software on its own.
 
-The repository around it is the monorepo that will build that thing, and this directory is
-the state it is built toward, so code is added beside it and never in it. There is no build
-or test suite here and none to go looking for: the consistency pass below is the whole of
-what checks this directory. Every task here is an edit to a design document, and the
-document says of itself that everything in it is open to revision.
+The repository around it is the monorepo that will build that thing; this directory is
+the state it is built toward, so code is added beside it and never in it. There is no
+build or test suite here: the consistency pass below is all that checks this directory.
+Every task here is an edit to a design document, and the document says everything in it
+is open to revision.
 
 `README.md` indexes the document; `how-humans-do-it/README.md` is the dependency-order
 table and only that.
 
 There is no work list. A decision belongs in the file that owns its subject, and a cut
-candidate is taken or refused with the reason written into that same file. A list of
-answers kept outside the sections that own them is the shape `open.md`'s own rule refuses.
+candidate is taken or refused with the reason written into that same file. Keeping answers
+outside the sections that own them is the shape `open.md`'s own rule refuses.
 
 One file per section. Each file's own heading is `#`, its subsections `##` and `###` — a
 section that is its own file owns the top level. A new part of the document is a new file
@@ -42,10 +42,10 @@ of the document cites them as bare numbers — `(7)`, `(10)`, `(11, 12)`. Insert
 removing, or reordering a duty silently repoints every reference in every other file, and
 the range check below cannot see it: a reorder changes what a number means and not which
 numbers exist, so it passes by construction, and the cold-read check is told to leave bare
-duty numbers alone. So an edit that inserts, removes, or reorders duties is finished only
+duty numbers alone. An edit that inserts, removes, or reorders duties is finished only
 when every citation of every moved number has been read and repointed — the duty-refs grep
-below lists them, over a hundred across nine files — a check that rides on the edit able
-to break the references rather than on every edit, because the duty list rarely moves.
+below lists them, over a hundred across nine files — run only on an edit able to break the
+references, not on every edit, because the duty list rarely moves.
 
 **The gate table against the prose.** Every gate named in prose needs a row, and every
 action in a row must be possible at that point in the lifecycle. `Deploy to production`
@@ -87,10 +87,9 @@ all lean on and The fleet defines; the **last known-good release**, which Contra
 on and Operations defines; and the four screens — **Work**, **Ops**, **Factory**,
 **People** — which _What humans do_ leans on and _Screens_ defines last. One treatment
 covers the first six — a link forward at each early use, so a reader meeting the term there
-can reach the definition — and a new early use is expected to keep that true. The screens
-take that treatment at the first use of each name in a file rather than at every use: the
-four recur as ordinary nouns in nearly every file, and a link on each would put one in most
-paragraphs.
+can reach the definition — and a new early use must keep that true. The screens take that
+treatment at the first use of each name in a file rather than at every use: the four recur
+as ordinary nouns in nearly every file, and a link on each would put one in most paragraphs.
 
 **Introduce a term at its first use in each file.** A reader meeting a term for the first
 time in a file has to be able to finish the sentence they are on. Two ways give them that:
@@ -129,8 +128,8 @@ Two kinds of question do not earn a place there. A question the document can alr
 by applying a pattern it holds is not open — apply the pattern and fold it. Three such
 patterns: a safeguard (9) adds a human at a gate; an owner authors a parameter with gate policy
 (8) and the score supplies the default; the score learns from outcomes. Nor is a loose end
-a session noticed while doing something else — the subject has to raise it, and an owner
-has to be who decides it.
+a session noticed while doing something else: the subject must raise it, and an owner must
+decide it.
 
 ## Verification
 
@@ -138,7 +137,7 @@ There are no tests. After editing, run the consistency pass. It checks this docu
 against rules this file and the root `CLAUDE.md` set, and finds nothing they do not name —
 the review pass in the root `CLAUDE.md` is what looks for the rest, dispatched cold and on
 request. Every command below is scoped to `end-goal/` and run from the repository root, so
-nothing in a sibling directory is included in a check written for this one:
+no sibling directory enters a check written for this one:
 
 ```bash
 grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l  # expect 10: end-goal index, what comes from outside, sections, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a role prompt and a skill reach
@@ -218,7 +217,7 @@ is what stops it growing back.
 It costs two things. It reads bolding rather than meaning, so a bolded run that is emphasis
 and not a name has to be seeded in `terms.txt` like one — `git`, `always true` and `the
 change` are there for that reason — and a name introduced without bold is invisible to it,
-which makes bolding at introduction a convention this check depends on. And a legitimate
+which makes bolding at introduction a convention this check depends on. A legitimate
 new name costs a line plus a commit body saying which of the root `CLAUDE.md`'s two grounds
 it survives on, which is the point rather than the price: the cost is paid where it is one
 line, instead of later where it was forty terms. The check cannot tell a good name from a
@@ -230,7 +229,7 @@ commit that adds its `terms.txt` line — not in a list this file holds, which w
 answers kept outside the file that owns them, the shape this file itself refuses, and whose
 only remedy for a wrong line was editing a Python literal inside a bash fence nothing said
 anyone may edit. The check keeps the one direction that stays mechanical: every glossary
-line names a term the document actually uses, so a line cannot outlive its term. The
+line names a term the document uses, so a line cannot outlive its term. The
 direction given up is mechanical detection of a bent term with no line, which was only ever
 as good as the list a session remembered to extend; what surfaces a reader left with the
 industry meaning is the cold-read check's borrowed list, term by term, on the file that
@@ -304,18 +303,18 @@ claims a field for a word, and a claim is sometimes wrong: `terms.txt` takes the
 attribution only where the session agrees with it, and a citation the session cannot place
 leaves the term coined.
 
-The coined list is neither, and it is not meant to be empty: **analysis window** will be on it
-every run and stays every time. It is a candidate list, read against the root `CLAUDE.md`'s
-two grounds — the industry owns the word, or the plain word was never a figure — and
-against the one test that admits a coinage at all, that the term names something the plain
-words cannot say once. A name meeting none of the three is removed in the commit that
-introduced it. That is the only cheap moment there is:
-the vocabulary cleanup of 2026-08-20 to 2026-08-23 is what the same removal cost once the
-names had been in the document a while, and it ran to millions of tokens over about forty
-terms, a document-wide pass each, and every one of them named again in the code. A cold reader is the right
-one to ask because it has no investment in the name — the session that just wrote a term
-can always say what it means, which is the same reason the check withholds the rest of the
-document. What it costs is that the settled vocabulary comes back every run: a reader with
+The coined list is neither, and it is not meant to be empty: **analysis window** will be on
+it every run. It is a candidate list, read against the root `CLAUDE.md`'s two grounds —
+the industry owns the word, or the plain word was never a figure — and against the one
+test that admits a coinage at all, that the term names something the plain words cannot
+say once. A name meeting none of the three is removed in the commit that introduced it.
+That is the only cheap moment there is: the vocabulary cleanup of 2026-08-20 to 2026-08-23
+is what the same removal cost once the names had been in the document a while, and it ran
+to millions of tokens over about forty terms, a document-wide pass each, and every one of
+them named again in the code. A cold reader is the right one to ask because it has no
+investment in the name — the session that just wrote a term can always say what it means,
+which is the same reason the check withholds the rest of the document. What it costs is
+that the settled vocabulary comes back every run: a reader with
 no memory cannot know which names were already argued for, so triaging the list is a
 session's job and never the subagent's.
 

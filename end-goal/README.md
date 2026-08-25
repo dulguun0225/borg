@@ -11,4 +11,4 @@ A draft. Everything here is open to revision.
 | [Open](open.md) | What is not settled, phrased as the question and what turns on it |
 | [Glossary](glossary.md) | The words the industry owns that this document uses in a narrower or different sense, one line each |
 
-Read _What humans do_ before anything under `how-humans-do-it/`: a bare `(7)` or `(11, 12)` anywhere in this document is a duty number from that list. Reach for the [Glossary](glossary.md) whenever a sentence uses a familiar word and you suspect it does not mean what it usually does.
+Read _What humans do_ before anything under `how-humans-do-it/`: a bare `(7)` or `(11, 12)` anywhere in this document is a duty number from that list. Check the [Glossary](glossary.md) when a familiar word seems not to mean what it usually does.
