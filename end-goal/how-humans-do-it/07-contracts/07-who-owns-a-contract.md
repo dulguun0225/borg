@@ -1,0 +1,5 @@
+# Who owns a contract
+
+A contract belongs to the service that publishes it, and changes only inside that service's items. It gets no timeline of its own: a promise is only real when something serves it, so the authority to accept a change to one belongs where there is a build to check it against.
+
+What a consumer gets is the promise its producer's kind of contract makes, and what it owns is the assumptions its own build declares — not a decision at every gate the producer passes. A consumer contract checked mechanically is not a veto — what answers it is the diff, not a person. The alternative was a per-change consumer veto, and it deadlocks — in a graph where nearly every service is somebody's consumer, items wait on each other until the [attempt limit](../03-gates/05-the-attempt-limit.md) turns them into escalations (12), which is the human work the factory exists to remove. An objection raised after the fact is an item against the producer, joined to the original by intent, like any bug, and an owner who wants a human on a particular contract gets one with a safeguard (9).

@@ -58,5 +58,5 @@
 // and ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them
 // for the scope of each and the direction its safeguard takes. The predicate kinds
 // are
-// ../../end-goal/how-humans-do-it/07-contracts.md#what-a-consumer-declares.
+// ../../end-goal/how-humans-do-it/07-contracts/06-what-a-consumer-declares.md.
 package gatepolicy

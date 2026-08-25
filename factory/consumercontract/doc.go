@@ -65,9 +65,9 @@
 //
 // What defines it: the predicate, the allowed kinds, the derivation, its
 // authority, and the two baselines are
-// ../../end-goal/how-humans-do-it/07-contracts.md#what-a-consumer-declares; the
+// ../../end-goal/how-humans-do-it/07-contracts/06-what-a-consumer-declares.md; the
 // consumer contract being checked against the candidate is
-// ../../end-goal/how-humans-do-it/07-contracts.md#what-a-diff-cannot-see; and
+// ../../end-goal/how-humans-do-it/07-contracts/05-what-a-diff-cannot-see.md; and
 // the consumer contract version being an artifact of the item is
 // ../../end-goal/how-humans-do-it/01-one-pipeline.md.
 package consumercontract

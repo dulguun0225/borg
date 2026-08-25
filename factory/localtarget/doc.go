@@ -99,5 +99,5 @@
 // quantity the started process emits is
 // ../../end-goal/how-humans-do-it/08-operations.md#the-health-monitor, and the
 // exchange document a consumer contract is decided against is
-// ../../end-goal/how-humans-do-it/07-contracts.md#what-a-consumer-declares.
+// ../../end-goal/how-humans-do-it/07-contracts/06-what-a-consumer-declares.md.
 package localtarget

@@ -1,0 +1,3 @@
+# Work that spans services
+
+Work that spans services needs no new record type. One request can produce four items in four services, and the intent is what joins them — every item already links back to the intent that caused it, so "everything that came from this request" is a query that works today. The four items of a contract migration are the same a few hops longer: two items decomposed from the intent, the brownout raised on the mark's evidence, and the removal on the brownout's window — each link naming the record before it, back to the contract version the intent's own item minted — so the query returns all four, walking the evidence links where it walked the intent link.
