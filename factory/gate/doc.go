@@ -156,7 +156,7 @@
 // ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md. The vector
 // and the number are ../../end-goal/how-humans-do-it/04-risk-score/README.md; the
 // threshold and the safeguard are
-// ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them.
+// ../../end-goal/how-humans-do-it/09-gate-policy/02-one-shape-across-all-of-them.md.
 // What Decomposition decides, one verdict covering the whole decomposition, and
 // a rejection re-decomposing the set rather than sending an item back are
 // ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/README.md; the

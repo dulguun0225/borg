@@ -12,6 +12,6 @@ The sections run in dependency order — each depends on the ones before it. The
 | [Releases](06-releases/README.md) | What ships, and what it is called at each point |
 | [Contracts](07-contracts/README.md) | What binds services to each other, and to their own past |
 | [Operations](08-operations/README.md) | What happens after the deploy |
-| [Gate policy](09-gate-policy.md) | Everything an owner authors, and what the score supplies where they do not |
+| [Gate policy](09-gate-policy/README.md) | Everything an owner authors, and what the score supplies where they do not |
 | [The fleet](10-fleet.md) | What an agent runs on, and what a borrowed account costs |
 | [Screens](11-screens.md) | Where a human sees any of it |

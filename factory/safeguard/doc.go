@@ -66,7 +66,7 @@
 // nothing.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them,
+// ../../end-goal/how-humans-do-it/09-gate-policy/02-one-shape-across-all-of-them.md,
 // which sets the one writer, the subjects, a safeguard being a bound rather than
 // a precedence, and the cost of the query.
 package safeguard

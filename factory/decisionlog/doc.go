@@ -111,11 +111,11 @@
 // ../../end-goal/deferred.md#security-comes-last, which sets the three shapes,
 // the chain, and the one-writer rule. A page event is
 // ../../end-goal/how-humans-do-it/08-operations/07-pages.md. The policy version a
-// decision names is ../../end-goal/how-humans-do-it/09-gate-policy.md and the
+// decision names is ../../end-goal/how-humans-do-it/09-gate-policy/README.md and the
 // score version is
 // ../../end-goal/how-humans-do-it/04-risk-score/01-factors-at-least.md. How long
 // the log is kept is a setting an owner authors,
-// ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-not-in-it, and
+// ../../end-goal/how-humans-do-it/09-gate-policy/03-what-is-not-in-it.md, and
 // nothing here deletes anything yet. The two-row decision is
 // ../../end-goal/how-humans-do-it/03-gates/01-where-a-gate-is-and-what-decides-it.md:
 // the open event exists so the human has the factor vector to argue with,

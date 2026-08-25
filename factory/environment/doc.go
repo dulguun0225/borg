@@ -58,5 +58,5 @@
 // what a persistent kind holds;
 // ../../end-goal/how-humans-do-it/05-environments/02-an-environment-per-candidate.md
 // for the candidate kind, its composition, and its teardown; and the threshold's
-// scope is ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them.
+// scope is ../../end-goal/how-humans-do-it/09-gate-policy/02-one-shape-across-all-of-them.md.
 package environment

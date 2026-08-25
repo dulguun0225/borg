@@ -1,6 +1,6 @@
 # Risk score
 
-A vector of named factors, reduced to one number by a published formula. Both halves matter — the number is what a [gate](../03-gates/01-where-a-gate-is-and-what-decides-it.md) compares against a [threshold](../09-gate-policy.md#what-is-in-it), the vector is what a human reads while deciding, and the number is what they see beside their [verdict](../03-gates/01-where-a-gate-is-and-what-decides-it.md) once written, for the reason [_Where a gate is, and what decides it_](../03-gates/01-where-a-gate-is-and-what-decides-it.md) gives. A score nobody can argue with is a score nobody will trust.
+A vector of named factors, reduced to one number by a published formula. Both halves matter — the number is what a [gate](../03-gates/01-where-a-gate-is-and-what-decides-it.md) compares against a [threshold](../09-gate-policy/01-what-is-in-it.md), the vector is what a human reads while deciding, and the number is what they see beside their [verdict](../03-gates/01-where-a-gate-is-and-what-decides-it.md) once written, for the reason [_Where a gate is, and what decides it_](../03-gates/01-where-a-gate-is-and-what-decides-it.md) gives. A score nobody can argue with is a score nobody will trust.
 
 | Subsection | What it settles |
 |---|---|

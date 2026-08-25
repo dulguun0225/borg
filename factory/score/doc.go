@@ -141,7 +141,7 @@
 // ../../end-goal/how-humans-do-it/04-risk-score/02-how-it-learns.md, and the
 // held-out sample with the two fields it is recorded in. The values it supplies
 // are the rows of
-// ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it; the window
+// ../../end-goal/how-humans-do-it/09-gate-policy/01-what-is-in-it.md; the window
 // limit's own
 // evidence is ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md
 // and the window's size and cap are

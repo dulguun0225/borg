@@ -54,8 +54,8 @@
 // outside the five means.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it for the rows
-// and ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them
+// ../../end-goal/how-humans-do-it/09-gate-policy/01-what-is-in-it.md for the rows
+// and ../../end-goal/how-humans-do-it/09-gate-policy/02-one-shape-across-all-of-them.md
 // for the scope of each and the direction its safeguard takes. The predicate kinds
 // are
 // ../../end-goal/how-humans-do-it/07-contracts/06-what-a-consumer-declares.md.
