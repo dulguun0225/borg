@@ -169,16 +169,24 @@ pointing at nothing, a heading no longer matching its anchor, a term used before
 introduced; the review pass finds a design that would not work, a subject the design never
 mentions, and a rule costing more than it returns.
 
-**Dispatch.** A review agent runs when the owner names it, and the owner sets how many run
-at once. No phrase runs all of them, and no request means more of them than it names;
-**Audit this project** dispatched all thirty in one burst and was retired after one run
-spent a session limit in ten minutes and a fifth of a weekly model quota. Batches of five
-cost the same in total and spread it over six times as long, which is what makes a full
-roster affordable in one session. A partial run must not speak for the whole design: its report names which
-agents ran, and a design those agents found sound is not a design found sound. Each one
-runs on a model and effort matched to what it judges — quality first, tokens
+**Dispatch.** A review agent runs when the owner names it, and one phrase runs the full
+roster: **Audit this repo** dispatches all thirty in batches of six, each batch finishing
+before the next starts. Its predecessor, **Audit this project**, ran all thirty in one
+burst and was retired after one run spent a session limit in ten minutes and a fifth of a
+weekly model quota; batching costs the same in total and spreads it over five times as
+long, which is what makes a full roster affordable in one session. Any other request means
+no more agents than it names. A path in the request bounds what the run reads: **Audit
+./end-goal** gives each agent `end-goal/` alone and no other file, and a run so bounded
+omits the Rules stance, whose only material is the instruction files. Each batch's returns
+are appended to `review-findings.md` as the batch finishes. A partial run — fewer agents,
+or a bounded path — must not speak for the whole design: its report names which agents ran
+and what they read, and a design those agents found sound is not a design found sound.
+Each one runs on a model and effort matched to what it judges — quality first, tokens
 second, time last, so a doubt between two tiers resolves to the higher and the cheap tier
-is never a default — and opus is the cap, as for every subagent.
+is never a default — and opus is the cap, as for every subagent. An agent from
+`~/.claude/agents/` is used when its definition fits the stance; otherwise the dispatch is
+ad hoc and passes `model: "opus"`, as [_Delegate by default_](#delegate-by-default)
+requires.
 
 **Each review agent is dispatched cold**, in its own subagent, and told two things in its
 dispatch text: to judge what it reads on its own and ignore anything it was told about
