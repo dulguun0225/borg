@@ -1,6 +1,6 @@
 # A fleet proposal
 
-The factory does not write a fleet entry and does argue for one. A **fleet proposal** is a record it writes at [Factory](../11-screens.md#work-ops-factory-people): a set of entries to write and a set to retire, each naming a role, a model, an effort, and a scope, with the evidence behind it. It names no credential. Which account funds a model is the one thing the factory never chooses, and refusing to name one is what leaves [_What an agent runs on_](01-what-an-agent-runs-on.md)'s refusal standing rather than reopened.
+The factory does not write a fleet entry and does argue for one. A **fleet proposal** is a record it writes at [Factory](../11-screens/01-work-ops-factory-people.md): a set of entries to write and a set to retire, each naming a role, a model, an effort, and a scope, with the evidence behind it. It names no credential. Which account funds a model is the one thing the factory never chooses, and refusing to name one is what leaves [_What an agent runs on_](01-what-an-agent-runs-on.md)'s refusal standing rather than reopened.
 
 A proposal argues over the fleet and not over one entry. It may say that five entries should be retired and six written in their place, because a fleet shaped wrong is not repaired by adding to it, and a mechanism that could only add would recommend growth for as long as anything was wrong.
 

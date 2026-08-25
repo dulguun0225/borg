@@ -54,7 +54,7 @@
 //
 // What defines it: the twelve duties and the three obligations outside them are
 // ../../end-goal/what-humans-do.md; the record and the screen that writes it are
-// ../../end-goal/how-humans-do-it/11-screens.md#work-ops-factory-people; and what
+// ../../end-goal/how-humans-do-it/11-screens/01-work-ops-factory-people.md; and what
 // reads it is ../../end-goal/how-humans-do-it/08-operations/07-pages.md, where the
 // notifier routes all three channels on it.
 package people

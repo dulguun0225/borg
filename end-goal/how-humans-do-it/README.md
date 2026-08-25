@@ -14,4 +14,4 @@ The sections run in dependency order — each depends on the ones before it. The
 | [Operations](08-operations/README.md) | What happens after the deploy |
 | [Gate policy](09-gate-policy/README.md) | Everything an owner authors, and what the score supplies where they do not |
 | [The fleet](10-fleet/README.md) | What an agent runs on, and what a borrowed account costs |
-| [Screens](11-screens.md) | Where a human sees any of it |
+| [Screens](11-screens/README.md) | Where a human sees any of it |
