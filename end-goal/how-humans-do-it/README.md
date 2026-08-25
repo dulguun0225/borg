@@ -1,6 +1,6 @@
 # How humans do it
 
-The sections run in dependency order — each depends on the ones before it. The numeric prefix on each filename records that order; prose refers to a section by name.
+The sections run in dependency order — each depends on the ones before it. The numeric prefix on each directory name records that order, and the prefix on each file inside a section is that section's reading order; prose refers to a section by name.
 
 | Section | What it settles |
 |---|---|

@@ -91,5 +91,5 @@
 // What defines it: ../../end-goal/how-humans-do-it/09-gate-policy/README.md — the
 // seven rows, the scope of each, the score supplying what an owner does not, a
 // safeguard being a bound, and Factory as the writer. The policy version on
-// every decision is ../../end-goal/what-the-factory-does.md#traceability.
+// every decision is ../../end-goal/what-the-factory-does/02-traceability.md.
 package policy
