@@ -350,11 +350,11 @@ func TestDecompositionDeclaresWhatAnItemWaitsOn(t *testing.T) {
 	}
 }
 
-// TestSendBackMovesUpAndCountsTheAttempt is the one way back: the rework is booked
+// TestReworkRequestMovesUpAndCountsTheAttempt is the one way back: the rework is booked
 // against the thing that was wrong, so the move and the attempt are one write. The
 // target may be the stage the item is at — a reject at the stage that fired is
 // another attempt at the same artifact — and may not be below it.
-func TestSendBackMovesUpAndCountsTheAttempt(t *testing.T) {
+func TestReworkRequestMovesUpAndCountsTheAttempt(t *testing.T) {
 	ctx, pool, decomposition, dispatch := newWriters(t)
 	it := oneItem(ctx, t, decomposition)
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
@@ -364,12 +364,12 @@ func TestSendBackMovesUpAndCountsTheAttempt(t *testing.T) {
 		t.Fatalf("Advance to queued: %v", err)
 	}
 
-	sent, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageImplementation)
+	sent, err := dispatch.ReworkRequest(ctx, dispatchActor, it.ID, item.StageImplementation)
 	if err != nil {
-		t.Fatalf("SendBack to implementation: %v", err)
+		t.Fatalf("ReworkRequest to implementation: %v", err)
 	}
 	if sent.Stage != item.StageImplementation {
-		t.Errorf("SendBack returned stage %s, want implementation", sent.Stage)
+		t.Errorf("ReworkRequest returned stage %s, want implementation", sent.Stage)
 	}
 	stages, err := item.Stages(ctx, pool, it.ID)
 	if err != nil {
@@ -379,30 +379,30 @@ func TestSendBackMovesUpAndCountsTheAttempt(t *testing.T) {
 		t.Fatalf("the stage rows are %+v, want one attempt booked at implementation", stages)
 	}
 	if stages[0].SpendTokens != 0 {
-		t.Errorf("the send back spent %d tokens, and what the attempt after it spends is that attempt's",
+		t.Errorf("the rework request spent %d tokens, and what the attempt after it spends is that attempt's",
 			stages[0].SpendTokens)
 	}
 
 	// The stage the item is at is a valid target and counts another attempt.
-	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
-		t.Fatalf("SendBack to the stage it is at: %v", err)
+	if _, err := dispatch.ReworkRequest(ctx, dispatchActor, it.ID, item.StageImplementation); err != nil {
+		t.Fatalf("ReworkRequest to the stage it is at: %v", err)
 	}
 	if stages, err = item.Stages(ctx, pool, it.ID); err != nil || stages[0].Attempts != 2 {
 		t.Fatalf("the implementation stage records %d attempts, want 2: %v", stages[0].Attempts, err)
 	}
 
 	// Forward is Advance's, not this.
-	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageQueued); !errors.Is(err, item.ErrNotBackUp) {
-		t.Errorf("SendBack forwards = %v, want ErrNotBackUp", err)
+	if _, err := dispatch.ReworkRequest(ctx, dispatchActor, it.ID, item.StageQueued); !errors.Is(err, item.ErrNotBackUp) {
+		t.Errorf("ReworkRequest forwards = %v, want ErrNotBackUp", err)
 	}
-	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.Stage("shipped")); !errors.Is(err, item.ErrStageUnknown) {
-		t.Errorf("SendBack to a stage outside the four = %v, want ErrStageUnknown", err)
+	if _, err := dispatch.ReworkRequest(ctx, dispatchActor, it.ID, item.Stage("shipped")); !errors.Is(err, item.ErrStageUnknown) {
+		t.Errorf("ReworkRequest to a stage outside the four = %v, want ErrStageUnknown", err)
 	}
-	if _, err := dispatch.SendBack(ctx, dispatchActor, "it_missing", item.StageSpec); !errors.Is(err, item.ErrNotFound) {
-		t.Errorf("SendBack on a missing item = %v, want ErrNotFound", err)
+	if _, err := dispatch.ReworkRequest(ctx, dispatchActor, "it_missing", item.StageSpec); !errors.Is(err, item.ErrNotFound) {
+		t.Errorf("ReworkRequest on a missing item = %v, want ErrNotFound", err)
 	}
-	if _, err := dispatch.SendBack(ctx, record.Actor{}, it.ID, item.StageSpec); !errors.Is(err, record.ErrKindUnknown) {
-		t.Errorf("SendBack with no actor = %v, want ErrKindUnknown", err)
+	if _, err := dispatch.ReworkRequest(ctx, record.Actor{}, it.ID, item.StageSpec); !errors.Is(err, record.ErrKindUnknown) {
+		t.Errorf("ReworkRequest with no actor = %v, want ErrKindUnknown", err)
 	}
 }
 
@@ -532,7 +532,7 @@ func TestNothingAdvancesToOrIsSentBackToSuperseded(t *testing.T) {
 	if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, item.StageSuperseded); !errors.Is(err, item.ErrStageUnknown) {
 		t.Errorf("advancing to superseded = %v, want ErrStageUnknown", err)
 	}
-	if _, err := dispatch.SendBack(ctx, dispatchActor, it.ID, item.StageSuperseded); !errors.Is(err, item.ErrStageUnknown) {
+	if _, err := dispatch.ReworkRequest(ctx, dispatchActor, it.ID, item.StageSuperseded); !errors.Is(err, item.ErrStageUnknown) {
 		t.Errorf("sending back to superseded = %v, want ErrStageUnknown", err)
 	}
 }

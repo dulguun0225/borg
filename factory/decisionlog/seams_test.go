@@ -78,11 +78,11 @@ func TestOnlyADecisionNamesTheVersions(t *testing.T) {
 			"wait with a policy version":       func() error { _, err := log.AppendWait(ctx, withPolicy); return err },
 			"wait with a score version":        func() error { _, err := log.AppendWait(ctx, withScore); return err },
 			"closing with a policy version": func() error {
-				_, err := log.AppendDecisionClosing(ctx, closingWithPolicy)
+				_, err := log.AppendDecisionClose(ctx, closingWithPolicy)
 				return err
 			},
 			"closing with a score version": func() error {
-				_, err := log.AppendDecisionClosing(ctx, closingWithScore)
+				_, err := log.AppendDecisionClose(ctx, closingWithScore)
 				return err
 			},
 		}
@@ -98,7 +98,7 @@ func TestOnlyADecisionNamesTheVersions(t *testing.T) {
 			"no policy":       {Actor: gate, Payload: "x", ScoreVersion: "score-1"},
 		}
 		for name, entry := range missing {
-			if _, err := log.AppendDecisionOpening(ctx, entry); !errors.Is(err, decisionlog.ErrVersionsMissing) {
+			if _, err := log.AppendDecisionOpen(ctx, entry); !errors.Is(err, decisionlog.ErrVersionsMissing) {
 				t.Errorf("an opening with %s: %v, want ErrVersionsMissing", name, err)
 			}
 		}
@@ -122,14 +122,14 @@ func TestOnlyADecisionNamesTheVersions(t *testing.T) {
 
 		opening := aRow()
 		opening.Shape = decisionlog.ShapeDecision
-		opening.Part = decisionlog.PartOpening
+		opening.Part = decisionlog.PartOpen
 		if got := refusedBy(t, insertAround(ctx, pool, opening)); got != want {
 			t.Errorf("an opening naming no version was refused by %q, want %q", got, want)
 		}
 
 		closing := aRow()
 		closing.Shape = decisionlog.ShapeDecision
-		closing.Part = decisionlog.PartClosing
+		closing.Part = decisionlog.PartClose
 		closing.Closes = "dl_00112233445566778899aabbccddeeff"
 		closing.PolicyVersion = "policy-1"
 		closing.ScoreVersion = "score-1"
@@ -150,16 +150,16 @@ func TestOnlyADecisionNamesTheVersions(t *testing.T) {
 }
 
 // TestAClosingClosesAnOpeningAndNothingElse is the closing's naming rule,
-// checked at the methods: a closing names an opening row that exists, and no
+// checked at the methods: a closing names an open event that exists, and no
 // other kind of row names anything.
 func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 	ctx, pool, log := newLog(t)
 
-	opening, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	opening, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor: gate, Payload: "the firing", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	})
 	if err != nil {
-		t.Fatalf("AppendDecisionOpening: %v", err)
+		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
 	page, err := log.AppendPageEvent(ctx, decisionlog.Entry{Actor: gate, Payload: "a page"})
 	if err != nil {
@@ -168,7 +168,7 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 
 	t.Run("a closing names something", func(t *testing.T) {
 		entry := decisionlog.Entry{Actor: owner, Payload: "a verdict over nothing"}
-		if _, err := log.AppendDecisionClosing(ctx, entry); !errors.Is(err, decisionlog.ErrClosesMissing) {
+		if _, err := log.AppendDecisionClose(ctx, entry); !errors.Is(err, decisionlog.ErrClosesMissing) {
 			t.Errorf("a closing naming no row: %v, want ErrClosesMissing", err)
 		}
 	})
@@ -178,7 +178,7 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 			Actor: gate, Payload: "x", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 			Closes: opening.ID,
 		}
-		if _, err := log.AppendDecisionOpening(ctx, naming); !errors.Is(err, decisionlog.ErrClosesRefused) {
+		if _, err := log.AppendDecisionOpen(ctx, naming); !errors.Is(err, decisionlog.ErrClosesRefused) {
 			t.Errorf("an opening naming a row: %v, want ErrClosesRefused", err)
 		}
 		naming.PolicyVersion, naming.ScoreVersion = "", ""
@@ -192,22 +192,22 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 
 	t.Run("the named row is an opening", func(t *testing.T) {
 		entry := decisionlog.Entry{Actor: owner, Payload: "a verdict", Closes: "dl_00112233445566778899aabbccddeeff"}
-		if _, err := log.AppendDecisionClosing(ctx, entry); !errors.Is(err, decisionlog.ErrNotAnOpening) {
+		if _, err := log.AppendDecisionClose(ctx, entry); !errors.Is(err, decisionlog.ErrNotAnOpening) {
 			t.Errorf("a closing naming no row that exists: %v, want ErrNotAnOpening", err)
 		}
 		entry.Closes = page.ID
-		if _, err := log.AppendDecisionClosing(ctx, entry); !errors.Is(err, decisionlog.ErrNotAnOpening) {
+		if _, err := log.AppendDecisionClose(ctx, entry); !errors.Is(err, decisionlog.ErrNotAnOpening) {
 			t.Errorf("a closing naming a page event: %v, want ErrNotAnOpening", err)
 		}
 
-		closing, err := log.AppendDecisionClosing(ctx, decisionlog.Entry{
+		closing, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 			Actor: owner, Payload: "a verdict", Closes: opening.ID,
 		})
 		if err != nil {
-			t.Fatalf("AppendDecisionClosing: %v", err)
+			t.Fatalf("AppendDecisionClose: %v", err)
 		}
 		entry.Closes = closing.ID
-		if _, err := log.AppendDecisionClosing(ctx, entry); !errors.Is(err, decisionlog.ErrNotAnOpening) {
+		if _, err := log.AppendDecisionClose(ctx, entry); !errors.Is(err, decisionlog.ErrNotAnOpening) {
 			t.Errorf("a closing naming a closing: %v, want ErrNotAnOpening", err)
 		}
 	})
@@ -223,21 +223,21 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 func TestOneOpeningTakesOneClosing(t *testing.T) {
 	ctx, pool, log := newLog(t)
 
-	opening, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	opening, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor: gate, Payload: "the firing", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	})
 	if err != nil {
-		t.Fatalf("AppendDecisionOpening: %v", err)
+		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
-	if _, err := log.AppendDecisionClosing(ctx, decisionlog.Entry{
+	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: owner, Payload: "the verdict", Closes: opening.ID,
 	}); err != nil {
-		t.Fatalf("AppendDecisionClosing: %v", err)
+		t.Fatalf("AppendDecisionClose: %v", err)
 	}
 
 	const want = "decision_log_one_closing"
 
-	_, err = log.AppendDecisionClosing(ctx, decisionlog.Entry{
+	_, err = log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: owner, Payload: "a second verdict", Closes: opening.ID,
 	})
 	if got := refusedBy(t, err); got != want {
@@ -246,7 +246,7 @@ func TestOneOpeningTakesOneClosing(t *testing.T) {
 
 	second := aRow()
 	second.Shape = decisionlog.ShapeDecision
-	second.Part = decisionlog.PartClosing
+	second.Part = decisionlog.PartClose
 	second.Closes = opening.ID
 	if got := refusedBy(t, insertAround(ctx, pool, second)); got != want {
 		t.Errorf("a second closing around the method was refused by %q, want %q", got, want)
@@ -267,7 +267,7 @@ func TestPartAndClosesMatchTheShape(t *testing.T) {
 	// constraint the row breaks.
 	page := aRow()
 	page.Shape = decisionlog.ShapePageEvent
-	page.Part = decisionlog.PartClosing
+	page.Part = decisionlog.PartClose
 	page.Closes = "dl_00112233445566778899aabbccddeeff"
 	if got, want := refusedBy(t, insertAround(ctx, pool, page)), "part_matches_shape"; got != want {
 		t.Errorf("a page event with a part was refused by %q, want %q", got, want)
@@ -292,17 +292,17 @@ func TestPartAndClosesMatchTheShape(t *testing.T) {
 func TestATamperedPartOrClosesIsNamed(t *testing.T) {
 	ctx, pool, log := newLog(t)
 
-	opening, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	opening, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor: gate, Payload: "the firing", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	})
 	if err != nil {
-		t.Fatalf("AppendDecisionOpening: %v", err)
+		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
-	closing, err := log.AppendDecisionClosing(ctx, decisionlog.Entry{
+	closing, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: owner, Payload: "the verdict", Closes: opening.ID,
 	})
 	if err != nil {
-		t.Fatalf("AppendDecisionClosing: %v", err)
+		t.Fatalf("AppendDecisionClose: %v", err)
 	}
 
 	tampers := map[string]string{
@@ -352,7 +352,7 @@ func TestEveryRecordCarriesAnActor(t *testing.T) {
 		}
 		for name, c := range cases {
 			entry := decisionlog.Entry{Actor: c.actor, Payload: "x", PolicyVersion: "p", ScoreVersion: "s"}
-			if _, err := log.AppendDecisionOpening(ctx, entry); !errors.Is(err, c.want) {
+			if _, err := log.AppendDecisionOpen(ctx, entry); !errors.Is(err, c.want) {
 				t.Errorf("an opening with %s: %v, want %v", name, err, c.want)
 			}
 			entry.PolicyVersion, entry.ScoreVersion = "", ""
@@ -446,13 +446,13 @@ func TestAResolvedSecretReachesNoRecord(t *testing.T) {
 	// What a component writes about a deploy: the reference, which is what it
 	// has, because the value it resolved is used at the moment it connects and
 	// goes into nothing that is stored.
-	if _, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	if _, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         gate,
 		Payload:       `{"gate":"deploy","credential":"` + credential.Name() + `","waits_on":"owner"}`,
 		PolicyVersion: "policy-1",
 		ScoreVersion:  "score-1",
 	}); err != nil {
-		t.Fatalf("AppendDecisionOpening: %v", err)
+		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
 	if _, err := log.AppendPageEvent(ctx, decisionlog.Entry{
 		Actor:   owner,

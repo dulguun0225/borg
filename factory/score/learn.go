@@ -29,7 +29,7 @@ const LearningVersion = "outcomes-1"
 // force, so two passes over one store produce one table and a pass that runs twice
 // moves nothing twice. TestLearningIsIdempotent is what holds that true.
 const Rules = `Each value the score supplies starts where the formula was calibrated and moves as outcomes arrive.
-An outcome is read off records that already exist: a human's verdict on a decision, a watch window's
+An outcome is read off records that already exist: a human's verdict on a decision, a analysis window's
 exit and the read it closed on, a rollback and the releases it swept, an incident against a release,
 and the attempts a stage took.
 
@@ -72,8 +72,8 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       feature and rework rate, and cost per feature needs features counted, which
                       nothing here does. Nothing reads the value either, until a decomposition sizes something.
 
-  watch window size   per service, and the coarser of two numbers. What harm asks for is the starting
-                      size halved per miss — a window closed cleared or timed out over a release an
+  analysis window size   per service, and the coarser of two numbers. What harm asks for is the starting
+                      size halved per miss — a window closed passed or timed out over a release an
                       incident was later raised against, which is the crossing the health monitor could
                       have seen and did not — floored at 0.002. What the traffic reaches is the finest
                       size on that same lattice whose units to clean this service's newest closed
@@ -84,23 +84,23 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       different questions — what is worth catching, and whether anything can be caught
                       — and only the first is about harm.
 
-  window confidence   per service. Each false clearing — a miss whose window closed cleared rather
+  window confidence   per service. Each false pass — a miss whose window closed passed rather
                       than timing out — halves the distance from the confidence in force to
                       one, ceilinged at 0.999. One way only, and the reason is arithmetic: the units a
                       window needs grow as the log of one over one-minus-confidence, where they grow as
                       the inverse square of the size, so tightening this costs about a doubling where
                       two halvings of the size cost sixteen times. It does not compound.
 
-  watch window cap    per service, both ways. Twice the longest a window of that service took to close
-                      on evidence — cleared or condemned, the two exits that read the quantity rather than the
+  analysis window cap    per service, both ways. Twice the longest a window of that service took to close
+                      on evidence — passed or failed, the two exits that read the quantity rather than the
                       clock — floored at 60 and ceilinged at a week. A cap under what a window actually
                       needed closes unresolved one that would have resolved; a cap far above it holds
                       the next deploy for nothing.
 
   window limit        per service. Folded over that service's own history in order: from 1, every 3
-                      windows closing without condemning a release raise it by one, ceilinged at 5, and a rollback that
+                      windows closing without failing a release raise it by one, ceilinged at 5, and a rollback that
                       swept a release lowers it by one and resets the count, floored at 1. Windows
-                      closing without condemning a release are one-sided evidence — a service that has never rolled
+                      closing without failing a release are one-sided evidence — a service that has never rolled
                       back has seen the throughput a higher limit gives and none of the rollback size
                       it causes — which is why the rise is slow and the fall is immediate.
 
@@ -110,7 +110,7 @@ else, and a factory whose sample never selects has a threshold that can fall and
 
 The held-out sample is how the threshold gets evidence its own decisions did not select. One firing in
 ten that the score would have gated is held out instead: the item auto-passes every gate the score
-would have gated from that firing onward, its closing row says the sample and not the threshold passed
+would have gated from that firing onward, its close event says the sample and not the threshold passed
 it, and its release is watched to the cap rather than stopping where the boundary would allow. It
 reaches no row a safeguard reached, because a human a safeguard added at a gate is a human an owner
 added and no mechanism in the design removes one. What the sample cannot have on this substrate is the strategy that
@@ -171,7 +171,7 @@ const (
 	// windowLimitCeiling is as many windows as one service holds open, whatever the
 	// evidence. Every increment is one more release a rollback undoes.
 	windowLimitCeiling = 5
-	// windowsPerRaise is how many windows closing without condemning a release it takes to raise the
+	// windowsPerRaise is how many windows closing without failing a release it takes to raise the
 	// window limit by one.
 	windowsPerRaise = 3
 )
@@ -218,17 +218,17 @@ func thresholds(e *Evidence) []Supplied {
 		lowestBad := math.NaN()
 		good, bad := 0, 0
 		for _, f := range e.firings {
-			if f.Opening.Gate != row || f.HumanClosed {
+			if f.OpenEvent.Gate != row || f.HumanClosed {
 				continue
 			}
-			outcome := e.Outcome(f.Opening.ItemID)
+			outcome := e.Outcome(f.OpenEvent.ItemID)
 			switch {
-			case f.Closing.WhyItAutoPassed == AutoPassThreshold && outcome == OutcomeBadly:
+			case f.CloseEvent.WhyItAutoPassed == AutoPassThreshold && outcome == OutcomeBadly:
 				bad++
-				if math.IsNaN(lowestBad) || f.Opening.Number < lowestBad {
-					lowestBad = f.Opening.Number
+				if math.IsNaN(lowestBad) || f.OpenEvent.Number < lowestBad {
+					lowestBad = f.OpenEvent.Number
 				}
-			case f.Closing.WhyItAutoPassed == AutoPassSample && outcome == OutcomeWell:
+			case f.CloseEvent.WhyItAutoPassed == AutoPassSample && outcome == OutcomeWell:
 				good++
 			}
 		}
@@ -337,7 +337,7 @@ func itemSizeTargets(e *Evidence, limit func(item.Stage) float64) []Supplied {
 	return moved
 }
 
-// windowParameters is the watch window's three per service. Two of them move both
+// windowParameters is the analysis window's three per service. Two of them move both
 // ways.
 //
 // The cap tracks how long that service's windows actually take to resolve, in both
@@ -356,7 +356,7 @@ func itemSizeTargets(e *Evidence, limit func(item.Stage) float64) []Supplied {
 // the finer of the two would be the factory watching longer and catching less.
 //
 // The two inputs are different questions and only one of them is about harm, which
-// is why [_The watch window_]'s restriction to evidence traceable to the health
+// is why [_The analysis window_]'s restriction to evidence traceable to the health
 // signal is not being reopened here: that restriction governs what is worth
 // catching, and reachability governs whether anything can be caught at all.
 //
@@ -374,10 +374,10 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 	var moved []Supplied
 	for _, service := range e.Services() {
 		misses := e.Misses(service)
-		falseClearings := 0
+		falsePasses := 0
 		for _, w := range misses {
-			if w.Exit == window.ExitCleared {
-				falseClearings++
+			if w.Exit == window.ExitPassed {
+				falsePasses++
 			}
 		}
 
@@ -408,12 +408,12 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 			}
 		}
 
-		if confidenceValue := 1 - (1-confidence.Value)/math.Pow(2, float64(falseClearings)); falseClearings > 0 {
+		if confidenceValue := 1 - (1-confidence.Value)/math.Pow(2, float64(falsePasses)); falsePasses > 0 {
 			value := math.Min(windowConfidenceCeiling, confidenceValue)
 			if value != confidence.Value {
 				moved = append(moved, Supplied{
 					Parameter: gatepolicy.WindowConfidence, Subject: service, Value: value,
-					Why: fmt.Sprintf("%d window(s) on this service closed cleared over a release an incident was raised against, so the boundary said it had ruled out what it had not", falseClearings),
+					Why: fmt.Sprintf("%d window(s) on this service closed passed over a release an incident was raised against, so the boundary said it had ruled out what it had not", falsePasses),
 				})
 			}
 		}
@@ -422,7 +422,7 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 		wanted := math.Max(windowSizeFloor, size.Value/math.Pow(2, float64(len(misses))))
 		why := ""
 		if len(misses) > 0 {
-			why = fmt.Sprintf("%d window(s) on this service closed without condemning a release over a release an incident was raised against, so the size they watched at was too coarse",
+			why = fmt.Sprintf("%d window(s) on this service closed without failing a release over a release an incident was raised against, so the size they watched at was too coarse",
 				len(misses))
 		}
 		traffic, known, err := e.traffic(service)
@@ -509,7 +509,7 @@ func sizeLattice(startingSize float64) []float64 {
 
 // windowLimits is the window limit per service, folded over that service's own
 // history in order. The fold and not a count, because the two kinds of evidence are not commutative: three
-// windows closing without condemning a release after a rollback are a service earning its
+// windows closing without failing a release after a rollback are a service earning its
 // throughput back, and the same three before it are a service that had it and
 // lost it.
 func windowLimits(e *Evidence) []Supplied {
@@ -539,7 +539,7 @@ func windowLimits(e *Evidence) []Supplied {
 		}
 		moved = append(moved, Supplied{
 			Parameter: gatepolicy.WindowLimit, Subject: service, Value: limit,
-			Why: fmt.Sprintf("%d window(s) of this service closed without condemning a release and %d rollback(s) swept a release, folded in order", noHarm, rollbacks),
+			Why: fmt.Sprintf("%d window(s) of this service closed without failing a release and %d rollback(s) swept a release, folded in order", noHarm, rollbacks),
 		})
 	}
 	return moved

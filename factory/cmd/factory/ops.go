@@ -33,7 +33,7 @@ import (
 func peopleCommand(args []string) error {
 	flags := flag.NewFlagSet("people", flag.ContinueOnError)
 	duty := flags.Int("duty", 0, "one of the owner's twelve duties, by number")
-	obligation := flags.String("obligation", "", "an obligation outside the twelve: hosting, checker, or fleet")
+	obligation := flags.String("obligation", "", "an obligation outside the twelve: hosting, driftdetector, or fleet")
 	withdraw := flags.Bool("withdraw", false, "end this holding rather than declaring it")
 	human := flags.String("human", "owner", "the owner writing the declaration")
 
@@ -171,7 +171,7 @@ func printWindows(ctx context.Context, p *path, svc service.Service) error {
 			state = string(w.Exit) + " at " + w.ClosedAt
 		}
 		clean := ""
-		if !w.ClearedAvailable {
+		if !w.PassedAvailable {
 			clean = "; clean was never available to it"
 		}
 		fmt.Fprintf(p.d.out, "window %s over deploy %s: %s (size %v, confidence %v, cap %vs)%s\n",
@@ -181,20 +181,20 @@ func printWindows(ctx context.Context, p *path, svc service.Service) error {
 }
 
 // approveCommand is a human approving through a factory hold at the production
-// deploy row. The row fires with the hold on its opening row and the human decides,
+// deploy row. The row fires with the hold on its open event and the human decides,
 // which is the emergency action the design keeps there — approve now, not skip.
 //
 // What approving through the hold a rollback leaves redelivers is the defect that was
 // just removed. That is the most damaging thing in the factory to approve through and
 // the one most likely to be tried during an incident, which is why the reason is
-// required and goes on the closing row.
+// required and goes on the close event.
 func approveCommand(args []string) error {
 	flags := flag.NewFlagSet("approve", flag.ContinueOnError)
 	secrets := flags.String("secrets", "", "path of the secrets file (required)")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
 	human := flags.String("human", "owner", "the human deciding")
 	verdict := flags.String("verdict", string(gate.VerdictApprove), "approve or hold")
-	reason := flags.String("reason", "", "what the human says with the verdict, which goes on the closing row")
+	reason := flags.String("reason", "", "what the human says with the verdict, which goes on the close event")
 
 	id := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -246,7 +246,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 		return err
 	}
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
-		checkerStore, shut, err := openChecker(ctx)
+		driftStore, shut, err := openDriftDetector(ctx)
 		if err != nil {
 			return err
 		}
@@ -274,7 +274,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 			human:            f.human,
 			services:         known,
 			candidateCeiling: 1,
-			checker:          checkerStore,
+			driftdetector:    driftStore,
 		})
 		if err != nil {
 			return err

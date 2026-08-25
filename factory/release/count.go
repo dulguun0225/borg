@@ -110,7 +110,7 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Release, b
 // above that target.
 //
 // It answers what is above and not how far above. How many a rollback may sweep is
-// bounded by the window limit, which is how many watch windows a service may hold
+// bounded by the window limit, which is how many analysis windows a service may hold
 // open at once and
 // is a parameter of an owner's rather than anything this package reads.
 func Above(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int64) ([]Release, error) {
@@ -136,7 +136,7 @@ func Above(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int
 }
 
 // Below is whether the service has any release numbered below number. It is what
-// says whether the cleared exit is available to a window at all: a release with
+// says whether the passed exit is available to a window at all: a release with
 // nothing below it has no baseline to be compared against, so nothing about it is
 // ruled out by watching, and the design gives the choice of a control from the
 // second release onward.

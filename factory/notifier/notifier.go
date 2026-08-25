@@ -120,7 +120,7 @@ func (n *Notifier) Widen(ctx context.Context, w Wait) (decisionlog.Row, error) {
 
 // Answered is written when the wait stops waiting, naming who ended it. Its
 // caller is the component that ends the wait, at the same write it ends it with —
-// except for a mismatch cleared inside the independent checker's own store, which calls
+// except for a mismatch cleared inside the drift detector's own store, which calls
 // nothing, so there the caller is whoever read that store and found it cleared.
 func (n *Notifier) Answered(ctx context.Context, w Wait, by string) (decisionlog.Row, error) {
 	if _, err := prepare(w); err != nil {

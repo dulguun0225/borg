@@ -49,14 +49,14 @@ func (NeverDraw) Fraction() float64 { return 1 }
 
 // Selection is what the sample decided about one firing: whether the score is
 // holding this item out, and which of the two ways it came to be held out. The
-// reason is on the opening row because a firing that reads the same to an owner
+// reason is on the open event because a firing that reads the same to an owner
 // for two different reasons is one they cannot argue with.
 type Selection struct {
 	HeldOut bool
 	Why     string
 }
 
-// The two ways an item is held out, in the words the opening row stores.
+// The two ways an item is held out, in the words the open event stores.
 const (
 	// SelectedHere is the draw having selected this item at this firing.
 	SelectedHere = "the score's sample selected this item at this firing"
@@ -66,7 +66,7 @@ const (
 	SelectedEarlier = "the score's sample selected this item at an earlier gate"
 )
 
-// The two things an auto-pass comes from, in the words the closing row stores.
+// The two things an auto-pass comes from, in the words the close event stores.
 // They are this package's and not the gate's because the field they are written
 // into is one this package reads back: the threshold's calibration counts what the
 // score auto-passed on the number apart from what its own sample auto-passed, and
@@ -126,7 +126,7 @@ func (s *Score) HoldOut(ctx context.Context, itemID string, wouldGate, bySafegua
 // the design's own arrangement, so that a reader of one decision can see it —
 // which makes the log the place the stickiness is read from.
 //
-// Opening rows are read whether or not their decision has closed: an item selected
+// Open events are read whether or not their decision has closed: an item selected
 // at a firing that has not been decided yet is still selected, and the next row to
 // fire has to know.
 func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool, error) {
@@ -135,10 +135,10 @@ func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool
 		return false, err
 	}
 	for _, row := range rows {
-		if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpening {
+		if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpen {
 			continue
 		}
-		var opening Opening
+		var opening OpenEvent
 		if json.Unmarshal([]byte(row.Payload), &opening) != nil {
 			continue
 		}
@@ -160,10 +160,10 @@ func HeldOutItems(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
 	var items []string
 	seen := map[string]bool{}
 	for _, row := range rows {
-		if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpening {
+		if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpen {
 			continue
 		}
-		var opening Opening
+		var opening OpenEvent
 		if err := json.Unmarshal([]byte(row.Payload), &opening); err != nil {
 			continue
 		}

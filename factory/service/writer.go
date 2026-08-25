@@ -110,12 +110,12 @@ func ByName(ctx context.Context, pool *pgxpool.Pool, name string) (Service, bool
 }
 
 // All is every service, in the order they were created. Its reader is the
-// independent checker's own process, which is the one thing that has to walk
+// drift detector's own process, which is the one thing that has to walk
 // every service there is: it compares what each production target runs against
 // what the factory recorded, and nothing tells it which services to ask about.
 //
 // It takes the pool and not a [Writer], for the reason [Get] does — and the
-// independent checker holds no writer of anything in the factory at all.
+// drift detector holds no writer of anything in the factory at all.
 func All(ctx context.Context, pool *pgxpool.Pool) ([]Service, error) {
 	rows, err := pool.Query(ctx, selectService+` order by at, id`)
 	if err != nil {

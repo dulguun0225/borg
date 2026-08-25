@@ -5,9 +5,9 @@
 //
 // Two stores are opened for every test: the factory's own, on a schema of its
 // own with the whole factory schema applied through postgres.Apply, exactly
-// as cmd/factory/main_test.go's newPath does — and the independent checker's own, on a
-// schema of its own with its own schema applied through checker.Apply,
-// exactly as cmd/factory/watch_test.go's newCheckerStore does. Neither
+// as cmd/factory/main_test.go's newPath does — and the drift detector's own, on a
+// schema of its own with its own schema applied through driftdetector.Apply,
+// exactly as cmd/factory/watch_test.go's newDriftDetectorStore does. Neither
 // test skips when its database is unreachable: the milestone is demonstrated
 // by them running, so an unreachable database fails the run.
 package main
@@ -28,9 +28,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/build"
-	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
@@ -53,7 +53,7 @@ const testServiceName = "demo"
 func newStores(t *testing.T) (context.Context, stores) {
 	t.Helper()
 	ctx := t.Context()
-	return ctx, stores{factory: newFactoryStore(t, ctx), own: newCheckerStore(t, ctx)}
+	return ctx, stores{factory: newFactoryStore(t, ctx), own: newDriftDetectorStore(t, ctx)}
 }
 
 // newFactoryStore is a schema of its own with the whole factory schema
@@ -88,21 +88,21 @@ func newFactoryStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	return pool
 }
 
-// newCheckerStore is the independent checker's own store for one test: a schema of
+// newDriftDetectorStore is the drift detector's own store for one test: a schema of
 // its own, its own schema applied by its own applier, and nothing of the
-// factory's in it — the way cmd/factory/watch_test.go's newCheckerStore
+// factory's in it — the way cmd/factory/watch_test.go's newDriftDetectorStore
 // opens one.
-func newCheckerStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
+func newDriftDetectorStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
-		t.Fatalf("naming the independent checker's schema: %v", err)
+		t.Fatalf("naming the drift detector's schema: %v", err)
 	}
-	schema := "checker_" + hex.EncodeToString(suffix[:])
+	schema := "driftdetector_" + hex.EncodeToString(suffix[:])
 
-	pool, err := checker.Open(ctx, inSchema(t, checker.DefaultURL, schema))
+	pool, err := driftdetector.Open(ctx, inSchema(t, driftdetector.DefaultURL, schema))
 	if err != nil {
-		t.Fatalf("the independent checker's store is not reachable, and these tests do not skip: %v", err)
+		t.Fatalf("the drift detector's store is not reachable, and these tests do not skip: %v", err)
 	}
 	t.Cleanup(func() {
 		drop, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -115,8 +115,8 @@ func newCheckerStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
-	if err := checker.Apply(ctx, pool); err != nil {
-		t.Fatalf("applying the independent checker's schema: %v", err)
+	if err := driftdetector.Apply(ctx, pool); err != nil {
+		t.Fatalf("applying the drift detector's schema: %v", err)
 	}
 	return pool
 }
@@ -167,7 +167,7 @@ func shipRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, svc serv
 
 // startRelease writes a build, mints a release of it, and starts — but does
 // not complete — a deploy of that release into env: what [deploy.Current]
-// does not yet name, and what a test opens a watch window over.
+// does not yet name, and what a test opens a analysis window over.
 func startRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, svc service.Service, env environment.Environment, commitHash string) deploy.Deploy {
 	t.Helper()
 	itemID := record.NewID("it")
@@ -224,11 +224,11 @@ func TestAPassWhereTheTargetAgreesRaisesNoMismatch(t *testing.T) {
 	if !strings.Contains(out.String(), "agrees") {
 		t.Errorf("the report does not say the target agrees:\n%s", out)
 	}
-	held, why, err := checker.NewStore(s.own).Mismatch(ctx, svc.ID)
+	held, why, err := driftdetector.NewStore(s.own).Mismatch(ctx, svc.ID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v %q, %v; a target running the recorded build raises none", held, why, err)
 	}
-	checks, err := checker.LastChecks(ctx, s.own, svc.ID)
+	checks, err := driftdetector.LastChecks(ctx, s.own, svc.ID)
 	if err != nil || len(checks) != 1 || !checks[0].Agreed {
 		t.Errorf("LastChecks = %+v, %v, want one check agreeing", checks, err)
 	}
@@ -236,7 +236,7 @@ func TestAPassWhereTheTargetAgreesRaisesNoMismatch(t *testing.T) {
 
 // TestAPassWhereTheTargetDisagreesRaisesAMismatchTheReportNames is the row
 // the production deploy gate holds on: raised by the pass, and named in the
-// report a human at the independent checker reads.
+// report a human at the drift detector reads.
 func TestAPassWhereTheTargetDisagreesRaisesAMismatchTheReportNames(t *testing.T) {
 	ctx, s := newStores(t)
 	dir := t.TempDir()
@@ -253,7 +253,7 @@ func TestAPassWhereTheTargetDisagreesRaisesAMismatchTheReportNames(t *testing.T)
 	if !strings.Contains(out.String(), "MISMATCH") {
 		t.Errorf("the report does not name the mismatch:\n%s", out)
 	}
-	uncleared, err := checker.Uncleared(ctx, s.own, svc.ID)
+	uncleared, err := driftdetector.Uncleared(ctx, s.own, svc.ID)
 	if err != nil || len(uncleared) != 1 {
 		t.Fatalf("Uncleared = %+v, %v, want the one mismatch just raised", uncleared, err)
 	}
@@ -280,14 +280,14 @@ func TestATargetThatErrorsOnReadRunningWritesAnUnreachedLastCheckAndRaisesNoMism
 	if !strings.Contains(out.String(), "could not be reached") {
 		t.Errorf("the report does not say the target could not be reached:\n%s", out)
 	}
-	checks, err := checker.LastChecks(ctx, s.own, svc.ID)
+	checks, err := driftdetector.LastChecks(ctx, s.own, svc.ID)
 	if err != nil {
 		t.Fatalf("LastChecks: %v", err)
 	}
 	if len(checks) != 1 || checks[0].Reached || checks[0].Why != failure.Error() {
 		t.Errorf("LastChecks = %+v, want one unreached check naming %q", checks, failure)
 	}
-	held, _, err := checker.NewStore(s.own).Mismatch(ctx, svc.ID)
+	held, _, err := driftdetector.NewStore(s.own).Mismatch(ctx, svc.ID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v, %v; failing to reach a target is not a mismatch", held, err)
 	}
@@ -309,7 +309,7 @@ func TestNoProductionEnvironmentIsNothingToCheckAndWritesNothing(t *testing.T) {
 	if calls != 0 {
 		t.Errorf("the pass reached %d targets with no production environment recorded, want none", calls)
 	}
-	checks, err := checker.LastChecks(ctx, s.own, "")
+	checks, err := driftdetector.LastChecks(ctx, s.own, "")
 	if err != nil || len(checks) != 0 {
 		t.Errorf("LastChecks = %+v, %v, want nothing written", checks, err)
 	}
@@ -336,7 +336,7 @@ func TestNoServicesIsNothingToCheckAndWritesNothing(t *testing.T) {
 	if calls != 0 {
 		t.Errorf("the pass reached %d targets with no service recorded, want none", calls)
 	}
-	checks, err := checker.LastChecks(ctx, s.own, "")
+	checks, err := driftdetector.LastChecks(ctx, s.own, "")
 	if err != nil || len(checks) != 0 {
 		t.Errorf("LastChecks = %+v, %v, want nothing written", checks, err)
 	}
@@ -364,7 +364,7 @@ func countFactoryRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool) fac
 }
 
 // TestThePassWritesNothingIntoTheFactorysStore is the independence rule
-// checked rather than asserted in a comment: nothing the independent checker writes is
+// checked rather than asserted in a comment: nothing the drift detector writes is
 // evidence about the software, so a pass that raises a mismatch still leaves
 // the factory's own tables exactly as they were.
 func TestThePassWritesNothingIntoTheFactorysStore(t *testing.T) {
@@ -395,17 +395,17 @@ func TestAnOpenWindowExcusesABuildRunningBesideTheCurrentRelease(t *testing.T) {
 	shipRelease(ctx, t, s.factory, svc, env, "c1")
 	rolling := startRelease(ctx, t, s.factory, svc, env, "c2")
 
-	if _, err := window.NewWriter(s.factory).Open(ctx, testActor, window.Opening{
-		DeployID:         rolling.ID,
-		ReleaseID:        rolling.ReleaseID,
-		ServiceID:        svc.ID,
-		ClearedAvailable: true,
-		Size:             0.1,
-		Confidence:       0.95,
-		CapSeconds:       3600,
-		Formula:          "wilson",
-		PolicyVersion:    "pv_1",
-		ScoreVersion:     "sv_1",
+	if _, err := window.NewWriter(s.factory).Open(ctx, testActor, window.OpenEvent{
+		DeployID:        rolling.ID,
+		ReleaseID:       rolling.ReleaseID,
+		ServiceID:       svc.ID,
+		PassedAvailable: true,
+		Size:            0.1,
+		Confidence:      0.95,
+		CapSeconds:      3600,
+		Formula:         "wilson",
+		PolicyVersion:   "pv_1",
+		ScoreVersion:    "sv_1",
 	}); err != nil {
 		t.Fatalf("opening the window: %v", err)
 	}
@@ -417,10 +417,10 @@ func TestAnOpenWindowExcusesABuildRunningBesideTheCurrentRelease(t *testing.T) {
 		t.Fatalf("pass: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "watch window accounts for") {
+	if !strings.Contains(out.String(), "analysis window accounts for") {
 		t.Errorf("the report does not say the window excuses it:\n%s", out)
 	}
-	held, why, err := checker.NewStore(s.own).Mismatch(ctx, svc.ID)
+	held, why, err := driftdetector.NewStore(s.own).Mismatch(ctx, svc.ID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v %q, %v; a build an open window accounts for is excused", held, why, err)
 	}

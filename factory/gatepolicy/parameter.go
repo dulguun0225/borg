@@ -26,7 +26,7 @@ const (
 	// draw from. It is a field of the factory-wide settings record.
 	AllowedPredicateKinds Parameter = "allowed_predicate_kinds"
 	// WindowSize is the smallest regression the comparison must rule out to
-	// close a watch window clean. It is a field of the service record.
+	// close a analysis window clean. It is a field of the service record.
 	WindowSize Parameter = "window_size"
 	// WindowConfidence is how sure the comparison must be. It is a field of the
 	// service record, and shares a row with WindowSize.
@@ -34,7 +34,7 @@ const (
 	// WindowCap is the elapsed time that ends a window which will never reach
 	// its volume. It is a field of the service record.
 	WindowCap Parameter = "window_cap"
-	// WindowLimit is how many watch windows one service may hold open at once.
+	// WindowLimit is how many analysis windows one service may hold open at once.
 	// It is a field of the service record.
 	WindowLimit Parameter = "window_limit"
 	// SafeguardPredicate is a predicate an owner asserts on one element of a
@@ -112,7 +112,7 @@ type Definition struct {
 	Unit string
 	// ReaderAtThisMilestone says which mechanism reads the value in force, and
 	// is empty for a parameter nothing reads yet — two of the eight now that the
-	// watch window is built. It is here so that a printer can say so rather than
+	// analysis window is built. It is here so that a printer can say so rather than
 	// leaving an owner to discover that what they authored changed nothing.
 	ReaderAtThisMilestone string
 }
@@ -144,19 +144,19 @@ var Definitions = []Definition{
 		ReaderAtThisMilestone: "the derivation of a consumer contract",
 	},
 	{
-		Parameter: WindowSize, Row: "the watch window's size and confidence",
+		Parameter: WindowSize, Row: "the analysis window's size and confidence",
 		Kind: KindFraction, Direction: DirectionCeiling, Scope: ScopeService,
 		Unit:                  "the smallest regression ruled out, as a share",
 		ReaderAtThisMilestone: "the boundary, at every read of the comparison",
 	},
 	{
-		Parameter: WindowConfidence, Row: "the watch window's size and confidence",
+		Parameter: WindowConfidence, Row: "the analysis window's size and confidence",
 		Kind: KindFraction, Direction: DirectionFloor, Scope: ScopeService,
 		Unit:                  "the confidence required, as a share",
 		ReaderAtThisMilestone: "the boundary, as where it crosses in either direction",
 	},
 	{
-		Parameter: WindowCap, Row: "the watch window's cap",
+		Parameter: WindowCap, Row: "the analysis window's cap",
 		Kind: KindSeconds, Direction: DirectionFloor, Scope: ScopeService,
 		Unit:                  "seconds",
 		ReaderAtThisMilestone: "the health monitor, as the exit a window that will never reach its volume takes",

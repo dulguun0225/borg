@@ -123,7 +123,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	switch verdict {
 	case gate.VerdictReject:
 		c.rejected = true
-		if _, err := p.dispatch.SendBack(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.dispatch.ReworkRequest(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there\n",

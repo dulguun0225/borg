@@ -38,7 +38,7 @@ const (
 	// StatusComplete means the target took the release. [Current] reads only
 	// completed deploys.
 	StatusComplete Status = "complete"
-	// StatusRolledBack is a deploy a rollback undid: the condemned release's own
+	// StatusRolledBack is a deploy a rollback undid: the failed release's own
 	// deploy, and the deploy of every release the same rollback swept. It is
 	// written by [Writer.Undo], which takes the source the rollback names.
 	StatusRolledBack Status = "rolled_back"
@@ -72,17 +72,17 @@ type Deploy struct {
 }
 
 // Undoing is what a rollback names beside being a deploy of the release it
-// returns to: the release it condemned, the releases it swept, the source that
+// returns to: the release it failed, the releases it swept, the source that
 // called for it, and the intent it raised.
 //
-// The condemned release is a field apart from the swept ones because the hold and
-// the one-revert-per-condemned-release rule both need the two apart: one condemned
-// release is one revert item, and the swept ones were never condemned — their
+// The failed release is a field apart from the swept ones because the hold and
+// the one-revert-per-failed-release rule both need the two apart: one failed
+// release is one revert item, and the swept ones were never failed — their
 // code is still on master and the revert redelivers them.
 //
 // The source is beside the actor rather than instead of it. The actor stays the
 // deploy agent that performed the rollback, and the source is what called for it:
-// [SourceHealthMonitorAtCondemned], or [SourceOfHuman] for the named human at Ops
+// [SourceHealthMonitorAtFailed], or [SourceOfHuman] for the named human at Ops
 // with the reason they state.
 //
 // The revert intent is the one stored link from a rollback to the item that
@@ -92,9 +92,9 @@ type Deploy struct {
 // is what makes the hold computable: the hold stands until the item decomposed from this
 // intent has a release running.
 type Undoing struct {
-	CondemnedReleaseID string
-	SweptReleaseIDs    []string
-	Source             string
+	FailedReleaseID string
+	SweptReleaseIDs []string
+	Source          string
 	// RevertIntentID is empty where the rollback raised none, which is not a
 	// state the health monitor produces — it raises the intent before it calls for the
 	// rollback, so a rollback with no intent is one performed by something else.
@@ -102,14 +102,14 @@ type Undoing struct {
 }
 
 // Any reports whether the record is a rollback's. A rollback always names the
-// release it condemned and a source; nothing else names either.
-func (u Undoing) Any() bool { return u.CondemnedReleaseID != "" }
+// release it failed and a source; nothing else names either.
+func (u Undoing) Any() bool { return u.FailedReleaseID != "" }
 
-// SourceHealthMonitorAtCondemned is the source of every rollback the factory
+// SourceHealthMonitorAtFailed is the source of every rollback the factory
 // performs on its own: the comparison having crossed the boundary against the
-// release inside its watch window. A rollback from this source is reported and not requested, and
+// release inside its analysis window. A rollback from this source is reported and not requested, and
 // reporting is not paging.
-const SourceHealthMonitorAtCondemned = "the health monitor at the watch window's condemned exit"
+const SourceHealthMonitorAtFailed = "the health monitor at the analysis window's failed exit"
 
 // SourceOfHuman is the source of a rollback a human called for from Ops, which is
 // the first phase of undoing a change after it shipped. The reason is required

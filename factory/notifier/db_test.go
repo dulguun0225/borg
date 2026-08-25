@@ -224,8 +224,8 @@ func TestADutyNobodyHoldsReachesTheOwner(t *testing.T) {
 	ctx, pool, n, _ := newNotifier(t)
 
 	for _, waiting := range []notifier.Wait{
-		{Row: "mis_a", Kind: notifier.KindCheckerMismatch, Waiting: "a record disagrees with what runs",
-			Holding: people.OfObligation(people.ObligationChecker), Worse: true},
+		{Row: "mis_a", Kind: notifier.KindDriftMismatch, Waiting: "a record disagrees with what runs",
+			Holding: people.OfObligation(people.ObligationDriftDetector), Worse: true},
 		{Row: "mis_b", Kind: notifier.KindOwnerFired, Waiting: "the owner's own judgment", Worse: true},
 	} {
 		events, err := n.Notify(ctx, waiting)
@@ -250,13 +250,13 @@ func TestADutyNobodyHoldsReachesTheOwner(t *testing.T) {
 func TestAPageWidensExactlyOnceToTheOwner(t *testing.T) {
 	ctx, pool, n, _ := newNotifier(t)
 
-	holding := people.OfObligation(people.ObligationChecker)
+	holding := people.OfObligation(people.ObligationDriftDetector)
 	if _, err := people.NewWriter(pool).Declare(ctx,
 		record.Actor{Kind: record.KindHuman, Name: theOwner}, "sre", holding); err != nil {
-		t.Fatalf("declaring who installed the independent checker: %v", err)
+		t.Fatalf("declaring who installed the drift detector: %v", err)
 	}
 	waiting := notifier.Wait{
-		Row: "mis_widening", Kind: notifier.KindCheckerMismatch,
+		Row: "mis_widening", Kind: notifier.KindDriftMismatch,
 		Waiting: "a record disagrees with what runs", Holding: holding, Worse: true,
 	}
 
@@ -389,7 +389,7 @@ func TestADeliveryThatFailedWritesNoRecord(t *testing.T) {
 	}
 
 	_, err = n.Notify(ctx, notifier.Wait{
-		Row: "mis_unreachable", Kind: notifier.KindCheckerMismatch,
+		Row: "mis_unreachable", Kind: notifier.KindDriftMismatch,
 		Waiting: "a record disagrees with what runs", Worse: true,
 	})
 	if !errors.Is(err, refused) {
@@ -434,7 +434,7 @@ func TestEventsForSkipsAPayloadItCannotRead(t *testing.T) {
 	}
 
 	waiting := notifier.Wait{
-		Row: "mis_after", Kind: notifier.KindCheckerMismatch,
+		Row: "mis_after", Kind: notifier.KindDriftMismatch,
 		Waiting: "a record disagrees with what runs", Worse: true,
 	}
 	if _, err := n.Notify(ctx, waiting); err != nil {

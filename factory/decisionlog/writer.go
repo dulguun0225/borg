@@ -12,22 +12,22 @@ import (
 )
 
 var (
-	// ErrVersionsMissing is returned by [Writer.AppendDecisionOpening] for an
+	// ErrVersionsMissing is returned by [Writer.AppendDecisionOpen] for an
 	// entry naming no policy version or no score version.
 	ErrVersionsMissing = errors.New("decisionlog: an opening names a policy version and a score version")
-	// ErrVersionsRefused is returned by [Writer.AppendDecisionClosing],
+	// ErrVersionsRefused is returned by [Writer.AppendDecisionClose],
 	// [Writer.AppendPageEvent], and [Writer.AppendWait] for an entry naming
 	// either version. A page event is a delivery and a wait is a wait, so
 	// neither was decided under anything; a closing was, but what it was
-	// decided under is written once, on the opening row it names.
+	// decided under is written once, on the open event it names.
 	ErrVersionsRefused = errors.New("decisionlog: only an opening names a policy version or a score version")
-	// ErrClosesMissing is returned by [Writer.AppendDecisionClosing] for an
+	// ErrClosesMissing is returned by [Writer.AppendDecisionClose] for an
 	// entry naming no row to close.
-	ErrClosesMissing = errors.New("decisionlog: a closing names the opening row it closes")
+	ErrClosesMissing = errors.New("decisionlog: a closing names the open event it closes")
 	// ErrClosesRefused is returned by the other three append methods for an
 	// entry naming a row to close.
 	ErrClosesRefused = errors.New("decisionlog: only a closing names a row it closes")
-	// ErrNotAnOpening is returned by [Writer.AppendDecisionClosing] when the
+	// ErrNotAnOpening is returned by [Writer.AppendDecisionClose] when the
 	// row the entry names does not exist or is not an opening decision row.
 	ErrNotAnOpening = errors.New("decisionlog: a closing closes an opening decision row")
 )
@@ -41,31 +41,31 @@ type Writer struct {
 // NewWriter returns the writer over pool.
 func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 
-// AppendDecisionOpening appends a decision's opening row, written when the
+// AppendDecisionOpen appends a decision's open event, written when the
 // gate fires. It names both versions and closes nothing.
-func (w *Writer) AppendDecisionOpening(ctx context.Context, e Entry) (Row, error) {
+func (w *Writer) AppendDecisionOpen(ctx context.Context, e Entry) (Row, error) {
 	if e.PolicyVersion == "" || e.ScoreVersion == "" {
 		return Row{}, fmt.Errorf("%w: policy %q, score %q", ErrVersionsMissing, e.PolicyVersion, e.ScoreVersion)
 	}
 	if err := refuseCloses("an opening", e); err != nil {
 		return Row{}, err
 	}
-	return w.append(ctx, ShapeDecision, PartOpening, e)
+	return w.append(ctx, ShapeDecision, PartOpen, e)
 }
 
-// AppendDecisionClosing appends a decision's closing row, written when the
-// verdict is given. It names the opening row it closes and neither version.
+// AppendDecisionClose appends a decision's close event, written when the
+// verdict is given. It names the open event it closes and neither version.
 // It fails with [ErrNotAnOpening] when the named row does not exist or is not
 // an opening decision row, and a second closing on one opening is refused by
 // the store's partial unique index rather than by this method.
-func (w *Writer) AppendDecisionClosing(ctx context.Context, e Entry) (Row, error) {
+func (w *Writer) AppendDecisionClose(ctx context.Context, e Entry) (Row, error) {
 	if err := refuseVersions("a closing", e); err != nil {
 		return Row{}, err
 	}
 	if e.Closes == "" {
 		return Row{}, fmt.Errorf("%w: the entry names none", ErrClosesMissing)
 	}
-	return w.append(ctx, ShapeDecision, PartClosing, e)
+	return w.append(ctx, ShapeDecision, PartClose, e)
 }
 
 // AppendPageEvent appends a page that was delivered, which names neither
@@ -130,7 +130,7 @@ func (w *Writer) append(ctx context.Context, shape Shape, part Part, e Entry) (R
 		return Row{}, fmt.Errorf("decisionlog: taking the append lock: %w", err)
 	}
 
-	if part == PartClosing {
+	if part == PartClose {
 		var closedShape, closedPart string
 		err := tx.QueryRow(ctx, `select shape, part from `+Table+` where id = $1`, e.Closes).
 			Scan(&closedShape, &closedPart)
@@ -139,7 +139,7 @@ func (w *Writer) append(ctx context.Context, shape Shape, part Part, e Entry) (R
 		} else if err != nil {
 			return Row{}, fmt.Errorf("decisionlog: reading the row a closing names: %w", err)
 		}
-		if Shape(closedShape) != ShapeDecision || Part(closedPart) != PartOpening {
+		if Shape(closedShape) != ShapeDecision || Part(closedPart) != PartOpen {
 			return Row{}, fmt.Errorf("%w: %q is shape %q, part %q", ErrNotAnOpening, e.Closes, closedShape, closedPart)
 		}
 	}

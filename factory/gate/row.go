@@ -21,7 +21,7 @@ const (
 	// DeployToCandidateEnvironment is where the candidate's own environment is
 	// created and the candidate's build is put on it. What the deploy provides is
 	// the criteria: nothing else attaches to this row — no strategy, no rollout,
-	// no watch window — because a candidate environment has no organic traffic.
+	// no analysis window — because a candidate environment has no organic traffic.
 	DeployToCandidateEnvironment Row = "deploy_to_candidate_environment"
 	// MergeToMaster is the release event: where a candidate becomes a numbered
 	// release, and where the verdict on the candidate is given. Approving it
@@ -89,8 +89,8 @@ func permits(row Row, verdict Verdict) error {
 	return nil
 }
 
-// WaitsOn is what an opening row waits on: the duty a human at it is performing,
-// or the holder where the design names no duty. It is on the opening row so a
+// WaitsOn is what an open event waits on: the duty a human at it is performing,
+// or the holder where the design names no duty. It is on the open event so a
 // reader of a pending decision knows who the verdict is waited on from, and it is
 // empty on an auto-pass because nothing is waited on.
 //
@@ -98,7 +98,7 @@ func permits(row Row, verdict Verdict) error {
 // human deciding there is performing UAT. Neither deploy row names a duty,
 // because the design names none for either — a human at one is deciding whether
 // the deploy happens and not verifying an artifact, and inventing a duty number
-// for a row would put a claim on the opening row that the design does not make.
+// for a row would put a claim on the open event that the design does not make.
 // What such a row waits on is whoever holds it, and the screen that shows a
 // duty holder their rows is M7's.
 func WaitsOn(row Row) string {
@@ -147,26 +147,26 @@ const (
 	// anywhere: it is not a record and no parameter of an owner's limits it, so it
 	// goes into the log as a wait, with the component that met it as the actor.
 	HoldNoRoomForAnotherEnvironment = "the substrate has no room for another candidate environment"
-	// HoldWindowLimitReached is the service already holding as many watch windows open
+	// HoldWindowLimitReached is the service already holding as many analysis windows open
 	// as the window limit allows. It is computed from records that already exist — the open
 	// windows — so it writes nothing and is recomputed at every firing, and it
 	// lifts itself when one of those windows closes. It is a wait on the factory
 	// and not on a human, which is why it does not page.
-	HoldWindowLimitReached = "the service holds as many watch windows open as the window limit allows"
+	HoldWindowLimitReached = "the service holds as many analysis windows open as the window limit allows"
 	// HoldRollbackAwaitingRevert is a rollback whose revert has not shipped. Master
 	// keeps the change that was rolled back and the next item was built on master,
 	// so deploying it would redeliver the defect just removed. It writes nothing,
 	// it lifts itself when the revert ships, and it does not hold the revert — a
 	// dependency hold that blocked its own dependency would never lift.
 	HoldRollbackAwaitingRevert = "a rollback's revert has not shipped, so deploying would redeliver the defect it removed"
-	// HoldCheckerMismatch is a record the independent checker found disagreeing with what
+	// HoldDriftMismatch is a record the drift detector found disagreeing with what
 	// runs. It is the other kind of hold and the only one of it: no evidence the
 	// factory can gather lifts it, because every remedy the factory has reads the
 	// record in question. So this is the one factory hold that fires the row rather
 	// than stopping the deploy before a decision is opened — a human decides, and
 	// the notifier pages, because the service cannot receive its own fixes until
 	// one of them ends it.
-	HoldCheckerMismatch = "the independent checker found a record disagreeing with what runs"
+	HoldDriftMismatch = "the drift detector found a record disagreeing with what runs"
 )
 
 // ErrStrategySafeguardRefused is returned for the production deploy row's third

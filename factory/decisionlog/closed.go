@@ -6,13 +6,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Closed is one decision that has both its rows: the opening row a gate
-// appended when it fired, and the closing row that gave the verdict. A decision
+// Closed is one decision that has both its rows: the open event a gate
+// appended when it fired, and the close event that gave the verdict. A decision
 // is read by joining two rows, which is what two appends cost; a pending gate is
-// an opening row with no closing row yet and is not one of these.
+// an open event with no close event yet and is not one of these.
 type Closed struct {
-	Opening Row
-	Closing Row
+	OpenEvent  Row
+	CloseEvent Row
 }
 
 // ClosedDecisions is every decision both of whose rows are in the log, in the
@@ -31,17 +31,17 @@ func ClosedDecisions(ctx context.Context, pool *pgxpool.Pool) ([]Closed, error) 
 	}
 	closings := make(map[string]Row, len(rows))
 	for _, row := range rows {
-		if row.Shape == ShapeDecision && row.Part == PartClosing {
+		if row.Shape == ShapeDecision && row.Part == PartClose {
 			closings[row.Closes] = row
 		}
 	}
 	var closed []Closed
 	for _, row := range rows {
-		if row.Shape != ShapeDecision || row.Part != PartOpening {
+		if row.Shape != ShapeDecision || row.Part != PartOpen {
 			continue
 		}
 		if closing, found := closings[row.ID]; found {
-			closed = append(closed, Closed{Opening: row, Closing: closing})
+			closed = append(closed, Closed{OpenEvent: row, CloseEvent: closing})
 		}
 	}
 	return closed, nil

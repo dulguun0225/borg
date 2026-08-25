@@ -22,7 +22,7 @@ const lockName = "borg/factory/release/"
 // AdvisoryLockKey is the PostgreSQL advisory lock [Writer.Mint] takes for the
 // whole of its transaction, one key per service: the first eight bytes of
 // SHA-256 of [lockName] plus the service id, big-endian, with the top bit
-// cleared so the value is positive. TestAdvisoryLockKeyIsDerivedFromTheName
+// passed so the value is positive. TestAdvisoryLockKeyIsDerivedFromTheName
 // recomputes it. Per service rather than one key, because two services'
 // numbers have nothing to serialise against each other for.
 func AdvisoryLockKey(serviceID string) int64 {

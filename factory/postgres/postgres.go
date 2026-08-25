@@ -66,9 +66,9 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // registers itself.
 //
 // One store the factory uses is deliberately not here: the independent
-// checker's. It writes into a store of its own that no factory component may
+// driftdetector's. It writes into a store of its own that no factory component may
 // write, and a store this function applied would be a store the factory owns —
-// so package checker brings its own opener and applier, and its own process
+// so package driftdetector brings its own opener and applier, and its own process
 // calls them.
 //
 // Each statement is written so that applying it to a database that already has

@@ -85,7 +85,7 @@ func IDsByAuthor(ctx context.Context, pool *pgxpool.Pool, author string) ([]stri
 // ItemsByAuthor is every item this author wrote a version of, once each, in the
 // order the versions were written. The prior needs both this and [IDsByAuthor]
 // and they are not the same question: a human's verdict is given on an artifact
-// version, and a watch window's exit is an outcome on an item — the release, the
+// version, and a analysis window's exit is an outcome on an item — the release, the
 // deploy, and the window all hang off the item and none of them names a version.
 //
 // An empty author is no items and no error, for the reason [IDsByAuthor] gives.

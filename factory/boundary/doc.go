@@ -1,4 +1,4 @@
-// Package boundary is the watch window's boundary: the arithmetic that turns a
+// Package boundary is the analysis window's boundary: the arithmetic that turns a
 // size and a confidence into a line the health monitor may read as often as it
 // likes without the reading losing its meaning.
 //
@@ -52,11 +52,11 @@
 // age, which no arithmetic answers — and on a substrate that starts no control
 // both are simply present. The estimate is smoothed by half a failure in one
 // unit, because a baseline that failed nothing would otherwise make the ratio
-// infinite and condemn the first failure a release ever has.
+// infinite and fail the first failure a release ever has.
 //
 // A baseline with no units at all is no baseline, and neither exit is reachable
 // from one: [Reading.Unavailable] says so, which is the design's statement that
-// a service's first release cannot be cleared and can be condemned only by a
+// a service's first release cannot be passed and can be failed only by a
 // threshold an owner stated absolutely. A baseline rate so high that raising it
 // by the size passes one is the same answer for the opposite reason — a service
 // whose normal behaviour leaves no room above it to detect a regression in.
@@ -66,7 +66,7 @@
 //
 // What defines it: the window's boundary, its size and its confidence, and the
 // requirement that the boundary be valid at every point it is read are
-// ../../end-goal/how-humans-do-it/08-operations.md#the-watch-window; the four
+// ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window; the four
 // exits are the table in that section, of which this package decides two and
 // the elapsed cap and a rollback aimed below decide the other two. What the
 // comparison is made against is

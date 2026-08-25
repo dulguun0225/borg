@@ -16,7 +16,7 @@ import (
 // arrangement every record package in the factory has.
 
 const selectWindow = `select id, actor_kind, actor_name, at, deploy_id, release_id, service_id,
-	cleared_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
+	passed_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
 	exit, closed_at, closed_on_units, closed_on_failures,
 	closed_on_baseline_units, closed_on_baseline_failures
 	from ` + Table
@@ -25,7 +25,7 @@ func scan(row pgx.Row) (Window, error) {
 	var w Window
 	var kind, exit string
 	err := row.Scan(&w.ID, &kind, &w.Actor.Name, &w.At, &w.DeployID, &w.ReleaseID, &w.ServiceID,
-		&w.ClearedAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
+		&w.PassedAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
 		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt,
 		&w.ClosedOn.Units, &w.ClosedOn.Failures,
 		&w.ClosedOn.BaselineUnits, &w.ClosedOn.BaselineFailures)
@@ -99,8 +99,8 @@ func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, 
 	return count, nil
 }
 
-// ClosedWithoutCondemning is every window of the service whose exit leaves a release
-// the factory can return to — cleared or timed out, which is what [Exit.Counts]
+// ClosedWithoutFailing is every window of the service whose exit leaves a release
+// the factory can return to — passed or timed out, which is what [Exit.Counts]
 // says. It is what both the last known-good release and a rollback's target are
 // computed from, and neither is computed here: the order is the release's number, which
 // this package does not read, and copying that number onto a window would be one
@@ -108,10 +108,10 @@ func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, 
 //
 // The rows come back newest close first, which is a stable order and not the
 // answer to either question — a caller ordering by number is the answer.
-func ClosedWithoutCondemning(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
+func ClosedWithoutFailing(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID,
-		` and exit in ('`+string(ExitCleared)+`', '`+string(ExitTimedOut)+`') order by closed_at desc, id`,
-		"the windows closed without condemning a release")
+		` and exit in ('`+string(ExitPassed)+`', '`+string(ExitTimedOut)+`') order by closed_at desc, id`,
+		"the windows closed without failing a release")
 }
 
 // All is every window of one service, oldest open first. It is what a reader of

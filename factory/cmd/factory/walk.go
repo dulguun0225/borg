@@ -58,8 +58,8 @@ func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, deployID strin
 	}
 	fmt.Fprintf(out, "intent %s: field statement reads: %s\n", in.ID, in.Statement)
 
-	// The decisions: every opening row whose payload names the item, in the
-	// order they were appended, each with the closing row that closed it. Both
+	// The decisions: every open event whose payload names the item, in the
+	// order they were appended, each with the close event that closed it. Both
 	// rows M2 builds fire on one item, so this is a list and not one decision —
 	// and reading them in order is reading what the factory decided about this
 	// change and who decided it.
@@ -69,21 +69,21 @@ func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, deployID strin
 	}
 	closings := map[string]decisionlog.Row{}
 	for _, row := range rows {
-		if row.Part == decisionlog.PartClosing {
+		if row.Part == decisionlog.PartClose {
 			closings[row.Closes] = row
 		}
 	}
 
 	decisions := 0
 	for _, opening := range rows {
-		if opening.Shape != decisionlog.ShapeDecision || opening.Part != decisionlog.PartOpening {
+		if opening.Shape != decisionlog.ShapeDecision || opening.Part != decisionlog.PartOpen {
 			continue
 		}
 		// A payload is unconstrained bytes by decisionlog's contract — that
 		// package neither parses one nor constrains its format — so a row this
 		// walk cannot read as a gate opening is not a fault in the log, and it
 		// is skipped rather than ending the search. Only a log holding no
-		// opening row for the item is the error.
+		// open event for the item is the error.
 		var payload gate.OpeningPayload
 		if err := json.Unmarshal([]byte(opening.Payload), &payload); err != nil {
 			continue
@@ -97,7 +97,7 @@ func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, deployID strin
 		}
 	}
 	if decisions == 0 {
-		return fmt.Errorf("factory: no opening row in the log names item %s", it.ID)
+		return fmt.Errorf("factory: no open event in the log names item %s", it.ID)
 	}
 
 	if err := decisionlog.Verify(ctx, pool); err != nil {
@@ -124,14 +124,14 @@ func printDecision(ctx context.Context, pool *pgxpool.Pool, out io.Writer,
 
 	closing, closed := closings[opening.ID]
 	if !closed {
-		return fmt.Errorf("factory: opening row %s has no closing row", opening.ID)
+		return fmt.Errorf("factory: open event %s has no close event", opening.ID)
 	}
 	var verdict gate.ClosingPayload
 	if err := json.Unmarshal([]byte(closing.Payload), &verdict); err != nil {
-		return fmt.Errorf("factory: reading the payload of closing row %s: %w", closing.ID, err)
+		return fmt.Errorf("factory: reading the payload of close event %s: %w", closing.ID, err)
 	}
 
-	fmt.Fprintf(out, "decision at %s: opening row %s decided over %s\n", payload.Gate, opening.ID, over)
+	fmt.Fprintf(out, "decision at %s: open event %s decided over %s\n", payload.Gate, opening.ID, over)
 	fmt.Fprintf(out, "  under policy version %s and score version %s (formula %s)\n",
 		opening.PolicyVersion, opening.ScoreVersion, payload.FormulaVersion)
 	fmt.Fprintf(out, "  number %.3f against threshold %.3f (%s)\n",
@@ -147,7 +147,7 @@ func printDecision(ctx context.Context, pool *pgxpool.Pool, out io.Writer,
 	for _, name := range payload.Unavailable {
 		fmt.Fprintf(out, "  factor %s was unavailable\n", name)
 	}
-	fmt.Fprintf(out, "  closing row %s carries verdict %s, decided by %s %s\n",
+	fmt.Fprintf(out, "  close event %s carries verdict %s, decided by %s %s\n",
 		closing.ID, verdict.Verdict, closing.Actor.Kind, closing.Actor.Name)
 	if verdict.WhyItAutoPassed != "" {
 		fmt.Fprintf(out, "  why it auto-passed: %s\n", verdict.WhyItAutoPassed)

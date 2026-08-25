@@ -22,7 +22,7 @@ var (
 	// is not one stage forward in [StageOrder] — a skip, a backwards move,
 	// staying put, and anything past merged are all this error.
 	ErrNotNextStage = errors.New("item: an item advances spec to implementation to queued to merged, one stage forward at a time")
-	// ErrNotBackUp is returned by [Dispatch.SendBack] for a target that is not
+	// ErrNotBackUp is returned by [Dispatch.ReworkRequest] for a target that is not
 	// at or above the stage the item is at. Going back up is the one way back,
 	// and going forward is [Dispatch.Advance]'s.
 	ErrNotBackUp = errors.New("item: an item is sent back to the stage it is at or to one above it")
@@ -116,7 +116,7 @@ func (d *Dispatch) ReportAttempt(ctx context.Context, actor record.Actor, itemID
 }
 
 // executor is the two things an attempt report is written through: the pool for
-// [Dispatch.ReportAttempt], and a transaction for [Dispatch.SendBack], which
+// [Dispatch.ReportAttempt], and a transaction for [Dispatch.ReworkRequest], which
 // counts its attempt in the same transaction as the move.
 type executor interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
@@ -142,7 +142,7 @@ func reportAttempt(ctx context.Context, q executor, actor record.Actor, itemID s
 	return nil
 }
 
-// SendBack moves the item back up the pipeline and counts one attempt at the
+// ReworkRequest moves the item back up the pipeline and counts one attempt at the
 // stage it is sent to, in one transaction: the rework is booked against the thing
 // that was wrong, and a move that counted nothing would leave the attempt limit
 // comparing against a number the item never spent.
@@ -155,9 +155,9 @@ func reportAttempt(ctx context.Context, q executor, actor record.Actor, itemID s
 // The target may be the stage the item is already at, which is what a reject at
 // the Implementation gate is: another attempt at the same artifact. It may not be
 // below it; that is [ErrNotBackUp], and going forward is [Dispatch.Advance]'s.
-// The spend is nothing, because a send back spends no tokens: what the attempt
+// The spend is nothing, because a rework request spends no tokens: what the attempt
 // after it spends is reported by that attempt.
-func (d *Dispatch) SendBack(ctx context.Context, actor record.Actor, itemID string, stage Stage) (Item, error) {
+func (d *Dispatch) ReworkRequest(ctx context.Context, actor record.Actor, itemID string, stage Stage) (Item, error) {
 	if err := actor.Validate(); err != nil {
 		return Item{}, err
 	}
@@ -167,7 +167,7 @@ func (d *Dispatch) SendBack(ctx context.Context, actor record.Actor, itemID stri
 
 	tx, err := d.pool.Begin(ctx)
 	if err != nil {
-		return Item{}, fmt.Errorf("item: beginning the send back of %s: %w", itemID, err)
+		return Item{}, fmt.Errorf("item: beginning the rework request of %s: %w", itemID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -188,7 +188,7 @@ func (d *Dispatch) SendBack(ctx context.Context, actor record.Actor, itemID stri
 		return Item{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Item{}, fmt.Errorf("item: committing the send back of %s: %w", itemID, err)
+		return Item{}, fmt.Errorf("item: committing the rework request of %s: %w", itemID, err)
 	}
 	it.Stage = stage
 	return it, nil

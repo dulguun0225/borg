@@ -16,7 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// Actor is who the health monitor's writes are made as: the watch window it opens and
+// Actor is who the health monitor's writes are made as: the analysis window it opens and
 // closes, the incident it raises, and the revert intent it takes in through intake.
 var Actor = record.Actor{Kind: record.KindComponent, Name: "health_monitor"}
 
@@ -63,7 +63,7 @@ type Signal interface {
 	Read(ctx context.Context, q Quantity) (boundary.Observed, error)
 }
 
-// Rollback is what the health monitor asks for at the condemned exit. Every
+// Rollback is what the health monitor asks for at the failed exit. Every
 // field of it is what the rollback's own deploy record will name.
 type Rollback struct {
 	ServiceID     string
@@ -73,13 +73,13 @@ type Rollback struct {
 	// and the build to put back on the target.
 	ToReleaseID string
 	ToBuildID   string
-	// CondemnedReleaseID is the release the comparison crossed against.
-	CondemnedReleaseID string
-	// SweptReleaseIDs is every release above the condemned one, which returning to
+	// FailedReleaseID is the release the comparison crossed against.
+	FailedReleaseID string
+	// SweptReleaseIDs is every release above the failed one, which returning to
 	// the target undoes as well. Master is linear, so this is not a choice.
 	SweptReleaseIDs []string
 	// Source is what called for the rollback, which is
-	// [deploy.SourceHealthMonitorAtCondemned] every time this package asks.
+	// [deploy.SourceHealthMonitorAtFailed] every time this package asks.
 	Source string
 	// RevertIntentID is the intent the health monitor raised before it asked, which is
 	// the one stored link from a rollback to the item that undoes it.
@@ -91,7 +91,7 @@ type Rollback struct {
 // queue already has for what it needs done to a repository.
 type Rollbacker interface {
 	// RollBack puts the target's build back on the target, writes the rollback's
-	// deploy record, and advances the deploy of the condemned release and of every
+	// deploy record, and advances the deploy of the failed release and of every
 	// release it swept to rolled back.
 	RollBack(ctx context.Context, r Rollback) error
 }
@@ -124,10 +124,10 @@ type HealthMonitor struct {
 // and asking for a rollback through rollbacker.
 //
 // A nil rollbacker is allowed and a nil signal is not. A factory whose deploy agent
-// cannot roll back still has to watch — the window closing cleared or timing out is
-// most of what watching does — and a condemned exit there closes the window, writes the
+// cannot roll back still has to watch — the window closing passed or timing out is
+// most of what watching does — and a failed exit there closes the window, writes the
 // incident, and raises the revert intent without a rollback, which is exactly what
-// the design does where a condemned exit finds no release to return to.
+// the design does where a failed exit finds no release to return to.
 func New(pool *pgxpool.Pool, windows *window.Writer, incidents *incident.Writer,
 	intake *intent.Intake, p *policy.Reader, n *notifier.Notifier,
 	signal Signal, rollbacker Rollbacker) (*HealthMonitor, error) {

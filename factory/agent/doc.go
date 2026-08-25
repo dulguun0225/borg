@@ -102,7 +102,7 @@
 // targets this factory deploys to receive no traffic of their own, so the release
 // exercising itself is where the quantity comes from at all. What it costs is an
 // instruction rather than a check: an implementation that ignores it produces a
-// release whose watch window can only end at its cap, and nothing rejects it for
+// release whose analysis window can only end at its cap, and nothing rejects it for
 // that.
 //
 // # And it writes the two files a contract is derived from

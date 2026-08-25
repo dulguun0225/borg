@@ -11,7 +11,7 @@ import (
 )
 
 // The service record's second writer is an owner at Factory, putting the window limit and the
-// watch window's parameters on it, and the seam between the two writers is the
+// analysis window's parameters on it, and the seam between the two writers is the
 // field: decomposition writes the service's identity and never a parameter, an owner
 // writes parameters and never creates a service. That is why these are functions
 // taking a transaction rather than methods on [Writer], which is decomposition's.
@@ -19,7 +19,7 @@ import (
 // Each takes the transaction package policy appends the policy version in, so
 // the field and the version commit together or not at all. Nothing reads any of
 // the four yet: the window limit and the window's parameters are read by the
-// watch window and
+// analysis window and
 // the overlapping-windows limit, which are a later milestone, and authoring one
 // here changes nothing until then. They are authorable now because the
 // parameter is a field of this record, and a field of a record that has to exist
@@ -62,7 +62,7 @@ func SetWindowCap(ctx context.Context, tx pgx.Tx, serviceID string, seconds floa
 	return set(ctx, tx, serviceID, `window_cap_seconds`, seconds)
 }
 
-// SetWindowLimit writes how many watch windows this service may hold open at once.
+// SetWindowLimit writes how many analysis windows this service may hold open at once.
 func SetWindowLimit(ctx context.Context, tx pgx.Tx, serviceID string, limit float64) error {
 	if limit <= 0 {
 		return fmt.Errorf("%w: the window limit %v", ErrNotPositive, limit)

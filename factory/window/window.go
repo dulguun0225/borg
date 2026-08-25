@@ -14,38 +14,38 @@ import (
 type Exit string
 
 const (
-	// ExitCondemned is the comparison crossing the boundary against the release. What
+	// ExitFailed is the comparison crossing the boundary against the release. What
 	// follows is a rollback with no human involved.
-	ExitCondemned Exit = "condemned"
-	// ExitCleared is the comparison ruling out a regression of the size worth
+	ExitFailed Exit = "failed"
+	// ExitPassed is the comparison ruling out a regression of the size worth
 	// catching. The window closed early, on evidence.
-	ExitCleared Exit = "cleared"
+	ExitPassed Exit = "passed"
 	// ExitTimedOut is neither, by the cap. The window closed unresolved, and on a
 	// service too quiet to receive the traffic a comparison needs this is where
 	// every window ends — weak protection, reported as weak.
 	ExitTimedOut Exit = "timed_out"
 	// ExitSkipped is a rollback aimed below this release having undone it. The
-	// release is neither condemned nor running, and a release skipped this way is
+	// release is neither failed nor running, and a release skipped this way is
 	// one the factory passed over rather than one it can return to.
 	ExitSkipped Exit = "skipped"
 )
 
 // Exits is every exit a window may close at. The CHECK in [DDL] lists the same
 // four, and TestDDLListsEveryExit fails if the two stop agreeing.
-var Exits = []Exit{ExitCondemned, ExitCleared, ExitTimedOut, ExitSkipped}
+var Exits = []Exit{ExitFailed, ExitPassed, ExitTimedOut, ExitSkipped}
 
 // Counts reports whether closing at this exit leaves a release the factory can
 // return to, which is what a last known-good release and a rollback's target are
-// both computed from. Cleared and timed out count: a release that was never
-// condemned is one the factory can return to, and requiring a cleared close would
-// leave a service too quiet to ever reach one with no target at all. Condemned and
-// skipped do not — the first was condemned, and the second has nothing left
+// both computed from. Passed and timed out count: a release that was never
+// failed is one the factory can return to, and requiring a passed close would
+// leave a service too quiet to ever reach one with no target at all. Failed and
+// skipped do not — the first was failed, and the second has nothing left
 // running its build.
-func (e Exit) Counts() bool { return e == ExitCleared || e == ExitTimedOut }
+func (e Exit) Counts() bool { return e == ExitPassed || e == ExitTimedOut }
 
 var (
 	// ErrExitUnknown is returned for an exit outside [Exits].
-	ErrExitUnknown = errors.New("window: the exit is none of condemned, cleared, timed out, skipped")
+	ErrExitUnknown = errors.New("window: the exit is none of failed, passed, timed out, skipped")
 	// ErrNotFound is returned where no window has the id, the deploy, or the
 	// release.
 	ErrNotFound = errors.New("window: no window has that")
@@ -62,7 +62,7 @@ var (
 	ErrReadRefused = errors.New("window: the read the window closed on is not a read of the quantity")
 )
 
-// Window is one watch window as it is stored. At is when it opened, which is
+// Window is one analysis window as it is stored. At is when it opened, which is
 // when the deploy record it was opened over was written.
 type Window struct {
 	ID        string
@@ -71,20 +71,20 @@ type Window struct {
 	DeployID  string
 	ReleaseID string
 	ServiceID string
-	// ClearedAvailable is whether the cleared exit was reachable at the open. It is
+	// PassedAvailable is whether the passed exit was reachable at the open. It is
 	// false for a release with nothing below it to be compared against, whose
-	// window can only be condemned by an absolute threshold and can never be
-	// cleared early — so a window ending at the cap is readable as weak
+	// window can only be failed by an absolute threshold and can never be
+	// passed early — so a window ending at the cap is readable as weak
 	// protection rather than as a comparison that ran out of time.
 	//
 	// It is also false on a held-out release, and HeldOut is what tells the two
 	// apart: one had no baseline and the other has one and is not allowed to use
 	// it.
-	ClearedAvailable bool
+	PassedAvailable bool
 	// HeldOut is whether the score selected the item this release came from into
 	// its sample. It is on the record because a window that runs to the cap for
 	// this reason is not the same window as one that ran to the cap for want of a
-	// baseline, and a reader with only ClearedAvailable could not tell them apart.
+	// baseline, and a reader with only PassedAvailable could not tell them apart.
 	HeldOut bool
 	// Size, Confidence, and CapSeconds are the parameters in force at the open,
 	// copied onto the record. doc.go says why they are copied.
@@ -136,17 +136,17 @@ func (w Window) PastCap(now time.Time) (bool, error) {
 	return now.Sub(opened).Seconds() >= w.CapSeconds, nil
 }
 
-// Opening is what [Writer.Open] is given. It is a struct and not eight
+// OpenEvent is what [Writer.Open] is given. It is a struct and not eight
 // arguments because three of them are ids and three are shares, and a caller
 // that swapped two of either would compile.
-type Opening struct {
+type OpenEvent struct {
 	DeployID  string
 	ReleaseID string
 	ServiceID string
-	// ClearedAvailable is false where the release has no baseline to be compared
+	// PassedAvailable is false where the release has no baseline to be compared
 	// against or where the release was held out, which the caller knows and this
 	// package does not.
-	ClearedAvailable bool
+	PassedAvailable bool
 	// HeldOut is whether the score selected this release's item into its sample,
 	// which is what the caller read off the decisions on that item.
 	HeldOut       bool
@@ -158,7 +158,7 @@ type Opening struct {
 	ScoreVersion  string
 }
 
-func (o Opening) validate() error {
+func (o OpenEvent) validate() error {
 	for _, required := range []struct{ what, value string }{
 		{"deploy", o.DeployID}, {"release", o.ReleaseID}, {"service", o.ServiceID},
 		{"boundary formula", o.Formula}, {"policy version", o.PolicyVersion},

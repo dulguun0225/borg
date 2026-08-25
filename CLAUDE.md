@@ -31,6 +31,20 @@ fail on a new one. It holds no reasons and no decisions — same kind of thing a
 [`factory/deps.txt`](factory/deps.txt). A contested attribution is argued in the commit
 and settled in the file.
 
+`review-findings.md` is not a third either: it exists only between a run of the review pass
+and the end of that run's triage, holding what the run returned until triage moves each finding into the file that owns its subject or into
+`end-goal/open.md`. It records no disposition and no reason, so nothing is decided in it,
+and it empties as triage proceeds. [_The review pass_](#the-review-pass) says what may go
+in it.
+
+## The document comes first
+
+`end-goal/` is made as good as it can be before the code is. While that holds, `factory/`
+is expendable: if the code drifts too far from the document, it is deleted and rewritten
+later rather than the document bent to fit it. A conflict between the two is resolved in
+the document's favour, and keeping the code compilable is never a reason to weaken an
+edit to `end-goal/`.
+
 ## What the work spans
 
 Before answering, name which row below the subject belongs to, and say which row it is
@@ -50,7 +64,7 @@ wherever the answer would differ by row. The list staffs nothing.
 
 | Discipline | What in the design document it owns |
 |---|---|
-| Applied statistics and sequential testing | The watch window: a boundary valid at every point it is read, the size and confidence an owner authors, and whether `cleared` is reachable at all on a quiet service |
+| Applied statistics and sequential testing | The analysis window: a boundary valid at every point it is read, the size and confidence an owner authors, and whether `passed` is reachable at all on a quiet service |
 | Risk scoring | The score's factors, its published formula, its calibration, and a loop trained on outcomes its own decisions selected |
 | Requirements engineering | The six criterion patterns, and the unwanted conditions a pattern-perfect set can still omit |
 | Formal methods | The item, gate, hold, and rollback lifecycle as a state machine, and whether it deadlocks |
@@ -74,7 +88,7 @@ wherever the answer would differ by row. The list staffs nothing.
 |---|---|
 | Release engineering | The merge queue, the two rollout strategies, the window limit, and a rollback's target |
 | Database migration engineering | The store's forward promise, which is what a rollback across a schema change rests on |
-| Site reliability engineering | Pages, escalation, incidents, and the independent checker |
+| Site reliability engineering | Pages, escalation, incidents, and the drift detector |
 | Observability engineering | The quantity the health monitor reads, and instrumenting software the factory wrote so that it emits one |
 | Test architecture | What runs on a candidate environment, every pre-merge check being decided against that run |
 | Platform engineering | An environment per candidate, and a place for a service decomposition creates |
@@ -83,12 +97,12 @@ wherever the answer would differ by row. The list staffs nothing.
 
 | Discipline | What in the design document it owns |
 |---|---|
-| Security engineering | The four seams, and the policy that attaches at the one between an agent and a deploy target |
+| Security engineering | The five seams, and the policy that attaches at the one between the deployer and a deploy target |
 | Supply chain security | Dependencies the factory adds on its own — versions, vulnerabilities, and licenses |
 | Trust and safety | The report channel, which is the one way in from outside the factory |
 | Audit and compliance | Traceability as a claim made to an auditor, and segregation of duties in a system that authors, approves, and deploys |
 | Legal | Laws and regulations as permanent constraints, and licensing a product a customer self-hosts |
-| Cost engineering | Cost per feature, the provider's quota, and the spend ceiling the design refuses |
+| Cost engineering | Cost per feature, the provider's quota, and the spend ceiling an owner authors per credential |
 
 ## Writing style
 
@@ -106,15 +120,18 @@ Route work to the agents in `~/.claude/agents/` instead of doing it in the main
 context, without being asked. Each agent's definition carries the model and effort matched
 to its tier, so routing to the right agent is routing to the right model. The routing
 table is the `description:` line of each agent file. Between two agents the tier ladder is
-quality > tokens > time, and a doubt resolves upward.
+quality > tokens > time, and a doubt resolves upward — to opus and no higher. Opus is the
+cap for every subagent. A type not in the roster (`general-purpose`, `Explore`, an ad-hoc
+dispatch) inherits the session model, so pass `model: "opus"` on every such launch; `fork`
+ignores the override and is not used while the session model is above opus.
 
 Stays in the main context: triage and routing itself, anything the user must decide,
 conversation-spanning work an agent cannot see, and answers so small that dispatch costs
 more than it saves.
 
 Agents run sequentially when dependent, in parallel only when genuinely independent and
-few. This does not touch [_The review pass_](#the-review-pass), whose review agents still
-run only when the owner names them, one at a time.
+few. [_The review pass_](#the-review-pass) sets its own batch size, and its review agents
+still run only when the owner names them.
 
 ## Code
 
@@ -152,15 +169,16 @@ pointing at nothing, a heading no longer matching its anchor, a term used before
 introduced; the review pass finds a design that would not work, a subject the design never
 mentions, and a rule costing more than it returns.
 
-**Dispatch.** A review agent runs when the owner names it, and they run one at a time —
-the next starts after the previous returns. No phrase runs all of them, and no request
-means more of them than it names; **Audit this project** dispatched all thirty at once and
-was retired after one run spent a session limit in ten minutes and a fifth of a weekly
-model quota. A partial run must not speak for the whole design: its report names which
+**Dispatch.** A review agent runs when the owner names it, and the owner sets how many run
+at once. No phrase runs all of them, and no request means more of them than it names;
+**Audit this project** dispatched all thirty in one burst and was retired after one run
+spent a session limit in ten minutes and a fifth of a weekly model quota. Batches of five
+cost the same in total and spread it over six times as long, which is what makes a full
+roster affordable in one session. A partial run must not speak for the whole design: its report names which
 agents ran, and a design those agents found sound is not a design found sound. Each one
 runs on a model and effort matched to what it judges — quality first, tokens
 second, time last, so a doubt between two tiers resolves to the higher and the cheap tier
-is never a default.
+is never a default — and opus is the cap, as for every subagent.
 
 **Each review agent is dispatched cold**, in its own subagent, and told two things in its
 dispatch text: to judge what it reads on its own and ignore anything it was told about
@@ -199,14 +217,22 @@ touches is either absent from the design or wrongly on the list.
 returned about sixty. Each finding takes one of three dispositions:
 
 - **Taken** — folded into the file that owns the subject, with its reason and its cost.
+  Taken is the preferred disposition, and a taken finding is answered with a mechanism —
+  a rule, a record, a check, a bound the design states — not a sentence acknowledging the
+  problem.
 - **Carried** — a question in [`end-goal/open.md`](end-goal/open.md), phrased as the
   question and what turns on it.
 - **Refused** — the reason written into the file that owns the subject. A refusal does not
   bind a later run; a review agent raising the same thing again is answered by the text.
 
 Where more than one agent reached a finding separately, record that with it wherever it
-lands. **No fourth place may appear** — no findings file, no report per run, no list of
-what each one said.
+lands. `review-findings.md` holds what a run returned until triage
+reaches it, and holds nothing else: no disposition, no reason, no refusal. A finding still
+lands in one of the three places above, and the entry goes when it does — the file empties
+as triage proceeds and is deleted when it is empty, the way `jargon-cleanup.md` was. What
+it costs is that a finding can sit there being read as a backlog, and that a refusal
+recorded there would not bind a later run — which is why a refusal is never recorded
+there.
 
 Triage is done with the owner, never by the session that ran the pass, because refusal is
 the cheapest disposition and should be the one it is least eager to reach: every taken

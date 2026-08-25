@@ -134,7 +134,7 @@ type fakeModel struct {
 	// than an ok: nothing at zero, every unit at one, every other unit at two. It is
 	// what a deliberately bad deploy is — an implementation that passes every
 	// criterion in force and fails a share of the work it does, which is the shape of
-	// defect the criteria cannot see and the watch window exists for.
+	// defect the criteria cannot see and the analysis window exists for.
 	failEvery int
 }
 
@@ -163,7 +163,7 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 		// criterion per revert that nobody asked for.
 		if strings.Contains(user, "Revert release") {
 			return agent.Reply{
-				Text: "SPEC:\nRestore the behaviour the condemned release changed, leaving every criterion in force as it is.\n" +
+				Text: "SPEC:\nRestore the behaviour the failed release changed, leaving every criterion in force as it is.\n" +
 					"CRITERION: When asked what it was restored from, the system shall respond harm.",
 				Tokens: 19,
 			}, nil
@@ -245,7 +245,7 @@ func interviewed(failEvery int) *fakeModel { return &fakeModel{specCalls: 1, fai
 //
 // failEvery is what makes a deploy deliberately bad: nothing at zero, every other
 // unit at two. The failure is in no criterion's path, so a build with it passes every
-// criterion in force and is condemned by its window instead — which is the shape of
+// criterion in force and is failed by its window instead — which is the shape of
 // defect the criteria cannot see.
 //
 // The file's content depends on failEvery and on nothing else, so two good candidates
@@ -418,12 +418,12 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	return ctx, d, out
 }
 
-// The watch window as these tests author it, and how long a run watches for.
+// The analysis window as these tests author it, and how long a run watches for.
 //
 // The supplied values are deliberately unreachable here and that is the design
 // working rather than the tests fighting it: a size of two in a hundred needs traffic
 // no test generates, and a cap of a day is exactly how long the second release of a
-// service would wait behind a first that can never be cleared. So the tests author a
+// service would wait behind a first that can never be passed. So the tests author a
 // coarse size and a short cap, which is what an owner running a quiet service would
 // do, and the run watches for longer than the cap so every window it opens closes
 // before it returns.
@@ -436,7 +436,7 @@ const (
 )
 
 // installWindow creates every service record the install names and authors the
-// watch window's four on each, before any run has opened a window.
+// analysis window's four on each, before any run has opened a window.
 //
 // The service has to exist first, because those four are fields of its record — and
 // it has to be authored before the first window opens, because a window copies the
@@ -478,7 +478,7 @@ func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 			{"window limit", func() (policy.Version, error) { return factory.AuthorWindowLimit(ctx, owner, svc.ID, limit) }},
 		} {
 			if _, err := authoring.write(); err != nil {
-				t.Fatalf("authoring %s of the watch window on %s: %v", authoring.what, named.name, err)
+				t.Fatalf("authoring %s of the analysis window on %s: %v", authoring.what, named.name, err)
 			}
 		}
 	}
@@ -656,12 +656,12 @@ func TestOneChangeShips(t *testing.T) {
 		part  decisionlog.Part
 		actor string
 	}{
-		{decisionlog.PartOpening, "gate.deploy_to_candidate_environment"},
-		{decisionlog.PartClosing, ""},
-		{decisionlog.PartOpening, "gate.merge_to_master"},
-		{decisionlog.PartClosing, ""},
-		{decisionlog.PartOpening, "gate.deploy_to_production"},
-		{decisionlog.PartClosing, ""},
+		{decisionlog.PartOpen, "gate.deploy_to_candidate_environment"},
+		{decisionlog.PartClose, ""},
+		{decisionlog.PartOpen, "gate.merge_to_master"},
+		{decisionlog.PartClose, ""},
+		{decisionlog.PartOpen, "gate.deploy_to_production"},
+		{decisionlog.PartClose, ""},
 	} {
 		row := rows[n]
 		if row.Shape != decisionlog.ShapeDecision || row.Part != want.part {
@@ -672,7 +672,7 @@ func TestOneChangeShips(t *testing.T) {
 		}
 	}
 	if rows[1].Closes != rows[0].ID || rows[3].Closes != rows[2].ID || rows[5].Closes != rows[4].ID {
-		t.Error("a closing row does not close the opening row before it")
+		t.Error("a close event does not close the open event before it")
 	}
 
 	// Every decision names the policy version and the score version it was
@@ -1288,7 +1288,7 @@ func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 	}
 }
 
-// TestTheWalkSkipsAPayloadItCannotRead appends an opening row whose payload is
+// TestTheWalkSkipsAPayloadItCannotRead appends an open event whose payload is
 // not the gate's shape, before the run, so the walk meets it first. A payload
 // is unconstrained bytes by decisionlog's contract, so a row the walk cannot
 // read is skipped and the search goes on — one such row does not take down
@@ -1296,14 +1296,14 @@ func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	_, err := decisionlog.NewWriter(d.pool).AppendDecisionOpening(ctx, decisionlog.Entry{
+	_, err := decisionlog.NewWriter(d.pool).AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         record.Actor{Kind: record.KindComponent, Name: "gate.some_other_gate"},
 		Payload:       "a payload this walk has no shape for",
 		PolicyVersion: "policy-unauthored-m1",
 		ScoreVersion:  "score-stub-m1",
 	})
 	if err != nil {
-		t.Fatalf("appending the unreadable opening row: %v", err)
+		t.Fatalf("appending the unreadable open event: %v", err)
 	}
 
 	res, err := run(ctx, d, of(theStatement))
@@ -1353,7 +1353,7 @@ func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 func TestDecompositionReachesAnExistingService(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	// The service record is already there — newPath writes it, the watch window's
+	// The service record is already there — newPath writes it, the analysis window's
 	// four being fields of it and having to be authored before the first window opens.
 	// What this test is about is what decomposition does with one it finds.
 	before, found, err := service.ByName(ctx, d.pool, theService)
@@ -1380,7 +1380,7 @@ func TestDecompositionReachesAnExistingService(t *testing.T) {
 
 // TestARejectStopsThePath scripts a reject at the merge row: the path stops
 // before any release exists, the item goes back to implementation with an attempt
-// counted there, master is never created, and the closing row carries the
+// counted there, master is never created, and the close event carries the
 // feedback.
 func TestARejectStopsThePath(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\napprove\nreject not what I asked for\n")
@@ -1444,7 +1444,7 @@ func TestARejectStopsThePath(t *testing.T) {
 		t.Error("the rejected item's environment was torn down, and it stays the item's until it merges or is dropped")
 	}
 
-	// The closing row carries the feedback.
+	// The close event carries the feedback.
 	rows, err := decisionlog.Read(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
@@ -1599,7 +1599,7 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 	}
 
 	// Every one of the second run's decisions was closed by the gate component and
-	// says what auto-passed it, and every opening row of an auto-pass waits on
+	// says what auto-passed it, and every open event of an auto-pass waits on
 	// nobody — which is how a reader of the log tells a decision nobody was asked
 	// to make from a pending one.
 	rows, err := decisionlog.Read(ctx, d.pool)
@@ -1610,7 +1610,7 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 		t.Fatalf("the log holds %d rows, two runs of three decisions are twelve", len(rows))
 	}
 	for _, row := range rows[6:] {
-		if row.Part == decisionlog.PartOpening {
+		if row.Part == decisionlog.PartOpen {
 			if payload := openingPayload(t, row); payload.WaitsOn != "" {
 				t.Errorf("an auto-passed firing waits on %q", payload.WaitsOn)
 			}

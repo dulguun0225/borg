@@ -1,4 +1,4 @@
-package checker
+package driftdetector
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 // MismatchTable and LastCheckTable are the two tables this package owns, in a
 // store of its own.
 const (
-	MismatchTable  = "checker_mismatch"
-	LastCheckTable = "checker_last_check"
+	MismatchTable  = "drift_mismatch"
+	LastCheckTable = "drift_last_check"
 )
 
 // The prefixes [record.NewID] is called with for each.
@@ -23,18 +23,18 @@ const (
 	LastCheckIDPrefix = "chk"
 )
 
-// DefaultURL is the independent checker's own store as the demonstration runs it: the
+// DefaultURL is the drift detector's own store as the demonstration runs it: the
 // development database with a schema of its own. A second schema on one PostgreSQL
 // is where this store's independence is weakest and it is stated rather than hidden —
 // a store the owner installs elsewhere is this code with a different URL, and nothing
 // in the factory writes either way.
-const DefaultURL = "postgres://factory:factory@localhost:5433/factory?search_path=checker"
+const DefaultURL = "postgres://factory:factory@localhost:5433/factory?search_path=driftdetector"
 
-// URLEnv is the environment variable that names the independent checker's
+// URLEnv is the environment variable that names the drift detector's
 // store. It is a variable of its own and not the factory's, so pointing the
-// independent checker somewhere else is one setting and not a change to the
+// drift detector somewhere else is one setting and not a change to the
 // factory's configuration.
-const URLEnv = "CHECKER_DATABASE_URL"
+const URLEnv = "DRIFTDETECTOR_DATABASE_URL"
 
 // URL is the store to open: [URLEnv] where it is set, [DefaultURL] otherwise.
 func URL() string {
@@ -53,21 +53,21 @@ func URL() string {
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
-		return nil, fmt.Errorf("checker: opening the pool: %w", err)
+		return nil, fmt.Errorf("driftdetector: opening the pool: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("checker: reaching its store: %w", err)
+		return nil, fmt.Errorf("driftdetector: reaching its store: %w", err)
 	}
 	return pool, nil
 }
 
-// Apply creates the independent checker's schema. It is called by the
-// independent checker's own process and by nothing in the factory.
+// Apply creates the drift detector's schema. It is called by the
+// drift detector's own process and by nothing in the factory.
 func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 	for n, statement := range DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("checker: applying statement %d: %w", n+1, err)
+			return fmt.Errorf("driftdetector: applying statement %d: %w", n+1, err)
 		}
 	}
 	return nil
@@ -88,7 +88,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 //
 // The last check is one row per service and target, which the unique constraint
 // enforces and [Writer.Record]'s upsert conflicts on: it is overwritten each
-// pass, because what it answers is whether the independent checker is still
+// pass, because what it answers is whether the drift detector is still
 // running and not what it has ever said.
 var DDL = []string{
 	`create table if not exists ` + MismatchTable + ` (

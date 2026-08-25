@@ -4,7 +4,7 @@
 // the whole episode readable as links — and the rest of this file is the parts
 // of that no single run reaches: the window limit, the hold a rollback leaves,
 // approving through it, a crossing found after the window closed, and a
-// mismatch the independent checker raised.
+// mismatch the drift detector raised.
 //
 // The helpers every one of these shares are in main_test.go, including the watch
 // window these tests author and why the values the score supplies are unreachable
@@ -26,9 +26,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/boundary"
-	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
@@ -42,9 +42,9 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// TestAWindowOpensOverEveryProductionDeploy is the watch window at its weakest, which
+// TestAWindowOpensOverEveryProductionDeploy is the analysis window at its weakest, which
 // is where every service starts: a first release has nothing below it to be compared
-// against, so the cleared exit is not available to it, nothing about it is discovered by
+// against, so the passed exit is not available to it, nothing about it is discovered by
 // watching, and its window ends at the cap.
 func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
@@ -85,9 +85,9 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 		t.Errorf("the window names policy version %q and score version %q", w.PolicyVersion, w.ScoreVersion)
 	}
 
-	// The cleared exit is not available and the window timed out, which is weak
+	// The passed exit is not available and the window timed out, which is weak
 	// protection reported as weak rather than a comparison that ran out of time.
-	if w.ClearedAvailable {
+	if w.PassedAvailable {
 		t.Error("the window says clean was available to a service's first release, and there is nothing below it to compare against")
 	}
 	if w.Exit != window.ExitTimedOut {
@@ -97,10 +97,10 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 		t.Errorf("the run does not report that neither exit was reachable:\n%s", out)
 	}
 
-	// Closing at the cap counts as a release the factory can return to, which is what
+	// CloseEvent at the cap counts as a release the factory can return to, which is what
 	// makes the second release measurable at all.
 	if !w.Exit.Counts() {
-		t.Error("a window closed at the cap does not count as a release to return to, and a release nothing condemned is one")
+		t.Error("a window closed at the cap does not count as a release to return to, and a release nothing failed is one")
 	}
 	// A rollback of it has no target all the same, there being nothing below it.
 	if _, found, err := healthmonitor.TargetBelow(ctx, d.pool, res.serviceID, 1); err != nil || found {
@@ -118,7 +118,7 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 // second release fails a share of the work it does, in no criterion's path — so every
 // criterion in force passes and the change ships. Its window opens with the first
 // release as its baseline, the boundary crosses, and the exit is harm: an incident, the
-// release condemned, the target's build put back, and a revert intent at the start of
+// release failed, the target's build put back, and a revert intent at the start of
 // the pipeline.
 func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
@@ -155,15 +155,15 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 			bad.deployGate.number, bad.deployGate.threshold)
 	}
 
-	// The window closed condemned, and it read the first release as its baseline.
+	// The window closed failed, and it read the first release as its baseline.
 	w, err := window.Get(ctx, d.pool, bad.windowID)
 	if err != nil {
 		t.Fatalf("reading the window: %v", err)
 	}
-	if w.Exit != window.ExitCondemned {
+	if w.Exit != window.ExitFailed {
 		t.Fatalf("the window closed %q, want harm:\n%s", w.Exit, out)
 	}
-	if !w.ClearedAvailable {
+	if !w.PassedAvailable {
 		t.Error("clean was unavailable to the second release, and the first one's window closed at the cap")
 	}
 
@@ -208,7 +208,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	}
 
 	// The rollback: a deploy record of the release returned to, naming what it
-	// condemned, the source that called for it, and the intent it raised.
+	// failed, the source that called for it, and the intent it raised.
 	rollback, found, err := deploy.NewestRollback(ctx, d.pool, res.serviceID, res.environmentID)
 	if err != nil || !found {
 		t.Fatalf("NewestRollback = found %v, %v", found, err)
@@ -217,14 +217,14 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 		t.Errorf("the rollback returned to release %s build %s, want the first release %s build %s",
 			rollback.ReleaseID, rollback.BuildID, good.releaseID, good.reverifiedBuildID)
 	}
-	if rollback.Undoing.CondemnedReleaseID != bad.releaseID {
-		t.Errorf("the rollback condemned %s, the window condemned %s", rollback.Undoing.CondemnedReleaseID, bad.releaseID)
+	if rollback.Undoing.FailedReleaseID != bad.releaseID {
+		t.Errorf("the rollback failed %s, the window failed %s", rollback.Undoing.FailedReleaseID, bad.releaseID)
 	}
 	if len(rollback.Undoing.SweptReleaseIDs) != 0 {
-		t.Errorf("the rollback swept %v, and nothing was above the condemned release", rollback.Undoing.SweptReleaseIDs)
+		t.Errorf("the rollback swept %v, and nothing was above the failed release", rollback.Undoing.SweptReleaseIDs)
 	}
-	if rollback.Undoing.Source != deploy.SourceHealthMonitorAtCondemned {
-		t.Errorf("the rollback's source is %q, want the health monitor at the condemned exit", rollback.Undoing.Source)
+	if rollback.Undoing.Source != deploy.SourceHealthMonitorAtFailed {
+		t.Errorf("the rollback's source is %q, want the health monitor at the failed exit", rollback.Undoing.Source)
 	}
 	if rollback.Undoing.RevertIntentID != revert.ID {
 		t.Errorf("the rollback names revert intent %s, the health monitor raised %s", rollback.Undoing.RevertIntentID, revert.ID)
@@ -233,18 +233,18 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 		t.Errorf("the rollback's own status is %s, and it is a completed deploy of the release it returned to", rollback.Status)
 	}
 
-	// The condemned release's own deploy is rolled back, and the release keeps its
+	// The failed release's own deploy is rolled back, and the release keeps its
 	// number.
-	condemned, err := deploy.Get(ctx, d.pool, bad.deployID)
+	failed, err := deploy.Get(ctx, d.pool, bad.deployID)
 	if err != nil {
-		t.Fatalf("reading the condemned deploy: %v", err)
+		t.Fatalf("reading the failed deploy: %v", err)
 	}
-	if condemned.Status != deploy.StatusRolledBack {
-		t.Errorf("the condemned deploy is %s, want rolled back", condemned.Status)
+	if failed.Status != deploy.StatusRolledBack {
+		t.Errorf("the failed deploy is %s, want rolled back", failed.Status)
 	}
 	rel, err := release.Get(ctx, d.pool, bad.releaseID)
 	if err != nil || rel.Number != 2 {
-		t.Errorf("the condemned release is number %d, %v; a rolled-back release keeps its number", rel.Number, err)
+		t.Errorf("the failed release is number %d, %v; a rolled-back release keeps its number", rel.Number, err)
 	}
 
 	// What is running is the first release again, both in the store and on the target.
@@ -351,8 +351,8 @@ func TestTheWindowLimitHoldsTheNextProductionDeploy(t *testing.T) {
 
 // TestARollbackSweepsTheReleaseAboveItsTarget is the window limit above one and what
 // it costs. Master
-// is linear, so returning to a target below a condemned release undoes every release
-// above it — the condemned one condemned, the rest skipped.
+// is linear, so returning to a target below a failed release undoes every release
+// above it — the failed one failed, the rest skipped.
 //
 // The steps are driven one at a time rather than through a run, because this substrate
 // replaces the process rather than shifting traffic: the lower release stops emitting
@@ -411,7 +411,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 		t.Fatalf("the watch stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	// The lower one is condemned and the upper one is skipped: its health monitor
+	// The lower one is failed and the upper one is skipped: its health monitor
 	// simply stopped, master being linear and the release being above the target.
 	lowerWindow, err := window.Get(ctx, d.pool, lower.windowID)
 	if err != nil {
@@ -421,7 +421,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the upper window: %v", err)
 	}
-	if lowerWindow.Exit != window.ExitCondemned {
+	if lowerWindow.Exit != window.ExitFailed {
 		t.Fatalf("the lower window closed %q, want harm:\n%s", lowerWindow.Exit, out)
 	}
 	if upperWindow.Exit != window.ExitSkipped {
@@ -431,18 +431,18 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 		t.Error("a swept window counts as a release to return to, and nothing is left running a swept release's build")
 	}
 
-	// One rollback undid both, and the two are named apart: one condemned release is
-	// one revert item, and the swept one was never condemned.
+	// One rollback undid both, and the two are named apart: one failed release is
+	// one revert item, and the swept one was never failed.
 	rollback, found, err := deploy.NewestRollback(ctx, d.pool, theServiceRecord(t, ctx, path).ID, path.production.ID)
 	if err != nil || !found {
 		t.Fatalf("NewestRollback = found %v, %v", found, err)
 	}
 	if rollback.ReleaseID != firstRelease.ID {
-		t.Errorf("the rollback returned to release %s, want the first one %s — the newest below the condemned one whose window closed without condemning a release",
+		t.Errorf("the rollback returned to release %s, want the first one %s — the newest below the failed one whose window closed without failing a release",
 			rollback.ReleaseID, firstRelease.ID)
 	}
-	if rollback.Undoing.CondemnedReleaseID != lower.releaseID {
-		t.Errorf("the rollback condemned %s, the lower release is %s", rollback.Undoing.CondemnedReleaseID, lower.releaseID)
+	if rollback.Undoing.FailedReleaseID != lower.releaseID {
+		t.Errorf("the rollback failed %s, the lower release is %s", rollback.Undoing.FailedReleaseID, lower.releaseID)
 	}
 	if len(rollback.Undoing.SweptReleaseIDs) != 1 || rollback.Undoing.SweptReleaseIDs[0] != upper.releaseID {
 		t.Errorf("the rollback swept %v, want the one release above it, %s",
@@ -479,7 +479,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	// number, and its deploy is held.
 	// The runs after the rollback are given verdicts to type. The score has learned
 	// from the episode this test just drove — a change auto-passed on the number and
-	// then condemned by its window lowers the threshold that row supplies — so rows
+	// then failed by its window lowers the threshold that row supplies — so rows
 	// that auto-passed before it are decided by a human after it, which is the loop
 	// working rather than the test fighting it.
 	d.in = strings.NewReader(approvals)
@@ -558,7 +558,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	rollBackABadRelease(ctx, t, d, out)
 
 	// The change the hold stops carries the defect. On a real factory it carries it by
-	// having been built on the master the condemned release left; here the fake's
+	// having been built on the master the failed release left; here the fake's
 	// implementer rewrites every file whole, so it carries it by writing the same failing
 	// emitter again. The two are indistinguishable to everything downstream, which is what
 	// makes this the consequence the design names.
@@ -592,8 +592,8 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	}
 
 	// And the defect is back, which is what "redelivers" means: the change was built
-	// on the master that still holds the condemned release's code, so the very next
-	// reading of its window condemns it again.
+	// on the master that still holds the failed release's code, so the very next
+	// reading of its window fails it again.
 	if err := path.watchTo(ctx, theServiceRecord(t, ctx, path), time.Now().Add(theWatchFor), theWatchEvery); err != nil {
 		t.Fatalf("the watch stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -601,7 +601,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	if err != nil || !watched {
 		t.Fatalf("ForRelease = watched %v, %v", watched, err)
 	}
-	if w.Exit != window.ExitCondemned {
+	if w.Exit != window.ExitFailed {
 		t.Errorf("the window over the approved-through release closed %q, and what was approved through was the defect itself",
 			w.Exit)
 	}
@@ -701,33 +701,33 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	}
 }
 
-// TestACheckerMismatchHoldsTheProductionDeployAndPages is the one hold the factory
+// TestADriftMismatchHoldsTheProductionDeployAndPages is the one hold the factory
 // cannot lift by gathering evidence, and so the one that fires the row and pages. What
 // the factory recorded about the service is not what is running, so nothing here can be
 // decided on the record.
-func TestACheckerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
+func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
-	d.checker = newCheckerStore(t, ctx)
+	d.driftdetector = newDriftDetectorStore(t, ctx)
 
 	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
-	if !strings.Contains(out.String(), "An independent checker is installed") {
-		t.Errorf("the run does not report an independent checker installed:\n%s", out)
+	if !strings.Contains(out.String(), "An drift detector is installed") {
+		t.Errorf("the run does not report an drift detector installed:\n%s", out)
 	}
 
-	// Installing the independent checker is substrate outside the twelve duties,
+	// Installing the drift detector is substrate outside the twelve duties,
 	// so the page a mismatch fires reaches whoever the declaration says installed
 	// it.
 	installer := "sre"
 	if _, err := people.NewWriter(d.pool).Declare(ctx, owner(d.human), installer,
-		people.OfObligation(people.ObligationChecker)); err != nil {
-		t.Fatalf("declaring who installed the independent checker: %v", err)
+		people.OfObligation(people.ObligationDriftDetector)); err != nil {
+		t.Fatalf("declaring who installed the drift detector: %v", err)
 	}
 
-	// A target changed underneath: the independent checker's own store now holds a
-	// mismatch, written by the independent checker and by nothing in the factory.
-	raised, err := checker.NewWriter(d.checker).Record(ctx, checker.Pass{
+	// A target changed underneath: the drift detector's own store now holds a
+	// mismatch, written by the drift detector and by nothing in the factory.
+	raised, err := driftdetector.NewWriter(d.driftdetector).Record(ctx, driftdetector.Pass{
 		ServiceID: serviceOf(ctx, t, d), Target: d.dir, Reached: true,
 		RunningBuild: "bl_somebodyelses", RecordedBuildID: "bl_thefactorys",
 		RecordedReleaseID: "rel_thefactorys",
@@ -740,7 +740,7 @@ func TestACheckerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	}
 
 	// The next change: the production deploy row fires with the mismatch on its
-	// opening row and a human at it, and the human holds.
+	// open event and a human at it, and the human holds.
 	// One verdict is asked for and not three: by the second change the score
 	// auto-passes the two rows above production, and the mismatch is what puts a human
 	// at that one.
@@ -771,12 +771,12 @@ func TestACheckerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		}
 	}
 	payload := openingPayload(t, opening)
-	if payload.Mismatch == "" || !strings.Contains(payload.Mismatch, checker.HoldWords) {
-		t.Errorf("the opening row's mismatch reads %q, and a human approving through has to read what disagreed",
+	if payload.Mismatch == "" || !strings.Contains(payload.Mismatch, driftdetector.HoldWords) {
+		t.Errorf("the open event's mismatch reads %q, and a human approving through has to read what disagreed",
 			payload.Mismatch)
 	}
 
-	// The page: reached, to whoever installed the independent checker, because a mismatch
+	// The page: reached, to whoever installed the drift detector, because a mismatch
 	// belongs to no duty of the twelve.
 	events, err := notifier.EventsFor(ctx, d.pool, raised.Raised)
 	if err != nil {
@@ -786,7 +786,7 @@ func TestACheckerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		t.Fatalf("the page's events are %+v, want one reached", events)
 	}
 	if events[0].Reached != installer {
-		t.Errorf("the page reached %q, and %q is who the declaration says installed the independent checker",
+		t.Errorf("the page reached %q, and %q is who the declaration says installed the drift detector",
 			events[0].Reached, installer)
 	}
 	if !strings.Contains(out.String(), "PAGE reached to "+installer) {
@@ -817,10 +817,10 @@ func TestACheckerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		t.Errorf("the page widened %d times, and unanswered it widens exactly once", widened)
 	}
 
-	// Cleared at the independent checker and nowhere else, and the answered event
+	// Cleared at the drift detector and nowhere else, and the answered event
 	// is written by the pass that finds it cleared — because that store calls
 	// nothing.
-	if _, err := checker.NewWriter(d.checker).Clear(ctx, raised.Raised, installer); err != nil {
+	if _, err := driftdetector.NewWriter(d.driftdetector).Clear(ctx, raised.Raised, installer); err != nil {
 		t.Fatalf("clearing the mismatch: %v", err)
 	}
 	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
@@ -836,7 +836,7 @@ func TestACheckerMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	}
 
 	// And with the mismatch cleared, the row is the score's again.
-	stillHeld, why, err := checker.NewStore(d.checker).Mismatch(ctx, serviceOf(ctx, t, d))
+	stillHeld, why, err := driftdetector.NewStore(d.driftdetector).Mismatch(ctx, serviceOf(ctx, t, d))
 	if err != nil || stillHeld {
 		t.Errorf("Mismatch = %v %q, %v; a cleared one holds nothing", stillHeld, why, err)
 	}
@@ -926,7 +926,7 @@ type rolledBack struct {
 }
 
 // rollBackABadRelease ships a good release and then a bad one, and returns once the
-// bad one has been condemned and rolled back. It is the state three of the tests here
+// bad one has been failed and rolled back. It is the state three of the tests here
 // start from, so it is written once — and it asserts its own outcome, because a test
 // that began from a state it did not reach would report the wrong thing.
 func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.Buffer) rolledBack {
@@ -946,7 +946,7 @@ func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.B
 	if err != nil {
 		t.Fatalf("reading the bad release's window: %v", err)
 	}
-	if w.Exit != window.ExitCondemned {
+	if w.Exit != window.ExitFailed {
 		t.Fatalf("the bad release's window closed %q, want harm:\n%s", w.Exit, out)
 	}
 
@@ -987,28 +987,28 @@ func serviceOf(ctx context.Context, t *testing.T, d deps) string {
 	return id
 }
 
-// newCheckerStore is the independent checker's own store for one test: a schema
+// newDriftDetectorStore is the drift detector's own store for one test: a schema
 // of its own, its own schema applied by its own applier, and nothing of the
 // factory's in it. The factory reads it and never writes it, which is what a
-// pool handed to the path as its checker is.
+// pool handed to the path as its driftdetector is.
 //
 // It is opened on the same server the factory's tests use, with a schema of its own,
-// rather than on [checker.DefaultURL]. What makes this store independent is that no
+// rather than on [driftdetector.DefaultURL]. What makes this store independent is that no
 // factory component writes it and that it is reached through a URL of its own — not
 // which machine it is on — so a test naming a second server would be checking the
 // deployment rather than the code, and would fail wherever the factory's database is
 // not where that default says.
-func newCheckerStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
+func newDriftDetectorStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
-		t.Fatalf("naming the independent checker's schema: %v", err)
+		t.Fatalf("naming the drift detector's schema: %v", err)
 	}
-	schema := "checker_" + hex.EncodeToString(suffix[:])
+	schema := "driftdetector_" + hex.EncodeToString(suffix[:])
 
-	pool, err := checker.Open(ctx, inSchema(t, postgres.URL(), schema))
+	pool, err := driftdetector.Open(ctx, inSchema(t, postgres.URL(), schema))
 	if err != nil {
-		t.Fatalf("the independent checker's store is not reachable, and these tests do not skip: %v", err)
+		t.Fatalf("the drift detector's store is not reachable, and these tests do not skip: %v", err)
 	}
 	t.Cleanup(func() {
 		drop, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1021,8 +1021,8 @@ func newCheckerStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
-	if err := checker.Apply(ctx, pool); err != nil {
-		t.Fatalf("applying the independent checker's schema: %v", err)
+	if err := driftdetector.Apply(ctx, pool); err != nil {
+		t.Fatalf("applying the drift detector's schema: %v", err)
 	}
 	return pool
 }

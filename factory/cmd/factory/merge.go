@@ -70,11 +70,11 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		}
 		c.mergeGate = recordFiring(opened, closing)
 		c.autoRejected, c.autoRejectedBy = true, check
-		if _, err := p.dispatch.SendBack(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.dispatch.ReworkRequest(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, checked.Why())
-		fmt.Fprintf(p.d.out, "  closing row %s written as %s; item %s goes back to %s with an attempt counted there\n",
+		fmt.Fprintf(p.d.out, "  close event %s written as %s; item %s goes back to %s with an attempt counted there\n",
 			closing.ID, closing.Actor.Name, c.itemID, gate.ReturnsTo)
 		return nil
 	}
@@ -86,7 +86,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	c.mergeGate = recordFiring(opened, closing)
 	if verdict == gate.VerdictReject {
 		c.rejected = true
-		if _, err := p.dispatch.SendBack(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.dispatch.ReworkRequest(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there, and keeps its environment\n",
@@ -468,9 +468,9 @@ func (p *path) FastForward(ctx context.Context, it item.Item, commit string) err
 // its own. Approving through them all the same is `factory approve`, which is the
 // emergency action the design keeps at this row.
 //
-// The fifth is the independent checker's mismatch, and it is not computed here:
+// The fifth is the drift detector's mismatch, and it is not computed here:
 // the gate reads that store itself at the firing, puts a human at the row, and
-// carries what disagreed on the opening row.
+// carries what disagreed on the open event.
 func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 	d := p.d
 	it, err := item.Get(ctx, d.pool, c.itemID)
@@ -526,7 +526,7 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, e
 }
 
 // putOnProduction is what an approval at that row performs: the verified build put
-// on production's target, and the watch window opened over the deploy record that
+// on production's target, and the analysis window opened over the deploy record that
 // results.
 //
 // The window is opened after the deploy record is written, which is what the
@@ -583,21 +583,21 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 		return nil
 	}
 	c.windowID = opened.ID
-	cleared := "the cleared exit is available to it"
+	passed := "the passed exit is available to it"
 	switch {
 	case opened.HeldOut:
-		cleared = "the cleared exit is not available to it: the score held this item out of the gate it would have gated, so its window runs to the cap — the longest watch there is"
-	case !opened.ClearedAvailable:
-		cleared = "the cleared exit is not available to it, nothing below it being there to compare against — so it can end only at its cap"
+		passed = "the passed exit is not available to it: the score held this item out of the gate it would have gated, so its window runs to the cap — the longest watch there is"
+	case !opened.PassedAvailable:
+		passed = "the passed exit is not available to it, nothing below it being there to compare against — so it can end only at its cap"
 	}
-	fmt.Fprintf(d.out, "Watch window %s opened over deploy %s: size %v, confidence %v, cap %vs; %s\n",
-		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, cleared)
+	fmt.Fprintf(d.out, "Analysis window %s opened over deploy %s: size %v, confidence %v, cap %vs; %s\n",
+		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, passed)
 	return nil
 }
 
 // factoryHolds is every hold the factory sets at the production deploy row that
 // lifts itself, in the order it is worth reporting them: a declared dependency that
-// is not live still, the service already holding as many watch windows open as the
+// is not live still, the service already holding as many analysis windows open as the
 // window limit
 // allows, and a rollback whose revert has not shipped. It returns the words the first
 // one found is reported with, and nothing where none holds.
@@ -653,7 +653,7 @@ func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.It
 	if it.IntentID != "" && it.IntentID == rollback.Undoing.RevertIntentID {
 		return "", nil
 	}
-	return fmt.Sprintf("%s — rollback %s condemned release %s and its revert, intent %s, has not shipped",
-		gate.HoldRollbackAwaitingRevert, rollback.ID, rollback.Undoing.CondemnedReleaseID,
+	return fmt.Sprintf("%s — rollback %s failed release %s and its revert, intent %s, has not shipped",
+		gate.HoldRollbackAwaitingRevert, rollback.ID, rollback.Undoing.FailedReleaseID,
 		rollback.Undoing.RevertIntentID), nil
 }

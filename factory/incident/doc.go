@@ -12,7 +12,7 @@
 // package policy refusing one that is not a human.
 //
 // It is written whether or not the release's window is still open. Inside the
-// window the crossing also condemns the release; outside it the crossing raises an
+// window the crossing also fails the release; outside it the crossing raises an
 // item and nothing rolls back, and the incident is the same record either way.
 //
 // # What it points at, and what that costs
@@ -59,6 +59,6 @@
 // What defines it: ../../end-goal/how-humans-do-it/08-operations.md#incidents —
 // the record on a production environment, its writer, its links, its
 // deduplication, and what resolving it requires — and
-// ../../end-goal/how-humans-do-it/08-operations.md#after-the-watch-window for the
+// ../../end-goal/how-humans-do-it/08-operations.md#after-the-analysis-window for the
 // intent a crossing writes once the window has closed.
 package incident

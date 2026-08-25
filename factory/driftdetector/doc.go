@@ -1,4 +1,4 @@
-// Package checker owns the two records the independent checker writes and the reads the
+// Package driftdetector owns the two records the drift detector writes and the reads the
 // factory makes of them. It is one process outside the pipeline that reads what is
 // actually running on each production target and compares it against that service's
 // current release.
@@ -11,7 +11,7 @@
 // same log describes. So a factory whose records are wrong reports itself healthy and
 // nothing downstream of them contradicts it.
 //
-// One fact, one comparison, read-only. The independent checker has no deploy
+// One fact, one comparison, read-only. Drift detection has no deploy
 // privilege and writes into a store of its own that no factory component may
 // write, which is why this package brings its own [Open] and [Apply] rather
 // than reaching for the factory's: the factory's schema applier knows every
@@ -21,7 +21,7 @@
 //
 // It is not true that the factory reads nothing back. A mismatch holds a gate
 // and pages, and both require reading it. What the independence actually
-// requires is narrower and is the rule: nothing the independent checker writes
+// requires is narrower and is the rule: nothing the drift detector writes
 // is evidence about the software. It cannot cause anything to be built,
 // deployed, scored, approved, or measured, and the one thing it can do is stop.
 //
@@ -30,7 +30,7 @@
 // [Mismatch] is read by the gate component at the moment the production deploy
 // gate fires — through an interface, which [Store] implements — and by the
 // notifier. A mismatch remains until a human clears it at the independent
-// checker, even where a later comparison agrees, which is recorded on it as
+// driftdetector, even where a later comparison agrees, which is recorded on it as
 // [Mismatch.LaterAgreements] so the human clearing has the evidence. Clearing
 // it from the factory is refused by there being no method here that a factory
 // component holds: it would make the factory a writer of the record that says
@@ -39,7 +39,7 @@
 //
 // [LastCheck] is the last check per production target and per service,
 // overwritten each pass. It exists because a check that silently stops is worse
-// than the bug it catches: it is read so a stopped independent checker is
+// than the bug it catches: it is read so a stopped drift detector is
 // visible rather than silent, and by the gate only where a safeguard sets a
 // maximum age on it — which nothing does here, that safeguard binding a
 // parameter gate policy's rows do not hold.
@@ -65,7 +65,7 @@
 // A build running on a production target beside the current release is a
 // mismatch only where no open window names it, as the release under watch or as
 // the control that window's deploy record names. Otherwise the independent
-// checker would page on every rollout it sees. [Pass.Excused] is where a caller
+// driftdetector would page on every rollout it sees. [Pass.Excused] is where a caller
 // says so, and on a substrate that moves a process rather than traffic it is
 // never set: one directory runs one process, so there is never a second build
 // beside the current release to excuse. What that costs is that the one path
@@ -75,12 +75,12 @@
 //
 // Who may write what: [Writer] inserts a mismatch, records a later agreement on
 // one, clears one, and overwrites the last check. No factory component holds a
-// [Writer] — this package's writer is the independent checker's own process,
+// [Writer] — this package's writer is the drift detector's own process,
 // and what the factory holds is [Store] and the read functions.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/08-operations.md#the-independent-checker — the one process,
+// ../../end-goal/how-humans-do-it/08-operations.md#drift-detection — the one process,
 // the two records, the three readers, what clearing requires, and what it catches —
 // and ../../end-goal/how-humans-do-it/03-gates.md#deploy-to-production for the hold
 // it sets, which is the one hold the factory cannot lift by gathering evidence.
-package checker
+package driftdetector

@@ -4,7 +4,7 @@
 //
 // Every authored value in the factory is a field of the record its scope names,
 // and every one of those records names Factory as the writer of that field: the
-// gate thresholds on an environment, the window limit and the watch window's
+// gate thresholds on an environment, the window limit and the analysis window's
 // parameters on a service, the item-size target on an area, the attempt limit
 // and the list of allowed predicate kinds on the factory-wide settings record,
 // and every safeguard. [Factory] is that writer. The record packages each
@@ -21,7 +21,7 @@
 //
 // A version names the write and not the value. The value is the field on the
 // record the subject names, one fact in two places could disagree, and what a
-// decision was decided under is the effective values its own opening row
+// decision was decided under is the effective values its own open event
 // carries. What that costs is that reading a version back says which write it
 // was and not what the whole policy said at that moment, which is answerable
 // only by replaying the writes before it.

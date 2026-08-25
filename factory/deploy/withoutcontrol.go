@@ -20,10 +20,10 @@ import (
 //
 // On a target error the record stays started and the error returns with the
 // started record: whether the target ran anything is not knowable from here,
-// and the independent checker is what reads the target and raises the disagreement.
+// and the drift detector is what reads the target and raises the disagreement.
 // The same holds when the target took the build and Complete then fails —
 // the record says started about a build that is running until something
-// completes it or the independent checker raises it.
+// completes it or the drift detector raises it.
 func WithoutControl(ctx context.Context, w *Writer, target targetseam.Target, actor record.Actor,
 	serviceID, serviceName, environmentID string, what What, credential secretref.Ref) (Deploy, error) {
 	d, err := w.Start(ctx, actor, serviceID, environmentID, what)

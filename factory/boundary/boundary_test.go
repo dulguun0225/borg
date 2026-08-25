@@ -25,7 +25,7 @@ func TestTheCrossingIsWhatTheConfidenceMeans(t *testing.T) {
 	}
 }
 
-// TestARegressionCrosses is the condemned exit: a release failing far above its
+// TestARegressionCrosses is the failed exit: a release failing far above its
 // baseline crosses, and the reading carries every number the verdict came from.
 func TestARegressionCrosses(t *testing.T) {
 	reading, err := theBoundary.Evaluate(boundary.Observed{
@@ -47,7 +47,7 @@ func TestARegressionCrosses(t *testing.T) {
 	}
 	// The baseline is smoothed by half a failure in one unit, so it is not the
 	// raw share and the difference is what stops a baseline with no failure
-	// condemning the first one the release has.
+	// failing the first one the release has.
 	wantBaseline := (50 + 0.5) / (1000 + 1)
 	if math.Abs(reading.BaselineRate-wantBaseline) > 1e-12 {
 		t.Errorf("baseline rate = %v, want the smoothed %v", reading.BaselineRate, wantBaseline)
@@ -57,7 +57,7 @@ func TestARegressionCrosses(t *testing.T) {
 	}
 }
 
-// TestNoRegressionCloses is the cleared exit: a release failing at its baseline's
+// TestNoRegressionCloses is the passed exit: a release failing at its baseline's
 // own rate rules out a regression of the size, and it takes about as many units
 // as the arithmetic says it should.
 func TestNoRegressionCloses(t *testing.T) {
@@ -125,10 +125,10 @@ func TestTheUnitsNeededScaleAsTheInverseSquareOfTheSize(t *testing.T) {
 	}
 }
 
-// TestAFirstReleaseCanNeitherBeClearedNorCondemned is the exit table's own
+// TestAFirstReleaseCanNeitherBePassedNorFailed is the exit table's own
 // exception: a release with no baseline has no comparison, so nothing about it
 // is discovered by watching and its window ends at the cap.
-func TestAFirstReleaseCanNeitherBeClearedNorCondemned(t *testing.T) {
+func TestAFirstReleaseCanNeitherBePassedNorFailed(t *testing.T) {
 	reading, err := theBoundary.Evaluate(boundary.Observed{Units: 100000, Failures: 100000})
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
@@ -251,7 +251,7 @@ func TestAnUnreadableBoundaryOrCountIsRefused(t *testing.T) {
 // indifference lies, and it is not at the alternative. The drift changes sign at
 // the rate where the two hypotheses are equally well supported per unit, which
 // sits between the baseline and the alternative and nearer the baseline — so a
-// regression below it closes the window clean, one above it eventually condemns
+// regression below it closes the window clean, one above it eventually fails
 // however long that takes, and the size is what says which regressions the
 // window was opened to reach quickly.
 func TestARegressionTooSmallToNameDriftsTheOtherWay(t *testing.T) {

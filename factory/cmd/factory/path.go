@@ -16,12 +16,12 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
-	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
@@ -81,12 +81,12 @@ type deps struct {
 	// owner's limits it. A candidate that meets it waits, and the wait is written
 	// into the log because it is not a record and no gate fired.
 	candidateCeiling int
-	// checker is the independent checker's own store, read and never written: the gate
+	// driftdetector is the drift detector's own store, read and never written: the gate
 	// asks it for a mismatch at the production deploy row, and the notifier reads
-	// it for both ends of the page about one. It is nil where no independent checker is
+	// it for both ends of the page about one. It is nil where no drift detector is
 	// installed, which is a factory whose every check reads a record the factory
-	// wrote — the state the independent checker exists to remove.
-	checker *pgxpool.Pool
+	// wrote — the state the drift detector exists to remove.
+	driftdetector *pgxpool.Pool
 	// watchFor is how long a run watches its own windows before it leaves them open,
 	// and watchEvery is how often it reads the quantity while it does. A window's
 	// duration is measured and never set, so a run cannot know in advance how long to
@@ -273,7 +273,7 @@ type candidate struct {
 	queueWaitRow      string
 
 	deployID string
-	// windowID is the watch window opened over the production deploy, and is empty
+	// windowID is the analysis window opened over the production deploy, and is empty
 	// where none was — a rollback opens none, and neither does a redeploy of a release
 	// already watched.
 	windowID string
@@ -323,9 +323,9 @@ type path struct {
 	scoreVersion string
 	// The three of everything downstream of a deploy: the health monitor the run
 	// watches with, the notifier it tells a human through, and the reads of the
-	// independent checker's own store. The notifier is nil for no install and the
-	// mismatch reads are nil where no independent checker is installed, which is
-	// what [gate.NoChecker] answers for.
+	// drift detector's own store. The notifier is nil for no install and the
+	// mismatch reads are nil where no drift detector is installed, which is
+	// what [gate.NoDriftDetector] answers for.
 	healthMonitor *healthmonitor.HealthMonitor
 	notifier      *notifier.Notifier
 
@@ -436,7 +436,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 
 	// 4. The walk, the demonstration's direction: from the last deploy back to
 	// the intent, every step a field and none reconstructed. A run whose release was
-	// condemned walks the rollback's own deploy record, which is the deploy that is
+	// failed walks the rollback's own deploy record, which is the deploy that is
 	// live at the end of it.
 	if deployed == "" {
 		fmt.Fprintln(d.out, "Nothing reached production, so there is no deploy to walk back from")
@@ -670,16 +670,16 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	p.production = installed.Production
 	p.scoreVersion = scoreVersion.ID
 
-	// The independent checker's store, read and never written. Where none is installed the
-	// gate is composed with [gate.NoChecker], which answers no mismatch ever — so a
+	// Drift detection's store, read and never written. Where none is installed the
+	// gate is composed with [gate.NoDriftDetector], which answers no mismatch ever — so a
 	// factory without one decides exactly as it did before this milestone, and the
 	// absence shows in the line below rather than as a failure.
-	var mismatches gate.Checker = gate.NoChecker{}
-	if d.checker != nil {
-		mismatches = checker.NewStore(d.checker)
-		fmt.Fprintln(d.out, "An independent checker is installed; the production deploy row reads its store at every firing")
+	var mismatches gate.DriftDetector = gate.NoDriftDetector{}
+	if d.driftdetector != nil {
+		mismatches = driftdetector.NewStore(d.driftdetector)
+		fmt.Fprintln(d.out, "An drift detector is installed; the production deploy row reads its store at every firing")
 	} else {
-		fmt.Fprintln(d.out, "No independent checker is installed, so every check this factory makes reads a record it wrote itself")
+		fmt.Fprintln(d.out, "No drift detector is installed, so every check this factory makes reads a record it wrote itself")
 	}
 	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion, d.draw), p.policy, mismatches)
 	p.queue = mergequeue.New(d.pool, p.log, release.NewWriter(d.pool), p.dispatch, p)

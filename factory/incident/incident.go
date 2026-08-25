@@ -237,8 +237,8 @@ func Open(ctx context.Context, pool *pgxpool.Pool, serviceID, releaseID string) 
 }
 
 // All is every incident in the store, oldest first, whatever the service. It is
-// what the score learns from: an incident on a release whose own watch window
-// had already closed without condemning a release is the crossing the health
+// what the score learns from: an incident on a release whose own analysis window
+// had already closed without failing a release is the crossing the health
 // monitor could have seen and did not, which is the one outcome that says the
 // window's size was too coarse.
 //

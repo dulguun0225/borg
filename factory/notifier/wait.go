@@ -86,10 +86,10 @@ const (
 	// live is production staying worse until a human takes it over, and giving up on
 	// a feature is not.
 	KindItemEscalated Kind = "item_escalated"
-	// KindCheckerMismatch is a record the independent checker found disagreeing with what
+	// KindDriftMismatch is a record the drift detector found disagreeing with what
 	// runs. It holds that service's production deploys and does not lift itself, so
 	// the service cannot receive its own fixes until a human ends it.
-	KindCheckerMismatch Kind = "checker_mismatch"
+	KindDriftMismatch Kind = "drift_mismatch"
 	// KindOwnerFired is a page a human fired on their own judgment from Ops, which
 	// is the parallel that undoing a change after it shipped already has. Nothing
 	// scores it and no bound applies to it; what limits it is that a page nobody
@@ -112,7 +112,7 @@ var Kinds = map[Kind]Pages{
 	KindGateDecision:          PagesNever,
 	KindInterview:             PagesNever,
 	KindRollbackPerformed:     PagesNever,
-	KindCheckerMismatch:       PagesAlways,
+	KindDriftMismatch:         PagesAlways,
 	KindOwnerFired:            PagesAlways,
 	KindIntentEscalated:       PagesIfWorse,
 	KindItemEscalated:         PagesIfWorse,
@@ -143,7 +143,7 @@ var (
 
 // Wait is one thing waiting on a human.
 type Wait struct {
-	// Row is what waits, by id: a gate's opening row, an item, an intent, a
+	// Row is what waits, by id: a gate's open event, an item, an intent, a
 	// mismatch. It is what the page's events are the sequence on, so two waits with
 	// one id would be one page.
 	Row  string

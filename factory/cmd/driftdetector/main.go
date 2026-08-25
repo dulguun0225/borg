@@ -10,8 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
@@ -24,7 +24,7 @@ import (
 
 // deployCredentialName is the credential the target seam requires on every
 // operation, read from the same secrets file the factory's own run reads. The
-// independent checker resolves it and hands the reference across the seam; what
+// drift detector resolves it and hands the reference across the seam; what
 // sits behind the seam is what would read a value, and on this substrate
 // nothing does.
 const deployCredentialName = "deploy.local"
@@ -40,7 +40,7 @@ func main() {
 
 func dispatch(args []string) error {
 	if len(args) == 0 {
-		return errors.New("checker: a subcommand is required — " + subcommands)
+		return errors.New("driftdetector: a subcommand is required — " + subcommands)
 	}
 	switch args[0] {
 	case "pass":
@@ -50,7 +50,7 @@ func dispatch(args []string) error {
 	case "clear":
 		return clearCommand(args[1:])
 	default:
-		return fmt.Errorf("checker: %q is none of %s", args[0], subcommands)
+		return fmt.Errorf("driftdetector: %q is none of %s", args[0], subcommands)
 	}
 }
 
@@ -61,20 +61,20 @@ type stores struct {
 	own     *pgxpool.Pool
 }
 
-// open opens both and applies the independent checker's own schema. The
-// factory's is not applied here: a store the independent checker applied would
-// be a store the independent checker writes, and it reads that one.
+// open opens both and applies the drift detector's own schema. The
+// factory's is not applied here: a store the drift detector applied would
+// be a store the drift detector writes, and it reads that one.
 func open(ctx context.Context) (stores, func(), error) {
 	factory, err := postgres.Open(ctx, postgres.URL())
 	if err != nil {
 		return stores{}, nil, err
 	}
-	own, err := checker.Open(ctx, checker.URL())
+	own, err := driftdetector.Open(ctx, driftdetector.URL())
 	if err != nil {
 		factory.Close()
 		return stores{}, nil, err
 	}
-	if err := checker.Apply(ctx, own); err != nil {
+	if err := driftdetector.Apply(ctx, own); err != nil {
 		factory.Close()
 		own.Close()
 		return stores{}, nil, err
@@ -90,7 +90,7 @@ func passCommand(args []string) error {
 		return err
 	}
 	if *secrets == "" {
-		return errors.New("checker pass: -secrets is required")
+		return errors.New("driftdetector pass: -secrets is required")
 	}
 	if _, err := secretref.Load(*secrets); err != nil {
 		return err
@@ -127,7 +127,7 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 		return nil
 	}
 
-	writer := checker.NewWriter(s.own)
+	writer := driftdetector.NewWriter(s.own)
 	for _, svc := range services {
 		recorded, err := recordedFor(ctx, s.factory, svc.ID, production.ID)
 		if err != nil {
@@ -138,7 +138,7 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 			return err
 		}
 		for _, target := range production.Targets {
-			p := checker.Pass{
+			p := driftdetector.Pass{
 				ServiceID:         svc.ID,
 				Target:            target,
 				RecordedReleaseID: recorded.ReleaseID,
@@ -169,7 +169,7 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 // recordedFor is what the factory recorded as the service's current release in
 // production: the release and the build its production deploy record names, and
 // nothing where no deploy of it has completed. It is the one factory record the
-// independent checker reads in the other direction.
+// drift detector reads in the other direction.
 func recordedFor(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID string) (deploy.Deploy, error) {
 	current, running, err := deploy.Current(ctx, pool, serviceID, environmentID)
 	if err != nil || !running {
@@ -178,11 +178,11 @@ func recordedFor(ctx context.Context, pool *pgxpool.Pool, serviceID, environment
 	return current, nil
 }
 
-// excusedBuilds is every build an open watch window accounts for: the build of
+// excusedBuilds is every build an open analysis window accounts for: the build of
 // the release under watch, and — where a substrate keeps one — the build of the
 // control that window's deploy record names. A build running beside the current
 // release is a mismatch only where no open window names it, or the independent
-// checker would page on every rollout it sees.
+// driftdetector would page on every rollout it sees.
 //
 // On this substrate the set is never the reason a pass agrees. One directory runs one
 // process, so what a target reports is either the current release's build or a
@@ -209,7 +209,7 @@ func excusedBuilds(ctx context.Context, pool *pgxpool.Pool, serviceID string) (m
 	return excused, nil
 }
 
-func report(out io.Writer, serviceName string, p checker.Pass, written checker.Recorded) {
+func report(out io.Writer, serviceName string, p driftdetector.Pass, written driftdetector.Recorded) {
 	switch {
 	case !p.Reached:
 		fmt.Fprintf(out, "%s on %s: the target could not be reached, which is no mismatch — %s\n",
@@ -222,7 +222,7 @@ func report(out io.Writer, serviceName string, p checker.Pass, written checker.R
 		fmt.Fprintf(out, "%s on %s: agrees now, and mismatch %s still stands — a later agreement is recorded on it as evidence\n",
 			serviceName, p.Target, written.Agreed)
 	case p.Excused:
-		fmt.Fprintf(out, "%s on %s: the target runs %q, which an open watch window accounts for\n",
+		fmt.Fprintf(out, "%s on %s: the target runs %q, which an open analysis window accounts for\n",
 			serviceName, p.Target, p.RunningBuild)
 	default:
 		fmt.Fprintf(out, "%s on %s: agrees — build %q\n", serviceName, p.Target, p.RunningBuild)
@@ -233,7 +233,7 @@ func report(out io.Writer, serviceName string, p checker.Pass, written checker.R
 // service and target. The second is what says whether this process is still running.
 func showCommand(args []string) error {
 	if len(args) != 0 {
-		return errors.New("checker show: no arguments")
+		return errors.New("driftdetector show: no arguments")
 	}
 	ctx := context.Background()
 	s, shut, err := open(ctx)
@@ -245,7 +245,7 @@ func showCommand(args []string) error {
 }
 
 func show(ctx context.Context, s stores, out io.Writer) error {
-	all, err := checker.All(ctx, s.own)
+	all, err := driftdetector.All(ctx, s.own)
 	if err != nil {
 		return err
 	}
@@ -263,12 +263,12 @@ func show(ctx context.Context, s stores, out io.Writer) error {
 		}
 	}
 
-	checks, err := checker.LastChecks(ctx, s.own, "")
+	checks, err := driftdetector.LastChecks(ctx, s.own, "")
 	if err != nil {
 		return err
 	}
 	if len(checks) == 0 {
-		fmt.Fprintln(out, "No check has ever been recorded, so this independent checker has never run")
+		fmt.Fprintln(out, "No check has ever been recorded, so this drift detector has never run")
 		return nil
 	}
 	for _, c := range checks {
@@ -291,10 +291,10 @@ func clearCommand(args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return errors.New("checker clear: one argument, the mismatch id")
+		return errors.New("driftdetector clear: one argument, the mismatch id")
 	}
 	if *human == "" {
-		return errors.New("checker clear: -human is required")
+		return errors.New("driftdetector clear: -human is required")
 	}
 
 	ctx := context.Background()
@@ -304,7 +304,7 @@ func clearCommand(args []string) error {
 	}
 	defer shut()
 
-	cleared, err := checker.NewWriter(s.own).Clear(ctx, flags.Arg(0), *human)
+	cleared, err := driftdetector.NewWriter(s.own).Clear(ctx, flags.Arg(0), *human)
 	if err != nil {
 		return err
 	}

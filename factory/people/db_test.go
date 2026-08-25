@@ -88,11 +88,11 @@ func TestDeclaringADutyAndAnObligationReadBackAsHolding(t *testing.T) {
 		t.Error("a freshly declared duty reads as not holding")
 	}
 
-	obligation, err := w.Declare(ctx, owner, "bob", people.OfObligation(people.ObligationChecker))
+	obligation, err := w.Declare(ctx, owner, "bob", people.OfObligation(people.ObligationDriftDetector))
 	if err != nil {
 		t.Fatalf("Declare of an obligation: %v", err)
 	}
-	if obligation.Human != "bob" || obligation.Duty != 0 || obligation.Obligation != people.ObligationChecker {
+	if obligation.Human != "bob" || obligation.Duty != 0 || obligation.Obligation != people.ObligationDriftDetector {
 		t.Errorf("Declare of an obligation = %+v, which does not name what it was declared with", obligation)
 	}
 	if !obligation.Holds() {

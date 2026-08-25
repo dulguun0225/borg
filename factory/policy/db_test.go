@@ -697,7 +697,7 @@ func TestAGateWithNoRecordsToReadFallsBackToWhatTheScoreSupplies(t *testing.T) {
 	}
 }
 
-// TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName: an opening row requires
+// TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName: an open event requires
 // a policy version, so a factory nobody installed cannot fire a gate — which is
 // better than a firing naming an empty version.
 func TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName(t *testing.T) {

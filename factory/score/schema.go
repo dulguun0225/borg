@@ -70,7 +70,7 @@ func AdvisoryLockKey() int64 {
 // has one beginning. That is what "the sequence is readable without a column that
 // orders it" actually rests on, and it went unenforced from M2 until 2026-08-20 —
 // found by looking for the index this comment used to claim. It is the arrangement
-// decisionlog's one-closing-per-opening index already has, one table along.
+// decisionlog's one-close-per-open index already has, one table along.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,

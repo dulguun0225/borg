@@ -1,4 +1,4 @@
-package checker
+package driftdetector
 
 import (
 	"context"
@@ -20,7 +20,7 @@ type Store struct {
 }
 
 // NewStore returns the reads over pool. A factory component is handed one of these;
-// [NewWriter] is the independent checker's own.
+// [NewWriter] is the drift detector's own.
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // Mismatch is whether an uncleared mismatch stands for the service, and what
@@ -28,7 +28,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // gate fires, and the shape of it is that interface's.
 //
 // More than one target may disagree at once and the answer is one sentence, because
-// the gate's opening row holds one: the sentences are joined, so a row naming two
+// the gate's open event holds one: the sentences are joined, so a row naming two
 // targets says both rather than picking one.
 func (s *Store) Mismatch(ctx context.Context, serviceID string) (bool, string, error) {
 	standing, err := Uncleared(ctx, s.pool, serviceID)
@@ -74,7 +74,7 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Mismatch, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Mismatch{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
-		return Mismatch{}, fmt.Errorf("checker: reading %s: %w", id, err)
+		return Mismatch{}, fmt.Errorf("driftdetector: reading %s: %w", id, err)
 	}
 	return m, nil
 }
@@ -101,7 +101,7 @@ func scanMismatch(row pgx.Row) (Mismatch, error) {
 func mismatches(ctx context.Context, pool *pgxpool.Pool, suffix string, args ...any) ([]Mismatch, error) {
 	rows, err := pool.Query(ctx, selectMismatch+suffix, args...)
 	if err != nil {
-		return nil, fmt.Errorf("checker: reading the mismatches: %w", err)
+		return nil, fmt.Errorf("driftdetector: reading the mismatches: %w", err)
 	}
 	defer rows.Close()
 
@@ -109,12 +109,12 @@ func mismatches(ctx context.Context, pool *pgxpool.Pool, suffix string, args ...
 	for rows.Next() {
 		m, err := scanMismatch(rows)
 		if err != nil {
-			return nil, fmt.Errorf("checker: reading a mismatch: %w", err)
+			return nil, fmt.Errorf("driftdetector: reading a mismatch: %w", err)
 		}
 		read = append(read, m)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("checker: reading the mismatches: %w", err)
+		return nil, fmt.Errorf("driftdetector: reading the mismatches: %w", err)
 	}
 	return read, nil
 }
@@ -130,14 +130,14 @@ func unclearedOn(ctx context.Context, pool *pgxpool.Pool, serviceID, target stri
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Mismatch{}, false, nil
 	} else if err != nil {
-		return Mismatch{}, false, fmt.Errorf("checker: reading the mismatch on %s: %w", target, err)
+		return Mismatch{}, false, fmt.Errorf("driftdetector: reading the mismatch on %s: %w", target, err)
 	}
 	return m, true, nil
 }
 
 // LastChecks is the last check of every target of one service, or of every
 // target where the service is empty. It is what says whether the independent
-// checker is still running: a check that silently stops is worse than the bug
+// driftdetector is still running: a check that silently stops is worse than the bug
 // it catches, so this is read rather than the absence of mismatches being taken
 // as health.
 func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]LastCheck, error) {
@@ -153,7 +153,7 @@ func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]La
 
 	rows, err := pool.Query(ctx, statement, args...)
 	if err != nil {
-		return nil, fmt.Errorf("checker: reading the last checks: %w", err)
+		return nil, fmt.Errorf("driftdetector: reading the last checks: %w", err)
 	}
 	defer rows.Close()
 
@@ -163,13 +163,13 @@ func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]La
 		var kind string
 		if err := rows.Scan(&c.ID, &kind, &c.Actor.Name, &c.At, &c.ServiceID, &c.Target,
 			&c.Reached, &c.Why, &c.RunningBuild, &c.RecordedReleaseID, &c.RecordedBuildID, &c.Agreed); err != nil {
-			return nil, fmt.Errorf("checker: reading a last check: %w", err)
+			return nil, fmt.Errorf("driftdetector: reading a last check: %w", err)
 		}
 		c.Actor.Kind = record.Kind(kind)
 		read = append(read, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("checker: reading the last checks: %w", err)
+		return nil, fmt.Errorf("driftdetector: reading the last checks: %w", err)
 	}
 	return read, nil
 }

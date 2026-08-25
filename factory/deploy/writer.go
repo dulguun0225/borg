@@ -35,7 +35,7 @@ var (
 	ErrNotUndoable = errors.New("deploy: only a deploy that has not been rolled back is undone")
 	// ErrUndoingIncomplete is returned by [Writer.StartUndoing] for a rollback
 	// missing something every rollback names, or naming one release as both
-	// condemned and swept.
+	// failed and swept.
 	ErrUndoingIncomplete = errors.New("deploy: the rollback is missing something every rollback names")
 )
 
@@ -58,11 +58,11 @@ func (w *Writer) Start(ctx context.Context, actor record.Actor, serviceID, envir
 }
 
 // StartUndoing writes the deploy record of a rollback: a deploy of the release it
-// returns to, naming what it condemned, what it swept, the source that called for
+// returns to, naming what it failed, what it swept, the source that called for
 // it, and the intent it raised. Every other field is an ordinary deploy's, because
 // a rollback is a deploy event and not a record of its own — every field it would
 // need is on this record already, and a second writer on the fact of what is
-// running is the fact the independent checker exists to check.
+// running is the fact the drift detector exists to check.
 func (w *Writer) StartUndoing(ctx context.Context, actor record.Actor, serviceID, environmentID string,
 	what What, undoing Undoing) (Deploy, error) {
 	if !undoing.Any() {
@@ -75,8 +75,8 @@ func (w *Writer) StartUndoing(ctx context.Context, actor record.Actor, serviceID
 		if swept == "" {
 			return Deploy{}, fmt.Errorf("%w: one of the releases it swept", ErrUndoingIncomplete)
 		}
-		if swept == undoing.CondemnedReleaseID {
-			return Deploy{}, fmt.Errorf("%w: %s is condemned and swept, and the two are kept apart",
+		if swept == undoing.FailedReleaseID {
+			return Deploy{}, fmt.Errorf("%w: %s is failed and swept, and the two are kept apart",
 				ErrUndoingIncomplete, swept)
 		}
 	}
@@ -112,11 +112,11 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, serviceID, envir
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
 		(id, actor_kind, actor_name, at, service_id, environment_id, release_id, build_id, strategy, status,
-		 condemned_release_id, swept_release_ids, source, revert_intent_id)
+		 failed_release_id, swept_release_ids, source, revert_intent_id)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		d.ID, string(d.Actor.Kind), d.Actor.Name, d.At, d.ServiceID, d.EnvironmentID,
 		d.ReleaseID, d.BuildID, string(d.Strategy), string(d.Status),
-		d.Undoing.CondemnedReleaseID, joinReleases(d.Undoing.SweptReleaseIDs),
+		d.Undoing.FailedReleaseID, joinReleases(d.Undoing.SweptReleaseIDs),
 		d.Undoing.Source, d.Undoing.RevertIntentID,
 	)
 	if err != nil {
@@ -166,7 +166,7 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 
 // Undo advances a deploy to rolled back, which is the transition [Writer.Complete]
 // predicted and this milestone writes. It is what happens to the deploy of the
-// condemned release and to the deploy of every release the same rollback swept.
+// failed release and to the deploy of every release the same rollback swept.
 //
 // It takes no source, where the rollback's own record does. The source is a fact
 // of the rollback and is written once, on the record of the rollback that named it —
@@ -174,7 +174,7 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 // finding the reason copied onto every deploy the same event touched.
 //
 // A started deploy is undone as readily as a completed one: a release whose deploy
-// never completed can still be the one a comparison condemns, and leaving it
+// never completed can still be the one a comparison fails, and leaving it
 // started would say the factory is still deploying it.
 func (w *Writer) Undo(ctx context.Context, id string) error {
 	tx, err := w.pool.Begin(ctx)
@@ -219,7 +219,7 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 
 const selectDeploy = `select id, actor_kind, actor_name, at, service_id, environment_id,
 	release_id, build_id, strategy, status,
-	condemned_release_id, swept_release_ids, source, revert_intent_id
+	failed_release_id, swept_release_ids, source, revert_intent_id
 	from ` + Table
 
 func scan(row pgx.Row) (Deploy, error) {
@@ -227,7 +227,7 @@ func scan(row pgx.Row) (Deploy, error) {
 	var kind, strategy, status, swept string
 	if err := row.Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.EnvironmentID,
 		&d.ReleaseID, &d.BuildID, &strategy, &status,
-		&d.Undoing.CondemnedReleaseID, &swept, &d.Undoing.Source, &d.Undoing.RevertIntentID); err != nil {
+		&d.Undoing.FailedReleaseID, &swept, &d.Undoing.Source, &d.Undoing.RevertIntentID); err != nil {
 		return Deploy{}, err
 	}
 	d.Actor.Kind = record.Kind(kind)
@@ -285,7 +285,7 @@ func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID s
 }
 
 // ByRelease is every deploy of one release into one environment, oldest first. It
-// is what a rollback advances to rolled back — the condemned release's own deploys
+// is what a rollback advances to rolled back — the failed release's own deploys
 // and those of every release it sweeps — and there is more than one where a release
 // was deployed, held, and deployed again.
 func ByRelease(ctx context.Context, pool *pgxpool.Pool, environmentID, releaseID string) ([]Deploy, error) {
@@ -315,15 +315,15 @@ func ByRelease(ctx context.Context, pool *pgxpool.Pool, environmentID, releaseID
 
 // Rollbacks is every rollback in the store, oldest first, whatever the service
 // and whatever the environment. It is what the score learns from: a rollback is
-// an outcome on the release it condemned and on every release it swept, and the
+// an outcome on the release it failed and on every release it swept, and the
 // score asks about every service at once, so a read per service would first have
 // to be told which services to ask about.
 //
-// It reads the condemned release for the reason [NewestRollback] does: what makes
-// a record a rollback's is that it names what it condemned, not its status.
+// It reads the failed release for the reason [NewestRollback] does: what makes
+// a record a rollback's is that it names what it failed, not its status.
 func Rollbacks(ctx context.Context, pool *pgxpool.Pool) ([]Deploy, error) {
 	rows, err := pool.Query(ctx, selectDeploy+`
-		where condemned_release_id <> '' order by at, id`)
+		where failed_release_id <> '' order by at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: reading the rollbacks: %w", err)
 	}
@@ -349,12 +349,12 @@ func Rollbacks(ctx context.Context, pool *pgxpool.Pool) ([]Deploy, error) {
 // intent has a release running, and the newest rollback is the one whose revert is
 // outstanding.
 //
-// It reads the condemned release rather than the status, because a rollback is a
+// It reads the failed release rather than the status, because a rollback is a
 // completed deploy of the release it returned to and its status says so — what
-// makes a record a rollback's is that it names what it condemned.
+// makes a record a rollback's is that it names what it failed.
 func NewestRollback(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID string) (Deploy, bool, error) {
 	d, err := scan(pool.QueryRow(ctx, selectDeploy+`
-		where service_id = $1 and environment_id = $2 and condemned_release_id <> ''
+		where service_id = $1 and environment_id = $2 and failed_release_id <> ''
 		order by at desc limit 1`, serviceID, environmentID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deploy{}, false, nil

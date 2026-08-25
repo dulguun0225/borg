@@ -271,7 +271,7 @@ func TestATargetErrorLeavesTheRecordStarted(t *testing.T) {
 		t.Fatal("the error path returns no record, and the started record is what a caller has to point at")
 	}
 	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusStarted {
-		t.Errorf("the store has status %q, want started — the independent checker that would settle it is M4", got)
+		t.Errorf("the store has status %q, want started — the drift detector that would settle it is M4", got)
 	}
 	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
 		t.Errorf("Current = running %v, err %v; a deploy that never completed is not running", running, err)

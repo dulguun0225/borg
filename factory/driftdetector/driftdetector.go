@@ -1,4 +1,4 @@
-package checker
+package driftdetector
 
 import (
 	"context"
@@ -10,23 +10,23 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// Actor is who the independent checker's rows are written as. It is a component
+// Actor is who the drift detector's rows are written as. It is a component
 // like any other: what makes this store independent is that no factory
 // component may write it, not that its rows have no author.
-var Actor = record.Actor{Kind: record.KindComponent, Name: "checker"}
+var Actor = record.Actor{Kind: record.KindComponent, Name: "driftdetector"}
 
 var (
 	// ErrPassIncomplete is returned by [Writer.Record] for a pass missing something
 	// every comparison names, or for an unreached target with no reason.
-	ErrPassIncomplete = errors.New("checker: the pass is missing something every comparison names")
+	ErrPassIncomplete = errors.New("driftdetector: the pass is missing something every comparison names")
 	// ErrNotFound is returned where no mismatch has that id.
-	ErrNotFound = errors.New("checker: no mismatch has that id")
+	ErrNotFound = errors.New("driftdetector: no mismatch has that id")
 	// ErrAlreadyCleared is returned by [Writer.Clear] for a mismatch already
 	// cleared. A mismatch is cleared once, by the human who read the evidence.
-	ErrAlreadyCleared = errors.New("checker: the mismatch is cleared already")
+	ErrAlreadyCleared = errors.New("driftdetector: the mismatch is cleared already")
 	// ErrClearedByEmpty is returned by [Writer.Clear] naming no human. Clearing is a
-	// human's act at the independent checker and the record says whose.
-	ErrClearedByEmpty = errors.New("checker: a mismatch is cleared by a named human")
+	// human's act at the drift detector and the record says whose.
+	ErrClearedByEmpty = errors.New("driftdetector: a mismatch is cleared by a named human")
 )
 
 // Mismatch is one disagreement between what a production target runs and what the
@@ -36,7 +36,7 @@ type Mismatch struct {
 	Actor record.Actor
 	At    string
 	// ServiceID and Target are what disagreed: the service, and the address the
-	// independent checker read. The target is named rather than the environment,
+	// drift detector read. The target is named rather than the environment,
 	// which is the stronger check — a deploy record per target would let three
 	// targets disagree with a fourth and call each of them right.
 	ServiceID string
@@ -62,7 +62,7 @@ type Mismatch struct {
 // that service's production deploys.
 func (m Mismatch) Cleared() bool { return m.ClearedAt != "" }
 
-// Why is the mismatch in words a human reads on a gate's opening row. It is
+// Why is the mismatch in words a human reads on a gate's open event. It is
 // composed here rather than stored, because every part of it is a field and a stored
 // sentence would be a second copy able to disagree with them.
 func (m Mismatch) Why() string {
@@ -81,7 +81,7 @@ func (m Mismatch) Why() string {
 // HoldWords opens every mismatch's own words. It is here rather than in package
 // gate because the sentence is composed from this record's fields, and gate's own
 // constant for the hold names the condition rather than one instance of it.
-const HoldWords = "the independent checker found a record disagreeing with what runs"
+const HoldWords = "the drift detector found a record disagreeing with what runs"
 
 // LastCheck is the last check of one service on one target, overwritten each
 // pass.
@@ -99,7 +99,7 @@ type LastCheck struct {
 	Agreed            bool
 }
 
-// Pass is one comparison the independent checker performed, as its caller hands
+// Pass is one comparison the drift detector performed, as its caller hands
 // it over.
 type Pass struct {
 	ServiceID string
@@ -145,7 +145,7 @@ type Recorded struct {
 	Agreed string
 }
 
-// Writer is the one writer of both records: the independent checker's own process. No
+// Writer is the one writer of both records: the drift detector's own process. No
 // factory component holds one, which is the whole of what "a store no factory
 // component may write" is enforced by here — that, and the store being reached
 // through a URL of its own.
@@ -161,9 +161,9 @@ func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 // a later agreement on the one standing where the pass agrees.
 //
 // The last check is written first and unconditionally. It is the record that
-// says the independent checker ran, and a pass that failed to write a mismatch
+// says the drift detector ran, and a pass that failed to write a mismatch
 // afterwards is still a pass that happened — where the other order would leave a
-// stopped independent checker and a raised mismatch indistinguishable from one
+// stopped drift detector and a raised mismatch indistinguishable from one
 // that never ran.
 func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 	if err := p.validate(); err != nil {
@@ -198,7 +198,7 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 		c.Reached, c.Why, c.RunningBuild, c.RecordedReleaseID, c.RecordedBuildID, c.Agreed,
 	)
 	if err != nil {
-		return Recorded{}, fmt.Errorf("checker: recording the last check of %s on %s: %w",
+		return Recorded{}, fmt.Errorf("driftdetector: recording the last check of %s on %s: %w",
 			p.ServiceID, p.Target, err)
 	}
 	recorded := Recorded{LastCheck: c}
@@ -214,7 +214,7 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 	case agreed && found:
 		if _, err := w.pool.Exec(ctx, `update `+MismatchTable+`
 			set later_agreements = later_agreements + 1 where id = $1`, standing.ID); err != nil {
-			return recorded, fmt.Errorf("checker: recording a later agreement on %s: %w", standing.ID, err)
+			return recorded, fmt.Errorf("driftdetector: recording a later agreement on %s: %w", standing.ID, err)
 		}
 		recorded.Agreed = standing.ID
 	case !agreed && !found:
@@ -236,14 +236,14 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 			m.RunningBuild, m.RecordedReleaseID, m.RecordedBuildID,
 		)
 		if err != nil {
-			return recorded, fmt.Errorf("checker: raising a mismatch on %s: %w", p.Target, err)
+			return recorded, fmt.Errorf("driftdetector: raising a mismatch on %s: %w", p.Target, err)
 		}
 		recorded.Raised = m.ID
 	}
 	return recorded, nil
 }
 
-// Clear is a human at the independent checker clearing one mismatch. It is here
+// Clear is a human at the drift detector clearing one mismatch. It is here
 // and there is no counterpart in the factory: clearing it from Ops would make
 // the factory a writer of the record that says the factory is wrong.
 //
@@ -257,7 +257,7 @@ func (w *Writer) Clear(ctx context.Context, id, by string) (Mismatch, error) {
 		set cleared_at = $1, cleared_by = $2 where id = $3 and cleared_at = ''`,
 		record.Now(), by, id)
 	if err != nil {
-		return Mismatch{}, fmt.Errorf("checker: clearing %s: %w", id, err)
+		return Mismatch{}, fmt.Errorf("driftdetector: clearing %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		m, err := Get(ctx, w.pool, id)

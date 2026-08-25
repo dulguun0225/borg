@@ -4,7 +4,7 @@
 //
 // The record exists to be pointed at. Every pre-merge fact attaches to a
 // build: the encoding of each criterion runs against a checkout of it, the
-// gate's opening row names it, and the release made from it points back at
+// gate's open event names it, and the release made from it points back at
 // it. So the record carries the item and the commit and nothing else — what
 // happened to the build is written where it happened, by the component it
 // happened at.

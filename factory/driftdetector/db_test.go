@@ -1,13 +1,13 @@
-// The database tests of this package are in checker_test rather than in
-// checker, the way every record package's are — except here it changes
+// The database tests of this package are in driftdetector_test rather than in
+// driftdetector, the way every record package's are — except here it changes
 // nothing in deps.txt: this store is not the factory's, so these tests open it
-// through [checker.Open] and [checker.Apply] rather than through package
-// postgres, and the only package this file imports besides checker itself
-// is record, which checker's own line already allows.
+// through [driftdetector.Open] and [driftdetector.Apply] rather than through package
+// postgres, and the only package this file imports besides driftdetector itself
+// is record, which driftdetector's own line already allows.
 //
 // None of these tests skips when the database is unreachable. The milestone
 // is demonstrated by them running, so an unreachable database fails the run.
-package checker_test
+package driftdetector_test
 
 import (
 	"context"
@@ -22,11 +22,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dulguun0225/borg/factory/checker"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *checker.Writer) {
+func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *driftdetector.Writer) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -34,11 +34,11 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *checker.Writer) {
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatalf("naming the test schema: %v", err)
 	}
-	schema := "checker_" + hex.EncodeToString(suffix[:])
+	schema := "driftdetector_" + hex.EncodeToString(suffix[:])
 
-	pool, err := checker.Open(ctx, inSchema(t, checker.DefaultURL, schema))
+	pool, err := driftdetector.Open(ctx, inSchema(t, driftdetector.DefaultURL, schema))
 	if err != nil {
-		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", checker.DefaultURL, err)
+		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", driftdetector.DefaultURL, err)
 	}
 	t.Cleanup(func() {
 		// t.Context is already cancelled by the time cleanup runs.
@@ -52,10 +52,10 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *checker.Writer) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
-	if err := checker.Apply(ctx, pool); err != nil {
+	if err := driftdetector.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
-	return ctx, pool, checker.NewWriter(pool)
+	return ctx, pool, driftdetector.NewWriter(pool)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -76,8 +76,8 @@ func inSchema(t *testing.T, base, schema string) string {
 // not repeat the two required fields. It disagrees by default — its running
 // build and its recorded build are two different ids — which is what most of
 // these tests want; TestAPassWhereTheTargetAgreesWritesNoMismatch changes it.
-func pass() checker.Pass {
-	return checker.Pass{
+func pass() driftdetector.Pass {
+	return driftdetector.Pass{
 		ServiceID:         record.NewID("svc"),
 		Target:            record.NewID("tgt"),
 		Reached:           true,
@@ -102,15 +102,15 @@ func TestAPassWhereTheTargetAgreesWritesNoMismatch(t *testing.T) {
 	if recorded.Raised != "" || recorded.Agreed != "" {
 		t.Errorf("Record = %+v, want neither a raise nor an agreement recorded", recorded)
 	}
-	held, why, err := checker.NewStore(pool).Mismatch(ctx, p.ServiceID)
+	held, why, err := driftdetector.NewStore(pool).Mismatch(ctx, p.ServiceID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v %q, %v; a target running the recorded build raises none", held, why, err)
 	}
 }
 
 // TestAPassWhereTheTargetDisagreesRaisesAMismatchTheGateReads is the one
-// mismatch a pass writes: raised, found by [checker.Uncleared], and read
-// back through [checker.Store.Mismatch] the way the production deploy
+// mismatch a pass writes: raised, found by [driftdetector.Uncleared], and read
+// back through [driftdetector.Store.Mismatch] the way the production deploy
 // gate does.
 func TestAPassWhereTheTargetDisagreesRaisesAMismatchTheGateReads(t *testing.T) {
 	ctx, pool, w := newTable(t)
@@ -124,16 +124,16 @@ func TestAPassWhereTheTargetDisagreesRaisesAMismatchTheGateReads(t *testing.T) {
 		t.Fatal("Record raised no mismatch, and the target ran something the factory did not record")
 	}
 
-	uncleared, err := checker.Uncleared(ctx, pool, p.ServiceID)
+	uncleared, err := driftdetector.Uncleared(ctx, pool, p.ServiceID)
 	if err != nil || len(uncleared) != 1 || uncleared[0].ID != recorded.Raised {
 		t.Fatalf("Uncleared = %+v, %v, want just %s", uncleared, err, recorded.Raised)
 	}
 
-	held, why, err := checker.NewStore(pool).Mismatch(ctx, p.ServiceID)
+	held, why, err := driftdetector.NewStore(pool).Mismatch(ctx, p.ServiceID)
 	if err != nil || !held {
 		t.Fatalf("Mismatch = %v %q, %v, want true", held, why, err)
 	}
-	for _, want := range []string{checker.HoldWords, p.Target, p.RunningBuild, p.RecordedBuildID} {
+	for _, want := range []string{driftdetector.HoldWords, p.Target, p.RunningBuild, p.RecordedBuildID} {
 		if !strings.Contains(why, want) {
 			t.Errorf("Mismatch's words are %q, want them to contain %q", why, want)
 		}
@@ -160,7 +160,7 @@ func TestASecondDisagreeingPassRaisesNoSecondMismatch(t *testing.T) {
 		t.Errorf("a second disagreeing pass raised %s, want none — a mismatch remains until a human clears it", second.Raised)
 	}
 
-	uncleared, err := checker.Uncleared(ctx, pool, p.ServiceID)
+	uncleared, err := driftdetector.Uncleared(ctx, pool, p.ServiceID)
 	if err != nil || len(uncleared) != 1 {
 		t.Fatalf("Uncleared = %+v, %v, want the one mismatch still standing", uncleared, err)
 	}
@@ -189,7 +189,7 @@ func TestALaterAgreeingPassRecordsAnAgreementAndLeavesTheMismatchStanding(t *tes
 		t.Errorf("Record = %+v, want it recording an agreement on %s", second, first.Raised)
 	}
 
-	standing, err := checker.Get(ctx, pool, first.Raised)
+	standing, err := driftdetector.Get(ctx, pool, first.Raised)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestALaterAgreeingPassRecordsAnAgreementAndLeavesTheMismatchStanding(t *tes
 		t.Errorf("LaterAgreements = %d, want 1", standing.LaterAgreements)
 	}
 
-	held, _, err := checker.NewStore(pool).Mismatch(ctx, p.ServiceID)
+	held, _, err := driftdetector.NewStore(pool).Mismatch(ctx, p.ServiceID)
 	if err != nil || !held {
 		t.Errorf("Mismatch = %v, %v, want true — a mismatch remains even where a later comparison agrees", held, err)
 	}
@@ -219,7 +219,7 @@ func TestAnUnreachedTargetWritesTheLastCheckAndRaisesNoMismatch(t *testing.T) {
 	if recorded.Raised != "" || recorded.Agreed != "" {
 		t.Errorf("Record = %+v, want neither — failing to reach a target is not a mismatch", recorded)
 	}
-	held, _, err := checker.NewStore(pool).Mismatch(ctx, p.ServiceID)
+	held, _, err := driftdetector.NewStore(pool).Mismatch(ctx, p.ServiceID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v, %v, want false", held, err)
 	}
@@ -228,21 +228,21 @@ func TestAnUnreachedTargetWritesTheLastCheckAndRaisesNoMismatch(t *testing.T) {
 // TestAPassMissingSomethingEveryComparisonNamesIsIncomplete covers every
 // required field the same way, one Pass with exactly one of them cleared per
 // case — the way window/db_test.go's TestAnOpeningMissingAFieldIsIncomplete
-// does for an Opening.
+// does for an OpenEvent.
 func TestAPassMissingSomethingEveryComparisonNamesIsIncomplete(t *testing.T) {
 	ctx, _, w := newTable(t)
 
 	for _, c := range []struct {
 		what string
-		mut  func(*checker.Pass)
+		mut  func(*driftdetector.Pass)
 	}{
-		{"service", func(p *checker.Pass) { p.ServiceID = "" }},
-		{"target", func(p *checker.Pass) { p.Target = "" }},
-		{"why on an unreached target", func(p *checker.Pass) { p.Reached = false; p.Why = "" }},
+		{"service", func(p *driftdetector.Pass) { p.ServiceID = "" }},
+		{"target", func(p *driftdetector.Pass) { p.Target = "" }},
+		{"why on an unreached target", func(p *driftdetector.Pass) { p.Reached = false; p.Why = "" }},
 	} {
 		p := pass()
 		c.mut(&p)
-		if _, err := w.Record(ctx, p); !errors.Is(err, checker.ErrPassIncomplete) {
+		if _, err := w.Record(ctx, p); !errors.Is(err, driftdetector.ErrPassIncomplete) {
 			t.Errorf("Record missing %s = %v, want ErrPassIncomplete", c.what, err)
 		}
 	}
@@ -261,7 +261,7 @@ func TestTheLastCheckIsOverwrittenNotAppended(t *testing.T) {
 		t.Fatalf("Record again: %v", err)
 	}
 
-	checks, err := checker.LastChecks(ctx, pool, p.ServiceID)
+	checks, err := driftdetector.LastChecks(ctx, pool, p.ServiceID)
 	if err != nil {
 		t.Fatalf("LastChecks: %v", err)
 	}
@@ -289,17 +289,17 @@ func TestClearMarksAMismatchClearedAndKeepsTheRow(t *testing.T) {
 		t.Errorf("Clear = %+v, want it cleared by alice", cleared)
 	}
 
-	held, _, err := checker.NewStore(pool).Mismatch(ctx, p.ServiceID)
+	held, _, err := driftdetector.NewStore(pool).Mismatch(ctx, p.ServiceID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v, %v, want false — a cleared mismatch holds nothing", held, err)
 	}
 
-	all, err := checker.All(ctx, pool)
+	all, err := driftdetector.All(ctx, pool)
 	if err != nil || len(all) != 1 || all[0].ID != raised.Raised || !all[0].Cleared() {
 		t.Errorf("All = %+v, %v, want the cleared row kept", all, err)
 	}
 
-	if _, err := w.Clear(ctx, raised.Raised, "bob"); !errors.Is(err, checker.ErrAlreadyCleared) {
+	if _, err := w.Clear(ctx, raised.Raised, "bob"); !errors.Is(err, driftdetector.ErrAlreadyCleared) {
 		t.Errorf("Clear again = %v, want ErrAlreadyCleared", err)
 	}
 }
@@ -311,20 +311,20 @@ func TestClearWithNoHumanIsClearedByEmpty(t *testing.T) {
 	if err != nil || raised.Raised == "" {
 		t.Fatalf("Record: raised %q, %v, want a mismatch raised", raised.Raised, err)
 	}
-	if _, err := w.Clear(ctx, raised.Raised, ""); !errors.Is(err, checker.ErrClearedByEmpty) {
+	if _, err := w.Clear(ctx, raised.Raised, ""); !errors.Is(err, driftdetector.ErrClearedByEmpty) {
 		t.Errorf("Clear with no human = %v, want ErrClearedByEmpty", err)
 	}
 }
 
 func TestGetOnAnUnknownIDIsNotFound(t *testing.T) {
 	ctx, pool, _ := newTable(t)
-	if _, err := checker.Get(ctx, pool, "mis_00000000000000000000000000000000"); !errors.Is(err, checker.ErrNotFound) {
+	if _, err := driftdetector.Get(ctx, pool, "mis_00000000000000000000000000000000"); !errors.Is(err, driftdetector.ErrNotFound) {
 		t.Errorf("Get on an unknown id = %v, want ErrNotFound", err)
 	}
 }
 
 // TestAnExcusedPassAgreesDespiteADifferentRunningBuildAndRaisesNoMismatch is
-// the exception for a build an open window accounts for: [checker.Pass.Excused]
+// the exception for a build an open window accounts for: [driftdetector.Pass.Excused]
 // makes a disagreement no mismatch.
 func TestAnExcusedPassAgreesDespiteADifferentRunningBuildAndRaisesNoMismatch(t *testing.T) {
 	ctx, pool, w := newTable(t)
@@ -341,7 +341,7 @@ func TestAnExcusedPassAgreesDespiteADifferentRunningBuildAndRaisesNoMismatch(t *
 	if recorded.Raised != "" {
 		t.Errorf("Record raised %s, want none", recorded.Raised)
 	}
-	held, _, err := checker.NewStore(pool).Mismatch(ctx, p.ServiceID)
+	held, _, err := driftdetector.NewStore(pool).Mismatch(ctx, p.ServiceID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v, %v, want false", held, err)
 	}
@@ -354,21 +354,21 @@ func TestAnExcusedPassAgreesDespiteADifferentRunningBuildAndRaisesNoMismatch(t *
 func TestDDLRefusesAMismatchClearedWithoutAHumanAndALastCheckUnreachedWithNoWhy(t *testing.T) {
 	ctx, pool, _ := newTable(t)
 
-	_, err := pool.Exec(ctx, `insert into `+checker.MismatchTable+`
+	_, err := pool.Exec(ctx, `insert into `+driftdetector.MismatchTable+`
 		(id, actor_kind, actor_name, at, service_id, target, running_build,
 		 recorded_release_id, recorded_build_id, later_agreements, cleared_at, cleared_by)
-		values ($1, 'component', 'checker', $2, $3, $4, $5, $6, $7, 0, $8, '')`,
-		record.NewID(checker.MismatchIDPrefix), record.Now(), record.NewID("svc"), record.NewID("tgt"),
+		values ($1, 'component', 'driftdetector', $2, $3, $4, $5, $6, $7, 0, $8, '')`,
+		record.NewID(driftdetector.MismatchIDPrefix), record.Now(), record.NewID("svc"), record.NewID("tgt"),
 		record.NewID("bl"), record.NewID("rel"), record.NewID("bl"), record.Now())
 	if err == nil {
 		t.Error("the store accepted a mismatch cleared with a time and no human")
 	}
 
-	_, err = pool.Exec(ctx, `insert into `+checker.LastCheckTable+`
+	_, err = pool.Exec(ctx, `insert into `+driftdetector.LastCheckTable+`
 		(id, actor_kind, actor_name, at, service_id, target, reached, why,
 		 running_build, recorded_release_id, recorded_build_id, agreed)
-		values ($1, 'component', 'checker', $2, $3, $4, false, '', $5, $6, $7, false)`,
-		record.NewID(checker.LastCheckIDPrefix), record.Now(), record.NewID("svc"), record.NewID("tgt"),
+		values ($1, 'component', 'driftdetector', $2, $3, $4, false, '', $5, $6, $7, false)`,
+		record.NewID(driftdetector.LastCheckIDPrefix), record.Now(), record.NewID("svc"), record.NewID("tgt"),
 		record.NewID("bl"), record.NewID("rel"), record.NewID("bl"))
 	if err == nil {
 		t.Error("the store accepted a last check unreached with no reason")

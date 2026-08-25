@@ -32,8 +32,8 @@ const AdvisoryLockKey int64 = 0x5888022f314e314d
 // row is a value like any other under that constraint, so there is at most one
 // first row.
 //
-// The partial unique index is the same rule for closings: one opening row
-// takes at most one closing row, and the store refuses the second without
+// The partial unique index is the same rule for closings: one open event
+// takes at most one close event, and the store refuses the second without
 // waiting for a reader to notice two verdicts over one firing.
 var DDL = []string{
 	`create sequence if not exists ` + Sequence + ` as bigint`,

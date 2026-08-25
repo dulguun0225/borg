@@ -21,30 +21,31 @@
 // # A rollback is this record and not another
 //
 // [Restore] is the rollback: a deploy of the release being returned to, naming
-// on the same record the release it condemned, the releases it swept, the
+// on the same record the release it failed, the releases it swept, the
 // source that called for it, and the intent it raised. A record of its own was
 // refused for the reason the design gives — every field is on the deploy record
 // already, and a second writer on the fact of what is running is the fact the
-// independent checker exists to check. [Undoing.Any] is what tells a rollback's
+// drift detector exists to check. [Undoing.Any] is what tells a rollback's
 // record from an ordinary deploy's.
 //
-// The condemned release stays a field apart from the swept ones, because one
-// condemned release is one revert item and the swept ones were never condemned. The
+// The failed release stays a field apart from the swept ones, because one
+// failed release is one revert item and the swept ones were never failed. The
 // source is beside the actor and not instead of it: the actor is the deploy agent
-// that performed the rollback, and the source is the health monitor at the condemned
+// that performed the rollback, and the source is the health monitor at the failed
 // exit or
 // the named human at Ops.
 //
 // Restore is the slow rollback, and on this substrate it is the only one. The fast
-// path shifts traffic onto the control of the window immediately above the target,
-// which is already running that build; a substrate that keeps no control has
-// nothing to shift onto, so the build is started from cold and production runs the
-// condemned release until it is up.
+// path shifts traffic onto the target's own instances, which a rollout with a
+// control keeps running at full capacity while any open window could return to
+// them; a substrate that keeps nothing of the old build running has nothing to
+// shift onto, so the build is started from cold and production runs the failed
+// release until it is up.
 //
-// One thing the design says of a condemned release is not true here: that it
+// One thing the design says of a failed release is not true here: that it
 // "never completes its deploy and so never becomes current". A deploy without a
 // control has no schedule to abort — the process is started and the record completes, and only
-// then does the window open and later cross — so on this substrate a condemned
+// then does the window open and later cross — so on this substrate a failed
 // release was current for the length of its window. The design's own answer is
 // what makes that harmless: what the window names is the release watched rather
 // than the release current, exactly so the two need not agree.
@@ -75,7 +76,7 @@
 // record complete. On a target error the record stays started: the call may
 // have failed before, during, or after the target acted, so writing either
 // outcome would be a guess. The record saying started about a target that may
-// or may not run the release is exactly the disagreement the independent checker reads
+// or may not run the release is exactly the disagreement the drift detector reads
 // targets to raise. [Restore] leaves the same thing on the same terms, and
 // leaves nothing marked undone with it: a store saying a release was rolled back
 // with nothing put back in its place would describe a service running nothing.

@@ -4,7 +4,7 @@
 // passing, so a run that got them wrong would fail somewhere else and say
 // something else.
 //
-// The condemned exit, the four window exits, and the rollback itself are demonstrated
+// The failed exit, the four window exits, and the rollback itself are demonstrated
 // through the crude interface in cmd/factory, where there is a target to deploy against
 // and a process emitting the quantity. What is here is the arithmetic of the graph.
 //
@@ -137,10 +137,10 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
-	w, err := g.windows.Open(ctx, healthmonitor.Actor, window.Opening{
+	w, err := g.windows.Open(ctx, healthmonitor.Actor, window.OpenEvent{
 		DeployID: dep.ID, ReleaseID: rel.ID, ServiceID: theService,
-		ClearedAvailable: rel.Number > 1,
-		Size:             0.1, Confidence: 0.95, CapSeconds: 60,
+		PassedAvailable: rel.Number > 1,
+		Size:            0.1, Confidence: 0.95, CapSeconds: 60,
 		Formula: boundary.Formula, PolicyVersion: "pv_test", ScoreVersion: "scv_test",
 	})
 	if err != nil {
@@ -157,20 +157,20 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 // TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt is the whole of what a
 // rollback returns to. It descends past harm, past swept, and past any window still
 // open, and it descends from the release being rolled back rather than from the top —
-// stated per service alone the query would return a release above the condemned one and
-// the factory would restore the change it had just condemned.
+// stated per service alone the query would return a release above the failed one and
+// the factory would restore the change it had just failed.
 func TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt(t *testing.T) {
 	ctx, g := newGraph(t)
 
 	// Five releases, one per exit the query has to reason about.
-	one := shipOne(t, ctx, g, "in_1", window.ExitTimedOut)    // counts: never condemned
-	two := shipOne(t, ctx, g, "in_2", window.ExitCleared)     // counts
-	three := shipOne(t, ctx, g, "in_3", window.ExitCondemned) // condemned
-	four := shipOne(t, ctx, g, "in_4", window.ExitSkipped)    // nothing left running its build
-	five := shipOne(t, ctx, g, "in_5", "")                    // still open
+	one := shipOne(t, ctx, g, "in_1", window.ExitTimedOut) // counts: never failed
+	two := shipOne(t, ctx, g, "in_2", window.ExitPassed)   // counts
+	three := shipOne(t, ctx, g, "in_3", window.ExitFailed) // failed
+	four := shipOne(t, ctx, g, "in_4", window.ExitSkipped) // nothing left running its build
+	five := shipOne(t, ctx, g, "in_5", "")                 // still open
 
 	// A rollback of the topmost release returns to the newest one below it that
-	// counts, which is the cleared close and not the condemned one above it or the open one.
+	// counts, which is the passed close and not the failed one above it or the open one.
 	target, found, err := healthmonitor.TargetBelow(ctx, g.pool, theService, five.Number)
 	if err != nil || !found {
 		t.Fatalf("TargetBelow(%d) = found %v, %v", five.Number, found, err)
@@ -181,8 +181,8 @@ func TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt(t *testing.T) {
 	}
 
 	// Asked below the clean one, it descends to the cap: closing at the cap counts,
-	// because a release that was never condemned is one the factory can return to and
-	// requiring a cleared close would leave a quiet service with no target at all.
+	// because a release that was never failed is one the factory can return to and
+	// requiring a passed close would leave a quiet service with no target at all.
 	target, found, err = healthmonitor.TargetBelow(ctx, g.pool, theService, two.Number)
 	if err != nil || !found {
 		t.Fatalf("TargetBelow(%d) = found %v, %v", two.Number, found, err)
@@ -192,7 +192,7 @@ func TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt(t *testing.T) {
 	}
 
 	// A service's first release has no target at all: nothing below it closed without
-	// condemning it, and there is no earlier build to redeploy.
+	// failing it, and there is no earlier build to redeploy.
 	if _, found, err := healthmonitor.TargetBelow(ctx, g.pool, theService, one.Number); err != nil || found {
 		t.Errorf("TargetBelow(%d) = found %v, %v; a first release has no target", one.Number, found, err)
 	}
@@ -220,7 +220,7 @@ func TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt(t *testing.T) {
 
 // TestAWindowThatFailedToCloseLeavesTheTargetOlderThanItShouldBe is the cost the
 // design states for computing the target rather than storing it: the rollback goes
-// further back and undoes releases nothing condemned, which is the safe direction and
+// further back and undoes releases nothing failed, which is the safe direction and
 // still a real loss.
 func TestAWindowThatFailedToCloseLeavesTheTargetOlderThanItShouldBe(t *testing.T) {
 	ctx, g := newGraph(t)
@@ -238,7 +238,7 @@ func TestAWindowThatFailedToCloseLeavesTheTargetOlderThanItShouldBe(t *testing.T
 			target.Number, one.Number, two.Number)
 	}
 	// Which is what makes the loss real: rolling back the third release undoes the
-	// second as well, and nothing condemned it.
+	// second as well, and nothing failed it.
 	above, err := release.Above(ctx, g.pool, theService, one.Number)
 	if err != nil {
 		t.Fatalf("Above: %v", err)
@@ -321,22 +321,22 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	_ = second
 }
 
-// TestARollbackNamesTheCondemnedReleaseApartFromTheSkipped is why the two are separate
-// fields: one condemned release is one revert item, and the swept ones were never
-// condemned — their code is still on master and the revert redelivers them.
-func TestARollbackNamesTheCondemnedReleaseApartFromTheSkipped(t *testing.T) {
+// TestARollbackNamesTheFailedReleaseApartFromTheSkipped is why the two are separate
+// fields: one failed release is one revert item, and the swept ones were never
+// failed — their code is still on master and the revert redelivers them.
+func TestARollbackNamesTheFailedReleaseApartFromTheSkipped(t *testing.T) {
 	ctx, g := newGraph(t)
 
 	one := shipOne(t, ctx, g, "in_1", window.ExitTimedOut)
-	two := shipOne(t, ctx, g, "in_2", window.ExitCondemned)
+	two := shipOne(t, ctx, g, "in_2", window.ExitFailed)
 	three := shipOne(t, ctx, g, "in_3", window.ExitSkipped)
 
 	rollback, err := g.deploys.StartUndoing(ctx, theActor, theService, theEnvironment,
 		deploy.OfRelease(one.ID, one.BuildID), deploy.Undoing{
-			CondemnedReleaseID: two.ID,
-			SweptReleaseIDs:    []string{three.ID},
-			Source:             deploy.SourceHealthMonitorAtCondemned,
-			RevertIntentID:     "in_revert",
+			FailedReleaseID: two.ID,
+			SweptReleaseIDs: []string{three.ID},
+			Source:          deploy.SourceHealthMonitorAtFailed,
+			RevertIntentID:  "in_revert",
 		})
 	if err != nil {
 		t.Fatalf("StartUndoing: %v", err)
@@ -353,13 +353,13 @@ func TestARollbackNamesTheCondemnedReleaseApartFromTheSkipped(t *testing.T) {
 		t.Errorf("the newest rollback is %s, want %s", read.ID, rollback.ID)
 	}
 	if !read.Undoing.Any() {
-		t.Error("the rollback's record does not read as a rollback's, and the condemned release is what says so")
+		t.Error("the rollback's record does not read as a rollback's, and the failed release is what says so")
 	}
-	if read.Undoing.CondemnedReleaseID != two.ID {
-		t.Errorf("it condemned %s, want %s", read.Undoing.CondemnedReleaseID, two.ID)
+	if read.Undoing.FailedReleaseID != two.ID {
+		t.Errorf("it failed %s, want %s", read.Undoing.FailedReleaseID, two.ID)
 	}
 	if len(read.Undoing.SweptReleaseIDs) != 1 || read.Undoing.SweptReleaseIDs[0] != three.ID {
-		t.Errorf("it swept %v, want the one release above the condemned one", read.Undoing.SweptReleaseIDs)
+		t.Errorf("it swept %v, want the one release above the failed one", read.Undoing.SweptReleaseIDs)
 	}
 	if read.Undoing.RevertIntentID != "in_revert" {
 		t.Errorf("it names revert intent %q", read.Undoing.RevertIntentID)
@@ -369,10 +369,10 @@ func TestARollbackNamesTheCondemnedReleaseApartFromTheSkipped(t *testing.T) {
 	// and a rollback saying otherwise is refused where it is written.
 	if _, err := g.deploys.StartUndoing(ctx, theActor, theService, theEnvironment,
 		deploy.OfRelease(one.ID, one.BuildID), deploy.Undoing{
-			CondemnedReleaseID: two.ID, SweptReleaseIDs: []string{two.ID},
-			Source: deploy.SourceHealthMonitorAtCondemned,
+			FailedReleaseID: two.ID, SweptReleaseIDs: []string{two.ID},
+			Source: deploy.SourceHealthMonitorAtFailed,
 		}); err == nil {
-		t.Error("a rollback naming one release as both condemned and swept was written")
+		t.Error("a rollback naming one release as both failed and swept was written")
 	}
 	// And an ordinary deploy is not a rollback's record: it names neither.
 	ordinary, err := g.deploys.Start(ctx, theActor, theService, theEnvironment, deploy.OfRelease(one.ID, one.BuildID))
@@ -387,7 +387,7 @@ func TestARollbackNamesTheCondemnedReleaseApartFromTheSkipped(t *testing.T) {
 	if read.Actor != theActor {
 		t.Errorf("the rollback's actor is %+v, and the source is what says who called for it", read.Actor)
 	}
-	if read.Undoing.Source != deploy.SourceHealthMonitorAtCondemned {
+	if read.Undoing.Source != deploy.SourceHealthMonitorAtFailed {
 		t.Errorf("the rollback's source is %q", read.Undoing.Source)
 	}
 	human := deploy.SourceOfHuman("ada", "the dashboards look wrong")

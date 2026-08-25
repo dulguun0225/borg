@@ -57,54 +57,54 @@ type Policy interface {
 	AtGate(ctx context.Context, s policy.Subjects) (policy.Applied, error)
 }
 
-// Checker is what the gate asks about the independent checker's own store when the
+// DriftDetector is what the gate asks about the drift detector's own store when the
 // production deploy row fires: whether a mismatch stands for this service, and
 // what disagrees. It is an interface because that store is not the factory's — no
 // factory component may write it, and a gate that imported the package owning it
-// would be a gate holding a second pool. [NoChecker] is what a factory with
+// would be a gate holding a second pool. [NoDriftDetector] is what a factory with
 // none installed is composed with.
 //
 // The design puts this read at the moment the row fires and nowhere else, which
 // is the same rule every other check a gate makes keeps.
-type Checker interface {
+type DriftDetector interface {
 	// Mismatch is whether an uncleared mismatch stands for the service, and what
-	// disagrees, in words a human reads on the opening row.
+	// disagrees, in words a human reads on the open event.
 	Mismatch(ctx context.Context, serviceID string) (bool, string, error)
 }
 
-// NoChecker is the answer of a factory with no independent checker installed: no
+// NoDriftDetector is the answer of a factory with no drift detector installed: no
 // mismatch, ever. It is a value rather than a nil interface, so that a factory
 // composed without one says so and a caller cannot forget to check.
 //
-// What it costs is what the design says installing the independent checker
+// What it costs is what the design says installing the drift detector
 // buys: with none installed, every check the factory makes reads a record the
 // factory wrote, so a factory whose records are wrong reports itself healthy
 // and nothing contradicts it. That is visible in what the crude interface
 // prints and nowhere else.
-type NoChecker struct{}
+type NoDriftDetector struct{}
 
 // Mismatch is never one.
-func (NoChecker) Mismatch(context.Context, string) (bool, string, error) { return false, "", nil }
+func (NoDriftDetector) Mismatch(context.Context, string) (bool, string, error) { return false, "", nil }
 
 // Gate is the gate component: it appends a decision's two rows through the log's
 // writer, asking the score and the policy before the first.
 type Gate struct {
-	log     *decisionlog.Writer
-	score   Score
-	policy  Policy
-	checker Checker
+	log           *decisionlog.Writer
+	score         Score
+	policy        Policy
+	driftdetector DriftDetector
 }
 
 // New returns the gate over the log, the score, the policy, and the independent
-// checker's store. A nil checker is [NoChecker]: composing a factory without
+// driftdetector's store. A nil driftdetector is [NoDriftDetector]: composing a factory without
 // one is something a caller does deliberately, and a gate that panicked on it
-// would make the independent checker required where the design makes installing
+// would make the drift detector required where the design makes installing
 // it the owner's.
-func New(log *decisionlog.Writer, s Score, p Policy, r Checker) *Gate {
+func New(log *decisionlog.Writer, s Score, p Policy, r DriftDetector) *Gate {
 	if r == nil {
-		r = NoChecker{}
+		r = NoDriftDetector{}
 	}
-	return &Gate{log: log, score: s, policy: p, checker: r}
+	return &Gate{log: log, score: s, policy: p, driftdetector: r}
 }
 
 // Firing is what fires the gate: the row, the records it decides over, what the
@@ -157,14 +157,14 @@ type Opened struct {
 	// WhyHeldOut is which of the two ways it came to be held out, and is empty
 	// where it is not.
 	WhyHeldOut string
-	// Mismatch is what the independent checker found disagreeing with what runs, and is
+	// Mismatch is what the drift detector found disagreeing with what runs, and is
 	// empty where it found nothing and at every row but the production deploy. It
 	// is a field of its own beside WhyHuman because a human deciding here has to
 	// read what disagrees and not only that something does.
 	Mismatch string
 }
 
-// The two reasons a human decides, in the words the opening row stores.
+// The two reasons a human decides, in the words the open event stores.
 const (
 	// WhyOverThreshold is the number being at or above the threshold in force.
 	WhyOverThreshold = "the number is at or above the threshold in force"
@@ -174,23 +174,23 @@ const (
 	// WhyBoth is both at once, which is worth telling apart from either: an
 	// owner withdrawing the safeguard would not remove the human.
 	WhyBoth = "the number is at or above the threshold in force, and a safeguard adds a human"
-	// WhyMismatch is a record the independent checker found disagreeing with what runs. It
+	// WhyMismatch is a record the drift detector found disagreeing with what runs. It
 	// is the one reason a human decides that is neither the score's nor an owner's,
 	// and it is appended to whichever of the three above also holds — an owner
 	// clearing the mismatch would not remove a human the number put there.
-	WhyMismatch = HoldCheckerMismatch
+	WhyMismatch = HoldDriftMismatch
 )
 
-// OpeningPayload is what the opening row says. It names the row, the records
+// OpeningPayload is what the open event says. It names the row, the records
 // decided over, the criteria results, the whole vector and the number it reduced
 // to, the values actually applied, and what the row waits on.
 //
-// [score.Opening] is embedded rather than restated: the score reads the item, the
+// [score.OpenEvent] is embedded rather than restated: the score reads the item, the
 // artifact, the row, the number, the threshold, and the selection back off this
 // payload when it learns from outcomes, so every one of those field names is
 // declared once, in the package that reads them.
 type OpeningPayload struct {
-	score.Opening
+	score.OpenEvent
 	BuildID        string            `json:"build_id"`
 	ServiceID      string            `json:"service_id"`
 	AreaID         string            `json:"area_id"`
@@ -211,15 +211,15 @@ type OpeningPayload struct {
 	// opening, because the score reads that one back.
 	WhyHeldOut string `json:"why_held_out,omitempty"`
 	WaitsOn    string `json:"waits_on"`
-	// Mismatch is what the independent checker found disagreeing with what runs, and is
-	// empty on every row that found none. It is on the opening row because a human
+	// Mismatch is what the drift detector found disagreeing with what runs, and is
+	// empty on every row that found none. It is on the open event because a human
 	// approving through it is saying the record is wrong and the deploy should
 	// proceed anyway, which is a verdict nobody can read against a row that does
 	// not say what disagreed.
-	Mismatch string `json:"checker_mismatch,omitempty"`
+	Mismatch string `json:"drift_mismatch,omitempty"`
 }
 
-// ClosingPayload is what the closing row says: the verdict, what the human typed
+// ClosingPayload is what the close event says: the verdict, what the human typed
 // with it, the stage a reject returns the item to, and what auto-passed or
 // auto-rejected the firing where the factory decided for itself.
 //
@@ -227,22 +227,22 @@ type OpeningPayload struct {
 // and is a note on a hold — what a human held for is worth showing beside the
 // wait, and nothing reads it.
 //
-// [score.Closing] is embedded for the reason [score.Opening] is: the verdict and
+// [score.CloseEvent] is embedded for the reason [score.OpenEvent] is: the verdict and
 // what auto-passed the firing are both read back by the score when it learns, and
 // the threshold's own calibration turns on telling an auto-pass on the number
 // apart from one its own sample made, so those two field names are declared once
 // in the package that reads them.
 type ClosingPayload struct {
-	score.Closing
+	score.CloseEvent
 	Feedback  string `json:"feedback"`
 	ReturnsTo string `json:"returns_to"`
 	// AutoRejectedBy is which mechanical check rejected, and is empty on every
-	// closing row but [Gate.AutoReject]'s.
+	// close event but [Gate.AutoReject]'s.
 	AutoRejectedBy string `json:"auto_rejected_by,omitempty"`
 }
 
 // The mechanical checks that reject on their own terms at the merge row, in the
-// words a closing row names one by. They are constants here so that a caller
+// words a close event names one by. They are constants here so that a caller
 // cannot report a rejection under a name of its own, which is the arrangement the
 // five holds already have; what computes each of them reads the contracts and the
 // consumer contracts, and this package imports neither.
@@ -264,7 +264,7 @@ const (
 
 // Fire fires the gate: it asks the score about the change and the policy about
 // the values in force, decides whether a human decides, composes the opening
-// payload, and appends the opening row as the gate component. The vector is
+// payload, and appends the open event as the gate component. The vector is
 // written here and never recomputed, because it has to exist while a human is
 // deciding and the score version moves as outcomes arrive.
 func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
@@ -294,16 +294,16 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", f.Row, err)
 	}
 
-	// The independent checker's store, read at the production deploy row and at no other:
+	// Drift detection's store, read at the production deploy row and at no other:
 	// what it holds is a disagreement about what is running in production, and no
 	// other row decides a deploy into it. A mismatch puts a human here whatever the
 	// number reads, because nothing the factory can decide on the record is worth
 	// deciding while the record is the thing in doubt.
 	mismatch := ""
 	if f.Row == DeployToProduction {
-		found, why, err := g.checker.Mismatch(ctx, f.ServiceID)
+		found, why, err := g.driftdetector.Mismatch(ctx, f.ServiceID)
 		if err != nil {
-			return Opened{}, fmt.Errorf("gate: reading the independent checker's store for %s: %w", f.ServiceID, err)
+			return Opened{}, fmt.Errorf("gate: reading the drift detector's store for %s: %w", f.ServiceID, err)
 		}
 		if found {
 			mismatch = why
@@ -341,7 +341,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		waitsOn = WaitsOn(f.Row)
 	}
 	payload, err := json.Marshal(OpeningPayload{
-		Opening: score.Opening{
+		OpenEvent: score.OpenEvent{
 			ItemID:     f.ItemID,
 			ArtifactID: f.ArtifactID,
 			Gate:       string(f.Row),
@@ -372,7 +372,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload: %w", err)
 	}
 
-	row, err := g.log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	row, err := g.log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         component(f.Row),
 		Payload:       string(payload),
 		PolicyVersion: applied.PolicyVersion,
@@ -385,8 +385,8 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 	return opened, nil
 }
 
-// Decide gives a human's verdict: it appends the closing row as the deciding
-// human, naming the opening row it closes. A verdict the row does not offer is
+// Decide gives a human's verdict: it appends the close event as the deciding
+// human, naming the open event it closes. A verdict the row does not offer is
 // refused, and so is a reject with no feedback. A second verdict over one opening
 // is refused by the log's store, not here.
 func (g *Gate) Decide(ctx context.Context, opened Opened, actor record.Actor, verdict Verdict, feedback string) (decisionlog.Row, error) {
@@ -405,14 +405,14 @@ func (g *Gate) Decide(ctx context.Context, opened Opened, actor record.Actor, ve
 		returnsTo = ReturnsTo
 	}
 	return g.close(ctx, opened, actor, ClosingPayload{
-		Closing:   score.Closing{Verdict: string(verdict)},
-		Feedback:  feedback,
-		ReturnsTo: returnsTo,
+		CloseEvent: score.CloseEvent{Verdict: string(verdict)},
+		Feedback:   feedback,
+		ReturnsTo:  returnsTo,
 	})
 }
 
 // AutoPass gives the factory's own verdict, which is what closes a firing that
-// put no human at the row. The closing row's actor is the gate component, and
+// put no human at the row. The close event's actor is the gate component, and
 // the payload says what auto-passed it. A firing that did put a human there is
 // refused with [ErrHumanDecides].
 func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, error) {
@@ -420,7 +420,7 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 		return decisionlog.Row{}, fmt.Errorf("%w: %s", ErrHumanDecides, opened.WhyHuman)
 	}
 	return g.close(ctx, opened, component(opened.Gate), ClosingPayload{
-		Closing: score.Closing{
+		CloseEvent: score.CloseEvent{
 			Verdict:         string(VerdictApprove),
 			WhyItAutoPassed: whyItAutoPassed(opened),
 		},
@@ -428,7 +428,7 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 }
 
 // AutoReject gives the factory's own reject, which is what a mechanical check
-// that failed closes a firing with: the closing row's actor is the gate component,
+// that failed closes a firing with: the close event's actor is the gate component,
 // the payload names which check rejected, and the feedback is what it found — which
 // is what goes back up the pipeline, a reject being "Reject with feedback".
 //
@@ -453,12 +453,12 @@ func (g *Gate) AutoReject(ctx context.Context, opened Opened, check, found strin
 	returnsTo := ReturnsTo
 	if opened.Gate == Decomposition {
 		// Decomposition names nothing at all: its reject re-decomposes the set rather
-		// than sending an item anywhere, so the field its closing row would carry
+		// than sending an item anywhere, so the field its close event would carry
 		// stays unwritten.
 		returnsTo = ""
 	}
 	return g.close(ctx, opened, component(opened.Gate), ClosingPayload{
-		Closing:        score.Closing{Verdict: string(VerdictReject)},
+		CloseEvent:     score.CloseEvent{Verdict: string(VerdictReject)},
 		Feedback:       found,
 		ReturnsTo:      returnsTo,
 		AutoRejectedBy: check,
@@ -470,19 +470,19 @@ func (g *Gate) close(ctx context.Context, opened Opened, actor record.Actor, clo
 	if err != nil {
 		return decisionlog.Row{}, fmt.Errorf("gate: marshalling the closing payload: %w", err)
 	}
-	return g.log.AppendDecisionClosing(ctx, decisionlog.Entry{
+	return g.log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor:   actor,
 		Payload: string(payload),
 		Closes:  opened.Row.ID,
 	})
 }
 
-// Component is the actor an opening row is written as, and a closing row too
+// Component is the actor an open event is written as, and a close event too
 // where the factory decides for itself: the gate component firing that row.
 //
 // It is exported because a mechanical rejection has a consequence outside this
 // package — the item goes back to a stage — and whatever performs that has to name
-// the same actor the closing row does. A caller composing the name itself would be
+// the same actor the close event does. A caller composing the name itself would be
 // a second place the convention lives.
 func Component(row Row) record.Actor {
 	return record.Actor{Kind: record.KindComponent, Name: "gate." + string(row)}
@@ -539,7 +539,7 @@ func blocked(criteria []CriterionResult) int {
 	return n
 }
 
-// whyItAutoPassed is what the closing row says passed the firing. It reads the
+// whyItAutoPassed is what the close event says passed the firing. It reads the
 // threshold at a gate the score would have passed anyway, whether or not the item
 // is held out, and the sample only where the number was at or above the threshold
 // — which is the one case the sample is evidence about, and the only case the

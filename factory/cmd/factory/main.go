@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agent"
-	"github.com/dulguun0225/borg/factory/checker"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -69,7 +69,7 @@ func main() {
 
 // subcommands is what the crude interface offers, in the order the usage message
 // lists them. run and walk are the path and the link walk; watch is the health monitor,
-// which is the one thing that closes a watch window; learn is the score's own pass
+// which is the one thing that closes a analysis window; learn is the score's own pass
 // over the outcomes; approve is the emergency action at the production deploy row;
 // and the other six are duty 8, duty 9, the priority an owner reorders a queue
 // with, and the People declaration a page routes on — none of which has a screen
@@ -126,27 +126,27 @@ func deployCredential() secretref.Ref { return secretref.MustNew(deployCredentia
 // process per service in one directory.
 func localTargetAt(dir string) targetseam.Target { return localtarget.New(dir) }
 
-// openChecker opens the independent checker's own store where one is reachable,
+// openDriftDetector opens the drift detector's own store where one is reachable,
 // and returns nothing where it is not. Nothing here applies its schema — that
-// store is the independent checker's and a factory that created it would own it
-// — so a store the independent checker has never run against reads as absent,
-// which is a factory with no independent checker installed and is a state the
+// store is the drift detector's and a factory that created it would own it
+// — so a store the drift detector has never run against reads as absent,
+// which is a factory with no drift detector installed and is a state the
 // design has.
 //
-// The absence is not an error. Installing the independent checker is substrate
+// The absence is not an error. Installing the drift detector is substrate
 // outside the twelve duties, and a factory that refused to run without one
 // would make it a requirement the design does not make.
-func openChecker(ctx context.Context) (*pgxpool.Pool, func(), error) {
-	pool, err := checker.Open(ctx, checker.URL())
+func openDriftDetector(ctx context.Context) (*pgxpool.Pool, func(), error) {
+	pool, err := driftdetector.Open(ctx, driftdetector.URL())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "no independent checker store at %s, so nothing checks this factory's records against what runs: %v\n",
-			checker.URL(), err)
+		fmt.Fprintf(os.Stderr, "no drift detector store at %s, so nothing checks this factory's records against what runs: %v\n",
+			driftdetector.URL(), err)
 		return nil, func() {}, nil
 	}
-	if _, err := checker.LastChecks(ctx, pool, ""); err != nil {
-		// The store is reachable and holds no schema, which is an independent checker
+	if _, err := driftdetector.LastChecks(ctx, pool, ""); err != nil {
+		// The store is reachable and holds no schema, which is an drift detector
 		// that has never run. Applying it here is what this must not do.
-		fmt.Fprintln(os.Stderr, "the independent checker's store holds no schema, so it has never run; `checker pass` is what creates it")
+		fmt.Fprintln(os.Stderr, "the drift detector's store holds no schema, so it has never run; `driftdetector pass` is what creates it")
 		pool.Close()
 		return nil, func() {}, nil
 	}
@@ -300,7 +300,7 @@ func runCommand(args []string) error {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		return err
 	}
-	checkerStore, shut, err := openChecker(ctx)
+	driftStore, shut, err := openDriftDetector(ctx)
 	if err != nil {
 		return err
 	}
@@ -342,7 +342,7 @@ func runCommand(args []string) error {
 		services:         services,
 		area:             *areaName,
 		candidateCeiling: *ceiling,
-		checker:          checkerStore,
+		driftdetector:    driftStore,
 		watchFor:         *watchFor,
 		watchEvery:       *watchEvery,
 	}, intents)

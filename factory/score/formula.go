@@ -26,7 +26,7 @@ const Formula = `Each factor resolves to a level between 0 and 1, where 1 is the
   change.reversibility   no earlier release to return to -> 1.0; an earlier release -> 0.3
   author.prior           1 - good / (good + bad + 1), over every outcome on this author's work: a human
                          approving one of its versions and a release of its watched to a close without
-                         harm are good, a human rejecting one, a window condemning a release,
+                         harm are good, a human rejecting one, a window failing a release,
                          and a human undoing one are bad, and a swept window is neither
   context.business_area  1 - approved / (approved + rejected + 1), over human verdicts on items in this area
   context.consumers      sibling services declaring they consume this one: <=0 -> 0.0, <=2 -> 0.4, <=9 -> 0.7, above -> 1.0
@@ -45,7 +45,7 @@ Impact bounds the number and likelihood scales it inside that bound, never down 
 change that is unlikely to be wrong and catastrophic if it is keeps four tenths of its exposure and
 is gated whatever its likelihood, and one that is likely wrong and cheap to undo is not.
 Reversibility discounts impact by half at most, because undoing a release here is a redeploy nobody
-watched — a fuller discount needs the control and the watch window.
+watched — a fuller discount needs the control and the analysis window.
 `
 
 // The last step's two constants, named because the formula's text states them
@@ -63,7 +63,7 @@ const (
 // with, the two halves kept apart, and the number the formula reduced them to.
 type Assessment struct {
 	// Version is the score version the assessment was computed under, which is
-	// the id of a row of this package's table. The opening row names it, so
+	// the id of a row of this package's table. The open event names it, so
 	// recomputing the vector later under a moved version cannot pass for the
 	// vector the decision was made on.
 	Version string

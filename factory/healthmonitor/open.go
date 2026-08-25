@@ -13,11 +13,11 @@ import (
 
 // ErrScoreVersionMissing is returned by [HealthMonitor.Open] for an opening naming no
 // score version. The window stores the two versions in force at the open the way a
-// gate's opening row does, and the score's is the caller's to hand over — the
+// gate's open event does, and the score's is the caller's to hand over — the
 // health monitor does not append one.
 var ErrScoreVersionMissing = errors.New("healthmonitor: a window names the score version in force at the open")
 
-// Open opens the watch window over one production deploy, and returns false where
+// Open opens the analysis window over one production deploy, and returns false where
 // no window opens. A window is one per production deploy of a release the service
 // has not watched before, whichever attempt that is — so a rollback opens none, the
 // release it returns to having been watched already, and neither does a redeploy of
@@ -26,13 +26,13 @@ var ErrScoreVersionMissing = errors.New("healthmonitor: a window names the score
 // The size, the confidence, and the cap in force are read here and copied onto the
 // record, which is what makes a reading at an exit interpretable: an owner
 // re-authoring a size while the window is open would otherwise change what a window
-// already closed is read to have meant. So is whether the cleared exit is
+// already closed is read to have meant. So is whether the passed exit is
 // available, which is
 // a fact of the open and never changes — a release with nothing below it has no
 // baseline, so nothing about it is ruled out by watching and its window ends at the
 // cap.
 //
-// heldOut is the other way the cleared exit becomes unavailable, and it is the
+// heldOut is the other way the passed exit becomes unavailable, and it is the
 // caller's to
 // hand over for the reason the score version is: what the score selected is read
 // off the decisions on the item, which this package does not read. A held-out
@@ -75,18 +75,18 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 		return window.Window{}, false, err
 	}
 
-	opened, err := h.windows.Open(ctx, Actor, window.Opening{
-		DeployID:         deployID,
-		ReleaseID:        releaseID,
-		ServiceID:        w.ID,
-		ClearedAvailable: below && !heldOut,
-		HeldOut:          heldOut,
-		Size:             parameters.Size.Number,
-		Confidence:       parameters.Confidence.Number,
-		CapSeconds:       parameters.CapSeconds.Number,
-		Formula:          boundary.Formula,
-		PolicyVersion:    version.ID,
-		ScoreVersion:     scoreVersion,
+	opened, err := h.windows.Open(ctx, Actor, window.OpenEvent{
+		DeployID:        deployID,
+		ReleaseID:       releaseID,
+		ServiceID:       w.ID,
+		PassedAvailable: below && !heldOut,
+		HeldOut:         heldOut,
+		Size:            parameters.Size.Number,
+		Confidence:      parameters.Confidence.Number,
+		CapSeconds:      parameters.CapSeconds.Number,
+		Formula:         boundary.Formula,
+		PolicyVersion:   version.ID,
+		ScoreVersion:    scoreVersion,
 	})
 	if err != nil {
 		return window.Window{}, false, err

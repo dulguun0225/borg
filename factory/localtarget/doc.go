@@ -20,14 +20,14 @@
 //
 // [RunningFile] is where the target records the build it started and its
 // process id, and [Local.ReadRunning] reads that file rather than this value's
-// memory. It was memory until 2026-08-19, and the independent checker is what
-// made that impossible: the independent checker is one process outside the
+// memory. It was memory until 2026-08-19, and the drift detector is what
+// made that impossible: the drift detector is one process outside the
 // factory that reads what is actually running on each production target, so a
 // target whose answer lived in the factory's own address space could not be
 // read by the one thing the design has read it. A read operation on the seam
 // that only its own writer can answer is not a read operation.
 //
-// What that buys beside the independent checker is that two [Local] values over one
+// What that buys beside the drift detector is that two [Local] values over one
 // directory are two views of one place rather than two places, and that a factory
 // process which restarts reads what its predecessor started.
 //
@@ -95,7 +95,7 @@
 // later — and the M1 demonstration in ../../roadmap.md#m1--one-change-ships, which
 // needs a target that runs the software so the deploy without a control ships
 // something. What reads [Local.ReadRunning] from outside the factory is
-// ../../end-goal/how-humans-do-it/08-operations.md#the-independent-checker, and the
+// ../../end-goal/how-humans-do-it/08-operations.md#drift-detection, and the
 // quantity the started process emits is
 // ../../end-goal/how-humans-do-it/08-operations.md#the-health-monitor, and the
 // exchange document a consumer contract is decided against is

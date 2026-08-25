@@ -7,7 +7,7 @@ import (
 )
 
 // Formula names the construction [Boundary.Evaluate] applies. It is stored on
-// the watch window record beside the size and the confidence resolved at the
+// the analysis window record beside the size and the confidence resolved at the
 // open, for the reason the design gives: a reading at an exit is not
 // interpretable against anything but the boundary it was actually read against,
 // and the size and the confidence alone do not say what was done with them.
@@ -18,7 +18,7 @@ const Formula = "log-likelihood-ratio/ville/v1"
 
 // smoothing is the half a failure in one unit added to the baseline estimate. A
 // baseline that failed nothing would otherwise put the alternative's advantage at
-// infinity and condemn the first failure the release under watch has.
+// infinity and fail the first failure the release under watch has.
 const smoothing = 0.5
 
 var (
@@ -40,7 +40,7 @@ var (
 const (
 	// NoBaseline is a release with nothing below it to be compared against,
 	// which is a service's first release. Nothing about it is discovered by
-	// watching, and the design says so: the cleared exit is not available to it.
+	// watching, and the design says so: the passed exit is not available to it.
 	NoBaseline = "the release has no baseline to be compared against, so no regression can be ruled out or found"
 	// NoHeadroom is a baseline rate so high that raising it by the size passes
 	// one. There is no rate above it for the alternative to name, so the
@@ -103,7 +103,7 @@ type Observed struct {
 	Units    int64
 	Failures int64
 	// BaselineUnits and BaselineFailures are the last known-good release's, which
-	// is the newest release whose window closed without condemning it. Nothing is
+	// is the newest release whose window closed without failing it. Nothing is
 	// the answer for a service's first release, and it makes both exits unreachable.
 	BaselineUnits    int64
 	BaselineFailures int64

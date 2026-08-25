@@ -165,7 +165,7 @@ func (f *Factory) AuthorItemSizeTarget(ctx context.Context, actor record.Actor, 
 }
 
 // The four an owner authors on a service. Nothing reads any of them until the
-// watch window is built, which is stated once here and again in service's
+// analysis window is built, which is stated once here and again in service's
 // parameters.go.
 
 // AuthorWindowSize authors the smallest regression a comparison must rule out.
@@ -184,7 +184,7 @@ func (f *Factory) AuthorWindowCap(ctx context.Context, actor record.Actor, servi
 	return f.authorOnService(ctx, actor, gatepolicy.WindowCap, serviceID, seconds, service.SetWindowCap)
 }
 
-// AuthorWindowLimit authors how many watch windows one service may hold open at once.
+// AuthorWindowLimit authors how many analysis windows one service may hold open at once.
 func (f *Factory) AuthorWindowLimit(ctx context.Context, actor record.Actor, serviceID string, limit float64) (Version, error) {
 	return f.authorOnService(ctx, actor, gatepolicy.WindowLimit, serviceID, limit, service.SetWindowLimit)
 }

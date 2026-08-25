@@ -29,7 +29,7 @@ const IDPrefix = "dep"
 // defaults to the empty string, which is what an ordinary deploy holds: the writer
 // names all four on every insert, and the default is for a row inserted around the
 // writer — which is what the store's own refusals are tested through.
-// undoing_together is what keeps them so: the condemned release and the source
+// undoing_together is what keeps them so: the failed release and the source
 // arrive together and neither arrives without the other, so a record that names one
 // of them is a rollback and a record that names neither is an ordinary deploy. The
 // swept releases are one id per line and empty where the rollback swept nothing,
@@ -49,7 +49,7 @@ var DDL = []string{
 	build_id text not null,
 	strategy text not null,
 	status text not null,
-	condemned_release_id text not null default '',
+	failed_release_id text not null default '',
 	swept_release_ids text not null default '',
 	source text not null default '',
 	revert_intent_id text not null default '',
@@ -59,9 +59,9 @@ var DDL = []string{
 	constraint build_id_present check (build_id <> ''),
 	constraint strategy_known check (strategy in ('without_control', 'with_control')),
 	constraint status_known check (status in ('started', 'complete', 'rolled_back')),
-	constraint undoing_together check ((condemned_release_id <> '') = (source <> '')),
+	constraint undoing_together check ((failed_release_id <> '') = (source <> '')),
 	constraint undoing_is_a_rollbacks check (
-		condemned_release_id <> '' or (swept_release_ids = '' and revert_intent_id = '')
+		failed_release_id <> '' or (swept_release_ids = '' and revert_intent_id = '')
 	)
 )`,
 }

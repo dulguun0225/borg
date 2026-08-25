@@ -24,7 +24,7 @@
 // its intent, which is the direction M1 is demonstrated in — every step a
 // stored field, none reconstructed — and then prints every decision the item's
 // gates left in the log. "watch <service>" is the health monitor alone, which
-// is the one thing that closes a watch window. "approve <item-id>" is the
+// is the one thing that closes a analysis window. "approve <item-id>" is the
 // emergency action at the production deploy row. "contracts" is every query
 // this milestone makes: the contracts and their versions, the elements and
 // their deprecation marks, the consumer contracts in force per service with the

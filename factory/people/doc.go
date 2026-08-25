@@ -6,7 +6,7 @@
 //
 // People is one of the four screens, and the screens are a later milestone. The
 // record is here because the notifier routes on it and routing cannot be built
-// without it — the arrangement the watch window's four parameters already had one
+// without it — the arrangement the analysis window's four parameters already had one
 // milestone earlier, authorable on the service record before anything read them.
 // What writes it until the screen exists is the crude interface.
 //
@@ -20,9 +20,9 @@
 //
 // The obligations are the three that fall outside the twelve because they are
 // substrate rather than work: hosting the factory, installing the independent
-// checker, and composing the fleet. They are here because routing needs a named
-// human where a row belongs to no duty, which is what an independent checker's
-// mismatch is — installing the independent checker is not one of the twelve, so
+// driftdetector, and composing the fleet. They are here because routing needs a named
+// human where a row belongs to no duty, which is what an drift detector's
+// mismatch is — installing the drift detector is not one of the twelve, so
 // the page it fires reaches whoever this record says installed it. Inventing a
 // thirteenth duty instead is what the design refuses: a duty would score an
 // obligation the twelve deliberately leave unscored, where a named human only

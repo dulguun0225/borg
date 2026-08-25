@@ -53,7 +53,7 @@ type Measurement struct {
 // The build is not among them, and that is deliberate: nothing here reads a build
 // record — what the score would want from one is the diff, which is the
 // measurement, taken where the repository is. What says which build a vector was
-// computed over is the opening row the gate writes it onto.
+// computed over is the open event the gate writes it onto.
 type Change struct {
 	ItemID      string
 	ServiceID   string
@@ -65,7 +65,7 @@ type Change struct {
 	CriteriaFailed  int
 }
 
-// Opening is the part of a decision's opening row this package reads back: the
+// OpenEvent is the part of a decision's open event this package reads back: the
 // item the decision was about, the artifact version under decision, the row it
 // fired at, the number and the threshold it was decided against, and whether the
 // score's own sample had selected the item. Package gate composes it into the
@@ -76,7 +76,7 @@ type Change struct {
 // vector, the criteria, the safeguards, and what the row waits on, none of which
 // this package reads back — the vector because a vector is written where it was
 // computed and never recomputed, and the rest because nothing here asks about it.
-type Opening struct {
+type OpenEvent struct {
 	ItemID     string  `json:"item_id"`
 	ArtifactID string  `json:"artifact_id"`
 	Gate       string  `json:"gate"`
@@ -89,17 +89,17 @@ type Opening struct {
 	HeldOut bool `json:"held_out"`
 }
 
-// Closing is the part of a decision's closing row this package reads back: the
+// CloseEvent is the part of a decision's close event this package reads back: the
 // verdict, and what auto-passed the firing where the factory decided for itself.
 // The two are read together because neither answers a question on its own — an
 // approval by a human is evidence about an author, and an approval by the factory
 // is the factory agreeing with itself unless its own sample is what passed it.
-type Closing struct {
+type CloseEvent struct {
 	Verdict         string `json:"verdict"`
 	WhyItAutoPassed string `json:"why_it_auto_passed"`
 }
 
-// The two verdicts this package reads off a closing row. Package gate owns the
+// The two verdicts this package reads off a close event. Package gate owns the
 // vocabulary and cannot be imported here, importing this package itself, so these
 // are the two words this package reads and TestTheVerdictsGateWritesAreTheOnesTheScoreReads
 // in that package is what holds the two spellings together.
@@ -247,7 +247,7 @@ func (s *Score) churn(ctx context.Context, c Change) (reading, error) {
 
 // reversibility reads whether the service has a release to return to, this
 // item's own excluded. A first release has none, which is what the design says
-// of one: no control, nothing able to close a window cleared, and no rollback
+// of one: no control, nothing able to close a window passed, and no rollback
 // target.
 func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 	earlier, err := release.CountForService(ctx, s.pool, c.ServiceID, c.ItemID)
@@ -270,18 +270,18 @@ func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 // over.
 //
 // Three kinds of outcome, and the design says all three move it: a human's
-// verdict on a version that author wrote, a watch window closing over a release of
+// verdict on a version that author wrote, a analysis window closing over a release of
 // an item that author wrote, and a human undoing one of those releases after it
-// shipped. A window closing without condemning the release counts for the author
-// and one that condemns it counts against — which is what "every outcome on that
-// author's artifact moves it, a window closing without condemning the release
+// shipped. A window closing without failing the release counts for the author
+// and one that fails it counts against — which is what "every outcome on that
+// author's artifact moves it, a window closing without failing the release
 // included" asks for, and it is what lets a prior
 // narrow on a factory that has stopped putting humans at gates.
 //
 // A swept window is not counted either way: a rollback aimed below the release
 // undid it, so its health monitor stopped before it decided anything. An undo is
 // counted whatever reason the human gave — the restriction to evidence traceable
-// to the health monitor is the watch window's parameters' rule and not this one's,
+// to the health monitor is the analysis window's parameters' rule and not this one's,
 // because building the wrong thing well says something about the author and
 // nothing about the health monitor.
 //
@@ -301,34 +301,34 @@ func (s *Score) prior(ctx context.Context, c Change) (reading, error) {
 	if err != nil {
 		return reading{}, err
 	}
-	approved, rejected, err := s.humanVerdicts(ctx, func(opening Opening) bool {
+	approved, rejected, err := s.humanVerdicts(ctx, func(opening OpenEvent) bool {
 		return contains(authored, opening.ArtifactID)
 	})
 	if err != nil {
 		return reading{}, err
 	}
 
-	shipped, condemned, undone, err := s.outcomesOfAuthor(ctx, implementation.Author)
+	shipped, failed, undone, err := s.outcomesOfAuthor(ctx, implementation.Author)
 	if err != nil {
 		return reading{}, err
 	}
 	return reading{
-		level: evidenceLevel(approved+shipped, rejected+condemned+undone),
-		words: fmt.Sprintf("%s: %d human approval(s) and %d rejection(s) on its own versions, %d release(s) watched without being condemned, %d condemned by a window, %d undone by a human",
-			implementation.Author, approved, rejected, shipped, condemned, undone),
+		level: evidenceLevel(approved+shipped, rejected+failed+undone),
+		words: fmt.Sprintf("%s: %d human approval(s) and %d rejection(s) on its own versions, %d release(s) watched without being failed, %d failed by a window, %d undone by a human",
+			implementation.Author, approved, rejected, shipped, failed, undone),
 	}, nil
 }
 
 // outcomesOfAuthor is what became of the releases of the items this author wrote a
-// version of: how many were watched to a close without being condemned, how many a window
-// condemned, and how many a human undid.
+// version of: how many were watched to a close without being failed, how many a window
+// failed, and how many a human undid.
 //
-// A release is counted once at most. A release condemned by its own window is
+// A release is counted once at most. A release failed by its own window is
 // usually also the release a rollback undid, and counting both would be one
 // outcome told twice — so an undo is counted only where the window did not
-// already condemn it, which is the case the design means: a human undoing
+// already fail it, which is the case the design means: a human undoing
 // something the health monitor did not catch.
-func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, condemned, undone int, err error) {
+func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, failed, undone int, err error) {
 	items, err := artifact.ItemsByAuthor(ctx, s.pool, author)
 	if err != nil {
 		return 0, 0, 0, err
@@ -343,8 +343,8 @@ func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, c
 	}
 	undoneRelease := map[string]bool{}
 	for _, d := range rollbacks {
-		if d.Undoing.Source != deploy.SourceHealthMonitorAtCondemned {
-			undoneRelease[d.Undoing.CondemnedReleaseID] = true
+		if d.Undoing.Source != deploy.SourceHealthMonitorAtFailed {
+			undoneRelease[d.Undoing.FailedReleaseID] = true
 		}
 	}
 
@@ -361,15 +361,15 @@ func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, c
 			return 0, 0, 0, err
 		}
 		switch {
-		case watched && w.Exit == window.ExitCondemned:
-			condemned++
+		case watched && w.Exit == window.ExitFailed:
+			failed++
 		case undoneRelease[rel.ID]:
 			undone++
 		case watched && w.Exit.Counts():
 			shipped++
 		}
 	}
-	return shipped, condemned, undone, nil
+	return shipped, failed, undone, nil
 }
 
 // businessArea reads the human verdicts on items in the same area. What the
@@ -387,7 +387,7 @@ func (s *Score) businessArea(ctx context.Context, c Change) (reading, error) {
 	if err != nil {
 		return reading{}, err
 	}
-	approved, rejected, err := s.humanVerdicts(ctx, func(opening Opening) bool {
+	approved, rejected, err := s.humanVerdicts(ctx, func(opening OpenEvent) bool {
 		return contains(items, opening.ItemID)
 	})
 	if err != nil {
@@ -464,19 +464,19 @@ func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 // humanVerdicts counts the closed decisions a human gave over a subject the
 // caller accepts. A hold is neither: a hold teaches the score nothing, which is
 // what separates it from a reject. An auto-passed decision is not counted
-// either — its closing row's actor is the gate component, so the human test
+// either — its close event's actor is the gate component, so the human test
 // leaves it out, which is doc.go's point about what narrows a prior here.
-func (s *Score) humanVerdicts(ctx context.Context, wanted func(Opening) bool) (approved, rejected int, err error) {
+func (s *Score) humanVerdicts(ctx context.Context, wanted func(OpenEvent) bool) (approved, rejected int, err error) {
 	closed, err := decisionlog.ClosedDecisions(ctx, s.pool)
 	if err != nil {
 		return 0, 0, err
 	}
 	for _, d := range closed {
-		if d.Closing.Actor.Kind != record.KindHuman {
+		if d.CloseEvent.Actor.Kind != record.KindHuman {
 			continue
 		}
-		var opening Opening
-		if err := json.Unmarshal([]byte(d.Opening.Payload), &opening); err != nil {
+		var opening OpenEvent
+		if err := json.Unmarshal([]byte(d.OpenEvent.Payload), &opening); err != nil {
 			// A payload this package cannot read is a row some other component
 			// wrote in a shape it does not know, which is not evidence about an
 			// author and is not an error either.
@@ -485,8 +485,8 @@ func (s *Score) humanVerdicts(ctx context.Context, wanted func(Opening) bool) (a
 		if !wanted(opening) {
 			continue
 		}
-		var closing Closing
-		if err := json.Unmarshal([]byte(d.Closing.Payload), &closing); err != nil {
+		var closing CloseEvent
+		if err := json.Unmarshal([]byte(d.CloseEvent.Payload), &closing); err != nil {
 			continue
 		}
 		switch closing.Verdict {

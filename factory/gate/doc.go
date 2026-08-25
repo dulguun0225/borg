@@ -38,19 +38,19 @@
 //
 // # The decision is two rows
 //
-// [Gate.Fire] appends the opening row when the gate fires, and [Gate.Decide] or
-// [Gate.AutoPass] appends the closing row when the verdict is given, naming the
+// [Gate.Fire] appends the open event when the gate fires, and [Gate.Decide] or
+// [Gate.AutoPass] appends the close event when the verdict is given, naming the
 // row it closes. What forces the write at the firing is the factor vector: a
 // human is meant to argue with the score's number before deciding, so the vector
 // has to exist while they are deciding, and it cannot be computed at the verdict
-// because the score version moves as outcomes arrive. The opening row is written
-// as the component gate.<row>; the closing row is written as the deciding human
+// because the score version moves as outcomes arrive. The open event is written
+// as the component gate.<row>; the close event is written as the deciding human
 // where a human decides and as the gate component where the factory decides for
 // itself. Both rows are written against the item and the build and never against
 // the release — one rule for both rows, so no reader has to know which side of
 // the merge a gate is on.
 //
-// The opening row names the values actually applied: the threshold in force,
+// The open event names the values actually applied: the threshold in force,
 // whether an owner authored it or the score supplied it, and the safeguards that
 // reached the firing. That is what makes a decision readable against the policy
 // it was taken under rather than against today's, which the policy version alone
@@ -60,7 +60,7 @@
 //
 // Three things, and any of them is enough. The number the score reduced the
 // vector to is at or above the threshold in force; a safeguard adds a human at
-// the row; or, at the production deploy row alone, the independent checker found
+// the row; or, at the production deploy row alone, the drift detector found
 // a record disagreeing with what runs. None of them removes a human another put
 // there — a safeguard can only add, and clearing a mismatch would not lift a
 // human the number put at the row.
@@ -68,8 +68,8 @@
 // One thing removes a human, and it removes exactly one: the score's own
 // held-out sample, asked through [Score.HoldOut] after the policy has answered.
 // Where the score selected this item, the human the number would have put at
-// the row is not there, the closing row says the sample and not the threshold
-// passed it, and [Opened.HeldOut] is on the opening row from that firing
+// the row is not there, the close event says the sample and not the threshold
+// passed it, and [Opened.HeldOut] is on the open event from that firing
 // onward. A safeguard's human and a mismatch's human stand: the sample is the
 // score holding itself out of its own gate, and it is asked with the
 // safeguard's answer so that it cannot pass one. That is the one mechanism in
@@ -79,10 +79,10 @@
 // and [Opened.Mismatch] says what disagreed, because a human approving through
 // one is saying the record is wrong and the deploy should proceed anyway.
 //
-// The mismatch is asked of [Checker] rather than read from a table here: that
+// The mismatch is asked of [DriftDetector] rather than read from a table here: that
 // store is not the factory's and no factory component may write it, so a gate that
 // imported the package owning it would be a gate holding a second pool.
-// [NoChecker] is what a factory with none installed is composed with, and it
+// [NoDriftDetector] is what a factory with none installed is composed with, and it
 // answers no mismatch ever — which is the state the design describes as a factory
 // whose every check reads a record the factory itself wrote.
 //
@@ -118,7 +118,7 @@
 // The factory's own hold is not a verdict, and four of the five are not fired
 // here either. This package owns the vocabulary of all five —
 // [HoldDependencyNotLive], [HoldNoRoomForAnotherEnvironment], [HoldWindowLimitReached],
-// [HoldRollbackAwaitingRevert], and [HoldCheckerMismatch] — so a caller cannot
+// [HoldRollbackAwaitingRevert], and [HoldDriftMismatch] — so a caller cannot
 // report one under a name of its own, and computing four of them is the caller's:
 // they read the item's declared dependencies, the deploy records of their
 // services, the service's open windows, and its newest rollback, none of which
@@ -128,7 +128,7 @@
 // themselves — a dependency becomes current, an environment is freed, a window
 // closes, a revert ships — so the deploy waits, nothing is decided, and the next
 // firing recomputes; a gate fired for one of them would ask a human to approve
-// through something the factory is about to clear. [HoldCheckerMismatch] does
+// through something the factory is about to clear. [HoldDriftMismatch] does
 // not lift itself, because every remedy the factory has reads the record in
 // question. That is the one this package fires: it puts a human at the row, and it
 // is what the notifier pages about.
@@ -143,7 +143,7 @@
 // log through [decisionlog.Writer], which owns that table, and it writes nowhere
 // else — a gate decides an event and edits nothing.
 //
-// What defines it: the two-row decision, what the opening row names, and the
+// What defines it: the two-row decision, what the open event names, and the
 // item-and-build rule are
 // ../../end-goal/how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it.
 // The actions per row are

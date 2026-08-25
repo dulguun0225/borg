@@ -33,7 +33,7 @@ type alwaysDraw struct{}
 func (alwaysDraw) Fraction() float64 { return 0 }
 
 // TestASuppliedValueMovesBecauseOutcomesMovedIt: three windows of one service
-// close without condemning a release, and the window limit the score supplies for that service rises
+// close without failing a release, and the window limit the score supplies for that service rises
 // — with
 // the movement readable as a version naming the one it superseded and every
 // decision after it naming the new one.
@@ -68,7 +68,7 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 		t.Fatalf("Learn: %v", err)
 	}
 	if limit, _ := twoClosed.Value(gatepolicy.WindowLimit, svc.ID); limit.Value != start.Value {
-		t.Errorf("two windows that condemned nothing supply a window limit of %v, want the starting %v", limit.Value, start.Value)
+		t.Errorf("two windows that failed nothing supply a window limit of %v, want the starting %v", limit.Value, start.Value)
 	}
 
 	// The third moves it, and the row says what moved it.
@@ -79,7 +79,7 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	}
 	limit, found := learned.Value(gatepolicy.WindowLimit, svc.ID)
 	if !found || limit.Value != start.Value+1 {
-		t.Fatalf("three windows that condemned nothing supply a window limit of %+v, want %v", limit, start.Value+1)
+		t.Fatalf("three windows that failed nothing supply a window limit of %+v, want %v", limit, start.Value+1)
 	}
 	if !limit.Moved() || limit.Subject != svc.ID {
 		t.Errorf("the moved value names subject %q, want the service it was learned about", limit.Subject)
@@ -136,11 +136,11 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 
 // TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong is the
 // calibration over a real graph: a change the score auto-passed on the number and
-// a window that condemned it lower the threshold that row supplies below the
+// a window that failed it lower the threshold that row supplies below the
 // number it passed.
 func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoChecker{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoDriftDetector{})
 
 	// A threshold of nine tenths auto-passes anything, which is the state the
 	// calibration is evidence against.
@@ -157,9 +157,9 @@ func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T
 		t.Fatalf("AutoPass: %v", err)
 	}
 
-	// It ships, and its window condemns it.
+	// It ships, and its window fails it.
 	rel := mint(t, ctx, pool, serviceID, it.ID, 1)
-	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitCondemned, false)
+	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitFailed, false)
 	rollBack(t, ctx, pool, rel.ID)
 
 	learned, err := score.Learn(ctx, pool)
@@ -171,7 +171,7 @@ func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T
 		t.Fatal("the score supplies no threshold for the merge row")
 	}
 	if threshold.Value >= opened.Assessment.Number {
-		t.Errorf("the threshold reads %v after passing a change at %v that was condemned, and the next change like it would pass again",
+		t.Errorf("the threshold reads %v after passing a change at %v that was failed, and the next change like it would pass again",
 			threshold.Value, opened.Assessment.Number)
 	}
 	if !threshold.Moved() || threshold.Subject != string(gate.MergeToMaster) {
@@ -188,7 +188,7 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 		t.Fatalf("Newest: %v", err)
 	}
 	s := score.New(pool, version, alwaysDraw{})
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoChecker{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
 
 	it, implementation := decomposeItem(t, ctx, pool, "item/sampled")
 	opened, err := g.Fire(ctx, firing(it, implementation,
@@ -210,17 +210,17 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AutoPass: %v", err)
 	}
-	var payload score.Closing
+	var payload score.CloseEvent
 	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
 		t.Fatalf("reading the closing payload: %v", err)
 	}
 	if payload.WhyItAutoPassed != score.AutoPassSample {
-		t.Errorf("the closing row says it was auto-passed by %q, want the sample", payload.WhyItAutoPassed)
+		t.Errorf("the close event says it was auto-passed by %q, want the sample", payload.WhyItAutoPassed)
 	}
 
 	// The selection is the item's and not the firing's: a second row on the same
 	// item is held out whatever its number reads, and where the number would have
-	// passed anyway the closing row says the threshold.
+	// passed anyway the close event says the threshold.
 	held, err := score.HeldOut(ctx, pool, it.ID)
 	if err != nil || !held {
 		t.Fatalf("HeldOut = %v, %v; the selection is written on the decisions", held, err)
@@ -238,7 +238,7 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 	// answer, so a gate a safeguard holds always-on keeps its human however the
 	// draw falls.
 	safeguarded := gate.New(decisionlog.NewWriter(pool), s,
-		fakePolicy{threshold: 0.1, bySafeguard: true}, gate.NoChecker{})
+		fakePolicy{threshold: 0.1, bySafeguard: true}, gate.NoDriftDetector{})
 	other, otherImplementation := decomposeItem(t, ctx, pool, "item/safeguarded")
 	opened, err = safeguarded.Fire(ctx, firing(other, otherImplementation,
 		score.Measurement{LinesChanged: 900, FilesChanged: 10, FilesInTree: 10}))
@@ -267,7 +267,7 @@ func TestAWindowClosingWithoutHarmNarrowsThePrior(t *testing.T) {
 	before := levelOf(t, wide, "author.prior")
 
 	// The first item ships and its window closes at the cap, which counts: a
-	// release that was never condemned is one the factory can return to.
+	// release that was never failed is one the factory can return to.
 	rel := mint(t, ctx, pool, serviceID, first.ID, 1)
 	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitTimedOut, false)
 
@@ -278,21 +278,21 @@ func TestAWindowClosingWithoutHarmNarrowsThePrior(t *testing.T) {
 	}
 	after := levelOf(t, narrowed, "author.prior")
 	if after >= before {
-		t.Errorf("the prior reads %v after a window closed without condemning a release, and %v before it", after, before)
+		t.Errorf("the prior reads %v after a window closed without failing a release, and %v before it", after, before)
 	}
 
-	// A window that condemned a release widens it again, and the reading says
+	// A window that failed a release widens it again, and the reading says
 	// which of the outcomes it counted.
 	third, _ := decomposeItem(t, ctx, pool, "item/three")
-	condemned := mint(t, ctx, pool, serviceID, third.ID, 2)
-	openWindow(t, ctx, pool, serviceID, condemned.ID, window.ExitCondemned, false)
+	failed := mint(t, ctx, pool, serviceID, third.ID, 2)
+	openWindow(t, ctx, pool, serviceID, failed.ID, window.ExitFailed, false)
 	fourth, _ := decomposeItem(t, ctx, pool, "item/four")
 	widened, err := s.Assess(ctx, score.Change{ItemID: fourth.ID, ServiceID: serviceID, AreaID: areaID})
 	if err != nil {
 		t.Fatalf("Assess a fourth time: %v", err)
 	}
 	if levelOf(t, widened, "author.prior") <= after {
-		t.Error("a window that condemned a release did not widen the prior")
+		t.Error("a window that failed a release did not widen the prior")
 	}
 	for _, f := range widened.Vector {
 		if f.Name == "author.prior" && f.Reading == "" {
@@ -341,18 +341,18 @@ func mint(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, itemID s
 func openWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, releaseID string, exit window.Exit, heldOut bool) window.Window {
 	t.Helper()
 	writer := window.NewWriter(pool)
-	opened, err := writer.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "health_monitor"}, window.Opening{
-		DeployID:         record.NewID("dep"),
-		ReleaseID:        releaseID,
-		ServiceID:        svcID,
-		ClearedAvailable: !heldOut,
-		HeldOut:          heldOut,
-		Size:             0.02,
-		Confidence:       0.95,
-		CapSeconds:       60,
-		Formula:          boundary.Formula,
-		PolicyVersion:    "pv_00000000000000000000000000000001",
-		ScoreVersion:     "scv_0000000000000000000000000000001",
+	opened, err := writer.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "health_monitor"}, window.OpenEvent{
+		DeployID:        record.NewID("dep"),
+		ReleaseID:       releaseID,
+		ServiceID:       svcID,
+		PassedAvailable: !heldOut,
+		HeldOut:         heldOut,
+		Size:            0.02,
+		Confidence:      0.95,
+		CapSeconds:      60,
+		Formula:         boundary.Formula,
+		PolicyVersion:   "pv_00000000000000000000000000000001",
+		ScoreVersion:    "scv_0000000000000000000000000000001",
 	})
 	if err != nil {
 		t.Fatalf("opening a window: %v", err)
@@ -364,17 +364,17 @@ func openWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, re
 	return closed
 }
 
-// rollBack is the rollback record that condemns one release, written by the
+// rollBack is the rollback record that fails one release, written by the
 // writer that owns a deploy.
-func rollBack(t *testing.T, ctx context.Context, pool *pgxpool.Pool, condemned string) {
+func rollBack(t *testing.T, ctx context.Context, pool *pgxpool.Pool, failed string) {
 	t.Helper()
 	w := deploy.NewWriter(pool)
 	dep, err := w.StartUndoing(ctx, record.Actor{Kind: record.KindComponent, Name: "agent.deployer"},
-		serviceID, environmentID, deploy.OfRelease(condemned, "bl_0000000000000000000000000000000a"),
+		serviceID, environmentID, deploy.OfRelease(failed, "bl_0000000000000000000000000000000a"),
 		deploy.Undoing{
-			CondemnedReleaseID: condemned,
-			Source:             deploy.SourceHealthMonitorAtCondemned,
-			RevertIntentID:     "in_0000000000000000000000000000000b",
+			FailedReleaseID: failed,
+			Source:          deploy.SourceHealthMonitorAtFailed,
+			RevertIntentID:  "in_0000000000000000000000000000000b",
 		})
 	if err != nil {
 		t.Fatalf("starting the rollback: %v", err)

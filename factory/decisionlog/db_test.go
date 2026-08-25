@@ -96,14 +96,14 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 		t.Fatalf("an empty log does not verify: %v", err)
 	}
 
-	opening, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	opening, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         gate,
 		Payload:       `{"gate":"merge","waits_on":"owner"}`,
 		PolicyVersion: "policy-1",
 		ScoreVersion:  "score-1",
 	})
 	if err != nil {
-		t.Fatalf("AppendDecisionOpening: %v", err)
+		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
 	page, err := log.AppendPageEvent(ctx, decisionlog.Entry{
 		Actor:   record.Actor{Kind: record.KindComponent, Name: "operations.pager"},
@@ -119,13 +119,13 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendWait: %v", err)
 	}
-	closing, err := log.AppendDecisionClosing(ctx, decisionlog.Entry{
+	closing, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor:   owner,
 		Payload: `{"verdict":"approve"}`,
 		Closes:  opening.ID,
 	})
 	if err != nil {
-		t.Fatalf("AppendDecisionClosing: %v", err)
+		t.Fatalf("AppendDecisionClose: %v", err)
 	}
 
 	if err := decisionlog.Verify(ctx, pool); err != nil {
@@ -142,7 +142,7 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 
 	wantShapes := []decisionlog.Shape{decisionlog.ShapeDecision, decisionlog.ShapePageEvent,
 		decisionlog.ShapeWait, decisionlog.ShapeDecision}
-	wantParts := []decisionlog.Part{decisionlog.PartOpening, "", "", decisionlog.PartClosing}
+	wantParts := []decisionlog.Part{decisionlog.PartOpen, "", "", decisionlog.PartClose}
 	prevHash := ""
 	for n, row := range rows {
 		if row.Shape != wantShapes[n] {
@@ -272,7 +272,7 @@ func TestATruncatedTailIsNotCaught(t *testing.T) {
 
 	// The freed prev_hash is why a truncation is not merely undetected: the
 	// log goes on accepting appends as though the removed row never was.
-	replacement, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	replacement, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor: gate, Payload: "written over the removed tail", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	})
 	if err != nil {
@@ -315,11 +315,11 @@ func appendThree(ctx context.Context, t *testing.T, pool *pgxpool.Pool, log *dec
 	t.Helper()
 	var appended []decisionlog.Row
 	for _, payload := range []string{"first", "second", "third"} {
-		row, err := log.AppendDecisionOpening(ctx, decisionlog.Entry{
+		row, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 			Actor: gate, Payload: payload, PolicyVersion: "policy-1", ScoreVersion: "score-1",
 		})
 		if err != nil {
-			t.Fatalf("AppendDecisionOpening(%q): %v", payload, err)
+			t.Fatalf("AppendDecisionOpen(%q): %v", payload, err)
 		}
 		appended = append(appended, row)
 	}

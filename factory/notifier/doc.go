@@ -31,7 +31,7 @@
 //     rollback the factory performed is reported rather than requested — the factory
 //     does not page to inform.
 //   - [PagesAlways]: the condition is met by definition. A mismatch the
-//     independent checker found holds that service's production deploys and does
+//     drift detector found holds that service's production deploys and does
 //     not lift itself; a page
 //     an owner fires from Ops is their judgment that production is worse, and nothing
 //     scores it.
@@ -70,8 +70,8 @@
 // The component that ends a wait calls [Answered] at the same write it ends it
 // with, so a caller which fails to make that call leaves a page widening
 // against a wait already answered. One wait ends where nothing calls: a
-// mismatch the independent checker found is cleared by a human inside the
-// independent checker's own store, which no factory component may write and
+// mismatch the drift detector found is cleared by a human inside the
+// drift detector's own store, which no factory component may write and
 // which calls nothing. So [Answered] for that one is called by whoever reads
 // that store and finds the mismatch cleared, and the event's time is the time
 // of that read rather than of the clearing.

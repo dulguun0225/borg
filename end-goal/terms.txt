@@ -23,28 +23,32 @@
 # and are here because the extraction cannot tell the difference, not because
 # they are terms.
 #
+
 a role prompt	agent engineering
 a skill	agent engineering
+advisory	vulnerability management
 agent	agent engineering
 always true	ordinary
 an actor on every record	ordinary
+analysis window	ordinary
 area	ordinary
 artifact	process engineering
 artifact gate	ordinary
 artifact store	process engineering
 attempt limit	ordinary
+backlog cap	ordinary
 backstop the factory	ordinary
 backward	ordinary
 baseline	statistics
+brownout	site reliability engineering
 build	release engineering
 candidate	release engineering
-cleared	coined
-closing row	coined
-condemned	coined
+close event	ordinary
 consumer contract	contract testing
 context	ordinary
 contract version	contract testing
 control	statistics
+could not derive	ordinary
 crossing	sequential analysis
 current release	release engineering
 decision	ordinary
@@ -55,29 +59,35 @@ design system	design systems
 detector	observability
 dispatch	software architecture
 disposition	ordinary
+drift detector	infrastructure as code
 dropped	ordinary
 edit in place	ordinary
 effort	agent engineering
 element	contract testing
+error budget	site reliability engineering
 escalated	site reliability engineering
+evaluation set	machine learning
 event	ordinary
 event gate	ordinary
-factory	coined
+exposure	security engineering
+factory	software engineering
 factory-wide settings record	ordinary
+failed	release engineering
 feed back as end users	ordinary
 firing	ordinary
 fleet	release engineering
-fleet proposal	coined
+fleet proposal	ordinary
 form	contract testing
 forward	ordinary
-fully autonomous software factory and operations	coined
-gate component	coined
+fully autonomous software factory and operations	ordinary
+gate component	software architecture
 git	version control
-health monitor	coined
+grouper	coined
+health monitor	site reliability engineering
 held out	statistics
+held-out sample rate	statistics
 hold	release engineering
 incident	site reliability engineering
-independent checker	coined
 intent	ordinary
 item	ordinary
 item-size target	ordinary
@@ -87,56 +97,64 @@ last known-good release	release engineering
 marked	ordinary
 mismatch	ordinary
 notifier	software architecture
-opening row	coined
+open event	ordinary
 ops	site reliability engineering
 optional feature	ordinary
 organic traffic	applied statistics
 originate intent	ordinary
 page	site reliability engineering
-page event	coined
+page event	ordinary
+passed	release engineering
 people	ordinary
 per-author prior	statistics
 platform	platform engineering
+policy version	ordinary
 provider account	ordinary
 question	ordinary
 re-decomposing	requirements engineering
-reach	coined
+redaction	legal
 refined	ordinary
 release	release engineering
 release number	release engineering
 report	ordinary
 report store	ordinary
+rework request	quality management
 risk threshold	risk scoring
 role	agent engineering
 role prompt	agent engineering
 rollback	release engineering
-rollback's target	coined
+rollback's target	ordinary
 rollout strategy	release engineering
 safeguard	ordinary
 scope	agent engineering
 score version	ordinary
 screens	product design
 seam	software architecture
-send-back	coined
+search	ordinary
+search budget	ordinary
 service	software architecture
+service level objective	site reliability engineering
 set the rules	ordinary
 skill	agent engineering
-skipped	coined
+skipped	continuous integration
 source	ordinary
+spend ceiling	coined
 state	ordinary
 state machine	formal methods
 state with an event inside it	ordinary
 statement	ordinary
 store	databases
 targets	ordinary
+the analysis window's cap	ordinary
+the analysis window's size and confidence	sequential analysis
 the author	ordinary
+the builder	ordinary
 the change	ordinary
 the fast-forward	version control
-the graph	coined
+the graph	ordinary
+the licence	ordinary
 the list of allowed predicate kinds	ordinary
 the pipeline	release engineering
-the watch window's cap	coined
-the watch window's size and confidence	sequential analysis
 timed out	ordinary
 traceability is the second	ordinary
 undecided	ordinary
@@ -144,9 +162,8 @@ unrefined	ordinary
 unwanted condition	requirements engineering
 verdict	ordinary
 verify against intent	ordinary
-watch window	coined
 why it auto-passed	ordinary
-window limit	coined
+window limit	ordinary
 with a control	statistics
 without a control	statistics
 work	ordinary

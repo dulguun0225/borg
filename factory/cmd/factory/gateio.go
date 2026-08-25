@@ -27,7 +27,7 @@ type fired struct {
 	policyVersion string
 	safeguards    []string
 	// heldOut is whether the score's own sample selected this item, and whyHeldOut
-	// which of the two ways. Both are on the opening row too; a row that reads held
+	// which of the two ways. Both are on the open event too; a row that reads held
 	// out with the number under the threshold is an item selected at an earlier gate.
 	heldOut    bool
 	whyHeldOut string
@@ -102,7 +102,7 @@ func (p *path) settle(ctx context.Context, opened gate.Opened) (gate.Verdict, st
 		if opened.HeldOut && opened.Assessment.Number >= opened.Applied.Threshold {
 			by = "the score's held-out sample"
 		}
-		fmt.Fprintf(p.d.out, "Auto-passed by %s; closing row %s written as the gate component\n", by, closing.ID)
+		fmt.Fprintf(p.d.out, "Auto-passed by %s; close event %s written as the gate component\n", by, closing.ID)
 		return gate.VerdictApprove, "", closing, nil
 	}
 
@@ -123,7 +123,7 @@ func (p *path) settle(ctx context.Context, opened gate.Opened) (gate.Verdict, st
 	if err != nil {
 		return "", "", decisionlog.Row{}, err
 	}
-	fmt.Fprintf(p.d.out, "The verdict is %s; closing row %s written as %s %s\n",
+	fmt.Fprintf(p.d.out, "The verdict is %s; close event %s written as %s %s\n",
 		verdict, closing.ID, closing.Actor.Kind, closing.Actor.Name)
 	return verdict, feedback, closing, nil
 }
@@ -156,7 +156,7 @@ func words(actions []gate.Verdict) []string {
 }
 
 // recordFiring is one firing as the end-to-end test reads it. Every field is on
-// the opening row as well; this saves the test a payload to unmarshal.
+// the open event as well; this saves the test a payload to unmarshal.
 func recordFiring(opened gate.Opened, closing decisionlog.Row) fired {
 	return fired{
 		opening:       opened.Row.ID,

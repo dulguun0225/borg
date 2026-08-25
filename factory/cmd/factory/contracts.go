@@ -153,7 +153,7 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 		if err != nil {
 			return err
 		}
-		lastGood := "no last known-good release: no window of this service has closed cleared or timed out, so the range is every release it has"
+		lastGood := "no last known-good release: no window of this service has closed passed or timed out, so the range is every release it has"
 		if in.HasLastKnownGood {
 			lastGood = fmt.Sprintf("last known-good release %d, set by window %s", in.LastKnownGoodNumber, in.LastKnownGoodWindowID)
 		}

@@ -62,7 +62,7 @@ func ExchangeFile(dir, build string) string { return filepath.Join(dir, build+".
 // RunningFile is where the target records what it started for one service: the
 // build, a space, and the process id. It is a file rather than a field, so that
 // a process which did not start the software can still read what is running
-// there — which is exactly what the independent checker is, and what the seam's
+// there — which is exactly what the drift detector is, and what the seam's
 // read operation is for.
 func RunningFile(dir, service string) string { return filepath.Join(dir, service+".running") }
 
@@ -169,7 +169,7 @@ func (l *Local) stop(service string) error {
 //
 // It reads the file the deploy wrote rather than this value's own memory, so a
 // process that did not perform the deploy gets the same answer — which is what
-// the independent checker needs and the one thing the design requires of this
+// the drift detector needs and the one thing the design requires of this
 // operation. What it costs is that a process nobody is waiting on may sit in
 // the process table as a zombie after it exits and answer signal 0, so a build
 // started by an earlier factory run and since crashed can read as running until
@@ -195,7 +195,7 @@ func (l *Local) ReadRunning(_ context.Context, service string, credential secret
 // nothing has been started for the service in this directory. A file this
 // package cannot read as those two is an error rather than nothing running —
 // something changed the target underneath, which is what the independent
-// checker exists to raise and not something to report as an empty target.
+// driftdetector exists to raise and not something to report as an empty target.
 func (l *Local) read(service string) (string, int, bool, error) {
 	content, err := os.ReadFile(RunningFile(l.dir, service))
 	if errors.Is(err, os.ErrNotExist) {

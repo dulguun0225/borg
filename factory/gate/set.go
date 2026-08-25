@@ -41,7 +41,7 @@ type SetFiring struct {
 	Members       []SetMember
 }
 
-// SetMemberPayload is one member as the opening row stores it.
+// SetMemberPayload is one member as the open event stores it.
 type SetMemberPayload struct {
 	ItemID    string   `json:"item_id"`
 	ServiceID string   `json:"service_id"`
@@ -49,11 +49,11 @@ type SetMemberPayload struct {
 	WaitsOn   []string `json:"waits_on"`
 }
 
-// SetOpeningPayload is what the Decomposition row's opening row says: the intent,
+// SetOpeningPayload is what the Decomposition row's open event says: the intent,
 // the whole set, the vector of the member the number came from, and the values
 // applied.
 //
-// It does not embed [score.Subject], which every other opening row does, and the
+// It does not embed [score.Subject], which every other open event does, and the
 // omission is the point: decomposition proposes a set rather than an artifact, so a
 // verdict here is an outcome on no author's work and on no one item. NumberFrom
 // names the member whose number was applied so a reader can see what drove it,
@@ -92,7 +92,7 @@ type SetOpeningPayload struct {
 // this row takes, and it costs a human at every Decomposition until there is a
 // factor set that can be computed over a proposed set rather than over a build.
 // What it buys is that the row is scored like every other, with the vector on the
-// opening row for the human to argue with, instead of a row that auto-passes on a
+// open event for the human to argue with, instead of a row that auto-passes on a
 // number computed from nothing.
 const NoBuildAtDecomposition = "no build exists at decomposition, and the diff is measured from one"
 
@@ -102,7 +102,7 @@ const NoBuildAtDecomposition = "no build exists at decomposition, and the diff i
 // costs is that a set of ten small items and one large one is decided at the large
 // one's number, which is the safe direction and is a real loss of throughput.
 //
-// The whole set's members are on the opening row whichever one the number came
+// The whole set's members are on the open event whichever one the number came
 // from, so a human reading it sees what they are approving and not only what drove
 // the number.
 //
@@ -191,7 +191,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload of decomposition: %w", err)
 	}
-	row, err := g.log.AppendDecisionOpening(ctx, decisionlog.Entry{
+	row, err := g.log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         component(Decomposition),
 		Payload:       string(payload),
 		PolicyVersion: policyApplied.PolicyVersion,

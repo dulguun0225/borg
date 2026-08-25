@@ -5,7 +5,7 @@
 // A field on the record its scope names was the alternative, and it works for five
 // subjects and breaks for two — a safeguard's predicate names a contract element
 // as its subject, and that record's writer is the merge queue; and a safeguard
-// setting a maximum age on the independent checker's last check would have the
+// setting a maximum age on the drift detector's last check would have the
 // factory writing into a store it may never write. So a safeguard is a record,
 // five readers and one writer, which is the shape the release record already has.
 // The first of those two is now built, and it is what [SubjectContractElement] and
@@ -25,11 +25,11 @@
 // # What a subject may be here
 //
 // The design admits a stage, a service, a project, an area, a contract element,
-// gate policy's own list, and the independent checker's last check. Five of
+// gate policy's own list, and the drift detector's last check. Five of
 // those have a record now: a service, an area, a gate row, the factory-wide
 // settings record, and a contract element — the last arriving with contracts,
 // which is what makes a safeguard's predicate storable. A project and the
-// independent checker's last check are refused with [ErrSubjectKindUnknown],
+// drift detector's last check are refused with [ErrSubjectKindUnknown],
 // because storing a safeguard against a record kind that does not exist is storing
 // a bound nothing can ever apply.
 //

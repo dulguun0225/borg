@@ -14,7 +14,7 @@ import (
 // of both payloads is this package's: a caller that unmarshalled them itself
 // would be a second place naming the same JSON fields, and the two could come to
 // disagree — the arrangement package score already has for the fields it reads
-// back off an opening row.
+// back off an open event.
 //
 // An item with more than one approval at the row keeps the latest, an item may be
 // rejected and approved again, and the queue's order is about the approval in
@@ -39,11 +39,11 @@ func ApprovalTimes(ctx context.Context, pool *pgxpool.Pool, row Row) (map[string
 		return nil, err
 	}
 
-	// The item each opening row of this gate row decided over, by opening id, so
-	// a closing row can be attributed without a second pass.
+	// The item each open event of this gate row decided over, by opening id, so
+	// a close event can be attributed without a second pass.
 	itemOf := make(map[string]string)
 	for _, r := range rows {
-		if r.Shape != decisionlog.ShapeDecision || r.Part != decisionlog.PartOpening {
+		if r.Shape != decisionlog.ShapeDecision || r.Part != decisionlog.PartOpen {
 			continue
 		}
 		var opening OpeningPayload
@@ -62,7 +62,7 @@ func ApprovalTimes(ctx context.Context, pool *pgxpool.Pool, row Row) (map[string
 
 	approved := make(map[string]string)
 	for _, r := range rows {
-		if r.Shape != decisionlog.ShapeDecision || r.Part != decisionlog.PartClosing {
+		if r.Shape != decisionlog.ShapeDecision || r.Part != decisionlog.PartClose {
 			continue
 		}
 		itemID, ours := itemOf[r.Closes]

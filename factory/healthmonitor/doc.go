@@ -4,9 +4,9 @@
 //
 // # What it is and what it is not
 //
-// It opens a watch window at a production deploy, reads the quantity, evaluates
+// It opens a analysis window at a production deploy, reads the quantity, evaluates
 // the [boundary], closes the window at exactly one of four exits, writes an
-// incident at a crossing, calls for a rollback at the condemned exit, and raises an
+// incident at a crossing, calls for a rollback at the failed exit, and raises an
 // intent for a crossing found after the window closed. It is the only component
 // that reads production behaviour and knows which release and which deploy that
 // behaviour belongs to.
@@ -41,27 +41,28 @@
 // watch, so its history is not history yet and a regression the lower one
 // introduced becomes part of what the upper one is measured against. The baseline
 // is [TargetBelow] instead — the newest release below the one under watch whose
-// window closed without condemning it, which is the same release a rollback from it
+// window closed without failing it, which is the same release a rollback from it
 // would return to. That is single-valued whatever is open above it.
 //
 // # A rollback is always the slow one
 //
-// The fast rollback shifts traffic onto the control of the window immediately
-// above the target, which is already running that build. With no control there is
+// The fast rollback shifts traffic onto the target's own instances, which a
+// rollout with a control keeps running at full capacity while any open window
+// could return to them. With nothing of the old build left running there is
 // nothing to shift onto, so every rollback here is the slow one: the target's build
-// redeployed and waited for. Production runs the condemned release for as long as
+// redeployed and waited for. Production runs the failed release for as long as
 // that takes.
 //
 // [TargetBelow] is what a rollback returns to and it is written nowhere. The
 // release record is written once at the fast-forward and never again, so an outcome
-// settled by a window closing long afterwards cannot be a field of it. Closing at
-// timing out counts as a target: a release that was never condemned is one the
-// factory can return to, and requiring a cleared close would leave a service too
-// quiet to reach one with no target at all. Closing skipped does not — nothing is
+// settled by a window closing long afterwards cannot be a field of it. CloseEvent at
+// timing out counts as a target: a release that was never failed is one the
+// factory can return to, and requiring a passed close would leave a service too
+// quiet to reach one with no target at all. CloseEvent skipped does not — nothing is
 // left running a skipped release's build.
 //
-// Master is linear, so a rollback undoes the condemned release and every release
-// above it, up to the window limit. The condemned one is named apart from the swept ones on the
+// Master is linear, so a rollback undoes the failed release and every release
+// above it, up to the window limit. The failed one is named apart from the swept ones on the
 // rollback's own deploy record, and the open window of each swept release is closed
 // skipped. A swept release whose window had already closed keeps the exit it closed
 // at: a window closes once.
@@ -93,7 +94,7 @@
 // pass reads what it needs from the store rather than from what a process
 // remembers, so the next pass finishes what the last one left.
 //
-// Who may write what: this package writes the watch window through
+// Who may write what: this package writes the analysis window through
 // [window.Writer], the incident through [incident.Writer], and the revert intent
 // through [intent.Intake], and it calls [notifier.Notifier] for what a human should
 // hear about. It writes no deploy record and reaches no target — [Rollbacker] does
@@ -101,10 +102,10 @@
 //
 // What defines it: ../../end-goal/how-humans-do-it/08-operations.md#the-health-monitor
 // for the control, the fallback, and what the health monitor is;
-// ../../end-goal/how-humans-do-it/08-operations.md#the-watch-window for the window
+// ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window for the window
 // and its four exits; ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows
 // for the window limit, the rollback's target, and what a rollback sweeps;
-// ../../end-goal/how-humans-do-it/08-operations.md#after-the-watch-window for the
+// ../../end-goal/how-humans-do-it/08-operations.md#after-the-analysis-window for the
 // intent a later crossing writes;
 // ../../end-goal/how-humans-do-it/08-operations.md#incidents for the incident and its
 // deduplication; and ../../end-goal/how-humans-do-it/06-releases.md#rollback for

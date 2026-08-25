@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/dulguun0225/borg/factory/boundary"
-	"github.com/dulguun0225/borg/factory/checker"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
@@ -121,18 +121,18 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 		r.ServiceID, r.ServiceName, r.EnvironmentID,
 		deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
 		deploy.Undoing{
-			CondemnedReleaseID: r.CondemnedReleaseID,
-			SweptReleaseIDs:    r.SweptReleaseIDs,
-			Source:             r.Source,
-			RevertIntentID:     r.RevertIntentID,
+			FailedReleaseID: r.FailedReleaseID,
+			SweptReleaseIDs: r.SweptReleaseIDs,
+			Source:          r.Source,
+			RevertIntentID:  r.RevertIntentID,
 		}, p.d.credential)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(p.d.out, "Rollback %s complete: build %s of release %s is back on the target\n",
 		dep.ID, r.ToBuildID, r.ToReleaseID)
-	fmt.Fprintf(p.d.out, "  it condemned release %s and swept %d above it; source: %s\n",
-		r.CondemnedReleaseID, len(r.SweptReleaseIDs), r.Source)
+	fmt.Fprintf(p.d.out, "  it failed release %s and swept %d above it; source: %s\n",
+		r.FailedReleaseID, len(r.SweptReleaseIDs), r.Source)
 	fmt.Fprintf(p.d.out, "  the revert it raised is intent %s, and every production deploy of this service holds until that ships\n",
 		r.RevertIntentID)
 	return nil
@@ -155,7 +155,7 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 			return nil
 		}
 		if !time.Now().Add(every).Before(deadline) {
-			fmt.Fprintf(p.d.out, "%d watch window(s) are still open on %s; `factory watch %s` continues from here\n",
+			fmt.Fprintf(p.d.out, "%d analysis window(s) are still open on %s; `factory watch %s` continues from here\n",
 				open, svc.Name, svc.Name)
 			fmt.Fprintln(p.d.out, "  a window nothing closes reaches the window limit and holds this service's production deploys — a wait on the factory, which does not page")
 			return nil
@@ -166,7 +166,7 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 
 // watchPass is one evaluation of everything downstream of a deploy on one service:
 // every open window, the release whose window has closed, the incidents that have
-// settled, and the independent checker's own store.
+// settled, and the drift detector's own store.
 func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
 
@@ -193,7 +193,7 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	for _, i := range resolved {
 		fmt.Fprintf(p.d.out, "Incident %s resolved: the crossing has stopped against what runs and what it raised has shipped\n", i.ID)
 	}
-	return p.checkerPages(ctx, svc)
+	return p.driftDetectorPages(ctx, svc)
 }
 
 // reportReading prints one reading as an owner would read it: the numbers the
@@ -218,12 +218,12 @@ func (p *path) reportReading(r healthmonitor.Reading) {
 			r.Boundary.Log, r.Boundary.Crossing, r.Window.Size, r.Window.Confidence, r.Window.Formula)
 	}
 	switch r.Exit {
-	case window.ExitCleared:
+	case window.ExitPassed:
 		fmt.Fprintln(out, "  clean: a regression of the size worth catching is ruled out, and the window closed early on evidence")
 	case window.ExitTimedOut:
 		fmt.Fprintln(out, "  cap: neither exit was reached in the time allowed, so the window closed unresolved — weak protection, reported as weak")
-	case window.ExitCondemned:
-		fmt.Fprintf(out, "  harm: the release is condemned, incident %s raised, revert intent %s taken in\n",
+	case window.ExitFailed:
+		fmt.Fprintf(out, "  harm: the release is failed, incident %s raised, revert intent %s taken in\n",
 			r.IncidentID, r.RaisedIntentID)
 	}
 	if r.WhyNoRollback != "" {
@@ -235,19 +235,19 @@ func (p *path) reportReading(r healthmonitor.Reading) {
 	}
 }
 
-// checkerPages is the notifier reading the independent checker's own store,
+// driftDetectorPages is the notifier reading the drift detector's own store,
 // which is the one wait nothing calls the notifier about: that store writes
 // into nothing of the factory's and calls nothing, so both ends of its page are
 // read rather than told.
 //
 // A mismatch nobody has been reached about is paged. One still uncleared on a later
-// pass widens, once, to the owner. One a human has cleared is answered — here, at the
-// pass that finds it cleared, because clearing it happened where nothing calls.
-func (p *path) checkerPages(ctx context.Context, svc service.Service) error {
-	if p.d.checker == nil || p.notifier == nil {
+// pass widens, once, to the owner. One a human has passed is answered — here, at the
+// pass that finds it passed, because clearing it happened where nothing calls.
+func (p *path) driftDetectorPages(ctx context.Context, svc service.Service) error {
+	if p.d.driftdetector == nil || p.notifier == nil {
 		return nil
 	}
-	all, err := checker.All(ctx, p.d.checker)
+	all, err := driftdetector.All(ctx, p.d.driftdetector)
 	if err != nil {
 		return err
 	}
@@ -257,9 +257,9 @@ func (p *path) checkerPages(ctx context.Context, svc service.Service) error {
 		}
 		w := notifier.Wait{
 			Row:     m.ID,
-			Kind:    notifier.KindCheckerMismatch,
+			Kind:    notifier.KindDriftMismatch,
 			Waiting: m.Why(),
-			Holding: people.OfObligation(people.ObligationChecker),
+			Holding: people.OfObligation(people.ObligationDriftDetector),
 			Worse:   true,
 		}
 		events, err := notifier.EventsFor(ctx, p.d.pool, m.ID)
@@ -341,7 +341,7 @@ func liveIsWorse(source intent.Source) bool { return source != intent.SourceOwne
 
 // approveThrough is a human approving through a factory hold at the production
 // deploy row, which is the emergency action the design keeps there: approve now, not
-// skip. The row fires with the hold on its opening row and the human decides.
+// skip. The row fires with the hold on its open event and the human decides.
 //
 // It exists because four of the five holds the factory sets lift themselves, so the
 // path waits them out rather than firing a row — and a hold nobody can approve

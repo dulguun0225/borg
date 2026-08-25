@@ -44,7 +44,7 @@ func git(repo string, args ...string) (string, error) {
 // repository is where master actually is.
 //
 // The two are compared, and a disagreement is an error naming both. That is the
-// shape the independent checker exists for and nothing else in the factory
+// shape the drift detector exists for and nothing else in the factory
 // looks for this one — a fast-forward that landed with no release minted leaves
 // exactly it, which is the window the merge queue names and does not close.
 func (p *path) masterHead(ctx context.Context, svc service.Service) (string, error) {

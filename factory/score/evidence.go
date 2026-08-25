@@ -31,22 +31,22 @@ const (
 	// against anything — the same distinction the factor readings keep between an
 	// empty history and an unavailable factor.
 	OutcomeUnknown Outcome = "unknown"
-	// OutcomeWell is an item that shipped and was neither condemned nor
+	// OutcomeWell is an item that shipped and was neither failed nor
 	// complained about.
 	OutcomeWell Outcome = "well"
 	// OutcomeBadly is an item a human rejected, or one whose release a rollback
-	// condemned, or one whose release an incident was raised against.
+	// failed, or one whose release an incident was raised against.
 	OutcomeBadly Outcome = "badly"
 )
 
 // Firing is one closed decision as the learning pass reads it: what the opening
-// row said about the change and what the closing row decided. It is the pair and
+// row said about the change and what the close event decided. It is the pair and
 // not the two rows, because every question the pass asks of a decision needs both
 // — the number the score gave it and what became of it.
 type Firing struct {
-	Opening Opening
-	Closing Closing
-	// HumanClosed is whether the closing row's actor was a human, which is what
+	OpenEvent  OpenEvent
+	CloseEvent CloseEvent
+	// HumanClosed is whether the close event's actor was a human, which is what
 	// separates a verdict from the factory agreeing with itself.
 	HumanClosed bool
 }
@@ -71,7 +71,7 @@ type Evidence struct {
 
 	releaseOfItem   map[string]release.Release
 	windowOfRelease map[string]window.Window
-	condemned       map[string]bool
+	failed          map[string]bool
 	swept           map[string]bool
 	incidentOn      map[string]bool
 	rejected        map[string]bool
@@ -87,16 +87,16 @@ func ReadEvidence(ctx context.Context, pool *pgxpool.Pool) (*Evidence, error) {
 		return nil, err
 	}
 	for _, d := range closed {
-		var opening Opening
-		var closing Closing
-		if json.Unmarshal([]byte(d.Opening.Payload), &opening) != nil ||
-			json.Unmarshal([]byte(d.Closing.Payload), &closing) != nil {
+		var opening OpenEvent
+		var closing CloseEvent
+		if json.Unmarshal([]byte(d.OpenEvent.Payload), &opening) != nil ||
+			json.Unmarshal([]byte(d.CloseEvent.Payload), &closing) != nil {
 			// A payload this package cannot read is a row some other component
 			// wrote in a shape it does not know, which is not an outcome and is
 			// not an error either.
 			continue
 		}
-		f := Firing{Opening: opening, Closing: closing, HumanClosed: d.Closing.Actor.Kind == record.KindHuman}
+		f := Firing{OpenEvent: opening, CloseEvent: closing, HumanClosed: d.CloseEvent.Actor.Kind == record.KindHuman}
 		e.firings = append(e.firings, f)
 		if f.HumanClosed && closing.Verdict == VerdictRejected && opening.ItemID != "" {
 			e.rejected[opening.ItemID] = true
@@ -131,7 +131,7 @@ func newEvidence() *Evidence {
 	return &Evidence{
 		releaseOfItem:   map[string]release.Release{},
 		windowOfRelease: map[string]window.Window{},
-		condemned:       map[string]bool{},
+		failed:          map[string]bool{},
 		swept:           map[string]bool{},
 		incidentOn:      map[string]bool{},
 		rejected:        map[string]bool{},
@@ -151,7 +151,7 @@ func (e *Evidence) index() {
 		e.windowOfRelease[w.ReleaseID] = w
 	}
 	for _, d := range e.rollbacks {
-		e.condemned[d.Undoing.CondemnedReleaseID] = true
+		e.failed[d.Undoing.FailedReleaseID] = true
 		for _, id := range d.Undoing.SweptReleaseIDs {
 			e.swept[id] = true
 		}
@@ -162,8 +162,8 @@ func (e *Evidence) index() {
 }
 
 // Outcome is what became of one item. A rejection by a human, a rollback that
-// condemned its release, and an incident against its release are each enough to
-// make it badly; a release whose window closed without condemning a release and none of those
+// failed its release, and an incident against its release are each enough to
+// make it badly; a release whose window closed without failing a release and none of those
 // makes it well; anything else is unknown.
 //
 // A swept release is neither. Its own health monitor stopped because a rollback aimed
@@ -180,7 +180,7 @@ func (e *Evidence) Outcome(itemID string) Outcome {
 	if !released {
 		return OutcomeUnknown
 	}
-	if e.condemned[r.ID] || e.incidentOn[r.ID] {
+	if e.failed[r.ID] || e.incidentOn[r.ID] {
 		return OutcomeBadly
 	}
 	w, watched := e.windowOfRelease[r.ID]
@@ -190,16 +190,16 @@ func (e *Evidence) Outcome(itemID string) Outcome {
 	return OutcomeWell
 }
 
-// Misses is every window of one service that closed without condemning a
+// Misses is every window of one service that closed without failing a
 // release over a release an incident was later raised against. That is the
 // crossing the health monitor could have seen and did not: the window said it
 // was done watching and the same quantity crossed afterwards, so the size it
 // was watching at was too coarse.
 //
 // A rollback is not one of these and cannot be. The health monitor rolls a
-// release back at the condemned exit and nowhere else, so a rollback the
-// factory performed always has a condemned window under it and never a window
-// that closed without condemning a release; what happens outside a window is an
+// release back at the failed exit and nowhere else, so a rollback the
+// factory performed always has a failed window under it and never a window
+// that closed without failing a release; what happens outside a window is an
 // incident and an item. A human's undo is not one either: the design counts
 // only evidence traceable to the health monitor here, a human's reason is
 // prose, and the factory does not judge prose — so an undo moves the per-author
@@ -258,8 +258,8 @@ func (e *Evidence) Stages() []item.Stage {
 func (e *Evidence) GateRows() []string {
 	seen := map[string]bool{}
 	for _, f := range e.firings {
-		if f.Opening.Gate != "" {
-			seen[f.Opening.Gate] = true
+		if f.OpenEvent.Gate != "" {
+			seen[f.OpenEvent.Gate] = true
 		}
 	}
 	return sorted(seen)
@@ -273,7 +273,7 @@ type serviceEvent struct {
 	at string
 	// noHarm is a window that closed leaving a release the factory can return to.
 	noHarm bool
-	// sweeping is a rollback that undid more than the release it condemned.
+	// sweeping is a rollback that undid more than the release it failed.
 	sweeping bool
 }
 
@@ -301,7 +301,7 @@ func (e *Evidence) serviceHistory(serviceID string) []serviceEvent {
 //
 // It is what says whether a size the score is asking for is reachable at all —
 // which is arithmetic over volume and not a claim about harm, so it is evidence
-// the watch window's harm-only restriction does not speak to.
+// the analysis window's harm-only restriction does not speak to.
 type Traffic struct {
 	// UnitsPerSecond is what the release under watch served, over the seconds its
 	// window was open.
@@ -313,7 +313,7 @@ type Traffic struct {
 
 // traffic is [Traffic] for one service, and false where no closed window of it
 // carries a read with a baseline in it. A service whose windows have never had a
-// baseline has never had the cleared exit available to them either, so there is
+// baseline has never had the passed exit available to them either, so there is
 // nothing for
 // reachability to constrain.
 func (e *Evidence) traffic(serviceID string) (Traffic, bool, error) {
@@ -358,14 +358,14 @@ func (e *Evidence) reachedStage(stage item.Stage) int {
 }
 
 // resolvedIn is how long each window of one service took to close on evidence —
-// cleared or condemned, the two exits that are a reading of the quantity rather than a
+// passed or failed, the two exits that are a reading of the quantity rather than a
 // clock running out. It is what the cap is set above: a cap under the time a
 // window of this service actually needed closes unresolved a window that would
 // have resolved.
 func (e *Evidence) resolvedIn(serviceID string) ([]time.Duration, error) {
 	var took []time.Duration
 	for _, w := range e.windows {
-		if w.ServiceID != serviceID || (w.Exit != window.ExitCleared && w.Exit != window.ExitCondemned) {
+		if w.ServiceID != serviceID || (w.Exit != window.ExitPassed && w.Exit != window.ExitFailed) {
 			continue
 		}
 		opened, err := record.ParseTime(w.At)

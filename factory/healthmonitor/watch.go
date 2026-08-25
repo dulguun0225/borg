@@ -37,7 +37,7 @@ type Reading struct {
 	// the release it returned to, and is the zero release where none happened.
 	Rolled *Rollback
 	Target release.Release
-	// WhyNoRollback is why a condemned exit rolled nothing back, and is empty otherwise:
+	// WhyNoRollback is why a failed exit rolled nothing back, and is empty otherwise:
 	// no release to return to, or a factory whose deploy agent cannot perform one.
 	WhyNoRollback string
 }
@@ -107,10 +107,10 @@ func (h *HealthMonitor) read(ctx context.Context, w Watching, win window.Window)
 
 	switch {
 	case reading.Boundary.Harm:
-		return h.condemned(ctx, w, reading)
+		return h.failed(ctx, w, reading)
 	case reading.Boundary.Clean:
-		closed, err := h.windows.Close(ctx, win.ID, window.ExitCleared, observed)
-		reading.Window, reading.Exit = closed, window.ExitCleared
+		closed, err := h.windows.Close(ctx, win.ID, window.ExitPassed, observed)
+		reading.Window, reading.Exit = closed, window.ExitPassed
 		return reading, nil, err
 	}
 
@@ -147,7 +147,7 @@ func (h *HealthMonitor) observe(ctx context.Context, w Watching, rel release.Rel
 	return observed, baseline, has, nil
 }
 
-// condemned is the exit with no human in it: the incident, the window closed, the
+// failed is the exit with no human in it: the incident, the window closed, the
 // revert intent raised, the rollback asked for, and every window the rollback swept
 // closed skipped.
 //
@@ -156,8 +156,8 @@ func (h *HealthMonitor) observe(ctx context.Context, w Watching, rel release.Rel
 // halfway should not leave the crossing unrecorded. The revert intent is raised
 // before the rollback is asked for, so the rollback's record can name it — and an
 // intent with no rollback behind it is a state the design already has, for a
-// condemned exit that found no release to return to.
-func (h *HealthMonitor) condemned(ctx context.Context, w Watching, reading Reading) (Reading, []string, error) {
+// failed exit that found no release to return to.
+func (h *HealthMonitor) failed(ctx context.Context, w Watching, reading Reading) (Reading, []string, error) {
 	deployed, err := deploy.Get(ctx, h.pool, reading.Window.DeployID)
 	if err != nil {
 		return reading, nil, err
@@ -168,11 +168,11 @@ func (h *HealthMonitor) condemned(ctx context.Context, w Watching, reading Readi
 	}
 	reading.IncidentID, reading.RaisedIntentID = raised.IncidentID, raised.IntentID
 
-	closed, err := h.windows.Close(ctx, reading.Window.ID, window.ExitCondemned, reading.Observed)
+	closed, err := h.windows.Close(ctx, reading.Window.ID, window.ExitFailed, reading.Observed)
 	if err != nil {
 		return reading, nil, err
 	}
-	reading.Window, reading.Exit = closed, window.ExitCondemned
+	reading.Window, reading.Exit = closed, window.ExitFailed
 
 	target, has, err := TargetBelow(ctx, h.pool, w.ID, reading.Release.Number)
 	if err != nil {
@@ -181,10 +181,10 @@ func (h *HealthMonitor) condemned(ctx context.Context, w Watching, reading Readi
 	switch {
 	case !has:
 		// A service's first release has no target at all: nothing below it closed
-		// without condemning a release, no control is running under it, and there is no earlier build
-		// to redeploy. The condemned release keeps serving and the revert is the only
+		// without failing a release, no control is running under it, and there is no earlier build
+		// to redeploy. The failed release keeps serving and the revert is the only
 		// correction, which the intent above has already asked for.
-		reading.WhyNoRollback = "no release below this one has a window that closed without condemning it, so there is nothing to return to"
+		reading.WhyNoRollback = "no release below this one has a window that closed without failing it, so there is nothing to return to"
 		return reading, nil, h.report(ctx, reading)
 	case h.rollbacker == nil:
 		reading.WhyNoRollback = "this factory is composed with no deploy agent to perform one"
@@ -201,15 +201,15 @@ func (h *HealthMonitor) condemned(ctx context.Context, w Watching, reading Readi
 	}
 
 	rollback := Rollback{
-		ServiceID:          w.ID,
-		ServiceName:        w.Name,
-		EnvironmentID:      w.EnvironmentID,
-		ToReleaseID:        target.ID,
-		ToBuildID:          target.BuildID,
-		CondemnedReleaseID: reading.Release.ID,
-		SweptReleaseIDs:    sweptIDs,
-		Source:             deploy.SourceHealthMonitorAtCondemned,
-		RevertIntentID:     raised.IntentID,
+		ServiceID:       w.ID,
+		ServiceName:     w.Name,
+		EnvironmentID:   w.EnvironmentID,
+		ToReleaseID:     target.ID,
+		ToBuildID:       target.BuildID,
+		FailedReleaseID: reading.Release.ID,
+		SweptReleaseIDs: sweptIDs,
+		Source:          deploy.SourceHealthMonitorAtFailed,
+		RevertIntentID:  raised.IntentID,
 	}
 	if err := h.rollbacker.RollBack(ctx, rollback); err != nil {
 		return reading, nil, fmt.Errorf("healthmonitor: rolling release %d of %s back to %d: %w",
@@ -217,7 +217,7 @@ func (h *HealthMonitor) condemned(ctx context.Context, w Watching, reading Readi
 	}
 	reading.Rolled, reading.Target = &rollback, target
 
-	// Every release the rollback undid above the condemned one is swept: its
+	// Every release the rollback undid above the failed one is swept: its
 	// health monitor simply stopped, because master is linear and the release was above
 	// the target. A window already closed keeps the exit it closed at — a window
 	// closes once — so only the open ones are closed here.
@@ -251,7 +251,7 @@ type raisedCrossing struct {
 // recordCrossing writes the crossing as an incident, or as an observation on the
 // one already open for this service and release — which is what keeps a second
 // crossing from becoming a second intent. raiseIntent is what the caller wants a
-// new incident to carry: a condemned exit raises a revert, and a crossing after the
+// new incident to carry: a failed exit raises a revert, and a crossing after the
 // window closed raises the item that investigates it.
 func (h *HealthMonitor) recordCrossing(ctx context.Context, w Watching, rel release.Release,
 	deployID string, revert bool) (raisedCrossing, error) {
@@ -294,7 +294,7 @@ func (h *HealthMonitor) recordCrossing(ctx context.Context, w Watching, rel rele
 // whose statement holds an id is one no human reads — and because what refines it is
 // an agent reading the statement.
 func RevertStatement(serviceName string, number int64) string {
-	return fmt.Sprintf("Revert release %d of %s: its watch window closed condemned, and %s.",
+	return fmt.Sprintf("Revert release %d of %s: its analysis window closed failed, and %s.",
 		number, serviceName, Crossing)
 }
 
@@ -313,10 +313,10 @@ func (h *HealthMonitor) report(ctx context.Context, reading Reading) error {
 	if h.notifier == nil {
 		return nil
 	}
-	waiting := fmt.Sprintf("release %d was condemned by its watch window and rolled back to release %d, sweeping %d above it",
+	waiting := fmt.Sprintf("release %d was failed by its analysis window and rolled back to release %d, sweeping %d above it",
 		reading.Release.Number, reading.Target.Number, len(reading.Rolled.SweptReleaseIDs))
 	if reading.WhyNoRollback != "" {
-		waiting = fmt.Sprintf("release %d was condemned by its watch window and nothing was rolled back: %s",
+		waiting = fmt.Sprintf("release %d was failed by its analysis window and nothing was rolled back: %s",
 			reading.Release.Number, reading.WhyNoRollback)
 	}
 	_, err := h.notifier.Notify(ctx, notifier.Wait{

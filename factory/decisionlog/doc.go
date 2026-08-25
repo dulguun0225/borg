@@ -7,18 +7,18 @@
 //
 // A row is a decision, a page event, or a wait, and [Writer] has one method
 // per kind of row rather than a shape argument. A page event and a wait are
-// one row each. A decision is two rows: an opening row appended when the gate
+// one row each. A decision is two rows: an open event appended when the gate
 // fires, naming the policy version and the score version it was decided
-// under, and a closing row appended when the verdict is given, naming the
-// opening row it closes and neither version — what a decision was made under
+// under, and a close event appended when the verdict is given, naming the
+// open event it closes and neither version — what a decision was made under
 // is a fact of the firing, written once where the firing is, so two rows
 // cannot come to disagree about it. The verdict cannot be written onto the
-// opening row instead, because that row is chained the moment it is appended
+// open event instead, because that row is chained the moment it is appended
 // and a verdict added afterwards would be a rewrite of a chained record.
 //
 // Each rule is enforced twice. The methods refuse an entry that breaks it,
 // and [DDL] refuses the same row again with a CHECK constraint, so a row
-// inserted around the methods is refused too. [Writer.AppendDecisionClosing]
+// inserted around the methods is refused too. [Writer.AppendDecisionClose]
 // also checks, inside its transaction and before its insert, that the row it
 // names exists and is an opening decision row; a second closing on one
 // opening is refused by a partial unique index on closes. Every reader of the
@@ -118,7 +118,7 @@
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-not-in-it, and
 // nothing here deletes anything yet. The two-row decision is
 // ../../end-goal/how-humans-do-it/03-gates.md#where-a-gate-is-and-what-decides-it:
-// the opening row exists so the human has the factor vector to argue with,
+// the open event exists so the human has the factor vector to argue with,
 // and the verdict is a second row because writing it onto a chained row would
 // be a rewrite.
 package decisionlog

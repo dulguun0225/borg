@@ -75,7 +75,7 @@ type Subjects struct {
 
 // Applied is what a gate firing applied: the policy version it was decided
 // under, the threshold in force and where it came from, and whether a safeguard
-// put a human at the row. It is written onto the opening row, which is what
+// put a human at the row. It is written onto the open event, which is what
 // makes a decision readable against the policy it was taken under rather than
 // against today's.
 type Applied struct {
@@ -150,7 +150,7 @@ func (r *Reader) AttemptLimit(ctx context.Context, s Subjects) (Effective, error
 	return r.resolve(ctx, gatepolicy.AttemptLimit, authored, s)
 }
 
-// Window is the four parameters the watch window reads, each in force against one
+// Window is the four parameters the analysis window reads, each in force against one
 // service: what an owner authored where they authored one, what the score supplies
 // where they did not, and a safeguard clamping either. The four are read together
 // because a window resolves all of them at the open and copies them onto its record
@@ -169,7 +169,7 @@ type Window struct {
 // subject a firing names and this is the health monitor's over one service.
 func (r *Reader) WindowParameters(ctx context.Context, serviceID string) (Window, error) {
 	if serviceID == "" {
-		return Window{}, fmt.Errorf("policy: the watch window's parameters are per service, and none is named")
+		return Window{}, fmt.Errorf("policy: the analysis window's parameters are per service, and none is named")
 	}
 	s := Subjects{ServiceID: serviceID}
 	var w Window

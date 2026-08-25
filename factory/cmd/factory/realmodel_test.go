@@ -261,21 +261,21 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		}
 	}
 
-	// The watch window, which is the one thing on this stretch a fake model cannot
+	// The analysis window, which is the one thing on this stretch a fake model cannot
 	// fail: the implementer is told to emit the quantity the factory watches by, and
 	// whether a real model does what an instruction asks is exactly what only a real
 	// call answers. A build that emitted nothing leaves a window that can end at its
 	// cap and nowhere else, however healthy the service is.
 	if c.windowID == "" {
-		t.Fatalf("no watch window opened over the production deploy:\n%s", out)
+		t.Fatalf("no analysis window opened over the production deploy:\n%s", out)
 	}
 	w, err := window.Get(ctx, d.pool, c.windowID)
 	if err != nil {
 		t.Fatalf("reading the window: %v", err)
 	}
-	t.Logf("window %s: size %v, confidence %v, cap %vs, cleared available %v, exit %q",
-		w.ID, w.Size, w.Confidence, w.CapSeconds, w.ClearedAvailable, w.Exit)
-	if w.ClearedAvailable {
+	t.Logf("window %s: size %v, confidence %v, cap %vs, passed available %v, exit %q",
+		w.ID, w.Size, w.Confidence, w.CapSeconds, w.PassedAvailable, w.Exit)
+	if w.PassedAvailable {
 		t.Error("the window says clean was available to a service's first release, and there is nothing below it to compare against")
 	}
 	if w.Exit != window.ExitTimedOut {

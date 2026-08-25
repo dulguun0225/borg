@@ -36,12 +36,14 @@ var Shapes = []Shape{ShapeDecision, ShapePageEvent, ShapeWait}
 type Part string
 
 const (
-	// PartOpening is the row appended when the gate fires, naming both
-	// versions and everything the verdict will be given over.
-	PartOpening Part = "opening"
-	// PartClosing is the row appended when the verdict is given, naming the
-	// opening row it closes and neither version.
-	PartClosing Part = "closing"
+	// PartOpen is the row appended when the gate fires, naming both
+	// versions and everything the verdict will be given over. The stored
+	// value is hashed into the chain, so it keeps the word the first record
+	// was written with; only the Go name follows the design's "open event".
+	PartOpen Part = "opening"
+	// PartClose is the row appended when the verdict is given, naming the
+	// open event it closes and neither version.
+	PartClose Part = "closing"
 )
 
 // Entry is what a caller hands an append method: who decided, what about,
@@ -60,15 +62,15 @@ type Entry struct {
 	// package neither parses it nor constrains its format.
 	Payload string
 	// PolicyVersion is the gate policy the decision was decided under. It is
-	// required by [Writer.AppendDecisionOpening] and refused by the other
+	// required by [Writer.AppendDecisionOpen] and refused by the other
 	// three methods: what a decision was made under is a fact of the firing,
 	// written once where the firing is.
 	PolicyVersion string
 	// ScoreVersion is the risk score the decision was decided under. The same
 	// rule applies to it.
 	ScoreVersion string
-	// Closes is the id of the opening row a closing row closes. It is set
-	// only on a closing row: [Writer.AppendDecisionClosing] requires it and
+	// Closes is the id of the open event a close event closes. It is set
+	// only on a close event: [Writer.AppendDecisionClose] requires it and
 	// the other three methods refuse it.
 	Closes string
 }

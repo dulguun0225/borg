@@ -38,7 +38,7 @@
 // gate of a new install forever.
 //
 // What narrows the prior is every outcome on that author's own work — a human's
-// verdict on a version it wrote, a watch window closing over a release of an item
+// verdict on a version it wrote, a analysis window closing over a release of an item
 // it wrote, and a human undoing one after it shipped — so a prior keeps moving on
 // a factory that has stopped putting humans at gates, which is what it could not
 // do until the windows were built and read here.
@@ -58,7 +58,7 @@
 // factory twice over an unchanged store appends nothing.
 //
 // A supplied value is per subject and not per parameter: the window limit and the
-// watch window's
+// analysis window's
 // three are supplied per service, the item-size target per area, the attempt limit
 // per stage, and the threshold per gate row — the same key the authored value has,
 // because what the score supplies is what stands where that field is empty. The
@@ -93,7 +93,7 @@
 // time, protects nothing, and holds the next deploy for the whole cap. The two are
 // different questions — what is worth catching, and whether anything can be caught
 // — and only the first is about harm, which is why reading the second is not the
-// watch window's harm-only restriction being reopened.
+// analysis window's harm-only restriction being reopened.
 //
 // Two move one way, and [Rules] states the reason with each: no outcome here
 // teaches that a confidence was too high, and nothing measures the other end of an
@@ -145,5 +145,5 @@
 // limit's own
 // evidence is ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows
 // and the window's size and cap are
-// ../../end-goal/how-humans-do-it/08-operations.md#the-watch-window.
+// ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window.
 package score

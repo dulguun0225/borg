@@ -25,9 +25,9 @@
 // What that costs: a CHECK is a schema edit each time a value arrives.
 //
 // An item moves both ways. [Dispatch.Advance] goes one stage forward and
-// [Dispatch.SendBack] goes to the stage the item is at or to one above it,
+// [Dispatch.ReworkRequest] goes to the stage the item is at or to one above it,
 // counting one attempt at what it is sent to — the rule the design gives for a
-// gate's reject, an author's send-back, and the queue's rejection alike.
+// gate's reject, an author's rework request, and the queue's rejection alike.
 //
 // # The per-stage row
 //

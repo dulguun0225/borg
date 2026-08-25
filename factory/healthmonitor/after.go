@@ -43,7 +43,7 @@ func (h *HealthMonitor) AfterWindow(ctx context.Context, w Watching) (Reading, b
 	if watched && win.Open() {
 		// The window is still open, so this release is the window's own business and
 		// the window's authority still runs. Reading it here as well would evaluate one
-		// release twice in one pass and could condemn it and raise an item for it at
+		// release twice in one pass and could fail it and raise an item for it at
 		// once.
 		return Reading{}, false, nil
 	}
@@ -60,8 +60,8 @@ func (h *HealthMonitor) AfterWindow(ctx context.Context, w Watching) (Reading, b
 	}
 	reading.Observed, reading.Baseline, reading.HasBaseline = observed, baseline, hasBaseline
 
-	// The boundary the closed window was read against, so what condemns a release
-	// after its window is the same arithmetic that would have condemned it inside it.
+	// The boundary the closed window was read against, so what fails a release
+	// after its window is the same arithmetic that would have failed it inside it.
 	// A release that was never watched — which nothing on this path produces, a
 	// production deploy always opening one — is read against what is in force now.
 	b := boundary.Boundary{Size: win.Size, Confidence: win.Confidence}
@@ -95,7 +95,7 @@ func (h *HealthMonitor) AfterWindow(ctx context.Context, w Watching) (Reading, b
 // own writer checks neither.
 //
 // A rollback does not reach either condition on its own. It stops the crossing
-// against the condemned release and leaves production worse than it should be, which
+// against the failed release and leaves production worse than it should be, which
 // is what the hold and the page both say — and what was raised from it is the revert,
 // which has to ship.
 //

@@ -94,7 +94,7 @@
 # evaluates them. It is the arrangement consumercontract -> contract already has.
 #
 # boundary imports nothing, inside this module or out of it beyond the standard
-# library. It is the watch window's arithmetic over numbers its caller has
+# library. It is the analysis window's arithmetic over numbers its caller has
 # already read, and a package with no dependencies is what makes the one part of
 # this milestone that is a claim about statistics testable as arithmetic alone.
 #
@@ -131,7 +131,7 @@
 # implements, and so is the run it observes. That is the arrangement healthmonitor
 # already has.
 #
-# checker imports record and nothing else. Its store is not the factory's — no
+# driftdetector imports record and nothing else. Its store is not the factory's — no
 # factory component may write it — so it brings its own opener and its own
 # applier rather than reaching for package postgres, and postgres does not name
 # it. What it shares with the factory is the column conventions, which are about
@@ -160,7 +160,7 @@ safeguard -> record gatepolicy
 window -> boundary record
 incident -> record
 people -> record
-checker -> record
+driftdetector -> record
 score -> record gatepolicy boundary artifact consumercontract contract decisionlog deploy incident item release window
 policy -> record gatepolicy area environment factorysettings item safeguard score secretref service
 gate -> criterion decisionlog policy record score
@@ -173,8 +173,8 @@ localtarget -> secretref targetseam
 postgres -> area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings incident intent item people policy release safeguard score service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent area artifact boundary build checker consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy healthmonitor incident intent item localtarget mergequeue notifier people policy postgres record release safeguard score secretref service targetseam window
-cmd/checker -> checker deploy environment localtarget postgres release secretref service targetseam window
+cmd/factory -> agent area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy healthmonitor incident intent item localtarget mergequeue notifier people policy postgres record release safeguard score secretref service targetseam window
+cmd/driftdetector -> driftdetector deploy environment localtarget postgres release secretref service targetseam window
 
 test decisionlog -> postgres secretref
 test intent -> postgres
@@ -201,4 +201,4 @@ test score -> postgres artifact boundary consumercontract contract criterion dep
 test policy -> postgres
 test gate -> postgres
 test mergequeue -> decisionlog gate item postgres record release
-test cmd/checker -> build decisionlog record
+test cmd/driftdetector -> build decisionlog record

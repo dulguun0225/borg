@@ -139,7 +139,7 @@ func newGate(t *testing.T, s gate.Score, p *fakePolicy) (context.Context, *pgxpo
 			t.Fatalf("applying decisionlog statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, gate.New(decisionlog.NewWriter(pool), s, p, gate.NoChecker{})
+	return ctx, pool, gate.New(decisionlog.NewWriter(pool), s, p, gate.NoDriftDetector{})
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -223,7 +223,7 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 	if opening.ID != opened.Row.ID || rows[1].ID != closing.ID {
 		t.Fatalf("the rows read back are not the two appended")
 	}
-	if opening.Shape != decisionlog.ShapeDecision || opening.Part != decisionlog.PartOpening {
+	if opening.Shape != decisionlog.ShapeDecision || opening.Part != decisionlog.PartOpen {
 		t.Errorf("the first row is shape %q part %q, want an opening decision row", opening.Shape, opening.Part)
 	}
 	if rows[1].Closes != opening.ID {
@@ -252,7 +252,7 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 	}
 }
 
-// TestTheOpeningPayloadNamesTheValuesApplied: the opening row carries the whole
+// TestTheOpeningPayloadNamesTheValuesApplied: the open event carries the whole
 // vector, the number, the threshold it was compared against, where that
 // threshold came from, and what put a human at the row — which is what makes the
 // decision readable against the policy it was taken under rather than today's.
@@ -439,7 +439,7 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 		t.Errorf("the closing says %+v, want an approve auto-passed by the threshold", payload)
 	}
 
-	// The opening row of an auto-pass waits on nobody, which is what tells a
+	// The open event of an auto-pass waits on nobody, which is what tells a
 	// reader of the log that nothing was ever pending here.
 	rows, err := decisionlog.Read(ctx, pool)
 	if err != nil {
@@ -629,7 +629,7 @@ func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 }
 
 // TestARejectWithoutFeedbackIsRefused: the action is "Reject with feedback", so
-// a reject carrying none is refused and no closing row is appended.
+// a reject carrying none is refused and no close event is appended.
 func TestARejectWithoutFeedbackIsRefused(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, g := newGate(t, s, p)
@@ -746,13 +746,13 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 
 	// A row in a shape this package cannot read is skipped rather than returned as
 	// an error, the way every other reader of this log treats one.
-	if _, err := decisionlog.NewWriter(pool).AppendDecisionOpening(ctx, decisionlog.Entry{
+	if _, err := decisionlog.NewWriter(pool).AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         record.Actor{Kind: record.KindComponent, Name: "gate.some_other_gate"},
 		Payload:       "a payload this package has no shape for",
 		PolicyVersion: testPolicyVersion,
 		ScoreVersion:  testScoreVersion,
 	}); err != nil {
-		t.Fatalf("appending the unreadable opening row: %v", err)
+		t.Fatalf("appending the unreadable open event: %v", err)
 	}
 
 	times, err := gate.ApprovalTimes(ctx, pool, gate.MergeToMaster)
@@ -807,10 +807,10 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 		t.Fatalf("reading the opening payload: %v", err)
 	}
 	if payload.IntentID != "in_0000000000000000000000000000000a" {
-		t.Errorf("the opening row names intent %q", payload.IntentID)
+		t.Errorf("the open event names intent %q", payload.IntentID)
 	}
 	if len(payload.Set) != 2 {
-		t.Fatalf("the opening row carries %d members, want the whole set whichever one drove the number", len(payload.Set))
+		t.Fatalf("the open event carries %d members, want the whole set whichever one drove the number", len(payload.Set))
 	}
 	if payload.NumberFrom != "it_b" {
 		t.Errorf("the number came from %q, want the riskier member", payload.NumberFrom)
@@ -821,7 +821,7 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 	// The subject a decision names is what the score reads back when it counts
 	// outcomes, and this row names none: decomposition proposes a set rather than an
 	// artifact, so a verdict here is an outcome on no author's work.
-	var opening score.Opening
+	var opening score.OpenEvent
 	if err := json.Unmarshal([]byte(opened.Row.Payload), &opening); err != nil {
 		t.Fatalf("reading the payload as an opening: %v", err)
 	}
@@ -845,12 +845,12 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 		t.Fatalf("the chain does not verify after a set decision: %v", err)
 	}
 	if closing.Closes != opened.Row.ID {
-		t.Errorf("the closing row closes %q", closing.Closes)
+		t.Errorf("the close event closes %q", closing.Closes)
 	}
 }
 
 // TestARejectAtDecompositionNamesNoStage: its reject re-decomposes the set rather than
-// sending an item anywhere, so the field its closing row would carry stays unwritten.
+// sending an item anywhere, so the field its close event would carry stays unwritten.
 func TestARejectAtDecompositionNamesNoStage(t *testing.T) {
 	s, p := &varyingScore{by: map[string]float64{"it_a": 0.7, "it_b": 0.7}}, &fakePolicy{applied: applied(0.5)}
 	ctx, _, g := newGate(t, s, p)
@@ -930,14 +930,14 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 		t.Fatalf("AutoReject: %v", err)
 	}
 	if closing.Actor.Kind != record.KindComponent || closing.Actor.Name != "gate.merge_to_master" {
-		t.Errorf("the closing row was written as %s %s, want the gate component", closing.Actor.Kind, closing.Actor.Name)
+		t.Errorf("the close event was written as %s %s, want the gate component", closing.Actor.Kind, closing.Actor.Name)
 	}
 	var payload gate.ClosingPayload
 	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
 		t.Fatalf("reading the closing payload: %v", err)
 	}
 	if payload.Verdict != string(gate.VerdictReject) || payload.AutoRejectedBy != gate.AutoRejectedByContractDiff {
-		t.Fatalf("the closing row reads %+v", payload)
+		t.Fatalf("the close event reads %+v", payload)
 	}
 	if payload.Feedback == "" || payload.ReturnsTo != gate.ReturnsTo {
 		t.Errorf("a mechanical reject carries feedback %q and returns to %q", payload.Feedback, payload.ReturnsTo)
@@ -1006,7 +1006,7 @@ func (v *varyingScore) HoldOut(_ context.Context, itemID string, _, _ bool) (sco
 }
 
 // TestTheVerdictsGateWritesAreTheOnesTheScoreReads holds two spellings together.
-// The score reads a closing row's verdict when it counts outcomes and cannot import
+// The score reads a close event's verdict when it counts outcomes and cannot import
 // this package, importing it the other way, so it declares the two words itself —
 // and two packages naming one word are two able to disagree.
 func TestTheVerdictsGateWritesAreTheOnesTheScoreReads(t *testing.T) {
@@ -1020,10 +1020,10 @@ func TestTheVerdictsGateWritesAreTheOnesTheScoreReads(t *testing.T) {
 
 // TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere: the gate
 // asks the score's sample with the safeguard's answer and after the independent
-// checker's, so a held-out item passes the gate the number would have gated and
+// driftdetector's, so a held-out item passes the gate the number would have gated and
 // neither of the other two.
 func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testing.T) {
-	// Over the threshold and held out: no human, and the closing row says the
+	// Over the threshold and held out: no human, and the close event says the
 	// sample passed it.
 	s := &fakeScore{assessment: assessed(0.6), selection: score.Selection{HeldOut: true, Why: score.SelectedHere}}
 	ctx, _, g := newGate(t, s, &fakePolicy{applied: applied(0.3)})
@@ -1050,7 +1050,7 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 		t.Fatalf("reading the closing payload: %v", err)
 	}
 	if payload.WhyItAutoPassed != score.AutoPassSample {
-		t.Errorf("the closing row says %q, want the sample", payload.WhyItAutoPassed)
+		t.Errorf("the close event says %q, want the sample", payload.WhyItAutoPassed)
 	}
 
 	// A safeguard adds a human whatever the sample answers, and the gate hands the
@@ -1071,7 +1071,7 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 	}
 
 	// Under the threshold and held out: still held out — the selection is the
-	// item's — and the closing row says the threshold, because the score would have
+	// item's — and the close event says the threshold, because the score would have
 	// passed this one anyway and it is evidence about no gate.
 	under := &fakeScore{assessment: assessed(0.1), selection: score.Selection{HeldOut: true, Why: score.SelectedEarlier}}
 	ctx, _, g = newGate(t, under, &fakePolicy{applied: applied(0.3)})
@@ -1090,6 +1090,6 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 		t.Fatalf("reading the closing payload: %v", err)
 	}
 	if payload.WhyItAutoPassed != score.AutoPassThreshold {
-		t.Errorf("the closing row says %q, want the threshold", payload.WhyItAutoPassed)
+		t.Errorf("the close event says %q, want the threshold", payload.WhyItAutoPassed)
 	}
 }

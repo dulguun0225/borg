@@ -40,7 +40,7 @@ const (
 // Factor is one named factor of the vector as it is written onto a decision.
 // The reading is the quantity the level was resolved from, in words, because a
 // level on its own is a number a human cannot argue with. The JSON tags are the
-// field names the opening row stores.
+// field names the open event stores.
 type Factor struct {
 	Name        string  `json:"name"`
 	Group       Group   `json:"group"`
@@ -80,7 +80,7 @@ var definitions = []definition{
 	{"change.test_coverage", GroupChange, HalfLikelihood, 0.20,
 		"criteria in force that decided this build, and whether any failed", (*Score).coverage},
 	{"author.prior", GroupAuthor, HalfLikelihood, 0.30,
-		"every outcome on this author's own work: human verdicts on its versions, the watch windows of its releases, and any of them a human undid", (*Score).prior},
+		"every outcome on this author's own work: human verdicts on its versions, the analysis windows of its releases, and any of them a human undid", (*Score).prior},
 	{"change.reach", GroupChange, HalfImpact, 0.50,
 		"share of the service's files the diff touches", (*Score).reach},
 	{"context.business_area", GroupContext, HalfImpact, 0.30,

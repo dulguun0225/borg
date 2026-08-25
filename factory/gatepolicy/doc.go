@@ -8,7 +8,7 @@
 // # Seven rows, eight parameters, and one only a safeguard sets
 //
 // Gate policy is seven rows and this package names eight parameters, because one
-// row carries two values: the watch window's size and the confidence it
+// row carries two values: the analysis window's size and the confidence it
 // requires are authored together and bounded in opposite directions — a ceiling
 // over the size, a floor under the confidence — which is what makes them two
 // parameters of one row rather than one parameter. [Row] is what a printer

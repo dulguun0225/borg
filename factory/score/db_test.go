@@ -190,7 +190,7 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 	ctx, pool, s := newScore(t)
 	supplied, _ := score.Starting(gatepolicy.RiskThreshold)
 	threshold := supplied.Value
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: threshold}, gate.NoChecker{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: threshold}, gate.NoDriftDetector{})
 
 	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
 	opened, err := g.Fire(ctx, firing(first, firstImplementation,
@@ -272,7 +272,7 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 // it leaves the event queued with the change still good — so no factor moves.
 func TestAHoldTeachesTheScoreNothing(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoChecker{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
 
 	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
 	deployRow := firing(first, firstImplementation, score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4})
@@ -304,7 +304,7 @@ func TestAHoldTeachesTheScoreNothing(t *testing.T) {
 // what separates it from a hold.
 func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoChecker{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
 
 	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
 	opened, err := g.Fire(ctx, firing(first, firstImplementation,
@@ -626,7 +626,7 @@ func TestEnsuringAtOnceAppendsOneVersion(t *testing.T) {
 // against what the score published when it was taken.
 func TestEveryDecisionNamesTheVersionInForce(t *testing.T) {
 	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoChecker{})
+	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoDriftDetector{})
 
 	it, implementation := decomposeItem(t, ctx, pool, "item/one")
 	opened, err := g.Fire(ctx, firing(it, implementation,

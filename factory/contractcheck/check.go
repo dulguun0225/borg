@@ -149,7 +149,7 @@ func (c Checked) Check() string {
 	return ""
 }
 
-// Why is what the rejection says, in words a human reads on the closing row and
+// Why is what the rejection says, in words a human reads on the close event and
 // an author reads as feedback. It names the consumer a break would reach, which is
 // the whole point of the graph answering who is affected.
 func (c Checked) Why() string {

@@ -14,7 +14,7 @@ import (
 
 // columns is every column of the item table, in the order [scanItem] reads
 // them. It is written once because four callers read an item — two here, the
-// advance, and the send back — and a fifth column added to one of five select
+// advance, and the rework request — and a fifth column added to one of five select
 // lists is a bug the compiler cannot see.
 const columns = `id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage,
 	waits_on, superseded_by, priority`

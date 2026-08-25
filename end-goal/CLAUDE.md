@@ -39,13 +39,19 @@ one section and leaving another asserting the opposite. The links most easily br
 
 **The numbered duty list.** `what-humans-do.md` numbers twelve owner duties, and the rest
 of the document cites them as bare numbers — `(7)`, `(10)`, `(11, 12)`. Inserting,
-removing, or reordering a duty silently repoints every reference in every other file.
+removing, or reordering a duty silently repoints every reference in every other file, and
+the range check below cannot see it: a reorder changes what a number means and not which
+numbers exist, so it passes by construction, and the cold-read check is told to leave bare
+duty numbers alone. So an edit that inserts, removes, or reorders duties is finished only
+when every citation of every moved number has been read and repointed — the duty-refs grep
+below lists them, over a hundred across nine files — a check that rides on the edit able
+to break the references rather than on every edit, because the duty list rarely moves.
 
 **The gate table against the prose.** Every gate named in prose needs a row, and every
 action in a row must be possible at that point in the lifecycle. `Deploy to production`
 deliberately has no Reject: by then the merge has happened and the number is already
 assigned, so hold is the only stop, and once it deploys all that is left is a human's undo
-of a shipped change (10) — a rollback while its control is still running, a revert after.
+of a shipped change (10) — a rollback while the build it would return to is still running, a revert after.
 
 **The lifecycle vocabulary.** It must run unbroken end to end. A **candidate** is
 identified by item plus build and runs on an environment of its own; at merge to master it
@@ -54,8 +60,9 @@ axis — semver, one per published interface, because compatibility is the contr
 not the release's. Do not let a fifth name for any of these appear. Upstream of all of it
 is the **intent** — what intake writes, what decomposition turns into items, and what
 everything links back to; an uncut intent is not an item. **Current release** is not a fifth
-name either — it is which release a service is running, a fact of the production deploy
-record, and every cross-service check reads it rather than the newest number. `beta` was a
+name either — it is which release a service is running on every production target, a
+fact of the production deploy record's completion per target, and every cross-service check reads
+it rather than the newest number. `beta` was a
 fifth name and was dropped: it named the build occupying the shared UAT slot, and there is
 no such slot.
 
@@ -63,7 +70,7 @@ no such slot.
 (how a request becomes items, and decomposition) → Gates (where a decision happens) → Risk
 score (what decides whether a human decides at one) → Environments (the branch, the
 per-candidate environment, the merge queue) → Releases (what ships) → Contracts (what binds
-services to each other) → Operations (the control, the watch window, the window limit, the
+services to each other) → Operations (the control, the analysis window, the window limit, the
 page) → Gate policy (everything an owner authors, gathered from the sections that define
 each parameter) → The fleet (what an agent runs on, and what a borrowed account costs) →
 Screens (where a human sees it). A concept should be defined before the section that leans
@@ -72,9 +79,9 @@ else — reordering means renaming files and fixing the links that point at them
 
 Seven forward references are known and left in place, each defined below a section that
 depends on it because moving the definition up would put something more depended-on out of
-order: the **watch window** and the **window limit**; the **gate** and the **score** that
+order: the **analysis window** and the **window limit**; the **gate** and the **score** that
 Intent into items leans on, with **current release** the same shape at smaller scale; the
-**page**; the **independent checker**; **the fleet**, and with it the **role prompt** and
+**page**; the **drift detector**; **the fleet**, and with it the **role prompt** and
 the **skill** an agent works from, which One pipeline, Gates, Risk score and Gate policy
 all lean on and The fleet defines; the **last known-good release**, which Contracts leans
 on and Operations defines; and the four screens — **Work**, **Ops**, **Factory**,
@@ -174,23 +181,21 @@ for p in sorted(glob.glob('end-goal/**/*.md', recursive=True)):
         if '\n' in t or t.endswith(('.', '?', ':', '!')): continue
         if t.lower() not in known: print('name not in terms.txt:', p, '->', t)
 EOF
-# the glossary is exactly the bent terms — expect no output
+# every glossary line names a term the document uses — expect no output
 python3 - <<'EOF'
-import re
-# The glossary is a list of words the industry owns that this document uses in a
-# narrower or different sense. These are those words. A missing line is a reader left
-# with the industry meaning and no warning; a line for anything else is the pile
-# growing back, which is what the second direction catches.
-BENT = ['item', 'service', 'intent', 'release', 'rollback', 'candidate', 'hold',
-        'decision', 'page', 'incident', 'Edit in place', 'the pipeline', 'seam',
-        'the graph', 'store', 'artifact', 'detector']
-roster = {t.lower() for t in BENT}
-have = set()
+import re, glob, os
+# The glossary is its own roster: which industry words this document bends is decided
+# in the commit that adds or removes a line there, never in a list this file holds.
+# What stays mechanical is that a line cannot outlive its term — a glossary line for
+# a term nothing uses is a dead entry, the pile growing back as leftovers.
+body = ''
+for p in glob.glob('end-goal/**/*.md', recursive=True):
+    if os.path.basename(p) in ('CLAUDE.md', 'glossary.md'): continue
+    body += open(p, encoding='utf-8').read().lower()
 for line in open('end-goal/glossary.md', encoding='utf-8'):
     m = re.match(r'- \*\*(.+?)\*\*', line)
-    if m: have.add(m.group(1).lower())
-for term in sorted(roster - have): print('no glossary line:', term)
-for term in sorted(have - roster): print('glossary line for a term not on the roster:', term)
+    if m and m.group(1).lower() not in body:
+        print('glossary line for a term the document does not use:', m.group(1))
 EOF
 ```
 
@@ -219,14 +224,20 @@ it survives on, which is the point rather than the price: the cost is paid where
 line, instead of later where it was forty terms. The check cannot tell a good name from a
 bad one, and is not meant to — the cold-read check's coined list is what does that.
 
-The roster check reads the glossary against the seventeen bent words it is for. It checks
-the roster and not usage, and it now runs both ways: every bent term has a line, and
-nothing but a bent term has one. The second direction waited for the last coined line to
-go, because until then it would have failed on every edit; with the glossary at seventeen
-lines it is what stops the pile growing back, and a term added to the roster is a decision
-made in the commit that adds it rather than a line somebody appended. Whether a term is
-introduced where it is used is the cold-read check's, which finds a name pointing at
-nothing and is the better instrument for it.
+The glossary is its own roster: which industry words this document bends is decided in the
+commit that adds or removes a line in `glossary.md`, the way a name is decided in the
+commit that adds its `terms.txt` line — not in a list this file holds, which was a list of
+answers kept outside the file that owns them, the shape this file itself refuses, and whose
+only remedy for a wrong line was editing a Python literal inside a bash fence nothing said
+anyone may edit. The check keeps the one direction that stays mechanical: every glossary
+line names a term the document actually uses, so a line cannot outlive its term. The
+direction given up is mechanical detection of a bent term with no line, which was only ever
+as good as the list a session remembered to extend; what surfaces a reader left with the
+industry meaning is the cold-read check's borrowed list, term by term, on the file that
+uses it. What it costs is that a line added for a term the document uses but does not bend
+fails nothing — that decision is the commit's, and a bad line is repaired by review rather
+than by a grep. Whether a term is introduced where it is used is the cold-read check's,
+which finds a name pointing at nothing and is the better instrument for it.
 
 ### The cold-read check
 
@@ -293,7 +304,7 @@ claims a field for a word, and a claim is sometimes wrong: `terms.txt` takes the
 attribution only where the session agrees with it, and a citation the session cannot place
 leaves the term coined.
 
-The coined list is neither, and it is not meant to be empty: **watch window** will be on it
+The coined list is neither, and it is not meant to be empty: **analysis window** will be on it
 every run and stays every time. It is a candidate list, read against the root `CLAUDE.md`'s
 two grounds — the industry owns the word, or the plain word was never a figure — and
 against the one test that admits a coinage at all, that the term names something the plain

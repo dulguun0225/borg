@@ -69,11 +69,11 @@ func ruleName(p gatepolicy.Parameter) string {
 	case gatepolicy.ItemSizeTarget:
 		return "item-size target"
 	case gatepolicy.WindowSize:
-		return "watch window size"
+		return "analysis window size"
 	case gatepolicy.WindowConfidence:
 		return "window confidence"
 	case gatepolicy.WindowCap:
-		return "watch window cap"
+		return "analysis window cap"
 	case gatepolicy.WindowLimit:
 		return "window limit"
 	default:
@@ -114,16 +114,16 @@ func TestLearningIsIdempotent(t *testing.T) {
 func TestTheWindowLimitRisesWithWindowsAndFallsWithASweepingRollback(t *testing.T) {
 	start, _ := Starting(gatepolicy.WindowLimit)
 
-	// Three windows closing without condemning a release: the window limit rises by one.
+	// Three windows closing without failing a release: the window limit rises by one.
 	rising := evidenceFor("svc_a", closes(3, window.ExitTimedOut), nil)
 	if limit := valueOf(t, rising, gatepolicy.WindowLimit, "svc_a"); limit != start.Value+1 {
-		t.Errorf("three windows that condemned nothing supply a window limit of %v, want %v", limit, start.Value+1)
+		t.Errorf("three windows that failed nothing supply a window limit of %v, want %v", limit, start.Value+1)
 	}
 
 	// Two are not enough: the rise is per three, and a service that rises on two
 	// would be one taking throughput it has not earned.
 	if limit := valueOf(t, evidenceFor("svc_a", closes(2, window.ExitTimedOut), nil), gatepolicy.WindowLimit, "svc_a"); limit != start.Value {
-		t.Errorf("two windows that condemned nothing supply a window limit of %v, want the starting %v", limit, start.Value)
+		t.Errorf("two windows that failed nothing supply a window limit of %v, want the starting %v", limit, start.Value)
 	}
 
 	// Three windows and then a rollback that swept: back to the floor. The fold is
@@ -141,11 +141,11 @@ func TestTheWindowLimitRisesWithWindowsAndFallsWithASweepingRollback(t *testing.
 	}
 }
 
-// TestAMissMakesTheWindowFinerAndAClearedMissAlsoRaisesTheConfidence: a window
-// that closed without condemning a release over a release an incident was
+// TestAMissMakesTheWindowFinerAndAFalsePassAlsoRaisesTheConfidence: a window
+// that closed without failing a release over a release an incident was
 // raised against is the crossing the health monitor could have seen and did
 // not.
-func TestAMissMakesTheWindowFinerAndAClearedMissAlsoRaisesTheConfidence(t *testing.T) {
+func TestAMissMakesTheWindowFinerAndAFalsePassAlsoRaisesTheConfidence(t *testing.T) {
 	size, _ := Starting(gatepolicy.WindowSize)
 	confidence, _ := Starting(gatepolicy.WindowConfidence)
 
@@ -160,19 +160,19 @@ func TestAMissMakesTheWindowFinerAndAClearedMissAlsoRaisesTheConfidence(t *testi
 		t.Errorf("a miss at the cap moved the confidence to %v", got)
 	}
 
-	// One miss at the cleared exit: the size halves and the confidence closes half
+	// One miss at the passed exit: the size halves and the confidence closes half
 	// the distance to one, because the boundary said it had ruled out what it had
 	// not.
-	falseClearing := withIncident(evidenceFor("svc_a", closes(1, window.ExitCleared), nil), "rel_svc_a_0")
-	if got := valueOf(t, falseClearing, gatepolicy.WindowConfidence, "svc_a"); got != 1-(1-confidence.Value)/2 {
-		t.Errorf("a false clearing supplies a confidence of %v, want %v", got, 1-(1-confidence.Value)/2)
+	falsePass := withIncident(evidenceFor("svc_a", closes(1, window.ExitPassed), nil), "rel_svc_a_0")
+	if got := valueOf(t, falsePass, gatepolicy.WindowConfidence, "svc_a"); got != 1-(1-confidence.Value)/2 {
+		t.Errorf("a false pass supplies a confidence of %v, want %v", got, 1-(1-confidence.Value)/2)
 	}
 
-	// A condemned exit is not a miss and never can be: the health monitor rolls a release
+	// A failed exit is not a miss and never can be: the health monitor rolls a release
 	// back at that exit, so it caught what it was watching for.
-	caught := withIncident(evidenceFor("svc_a", closes(1, window.ExitCondemned), nil), "rel_svc_a_0")
+	caught := withIncident(evidenceFor("svc_a", closes(1, window.ExitFailed), nil), "rel_svc_a_0")
 	if got := valueOf(t, caught, gatepolicy.WindowSize, "svc_a"); got != size.Value {
-		t.Errorf("a window that closed condemned moved the size to %v, and it caught what it watched for", got)
+		t.Errorf("a window that closed failed moved the size to %v, and it caught what it watched for", got)
 	}
 }
 
@@ -184,10 +184,10 @@ func TestTheThresholdFallsBelowWhatItPassedAndRisesOnlyOnTheSample(t *testing.T)
 	start, _ := Starting(gatepolicy.RiskThreshold)
 	const row = "merge_to_master"
 
-	// A change the score auto-passed on the number, condemned by its own window:
+	// A change the score auto-passed on the number, failed by its own window:
 	// the threshold falls one band below what that change scored.
 	fell := firingEvidence(t, []Firing{autoPassed(row, 0.20, AutoPassThreshold, "it_bad")})
-	fell = condemn(fell, "it_bad")
+	fell = fail(fell, "it_bad")
 	if got := valueOf(t, fell, gatepolicy.RiskThreshold, row); !near(got, 0.20-thresholdBand) {
 		t.Errorf("the threshold reads %v after a bad auto-pass at 0.20, want %v", got, 0.20-thresholdBand)
 	}
@@ -220,7 +220,7 @@ func TestTheThresholdFallsBelowWhatItPassedAndRisesOnlyOnTheSample(t *testing.T)
 		autoPassed(row, 0.9, AutoPassSample, "it_c"),
 		autoPassed(row, 0.20, AutoPassThreshold, "it_bad"),
 	})
-	both = condemn(both, "it_bad")
+	both = fail(both, "it_bad")
 	if got := valueOf(t, both, gatepolicy.RiskThreshold, row); !near(got, 0.20-thresholdBand) {
 		t.Errorf("a fall and a rise together supply %v, want the fall %v", got, 0.20-thresholdBand)
 	}
@@ -309,14 +309,14 @@ func TestTheCapMovesBothWaysWithWhatAWindowNeeded(t *testing.T) {
 	opened := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
 
 	// Twenty hours doubled is forty, above the day the score starts at.
-	long := resolvedIn(opened, 20*time.Hour, window.ExitCleared)
+	long := resolvedIn(opened, 20*time.Hour, window.ExitPassed)
 	if got := valueOf(t, long, gatepolicy.WindowCap, "svc_a"); got != (40 * time.Hour).Seconds() {
 		t.Errorf("the cap reads %v, want twice the twenty hours the window needed", got)
 	}
 
 	// A window that resolved in a minute leaves the cap at two minutes, not at a
 	// day: holding the next deploy for a day is what the loose end costs.
-	quick := resolvedIn(opened, time.Minute, window.ExitCondemned)
+	quick := resolvedIn(opened, time.Minute, window.ExitFailed)
 	got := valueOf(t, quick, gatepolicy.WindowCap, "svc_a")
 	if got != (2 * time.Minute).Seconds() {
 		t.Errorf("the cap reads %v, want twice the minute the window needed", got)
@@ -440,9 +440,9 @@ func TestTwoOfTheSevenMoveOneWayAndBothSayWhy(t *testing.T) {
 	// these tests. The confidence moving up is asserted above; what this asserts is
 	// that it is the only window parameter left with one direction.
 	confidence, _ := Starting(gatepolicy.WindowConfidence)
-	falseClearing := withIncident(evidenceFor("svc_a", closes(1, window.ExitCleared), nil), "rel_svc_a_0")
-	if got := valueOf(t, falseClearing, gatepolicy.WindowConfidence, "svc_a"); got <= confidence.Value {
-		t.Errorf("the confidence reads %v after a false clearing, want above %v", got, confidence.Value)
+	falsePass := withIncident(evidenceFor("svc_a", closes(1, window.ExitPassed), nil), "rel_svc_a_0")
+	if got := valueOf(t, falsePass, gatepolicy.WindowConfidence, "svc_a"); got <= confidence.Value {
+		t.Errorf("the confidence reads %v after a false pass, want above %v", got, confidence.Value)
 	}
 }
 
@@ -477,9 +477,9 @@ func evidenceFor(serviceID string, windows []window.Window, extra []serviceEvent
 		e.rollbacks = append(e.rollbacks, deploy.Deploy{
 			ID: fmt.Sprintf("dep_%d", i), ServiceID: serviceID, At: event.at,
 			Undoing: deploy.Undoing{
-				CondemnedReleaseID: fmt.Sprintf("rel_%s_condemned_%d", serviceID, i),
-				SweptReleaseIDs:    []string{fmt.Sprintf("rel_%s_swept_%d", serviceID, i)},
-				Source:             deploy.SourceHealthMonitorAtCondemned,
+				FailedReleaseID: fmt.Sprintf("rel_%s_failed_%d", serviceID, i),
+				SweptReleaseIDs: []string{fmt.Sprintf("rel_%s_swept_%d", serviceID, i)},
+				Source:          deploy.SourceHealthMonitorAtFailed,
 			},
 		})
 	}
@@ -488,7 +488,7 @@ func evidenceFor(serviceID string, windows []window.Window, extra []serviceEvent
 }
 
 // withIncident raises an incident against one release, which is what makes a
-// window that closed without condemning a release over it a miss.
+// window that closed without failing a release over it a miss.
 func withIncident(e *Evidence, releaseID string) *Evidence {
 	e.incidents = append(e.incidents, incident.Incident{ID: "inc_a", ReleaseID: releaseID, ServiceID: "svc_a"})
 	e.index()
@@ -500,7 +500,7 @@ func longWindow() *Evidence {
 	e := newEvidence()
 	opened := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
 	e.windows = []window.Window{{
-		ID: "win_a", ServiceID: "svc_a", ReleaseID: "rel_a", Exit: window.ExitCleared,
+		ID: "win_a", ServiceID: "svc_a", ReleaseID: "rel_a", Exit: window.ExitPassed,
 		At: record.FormatTime(opened), ClosedAt: record.FormatTime(opened.Add(36 * time.Hour)),
 	}}
 	e.index()
@@ -511,38 +511,38 @@ func longWindow() *Evidence {
 // two things an auto-pass comes from.
 func autoPassed(row string, number float64, by, itemID string) Firing {
 	return Firing{
-		Opening: Opening{ItemID: itemID, Gate: row, Number: number, Threshold: 0.3,
+		OpenEvent: OpenEvent{ItemID: itemID, Gate: row, Number: number, Threshold: 0.3,
 			HeldOut: by == AutoPassSample},
-		Closing: Closing{Verdict: VerdictApproved, WhyItAutoPassed: by},
+		CloseEvent: CloseEvent{Verdict: VerdictApproved, WhyItAutoPassed: by},
 	}
 }
 
 // humanApproved is one firing a human approved at a gate the number gated.
 func humanApproved(row string, number float64, itemID string) Firing {
 	return Firing{
-		Opening:     Opening{ItemID: itemID, Gate: row, Number: number, Threshold: 0.3},
-		Closing:     Closing{Verdict: VerdictApproved},
+		OpenEvent:   OpenEvent{ItemID: itemID, Gate: row, Number: number, Threshold: 0.3},
+		CloseEvent:  CloseEvent{Verdict: VerdictApproved},
 		HumanClosed: true,
 	}
 }
 
 // firingEvidence is a graph where every named item shipped and its window closed
-// at the cap, so each turned out well unless a later call condemns it.
+// at the cap, so each turned out well unless a later call fails it.
 func firingEvidence(t *testing.T, firings []Firing) *Evidence {
 	t.Helper()
 	e := newEvidence()
 	e.firings = firings
 	for i, f := range firings {
-		if f.Opening.ItemID == "" {
+		if f.OpenEvent.ItemID == "" {
 			continue
 		}
-		releaseID := "rel_" + f.Opening.ItemID
-		e.items = append(e.items, item.Item{ID: f.Opening.ItemID, ServiceID: "svc_a", Stage: item.StageMerged})
+		releaseID := "rel_" + f.OpenEvent.ItemID
+		e.items = append(e.items, item.Item{ID: f.OpenEvent.ItemID, ServiceID: "svc_a", Stage: item.StageMerged})
 		e.releases = append(e.releases, release.Release{
-			ID: releaseID, ItemID: f.Opening.ItemID, ServiceID: "svc_a", Number: int64(i + 1),
+			ID: releaseID, ItemID: f.OpenEvent.ItemID, ServiceID: "svc_a", Number: int64(i + 1),
 		})
 		e.windows = append(e.windows, window.Window{
-			ID: "win_" + f.Opening.ItemID, ServiceID: "svc_a", ReleaseID: releaseID,
+			ID: "win_" + f.OpenEvent.ItemID, ServiceID: "svc_a", ReleaseID: releaseID,
 			Exit:     window.ExitTimedOut,
 			At:       record.FormatTime(time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)),
 			ClosedAt: record.FormatTime(time.Date(2026, 8, 20, 0, 0, 1, 0, time.UTC)),
@@ -552,12 +552,12 @@ func firingEvidence(t *testing.T, firings []Firing) *Evidence {
 	return e
 }
 
-// condemn makes one item's release the release a rollback condemned, which is what
+// fail makes one item's release the release a rollback failed, which is what
 // makes that item's outcome badly.
-func condemn(e *Evidence, itemID string) *Evidence {
+func fail(e *Evidence, itemID string) *Evidence {
 	e.rollbacks = append(e.rollbacks, deploy.Deploy{
 		ID: "dep_rollback", ServiceID: "svc_a", At: record.FormatTime(time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)),
-		Undoing: deploy.Undoing{CondemnedReleaseID: "rel_" + itemID, Source: deploy.SourceHealthMonitorAtCondemned},
+		Undoing: deploy.Undoing{FailedReleaseID: "rel_" + itemID, Source: deploy.SourceHealthMonitorAtFailed},
 	})
 	e.index()
 	return e
@@ -581,7 +581,7 @@ func someEvidence(t *testing.T) *Evidence {
 	for i := range e.items {
 		e.items[i].AreaID = "ar_a"
 	}
-	e = condemn(e, "it_bad")
+	e = fail(e, "it_bad")
 	e = withIncident(e, "rel_it_a")
 	return e
 }

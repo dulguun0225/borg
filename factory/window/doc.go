@@ -1,4 +1,4 @@
-// Package window owns the watch window record: how long the factory may act on
+// Package window owns the analysis window record: how long the factory may act on
 // the health monitor alone, as a record rather than a timer.
 //
 // # One per release watched, and the health monitor writes it
@@ -6,9 +6,9 @@
 // A window is opened for each production deploy of a release its service has not
 // watched before, whichever attempt that is. So a rollback opens none — the
 // release it returns to was watched already — and neither does a redeploy of one
-// already watched. Watched rather than current, because a release condemned at
-// the condemned exit never completes its deploy and so never becomes current, and the
-// window that condemned it has to have been opened over something.
+// already watched. Watched rather than current, because a release failed at
+// the failed exit never completes its deploy and so never becomes current, and the
+// window that failed it has to have been opened over something.
 //
 // [Writer] is the health monitor and there is no other. The health monitor opens the
 // window when the deploy record is written and closes it once, at exactly one of
@@ -21,26 +21,26 @@
 // the service. It also stores the size, the confidence, the cap, the boundary's
 // formula, and the policy and score versions in force at the open — copied onto
 // the record rather than read back later. That is the same rule the gate's
-// opening row keeps for the threshold it applied: a reading at an exit is not
+// open event keeps for the threshold it applied: a reading at an exit is not
 // interpretable against anything but the boundary it was actually read against,
 // and an owner who re-authors a size while a window is open would otherwise
 // change what a window already closed is read to have meant.
 //
-// [Window.ClearedAvailable] is whether the cleared exit was reachable at all, which
+// [Window.PassedAvailable] is whether the passed exit was reachable at all, which
 // is a fact of the open and not of the exit: a release with nothing below it to
-// compare against can be condemned by an absolute threshold and can never be
-// cleared early, so its window ends at the cap. The field exists so that a window
+// compare against can be failed by an absolute threshold and can never be
+// passed early, so its window ends at the cap. The field exists so that a window
 // ending at the cap is readable as weak protection rather than as a comparison
 // that ran out of time.
 //
-// [Window.HeldOut] is the second way the cleared exit becomes unreachable and the
+// [Window.HeldOut] is the second way the passed exit becomes unreachable and the
 // reason one
 // field could not carry both. The score's own sample selects an item and runs its
 // release to the cap rather than stopping where the boundary would allow —
 // auto-passing a change the score wanted gated is where the factory is most openly
 // guessing, so it takes the longest watch available. A window that ran to the cap
 // for that reason and one that ran to the cap for want of a baseline are not the
-// same window, and a reader holding only ClearedAvailable could not tell them apart.
+// same window, and a reader holding only PassedAvailable could not tell them apart.
 // Both are the caller's to hand over: what the score selected is read off the
 // decisions on the item, which this package does not read.
 //
@@ -69,13 +69,13 @@
 // [Closed] is beside them and answers a different question: every closed window of
 // every service, which is what the score learns from — the subjects it supplies a
 // value for are the services the windows name, so a reader asking per service would
-// first have to be told which services to ask about. [ClosedWithoutCondemning] is what
+// first have to be told which services to ask about. [ClosedWithoutFailing] is what
 // both of the two below are computed from: every window of the service
-// whose exit is cleared or timed out, which are the two exits that count. Timing
-// out counts because a release that was never condemned is one the factory can
-// return to, and requiring a cleared close would leave a service too quiet to ever
-// reach one with no target at all. Closing skipped does not count: a skipped
-// release was never condemned either, but nothing is left running its build.
+// whose exit is passed or timed out, which are the two exits that count. Timing
+// out counts because a release that was never failed is one the factory can
+// return to, and requiring a passed close would leave a service too quiet to ever
+// reach one with no target at all. CloseEvent skipped does not count: a skipped
+// release was never failed either, but nothing is left running its build.
 //
 // Ordering those windows into a last known-good release and a target is the
 // caller's, because the order is the release's number and this package does not
@@ -94,8 +94,8 @@
 // service_id are id fields and not foreign keys, the rule record's doc.go states
 // once.
 //
-// What defines it: the watch window, its four exits, and the parameters resolved
-// at the open are ../../end-goal/how-humans-do-it/08-operations.md#the-watch-window;
+// What defines it: the analysis window, its four exits, and the parameters resolved
+// at the open are ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window;
 // the window limit, the last known-good release, and a rollback's target are
 // ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows; and the
 // boundary the size and confidence resolve to is package boundary.

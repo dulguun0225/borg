@@ -25,7 +25,7 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// healthMonitor is the one writer of watch windows, the way doc.go names it.
+// healthMonitor is the one writer of analysis windows, the way doc.go names it.
 var healthMonitor = record.Actor{Kind: record.KindComponent, Name: "health_monitor"}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *window.Writer) {
@@ -74,20 +74,20 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-// opening is a complete Opening over ids of its own, so a test that needs one
+// opening is a complete OpenEvent over ids of its own, so a test that needs one
 // or several does not repeat the six required fields and the three shares.
-func opening() window.Opening {
-	return window.Opening{
-		DeployID:         record.NewID("dep"),
-		ReleaseID:        record.NewID("rel"),
-		ServiceID:        record.NewID("svc"),
-		ClearedAvailable: true,
-		Size:             0.1,
-		Confidence:       0.95,
-		CapSeconds:       3600,
-		Formula:          "wilson",
-		PolicyVersion:    "pv_1",
-		ScoreVersion:     "sv_1",
+func opening() window.OpenEvent {
+	return window.OpenEvent{
+		DeployID:        record.NewID("dep"),
+		ReleaseID:       record.NewID("rel"),
+		ServiceID:       record.NewID("svc"),
+		PassedAvailable: true,
+		Size:            0.1,
+		Confidence:      0.95,
+		CapSeconds:      3600,
+		Formula:         "wilson",
+		PolicyVersion:   "pv_1",
+		ScoreVersion:    "sv_1",
 	}
 }
 
@@ -102,7 +102,7 @@ func TestAWindowOpensWithEveryFieldIntact(t *testing.T) {
 	if opened.DeployID != o.DeployID || opened.ReleaseID != o.ReleaseID || opened.ServiceID != o.ServiceID {
 		t.Errorf("Open = %+v, which does not name what it was opened over", opened)
 	}
-	if opened.ClearedAvailable != o.ClearedAvailable || opened.HeldOut != o.HeldOut ||
+	if opened.PassedAvailable != o.PassedAvailable || opened.HeldOut != o.HeldOut ||
 		opened.Size != o.Size || opened.Confidence != o.Confidence ||
 		opened.CapSeconds != o.CapSeconds || opened.Formula != o.Formula ||
 		opened.PolicyVersion != o.PolicyVersion || opened.ScoreVersion != o.ScoreVersion {
@@ -157,7 +157,7 @@ func TestASecondWindowOverOneReleaseIsRefused(t *testing.T) {
 
 // TestAWindowClosesOnceAtExactlyOneOfTheFourExits closes a window of its own at
 // each exit in turn, and checks Exit.Counts against what doc.go says it means:
-// cleared and timed out leave a release the factory can return to, condemned and
+// passed and timed out leave a release the factory can return to, failed and
 // skipped do not.
 func TestAWindowClosesOnceAtExactlyOneOfTheFourExits(t *testing.T) {
 	ctx, _, w := newTable(t)
@@ -180,7 +180,7 @@ func TestAWindowClosesOnceAtExactlyOneOfTheFourExits(t *testing.T) {
 		if _, err := time.Parse(record.TimeLayout, closed.ClosedAt); err != nil {
 			t.Errorf("the closed time is %q: %v", closed.ClosedAt, err)
 		}
-		want := exit == window.ExitCleared || exit == window.ExitTimedOut
+		want := exit == window.ExitPassed || exit == window.ExitTimedOut
 		if got := exit.Counts(); got != want {
 			t.Errorf("%s.Counts() = %v, want %v", exit, got, want)
 		}
@@ -193,10 +193,10 @@ func TestASecondCloseOnOneWindowIsAlreadyClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, err := w.Close(ctx, opened.ID, window.ExitCleared, closedOn()); err != nil {
+	if _, err := w.Close(ctx, opened.ID, window.ExitPassed, closedOn()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, err := w.Close(ctx, opened.ID, window.ExitCondemned, closedOn()); !errors.Is(err, window.ErrAlreadyClosed) {
+	if _, err := w.Close(ctx, opened.ID, window.ExitFailed, closedOn()); !errors.Is(err, window.ErrAlreadyClosed) {
 		t.Errorf("Close = %v, want ErrAlreadyClosed", err)
 	}
 }
@@ -222,12 +222,12 @@ func TestDDLListsEveryExit(t *testing.T) {
 	for _, exit := range window.Exits {
 		o := opening()
 		_, err := pool.Exec(ctx, `insert into `+window.Table+`
-			(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, cleared_available, held_out,
+			(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, passed_available, held_out,
 			 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
 			 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
 			values ($1, 'component', 'health_monitor', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, $13, $14,
 			 0, 0, 0, 0)`,
-			record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.ClearedAvailable,
+			record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.PassedAvailable,
 			o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, string(exit), record.Now())
 		if err != nil {
 			t.Errorf("inserting exit %q, one of window.Exits, was refused: %v", exit, err)
@@ -236,22 +236,22 @@ func TestDDLListsEveryExit(t *testing.T) {
 
 	o := opening()
 	_, err := pool.Exec(ctx, `insert into `+window.Table+`
-		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, cleared_available, held_out,
+		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, passed_available, held_out,
 		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
 		 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
 		values ($1, 'component', 'health_monitor', $2, $3, $4, $5, $6, false, $7, $8, $9, $10, $11, $12, 'flaky', $13,
 		 0, 0, 0, 0)`,
-		record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.ClearedAvailable,
+		record.NewID(window.IDPrefix), record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.PassedAvailable,
 		o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, record.Now())
 	if err == nil {
 		t.Error("the store accepted an exit outside window.Exits")
 	}
 }
 
-// TestCountOpenAllOpenAndClosedWithoutCondemningSeeOnlyWhatMatches opens four windows
+// TestCountOpenAllOpenAndClosedWithoutFailingSeeOnlyWhatMatches opens four windows
 // of one service and closes three of them at three different exits, so the
 // three reads see three different subsets of the same rows.
-func TestCountOpenAllOpenAndClosedWithoutCondemningSeeOnlyWhatMatches(t *testing.T) {
+func TestCountOpenAllOpenAndClosedWithoutFailingSeeOnlyWhatMatches(t *testing.T) {
 	ctx, pool, w := newTable(t)
 	serviceID := record.NewID("svc")
 
@@ -267,11 +267,11 @@ func TestCountOpenAllOpenAndClosedWithoutCondemningSeeOnlyWhatMatches(t *testing
 
 	stillOpen := openOne()
 	harmed := openOne()
-	if _, err := w.Close(ctx, harmed.ID, window.ExitCondemned, closedOn()); err != nil {
+	if _, err := w.Close(ctx, harmed.ID, window.ExitFailed, closedOn()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	cleared := openOne()
-	if _, err := w.Close(ctx, cleared.ID, window.ExitCleared, closedOn()); err != nil {
+	passed := openOne()
+	if _, err := w.Close(ctx, passed.ID, window.ExitPassed, closedOn()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	atCap := openOne()
@@ -290,16 +290,16 @@ func TestCountOpenAllOpenAndClosedWithoutCondemningSeeOnlyWhatMatches(t *testing
 		t.Errorf("AllOpen = %+v, want just %s", allOpen, stillOpen.ID)
 	}
 
-	withoutHarm, err := window.ClosedWithoutCondemning(ctx, pool, serviceID)
+	withoutHarm, err := window.ClosedWithoutFailing(ctx, pool, serviceID)
 	if err != nil {
-		t.Fatalf("ClosedWithoutCondemning: %v", err)
+		t.Fatalf("ClosedWithoutFailing: %v", err)
 	}
 	if len(withoutHarm) != 2 {
-		t.Fatalf("ClosedWithoutCondemning = %+v, want the clean window and the cap window", withoutHarm)
+		t.Fatalf("ClosedWithoutFailing = %+v, want the clean window and the cap window", withoutHarm)
 	}
 	seen := map[string]bool{withoutHarm[0].ID: true, withoutHarm[1].ID: true}
-	if !seen[cleared.ID] || !seen[atCap.ID] {
-		t.Errorf("ClosedWithoutCondemning = %+v, want %s and %s", withoutHarm, cleared.ID, atCap.ID)
+	if !seen[passed.ID] || !seen[atCap.ID] {
+		t.Errorf("ClosedWithoutFailing = %+v, want %s and %s", withoutHarm, passed.ID, atCap.ID)
 	}
 }
 
@@ -340,20 +340,20 @@ func TestPastCapIsTrueOnlyAfterATinyCapElapsesAndNeverOnceClosed(t *testing.T) {
 }
 
 // TestAnOpeningMissingAFieldIsIncomplete covers every required field the same
-// way, one Opening with exactly one of them cleared per case.
+// way, one OpenEvent with exactly one of them passed per case.
 func TestAnOpeningMissingAFieldIsIncomplete(t *testing.T) {
 	ctx, _, w := newTable(t)
 
 	for _, c := range []struct {
 		what string
-		mut  func(*window.Opening)
+		mut  func(*window.OpenEvent)
 	}{
-		{"deploy", func(o *window.Opening) { o.DeployID = "" }},
-		{"release", func(o *window.Opening) { o.ReleaseID = "" }},
-		{"service", func(o *window.Opening) { o.ServiceID = "" }},
-		{"formula", func(o *window.Opening) { o.Formula = "" }},
-		{"policy version", func(o *window.Opening) { o.PolicyVersion = "" }},
-		{"score version", func(o *window.Opening) { o.ScoreVersion = "" }},
+		{"deploy", func(o *window.OpenEvent) { o.DeployID = "" }},
+		{"release", func(o *window.OpenEvent) { o.ReleaseID = "" }},
+		{"service", func(o *window.OpenEvent) { o.ServiceID = "" }},
+		{"formula", func(o *window.OpenEvent) { o.Formula = "" }},
+		{"policy version", func(o *window.OpenEvent) { o.PolicyVersion = "" }},
+		{"score version", func(o *window.OpenEvent) { o.ScoreVersion = "" }},
 	} {
 		o := opening()
 		c.mut(&o)
@@ -371,13 +371,13 @@ func TestASizeConfidenceOrCapOutOfRangeIsIncomplete(t *testing.T) {
 
 	for _, c := range []struct {
 		what string
-		mut  func(*window.Opening)
+		mut  func(*window.OpenEvent)
 	}{
-		{"size at zero", func(o *window.Opening) { o.Size = 0 }},
-		{"size above one", func(o *window.Opening) { o.Size = 1.5 }},
-		{"confidence at zero", func(o *window.Opening) { o.Confidence = 0 }},
-		{"confidence at one", func(o *window.Opening) { o.Confidence = 1 }},
-		{"cap at zero", func(o *window.Opening) { o.CapSeconds = 0 }},
+		{"size at zero", func(o *window.OpenEvent) { o.Size = 0 }},
+		{"size above one", func(o *window.OpenEvent) { o.Size = 1.5 }},
+		{"confidence at zero", func(o *window.OpenEvent) { o.Confidence = 0 }},
+		{"confidence at one", func(o *window.OpenEvent) { o.Confidence = 1 }},
+		{"cap at zero", func(o *window.OpenEvent) { o.CapSeconds = 0 }},
 	} {
 		o := opening()
 		c.mut(&o)
@@ -399,20 +399,20 @@ func TestForReleaseAndForDeployAreFalseWhereNothingMatches(t *testing.T) {
 }
 
 // TestAHeldOutWindowIsToldFromOneWithNoBaseline: both run to the cap and neither
-// may be cleared, and a reader with only cleared_available could not tell which was
+// may be passed, and a reader with only passed_available could not tell which was
 // which. The score's sample is why the second field exists.
 func TestAHeldOutWindowIsToldFromOneWithNoBaseline(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
 	firstRelease := opening()
-	firstRelease.ClearedAvailable = false
+	firstRelease.PassedAvailable = false
 	first, err := w.Open(ctx, healthMonitor, firstRelease)
 	if err != nil {
 		t.Fatalf("Open over a release with no baseline: %v", err)
 	}
 
 	sampled := opening()
-	sampled.ClearedAvailable, sampled.HeldOut = false, true
+	sampled.PassedAvailable, sampled.HeldOut = false, true
 	held, err := w.Open(ctx, healthMonitor, sampled)
 	if err != nil {
 		t.Fatalf("Open over a held-out release: %v", err)
@@ -428,12 +428,12 @@ func TestAHeldOutWindowIsToldFromOneWithNoBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if !read.HeldOut || read.ClearedAvailable {
+	if !read.HeldOut || read.PassedAvailable {
 		t.Errorf("the window reads back as %+v, want held out with clean unavailable", read)
 	}
 	for _, w := range []window.Window{first, held} {
-		if w.ClearedAvailable {
-			t.Error("a window that runs to the cap says the cleared exit is available to it")
+		if w.PassedAvailable {
+			t.Error("a window that runs to the cap says the passed exit is available to it")
 		}
 	}
 }

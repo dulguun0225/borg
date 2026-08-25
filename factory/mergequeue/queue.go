@@ -322,7 +322,7 @@ func (q *Queue) reject(ctx context.Context, it item.Item, verified Verified) (Ou
 	if err != nil {
 		return Outcome{}, err
 	}
-	if _, err := q.dispatch.SendBack(ctx, Actor, it.ID, item.StageImplementation); err != nil {
+	if _, err := q.dispatch.ReworkRequest(ctx, Actor, it.ID, item.StageImplementation); err != nil {
 		return Outcome{}, err
 	}
 	return Outcome{

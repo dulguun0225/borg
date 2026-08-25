@@ -257,8 +257,8 @@ func ship(t *testing.T, ctx context.Context, g graph, svc service.Service,
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
-	w, err := g.windows.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "health_monitor"}, window.Opening{
-		DeployID: dep.ID, ReleaseID: rel.ID, ServiceID: svc.ID, ClearedAvailable: true,
+	w, err := g.windows.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "health_monitor"}, window.OpenEvent{
+		DeployID: dep.ID, ReleaseID: rel.ID, ServiceID: svc.ID, PassedAvailable: true,
 		Size: 0.1, Confidence: 0.95, CapSeconds: 1, Formula: "test",
 		PolicyVersion: "pv_1", ScoreVersion: "sv_1",
 	})
@@ -359,7 +359,7 @@ func TestABreakingDiffIsRejectedWhereAConsumerStillDeclaresTheElement(t *testing
 }
 
 // TestConsumerContractsInForceRunFromTheLastKnownGoodToTheNewest, and a service
-// with no window closed cleared or timed out has none and every release it has is
+// with no window closed passed or timed out has none and every release it has is
 // in the range.
 func TestConsumerContractsInForceRunFromTheLastKnownGoodToTheNewest(t *testing.T) {
 	ctx, g := newGraph(t)
@@ -370,7 +370,7 @@ func TestConsumerContractsInForceRunFromTheLastKnownGoodToTheNewest(t *testing.T
 	// releases 2 and 3 are in force and release 1 is not.
 	ship(t, ctx, g, g.consumer, nil, []consumercontract.Draft{
 		draft(g.producer, theInterface, "Gone", gatepolicy.PredicateRead, ""),
-	}, window.ExitCondemned)
+	}, window.ExitFailed)
 	second, secondWindow := ship(t, ctx, g, g.consumer, nil, []consumercontract.Draft{
 		draft(g.producer, theInterface, "Detail", gatepolicy.PredicateRead, ""),
 	}, window.ExitTimedOut)

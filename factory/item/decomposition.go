@@ -104,7 +104,7 @@ func (c *Decomposition) Create(ctx context.Context, actor record.Actor, n New) (
 var ErrAlreadySuperseded = errors.New("item: the item is superseded already")
 
 // ErrMerged is returned by [Decomposition.Supersede] for a merged item. A merged item is
-// out of reach of a re-decomposition — a send-back may be raised no later than the merge to
+// out of reach of a re-decomposition — a rework request may be raised no later than the merge to
 // master — so a re-decomposition leaves shipped work alone and declares the new set's order
 // against it.
 var ErrMerged = errors.New("item: a merged item is out of a re-decomposition's reach")

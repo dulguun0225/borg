@@ -37,7 +37,7 @@ var DDL = []string{
 	constraint human_present check (human <> ''),
 	constraint one_holding check (
 		(duty between 1 and 12 and obligation = '')
-		or (duty = 0 and obligation in ('hosting', 'checker', 'fleet'))
+		or (duty = 0 and obligation in ('hosting', 'driftdetector', 'fleet'))
 	),
 	constraint one_row_per_human_and_holding unique (human, duty, obligation),
 	constraint withdrawn_at_is_time_layout check (withdrawn_at = '' or withdrawn_at ~ '` + record.TimePattern + `')

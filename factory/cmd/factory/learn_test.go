@@ -24,7 +24,7 @@ type alwaysDraw struct{}
 func (alwaysDraw) Fraction() float64 { return 0 }
 
 // TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated is the sample end to end: no
-// human at a row the number gated, the closing row saying the sample and not the
+// human at a row the number gated, the close event saying the sample and not the
 // threshold, and the window over its release running to the cap because the
 // factory is measuring what it guessed at.
 func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
@@ -81,8 +81,8 @@ func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
 	if !w.HeldOut {
 		t.Error("the window does not say the release was held out")
 	}
-	if w.ClearedAvailable {
-		t.Error("the cleared exit is available to a held-out release's window, and the sample runs it to the cap")
+	if w.PassedAvailable {
+		t.Error("the passed exit is available to a held-out release's window, and the sample runs it to the cap")
 	}
 
 	// And the selection is readable off the decisions, which is where the design
@@ -98,7 +98,7 @@ func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
 
 // TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong is the
 // milestone's own demonstration through this interface: the episode M4 drives — a
-// change auto-passed on the number and condemned by its window — lowers the
+// change auto-passed on the number and failed by its window — lowers the
 // threshold the score supplies at the rows that passed it, so the run after it is
 // decided by a human where the run before it was not.
 //
@@ -119,7 +119,7 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 		t.Fatalf("Learn: %v", err)
 	}
 
-	// The row that auto-passed the change the window condemned now supplies a
+	// The row that auto-passed the change the window failed now supplies a
 	// threshold below the number it passed it at.
 	start, _ := score.Starting(gatepolicy.RiskThreshold)
 	moved := 0
@@ -141,7 +141,7 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 		}
 	}
 	if moved == 0 {
-		t.Fatalf("no row's threshold moved after a change the factory passed was condemned:\n%s", out)
+		t.Fatalf("no row's threshold moved after a change the factory passed was failed:\n%s", out)
 	}
 
 	// The next run is decided under a version of its own, which names the one the
@@ -199,7 +199,7 @@ func TestThePassPrintsWhatMovedAndWhatMovedIt(t *testing.T) {
 	inForce := score.Version{Supplied: score.StartingValues()}
 	moved := append(score.StartingValues(), score.Supplied{
 		Parameter: gatepolicy.WindowLimit, Subject: "svc_a", Value: 2,
-		Why: "3 window(s) of this service closed without condemning a release and 0 rollback(s) swept a release, folded in order",
+		Why: "3 window(s) of this service closed without failing a release and 0 rollback(s) swept a release, folded in order",
 	})
 
 	out := &bytes.Buffer{}
@@ -208,7 +208,7 @@ func TestThePassPrintsWhatMovedAndWhatMovedIt(t *testing.T) {
 	if !strings.Contains(printed, "window_limit on svc_a = 2 — moved from 1") {
 		t.Errorf("the pass does not print the movement:\n%s", printed)
 	}
-	if !strings.Contains(printed, "closed without condemning a release") {
+	if !strings.Contains(printed, "closed without failing a release") {
 		t.Errorf("the pass does not print what moved it:\n%s", printed)
 	}
 

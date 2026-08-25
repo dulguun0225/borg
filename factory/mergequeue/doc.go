@@ -50,9 +50,9 @@
 // failed is repaired on the next run and one merge never mints two numbers —
 // [Queue.one] says how. A mint that failed after the fast-forward leaves master
 // at a commit no release names, and that one is open: what repairs a record
-// disagreeing with what is there is the independent checker, and it is now
+// disagreeing with what is there is the drift detector, and it is now
 // installed beside the factory: its pass finds a record disagreeing with what
-// runs, and a human clears it at the independent checker.
+// runs, and a human clears it at the drift detector.
 //
 // The contract versions add no fourth window. They are written inside the mint's
 // own transaction, so a release either exists with its versions or does not exist —
@@ -66,7 +66,7 @@
 // write inside it takes a second one from the same pool. One run per process is what
 // the crude interface does and what this is written for; enough concurrent runs to
 // exhaust the pool would each hold one connection and wait for another, and nothing
-// would break that cycle. Closing it needs a connection limit the pool does not
+// would break that cycle. CloseEvent it needs a connection limit the pool does not
 // carry today, and it is named here because the per-service key is written for
 // exactly the caller that would meet it.
 //

@@ -13,7 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// Writer is the one writer of watch windows: the health monitor. It opens a window
+// Writer is the one writer of analysis windows: the health monitor. It opens a window
 // when a production deploy record is written and closes it once.
 type Writer struct {
 	pool *pgxpool.Pool
@@ -26,7 +26,7 @@ func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
 // release, is refused by the unique constraints rather than by this method: the
 // rule is "one per production deploy of a release its service has not watched
 // before", and a caller that asked twice gets the store's answer.
-func (w *Writer) Open(ctx context.Context, actor record.Actor, o Opening) (Window, error) {
+func (w *Writer) Open(ctx context.Context, actor record.Actor, o OpenEvent) (Window, error) {
 	if err := actor.Validate(); err != nil {
 		return Window{}, err
 	}
@@ -35,28 +35,28 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o Opening) (Windo
 	}
 
 	win := Window{
-		ID:               record.NewID(IDPrefix),
-		Actor:            actor,
-		At:               record.Now(),
-		DeployID:         o.DeployID,
-		ReleaseID:        o.ReleaseID,
-		ServiceID:        o.ServiceID,
-		ClearedAvailable: o.ClearedAvailable,
-		HeldOut:          o.HeldOut,
-		Size:             o.Size,
-		Confidence:       o.Confidence,
-		CapSeconds:       o.CapSeconds,
-		Formula:          o.Formula,
-		PolicyVersion:    o.PolicyVersion,
-		ScoreVersion:     o.ScoreVersion,
+		ID:              record.NewID(IDPrefix),
+		Actor:           actor,
+		At:              record.Now(),
+		DeployID:        o.DeployID,
+		ReleaseID:       o.ReleaseID,
+		ServiceID:       o.ServiceID,
+		PassedAvailable: o.PassedAvailable,
+		HeldOut:         o.HeldOut,
+		Size:            o.Size,
+		Confidence:      o.Confidence,
+		CapSeconds:      o.CapSeconds,
+		Formula:         o.Formula,
+		PolicyVersion:   o.PolicyVersion,
+		ScoreVersion:    o.ScoreVersion,
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, cleared_available, held_out,
+		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, passed_available, held_out,
 		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
 		 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, '', '', 0, 0, 0, 0)`,
 		win.ID, string(win.Actor.Kind), win.Actor.Name, win.At,
-		win.DeployID, win.ReleaseID, win.ServiceID, win.ClearedAvailable, win.HeldOut,
+		win.DeployID, win.ReleaseID, win.ServiceID, win.PassedAvailable, win.HeldOut,
 		win.Size, win.Confidence, win.CapSeconds, win.Formula, win.PolicyVersion, win.ScoreVersion,
 	)
 	if err != nil {

@@ -116,7 +116,7 @@ func (c *Candidates) Recompose(ctx context.Context, id string, composedFrom []Co
 // TearDown writes the time the environment was torn down and keeps the row. Its
 // caller stops the software first: the record and the process are two facts,
 // and a record saying torn down over a process still running is the
-// disagreement the independent checker exists to find.
+// disagreement the drift detector exists to find.
 func (c *Candidates) TearDown(ctx context.Context, id string) error {
 	return c.update(ctx, id, `update `+Table+` set torn_down_at = $1 where id = $2`,
 		record.Now(), "tearing down")

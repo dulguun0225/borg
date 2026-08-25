@@ -19,7 +19,7 @@ func fixedRow() Row {
 		Payload:       `{"verdict":"pass"}`,
 		PolicyVersion: "policy-1",
 		ScoreVersion:  "score-1",
-		Part:          PartOpening,
+		Part:          PartOpen,
 		PrevHash:      "0000000000000000000000000000000000000000000000000000000000000001",
 	}
 }
@@ -49,7 +49,7 @@ func TestChainHashCoversEveryField(t *testing.T) {
 		"Payload":       func(r *Row) { r.Payload = `{"verdict":"fail"}` },
 		"PolicyVersion": func(r *Row) { r.PolicyVersion = "policy-2" },
 		"ScoreVersion":  func(r *Row) { r.ScoreVersion = "score-2" },
-		"Part":          func(r *Row) { r.Part = PartClosing },
+		"Part":          func(r *Row) { r.Part = PartClose },
 		"Closes":        func(r *Row) { r.Closes = "dl_ffeeddccbbaa99887766554433221100" },
 		"PrevHash":      func(r *Row) { r.PrevHash = strings.Repeat("a", 64) },
 	}
