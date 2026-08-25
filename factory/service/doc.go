@@ -22,7 +22,7 @@
 // columns, so this package holds decomposition's fields alone today.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/02-intent-into-items.md#decomposition, which sets
+// ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/README.md, which sets
 // the one-repository rule, the two writers and the field as the seam between
 // them, and master not existing until the first release.
 package service

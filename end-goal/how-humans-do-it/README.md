@@ -5,7 +5,7 @@ The sections run in dependency order — each depends on the ones before it. The
 | Section | What it settles |
 |---|---|
 | [One pipeline](01-one-pipeline.md) | The unit of work, and that there is only one path |
-| [Intent into items](02-intent-into-items.md) | How a request becomes items, and what happens before decomposition |
+| [Intent into items](02-intent-into-items/README.md) | How a request becomes items, and what happens before decomposition |
 | [Gates](03-gates.md) | Where a decision happens, and what may be decided there |
 | [Risk score](04-risk-score.md) | What decides whether a human decides at a gate at all |
 | [Environments](05-environments.md) | Where software runs, and how a change reaches it |

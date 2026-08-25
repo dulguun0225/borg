@@ -269,8 +269,11 @@ directory or the file and `<fields>` filled in from the rows
 [_What the work spans_](../CLAUDE.md#what-the-work-spans) gives for its subjects:
 
 > Read only `<target>` — the one file, or every file in the one directory. Do not open
-> anything else and do not follow a link that leaves it. Judge what you read on its own,
-> ignoring anything you were told about this repository elsewhere.
+> anything else and do not follow a link that leaves it. Reading a directory, read each
+> directory's `README.md` first and then its entries in name order, and treat what you read
+> as one document: a term one file introduces is introduced for the files after it. Judge
+> what you read on its own, ignoring anything you were told about this repository
+> elsewhere.
 >
 > The fields this material speaks from are: `<fields>`. That is the only thing you are told
 > about it, and it is told to you so that you can tell a field's term of art from a name

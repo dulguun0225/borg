@@ -26,9 +26,9 @@
 // Decomposition reads an area and writes none.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/02-intent-into-items.md#what-an-item-names,
+// ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/02-what-an-item-names.md,
 // which sets the one writer, the chain, and an area cutting across services;
 // the target it holds is
-// ../../end-goal/how-humans-do-it/02-intent-into-items.md#decomposition and the row
+// ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/README.md and the row
 // in ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it.
 package area

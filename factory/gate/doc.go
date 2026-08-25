@@ -159,7 +159,7 @@
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them.
 // What Decomposition decides, one verdict covering the whole decomposition, and
 // a rejection re-decomposing the set rather than sending an item back are
-// ../../end-goal/how-humans-do-it/02-intent-into-items.md#decomposition; the
+// ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/README.md; the
 // merge row's checks rejecting on their own terms before a verdict is given are
 // ../../end-goal/how-humans-do-it/03-gates.md#merge-to-master.
 package gate
