@@ -69,7 +69,7 @@ var ErrOutOfAttempts = errors.New("factory: the stage used every attempt its lim
 // not read — both are the model failing to say the thing, which another sample
 // may say correctly. Nothing else is: a rate-limited or unauthorised account is
 // not an attempt at the work, and what the design does with an account that has
-// run out is a hold — ../../../end-goal/how-humans-do-it/10-fleet.md#an-account-that-runs-out-is-a-hold
+// run out is a hold — ../../../end-goal/how-humans-do-it/10-fleet/05-an-account-that-runs-out-is-a-hold.md
 // — so those return on the first failure rather than spending the limit on a
 // refusal that will not change. There is no wait between attempts, which costs
 // nothing on a refused reply and would be the wrong shape for a rate limit

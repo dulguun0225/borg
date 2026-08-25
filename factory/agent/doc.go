@@ -91,7 +91,7 @@
 // What defines it: a role — what an agent is put on, naming the work of one
 // stage — is ../../end-goal/how-humans-do-it/01-one-pipeline.md. The fleet
 // that does not yet exist behind the roles is
-// ../../end-goal/how-humans-do-it/10-fleet.md. The milestone, the four rules
+// ../../end-goal/how-humans-do-it/10-fleet/README.md. The milestone, the four rules
 // included, is ../../roadmap.md#m1--one-change-ships.
 // # The implementer emits the quantity the factory watches by
 //

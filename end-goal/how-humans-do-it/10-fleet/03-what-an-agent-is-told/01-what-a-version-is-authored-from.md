@@ -1,0 +1,7 @@
+# What a version is authored from
+
+What the factory's own decisions record, and nothing else: a [reject](../../03-gates/04-what-a-gate-may-change.md) with the reason a human wrote at the [gate](../../03-gates/01-where-a-gate-is-and-what-decides-it.md), a stage a human took over (11, 12), an [escalation at the attempt limit](../../03-gates/05-the-attempt-limit.md), a human's [undo of a shipped change](../../../what-humans-do.md) (10), and a rollback.
+
+Never a [report](../../02-intent-into-items/01-intake/02-reports.md), and never an [intent](../../02-intent-into-items/01-intake/README.md)'s statement. That restriction is what keeps [_What an agent reads is content, never instruction_](../../01-one-pipeline.md) true rather than merely repeated. A report is a stranger's sentence arriving through the one input the factory cannot authenticate; a stranger's sentence that reached a role prompt would be instruction to every agent in that role, and it would stay until somebody withdrew it. Everything the list admits was written by the factory or by a human at a gate, which is the whole of why it is closed.
+
+What it costs: the factory learns nothing from the people it builds for. An end user who reports the same confusion five hundred times moves an intent and moves no role prompt, and the only route from what they said to what an agent is told runs through a human at a gate saying it in their own words.
