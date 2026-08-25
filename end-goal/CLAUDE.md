@@ -19,17 +19,22 @@ is open to revision.
 
 `README.md` indexes the document; `how-humans-do-it/README.md` is the dependency-order
 table and only that; each section directory's `README.md` is the same kind of thing one
-level down — the section's lead-in prose and the table of its subsections, and only that.
+level down — the section's own prose, which is the lead-in and anything belonging to no
+subsection, and the table of its subsections.
 
 There is no work list. A decision belongs in the file that owns its subject, and a cut
 candidate is taken or refused with the reason written into that same file. Keeping answers
 outside the sections that own them is the shape `open.md`'s own rule refuses.
 
 One file per subsection. A section is a numbered directory: its `README.md` holds the
-section's lead-in prose and the table of its subsections, each subsection is a numbered
-file in it, and a subsection with subsections of its own is a directory of the same shape.
+section's own prose — the lead-in, and anything belonging to no subsection — and the table
+of its subsections; each subsection is a numbered file in it, and a subsection with
+subsections of its own is a directory of the same shape.
 A section with no subsections stays a numbered file. Every file's own heading is `#` and no
-heading is deeper — a subsection's heading is its file's own. A new part of the document is
+heading is deeper — a subsection's heading is its file's own. Two files keep `##` headings
+inline instead: [`open.md`](open.md), whose questions are its headings and leave when
+answered, and [`deferred.md`](deferred.md); they are the only files an anchor may point
+into. A new part of the document is
 a new file in this directory; a new section of _How humans do it_ is a new numbered
 directory plus a row in that directory's table; a new subsection is a new numbered file
 plus a row in its section's table, and it renames every file after it in its section and
@@ -50,8 +55,8 @@ the range check below cannot see it: a reorder changes what a number means and n
 numbers exist, so it passes by construction, and the cold-read check is told to leave bare
 duty numbers alone. An edit that inserts, removes, or reorders duties is finished only
 when every citation of every moved number has been read and repointed — the duty-refs grep
-below lists them, over a hundred across nine files — run only on an edit able to break the
-references, not on every edit, because the duty list rarely moves.
+below lists them, over a hundred across the document — run only on an edit able to break
+the references, not on every edit, because the duty list rarely moves.
 
 **The gate table against the prose.** Every gate named in prose needs a row, and every
 action in a row must be possible at that point in the lifecycle. `Deploy to production`
@@ -157,7 +162,7 @@ document and a file that moves here would break them silently otherwise:
 [ $(grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l) -eq $((8 + $(find end-goal/ -name README.md | wc -l))) ] && echo "tables: ok"
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
-grep -rn "^####" --include='*.md' end-goal/ --exclude=CLAUDE.md                  # nothing deeper than "### " — expect none
+grep -rn "^##" --include='*.md' end-goal/ --exclude=CLAUDE.md --exclude=open.md --exclude=deferred.md  # nothing below "# " outside the two whole files — expect none
 grep -rc "^# " --include='*.md' end-goal/ --exclude=CLAUDE.md | grep -v ':1$'    # one "# " per file — expect none
 # every link resolves against the directory of the file it appears in, repository-wide — expect no output
 python3 -c "
@@ -169,7 +174,9 @@ for p in glob.glob('**/*.md', recursive=True):
         if not f or f.startswith('http'): continue
         if not os.path.exists(os.path.join(os.path.dirname(p), f)): print('dangling:', p, '->', t)
 "
-# every anchor matches a heading — expect no output
+# anchors survive only into open.md and deferred.md, which stay whole — expect none
+grep -rho "]([^)]*#[^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | grep -v "open\.md#\|deferred\.md#"
+# every surviving anchor matches a heading — expect no output
 comm -23 <(grep -rho "]([^)]*#[^)]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/.*#//; s/)$//' | sort -u) \
          <(grep -rh "^#\{1,3\} " --include='*.md' end-goal/ --exclude=CLAUDE.md | sed 's/^#* //; s/[^A-Za-z0-9 -]//g; s/ /-/g' | tr 'A-Z' 'a-z' | sort -u)
 # every bolded name is on the inventory — expect no output
@@ -362,9 +369,10 @@ The check costs a subagent per changed section on every edit, and its result is 
 rather than a grep exit code.
 
 Then read One pipeline → Intent into items → Gates → Risk score → Environments → Releases →
-Contracts → Operations → Gate policy → The fleet → Screens straight through and confirm one
-identity survives end to end: item plus build as a candidate, the same build in production,
-an ordinal attached at merge, contracts versioned alongside it.
+Contracts → Operations → Gate policy → The fleet → Screens straight through — each section
+directory read README first and then its files in name order — and confirm one identity
+survives end to end: item plus build as a candidate, the same build in production, an
+ordinal attached at merge, contracts versioned alongside it.
 
 ## Commits
 
