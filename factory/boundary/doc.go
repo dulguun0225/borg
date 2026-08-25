@@ -66,11 +66,11 @@
 //
 // What defines it: the window's boundary, its size and its confidence, and the
 // requirement that the boundary be valid at every point it is read are
-// ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window; the four
+// ../../end-goal/how-humans-do-it/08-operations/02-the-analysis-window.md; the four
 // exits are the table in that section, of which this package decides two and
 // the elapsed cap and a rollback aimed below decide the other two. What the
 // comparison is made against is
-// ../../end-goal/how-humans-do-it/08-operations.md#the-health-monitor, whose weak
+// ../../end-goal/how-humans-do-it/08-operations/01-the-health-monitor.md, whose weak
 // fallback reads a release against the last known-good release's recent history
 // where no control is running.
 package boundary

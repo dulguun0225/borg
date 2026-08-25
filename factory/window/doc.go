@@ -95,8 +95,8 @@
 // once.
 //
 // What defines it: the analysis window, its four exits, and the parameters resolved
-// at the open are ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window;
+// at the open are ../../end-goal/how-humans-do-it/08-operations/02-the-analysis-window.md;
 // the window limit, the last known-good release, and a rollback's target are
-// ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows; and the
+// ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md; and the
 // boundary the size and confidence resolve to is package boundary.
 package window

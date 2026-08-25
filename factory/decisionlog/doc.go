@@ -110,7 +110,7 @@
 // What defines it: seam 2 of "Security comes last" in
 // ../../end-goal/deferred.md#security-comes-last, which sets the three shapes,
 // the chain, and the one-writer rule. A page event is
-// ../../end-goal/how-humans-do-it/08-operations.md#pages. The policy version a
+// ../../end-goal/how-humans-do-it/08-operations/07-pages.md. The policy version a
 // decision names is ../../end-goal/how-humans-do-it/09-gate-policy.md and the
 // score version is
 // ../../end-goal/how-humans-do-it/04-risk-score/01-factors-at-least.md. How long

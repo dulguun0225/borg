@@ -143,7 +143,7 @@
 // are the rows of
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-in-it; the window
 // limit's own
-// evidence is ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows
+// evidence is ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md
 // and the window's size and cap are
-// ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window.
+// ../../end-goal/how-humans-do-it/08-operations/02-the-analysis-window.md.
 package score

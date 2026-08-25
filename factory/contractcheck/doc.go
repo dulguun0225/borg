@@ -90,5 +90,5 @@
 // the store's forward promise and its own past as the consumer are
 // ../../end-goal/how-humans-do-it/07-contracts/09-the-store-is-a-contract-too.md;
 // and the last known-good release is
-// ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows.
+// ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md.
 package contractcheck

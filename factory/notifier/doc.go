@@ -80,7 +80,7 @@
 // decision log through [decisionlog.Writer] and reads the [people] declaration, and
 // it writes nowhere else.
 //
-// What defines it: ../../end-goal/how-humans-do-it/08-operations.md#pages — the one
+// What defines it: ../../end-goal/how-humans-do-it/08-operations/07-pages.md — the one
 // notifier, the three channels, the condition that qualifies for a page, the three
 // page events, and the single widening — and
 // ../../end-goal/what-humans-do.md for the twelve duties the routing reads and the

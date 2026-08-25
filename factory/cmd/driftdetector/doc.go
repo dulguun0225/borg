@@ -29,7 +29,7 @@
 // did not perform the deploy is what package localtarget had to change to allow.
 //
 // What defines it:
-// ../../../end-goal/how-humans-do-it/08-operations.md#drift-detection — the one process
+// ../../../end-goal/how-humans-do-it/08-operations/08-drift-detection.md — the one process
 // outside the pipeline, which the owner installs beside the factory they already host,
 // and where clearing a mismatch is the human act placed at the independent
 // driftdetector and refused at Ops. The three subcommands are that section's

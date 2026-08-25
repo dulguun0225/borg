@@ -100,14 +100,14 @@
 // hear about. It writes no deploy record and reaches no target — [Rollbacker] does
 // both.
 //
-// What defines it: ../../end-goal/how-humans-do-it/08-operations.md#the-health-monitor
+// What defines it: ../../end-goal/how-humans-do-it/08-operations/01-the-health-monitor.md
 // for the control, the fallback, and what the health monitor is;
-// ../../end-goal/how-humans-do-it/08-operations.md#the-analysis-window for the window
-// and its four exits; ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows
+// ../../end-goal/how-humans-do-it/08-operations/02-the-analysis-window.md for the window
+// and its four exits; ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md
 // for the window limit, the rollback's target, and what a rollback sweeps;
-// ../../end-goal/how-humans-do-it/08-operations.md#after-the-analysis-window for the
+// ../../end-goal/how-humans-do-it/08-operations/04-after-the-analysis-window.md for the
 // intent a later crossing writes;
-// ../../end-goal/how-humans-do-it/08-operations.md#incidents for the incident and its
+// ../../end-goal/how-humans-do-it/08-operations/06-incidents.md for the incident and its
 // deduplication; and ../../end-goal/how-humans-do-it/06-releases/06-rollback.md for
 // what a rollback is and what its record names.
 package healthmonitor

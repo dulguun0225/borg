@@ -98,6 +98,6 @@
 // rollback is and what its record names is
 // ../../end-goal/how-humans-do-it/06-releases/06-rollback.md, and which release it
 // returns to is
-// ../../end-goal/how-humans-do-it/08-operations.md#overlapping-windows —
+// ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md —
 // computed for one rollback by the health monitor, which is what calls [Restore].
 package deploy

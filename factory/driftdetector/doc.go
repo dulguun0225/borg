@@ -79,7 +79,7 @@
 // and what the factory holds is [Store] and the read functions.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/08-operations.md#drift-detection — the one process,
+// ../../end-goal/how-humans-do-it/08-operations/08-drift-detection.md — the one process,
 // the two records, the three readers, what clearing requires, and what it catches —
 // and ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md for the hold
 // it sets, which is the one hold the factory cannot lift by gathering evidence.
