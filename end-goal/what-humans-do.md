@@ -17,7 +17,7 @@ What falls outside is substrate rather than work, and the design names three: ho
 4. Report bugs.
 5. Complain ("this button is too slow").
 
-**Verify against intent** — at a [gate](how-humans-do-it/03-gates/01-where-a-gate-is-and-what-decides-it.md), so as often as the [score](how-humans-do-it/04-risk-score.md) or a safeguard (9) says:
+**Verify against intent** — at a [gate](how-humans-do-it/03-gates/01-where-a-gate-is-and-what-decides-it.md), so as often as the [score](how-humans-do-it/04-risk-score/README.md) or a safeguard (9) says:
 
 6. Confirm the [acceptance criteria](how-humans-do-it/03-gates/07-what-particular-gates-decide/02-spec.md) are the right ones. Unit tests are today's encoding of them; what a human is checking is the criteria, not the test code.
 7. Perform user acceptance testing (UAT).

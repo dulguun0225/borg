@@ -1,6 +1,6 @@
 # Dispatch
 
-With the decomposition approved, the factory puts its own agents onto the items — a model in a role with a scope, as [_One pipeline_](../01-one-pipeline.md) has it. Dispatch gets no gate: it decides who authors, and everything authored is reviewed at a gate anyway, where the score reads the [per-author prior](../04-risk-score.md#factors-at-least) of the model that wrote it.
+With the decomposition approved, the factory puts its own agents onto the items — a model in a role with a scope, as [_One pipeline_](../01-one-pipeline.md) has it. Dispatch gets no gate: it decides who authors, and everything authored is reviewed at a gate anyway, where the score reads the [per-author prior](../04-risk-score/01-factors-at-least.md) of the model that wrote it.
 
 What limits how many items move at once is infrastructure — an environment per candidate — and that cost is the factory's rather than a human's. Where a human authors a stage instead of an agent (11, 12), nothing about dispatch changes: authorship is an attribute of the stage, and the item is still one timeline.
 

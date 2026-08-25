@@ -154,7 +154,7 @@
 // ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/06-deploy-to-candidate-environment.md,
 // ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/07-merge-to-master.md, and
 // ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md. The vector
-// and the number are ../../end-goal/how-humans-do-it/04-risk-score.md; the
+// and the number are ../../end-goal/how-humans-do-it/04-risk-score/README.md; the
 // threshold and the safeguard are
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#one-shape-across-all-of-them.
 // What Decomposition decides, one verdict covering the whole decomposition, and

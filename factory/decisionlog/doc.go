@@ -113,7 +113,7 @@
 // ../../end-goal/how-humans-do-it/08-operations.md#pages. The policy version a
 // decision names is ../../end-goal/how-humans-do-it/09-gate-policy.md and the
 // score version is
-// ../../end-goal/how-humans-do-it/04-risk-score.md#factors-at-least. How long
+// ../../end-goal/how-humans-do-it/04-risk-score/01-factors-at-least.md. How long
 // the log is kept is a setting an owner authors,
 // ../../end-goal/how-humans-do-it/09-gate-policy.md#what-is-not-in-it, and
 // nothing here deletes anything yet. The two-row decision is
