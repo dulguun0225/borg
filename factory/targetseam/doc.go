@@ -21,6 +21,6 @@
 // What defines it: seam 4 of "Security comes last" in
 // ../../end-goal/deferred.md#security-comes-last. What the seam attaches to on
 // the other side is an agent's scope, from "One pipeline" in
-// ../../end-goal/how-humans-do-it/01-one-pipeline.md, declared and enforced by
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md, declared and enforced by
 // nothing until there is something behind the seam.
 package targetseam

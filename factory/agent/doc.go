@@ -59,7 +59,7 @@
 // [Criterion] values carrying the id and the sentence and nothing else.
 // [SpecAuthor.Refine] is told them so the one criterion it authors is not one
 // the service already promises; [Implementer.Implement] is told them because
-// the Implementation gate — ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/05-implementation.md
+// the Implementation gate — ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md
 // — rejects in both directions, a criterion in force with no encoding naming
 // it as well as an encoding naming a criterion not in force, so the stage that
 // authors encodings sees every criterion and not only the one this item's spec
@@ -89,9 +89,9 @@
 // role.
 //
 // What defines it: a role — what an agent is put on, naming the work of one
-// stage — is ../../end-goal/how-humans-do-it/01-one-pipeline.md. The fleet
+// stage — is ../../end-goal/how-the-factory-works/01-one-pipeline.md. The fleet
 // that does not yet exist behind the roles is
-// ../../end-goal/how-humans-do-it/10-fleet/README.md. The milestone, the four rules
+// ../../end-goal/how-the-factory-works/10-fleet/README.md. The milestone, the four rules
 // included, is ../../roadmap.md#m1--one-change-ships.
 // # The implementer emits the quantity the factory watches by
 //

@@ -40,3 +40,12 @@ discipline's:
 - **the rule reader** — the instruction files alone: whether a rule earns its cost
 
 Name one to run it: "run the security engineering reader".
+
+What a run returns lands in `review-findings.md`, and the unattended loop triages it one
+discipline block per fresh session — fixing the design or escalating to
+`requires-human.md`, one commit per finding — until the file is gone ([CLAUDE.md](CLAUDE.md#the-review-pass) sets what a session may
+do). To run it overnight, surviving the terminal closing, with the log in `loop.log`:
+
+```bash
+nohup python3 tools/loop-review-findings.py > loop.log 2>&1 &
+```

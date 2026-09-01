@@ -56,9 +56,9 @@
 // environment_id, service_id, release_id, deploy_id, and intent_id are id fields
 // and not foreign keys, the rule record's doc.go states once.
 //
-// What defines it: ../../end-goal/how-humans-do-it/08-operations/06-incidents.md —
+// What defines it: ../../end-goal/how-the-factory-works/08-operations/06-incidents.md —
 // the record on a production environment, its writer, its links, its
 // deduplication, and what resolving it requires — and
-// ../../end-goal/how-humans-do-it/08-operations/04-after-the-analysis-window.md for the
+// ../../end-goal/how-the-factory-works/08-operations/04-after-the-analysis-window.md for the
 // intent a crossing writes once the window has closed.
 package incident

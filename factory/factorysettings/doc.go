@@ -28,8 +28,8 @@
 // and the version commit together or not at all.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/09-gate-policy/02-one-shape-across-all-of-them.md,
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md,
 // which sets what shares this record and why the two that share it could not go
 // on production's environment record; the limit itself is
-// ../../end-goal/how-humans-do-it/03-gates/05-the-attempt-limit.md.
+// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md.
 package factorysettings

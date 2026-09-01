@@ -66,9 +66,9 @@
 // exists and a row inserted around it may not.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/02-intent-into-items/01-intake/README.md sets the
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md sets the
 // three sources and the one writer, and
-// ../../end-goal/how-humans-do-it/02-intent-into-items/02-the-interview.md sets
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md sets
 // the three states, the question record written twice, the write-once answer,
 // and the round count.
 package intent

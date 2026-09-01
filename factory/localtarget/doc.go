@@ -95,9 +95,9 @@
 // later — and the M1 demonstration in ../../roadmap.md#m1--one-change-ships, which
 // needs a target that runs the software so the deploy without a control ships
 // something. What reads [Local.ReadRunning] from outside the factory is
-// ../../end-goal/how-humans-do-it/08-operations/08-drift-detection.md, and the
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md, and the
 // quantity the started process emits is
-// ../../end-goal/how-humans-do-it/08-operations/01-the-health-monitor.md, and the
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md, and the
 // exchange document a consumer contract is decided against is
-// ../../end-goal/how-humans-do-it/07-contracts/06-what-a-consumer-declares.md.
+// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md.
 package localtarget

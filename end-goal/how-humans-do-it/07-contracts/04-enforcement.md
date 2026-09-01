@@ -1,3 +1,0 @@
-# Enforcement
-
-The rule is mechanical rather than a judgment call. The factory diffs the contract a candidate publishes against the one in production: a diff the contract's promise allows passes, and a breaking diff without the migration already shipped ahead of it is a rejection at the Merge to master gate. The [same graph](../../what-the-factory-does/01-tight-integration.md) answers who is affected — the factory knows which services consume which contracts, so "what does this break" is a query rather than an estimate, and it feeds the [context factor](../04-risk-score/01-factors-at-least.md) of the risk score directly.

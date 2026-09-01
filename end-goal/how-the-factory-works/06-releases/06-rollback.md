@@ -1,0 +1,42 @@
+# Rollback
+
+Rollback is a deploy event, not a version event: it shifts traffic onto the instances of [_the release it returns to_](../08-operations/03-overlapping-windows.md), still running at full capacity, and writes a deploy record, minting and retiring no number. It applies no schema change either — the schema moves only forward, staying at the newest release's form however far traffic moves back, which is what the store's [forward promise](../07-contracts/09-the-store-is-a-contract-too.md) exists to make survivable. It is not a record of its own — every field is on the deploy record already, and a second writer on the fact of what is running is the fact the drift detector exists to check. That record names the failed release as a field distinct from the list of releases the rollback undid, whose own deploy records the same event advances to rolled back on every target, a target the release never reached included, because the hold and the one-revert-per-failed-release rule both need the two apart. It also names a **source** beside its [actor](../../deferred.md), the shape [intake](../02-intent-into-items/01-intake/README.md) already uses: the [health monitor](../08-operations/01-the-health-monitor.md) at the [failed](../08-operations/02-the-analysis-window.md) exit, or the named human at [Ops](../11-screens/01-work-ops-factory-people.md) with the reason they state. The actor stays the deployer that performed it. Which release that is is [_the rollback's target_](../08-operations/03-overlapping-windows.md), and it is not always the ordinal predecessor — where windows overlap, the release below a bad one may still be under watch itself. Where the rollout kept no control, the same target is reached the slow way, by redeploying the build. That the restored build still works is not luck: [no item may break the store](../07-contracts/09-the-store-is-a-contract-too.md) it runs on, and that rule applies in both directions and over writes as well as reads — what the newer release wrote while it was live is still readable by the one being restored, and what the restored one writes still lands, a constraint its declared writes would violate being a diff [the declarations in force](../07-contracts/06-what-a-consumer-declares.md) rejected at the merge.
+
+The slow way redeploys the artifact the target's [build](../05-environments/01-records-and-one-long-lived-branch.md) names by digest, and the deployer verifies that digest before it deploys. Redeploying by name alone restores a name and not the bytes it was verified under: an artifact store, like a package registry, can hold other content under an old name. Where the digest differs, the artifact store no longer holds what the build recorded, so the deployer performs no deploy, writes no deploy record, and the failed release keeps serving. It [pages](../08-operations/07-pages.md) at that exit, the condition a target credential unreachable during a rollback already meets: production is running a release the factory has just failed, and nothing the factory has will improve it. What it costs is a rollback refused for a store that lost or rewrote an artifact, on the release it was needed for, and a human then reaching the platform directly, the one recovery in the design with no component of the factory in it.
+
+A revert is an ordinary item [decomposition](../02-intent-into-items/03-decomposition/README.md) writes, from an intent intake wrote at the rollback — the health monitor calling intake at the failed exit, the named human at Ops calling it when they ask for one; "revert" names what raised its intent and nothing about the record. Nothing on the item says it is one, on the precedent that [the project is not a field](../02-intent-into-items/03-decomposition/02-what-an-item-names.md) — the release it reverts is reachable through the intent's [evidence](../02-intent-into-items/01-intake/README.md), and a field would let the two disagree. One failed release is one revert item, and an owner undoing a whole [partly delivered intent](../02-intent-into-items/04-when-an-intents-items-do-not-all-ship.md) asks for one intent decomposed into one revert item per shipped sibling. Where a failed exit finds no release to return to, no deploy record is written and the failed release keeps serving: the health monitor raises the revert intent itself and [pages](../08-operations/07-pages.md) at that exit. Production is running a release the factory has just failed, and no mechanism the factory has will improve it — the [page condition](../08-operations/07-pages.md) word for word, and the same one a target credential unreachable during a rollback already meets. The [escalation page](../08-operations/07-pages.md) on the revert item is then a second reach on a state a human already knows about, rather than the first thing to reach anybody. It matters most where the owner bought the only detection there was: a service's first release cannot be [passed](../08-operations/02-the-analysis-window.md) and is measured only where a [safeguard](../09-gate-policy/02-one-shape-across-all-of-them.md) set an explicit threshold, so without this the human who authored that threshold gets no page from the crossing it caught.
+
+A rollback restores code and no effect. It shifts traffic onto the instances of an earlier
+build, so what the failed release did while it was serving stands: an amount posted, a
+message published, a notification sent, a row erased, an actuator driven. What the
+[window](../08-operations/02-the-analysis-window.md) watches is the rate at which the
+software fails and how long it takes to answer, which is what the [health
+monitor](../08-operations/01-the-health-monitor.md) reads, and it watches nothing else. So in
+an area whose [hazard
+severity](../02-intent-into-items/03-decomposition/03-hazard-severity.md) is above
+`negligible`, a rollback returns the traffic and never the state, and what was done is
+undone by an item or by nothing. That is stated here rather than left to the
+reversibility the [score](../04-risk-score/01-factors-at-least.md) computes from a diff,
+which is the availability of instances to shift back onto and says nothing about what the
+code did while it ran.
+
+A rollback restores the configuration version the deploy record named for that release beside its code, the digest being what the slow way's redeploy resolves again and what the fast way already has running.
+
+Undoing a release whose window has closed is not a rollback. The instances of the release it would return to are gone, master keeps the change, and the correction is a revert — a new item, its own timeline, its own number. That is what the second phase of a human's undo (10) costs; the first is the rollback above, on a human's judgment instead of the health monitor's.
+
+When the [deployer](../08-operations/01-the-health-monitor.md) is the thing that is wrong,
+no path inside the factory recovers: it performs every deploy and every rollback, so one
+fault stops both, and what makes the state readable is its own [last
+check](../08-operations/08-drift-detection.md) record. What a human does then is reach the
+platform directly, outside the factory and through the credential the [environment's
+record](../05-environments/01-records-and-one-long-lived-branch.md) holds, and put the
+target back on the build of the rollback's target. The factory is not told and is not
+meant to be. The target then runs a build no deploy record names, which is a
+[mismatch](../08-operations/08-drift-detection.md) like any other, holding that service's
+production deploys until a human clears it at the detector. Clearing it is the record of
+the manual act and the only record there is, so what that human writes there is the whole
+of what a later reader gets. That is the one recovery in the design with no component of
+the factory in it, and what it costs is the factory's account of what is running for as
+long as the mismatch stands.
+
+A service's first release has no target: nothing below it closed passed or [timed out](../08-operations/02-the-analysis-window.md), no earlier build is running under it, and there is none to redeploy. A human's undo (10) begins at its second phase there, so the correction is a revert with no rollback before it. The drawback is that the cheapest undo the factory has is missing on the one release its [score](../04-risk-score/README.md) knows least about.

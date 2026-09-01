@@ -110,14 +110,14 @@
 // What defines it: seam 2 of "Security comes last" in
 // ../../end-goal/deferred.md#security-comes-last, which sets the three shapes,
 // the chain, and the one-writer rule. A page event is
-// ../../end-goal/how-humans-do-it/08-operations/07-pages.md. The policy version a
-// decision names is ../../end-goal/how-humans-do-it/09-gate-policy/README.md and the
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md. The policy version a
+// decision names is ../../end-goal/how-the-factory-works/09-gate-policy/README.md and the
 // score version is
-// ../../end-goal/how-humans-do-it/04-risk-score/01-factors-at-least.md. How long
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md. How long
 // the log is kept is a setting an owner authors,
-// ../../end-goal/how-humans-do-it/09-gate-policy/03-what-is-not-in-it.md, and
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it.md, and
 // nothing here deletes anything yet. The two-row decision is
-// ../../end-goal/how-humans-do-it/03-gates/01-where-a-gate-is-and-what-decides-it.md:
+// ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md:
 // the open event exists so the human has the factor vector to argue with,
 // and the verdict is a second row because writing it onto a chained row would
 // be a rewrite.

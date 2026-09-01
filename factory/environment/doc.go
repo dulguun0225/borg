@@ -53,10 +53,10 @@
 // and not to package gatepolicy.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/05-environments/01-records-and-one-long-lived-branch.md,
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md,
 // which sets the kind as the seam between writers, the targets as a field, and
 // what a persistent kind holds;
-// ../../end-goal/how-humans-do-it/05-environments/02-an-environment-per-candidate.md
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate.md
 // for the candidate kind, its composition, and its teardown; and the threshold's
-// scope is ../../end-goal/how-humans-do-it/09-gate-policy/02-one-shape-across-all-of-them.md.
+// scope is ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
 package environment

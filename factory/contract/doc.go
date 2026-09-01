@@ -78,14 +78,14 @@
 // once.
 //
 // What defines it: the contract record, its kind, and the merge queue as its
-// writer are ../../end-goal/how-humans-do-it/07-contracts/01-two-versioned-things.md;
+// writer are ../../end-goal/how-the-factory-works/07-contracts/01-two-versioned-things.md;
 // the promise each kind makes is
-// ../../end-goal/how-humans-do-it/07-contracts/03-what-a-contract-promises.md and,
-// for a store, ../../end-goal/how-humans-do-it/07-contracts/09-the-store-is-a-contract-too.md;
+// ../../end-goal/how-the-factory-works/07-contracts/03-what-a-contract-promises.md and,
+// for a store, ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
 // the diff and what a breaking one is are
-// ../../end-goal/how-humans-do-it/07-contracts/04-enforcement.md; the deprecation
+// ../../end-goal/how-the-factory-works/07-contracts/04-enforcement.md; the deprecation
 // mark being derived from the build and minting a minor is
-// ../../end-goal/how-humans-do-it/07-contracts/08-deprecation.md; and the unit
+// ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md; and the unit
 // belonging to an element's name is
-// ../../end-goal/how-humans-do-it/07-contracts/05-what-a-diff-cannot-see.md.
+// ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md.
 package contract

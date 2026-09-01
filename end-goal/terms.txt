@@ -25,27 +25,42 @@
 #
 
 a role prompt	agent engineering
+a selection rule	coined
 a skill	agent engineering
+abandonment	ordinary
+acceptance round	requirements engineering
 advisory	vulnerability management
+the advisory severity	vulnerability management
 agent	agent engineering
+agent run record	agent engineering
 always true	ordinary
 an actor on every record	ordinary
 analysis window	ordinary
 area	ordinary
 artifact	process engineering
 artifact gate	ordinary
+backfill	database migration engineering
+schema history	database migration engineering
 artifact store	process engineering
 attempt limit	ordinary
+average run length	statistical process control
 backlog cap	ordinary
+backup retention	data architecture
+bake volume	release engineering
 backstop the factory	ordinary
 backward	ordinary
+burn rate	site reliability engineering
 baseline	statistics
 brownout	site reliability engineering
 build	release engineering
+build runner	release engineering
 candidate	release engineering
+change freeze	release engineering
 close event	ordinary
+constraint-derived	requirements engineering
 consumer contract	contract testing
 context	ordinary
+context assembly	agent engineering
 contract version	contract testing
 control	statistics
 could not derive	ordinary
@@ -53,6 +68,8 @@ crossing	sequential analysis
 current release	release engineering
 decision	ordinary
 decomposition	requirements engineering
+delivered	ordinary
+delivery record	ordinary
 departure	ordinary
 deployer	release engineering
 design system	design systems
@@ -64,6 +81,8 @@ dropped	ordinary
 edit in place	ordinary
 effort	agent engineering
 element	contract testing
+environment-hours	ordinary
+erasure list	ordinary
 error budget	site reliability engineering
 escalated	site reliability engineering
 evaluation set	machine learning
@@ -73,6 +92,7 @@ exposure	security engineering
 factory	software engineering
 factory-wide settings record	ordinary
 failed	release engineering
+failure record	observability engineering
 feed back as end users	ordinary
 firing	ordinary
 fleet	release engineering
@@ -80,28 +100,46 @@ fleet proposal	ordinary
 form	contract testing
 forward	ordinary
 fully autonomous software factory and operations	ordinary
+gate	release engineering
 gate component	software architecture
 git	version control
 grouper	coined
+halt	ordinary
+hazard severity	safety engineering
 health monitor	site reliability engineering
 held out	statistics
 held-out sample rate	statistics
 hold	release engineering
+human-confirmed	requirements engineering
+in force	law
 incident	site reliability engineering
+input manifest	agent engineering
+install event	ordinary
+install's first-start step	ordinary
+instance-hours	ordinary
 intent	ordinary
 item	ordinary
 item-size target	ordinary
 kind	ordinary
 last check	ordinary
 last known-good release	release engineering
+legal hold	records management
 marked	ordinary
+maximum concurrent candidate environments	ordinary
+maximum concurrent kept fleets	ordinary
 mismatch	ordinary
+mitigation	site reliability engineering
+mitigation record	site reliability engineering
+mutant cap	ordinary
+mutation floor	ordinary
+notice file	supply chain security
 notifier	software architecture
 open event	ordinary
 ops	site reliability engineering
 optional feature	ordinary
 organic traffic	applied statistics
 originate intent	ordinary
+outcome	ordinary
 page	site reliability engineering
 page event	ordinary
 passed	release engineering
@@ -109,15 +147,28 @@ people	ordinary
 per-author prior	statistics
 platform	platform engineering
 policy version	ordinary
+power	statistics
+processing location	legal
+product licence	legal
+proof test	functional safety
 provider account	ordinary
+provisioned	platform engineering
 question	ordinary
 re-decomposing	requirements engineering
+read event	ordinary
+readiness reading	ordinary
+recovery point	data architecture
+recovery unit	ordinary
 redaction	legal
 refined	ordinary
 release	release engineering
 release number	release engineering
+remediation period	vulnerability management
 report	ordinary
 report store	ordinary
+requirement	requirements engineering
+retention floor	ordinary
+review sample rate	quality management
 rework request	quality management
 risk threshold	risk scoring
 role	agent engineering
@@ -130,11 +181,13 @@ scope	agent engineering
 score version	ordinary
 screens	product design
 seam	software architecture
-search	ordinary
+search	coined
 search budget	ordinary
+selection rule	coined
 service	software architecture
 service level objective	site reliability engineering
 set the rules	ordinary
+shipped-bundle identity	supply chain security
 skill	agent engineering
 skipped	continuous integration
 source	ordinary
@@ -146,19 +199,22 @@ statement	ordinary
 store	databases
 targets	ordinary
 the analysis window's cap	ordinary
-the analysis window's size and confidence	sequential analysis
+the analysis window's size, confidence, and power	sequential analysis
 the author	ordinary
 the builder	ordinary
 the change	ordinary
+the exposure bound	security engineering
 the fast-forward	version control
 the graph	ordinary
 the licence	ordinary
 the list of allowed predicate kinds	ordinary
 the pipeline	release engineering
+tier	product management
 timed out	ordinary
 traceability is the second	ordinary
 undecided	ordinary
 unrefined	ordinary
+unreliable	ordinary
 unwanted condition	requirements engineering
 verdict	ordinary
 verify against intent	ordinary

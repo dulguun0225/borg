@@ -1,0 +1,11 @@
+# Implementation
+
+Where the state machine the spec authored is enforced. An implementation that admits a forbidden transition is rejected here, mechanically rather than on taste — the whole reason for authoring the screen as a state machine. How far mechanically reaches is bounded in [_the transition check_](01-the-transition-check.md), because no run exists yet and the check is read off the build alone. This is also the first gate that decides over a build: the build is made from the item's candidate branch when the stage finishes, so a build that does not compile is rejected here where Reject with feedback is an action, and the score computes the [change factors](../../../04-risk-score/01-factors-at-least.md) from that build's diff against master. The drawback: an item rejected here has already spent a build.
+
+It is also the one artifact gate with no Edit in place, for the reason [_What a gate may change_](../../04-what-a-gate-may-change.md) gives. The actions are the narrowest in [the table](../../03-actions-at-each-gate.md): approve what was built, or [send the item back](../../06-going-back-up.md) — to this stage to have it built differently, or to the stage whose artifact was the thing that was wrong. What the human reads is the build's diff against master, rendered in [Work](../../../11-screens/01-work-ops-factory-people.md), beside the list of what the change reaches that the [vector](../../../04-risk-score/01-factors-at-least.md)'s exposure factor carries. Work is the one place the product renders code, the exception [_What the factory does not build_](../../../../what-the-factory-does/04-what-the-factory-does-not-build.md) states. The artifact under decision is the implementation, and a list derived from it is not it: a gate that showed the list and withheld the code would record a human decision over material no human read.
+
+| Subsection | What it settles |
+|---|---|
+| [The transition check](01-the-transition-check.md) | What the check can show about a screen's states, and what it cannot |
+| [The encoding and the emission](02-the-encoding-and-the-emission.md) | What is authored here besides the implementation, and what drives a screen into its declared states |
+| [What the encoding rests on](03-what-the-encoding-rests-on.md) | Why the encoding's authority is the gate's and not its own, and the one check on it |

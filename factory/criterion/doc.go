@@ -72,9 +72,9 @@
 // anything; record's doc.go states that rule and its cost once.
 //
 // What defines it: the criterion, its six patterns, the escape, and the
-// stable id are ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/02-spec.md; the
+// stable id are ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec.md; the
 // encoding, its authoring rule, and the two rejection directions are
-// ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/05-implementation.md; the run, what it
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md; the run, what it
 // attaches to, and the undecided outcome are
-// ../../end-goal/how-humans-do-it/05-environments/04-what-the-candidate-environment-decides.md.
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides.md.
 package criterion

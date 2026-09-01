@@ -57,7 +57,7 @@
 //
 // What defines it: the store, its three callers, and the version chain are
 // the "One entrance for every artifact" arrangement in
-// ../../end-goal/how-humans-do-it/01-one-pipeline.md; the one call a spec
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md; the one call a spec
 // version and its criteria are submitted in is
-// ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/02-spec.md.
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec.md.
 package artifact

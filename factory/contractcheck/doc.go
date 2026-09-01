@@ -79,16 +79,16 @@
 //
 // What defines it: the diff, a breaking one being a rejection at the Merge to
 // master gate, and who is affected being a query are
-// ../../end-goal/how-humans-do-it/07-contracts/04-enforcement.md; the two
+// ../../end-goal/how-the-factory-works/07-contracts/04-enforcement.md; the two
 // baselines, the range consumer contracts in force are read over, and the
 // safeguard's predicate are
-// ../../end-goal/how-humans-do-it/07-contracts/06-what-a-consumer-declares.md; the
+// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md; the
 // list and the detector are
-// ../../end-goal/how-humans-do-it/07-contracts/08-deprecation.md; the three items
+// ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md; the three items
 // a breaking change is are
-// ../../end-goal/how-humans-do-it/07-contracts/02-no-single-item-may-break-a-contract.md;
+// ../../end-goal/how-the-factory-works/07-contracts/02-no-single-item-may-break-a-contract.md;
 // the store's forward promise and its own past as the consumer are
-// ../../end-goal/how-humans-do-it/07-contracts/09-the-store-is-a-contract-too.md;
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
 // and the last known-good release is
-// ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md.
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md.
 package contractcheck

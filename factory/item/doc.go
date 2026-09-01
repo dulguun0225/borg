@@ -50,8 +50,8 @@
 // present rule and its cost once, for every link column in the graph.
 //
 // What defines it:
-// ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/02-what-an-item-names.md,
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md,
 // which sets the fields, dispatch as the writer of the stage and the two
 // counts beside it, and the two-writer seam. A superseded item pointing at what
-// replaced it is ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/README.md.
+// replaced it is ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md.
 package item

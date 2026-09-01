@@ -32,10 +32,12 @@ fail on a new one. It holds no reasons and no decisions — same kind of thing a
 and settled in the file.
 
 `review-findings.md` is not a third either: it exists only between a run of the review pass
-and the end of that run's triage, holding what the run returned until triage moves each finding into the file that owns its subject or into
-`end-goal/open.md`. It records no disposition and no reason, so nothing is decided in it,
+and the end of that run's triage, holding what the run returned until triage moves each finding into the file that owns its subject, into
+`end-goal/open.md`, or into `requires-human.md`. It records no disposition and no reason, so nothing is decided in it,
 and it empties as triage proceeds. [_The review pass_](#the-review-pass) says what may go
-in it.
+in it. `requires-human.md` is the same kind of thing one step later: findings the
+unattended loop moved there verbatim for the owner, no disposition recorded, deleted when
+the owner empties it.
 
 ## The document comes first
 
@@ -97,7 +99,7 @@ wherever the answer would differ by row. The list staffs nothing.
 
 | Discipline | What in the design document it owns |
 |---|---|
-| Security engineering | The five seams, and the policy that attaches at the one between the deployer and a deploy target |
+| Security engineering | The five seams, the policy that attaches at the one between the deployer and a deploy target, and the checks over the code the factory writes |
 | Supply chain security | Dependencies the factory adds on its own — versions, vulnerabilities, and licenses |
 | Trust and safety | The report channel, which is the one way in from outside the factory |
 | Audit and compliance | Traceability as a claim made to an auditor, and segregation of duties in a system that authors, approves, and deploys |
@@ -116,14 +118,16 @@ wherever the answer would differ by row. The list staffs nothing.
 
 ## Delegate by default
 
-Route work to the agents in `~/.claude/agents/` instead of doing it in the main
-context, without being asked. Each agent's definition carries the model and effort matched
-to its tier, so routing to the right agent is routing to the right model. The routing
-table is the `description:` line of each agent file. Between two agents the tier ladder is
-quality > tokens > time, and a doubt resolves upward — to opus and no higher. Opus is the
-cap for every subagent. A type not in the roster (`general-purpose`, `Explore`, an ad-hoc
-dispatch) inherits the session model, so pass `model: "opus"` on every such launch; `fork`
-ignores the override and is not used while the session model is above opus.
+Route work to the agents in `.claude/agents/` instead of doing it in the main context,
+without being asked. The session is the orchestrator; workers run on two tiers, set by
+each definition's `model:` line. Workers that judge — `cold-reader`,
+`discipline-reviewer`, `reviewer` — run on Opus. Workers that execute a decided task —
+`coder`, `editor`, `scout` — run on Sonnet. A doubt between the two resolves upward, and
+Opus is the cap. A type not in the roster (`general-purpose`, `Explore`, an ad-hoc
+dispatch) inherits the session model, so pass `model:` explicitly on every such launch:
+`"opus"` for judgment, `"sonnet"` for execution. `fork` ignores the override and is not
+used. The routing table is the `description:` line of each agent file. Decisions stay in
+the session; a worker returns what it found or did and what it could not resolve.
 
 Stays in the main context: triage and routing itself, anything the user must decide,
 conversation-spanning work an agent cannot see, and answers so small that dispatch costs
@@ -181,12 +185,9 @@ omits the Rules stance, whose only material is the instruction files. Each batch
 are appended to `review-findings.md` as the batch finishes. A partial run — fewer agents,
 or a bounded path — must not speak for the whole design: its report names which agents ran
 and what they read, and a design those agents found sound is not a design found sound.
-Each one runs on a model and effort matched to what it judges — quality first, tokens
-second, time last, so a doubt between two tiers resolves to the higher and the cheap tier
-is never a default — and opus is the cap, as for every subagent. An agent from
-`~/.claude/agents/` is used when its definition fits the stance; otherwise the dispatch is
-ad hoc and passes `model: "opus"`, as [_Delegate by default_](#delegate-by-default)
-requires.
+Every stance is one dispatch of `discipline-reviewer` from `.claude/agents/`, the field or
+stance named in the dispatch text; it runs on Opus, the judgment tier
+[_Delegate by default_](#delegate-by-default) sets.
 
 **Each review agent is dispatched cold**, in its own subagent, and told two things in its
 dispatch text: to judge what it reads on its own and ignore anything it was told about
@@ -242,12 +243,33 @@ it costs is that a finding can sit there being read as a backlog, and that a ref
 recorded there would not bind a later run — which is why a refusal is never recorded
 there.
 
-Triage is done with the owner, never by the session that ran the pass, because refusal is
+Triage is done with the owner or by the unattended loop below, never by the session that
+ran the pass, because refusal is
 the cheapest disposition and should be the one it is least eager to reach: every taken
 finding is an edit to `end-goal/`, which fires the consistency pass — a cold-read subagent
 per changed section plus the eleven-section read-through. Running on request means a defect can
 sit until someone thinks to look, the thirty are fixed so they find thirty kinds of thing
 and no thirty-first, and coverage is whatever the owner remembers to ask for.
+
+**The unattended loop.** `tools/loop-review-findings.py` runs one headless session per
+discipline block of `review-findings.md` — the entries under one `##` heading, passed in
+the prompt `prompts/fix-review-findings.md` so the session never reads the file whole —
+each in a fresh context, until the file is gone. Such a session has two dispositions, not
+three: it takes a finding — one commit per finding, `tools/consistency-commands.sh` run
+before each — or it moves the finding verbatim to `requires-human.md` with what decision
+is needed, for the owner to triage with all three. It never refuses, so refusal stays the
+owner's and stays the disposition hardest to reach. A session decides each entry's
+disposition from the entry's text before opening a file, so an escalation reads nothing
+but the entry, and a fix reads only the files the finding names and the one that owns the
+subject. The cold-read check and the read-through run once per run, from
+`prompts/finish-review-findings.md` after the last block, over every section the run
+changed: neither depends on which commit or which session an edit sits in, so the check is
+the same and the read-through — the whole of _How the factory works_ — is paid once instead
+of once per block. A finding another discipline reached separately is joined to the block that meets
+it first, found by reading the file's headings alone. What the loop costs is that taken
+findings land in `end-goal/` without the owner's eyes until the owner reads the commits;
+the escalation rule — a decision only the owner can make goes to `requires-human.md`, and
+a doubt between the dispositions escalates — is what bounds that.
 
 ## Commits
 

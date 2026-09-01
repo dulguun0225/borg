@@ -4,3 +4,6 @@
 # file exists, so a token pasted into it cannot be committed by accident.
 /factory/secrets.local
 /temp.md
+# The unattended loop's log, per README.
+/loop.log
+__pycache__

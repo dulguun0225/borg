@@ -17,7 +17,7 @@ build or test suite here: the consistency pass below is all that checks this dir
 Every task here is an edit to a design document, and the document says everything in it
 is open to revision.
 
-`README.md` indexes the document; `how-humans-do-it/README.md` is the dependency-order
+`README.md` indexes the document; `how-the-factory-works/README.md` is the dependency-order
 table and only that; each section directory's `README.md` is the same kind of thing one
 level down — the section's own prose, which is the lead-in and anything belonging to no
 subsection, and the table of its subsections.
@@ -35,7 +35,7 @@ heading is deeper — a subsection's heading is its file's own. Two files keep `
 inline instead: [`open.md`](open.md), whose questions are its headings and leave when
 answered, and [`deferred.md`](deferred.md); they are the only files an anchor may point
 into. A new part of the document is
-a new file in this directory; a new section of _How humans do it_ is a new numbered
+a new file in this directory; a new section of _How the factory works_ is a new numbered
 directory plus a row in that directory's table; a new subsection is a new numbered file
 plus a row in its section's table, and it renames every file after it in its section and
 every link into them.
@@ -85,7 +85,7 @@ services to each other) → Operations (the control, the analysis window, the wi
 page) → Gate policy (everything an owner authors, gathered from the sections that define
 each parameter) → The fleet (what an agent runs on, and what a borrowed account costs) →
 Screens (where a human sees it). A concept should be defined before the section that leans
-on it. The numeric prefixes on the section directories under `how-humans-do-it/` are that
+on it. The numeric prefixes on the section directories under `how-the-factory-works/` are that
 order and nothing else; the prefixes on the files inside a section are that section's
 reading order, and nothing else either. Reordering one means renaming what moved and
 repointing every link into it.
@@ -124,9 +124,82 @@ the rule it replaced: a link was one edit wherever it was owed, and a clause is 
 afresh in each section, so a term used in six sections is introduced six times in six
 different sentences.
 
+**The record inventory.** [`records.md`](records.md) lists every record in the graph, its
+writer, and the seam where two writers reach one, and it is the only place that list exists.
+`what-the-factory-does/01-tight-integration.md` states the one-writer rule and the sections
+below invoke it one record at a time, so before the list a second writer given to an
+existing record broke a sentence in a file nobody had opened and passed every check here. A
+section that introduces a record adds its row in the same commit, and a section that
+declares a seam names both writers in that row. The file holds no reasons: each row points
+at the section that owns the subject, which is where the writer is argued and where an edit
+goes. What it costs is a second place to edit whenever a writer moves, and the count check
+below is what fails when the table itself is dropped.
+
+**The component inventory.** [`components.md`](components.md) is the same list from the
+other side: a row per component, what it is, and which components it may call. It exists
+because the one-writer rule is stated over components and the record inventory names them
+without listing them, so a component that writes nothing appeared nowhere at all, and the
+call edges the document states one at a time as costs were never collected into something a
+reader could check for a loop. Two rules make it checkable, and an edit adding a component
+or a call keeps both: a component does not exist until it has a row, and a call edge does
+not exist until the row of the caller names it. What it costs is a second table to keep true
+beside the record one.
+
 **Never cross-reference by position.** "The second open question" breaks the moment a
 bullet is resolved and removed. Refer to things by name. A link's path may contain a
 number; its text never does.
+
+## Sentence, paragraph, and file length
+
+The rules above protect what the document says. This one protects whether a reader can
+tell what it says. The value of the document is that its claims interlock, and a claim
+arriving as the eleventh clause of a hundred-word sentence cannot be checked against
+another claim — not by the owner, not by a review agent, not by whoever builds `factory/`
+from it. Four bounds, checked over the prose alone:
+
+- **A sentence holds at most 60 words.** The median sentence here is 34, so the bound
+  sits well above the register the document already writes in. What it catches is the one
+  sentence in eight that carries a whole subject as a single grammatical unit.
+- **A sentence holds at most one em dash.** One sets off one aside and its scope is
+  plain; a second makes the reader guess whether it closes the first or opens another.
+  The em dash is what turns three sentences into one here, so the word bound alone does
+  not reach it.
+- **A paragraph holds at most 300 words**, a top-level list item counting as a paragraph
+  of its own, since that is how most of the document's enumerations are carried.
+- **A file holds at most 1,500 words.** Every file's own heading is `#` and no heading is
+  deeper, so a long file has no internal structure a sentence can point at — which is
+  what produces a file citing its own subsection by name as though it were elsewhere.
+  The remedy is the one _What this is_ already gives: the subsection becomes a directory
+  and its parts become numbered files in it. Permitting `##` inside a long file instead
+  is refused — it makes every heading in the document an anchor target, and the anchor
+  check's whole shape is that only `open.md` and `deferred.md` are.
+
+The check below gates a paragraph this edit changed and counts the rest. A bound broken
+inside a paragraph the working tree touches is a failure; the same bound broken in prose
+the edit did not touch is a number printed at the end. That is the shape the inventory
+check already runs in, and for the same reason: the document was written before the
+bounds, and a check that failed on all of it would block every edit until the whole of it
+had been rewritten. The document comes within the bounds a paragraph at a time, as
+paragraphs are edited for their own reasons, and the counts printed each run are what
+says whether it is getting there.
+
+The file bound is enforced in that one direction too. A file this edit pushes past 1,500
+words is a failure and is split; a file already past it is counted and may still grow, so
+a finding belonging in the longest file is not answered by a restructuring first.
+
+This file is checked with the rest. The other commands here exclude it, because they read
+the document's vocabulary and its links and this file is neither; a rule about whether a
+sentence can be read has no such excuse, and one stated in prose nobody can follow would
+be its own counterexample.
+
+It costs three things. The check reads the working tree against `HEAD`, which no other
+command here does, so a pass run after the commit rather than before it gates nothing:
+the counts still print, but the gate holds only if the pass is run before the commit, as
+this file says to. A paragraph edited for one word is brought within the bounds whole, which
+makes a one-word fix inside a long paragraph a rewrite of that paragraph. And the bounds
+count words and dashes rather than clauses, so a sentence can sit under every one of them
+and still be unreadable. The cold-read check's unparsed list is the instrument for that,
+and it is the only one here that reads a sentence as a sentence.
 
 ## Resolved questions get folded, not deleted
 
@@ -158,8 +231,8 @@ reads the repository's Markdown because `roadmap.md` and the factory's docs link
 document and a file that moves here would break them silently otherwise:
 
 ```bash
-# 8 content tables — what comes from outside, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a role prompt and a skill reach — plus the one index table every README holds
-[ $(grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l) -eq $((8 + $(find end-goal/ -name README.md | wc -l))) ] && echo "tables: ok"
+# 10 content tables — what comes from outside, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a role prompt and a skill reach, records and their writers, components and what they call — plus the one index table every README holds
+[ $(grep -rhE "^\| *:?-{3,}" --include='*.md' end-goal/ --exclude=CLAUDE.md | wc -l) -eq $((10 + $(find end-goal/ -name README.md | wc -l))) ] && echo "tables: ok"
 grep -rho "([0-9, ]*)" --include='*.md' end-goal/ --exclude=CLAUDE.md | sort -u  # duty refs — every one must be 1–12
 grep -rn "open question\|see Open" --include='*.md' end-goal/ --exclude=CLAUDE.md   # positional cross-refs — expect none
 grep -rn "^##" --include='*.md' end-goal/ --exclude=CLAUDE.md --exclude=open.md --exclude=deferred.md  # nothing below "# " outside the two whole files — expect none
@@ -217,18 +290,86 @@ for line in open('end-goal/glossary.md', encoding='utf-8'):
     if m and m.group(1).lower() not in body:
         print('glossary line for a term the document does not use:', m.group(1))
 EOF
+# prose form — the bounds of "Sentence, paragraph, and file length" above
+python3 - <<'EOF'
+import glob, os, re, subprocess
+# A bound broken inside a paragraph this edit changed is a failure and prints its line;
+# the same bound broken in prose the edit did not touch is counted and is not, because
+# the document was written before the bounds and a check failing on all of it would
+# block every edit until the whole of it had been rewritten. Prose only: tables,
+# headings and fences are dropped, and a top-level list item counts as a paragraph.
+# This file is read with the rest, which is the one command here that does not skip it.
+SENT_MAX, DASH_MAX, PARA_MAX, FILE_MAX = 60, 1, 300, 1500
+SENT = re.compile(r'(?<=[.?!])\s+(?=[A-Z“"`*\[(])')
+ITEM = re.compile(r'([-*+] |\d+\. )')
+
+def blocks(text):
+    out, cur, start, last, fence = [], [], 0, 0, False
+    for i, s in enumerate(text.split('\n'), 1):
+        if s.startswith('```'): fence = not fence; continue
+        if fence or s.startswith('#') or s.lstrip().startswith('|'): continue
+        s = re.sub(r'^\s*> ?', '', s)  # a quoted block is prose, and its bare > is a break
+        if not s.strip() or ITEM.match(s.lstrip()):
+            if cur: out.append((start, last, ' '.join(cur))); cur = []
+        if s.strip():
+            if not cur: start = i
+            cur.append(s.strip()); last = i
+    if cur: out.append((start, last, ' '.join(cur)))
+    return out
+
+def git(*a):
+    r = subprocess.run(('git',) + a, capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else None
+
+touched, path = {}, None
+for l in (git('diff', '-U0', 'HEAD', '--', 'end-goal/') or '').split('\n'):
+    if l.startswith('+++ b/'): path = l[6:]; touched.setdefault(path, set())
+    elif l.startswith('@@') and path:
+        m = re.search(r'\+(\d+)(?:,(\d+))?', l)
+        if m: touched[path].update(range(int(m.group(1)), int(m.group(1)) + int(m.group(2) or 1)))
+for p in (git('ls-files', '-o', '--exclude-standard', 'end-goal/') or '').split():
+    touched[p] = None  # a file git has never seen is touched whole
+
+fails, tail, sizes = 0, {'sentence': 0, 'em dash': 0, 'paragraph': 0}, {}
+for p in sorted(glob.glob('end-goal/**/*.md', recursive=True)):
+    hit = touched.get(p, set()) if p in touched else set()
+    sizes[p] = 0
+    for start, end, b in blocks(open(p, encoding='utf-8').read()):
+        sizes[p] += len(b.split())
+        live = p in touched and (hit is None or any(n in hit for n in range(start, end + 1)))
+        broken = []
+        if len(b.split()) > PARA_MAX: broken.append(('paragraph', len(b.split()), PARA_MAX))
+        for s in SENT.split(b):
+            if len(s.split()) > SENT_MAX: broken.append(('sentence', len(s.split()), SENT_MAX))
+            if s.count('—') > DASH_MAX: broken.append(('em dash', s.count('—'), DASH_MAX))
+        for kind, got, cap in broken:
+            if live: print('%s: %d over %d — %s:%d' % (kind, got, cap, p, start)); fails += 1
+            else: tail[kind] += 1
+over = []
+for p, w in sorted(sizes.items(), key=lambda kv: -kv[1]):
+    if w <= FILE_MAX: continue
+    was = git('show', 'HEAD:' + p)
+    if was is None or sum(len(b[2].split()) for b in blocks(was)) <= FILE_MAX:
+        print('file: %d over %d — split %s into subsections' % (w, FILE_MAX, p)); fails += 1
+    else: over.append((w, p))
+print('prose form: %d in this edit; elsewhere %d sentences, %d em dashes and %d paragraphs '
+      'past their bound; %d files past %d, longest %s'
+      % (fails, tail['sentence'], tail['em dash'], tail['paragraph'], len(over), FILE_MAX,
+         ', '.join('%s at %d' % (os.path.basename(p), w) for w, p in over[:3])))
+EOF
 ```
 
 The link check resolves each path against the directory of the file it appears in, which a
-one-liner resolving against `end-goal/` and `how-humans-do-it/` alike did not: a link
+one-liner resolving against `end-goal/` and `how-the-factory-works/` alike did not: a link
 written with the wrong prefix resolved under the other directory and passed. It cannot see
 anchors — it strips fragments and skips same-file links — which is why the anchor check is
 separate. That one matches an anchor against every heading in this document rather than
 against the target file's own, so it catches a renamed heading and not a link pointed at
 the wrong file.
 
-The inventory check is the only command here that is a gate rather than a reading. Every
-other one finds a link or an anchor pointing at nothing; this one finds a name that did not
+Two commands here are gates and the rest are readings. The prose-form check is one, and
+the inventory check is the other. A reading finds a link or an anchor pointing at
+nothing; the inventory check finds a name that did not
 exist before this edit, which is the defect the vocabulary cleanup of 2026-08-20 to
 2026-08-23 spent millions of tokens undoing. It runs one way on purpose: a name added
 fails, a name removed does not, because that cleanup removed names constantly and a check
@@ -244,28 +385,36 @@ it survives on, which is the point rather than the price: the cost is paid where
 line, instead of later where it was forty terms. The check cannot tell a good name from a
 bad one, and is not meant to — the cold-read check's coined list is what does that.
 
-The glossary is its own roster: which industry words this document bends is decided in the
-commit that adds or removes a line in `glossary.md`, the way a name is decided in the
-commit that adds its `terms.txt` line — not in a list this file holds, which was a list of
-answers kept outside the file that owns them, the shape this file itself refuses, and whose
+The glossary is its own roster. Which industry words this document bends is decided in the
+commit that adds or removes a line in `glossary.md`, the way a name is decided in the commit
+that adds its `terms.txt` line. It is not decided in a list this file holds: that was a list
+of answers kept outside the file that owns them, the shape this file itself refuses, and its
 only remedy for a wrong line was editing a Python literal inside a bash fence nothing said
 anyone may edit. The check keeps the one direction that stays mechanical: every glossary
-line names a term the document uses, so a line cannot outlive its term. The
-direction given up is mechanical detection of a bent term with no line, which was only ever
-as good as the list a session remembered to extend; what surfaces a reader left with the
-industry meaning is the cold-read check's borrowed list, term by term, on the file that
-uses it. What it costs is that a line added for a term the document uses but does not bend
-fails nothing — that decision is the commit's, and a bad line is repaired by review rather
-than by a grep. Whether a term is introduced where it is used is the cold-read check's,
-which finds a name pointing at nothing and is the better instrument for it.
+line names a term the document uses, so a line cannot outlive its term. The direction given
+up is mechanical detection of a bent term with no line, which was only ever as good as the
+list a session remembered to extend. What surfaces a reader left with the industry meaning
+is the cold-read check's bent list, term by term, on the file that uses it, and a non-empty
+one is a failure the commit resolves by rewording or by a line. What it costs is that a line
+added for a term the document uses but does not bend fails nothing — that decision is the
+commit's, and a bad line is repaired by review rather than by a grep. Whether a term is
+introduced where it is used is the cold-read check's business too, and its unlinked list is
+the better instrument for that, since it finds a name pointing at nothing.
 
 ### The cold-read check
 
-The greps above find a link pointing at nothing. This finds two things no grep can. One is
-a name pointing at nothing, which is the same defect one level down and the one that made
-the document unreadable. The other is a name that should not exist at all — a coinage in
-the commit that introduces it, which every other check in this file passes over, because a
-coined term properly introduced satisfies all of them.
+The greps above find a link pointing at nothing. This finds four things no grep can. One
+is a name pointing at nothing, which is the same defect one level down and the one that
+made the document unreadable. Another is a name that should not exist at all — a coinage
+in the commit that introduces it, which every other check in this file passes over,
+because a coined term properly introduced satisfies all of them. The third is a sentence
+that does not parse. The prose-form check bounds how long a sentence may be and how much
+subordination it may carry, which is a count of words and dashes; whether the words in
+that budget resolve into a claim is a judgment, and this is where it is made. The fourth
+is a field's term of art this document uses in some sense other than that field's, which
+every other check here also passes over: it is introduced, it is on the inventory with a
+field beside it, and the reader who arrives with the field's meaning is left confidently
+wrong.
 
 For each section directory this edit changed, dispatch one subagent; a changed file that
 is not in a section directory dispatches on the file alone. A change confined to link
@@ -286,7 +435,14 @@ directory or the file and `<fields>` filled in from the rows
 > about it, and it is told to you so that you can tell a field's term of art from a name
 > this document invented. It does not tell you the material is right about anything.
 >
-> Return four lists and nothing else.
+> Return six lists and nothing else.
+>
+> **Unparsed** — every sentence whose grammatical structure you could not resolve on one
+> reading: you could not find its subject, or you could not tell which clause a phrase
+> attaches to, or you reached its end without being able to say what it asserts. Quote
+> each in full and say which part you could not attach. Judge the sentence and not the
+> subject: a sentence you parsed and disagreed with does not go here, and a sentence
+> about something you know nothing about still parses.
 >
 > **Unlinked** — every term the material uses as though already defined, that it does not
 > define, where the sentence using it offers no link to follow. Quote the sentence where
@@ -306,15 +462,53 @@ directory or the file and `<fields>` filled in from the rows
 > rather than taken. Put a term here rather than under Coined whenever a field uses it
 > this way, even if a commoner sense exists elsewhere, and say so where it does. A field
 > you cannot name that way is not one, and the term belongs under Coined.
+>
+> **Bent** — every term you recognise as a field's term of art that this material uses in a
+> sense other than that field's. Name the field, say what the field means by the term, and
+> say what this material appears to mean by it. A term goes here rather than under Borrowed
+> wherever the two senses differ, and here rather than under Coined wherever you can place
+> the word in a field at all.
 
-Only the unlinked list is a failure, and a non-empty one means the edit is not finished.
-Fix each by introducing the term in the prose where it is first used, or by linking it to
-the section that defines it. Adding it to [`glossary.md`](glossary.md) is not a third fix:
-a line there is for a word the industry owns and this document bends, and it never was what
-made a term readable. The linked list is the rule already satisfied — a term linked to its
+Three of the six lists are failures. A non-empty unlinked list means the edit is not
+finished; fix each by introducing the term in the prose where it is first used, or by
+linking it to the section that defines it. Adding it to [`glossary.md`](glossary.md) is not
+a third fix: a line there is for a word the industry owns and this document bends, which is
+the bent list's business below and not this one, and it never was what made a term readable.
+The linked list is the rule already satisfied: a term linked to its
 definition is introduced, which is the treatment six of the seven known forward references
-get — and it is worth reading once for a link that points somewhere too far from the
-sentence to help.
+get. It is worth reading once, for a link pointing somewhere too far from the sentence to
+help.
+
+The unparsed list is the second failure, scoped the way the prose-form check is. A quoted
+sentence this edit wrote or changed is rewritten before the edit is finished; one it did
+not touch is left, so a section is not rewritten whole before an edit to one paragraph of
+it can pass. Rewriting means splitting the sentence or lifting a clause out of it. It
+never means deleting the claim the reader could not follow: a claim nobody could parse is
+still a claim the document is making, and finding out which one it was is the work. A
+reader is entitled to name a sentence sitting under every bound the check counts, and
+that is the case the list exists for. What it costs is a judgment where unlinked, linked,
+coined and borrowed are closer to inventories. A reader with no memory of the argument a
+sentence carries will sometimes name one that a reader holding the argument parses easily — the
+same trade the coined list already makes, answered the same way, by the session triaging
+the list rather than the subagent.
+
+The bent list is the third failure, and it is the only instrument here that finds a term of
+art used in some sense other than its field's. Such a term passes every other check in this
+file: it is introduced where it is used, it sits on [`terms.txt`](terms.txt) with a field
+beside it, and the reader who arrives with the field's meaning finishes the sentence and is
+wrong about what it said. A non-empty bent list is resolved one of two ways and no third.
+It is scoped the way the unparsed list is: a term this edit's own prose bent is resolved
+before the edit is finished, and one standing in prose the edit did not touch is left, so a
+section is not reworded whole before an edit to one paragraph of it can pass. Either the
+prose is reworded to the field's sense, which is the better one wherever the
+field's word fits what this document means; or a line is added to
+[`glossary.md`](glossary.md) saying what the term names here, which is what that file is
+for and the only thing that populates it. Leaving the term as it stands is not a
+resolution, and neither is a clause introducing it in one file: the reader who needs the
+line meets the word wherever else it is used. What it costs is the same judgment the coined
+list costs, in the other direction — a reader who half-recognises a field will name a term
+bent that the field uses exactly this way, and the session triaging the list is what settles
+it against `terms.txt`.
 
 The borrowed list is neither a failure nor a candidate list. It is the attribution
 [`terms.txt`](terms.txt) records, arriving from the one reader with no stake in the name,
@@ -347,9 +541,9 @@ that the settled vocabulary comes back every run: a reader with
 no memory cannot know which names were already argued for, so triaging the list is a
 session's job and never the subagent's.
 
-The first two lists are long on a file that summarises the whole document, and that is not
-a fault in the file. Each term on them is either introduced in a clause or linked to the
-section that defines it.
+The unlinked and linked lists are long on a file that summarises the whole document, and
+that is not a fault in the file. Each term on them is either introduced in a clause or
+linked to the section that defines it.
 
 The subagent has to be given nothing but the path and the fields. An agent that has read
 the rest of the document resolves every term and returns nothing unlinked, and one that has

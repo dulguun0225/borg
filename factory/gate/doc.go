@@ -145,21 +145,21 @@
 //
 // What defines it: the two-row decision, what the open event names, and the
 // item-and-build rule are
-// ../../end-goal/how-humans-do-it/03-gates/01-where-a-gate-is-and-what-decides-it.md.
+// ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md.
 // The actions per row are
-// ../../end-goal/how-humans-do-it/03-gates/03-actions-at-each-gate.md, the three
+// ../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md, the three
 // kinds of hold are
-// ../../end-goal/how-humans-do-it/03-gates/04-what-a-gate-may-change.md, and the
+// ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md, and the
 // the three rows themselves are
-// ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/06-deploy-to-candidate-environment.md,
-// ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/07-merge-to-master.md, and
-// ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md. The vector
-// and the number are ../../end-goal/how-humans-do-it/04-risk-score/README.md; the
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/06-deploy-to-candidate-environment.md,
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md, and
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md. The vector
+// and the number are ../../end-goal/how-the-factory-works/04-risk-score/README.md; the
 // threshold and the safeguard are
-// ../../end-goal/how-humans-do-it/09-gate-policy/02-one-shape-across-all-of-them.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
 // What Decomposition decides, one verdict covering the whole decomposition, and
 // a rejection re-decomposing the set rather than sending an item back are
-// ../../end-goal/how-humans-do-it/02-intent-into-items/03-decomposition/README.md; the
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md; the
 // merge row's checks rejecting on their own terms before a verdict is given are
-// ../../end-goal/how-humans-do-it/03-gates/07-what-particular-gates-decide/07-merge-to-master.md.
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md.
 package gate

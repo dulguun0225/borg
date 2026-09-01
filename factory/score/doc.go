@@ -134,16 +134,16 @@
 // it through [Writer]. It writes nothing else and reads every other record
 // through the owning package's readers.
 //
-// What defines it: ../../end-goal/how-humans-do-it/04-risk-score/README.md — the three
+// What defines it: ../../end-goal/how-the-factory-works/04-risk-score/README.md — the three
 // factor groups, the vector recorded where it was computed, what an
 // uncomputable factor resolves to, the two halves kept apart until the last
 // step, the score version as a record of the score's own, the loop of
-// ../../end-goal/how-humans-do-it/04-risk-score/02-how-it-learns.md, and the
+// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md, and the
 // held-out sample with the two fields it is recorded in. The values it supplies
 // are the rows of
-// ../../end-goal/how-humans-do-it/09-gate-policy/01-what-is-in-it.md; the window
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md; the window
 // limit's own
-// evidence is ../../end-goal/how-humans-do-it/08-operations/03-overlapping-windows.md
+// evidence is ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
 // and the window's size and cap are
-// ../../end-goal/how-humans-do-it/08-operations/02-the-analysis-window.md.
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md.
 package score
