@@ -21,9 +21,7 @@ all of them at once. And nothing says what a component added later may call.
 
 Two rules, the shape [`terms.txt`](terms.txt) already has. A component does not exist until
 it has a row here, and a call edge does not exist until the row of the component making the
-call names it. Every writer [_Records and their writers_](records.md) names has a row here;
-the one record whose writer that file leaves open, [_What writes a
-redaction?_](open.md#what-writes-a-redaction), is open here too, and no row below claims it.
+call names it. Every writer [_Records and their writers_](records.md) names has a row here.
 
 The table holds no reasons. Each component links to the section that defines it, which is
 where the row is argued and where an edit to it goes.

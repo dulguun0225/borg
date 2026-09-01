@@ -12,7 +12,7 @@ The window is a volume condition, not a clock — and not a volume computed in a
 
 | Exit | What closes the window | What follows |
 |---|---|---|
-| **failed** | the comparison crosses the boundary against the release | rolled back, no human involved |
+| **failed** | the comparison crosses the boundary against the release | rolled back, no human involved — while a [mismatch](08-drift-detection.md) stands, none is performed, and [_Drift detection_](08-drift-detection.md) says what happens instead |
 | **passed** | the comparison rules out a regression of the size worth catching | closed early, on evidence |
 | **timed out** | neither, by the cap | closed unresolved |
 | **skipped** | a rollback aimed below it undid this release | closed with the release neither failed nor running |
@@ -50,7 +50,9 @@ same stop would leave a release the factory had failed serving production with n
 deploy record, no [hold](../03-gates/04-what-a-gate-may-change.md), no
 [mismatch](08-drift-detection.md), and nothing that would ever retry. Where the failed exit
 finds no release to return to, the order is the same: the revert intent and the
-[page](07-pages.md) precede the close. Passed and timed out take it too, the control torn
+[page](07-pages.md) precede the close. While a [mismatch](08-drift-detection.md) stands, no
+rollback is performed either, and [_Drift detection_](08-drift-detection.md) says what
+happens instead. Passed and timed out take it too, the control torn
 down and the window closed after. What it costs is a window readable as open for as long as
 the exit it is taking runs.
 
