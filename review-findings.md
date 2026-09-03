@@ -4,16 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/02-intent-into-items/01-intake/
-
-### Nothing records what a reporter was told at submission, and no customer can attach a notice to the channel
-**Raised by:** Trust and safety
-**Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — _Reports_ (the submit result, and "The way in is not something a project asks for").
-**What is wrong or missing:** The entire reporter-facing surface is "accepted, or refused with the rate as the reason"; nothing tells the reporter that free text is retained for the life of the install by default, handed to a named third-party provider in a recorded region, and read by humans at Spec. The way in is content the factory ships into every deployed service and a project cannot shape it — the design system explicitly does not reach it and only predicate-kind constraints do — so a customer whose jurisdiction requires notice at collection has no field to author one into, and the report record carries nothing naming what was shown when it was written.
-**What turns on it:** The document answers an access request with "the channel carries no identity by design" and answers erasure with a redaction, but it can answer no question about the basis on which the stored corpus was collected, and the customer — not the builder — is the party who owes that answer to their own end users.
-**Migration:** This is seam 1's own argument applied to reports: afterwards, a report collected with no notice reads the same as one collected with a notice, and the field cannot be backfilled onto reports already written; the shipped way-in also "moves only when the owner upgrades the factory and the service builds again", so a later notice does not reach a service that has not rebuilt.
-**Also reached separately by:** Legal — "The report channel collects personal data from a customer's end users with no notice at collection, and no report says which notice was in force". Two stances reached this one.
-
 ## how-the-factory-works/03-gates/
 
 ### A criterion that exists to control a hazard is indistinguishable from any other, and is withdrawn under the same rule
