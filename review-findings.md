@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/05-environments/
 
-### A service's deploy targets are a field of the environment, so every service in a project must run on every target
-**Raised by:** Platform engineering
-**Where:** `how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md` — "An environment names its **targets**, plural", and `how-the-factory-works/06-releases/05-the-deploy-record/README.md` — "It is keyed by service and environment and not by target"
-**What is wrong or missing:** The address list, its rollout order, the per-target "serves a share" flag, and the credential all hang off the environment record, and a persistent environment "contains a project — every service in it", so no record can say that service A runs on two of the environment's four targets and service B on the other two. `records.md` settles the ambiguity against the service record's deployer-written "a target it reaches" by stating flatly that "A deploy target is a field of the environment." Real projects are heterogeneous in placement — an edge-hosted front end, a batch host, a regional backend — and the design has no way to express it.
-**What turns on it:** Current release is "marked complete on every production target", so a service that does not run on a target can never become current, its consumers' dependency holds at _Deploy to production_ never lift, and the drift detector reads that target each pass and mismatches on it. The score picks the row with a control "only where every target of the environment serves one", so one service on a share-less platform disables control-based rollout, the analysis window's comparison, and the rollback path for every other service in the project.
-**Migration:** Targets, their order, the share flag, and the credential are owner-authored on a record already written, and every deploy record's completion-per-target map plus the current-release rule read over them; re-keying targets per service means re-authoring every environment an install created and re-interpreting the per-target field on every deploy record already written, which the drift detector's separate store is keyed against.
-**Also reached separately by:** Database migration engineering — "One store per service per environment is assumed but never stated, and the schema history cannot distinguish two" (the environment-level credential and per-target grain, from the store side).
-
 ### `deploy target` names both an address field of an environment and one of the environment record's three kinds
 **Raised by:** Technical writing
 **Where:** `how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md` — _Records, and one long-lived branch_; against `records.md` — _Some things the document names are not records_
