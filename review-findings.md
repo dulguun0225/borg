@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/02-intent-into-items/
-
-### Adoption establishes no baseline in the schema history, so the first deploy replays the whole migration history against a live store
-**Raised by:** Database migration engineering
-**Where:** `how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md` — _A service that already exists_ (mechanism in `how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md`)
-**What is wrong or missing:** The deployer decides what to apply from the store, not from the factory's records: "Every deploy... applies exactly the changes its build declares that the history does not hold." An adopted service arrives with its repository head as its implementation and its store already populated and already at that schema, but with no factory-written schema history in it. The history is therefore empty and the build declares the service's entire accumulated change set, so the adoption release's production deploy applies all of it to a live production store. `01-a-service-that-already-exists.md` enumerates what adoption does not give a service — no rollback target, no declared interface meaning, parameters starting from defaults — and never mentions the baseline. There is also no row shape for one: a history row "nam[es] the release that shipped it", and a baselined change was shipped by no release.
-**What turns on it:** Adoption is the design's stated ordinary first customer ("a customer with software already running is the ordinary first customer rather than a later one"). On that path the factory's first production act against a customer's existing database is to replay ten years of DDL against it. The fifth drift comparison would flag the resulting divergence only after the fact, and the store rule's protections — snapshot before a destructive change, the four-item split — apply to changes an item ships, not to a replay the deployer performs on its own.
-**Migration:** The schema history is a table the factory writes into a store it does not own, with no row kind for a change present but never applied by the factory; adding a baseline afterwards means the factory backdating history rows in every already-adopted customer's production database, on top of whatever the first deploy already did to it.
-
 ## how-the-factory-works/02-intent-into-items/01-intake/
 
 ### The way in and the report store are versioned independently with no compatibility promise stated
