@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/08-operations/07-pages.md
 
-### A gate row is delivered to every holder of the duty at once with no way to claim it, while a page has acknowledgement
-**Raised by:** Human factors
-**Where:** `how-the-factory-works/08-operations/07-pages.md` — _Pages_; and `how-the-factory-works/11-screens/01-work-ops-factory-people.md` — Work
-**What is wrong or missing:** The notifier routes all three channels by duty to every holder, and contention on a gate row is resolved only after the fact: "the first verdict decides and a later one does not," a second close refused and shown as already decided. The page channel got an **acknowledged** event precisely so a human working the row is distinguishable from one asleep; the gate channel, which carries far more rows, has no equivalent. A wait addressed to everyone is either read N times with N−1 readings discarded after the work is done, or read by nobody because each holder assumes another has it — and the design gives the holder no signal either way.
-**What turns on it:** The load numbers Factory reports are computed from the winning actor's open time only, so shared duties systematically undercount human effort and misattribute it to one person; the review sample rate and the risk threshold are authored against those numbers. A duty deliberately shared for coverage — the thing the design offers instead of a rotation — makes rows slower to answer and its cost invisible.
-**Migration:** A claim is a third row kind on the decision in the chained log, the shape the page event already has. Added later it cannot recover which rows were read by whom, so the install's whole history of per-human load and wait is not comparable across the change, and the thresholds authored against it were authored against a number that meant something else.
-
 ### Authored clock values carry no time zone, while the client is declared the only thing that knows one
 **Raised by:** Frontend engineering
 **Where:** `how-the-factory-works/08-operations/07-pages.md` — "the hours within which that service pages"; `how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md` — the date a constraint binds from, the review date, and the deadline; `how-the-factory-works/11-screens/03-the-screens-as-software.md` — last line

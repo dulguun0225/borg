@@ -29,6 +29,7 @@ a selection rule	coined
 a skill	agent engineering
 abandonment	ordinary
 acceptance round	requirements engineering
+acknowledgement	ordinary
 advisory	vulnerability management
 the advisory severity	vulnerability management
 agent	agent engineering
