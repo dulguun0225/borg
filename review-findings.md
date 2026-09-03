@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## deferred.md
 
-### Nothing keeps past releases of the product reachable, which the one-version upgrade promise requires
-**Raised by:** Absence
-**Where:** `deferred.md` — The product's release channel
-**What is wrong or missing:** That section settles the digest, the signature, key rotation, and the shipped-bundle identity, and says nothing about how long a release of the product stays fetchable. `components.md` states that "a skipped version is not a supported upgrade", which makes every intermediate release a permanent prerequisite for every install that has fallen behind. The design states this kind of requirement elsewhere when it depends on one — `06-releases/06-rollback.md` states artifact reachability "as a shape … a requirement on the host", and `08-operations/01-the-health-monitor.md` states a span for the numbers store — and here it states none.
-**What turns on it:** An install on version N reaching N+5 must fetch and start N+1 through N+4 in order. If any of them has been withdrawn from the channel, that install can never upgrade again: it stops receiving role prompts, evaluation sets, starting priors, predicate kinds, design systems, and any fix to the factory itself, on a product the customer self-hosts and the builder cannot reach. This lands hardest on the regulated customer the tenancy decision was made for, who upgrades on their own schedule.
-**Migration:** Availability of an already-withdrawn release cannot be restored for an install that is stuck behind it; the intermediate versions are the only thing that can read what the versions before them wrote, and no later promise substitutes for a release that is gone.
-
 ### The product's own dependencies appear nowhere — no inventory, no advisory coverage, no notice for what the customer self-hosts
 **Raised by:** Supply chain security
 **Where:** `deferred.md` — _The product's release channel_ (and `what-the-factory-does/05-what-the-customer-runs-it-under.md`)
