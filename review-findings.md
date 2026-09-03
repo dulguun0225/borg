@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/01-intake/
 
-### Report text is outside the reach of the processing-location constraint an owner authored
-**Raised by:** Trust and safety
-**Where:** `how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md` — _Constraints and the design system_ (the fourth kind), read against `how-the-factory-works/01-one-pipeline.md` — _One pipeline_ ("A third, the grouper, is put on neither") and `how-the-factory-works/02-intent-into-items/05-dispatch.md` — _Dispatch_.
-**What is wrong or missing:** The residency mechanism is defined only over items: "dispatch matches an item against only an entry whose processing location satisfies the predicate. An item with no conforming entry waits at dispatch", and dispatch's six stops are written "one row per item and stage". The grouper — the first and only reader of raw, unauthenticated stranger text, running before any intent or item exists — is matched by nothing this rule covers, and neither are the two roles put on an intent. An owner who authors a processing-location constraint over a regulated project therefore has every item bound and the rawest end-user text unbound, with the per-entry "classes of material" list the only unconnected control that could have caught it.
-**What turns on it:** An owner has authored the design's own answer for data residency and it silently does not bind the material it matters most for; the transfer is irreversible per report, since "what a provider retained is a residue the factory does not reach", and the agent run record will faithfully name a processing location the constraint forbade.
-**Migration:** The check lives at a seam — dispatch matching items to fleet entries — and the grouper's run is not on an item, so covering it moves where the constraint is enforced and what dispatch matches on; and every report already grouped has already left the install through a credential the owner's constraint was written to exclude, which no later version undoes.
-**Also reached separately by:** Agent engineering — "The entry's classes of material are authored by an owner and read by no component" (the unconnected control this finding names).
-
 ### The erasure list sits outside both inventories, has two writers and no declared seam, and nothing bounds its life
 **Raised by:** Data architecture
 **Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — "Reports", the paragraph beginning "A redaction outlives a restore"; and `how-the-factory-works/09-gate-policy/03-what-is-not-in-it.md` — "What is not in it", the retention paragraph
