@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## deferred.md
-
-### The product's own dependencies appear nowhere — no inventory, no advisory coverage, no notice for what the customer self-hosts
-**Raised by:** Supply chain security
-**Where:** `deferred.md` — _The product's release channel_ (and `what-the-factory-does/05-what-the-customer-runs-it-under.md`)
-**What is wrong or missing:** The release channel gives a digest and a signature over each release, and the shipped-bundle identity covers content — role prompts, skills, evaluation sets, priors, design systems — but nothing says what third-party code the product itself is built from. The advisory detector matches "what every service's current release resolved", and the factory is not a service record; the notice file is produced per build of the customer's software, not for the product. So the one component holding every credential, the whole graph and git write access is the only software in the install with no resolved set, no licence inventory and no advisory pass over it.
-**What turns on it:** A regulated customer installing under the tenancy claim ("the condition a regulated customer installs under at all") cannot answer what is in the product they host, and a published vulnerability in the factory's own dependencies is invisible to every mechanism the design builds — the numbers stay clean, no window crosses, no gate fires, which is exactly the failure `03-advisories.md` argues the detector exists to prevent for everything else. Redistribution rights over the product turn on the same missing inventory that `05-what-the-customer-runs-it-under.md` supplies for the produced software.
-**Migration:** The install event is a chained row naming only the version and the shipped-bundle identity, and rows are never migrated — extending what that identity covers changes what already-chained rows mean, and every release a customer already installed and upgraded through stays unassessable.
-
 ## what-the-factory-does/
 
 ### The repository is a write boundary with no seam, no component, and no credential on any record
