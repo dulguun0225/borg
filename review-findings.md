@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/01-intake/
 
-### The way in and the report store are versioned independently with no compatibility promise stated
-**Raised by:** Software architecture
-**Where:** `end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — the paragraph "What it costs is two things"
-**What is wrong or missing:** The way in is factory-shipped code embedded in every deployed service; it "moves only when the owner upgrades the factory and the service builds again," so after an upgrade an arbitrarily old way in is calling an upgraded report store. The section calls this "the same cost the screens pay for being one client," but `11-screens/03-the-screens-as-software.md` answers that cost with a mechanism — every client call carries the factory version it was built from and the factory refuses a call whose version is not its own — and applying that rule here would close the report channel on every service that has not rebuilt. No version field on the submission call, no compatibility rule, and no contract record covers this interface: it is not a published interface of a service the factory built, so `07-contracts` does not reach it, and it is a wire call rather than a record, so `01-tight-integration.md`'s format-version-on-every-record does not either.
-**What turns on it:** This is the only interface in the design whose two sides cannot be deployed together, and it carries "the one entrance from outside the factory." An upgrade that changes the submission shape silently drops reports from every service that has not rebuilt, and the refused-report counter on Factory counts refusals the store makes on rate, not calls it could not read, so the loss is invisible at both ends — the exact failure the ungrouped and refused counts were added to prevent.
-**Migration:** The version field on a submission and the store's rule for an older one have to be present in the first way in a customer install deploys; adding them later leaves every already-deployed service serving a way in whose calls carry no version, and the only way to upgrade those is to rebuild and redeploy each service through the pipeline.
-**Also reached separately by:** Security engineering — "The one inbound path from outside the factory is not a declared seam and carries no identity the store can check" (same interface, the identity rather than the version); Frontend engineering — "The way in is a client the factory cannot upgrade, and nothing states its compatibility with the report store" (same defect, the version).
-
 ### The one inbound path from outside the factory is not a declared seam and carries no identity the store can check
 **Raised by:** Security engineering
 **Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — _Reports_; `deferred.md` — _Security comes last_
