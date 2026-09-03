@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/
 
-### `hazard severity` grades recoverability and carries no magnitude, so the impact half of the score has no input that distinguishes a duplicate email from a wrong dose
-**Raised by:** Safety engineering
-**Where:** `how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md` — "Hazard severity"
-**What is wrong or missing:** The field is defined as "the worst harm the software in it can do" but graded "by what the factory can do about that harm afterwards," and the three values are recoverability classes. `irreversible` therefore holds "money paid out, a message delivered to a person, data erased, an actuator driven, a disclosure made" in one bucket, with one response for all of them. Safety engineering keeps severity (magnitude of harm) separate from controllability and from exposure — MIL-STD-882, IEC 61508, ISO 14971, and ISO 26262's S/E/C decomposition all do — because a single ordinal that mixes the two cannot rank two hazards against each other, which is the whole use of the classification.
-**What turns on it:** `04-risk-score/01-factors-at-least.md` keeps likelihood and impact separate on the stated ground that "unlikely but catastrophic should be gated regardless," and names hazard severity as "this group's one declared input and the only term in the vector an owner writes." Nothing in the vector carries how bad the harm is, so the rule the score is built around has no input it can read, and the rollout bound and the Implementation resolution treat a marketing unsubscribe and a payment disbursement identically.
-**Migration:** The three values sit on owner-authored area records and the value in force is named on every gate firing's factor vector, a chained row of the append-only log that is never migrated; splitting magnitude out later means the owner re-authoring every area (the factory cannot supply it — "nothing the factory observes says what harm the software can do") and leaves every past decision holding a grade under a scale that no longer exists.
-
 ### The acyclicity invariant covers one edge relation; the wait relation the deploy gates evaluate is a union, and a cycle in the union is the failure the invariant was written against
 **Raised by:** Formal methods
 **Where:** `how-the-factory-works/02-intent-into-items/03-decomposition/README.md` — "The declared order is checked against the whole relation and not against the set"; with `how-the-factory-works/08-operations/03-overlapping-windows.md` — "A rollback still sets a hold"
