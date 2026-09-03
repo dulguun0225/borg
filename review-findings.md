@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/08-operations/
 
-### Blind detector: the window watches availability and never the hazardous function, so `passed` closes early on a release doing irreversible harm at full rate
-**Raised by:** Safety engineering
-**Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — "The health monitor" (and `how-the-factory-works/08-operations/02-the-analysis-window.md`, "The analysis window")
-**What is wrong or missing:** The monitored quantities are a closed, fixed set — request rate, error rate, latency — emitted as two records per request naming service, release, target, outcome and duration, plus failure records keyed by class and code location. A release that erroneously refunds every order, sends a duplicate notification to every user, erases rows, or drives an actuator wrongly moves none of the three: it succeeds at every request, on time. The comparison stays flat, the window closes `passed` at the earliest volume the boundary allows, the control is torn down, and the only watch on that release ends — on evidence, by the document's own words. `03-hazard-severity.md` states that severity "says what the window is not protecting," but no mechanism anywhere else observes the quantity severity names; safety engineering monitors the hazardous function's own rate, not the service's failure rate, precisely because a correct-looking function is how a hazardous one presents.
-**What turns on it:** Every claim the design makes about an `irreversible` area rests on a human at Implementation plus a rollout schedule, both upstream of the deploy; downstream, the factory is blind by construction and reports the release as cleared. `passed` is also what narrows the per-author prior, raises the window limit, and feeds the score's calibration, so a release doing harm at full rate is fed back as evidence that its author and its area are safe.
-**Migration:** The emission is fixed in the instrumentation the factory ships inside every service and the store keeps only aggregates over a closed name set; a fourth quantity added later has no history on any release already shipped, and by `02-the-analysis-window.md`'s own arithmetic it silently re-scales every confidence an owner authored and every boundary every past window was read against, none of which can be recomputed because nothing per-request was kept.
-
 ### The comparison the automatic rollback rests on cannot be computed from the names the instrumentation emits
 **Raised by:** Release engineering
 **Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — "How the three are emitted is fixed" and "What is kept is not what is emitted"
