@@ -1,9 +1,7 @@
 # One process
 
 [_Components and what they call_](components.md) lists every component and what it may
-call. This file is the deployment model those components run under: one process, what
-makes it one, what a component's stop and restart are, and the store that process keeps
-its own schema history in.
+call. This file is the deployment model those components run under.
 
 **The factory is one process, and [the drift
 detector](how-the-factory-works/08-operations/08-drift-detection.md) is the second.** [_An
@@ -23,8 +21,8 @@ master before it mints and the health monitor is the only thing that closes a
 would mint one number twice and close one window twice, and no record afterwards would tell
 either from one instance doing it once.
 
-The lease alone does not reach an instance that started, stalled, and resumed after another
-acquired the lease it let expire, a host suspended or a network partition and its reconnect.
+The lease alone does not reach an instance that stalled, a host suspended or a network
+partition, and resumed after another acquired the lease it let expire.
 The number is what reaches it. It is a **fencing token**, the term distributed systems uses
 for a number a lock's holder carries so that a store can refuse a write from a holder whose
 lock has lapsed. Every write any component makes to the factory's own store carries the token
@@ -48,7 +46,7 @@ comparison [_Drift detection_](how-the-factory-works/08-operations/08-drift-dete
 makes, a mismatch cleared by a human, so every effect a stale instance can have on a target
 is refused before it happens or read as a mismatch after. Neither the lease nor the schema
 history below is a record of the graph, and [_Records and their writers_](records.md) lists
-no row for either: each is the store's account of itself, read before any component runs.
+no row for either: each is the store's account of itself.
 What it costs is a field on every write and a renewal write per interval, an interval the
 factory supplies for itself the way the drift detector supplies its own. A restart after a
 crash waits out the interval before it can acquire, and a deploy a lapsed instance finished
@@ -84,4 +82,44 @@ which it writes again any field an owner authored that does not already hold wha
 version names.
 Every other component holds nothing between calls and resumes by being called again.
 
-**The factory's own store keeps a schema history too, the same shape [_The store is a contract too_](how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md) defines for a service's store.** It is one row per change, naming the version that shipped it, the change's identity, and a checksum of its text. A version's first start reads the history and refuses to start where it holds a change this version does not declare, or where this version declares a change the history cannot honour. The promise carries a number, and the number is one: a version reads what the version before it wrote, and a skipped version is not a supported upgrade. What it costs is a startup refusal an owner can hit on a bad upgrade. The upgrade is the [install event](deferred.md) the log records. Where a migration cannot honour the promise, the owner performs the migration as a one-way step, and the install-event row names that step.
+**The factory's own store keeps a schema history too, the same shape [_The store is a
+contract too_](how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md)
+defines for a service's store.** It is one row per change, naming the version that shipped
+it, the change's identity, a checksum of its text, and whether the change widened the store
+or removed something from it. The store rule holds here, and its consumer is the version
+before, which a bad upgrade has to be able to put back. So a breaking change to this store
+is the same sequence, spread over versions rather than items. The version that ships it adds the new form beside the old, writes both,
+and copies every row the old form holds into the new, at every start until the drop, a row
+already copied being skipped. The removal ships no earlier
+than the version after. The promise carries a number and the number is one, in both
+directions: a version reads what the version before it wrote, and the version before reads
+and writes what this version wrote, until the version after that removes the old form.
+
+A version's first start reads the history and starts against one holding, beyond what it
+declares, only widening rows from the version after it. It refuses to start where the
+history holds a removal it does not declare, a row from a version further ahead, or a change
+it declares that the history cannot honour, and a skipped version is not a supported
+upgrade. So a bad upgrade is undone by starting the version before, with nothing restored:
+what the bad version wrote is in a form the version before reads, and the rows the version
+before writes meanwhile are reached by the copy when the newer version starts again.
+
+The upgrade is the [install event](deferred.md) the log records, and the row names the
+changes the first-start step applied. Where a change cannot take that sequence, the version
+declares it as a one-way step, a removal with no widening before it, and a snapshot stands
+for the version before. Before the first-start step applies a removal,
+the drop or a one-way step, it takes a snapshot of the factory's own store, verifies it, and
+names it on the install-event row beside the change, the treatment [_A schema
+change_](how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md) gives
+a service's store before a destructive change. A snapshot it cannot take and verify is an
+upgrade not performed: no change is applied and the version refuses to start, the refusal a
+history mismatch already takes. The snapshot is kept on the store's own hosting, so the
+install event says where what a removal destroyed can still be read. It covers the
+factory's own store and not the whole [recovery
+unit](what-the-factory-does/04-what-the-factory-does-not-build.md), since an upgrade
+touches nothing else in the unit. Undoing a one-way step after the version has run costs
+what any restore costs: everything the version wrote is lost, and [_Drift
+detection_](how-the-factory-works/08-operations/08-drift-detection.md) is loud on every
+service that shipped since. That is why the sequence above is the ordinary case, and a
+version declares a one-way step only where no widening can carry the change. What the rest
+costs is a change to this store spanning two versions, a copy at every start until the
+drop, and a startup refusal an owner can hit on a bad upgrade.
