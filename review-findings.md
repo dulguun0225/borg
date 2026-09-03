@@ -21,14 +21,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 **Migration:** Bucket boundaries and the representation are baked into every duration series already written; changing them makes pre-change history unreadable at the new resolution, which breaks precisely the own-history reading and the SLO budget that the retention rule requires history for, and it re-specifies the emission shipped inside every already-deployed release.
 **Also reached separately by:** Applied statistics and sequential testing — "The emission and the retained aggregate fix the variance model before it is chosen".
 
-### The emission and the retained aggregate fix the variance model before it is chosen
-**Raised by:** Applied statistics and sequential testing
-**Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — _The health monitor_ ("How the three are emitted is fixed"; "What is kept is not what is emitted"), and the store row of `what-the-factory-does/04-what-the-factory-does-not-build.md` — _What the factory does not build_
-**What is wrong or missing:** The emission is two records naming service, release, target, outcome and duration, and the store keeps counts plus "a distribution of durations" per interval per that closed set. Two things a comparison needs are absent: any key identifying the unit traffic was split on, so requests are analysed as independent when the platform routes by user, session, or source and their outcomes cluster — which understates variance and breaks the authored confidence in the unsafe direction; and any statement of what form the duration distribution takes, though a quantile summary that is not mergeable across intervals cannot be recombined for the own-history reading, and a fixed-bucket histogram sets a floor under the latency size no authored value can go below.
-**What turns on it:** The realized false-rollback rate and the meaning of `passed` both rest on a variance estimate the retained data cannot support, and the latency half of every comparison is bounded by a bucketing choice nobody authored.
-**Migration:** Both are shapes the factory bakes into the instrumentation of every service it wrote and into a host store the document already requires to hold a year or more; adding an assignment key or changing the retained distribution re-instruments every service and leaves the history it is read against in the old shape.
-**Also reached separately by:** Observability engineering — "The stored "distribution of durations" has no representation and no bucket boundaries".
-
 ### One `size` over three incommensurable quantities
 **Raised by:** Applied statistics and sequential testing
 **Where:** `how-the-factory-works/08-operations/02-the-analysis-window.md` — _The analysis window_; the row in `how-the-factory-works/09-gate-policy/01-what-is-in-it.md` — _What is in it_
