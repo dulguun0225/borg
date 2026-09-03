@@ -4,16 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## components.md
-
-### Nothing requires a recovery point before the factory's own one-way upgrade
-**Raised by:** Database migration engineering
-**Where:** `components.md` — _The factory's own store keeps a schema history too_; `what-the-factory-does/04-what-the-factory-does-not-build.md` — the recovery unit
-**What is wrong or missing:** The factory's own upgrade may rewrite records in place ("the whole record is rewritten to the new shape, and that rewrite is part of the migration that performs it"), the version promise is one-way and n−1 only, and "[w]here a migration cannot honour the promise, the owner performs the migration as a one-way step". Nothing requires a recovery point of the recovery unit to be taken and verified before that step runs, and no first-start check refuses to migrate without one. The design imposes the opposite rule on every service it builds: before a destructive change the deployer "takes a snapshot of the store... verifies it, and names it on the deploy record", and "[a] snapshot the deployer cannot take and verify is a deploy not performed".
-**What turns on it:** The graph and the chained log are the whole of the traceability claim and the score's training data, and the customer holds one copy. A one-way upgrade that half-rewrites them leaves the drift detector's recorded head as the only evidence of what happened, and its own store is deliberately outside the recovery unit, so there is nothing to restore to.
-**Migration:** A recovery point has to exist before the migration that needs it; adding the requirement later does nothing for an install whose records were already rewritten one-way, and the previous version cannot read what the new one wrote.
-**Also reached separately by:** Release engineering — "The product gives every service it ships a rollback and has none for itself"; Data architecture — "The factory's own store is exempted from the store rule the factory enforces on every service it builds"; Absence — "The factory's own upgrade has no reverse, and the design never says what a bad one costs". Four stances reached this one.
-
 ## deferred.md
 
 ### No seam between the software the factory writes and the world it acts on: nothing bounds how many irreversible operations a bad release performs
