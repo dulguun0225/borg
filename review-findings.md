@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/05-environments/
 
-### One store per service per environment is assumed but never stated, and the schema history cannot distinguish two
-**Raised by:** Database migration engineering
-**Where:** `how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md` — _A schema change_; `how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md` — _Records, and one long-lived branch_
-**What is wrong or missing:** An environment names **targets**, plural and ordered, and the deploy record carries completion per target — but the schema change is applied once, "to the service's store", through "the credential the environment's record holds", and the schema history is kept per service store with rows keyed by change identity alone. A service whose targets each hold their own store (a database per region, or shards) has no expression in any of this: the credential is the environment's, not the target's; the history rows say nothing about which store they describe; and the drift detector's fifth comparison reads "the schema history... in each service's store" as one thing. `What the factory does not build` refuses mobile apps, firmware, libraries, CLIs and scheduled pipelines at adoption by name, but never refuses a service whose store is not single.
-**What turns on it:** Such a service deploys with its schema applied to one store and its code running against several, and the divergence is invisible to the fifth comparison, which reads the one store the credential resolves to. The rollout order the owner authored over targets — "the whole of what limits how much of production a release reaches before anything has read it" — becomes an order over stores nobody migrated.
-**Migration:** The history table lives in stores the factory does not own and is keyed without a store or target identity; giving it one later means rekeying that table in every customer production store, and the environment record would have to move the store credential from the environment onto the target, a field two writers already share by kind.
-**Also reached separately by:** Platform engineering — "A service's deploy targets are a field of the environment, so every service in a project must run on every target".
-
 ### A service's deploy targets are a field of the environment, so every service in a project must run on every target
 **Raised by:** Platform engineering
 **Where:** `how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md` — "An environment names its **targets**, plural", and `how-the-factory-works/06-releases/05-the-deploy-record/README.md` — "It is keyed by service and environment and not by target"
