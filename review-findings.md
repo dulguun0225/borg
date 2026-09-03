@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/05-environments/
 
-### The resolved set is flat: no entry records what required it
-**Raised by:** Supply chain security
-**Where:** `how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md` — _Records, and one long-lived branch_
-**What is wrong or missing:** An entry records source, version, digest, declared licence, and run-time-or-build-time, and nothing else. There is no edge from an entry to the manifest that declared it or to the package that pulled it in, so nothing on the build distinguishes a dependency the factory's own agent named from one an upstream version bump dragged along. The Implementation check "rejects only a package the change added or moved" is decided over a set diff that cannot make that distinction, and the exposure vector's "file and line of each" exists only per firing, not on the record the advisory detector reads a year later.
-**What turns on it:** Dependencies the factory adds on its own are precisely where an LLM-authored change invents a package name an attacker has registered, and the flat set gives no field on which that case differs from an ordinary transitive bump. When an advisory later matches a shipped release, `03-advisories.md` has the agent "plan a version move from a range" with nothing saying whether the package is reachable from any manifest the item can edit, which is the difference between a fix and an item that cannot converge.
-**Migration:** Builds are immutable records already held and their resolution is not reproducible — the document's own reason for recording the set is that "a commit resolving an unpinned range on two days is two builds shipping two things" — so the edge cannot be backfilled, and every shipped release predating the field reads as unknown to any check keyed on it.
-
 ### The candidate store's seed is unversioned, unrecorded, and empty by default, so the store checks the rollback rests on pass vacuously
 **Raised by:** Test architecture
 **Where:** `how-the-factory-works/05-environments/02-an-environment-per-candidate.md` — _An environment per candidate_ (and `how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md` — _The store is a contract too_)
