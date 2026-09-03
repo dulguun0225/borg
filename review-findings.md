@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/07-contracts/
 
-### The producer's per-field observables have no emission, no store, and no writer, and would break the cardinality bound the store is specified under
-**Raised by:** Observability engineering
-**Where:** `how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md` — "The producer compares its own observables"
-**What is wrong or missing:** That layer requires, per field and per release, a population rate, the spread of enum values, and the distribution of numbers. Nothing else in the document provides them: the outside row in `records.md` names exactly two kept kinds (arrival counts and duration distributions on a closed name set, and failure-record counts); the emission the Implementation gate checks is "the numbers that comparison reads", meaning the three quantities; `components.md` gives the health monitor no such reading and gives no other component one. Worse, the health monitor's own store rule says "a record carries nothing of the request's content" and "the number of series grows with releases and targets and never with users or requests" — a per-field value distribution and per-field enum spread are field content, and their key set grows with the schema and with observed enum values.
-**What turns on it:** This is one of the three layers the design offers against a semantic break a diff cannot see, and the only one that runs on production traffic; without an emission and a kept shape it is a claim rather than a mechanism. It also contradicts, rather than extends, the cardinality and content bounds the store was designed around.
-**Migration:** It is a fourth kept kind in the store and new emission inside every build; every release already shipped emits nothing of it, so "each against the release this one replaced" has no counterpart data for the first release after the change, and the store's cardinality budget and the failure-record key cap have to be re-derived on installs already holding series.
-
 ### The migration's four items switch reads to the new form before the backfill has filled it
 **Raised by:** Database migration engineering
 **Where:** `how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md` — _The store is a contract too_ (restated in `how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md`)
