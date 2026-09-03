@@ -38,14 +38,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 **Migration:** A recovery point has to exist before the migration that needs it; adding the requirement later does nothing for an install whose records were already rewritten one-way, and the previous version cannot read what the new one wrote.
 **Also reached separately by:** Release engineering — "The product gives every service it ships a rollback and has none for itself"; Data architecture — "The factory's own store is exempted from the store rule the factory enforces on every service it builds"; Absence — "The factory's own upgrade has no reverse, and the design never says what a bad one costs". Four stances reached this one.
 
-### Exactly one factory instance is enforced by a store lock, and nothing fences the calls a stale instance can still make
-**Raised by:** Platform engineering
-**Where:** `components.md` — "**The factory is one process, and the drift detector is the second.**"
-**What is wrong or missing:** The one-writer rule the whole record graph rests on is enforced at run time by "a starting process takes a lock there and holds it while it runs, so a second fails to start rather than running beside the first." The document never says what happens when the holder is partitioned, paused, or force-restarted by the operator: a session-scoped lock is released while the old process is still alive, a row-scoped one strands the install until a human clears it. Seam 4 and seam 5 carry a principal — the deployer's own name — but no lease, epoch, or generation, so a deploy target cannot tell a call from the current instance from one from the stale one, and both write deploy records, mint release numbers, and close analysis windows.
-**What turns on it:** Two live deployers is two writers of the deploy record, the mitigation record, and the candidate environment record — the one-writer rule broken in the one place the log's chain cannot show it, since both writes are legitimate rows from the same actor. The document's own argument for seams 1, 2 and 5 applies exactly here and is not made: a history written without a fencing identity cannot afterwards be told apart from one written with it.
-**Migration:** A lease or epoch on every seam-4 operation and on every record a deployer or merge queue writes is the retrofit seam 5 already argues is expensive — it touches every call site and every row, and rows written before it can never be attributed to an instance, so a running install's history stays ambiguous forever.
-**Also reached separately by:** Backend engineering — "Single-instance exclusivity is a start-time lock, and nothing fences the chain's append".
-
 ## deferred.md
 
 ### No seam between the software the factory writes and the world it acts on: nothing bounds how many irreversible operations a bad release performs
