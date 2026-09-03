@@ -36,13 +36,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 **Migration:** Both are shapes the factory bakes into the instrumentation of every service it wrote and into a host store the document already requires to hold a year or more; adding an assignment key or changing the retained distribution re-instruments every service and leaves the history it is read against in the old shape.
 **Also reached separately by:** Observability engineering — "The stored "distribution of durations" has no representation and no bucket boundaries".
 
-### Interval bucketing has no stated origin, and the cross-arm request-rate test does depend on clocks agreeing
-**Raised by:** Observability engineering
-**Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — the emission paragraph ("The release is named by the build itself and never joined by time...") and "The request rate is the one quantity the comparison also reads from the outside"
-**What is wrong or missing:** The document claims a skewed clock costs only "the order of records inside one arm and never which arm they are in." That is true of arm membership and false of the reading built on it: the request-rate test compares the two arms' volume "over the same interval", and the SLO burn rate reads "the last hour" — both are time joins across instances. Nothing says whether the interval is stamped by the emitting instance or assigned at ingest, or what a buffered or delayed emitter does to the bucket its arrivals land in.
-**What turns on it:** A release arm whose hosts are skewed, or whose emission is buffered and lost on a restart, reads as "materially fewer requests than its control over the same interval", which the document makes a crossing "however few records the release emitted" — an unattended production rollback caused by a clock, with the confound correctable only afterwards by a human's mark. The same skew moves the burn-rate reading that holds a service's deploys.
-**Migration:** The interval's origin is a field of the record and the key of every stored series; deciding it later, or adding an emitter timestamp beside an ingest one, re-keys history an install already holds, and every boundary and burn rate previously computed was computed against the other convention.
-
 ### One `size` over three incommensurable quantities
 **Raised by:** Applied statistics and sequential testing
 **Where:** `how-the-factory-works/08-operations/02-the-analysis-window.md` — _The analysis window_; the row in `how-the-factory-works/09-gate-policy/01-what-is-in-it.md` — _What is in it_
