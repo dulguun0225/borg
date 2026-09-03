@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/08-operations/07-pages.md
-
-### Authored clock values carry no time zone, while the client is declared the only thing that knows one
-**Raised by:** Frontend engineering
-**Where:** `how-the-factory-works/08-operations/07-pages.md` — "the hours within which that service pages"; `how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md` — the date a constraint binds from, the review date, and the deadline; `how-the-factory-works/11-screens/03-the-screens-as-software.md` — last line
-**What is wrong or missing:** _The screens as software_ fixes the read direction only — "written in UTC where the record was written, and rendered in the viewer's locale and zone by the client and by nothing else" — and says nothing about the write direction, where a human types an hour or a date at a screen and the factory stores it as a field on the service record or the constraint. Page hours, the date a constraint binds from, its review date, and the period a law's deadline is computed from are all calendar values authored by a human in some zone and read later by the notifier, by drafting, and by intake, and no record carries the zone they were authored in; the document itself flags the deadline as "the one field in the factory computed from a calendar" without saying whose calendar.
-**What turns on it:** A page waits until "morning" in the wrong hemisphere, or fires at 02:40 on a service whose hours the owner thought excluded the night — the exact outcome _Pages_ says makes the next page slower to answer; a statutory notification deadline computed off by up to a day pages whoever holds (2) late on the one clock the factory cannot help meet; and a second duty-holder in another zone reads the same authored value as a different window.
-**Migration:** These are values an owner has already authored, copied into chained policy versions that are never rewritten, so a zone field added later cannot say which zone any existing value meant — every install would have to re-author every page-hours and date field by hand, and every page and deadline decided under the old values stays uninterpretable in the log.
-
 ## how-the-factory-works/09-gate-policy/
 
 ### One risk threshold is compared against numbers the same formula produces from three different factor sets
