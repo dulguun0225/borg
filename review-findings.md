@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/08-operations/
 
-### The emission and the kept series are the one thing the factory ships with no version and no upgrade path
-**Raised by:** Site reliability engineering
-**Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — _The health monitor_ ("at one resolution the factory fixes for every service and ships with the instrumentation"), with `what-the-factory-does/04-what-the-factory-does-not-build.md` — the outside-store row
-**What is wrong or missing:** The quantity set, the outcome set, the interval resolution, the failure-record key set and the `unfinished` deadline are fixed by the factory and written into each service's code, and the series are kept in a store the host provisions. Nothing versions either, and nothing says what an upgrade that changes one does. The document versions everything else it ships — policy version, score version, the shipped-bundle identity, the design-system constraint rewritten at an upgrade's first start, the factory's own schema history with its one-version promise — and makes a service's store change four items precisely so that a store survives a version change. After an upgrade that reads a new quantity, deployed services emit the old shape until each is rebuilt and re-released one item at a time; the Implementation gate rejects "an emission naming a number nothing reads" but not a service missing a newly read one, and the monitor's own rule reads a period the store does not cover as no volume, so no window anywhere can close passed, every window runs to its cap, window limits stay at 1 and the install serializes until the last service ships.
-**What turns on it:** The product is self-hosted and upgraded by whoever runs it, so this lands at the first upgrade that touches measurement, on every install at once, and it degrades the measurement the whole operations half rests on rather than failing visibly.
-**Migration:** A version on the emitted record and on the kept series cannot be applied retroactively: series already kept carry no discriminator, so the readings computed over history — the own-history size, the error budget over its period, the learned window size and run length — span the change with nothing able to exclude the old shape.
-
 ### One `size` over three incommensurable quantities
 **Raised by:** Applied statistics and sequential testing
 **Where:** `how-the-factory-works/08-operations/02-the-analysis-window.md` — _The analysis window_; the row in `how-the-factory-works/09-gate-policy/01-what-is-in-it.md` — _What is in it_

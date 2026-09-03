@@ -81,6 +81,7 @@ dropped	ordinary
 edit in place	ordinary
 effort	agent engineering
 element	contract testing
+emission version	ordinary
 environment-hours	ordinary
 erasure list	ordinary
 error budget	site reliability engineering
