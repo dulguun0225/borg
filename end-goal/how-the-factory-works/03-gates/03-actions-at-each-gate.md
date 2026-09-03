@@ -13,7 +13,7 @@ What may be done at each of the eight rows, and nothing about what decides it.
 | Merge to master | Approve · Reject with feedback |
 | Deploy to production | Approve · Hold · Safeguard the strategy |
 
-Those eight rows are the default path, not the whole set. There is a gate before every deploy, so a customer that defines more environments gets a row for each. It gets no more merge rows: one long-lived branch is the promotion path, so the extra environments are deploy targets.
+Those eight rows are the default path, not the whole set. There is a gate before every deploy, so a customer that defines more environments gets a row for each. It gets no more merge rows: one long-lived branch is the promotion path, so an extra environment is deployed into and never merged through.
 
 Three further rows are the factory's own and belong to no item: [_A role prompt or a skill_](07-what-particular-gates-decide/09-a-role-prompt-or-a-skill.md), where a version of what an agent is told is decided, [_A safeguard's withdrawal_](07-what-particular-gates-decide/10-a-safeguards-withdrawal.md), where the record that removes a human from a gate is decided, and [_A halt's withdrawal_](07-what-particular-gates-decide/11-a-halts-withdrawal.md), where the record that ends a [halt](../09-gate-policy/04-stopping-the-factory.md) is. Each is outside the eight because everything the eight share is an item: a stage to be at, a build to point at, a release to reach. Those three rows have none of them.
 

@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/05-environments/
 
-### `deploy target` names both an address field of an environment and one of the environment record's three kinds
-**Raised by:** Technical writing
-**Where:** `how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md` — _Records, and one long-lived branch_; against `records.md` — _Some things the document names are not records_
-**What is wrong or missing:** The section opens with "One record type with a **kind** fixed at creation and three values — production, a deploy target a customer defines, and a candidate's own", then four paragraphs later says "An environment names its **targets**, plural: the addresses a deploy is performed against. They are a field, not records of their own", and later again "A customer's extra environments are deploy targets and not ordered stops". `records.md` states the other reading flatly: "A deploy target is a field of the environment." So the same term is the second value of a fixed enum and a repeated field of every row of that enum, in one file.
-**What turns on it:** The deploy record's key rests on which reading holds: "It is keyed by service and environment and not by target … A record per target stays refused, because four records could each name a different release and each be right." Read the kind literally and a customer with four addresses gets four environment records, which reproduces exactly the shape the design refuses, and takes the gate row's threshold ("a gate row's threshold is a field of an environment record"), the composition field, and the credential reference with it. The candidate-environment count, the platform's room reading, and drift detection's per-target reads all sit on the same choice.
-**Migration:** The kind is "fixed at creation" and the deploy record's key is service plus environment; re-keying deploy records and re-shaping environment rows after an install holds deploy history means rewriting the records every window, incident, and mismatch already points at.
-**Also reached separately by:** Platform engineering — "A service's deploy targets are a field of the environment, so every service in a project must run on every target" (same field, its scope rather than its name).
-
 ### The resolved set is flat: no entry records what required it
 **Raised by:** Supply chain security
 **Where:** `how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md` — _Records, and one long-lived branch_
