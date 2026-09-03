@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/08-operations/
-
-### One `size` over three incommensurable quantities
-**Raised by:** Applied statistics and sequential testing
-**Where:** `how-the-factory-works/08-operations/02-the-analysis-window.md` — _The analysis window_; the row in `how-the-factory-works/09-gate-policy/01-what-is-in-it.md` — _What is in it_
-**What is wrong or missing:** The confidence is explicitly held over the set and the power explicitly per quantity and per target, but the size is a single scalar per service — "the smallest change in those quantities this reading has to detect" — authored on the service record, learned by the score, recorded on the window, and reported by Ops as one number. A minimum detectable effect is not commensurable across request rate, error rate, and latency: at a given volume the detectable relative change in an error rate of 0.1% is orders of magnitude coarser than in a latency quantile, so "the finest size this service's own traffic can rule anything out at" has three different values and the document resolves only one.
-**What turns on it:** Because `passed` is a conjunction over every quantity and target, a single scalar makes the hardest quantity (almost always the error rate) decide reachability for the whole service, so services whose latency and request-rate readings could conclude early run to the cap anyway — window limit stuck at 1, no held-out evidence, no prior narrowing. It also means an owner who authors a size cannot say which regression they bought, and the learned coarsening ratchets the whole service to the worst quantity's floor.
-**Migration:** Splitting `size` into a per-quantity vector later re-reads every owner-authored service-record value, every score-supplied value on the log's score versions, and the `size` field of every window already closed, none of which record which quantity the number ever meant.
-
 ## how-the-factory-works/08-operations/07-pages.md
 
 ### A gate row is delivered to every holder of the duty at once with no way to claim it, while a page has acknowledgement
