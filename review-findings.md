@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/04-risk-score/
 
-### The factor weights have no home on the score version, and a recalibration falls in neither branch of the rule that gates a score version
-**Raised by:** Risk scoring
-**Where:** `how-the-factory-works/04-risk-score/01-factors-at-least.md` — _Factors, at least_ (the score-version paragraphs), with `how-the-factory-works/04-risk-score/02-how-it-learns.md` — _How it learns_
-**What is wrong or missing:** The document says a factor's "weight is published and calibrated like the rest" and that a drifted factor is resolved "until the formula is recalibrated over it," but the score version's stated contents are only "the published formula, the factor set, and every value the score supplies," where the supplied values are enumerated as ten of gate policy's eleven rows. The weight vector is therefore neither a supplied value nor, on the document's own wording, the formula — so a recalibration is neither "a version that differs in a supplied value having moved" (in force as appended) nor "a version that changes the published formula or the factor set" (not in force until the owner re-authors the threshold against it). Nothing in the document says a recalibration writes anything at all.
-**What turns on it:** A recalibration moves the number for an unchanged change, factory-wide and discontinuously, against thresholds owners already authored — the exact redefinition the second branch exists to prevent — and it arrives through the branch that is not gated. Read the other way, it composes with the drift rule into a lock: a drifted factor resolves a human at every gate factory-wide, the exit is recalibration, and a recalibrated formula is not in force at any gate whose threshold an owner authored until that owner acts, so an owner's silence keeps every gate on that scope resolved indefinitely. And if the weights are absent from the score version, no decision can be re-scored under the version it names, which is what the vector is recorded for.
-**Migration:** The score version is a chained log row and "rows are never migrated," so a weight field added after the first row leaves every earlier decision permanently unreproducible under the version it names, and the recalibrations that happened before the retrofit are absent from the chain the drift detector verifies.
-
 ### Truncating the decision log can lock a drifted per-author prior with no exit
 **Raised by:** Risk scoring
 **Where:** `how-the-factory-works/04-risk-score/02-how-it-learns.md` — _How it learns_, against `how-the-factory-works/09-gate-policy/03-what-is-not-in-it.md` — _What is not in it_ (retention)
