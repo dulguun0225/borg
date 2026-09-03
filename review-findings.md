@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## records.md
 
-### A project is the root of the scoping hierarchy and is not a record
-**Raised by:** Software architecture
-**Where:** `end-goal/records.md` — the record table and the "Some things the document names are not records" list; `end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md` — **Work** ("A project is a grouping of work, not a separate place")
-**What is wrong or missing:** A project is the reach of a constraint (`what-humans-do.md` 2), a subject of a safeguard (`09-gate-policy/02`), a half of a fleet entry's scope (`10-fleet/01`), the root every area chain terminates at (`03-decomposition/02-what-an-item-names.md`), the container of a persistent environment ("production's at the creation of the project", `05-environments/01`), the field intake writes on an intent, and the thing a service is in exactly one of. It appears in neither inventory: no row in `records.md`, no writer, no seam, and it is not on the list of things that are deliberately not records — and no component row in `components.md` creates one. Nothing says a project is created, by whom, or where its identity lives, and nothing says which record carries a service's project, though `what-an-item-names.md` reasons from a service being in exactly one.
-**What turns on it:** Every mechanism that follows an area chain "from the item's area up to the project" — dispatch's scope match, a safeguard's reach, a constraint's binding — terminates at an entity that has no declared writer, and `09-gate-policy/02` already names the failure mode: "a safeguard naming a subject nobody declared is a dangling reference nothing detects until the mechanism looks for it." The document's own two inventory rules ("every record in the graph has one writer"; "a component does not exist until it has a row") are not satisfied for the entity the whole authorization surface roots at.
-**Migration:** Every safeguard, scope, constraint reach and area an owner has authored names a project identity; giving projects a record and a writer afterwards means reconciling those identities and back-filling a project reference onto services, areas and environments already written — and the policy versions and safeguards that carry the authored reaches are chained log rows, which the design states are never migrated.
-**Also reached separately by:** Product design — "The project is the product boundary and it is not a record". Two stances reached this one.
-
 ### The project is the product boundary and it is not a record
 **Raised by:** Product design
 **Where:** `how-the-factory-works/11-screens/01-work-ops-factory-people.md` — Work, Ops, Factory, People ("A project is a grouping of work, not a separate place"); `records.md` — Records and their writers

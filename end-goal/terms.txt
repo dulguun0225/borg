@@ -150,6 +150,7 @@ policy version	ordinary
 power	statistics
 processing location	legal
 product licence	legal
+project	ordinary
 proof test	functional safety
 provider account	ordinary
 provisioned	platform engineering
