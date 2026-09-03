@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/01-intake/
 
-### The erasure list sits outside both inventories, has two writers and no declared seam, and nothing bounds its life
-**Raised by:** Data architecture
-**Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — "Reports", the paragraph beginning "A redaction outlives a restore"; and `how-the-factory-works/09-gate-policy/03-what-is-not-in-it.md` — "What is not in it", the retention paragraph
-**What is wrong or missing:** The erasure list is written by Factory at a redaction and by People at a mapping deletion — two writers — and replayed by the report store, intake, the artifact store, and the People mapping. Because it "lives beside the report store and never in the graph," it carries no format version, no row in `records.md`, no row in `components.md`, and no declared seam, and it is the one store whose correctness a legal obligation rests on. Its own retention is stated nowhere: `backup retention`, the field an owner authors for exactly this ("how far back a backup may reach"), appears once in the entire document, at its definition, and nothing reads it.
-**What turns on it:** The list is by construction a durable copy of what an erasure was obliged to destroy ("itself a copy of what was meant to be gone"), so with no rule retiring a row once no backup within backup retention can reinstate it, an install accumulates permanent personal data through the mechanism it uses to discharge erasure — the opposite of what the redaction claims. A record shape with two writers, no version field, and no inventory row is also the exact defect `records.md` exists to prevent, exempted only by being declared out of the graph.
-**Migration:** Rows already appended without a version field or a retire-at bound cannot be aged out or reinterpreted by a later version — the list is append-only, outside the recovery unit, and never migrated — and an owner has already authored `backup retention` against a promise nothing implements.
-
 ### The report channel collects personal data from a customer's end users with no notice at collection, and no report says which notice was in force
 **Raised by:** Legal
 **Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — Reports
