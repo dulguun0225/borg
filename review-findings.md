@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## what-the-factory-does/
-
-### The inter-service edge every contract check rests on is asserted as known and never derived by anything
-**Raised by:** Program analysis
-**Where:** `what-the-factory-does/01-tight-integration.md` — _Tight integration_ ("Which services consume a contract, so what a change breaks is a query rather than an estimate"), read against `how-the-factory-works/05-environments/02-an-environment-per-candidate.md` and `records.md`
-**What is wrong or missing:** Four mechanisms read a service-to-service edge: enforcement's "who is affected", the context factor's "which sibling services consume what it publishes", the candidate environment "composed … the current releases of its dependencies … the transitive closure", and the consumer contract, which must name the producer contract it is checked against. No record in `records.md` holds that edge, the service record's enumerated fields in `03-decomposition/README.md` do not include a dependency set, and no section says how a call site in a consumer's build is resolved to a producer contract. That resolution is the hardest part of the extraction, not a given: the target arrives through a base URL, a topic name, or a discovery name held in the service's non-secret configuration file and "resolved at deploy", so it is neither a syntactic fact of the build nor available to the build-time extractor the way a field read is.
-**What turns on it:** A mis-resolved or unresolved edge does not fail loudly — it silently removes a consumer from a producer's deprecation list (list empties, brownout runs, element removed while the consumer still calls it) and silently omits a dependency from a candidate environment, whose run then leaves every predicate over that path undecided or, worse, exercises nothing and passes the checks that did run. Unlike every other derivation in the document, this one has no `could not derive`, so an edge the analysis never found is indistinguishable from an edge that does not exist.
-**Migration:** The edge is either a field of the consumer contract or a record of its own with a writer and a seam; either way it is a record-shape decision, and by the time it is made an install has composed environments, scored context, and destroyed data on removals against an edge set whose membership was never recorded as derived or underivable.
-
 ## how-the-factory-works/02-intent-into-items/
 
 ### `hazard severity` grades recoverability and carries no magnitude, so the impact half of the score has no input that distinguishes a duplicate email from a wrong dose
