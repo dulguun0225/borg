@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/06-releases/
 
-### The deploy record's per-target key repeats across the events it has to separate
-**Raised by:** Backend engineering
-**Where:** `how-the-factory-works/06-releases/05-the-deploy-record/README.md` — "The deploy record" (with `how-the-factory-works/08-operations/01-the-health-monitor.md` and `how-the-factory-works/08-operations/02-the-analysis-window.md`)
-**What is wrong or missing:** The record is said to be "keyed by service and environment", yet a rollout, a rollback, a revert's deploy, and a search's deploy each produce one for the same service and environment, so that is a grain and not an identity — the deploy record has none stated. The idempotency key that makes a stop safe is stated twice as "the release and the target" ("Keyed on the release and the target, a repeat writes nothing"; "the deploy record on the release and the target"). That pair repeats: a rollback to release N-1 writes a deploy record for a (release, target) pair whose earlier deploy already completed, so under a key that writes nothing on repeat the rollback's own record is suppressed — leaving the failed release reading as current, no hold, and the mismatch as the only trace. A search's deploy, which names a build and no release, has no key at all under that rule.
-**What turns on it:** Current release, drift detection, the rollback target query, the contract dependency hold, and the deployer's restart all read deploy records; a suppressed or ambiguous record makes the failed exit's longest sequence unreplayable in exactly the case it was written for.
-**Migration:** A record's identity and its idempotency key are what every deploy row an install already holds was written under; changing them is rewriting the deploy history and, by _Tight integration_'s own rule, moving every such record's format version.
-
 ### The deploy record is written at the start of a deploy in one section and not written at all in three others, and its status field has two values in one and three in another
 **Raised by:** Technical writing
 **Where:** `how-the-factory-works/06-releases/05-the-deploy-record/README.md` — _The deploy record_; against `how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md`, `how-the-factory-works/06-releases/06-rollback.md`, `how-the-factory-works/08-operations/08-drift-detection.md`, and `how-the-factory-works/08-operations/01-the-health-monitor.md`
