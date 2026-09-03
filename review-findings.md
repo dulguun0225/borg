@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/
 
-### A requirement has no withdrawal and no supersession, so a reopened interview leaves two readings in force at once
-**Raised by:** Requirements engineering
-**Where:** `how-the-factory-works/02-intent-into-items/02-the-interview.md` — _The interview_ (and the `requirement` row in `records.md`)
-**What is wrong or missing:** Requirements are written at the confirming round, one per statement, with ids "stable and never reused" and the statement write-once — and nothing else. Every other record on this path has a lifecycle: a criterion has an in-force query and a withdrawal recorded on a spec version, a screen state machine has a supersession chain, an item has a superseded-points-at-replacement pointer, a constraint has withdrawal-and-replacement. The interview reopens by four named paths (a rework request naming the intent, a gate's reject naming it, a replacement constraint's raise, a correction at the acceptance round), each ending in a second confirming round, and intake writes the set again. The document never says the first set is superseded, withdrawn, or out of force.
-**What turns on it:** Both mechanical completeness checks then read a union of two readings. Decomposition's check — "A set that leaves a requirement named by no item is rejected there" — rejects every re-decomposition that does not also answer the statements the requester just retracted, and the only escape the document offers is decomposition marking them "unanswerable," which is a false claim about a statement that is answerable and simply no longer wanted. Spec's bidirectional check reads criteria in force naming ids from the superseded reading. The reopening paths are not rare: a corrected acceptance round and a replacement constraint are the two ordinary ways a customer says the factory built the wrong thing.
-**Migration:** Requirement statements and ids are write-once and criteria naming them are "written exactly once ... and never written again," so which of an install's existing requirements replaced which cannot be back-derived; adding the axis later also changes the verdict of a coverage query over sets already approved.
-
 ### A requirement answered across several items is verified by nobody, because nothing derives a per-item share of it
 **Raised by:** Requirements engineering
 **Where:** `how-the-factory-works/02-intent-into-items/03-decomposition/README.md` — _Decomposition_, and `how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md` — _The six patterns_
