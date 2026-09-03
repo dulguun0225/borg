@@ -38,14 +38,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 **Migration:** A recovery point has to exist before the migration that needs it; adding the requirement later does nothing for an install whose records were already rewritten one-way, and the previous version cannot read what the new one wrote.
 **Also reached separately by:** Release engineering — "The product gives every service it ships a rollback and has none for itself"; Data architecture — "The factory's own store is exempted from the store rule the factory enforces on every service it builds"; Absence — "The factory's own upgrade has no reverse, and the design never says what a bad one costs". Four stances reached this one.
 
-### Single-instance exclusivity is a start-time lock, and nothing fences the chain's append
-**Raised by:** Backend engineering
-**Where:** `components.md` — "Components and what they call" ("The factory is one process, and the drift detector is the second")
-**What is wrong or missing:** The whole of the enforcement is "A starting process takes a lock there and holds it while it runs, so a second fails to start rather than running beside the first." A lock taken at start does not stop a process that has already started and stalled — a host suspend, a long pause, a partition and reconnect — from writing after another has taken over. The two consequences the paragraph names are guarded elsewhere at the record level (a duplicate release number is a refused write, a window's close is keyed on the window), but the log is not: the document never says how a row claims the head, only that the chain has one writer component. Two appenders reading one head fork the chain, and the design has no per-row sequence or conditional-write rule that would make a fork distinguishable from an edit.
-**What turns on it:** The drift detector reads a chain its recorded head is no longer inside as a mismatch that holds *every* service's production deploys until a human clears it, so a fork stops the whole install and reads as tampering. The chain is also the score's training data and the audit trail, so a fork is unrepairable by construction — you cannot rewrite the branch you keep.
-**Migration:** The append protocol has to hold from the first row for the same reason seam 2 gives for the chain field itself — "a chain laid over history written without one starts at the retrofit" — and a fence field added later cannot order rows already written.
-**Also reached separately by:** Platform engineering — "Exactly one factory instance is enforced by a store lock, and nothing fences the calls a stale instance can still make".
-
 ### Exactly one factory instance is enforced by a store lock, and nothing fences the calls a stale instance can still make
 **Raised by:** Platform engineering
 **Where:** `components.md` — "**The factory is one process, and the drift detector is the second.**"

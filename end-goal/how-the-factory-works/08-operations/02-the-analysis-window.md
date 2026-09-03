@@ -45,7 +45,7 @@ the release and the target, the intent on the failed release its evidence names,
 window's close on the window. So a start replays every step already taken and writes
 nothing at any of them. What the order buys is that a stop anywhere inside a failed exit
 leaves the window open, which is the state [the health monitor's
-restart](../../components.md) already reads and the cap already bounds. Closed first, the
+restart](../../one-process.md) already reads and the cap already bounds. Closed first, the
 same stop would leave a release the factory had failed serving production with no rollback
 deploy record, no [hold](../03-gates/04-what-a-gate-may-change.md), no
 [mismatch](08-drift-detection.md), and nothing that would ever retry. Where the failed exit

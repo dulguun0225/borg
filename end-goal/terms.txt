@@ -94,6 +94,7 @@ factory-wide settings record	ordinary
 failed	release engineering
 failure record	observability engineering
 feed back as end users	ordinary
+fencing token	distributed systems
 firing	ordinary
 fleet	release engineering
 fleet proposal	ordinary
@@ -123,6 +124,7 @@ item-size target	ordinary
 kind	ordinary
 last check	ordinary
 last known-good release	release engineering
+lease	distributed systems
 legal hold	records management
 marked	ordinary
 maximum concurrent candidate environments	ordinary
