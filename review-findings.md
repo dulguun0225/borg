@@ -13,13 +13,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 **What turns on it:** Because `passed` is a conjunction over every quantity and target, a single scalar makes the hardest quantity (almost always the error rate) decide reachability for the whole service, so services whose latency and request-rate readings could conclude early run to the cap anyway — window limit stuck at 1, no held-out evidence, no prior narrowing. It also means an owner who authors a size cannot say which regression they bought, and the learned coarsening ratchets the whole service to the worst quantity's floor.
 **Migration:** Splitting `size` into a per-quantity vector later re-reads every owner-authored service-record value, every score-supplied value on the log's score versions, and the `size` field of every window already closed, none of which record which quantity the number ever meant.
 
-### No version identifies the boundary construction a window was read against
-**Raised by:** Applied statistics and sequential testing
-**Where:** `how-the-factory-works/08-operations/02-the-analysis-window.md` — _The analysis window_ ("It names ... the size, confidence, power, and cap resolved at the open ... beside the policy version and score version in force")
-**What is wrong or missing:** The window records the parameters and the two versions that govern authored and score-supplied values, but the sequential procedure that turns those parameters into a boundary — the always-valid construction, its alpha-spending, the per-quantity adjustment — belongs to the health monitor and is versioned by nothing. `_Traceability_` states the rule this violates: "no such field can be added to a history written without it."
-**What turns on it:** A self-hosted install upgraded to a factory with a different boundary construction pools old and new exits in the per-author prior, the window limit, the learned size and power, and the held-out failure bands, all of which read `passed` and `failed` as one currency; the document's own sentence that "a reading at an exit is not interpretable against anything but the boundary it was actually read against" then fails at exactly the point an upgrade crosses.
-**Migration:** The field has to be on the window at the open, since a customer's closed windows carry no record of which arithmetic produced their exits and the install's history cannot be re-derived after the upgrade that changed it.
-
 ## how-the-factory-works/08-operations/07-pages.md
 
 ### A gate row is delivered to every holder of the duty at once with no way to claim it, while a page has acknowledgement

@@ -51,6 +51,7 @@ backstop the factory	ordinary
 backward	ordinary
 burn rate	site reliability engineering
 baseline	statistics
+boundary version	ordinary
 brownout	site reliability engineering
 build	release engineering
 build runner	release engineering
