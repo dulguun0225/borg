@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/08-operations/
 
-### `unfinished` is not computable from the aggregates the store is required to keep
-**Raised by:** Site reliability engineering
-**Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — _The health monitor_ (the emission paragraph and "What is kept is not what is emitted")
-**What is wrong or missing:** The completion record names "the same three, the outcome, and the duration" and carries no arrival identity; what is kept is a count of arrivals per interval per (service, release, target) and a count and duration distribution per the same set with the outcome added. `unfinished` — "a request that arrived and has not completed once a deadline the instrumentation fixes for the service has passed, computed from the two counts" — needs arrivals in interval T minus the completions of requests that arrived in T, and nothing kept ties a completion to its arrival interval. Arrivals(T) minus completions(T) is the net change in in-flight requests: systematically nonzero whenever the request rate moves, negative when it falls, and biased by roughly the ratio of latency to interval resolution even on a service where nothing is hung.
-**What turns on it:** `unfinished` sits inside the error rate, and an error-rate crossing is the factory's only unattended authority over production. A quantity that moves with traffic shape rather than with the release rolls back good releases, drains error budgets and holds deploys on services nobody changed, and the authored confidence bounds none of it, because the movement is bias and not noise.
-**Migration:** The fix is an arrival interval on the completion record, or a requirement that the outside store bucket completions by arrival time and hold each interval open past the deadline — a change to what the instrumentation shipped inside every deployed service emits and to the series every install's store already holds, with no way to re-derive the history the own-history reading, the error budget and the learned size are all computed over.
-
 ### The emission and the kept series are the one thing the factory ships with no version and no upgrade path
 **Raised by:** Site reliability engineering
 **Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — _The health monitor_ ("at one resolution the factory fixes for every service and ships with the instrumentation"), with `what-the-factory-does/04-what-the-factory-does-not-build.md` — the outside-store row
