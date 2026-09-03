@@ -4,16 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/03-gates/
-
-### The screen state machine enumerates states but no rendering context, and the accessibility claim rests on the missing axis
-**Raised by:** Frontend engineering
-**Where:** `how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md` — whole file; `how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md` — second paragraph
-**What is wrong or missing:** The record holds "the states a screen can be in, the events that move it between them, and what each state forbids," and the four predicates — "a contrast floor, a name on every control, a focus order, a target size" — are decided once per declared state against a run that renders it. Every one of those four varies over the axis the record does not carry: viewport width and text scaling (target size and focus order change with reflow; contrast changes with a design system's theme tokens, which the constraint's contents field records as "the states each component may be in" for components but not for the system), and no field anywhere fixes the context a run renders in. The document makes exactly the right argument one axis over — "what it rests on is the enumeration rather than whichever states somebody happened to open" — and then leaves the run to render whichever context it happened to open.
-**What turns on it:** The design says this is "what makes an accessibility regulation reachable on the factory's own screens and not only on what it builds," and it is also the enforceable half of a design system supplied as code plus predicates; as written, a screen passes every predicate at one implicit width and theme and fails a regulator at another, with the pass recorded as a decided criterion. It also weakens the one check the factory ships to every install: the way in is held to these same four predicates on every candidate.
-**Migration:** The state machine is written once by the artifact store in the spec version's call, is never edited, has a stable per-service id that is the screen's identity, and is revised only by a superseding machine — so adding a required rendering axis later means a spec version and a gate firing per screen per service across every install, and every predicate verdict already recorded on an accepted or restorable release was taken in a context no record names and cannot be reinterpreted.
-**Also reached separately by:** Design systems — "The render matrix is one axis wide: predicates are enumerated over screen states only, so theme, viewport, and locale are checked by whatever the run happened to render". Two stances reached this one.
-
 ## how-the-factory-works/04-risk-score/
 
 ### Every approval acquires an outcome; no rejection ever does, and the per-human numbers are published on the approvals alone
