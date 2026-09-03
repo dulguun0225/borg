@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## what-the-factory-does/
 
-### Two files disagree about whether git is restored, and under the reading that reconciles them a release number is re-minted for a different build
-**Raised by:** Release engineering
-**Where:** `what-the-factory-does/04-what-the-factory-does-not-build.md` — "A host requirement crosses that division" (the recovery unit), against `how-the-factory-works/05-environments/03-the-merge-queue.md` — "Master's head the queue reads from git"
-**What is wrong or missing:** The recovery unit puts git in with the graph, "restored together to a single recovery point", precisely so git never holds a commit the graph has not recorded. The merge queue's restore rule assumes the opposite state — "every record since the backup is a lost write at once while git and the deploy targets roll back with nothing" — and its safety turns on completing records that "master's order still derives" and minting nothing "while a commit's record cannot be derived". `08-operations/08-drift-detection.md` cites that same stop. If git is in the unit, that clause is dead and the design has no answer for the state that does occur: deploy targets are outside the unit, so production keeps running a build whose release record, build record, and commit are all gone, and the next merge takes that release's number again — against the flat claim in `06-releases/04-the-release-number.md` that numbers are never reused, which the uniqueness rule at the store cannot see because the colliding record was restored away.
-**What turns on it:** A rollback's target, the search's bisection by release number, the deploy ordering, and the release named in every emitted health record all key on the number. Two builds answering to one name on one service makes the rollback target and the telemetry attribution wrong at once, on the one occasion — a restore — when the factory is already loudest and least verifiable.
-**Migration:** The release number is the identity written into release, deploy, window, incident and contract-version records and into the instrumentation of software already in production; making it unique per mint (or carrying the build digest as the identity) is a change to the shape of records a running install already holds and to emissions already shipped.
-**Also reached separately by:** Data architecture — "The recovery unit's single recovery point is asserted, not enforced, and only one direction of divergence is caught".
-
 ### The recovery unit's single recovery point is asserted, not enforced, and only one direction of divergence is caught
 **Raised by:** Data architecture
 **Where:** `what-the-factory-does/04-what-the-factory-does-not-build.md` — "What the factory does not build", the recovery-unit paragraph; and `how-the-factory-works/05-environments/03-the-merge-queue.md` — "The merge queue", the restore paragraph
