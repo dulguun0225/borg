@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/07-contracts/
 
-### The migration's four items switch reads to the new form before the backfill has filled it
-**Raised by:** Database migration engineering
-**Where:** `how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md` — _The store is a contract too_ (restated in `how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md`)
-**What is wrong or missing:** The stated order is "The store gains the new form beside the old; the code writes both forms and reads the new; a **backfill** copies into the new form every row the old form already holds; the old form is dropped." Item 2 makes the running release read a form that, for every row written before it, is empty — and `01-a-schema-change.md` confirms the sequence ("the added form is read by nothing until the code that reads it ships, and the backfill writes only what the old form already holds"). Expand-contract puts the backfill before the read switch for exactly this reason: expand, backfill, switch reads, contract. Only the drop is gated on the backfill's completion ("A removal item is rejected at Merge to master while no deploy record marks the backfill for that element complete"); nothing gates the read item.
-**What turns on it:** From the moment the code item deploys until the backfill finishes — which the same file says "on a large store runs for hours" — every pre-existing row reads as absent in production. Worse, the code writes both forms, so any write derived from an absent read overwrites the old form's true value with a value computed from nothing, and the backfill then either skips that row as already copied or copies the corrupted value. A column rename on a large table silently destroys the rows the backfill has not yet reached.
-**Migration:** The `01-a-schema-change.md` snapshot rule fires only before a change that destroys stored data (the drop), so no snapshot covers the code item; rows corrupted during the read-before-backfill gap are already in customer production stores when the ordering is corrected, and nothing distinguishes them from rows legitimately written.
-
 ### Nothing re-derives when an upgrade changes an extractor, and no derived record names the extractor it was derived under
 **Raised by:** Program analysis
 **Where:** `how-the-factory-works/07-contracts/06-what-a-consumer-declares.md` — _What a consumer declares_ (the paragraphs "It is derived from the consumer's build, not entered by hand" and "A derivation that could not run records that it could not")
