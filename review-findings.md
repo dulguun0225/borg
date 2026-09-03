@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/04-risk-score/
-
-### Truncating the decision log can lock a drifted per-author prior with no exit
-**Raised by:** Risk scoring
-**Where:** `how-the-factory-works/04-risk-score/02-how-it-learns.md` — _How it learns_, against `how-the-factory-works/09-gate-policy/03-what-is-not-in-it.md` — _What is not in it_ (retention)
-**What is wrong or missing:** A drifted prior "stops the sample from selecting on that author at all… what recalibration reads is the held-out decisions already recorded, and recalibration is the only exit." Retention names only the widening cost of truncation ("an owner truncating for storage widens the priors of the authors the factory knows best"). It does not state that truncation past those held-out decisions removes the only exit that exists: no new held-out evidence can arrive on a drifted author, so the resolution stands at every gate for that author permanently. The retention floor is set for records-retention law, not for what recalibration needs.
-**What turns on it:** An author — a model version, therefore a whole class of the fleet's work — resolved to a human at every gate forever, from a storage setting, with the shortening gate having weighed a trail-length question rather than this one.
-**Migration:** The cut is a chain restart and the removed rows are gone; nothing else in the graph holds the held-out decisions the recalibration would read.
-
 ## how-the-factory-works/05-environments/
 
 ### One store per service per environment is assumed but never stated, and the schema history cannot distinguish two
