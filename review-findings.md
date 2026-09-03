@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/04-risk-score/
 
-### Every approval acquires an outcome; no rejection ever does, and the per-human numbers are published on the approvals alone
-**Raised by:** Human factors
-**Where:** `how-the-factory-works/04-risk-score/02-how-it-learns.md` — _How it learns_; and `how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md`
-**What is wrong or missing:** An approval is followed to an outcome — undone (10), rolled back, a window that failed — and a rejection is followed nowhere. "A rejection at a review-sampled row is a gate the factory would have passed and a human did not, which the score already learns from" takes the rejection as evidence the gate was needed without any record of whether it was borne out, and the threshold moves down on it and up on nothing but the held-out sample. Beside that, Factory publishes per named human what each approved and how often it was later undone, and publishes nothing about what each rejected. Both asymmetries point the same way: rejecting or holding is the response with no measurable downside to the person, and it is also the input the threshold is learned from. This is the false-alarm cost the design measured for the page channel and did not measure here.
-**What turns on it:** The one parameter that decides how much human work the factory removes is trained on rejections nothing validates, by humans who are scored on approvals only. The predicted drift is toward more human review at every gate, indistinguishable in the record from the score having got worse, and the review-sample reading cannot separate them because a rejection there is exactly what moves the threshold.
-**Migration:** The counter-evidence has to be written when the rework happens — whether the re-authored artifact changed what the rejection named, and how the rejection resolved. It is not reconstructible from a chained log that stored the verdict and the feedback alone, so an install that has run a year holds a score version and an owner-authored threshold standing on rejections that can never be scored.
-
 ### The factor weights have no home on the score version, and a recalibration falls in neither branch of the rule that gates a score version
 **Raised by:** Risk scoring
 **Where:** `how-the-factory-works/04-risk-score/01-factors-at-least.md` — _Factors, at least_ (the score-version paragraphs), with `how-the-factory-works/04-risk-score/02-how-it-learns.md` — _How it learns_
