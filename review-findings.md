@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## what-the-factory-does/
 
-### The recovery unit's single recovery point is asserted, not enforced, and only one direction of divergence is caught
-**Raised by:** Data architecture
-**Where:** `what-the-factory-does/04-what-the-factory-does-not-build.md` — "What the factory does not build", the recovery-unit paragraph; and `how-the-factory-works/05-environments/03-the-merge-queue.md` — "The merge queue", the restore paragraph
-**What is wrong or missing:** The unit spans four heterogeneous stores — the graph, the report store, the health monitor's numbers, and git — that are backed up by whoever hosts them, git being administered entirely outside the factory ("nothing administers a repository either"). No marker, quiesce, or epoch makes a common point obtainable, and nothing detects that the members landed apart. The merge queue's restore reasoning covers only git ahead of the graph (a commit on master with no release record); the reverse — a release record naming a commit master no longer holds — is checked nowhere, and the queue mints the next number from the highest release record without comparing it to master's head.
-**What turns on it:** With git restored behind the graph, the next candidate branches from a master missing already-merged, already-deployed work, its release ships as an ordinary release, and production silently loses shipped code; the drift detector sees a deploy record and a running artifact that agree and reports clean. Separately, including the health monitor's store in the unit rewinds live production telemetry that the factory outage never touched, and the ordering argument the unit is justified by (a record naming something another member does not yet hold) does not apply to a store the design reads by time range.
-**Migration:** The recovery unit is the promise a customer's backup arrangement is already built against; narrowing its membership or requiring a coordination marker changes what every install must have been capturing all along, and the telemetry and merged commits a past restore discarded are not recoverable.
-**Also reached separately by:** Release engineering — "Two files disagree about whether git is restored, and under the reading that reconciles them a release number is re-minted for a different build" (same subject from the other direction of divergence).
-
 ### The inter-service edge every contract check rests on is asserted as known and never derived by anything
 **Raised by:** Program analysis
 **Where:** `what-the-factory-does/01-tight-integration.md` — _Tight integration_ ("Which services consume a contract, so what a change breaks is a query rather than an estimate"), read against `how-the-factory-works/05-environments/02-an-environment-per-candidate.md` and `records.md`
