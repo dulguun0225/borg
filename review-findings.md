@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/03-gates/
 
-### The close event names "the hold" in the singular, but holds at a deploy gate are a set
-**Raised by:** Formal methods
-**Where:** `how-the-factory-works/03-gates/04-what-a-gate-may-change.md` — "An approve at a row where a hold stands names the hold"; and `how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md`
-**What is wrong or missing:** The field is defined as one hold and the two refusals are stated over one: "an approve naming a hold not standing at that firing, and a bare approve while one is." Nothing refuses an approve that names one standing hold while others also stand. `08-deploy-to-production.md` enumerates holds that routinely co-occur — a declared dependency that is not current, an exhausted error budget, a change freeze, an advisory match at or above the authored severity, a service at its maximum concurrent kept fleets, a drift mismatch — and each is stated to accept something different. An approve naming the dependency hold, written while an advisory hold and a freeze also stood, is admitted by both refusals and records that the human accepted the dependency break alone.
-**What turns on it:** The stated reason for the field is that "one Approve across all of them records a gesture rather than a decision"; a singular field reintroduces exactly that gesture whenever more than one hold stands, which is the ordinary case during an incident. A later reader of the close event cannot tell which holds the human was actually approving through, and the drift mismatch — the one hold the design says no evidence lifts — can be passed under cover of naming a cheaper one.
-**Migration:** The named-hold field sits on a chained close event that is never rewritten; a history written with one hold per approve can never be read as naming the set, so widening the field later leaves every approve taken before the change permanently ambiguous about what was accepted.
-
 ### The screen state machine is three-valued, and the document never says so or requires the machine to be well formed
 **Raised by:** Formal methods
 **Where:** `how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md`, and `how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/01-the-transition-check.md`
