@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/08-operations/
 
-### The comparison the automatic rollback rests on cannot be computed from the names the instrumentation emits
-**Raised by:** Release engineering
-**Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — "How the three are emitted is fixed" and "What is kept is not what is emitted"
-**What is wrong or missing:** The emitted records and the kept aggregates carry one closed set of names — service, release, target (plus outcome, and failure class and code location on a failure record). But a control and the kept fleet it must be told apart from are two sets of instances of *the same release* on *the same target*: the control runs "the release a rollback of it would return to" (`06-releases/05-the-deploy-record/03-a-control-above-a-release.md`), and the instances of that same release are kept at full capacity serving the rest of the traffic throughout (`08-operations/03-overlapping-windows.md`). Both arms therefore emit under one key, so "each target's release instances against the control on it" is not a reading the store supports; the control's cold-start behaviour is pooled with a long-lived fleet many times its size, which is exactly the found-baseline confound the started control was introduced to remove. The search has the same hole from the other side: its deploy "names the build and no release", and there is no build in the name set for its traffic to land under.
-**What turns on it:** The rollback inside a window is the only authority the factory has to act on production without a human, and every exit of the analysis window, the window limit's evidence, the per-author prior, and the score's calibration are read off this comparison. If the arms are not separable the comparison is either uncomputable or silently pooled, and a pooled reading fails in the direction nothing catches — a release that is worse than its control is diluted by the kept fleet and closes `passed`.
-**Migration:** The emission shape is fixed by the factory, shipped inside every deployed service, and the metrics store's series are keyed on the closed name set; adding an arm or instance-role name later leaves every already-deployed service emitting the old shape and every window already closed unrecomputable, so the boundaries those windows resolved against can never be re-read.
-
 ### `unfinished` is not computable from the aggregates the store is required to keep
 **Raised by:** Site reliability engineering
 **Where:** `how-the-factory-works/08-operations/01-the-health-monitor.md` — _The health monitor_ (the emission paragraph and "What is kept is not what is emitted")
