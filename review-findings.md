@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## what-the-factory-does/
 
-### Master's exclusivity is the claim the product is sold on, and no record ever says whether it held
-**Raised by:** Product management
-**Where:** `what-the-factory-does/04-what-the-factory-does-not-build.md` — _What the factory does not build_, the paragraph beginning "Master's only inbound path being the queue rests on how the repository is administered"; also `how-the-factory-works/06-releases/02-the-release-record.md`.
-**What is wrong or missing:** Traceability, the authorship rollup that answers the rights question in _What the customer runs it under_, and "a release record exists for every commit on master" all rest on write access an owner administers outside the factory, and the document then states that where humans can also push "the exclusivity holds by convention and nothing in the factory can tell." The service record's `provisioned` field says the factory *has* write access, never that it is the only writer; the merge queue already reads master at every start and never compares master's head against the commit of the release it last minted, and the release record never names the base it fast-forwarded from. The design invented the claimed-versus-verified field in seam 1 for exactly this problem and did not apply it to the one precondition its compliance claim rests on.
-**What turns on it:** The ordinary first customer the design names — one with software and a team already running — is precisely the case where a human push is likely, and there the release records, the authorship rollup, and the per-author prior silently describe work the factory did not do, with the trail reading identically to an install where the queue was the only writer. The regulated buyer who is the stated reason for the no-tenancy decision is buying traceability as evidence, and this is the one place it is assertion.
-**Migration:** The release record is "written once at the fast-forward and never written again," so a base-commit field and a queue-side check cannot be added to releases a store already holds; an install that has run a year can never afterwards say which of its releases came from a repository only the queue wrote to.
-**Also reached separately by:** Software architecture — "The repository is a write boundary with no seam, no component, and no credential on any record" (same precondition, from the credential side).
-
 ### Two files disagree about whether git is restored, and under the reading that reconciles them a release number is re-minted for a different build
 **Raised by:** Release engineering
 **Where:** `what-the-factory-does/04-what-the-factory-does-not-build.md` — "A host requirement crosses that division" (the recovery unit), against `how-the-factory-works/05-environments/03-the-merge-queue.md` — "Master's head the queue reads from git"
