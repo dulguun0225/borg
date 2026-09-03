@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/
 
-### The acyclicity invariant covers one edge relation; the wait relation the deploy gates evaluate is a union, and a cycle in the union is the failure the invariant was written against
-**Raised by:** Formal methods
-**Where:** `how-the-factory-works/02-intent-into-items/03-decomposition/README.md` — "The declared order is checked against the whole relation and not against the set"; with `how-the-factory-works/08-operations/03-overlapping-windows.md` — "A rollback still sets a hold"
-**What is wrong or missing:** Decomposition guards acyclicity over declared item-to-item dependencies, on the correct ground that "two items each holding a deploy gate on the other is a wait nothing lifts and no instrument shows." But a deploy gate also waits on relations that are not edges of that graph, the strongest being the rollback hold: every production deploy on a service waits on that service's revert item. Compose the two — service A's revert declares a dependency on an item in B, and service B's revert declares one on an item in A — and each revert waits, through the other service's rollback hold, on the other revert. Both declared edges are acyclic, so decomposition's check and the Decomposition gate both pass. Neither hold writes a record ("recomputed at every firing"), so nothing materialises the union relation and nothing can detect the cycle.
-**What turns on it:** The result is precisely the state the design names and refuses elsewhere: a wait nothing lifts, writing nothing, counting no attempt, paging nobody, on two services that are both already known to be running a failed release. The backlog cap then stops both services' merges, and the two escapes the design provides — approve through the rollback hold, and the mark that a rollback was not caused by the release — both require a human who has no instrument telling them the cycle exists.
-**Migration:** The factory's own hold over an existing record is defined as writing nothing, so the wait relation exists in no store and no history; a later check needs the hold materialised, which is a new log shape every reader filters on and which cannot be back-filled for cycles that already stalled an install.
-
 ### A requirement has no withdrawal and no supersession, so a reopened interview leaves two readings in force at once
 **Raised by:** Requirements engineering
 **Where:** `how-the-factory-works/02-intent-into-items/02-the-interview.md` — _The interview_ (and the `requirement` row in `records.md`)
