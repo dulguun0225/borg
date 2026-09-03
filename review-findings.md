@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/
 
-### A requirement answered across several items is verified by nobody, because nothing derives a per-item share of it
-**Raised by:** Requirements engineering
-**Where:** `how-the-factory-works/02-intent-into-items/03-decomposition/README.md` — _Decomposition_, and `how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md` — _The six patterns_
-**What is wrong or missing:** Decomposition explicitly allows one requirement to be answered across several items. Spec's check is per item: "a requirement assigned to the item that no criterion in force for it names." So each of four items answering requirement R passes by holding one criterion naming R, and whether the four together cover R is checked at no gate, by no query, and in no record. The field's normal answer — allocate a requirement across components by deriving a child requirement per component, each separately verifiable, with the parent satisfied only when its children are — is absent; the requirement stays whole and each item merely claims it.
-**What turns on it:** This is exactly the multi-item case the design makes mandatory: a contract migration is four items over two projects, and a design-system move is a conformance item per departing service. `what-the-factory-does/02-traceability.md` claims "which statements no criterion answers is a query" and that Decomposition and Spec turn that query into a rejection; for every split requirement the query returns "answered" on partial coverage. The whole-intent checks that might catch it do not: the acceptance round is skipped for a partly-delivered intent and for every factory-raised intent, and confirming criteria (6) and UAT (7) are per item and auto-pass in the steady state.
-**Migration:** Criteria name a requirement id and are write-once; the item carries which requirements it answers. Introducing derived per-item requirements later repoints what every existing criterion's id means and changes what the completeness query returns over releases already shipped and gate decisions already recorded.
-
 ### Adoption establishes no baseline in the schema history, so the first deploy replays the whole migration history against a live store
 **Raised by:** Database migration engineering
 **Where:** `how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md` — _A service that already exists_ (mechanism in `how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md`)
