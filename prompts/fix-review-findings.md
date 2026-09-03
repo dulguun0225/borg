@@ -3,13 +3,21 @@ iteration was interrupted: finish that work and commit it if it is coherent,
 otherwise `git restore` it. Then proceed.
 
 The findings you handle are appended below this prompt: every `###` entry under one
-`##` discipline heading of ./review-findings.md, verbatim. Do not read that file
-whole — it is large and the rest of it is not yours — except as step 1 says.
+`##` heading of ./review-findings.md, verbatim. The heading is the `end-goal/` file
+or section directory the entries name first, so every finding on that section is
+yours and no other block's is. Do not read that file whole — it is large and the
+rest of it is not yours. Each entry's `**Raised by:**` line names the discipline
+that wrote it; entries that reached one another separately sit adjacent, and two
+agents reaching one finding separately is recorded with the finding wherever it
+lands.
 
-1. Run `grep -n '^##' review-findings.md`. Where a heading under another discipline
-   is the same subject as one of your entries, read that entry too and handle it
-   with yours in the same edit: two agents reaching one finding separately is
-   recorded with the finding wherever it lands. Use no other entry.
+1. Run `git log --oneline $(git log --diff-filter=A -1 --format=%H -- review-findings.md)..HEAD`.
+   An entry that a commit already in this run answered — the mechanism it asks for
+   is now in the file that owns the subject — is neither fixed again nor escalated:
+   remove it with `python3 tools/drop-finding.py "<its ### heading>"` and commit —
+   `docs: drop <summary>, answered by <short hash>`. Reading that commit's diff is
+   what decides it, not the entry alone. This is not a refusal: the finding is taken,
+   and the commit that took it is named.
 
 2. Sort the entries before opening any file. Decide each from the entry's text where
    the text decides it; where it does not, read the file that owns the subject and
@@ -34,8 +42,10 @@ whole — it is large and the rest of it is not yours — except as step 1 says.
      sentence acknowledging the problem. A fix you attempted and could not verify
      becomes an escalation.
 
-   Never refuse a finding and never drop one; refusal is the owner's. When in doubt
-   between the two dispositions, escalate.
+   Never refuse a finding, and drop one only under step 1; refusal is the owner's.
+   When in doubt between the two dispositions, escalate. Where several entries in
+   your block ask for pieces of one mechanism, write the one mechanism once, in one
+   edit, and drop each entry it answers in its own commit naming that edit's commit.
 
    Before committing a fix, run `bash tools/consistency-commands.sh` and fix
    anything it reports: its prose-form check reads the working tree against `HEAD`,

@@ -252,21 +252,28 @@ sit until someone thinks to look, the thirty are fixed so they find thirty kinds
 and no thirty-first, and coverage is whatever the owner remembers to ask for.
 
 **The unattended loop.** `tools/loop-review-findings.py` runs one headless session per
-discipline block of `review-findings.md` — the entries under one `##` heading, passed in
-the prompt `prompts/fix-review-findings.md` so the session never reads the file whole —
-each in a fresh context, until the file is gone. Such a session has two dispositions, not
-three: it takes a finding — one commit per finding, `tools/consistency-commands.sh` run
-before each — or it moves the finding verbatim to `requires-human.md` with what decision
-is needed, for the owner to triage with all three. It never refuses, so refusal stays the
-owner's and stays the disposition hardest to reach. A session decides each entry's
-disposition from the entry's text before opening a file, so an escalation reads nothing
-but the entry, and a fix reads only the files the finding names and the one that owns the
-subject. The cold-read check and the read-through run once per run, from
+block of `review-findings.md` — the entries under one `##` heading, passed in the prompt
+`prompts/fix-review-findings.md` so the session never reads the file whole — each in a
+fresh context, until the file is gone. Before the loop runs, the file is regrouped so
+that a block is the `end-goal/` file or section directory its findings name first, not
+the discipline that raised them, which is recorded on each entry instead: findings
+cluster by file, so one session reads the owning file once and writes one mechanism
+where several disciplines asked for pieces of it, and the inventories — `records.md`,
+`components.md`, `deferred.md` — go first because later findings turn on what they
+declare. Such a session has two dispositions, not three: it takes a finding — one commit
+per finding, `tools/consistency-commands.sh` run before each — or it moves the finding
+verbatim to `requires-human.md` with what decision is needed, for the owner to triage
+with all three. A finding a commit earlier in the run already answered is dropped with a
+commit naming that one, which is taking it, not refusing it. It never refuses, so
+refusal stays the owner's and stays the disposition hardest to reach. A session decides
+each entry's disposition from the entry's text before opening a file, so an escalation
+reads nothing but the entry, and a fix reads only the files the finding names and the
+one that owns the subject. The cold-read check and the read-through run once per run, from
 `prompts/finish-review-findings.md` after the last block, over every section the run
 changed: neither depends on which commit or which session an edit sits in, so the check is
 the same and the read-through — the whole of _How the factory works_ — is paid once instead
-of once per block. A finding another discipline reached separately is joined to the block that meets
-it first, found by reading the file's headings alone. What the loop costs is that taken
+of once per block. A finding another discipline reached separately sits in the same block as the
+one it joins, placed there by the regrouping. What the loop costs is that taken
 findings land in `end-goal/` without the owner's eyes until the owner reads the commits;
 the escalation rule — a decision only the owner can make goes to `requires-human.md`, and
 a doubt between the dispositions escalates — is what bounds that.
