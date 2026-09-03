@@ -1,6 +1,6 @@
 # What an agent is told
 
-An agent works from words as well as from a model, and the words are the factory's. [_What is not in it_](../../09-gate-policy/03-what-is-not-in-it.md) puts them there already, what is between the gates being the factory's own and an owner authoring none of it, without saying who writes them or what happens when they change. Three records do, and what separates them is how far each reaches.
+An agent works from words as well as from a model, and the words are the factory's. [_What is not in it_](../../09-gate-policy/03-what-is-not-in-it/README.md) puts them there already, what is between the gates being the factory's own and an owner authoring none of it, without saying who writes them or what happens when they change. Three records do, and what separates them is how far each reaches.
 
 A **role prompt** is what an agent in a role works from. There is one per role, so the set is closed the way the set of roles is: a role names the work of one [stage](../../01-one-pipeline.md), of the two put on an [intent](../../02-intent-into-items/01-intake/README.md), of [the grouper](../../02-intent-into-items/01-intake/02-reports.md), or of the role that argues [a fleet proposal](../07-a-fleet-proposal.md), and all of them are the factory's own.
 

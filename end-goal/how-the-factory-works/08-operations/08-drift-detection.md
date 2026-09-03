@@ -14,7 +14,7 @@ only a row removed or added. A chain its recorded head is no longer inside is a 
 matches the record it impeaches: a deploy record reaches one service, so its mismatch holds
 that service's production deploys; the log reaches every decision, so this one holds every
 service's, cleared like any other by a human at the detector. A
-[truncation](../09-gate-policy/03-what-is-not-in-it.md) removes the oldest records and never
+[truncation](../09-gate-policy/03-what-is-not-in-it/02-retention.md) removes the oldest records and never
 the head, so the check reads through one undisturbed. The exception is retention shorter than
 the gap since the detector's last pass, where the cut removed the recorded head: that is the
 same mismatch, with the truncation row as the evidence the clearing human weighs, a real cut
