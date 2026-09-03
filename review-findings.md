@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/01-intake/
 
-### The one inbound path from outside the factory is not a declared seam and carries no identity the store can check
-**Raised by:** Security engineering
-**Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — _Reports_; `deferred.md` — _Security comes last_
-**What is wrong or missing:** The way in ships inside every deployed service and calls the report store, which lives in the factory process alongside the log, the resolver and the deployer. That call crosses from customer production — reachable by every end user — into the factory, and it is not among the five seams: no named operation set, no credential, and under seam 5 the way in "calls as itself", self-asserted. The per-service rate, the safeguard that "closes one service's way in", and the refusal counts on _Factory_ are all keyed on a service name the caller supplies. The reporter's opaque key is derived client-side from a session and salted, so it bounds an honest client and nothing else.
-**What turns on it:** A safeguard narrowing one service's rate to zero is evaded by submitting under another service's name; the whole-channel rate is the only real bound, and exhausting it drops the real reports the section says it is protecting. More broadly, the design has an unauthenticated write path into the process holding every credential, and never says so where it enumerates its trust boundaries.
-**Migration:** The way in is compiled into every deployed build and "moves only when the owner upgrades the factory and the service builds again", so the store must keep accepting the old unauthenticated submission shape for the life of every build already shipped — including one on a service that never gets another item — and the file's own rule for the source key ("it cannot be added to reports already written") applies to any attribution added later. Minting a per-deployment identity for the way in is nearly free now: the deployer already resolves a credential per environment record at every deploy.
-**Also reached separately by:** Software architecture — "The way in and the report store are versioned independently with no compatibility promise stated" (same interface, the version rather than the identity).; Trust and safety — "The harm page is bounded by a source identity that resets every session, and by nothing else".
-
 ### The entry's classes of material are authored by an owner and read by no component
 **Raised by:** Agent engineering
 **Where:** `how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md` — _What an agent runs on_ ("the classes of material the entry may be handed")
