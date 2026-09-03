@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## components.md
 
-### The factory's own upgrade has no reverse, and the design never says what a bad one costs
-**Raised by:** Absence
-**Where:** `components.md` — Components and what they call (the paragraph beginning "The factory's own store keeps a schema history too"), alongside `deferred.md` — The product's release channel
-**What is wrong or missing:** The factory imposes on every service it builds a store rule whose whole purpose is that the previous release can still read and write the store: four items, a forward promise, a snapshot before any destructive change, and a rollback that rests on it. It gives its own store the forward half only — "a version reads what the version before it wrote" — and states no reverse. Nothing requires a version's own change to be readable by the version before it, nothing takes a snapshot before a factory migration that destroys data, and the document never says what an owner does when an upgrade starts cleanly and the new version turns out to be bad. The one stated failure is a startup refusal, which is the case that never ran.
-**What turns on it:** The only recovery left is restoring the recovery unit, and the design already describes what that does: every deploy record falls behind what runs, every service that shipped since the backup mismatches, production deploys hold across the install, and each mismatch is cleared by a human — plus the loss of everything the graph, the log, and git recorded since the backup. So the product whose thesis is that no change ships without a way to undo it has one change that cannot be undone, and it is the change that reaches every service at once.
-**Migration:** The schema history refuses to start a version whose declared changes the history does not match, so an install that has upgraded to N+1 cannot start N again; a reverse promise added later cannot cover the versions installs have already migrated through, and the one-way steps the install event names are already taken.
-**Also reached separately by:** Release engineering — "The product gives every service it ships a rollback and has none for itself"; Data architecture — "The factory's own store is exempted from the store rule the factory enforces on every service it builds". ; Database migration engineering — "Nothing requires a recovery point before the factory's own one-way upgrade". Four stances reached this one.
-
 ### Nothing requires a recovery point before the factory's own one-way upgrade
 **Raised by:** Database migration engineering
 **Where:** `components.md` — _The factory's own store keeps a schema history too_; `what-the-factory-does/04-what-the-factory-does-not-build.md` — the recovery unit
