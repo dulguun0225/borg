@@ -1,6 +1,8 @@
 # The analysis window
 
-The **analysis window** is a record, one per production deploy of a release its service has not watched before, whichever attempt that is, and one per deploy [the search](03-overlapping-windows.md) calls for, over a build nothing has watched. So a rollback opens none, the release it returns to having been watched already, and neither does a redeploy of one already watched. Watched rather than current, because a release that exits failed never completes its deploy and so never becomes [_current_](../06-releases/05-the-deploy-record/README.md), and the window that failed it has to have been opened over something. The health monitor writes it, opened when that deploy record is written and closed once at exactly one of four exits, because the health monitor is what evaluates every exit and the deployer never advances that record again on the deploy's own account. A rollback does advance the records of every release it undid, and that is a later event the health monitor called for rather than the deploy finishing. It names the deploy it was opened over and, through it, the release, the service, and the control; where the deploy is [the search's](03-overlapping-windows.md), whose record names no release, it names the build instead. It also names whether passed is available to it, and the size, confidence, power, and cap resolved at the open. It names the size and run length in force for the other two readings that could fail this release, the own-history reading and the explicit threshold, beside the [policy version](../../what-the-factory-does/02-traceability.md) and [score version](../04-risk-score/01-factors-at-least.md) in force. It names the [emission version](01-the-health-monitor.md) each arm's series were read at, and where the two differ, which quantities were outside its set for that reason. A reading at an exit is not interpretable against anything but the boundary it was actually read against.
+The **analysis window** is a record, one per production deploy of a release its service has not watched before, whichever attempt that is, and one per deploy [the search](03-overlapping-windows.md) calls for, over a build nothing has watched. So a rollback opens none, the release it returns to having been watched already, and neither does a redeploy of one already watched. Watched rather than current, because a release that exits failed never completes its deploy and so never becomes [_current_](../06-releases/05-the-deploy-record/README.md), and the window that failed it has to have been opened over something. The health monitor writes it, opened when that deploy record is written and closed once at exactly one of four exits, because the health monitor is what evaluates every exit and the deployer never advances that record again on the deploy's own account. A rollback does advance the records of every release it undid, and that is a later event the health monitor called for rather than the deploy finishing.
+
+The window names the deploy it was opened over and, through it, the release, the service, and the control; where the deploy is [the search's](03-overlapping-windows.md), whose record names no release, it names the build instead. It also names whether passed is available to it, the size, confidence, power, and cap resolved at the open, and the set of targets the boundary was allocated over at the open. It names the size and run length in force for the other two readings that could fail this release, the own-history reading and the explicit threshold, beside the [policy version](../../what-the-factory-does/02-traceability.md) and [score version](../04-risk-score/01-factors-at-least.md) in force. It names the [emission version](01-the-health-monitor.md) each arm's series were read at, and where the two differ, which quantities were outside its set for that reason. A reading at an exit is not interpretable against anything but the boundary it was actually read against.
 
 A service missing one of [the four fields the deployer populates on its service record](../02-intent-into-items/03-decomposition/README.md) opens a window that records only that it measures nothing for that service, since what the field would have supplied is what a reading needs to exist at all.
 
@@ -67,16 +69,24 @@ The confidence is over the set of quantities and not per quantity: what it bound
 The set the confidence is held over is wider than the three quantities. The comparison is
 [evaluated per target](01-the-health-monitor.md), so the set is the three quantities on
 every production [target](../05-environments/01-records-and-one-long-lived-branch.md) the
-rollout has reached, and a crossing on any one of them starts the same rollback. The
-boundary tightens as each target is reached, by the arithmetic above, so the authored
-confidence holds over the whole set at every point it is read. Without that an environment
-of four targets would roll a good release back about four times as often as one of one,
-with nothing the owner wrote having changed. The power stays per quantity and per target,
-for the reason it stays per quantity: passed is a conjunction, every quantity on every
-target having ruled its own regression out. What it costs is what the per-quantity
-boundary already costs, more traffic per target as targets are added, which lands on the
-same service the paragraph above names, the one near the edge of closing a window on
-evidence.
+rollout is planned to reach, the list the [environment
+record](../05-environments/01-records-and-one-long-lived-branch.md) holds at the open, and
+a crossing on any one of them starts the same rollback. The boundary is allocated over
+that whole set at the open, by the arithmetic above, and does not move as targets are
+reached. A boundary sized for one target while the first is read, and tightened as each
+next one arrives, has already spent on the first what the later allocation cannot take
+back, so the rate over the rollout would be roughly the allocations summed and not the
+number the owner authored. The window names the target set the allocation was made over,
+so an exit stays readable against the boundary it was read against after the environment
+record changes. A target the rollout never reaches, the release failing or the cap closing
+the window first, keeps its allocation unspent. Without any of that an environment of four
+targets would roll a good release back about four times as often as one of one, with
+nothing the owner wrote having changed. The power stays per quantity and per target, for
+the reason it stays per quantity: passed is a conjunction, every quantity on every target
+having ruled its own regression out. What it costs is what the per-quantity boundary
+already costs, more traffic per target as targets are added, and it lands from the first
+target rather than as each is reached: a rollout that fails on the first target has been
+read at a boundary paid for targets it never reached.
 
 Three readings can roll a release back — the comparison against the [control](01-the-health-monitor.md), the reading against a service's own recent history, and an explicit threshold where a safeguard set one — so the authored confidence bounds one of the three and never the factory's own rate of rolling back a release that was fine. What the other two contribute over a window is that window's volume divided by each reading's run length in force, which is arithmetic on values already resolved at the open rather than an unknown, so [Ops](../11-screens/01-work-ops-factory-people.md) reports the three together per service and not the confidence alone. Without that an owner authoring 99% has authored a number governing one path to a rollback out of three, and reads it as governing all of them — which is the same defect the confidence being read per quantity has, one level up.
 
