@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## deferred.md
 
-### No seam between the software the factory writes and the world it acts on: nothing bounds how many irreversible operations a bad release performs
-**Raised by:** Safety engineering
-**Where:** `deferred.md` — "Security comes last" (the five seams), with `how-the-factory-works/03-gates/02-the-rollout-strategy.md`
-**What is wrong or missing:** Five seams are declared now on the argument that they are "nearly free now and expensive to retrofit," and seam 4 names the operations the *deployer* performs on a target. There is no equivalent for the operations the *product* performs on money, people, stores, or actuators — no named class, no count, no per-interval bound, no field populated in the meantime. The only limit on how much irreversible action a bad release takes is the rollout share and the window's cap, and the rollout strategy itself concedes that at `irreversible` on a platform that serves no share "what that human accepts is an exposure the platform gives the factory no way to limit." A protection layer at the point of the hazardous action — a bound on irreversible operations per release per interval, refused and raised past it — is what the field puts there, and it is the one control that does not depend on the detector in the blind-detector finding working.
-**What turns on it:** With no bound at the action and no observation of it, the factory's exposure on an `irreversible` area between deploy and window close is unbounded and unrecorded; `06-rollback.md` already concedes the rollback "returns the traffic and never the state," so the design has neither prevention proportional to harm nor a record of how much harm occurred.
-**Migration:** This is the design's own seam argument applied once more: the count and the operation class are a field and a declaration that cost nothing now, and retrofitting them means re-instrumenting every service the factory has ever written, an owner authoring a bound per area against code already shipped, and no release before the retrofit having any record of what it did.
-
 ### Nothing keeps past releases of the product reachable, which the one-version upgrade promise requires
 **Raised by:** Absence
 **Where:** `deferred.md` — The product's release channel
