@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/01-intake/
 
-### The entry's classes of material are authored by an owner and read by no component
-**Raised by:** Agent engineering
-**Where:** `how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md` — _What an agent runs on_ ("the classes of material the entry may be handed")
-**What is wrong or missing:** The field is stated as a narrowing of "what _One pipeline_ hands an agent", but no component is given the read. Context assembly selects "under the selection rule version in force" and `components.md` gives it nothing to call; dispatch's causes are closed at six and the screens report "which of its six causes", and none of the six is a material class — the processing-location predicate is there, its material counterpart is not. The input manifest records "what was excluded with the reason" under the selection rule alone.
-**What turns on it:** The processing location and the classes of material are the two halves of one control: a constraint of the dispatch-decided kind can bind where an item is processed, and nothing binds what is sent there. An owner who narrows an entry so a lent personal account is never handed reports or the repository gets no enforcement, no hold, and no manifest entry saying the class was withheld — the field reads as a control and is inert.
-**Migration:** Manifests already written record exclusions only against the selection rule, so once the field gains a reader no stored manifest can distinguish a run handed everything from one class-filtered, and the traceability claim over runs already performed on a regulated project cannot be recovered.
-**Also reached separately by:** Trust and safety — "Report text is outside the reach of the processing-location constraint an owner authored".
-
 ### Report text is outside the reach of the processing-location constraint an owner authored
 **Raised by:** Trust and safety
 **Where:** `how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md` — _Constraints and the design system_ (the fourth kind), read against `how-the-factory-works/01-one-pipeline.md` — _One pipeline_ ("A third, the grouper, is put on neither") and `how-the-factory-works/02-intent-into-items/05-dispatch.md` — _Dispatch_.
