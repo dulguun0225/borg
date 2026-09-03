@@ -4,16 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## records.md
-
-### The project is the product boundary and it is not a record
-**Raised by:** Product design
-**Where:** `how-the-factory-works/11-screens/01-work-ops-factory-people.md` — Work, Ops, Factory, People ("A project is a grouping of work, not a separate place"); `records.md` — Records and their writers
-**What is wrong or missing:** The project is the only unit in the design that stands for a product, and it carries load everywhere: a design system is "a constraint whose reach is one project"; the grouper's "scope is a project, and it reads the reports that arrived under that project and nothing else"; declared areas "form a chain rooted at a project"; a persistent environment "contains a project — every service in it"; gate thresholds, safeguards and a fleet entry's scope are drawn on one; Factory reports the design-system departure query "per project". Yet there is no project record, no writer, no row in `records.md` or `components.md`, no line in `glossary.md`, no bolded introduction anywhere, and no field on the service record naming one — `how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md` asserts "a service is in exactly one" while `README.md` of that directory enumerates every service-record field and a project is not among them. The document's own record rule ("a component does not exist until it has a row", the one-writer inventory) is not applied to the one boundary everything partitions on, and it is not on the "some things the document names are not records" list either.
-**What turns on it:** Every partition an owner authors against — which design system binds their screens, which reports get grouped together, which area chain a safeguard reaches, which threshold decides a gate — rests on an identity nothing writes and nothing owns. Two services that make one product cannot be shown to be one product; a product assembled across two projects gets two design systems, two report groupings, two safeguard sets, and `how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md` already concedes "a fleet whose entries are scoped to one project cannot be dispatched onto the item in the other."
-**Migration:** Constraints are never edited, so every design-system and permanent constraint in force names a project identity with no record behind it; introducing one later re-keys reports already written by the grouper's partition, re-roots every declared area chain, and forces a withdrawal-plus-replacement of every project-reach constraint — which itself fires the conformance raise on every service in reach.
-**Also reached separately by:** Software architecture — "A project is the root of the scoping hierarchy and is not a record". Two stances reached this one.
-
 ## components.md
 
 ### The product gives every service it ships a rollback and has none for itself
