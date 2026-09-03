@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/07-contracts/
-
-### The consumer contract is the one build derivation with no coverage field and no stated soundness direction
-**Raised by:** Program analysis
-**Where:** `how-the-factory-works/07-contracts/06-what-a-consumer-declares.md` — _What a consumer declares_ (the paragraph "Where derivation cannot see, an owner supplies the predicate with a safeguard")
-**What is wrong or missing:** The document's three other derivations from a build each state a direction and record their partiality: the transition check "rejects only a transition it can show the implementation admits", reads a partial extraction as none, and enumerates the constructs that defeated it; the resolved set records "what the resolver covered beside the set … which ecosystems it read … per entry"; the mutation score is "derived per toolchain, with a coverage field and a could not derive outcome". The consumer contract has a two-valued outcome only — derived, or could not derive — and an extraction that ran and followed 80% of the reads is stored as a complete contract. Partial coverage is the normal state of read extraction (reflection, string-keyed access, generated accessors, config-driven mapping), and the document concedes it in prose ("a read the derivation misses is an unprotected assumption") while giving the record nothing to carry it.
-**What turns on it:** The deprecation list is "the consumers whose contracts in force still name it", and its emptying is what raises the brownout and, through the brownout, a removal whose drop destroys stored data. A partial derivation empties that list identically to an exhaustive one, so the removal is licensed by a list nothing distinguishes from complete. The brownout is the only backstop and the document states it cannot see a monthly path; the owner safeguard is the other, and it requires the owner to already know which reads the analyzer lost — which is what the coverage field would have told them.
-**Migration:** Coverage is a field on the consumer contract and a term in the deprecation-list query; adding it later leaves every contract in force across the rollback range with no value, so the query cannot be made conservative retroactively, and installs have already dropped columns and elements on lists computed as if exhaustive.
-
 ## how-the-factory-works/08-operations/
 
 ### Blind detector: the window watches availability and never the hazardous function, so `passed` closes early on a release doing irreversible harm at full rate
