@@ -134,6 +134,7 @@ mitigation	site reliability engineering
 mitigation record	site reliability engineering
 mutant cap	ordinary
 mutation floor	ordinary
+notice	legal
 notice file	supply chain security
 notifier	software architecture
 open event	ordinary

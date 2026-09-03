@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/02-intent-into-items/01-intake/
 
-### The report channel collects personal data from a customer's end users with no notice at collection, and no report says which notice was in force
-**Raised by:** Legal
-**Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — Reports
-**What is wrong or missing:** The way in is factory-shipped content built into every deployed service; it renders exactly one thing back to the reporter, the submit result ("accepted, or refused with the rate as the reason"), and the design refuses any project customisation of it ("not built from the project's design system"). Free text a stranger types is stored and then handed to a named third-party model provider in a named region at the grouper's first read, and nothing anywhere in the document places a collection notice on that surface, names a lawful basis, or gives the customer — who is the controller of that text — a way to put their own notice there. The section works out data-subject access ("an access request is answered by that fact") and erasure (redaction, erasure list) but never the notice obligation that precedes both, and a report carries no field naming the notice or terms version in force when it arrived, though the design freezes a policy version, a score version, and a shipped-bundle identity everywhere else for exactly this reason.
-**What turns on it:** Every install that deploys anything has this channel by construction, with no gate and no item between a deployed service and it, so a defect here is present in every customer's product on day one and reaches people who are not the customer's staff. Without a per-report record of what the reporter was told, an install cannot later separate reports collected lawfully from reports collected before a notice existed, and cannot answer a regulator per report; with retention defaulting to the life of the install, the unlawfully collected set is also the set nothing removes.
-**Migration:** A notice-version field cannot be added to reports already written — the section says this itself of the opaque key — and the words have already been transmitted to a provider under terms the record does not name, so no later version can reconstruct what any given reporter was shown.
-**Also reached separately by:** Trust and safety — "Nothing records what a reporter was told at submission, and no customer can attach a notice to the channel". Two stances reached this one.
-
 ### Nothing records what a reporter was told at submission, and no customer can attach a notice to the channel
 **Raised by:** Trust and safety
 **Where:** `how-the-factory-works/02-intent-into-items/01-intake/02-reports.md` — _Reports_ (the submit result, and "The way in is not something a project asks for").
