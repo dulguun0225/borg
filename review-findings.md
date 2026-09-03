@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## components.md
 
-### The factory's own store is exempted from the store rule the factory enforces on every service it builds
-**Raised by:** Data architecture
-**Where:** `components.md` — "Components and what they call", the paragraph beginning "The factory's own store keeps a schema history too" (with `how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md` and `how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md` as the contrast)
-**What is wrong or missing:** For a service's store the design requires a breaking change to be four items with the code writing both forms until the drop, and requires the deployer to take and verify a snapshot before any change that destroys stored data. For the factory's own store it requires neither: the promise is one-directional ("a version reads what the version before it wrote"), the version before refuses to start against a history holding a change it does not declare, and "where a migration cannot honour the promise, the owner performs the migration as a one-way step." Nothing requires a verified snapshot before that step, and nothing states the asymmetry or argues it.
-**What turns on it:** A bad upgrade of the factory has no way back — the previous version will not start, so the only remedy is a full restore of the recovery unit, which by the design's own account leaves every deploy record behind what runs, mismatches and pages every service, and holds every merge until each service's history is whole. The store being destroyed one-way is the one holding the chained log, every gate decision, and the audit trail an auditor is promised; the customer upgrades a self-hosted product with no candidate environment for the factory itself and no stated obligation to snapshot first.
-**Migration:** A version that has already shipped a one-way destructive change to the factory's store is a permanent floor — no later expand/backfill/contract discipline can restore readability of what that change destroyed, and no install can pass back through it.
-**Also reached separately by:** Release engineering — "The product gives every service it ships a rollback and has none for itself"; Absence — "The factory's own upgrade has no reverse, and the design never says what a bad one costs". ; Database migration engineering — "Nothing requires a recovery point before the factory's own one-way upgrade". Four stances reached this one.
-
 ### The factory's own upgrade has no reverse, and the design never says what a bad one costs
 **Raised by:** Absence
 **Where:** `components.md` — Components and what they call (the paragraph beginning "The factory's own store keeps a schema history too"), alongside `deferred.md` — The product's release channel
