@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/05-environments/
-
-### The candidate store's seed is unversioned, unrecorded, and empty by default, so the store checks the rollback rests on pass vacuously
-**Raised by:** Test architecture
-**Where:** `how-the-factory-works/05-environments/02-an-environment-per-candidate.md` — _An environment per candidate_ (and `how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md` — _The store is a contract too_)
-**What is wrong or missing:** What the candidate store starts with is an in-place, unversioned field of the service record — "a snapshot the owner has anonymised, or synthetic rows they supply, and where they author nothing it starts empty" — and nothing the run writes names which seed it decided against. Every check the store's forward promise rests on is a check over rows: the store declarations in force "decided against the state it holds", the backfill's rerun check ("running the change twice over the seeded store, and a second run that changes anything is a rejection"), and the schema change's double-application check. Over an empty store all three are decided over zero rows and pass by construction, and the record cannot tell that pass from a real one.
-**What turns on it:** On the documented default — owner authors nothing — a breaking schema change, its backfill, and its drop each merge on evidence that was never generated, and the rollback the forward promise is for is the first thing to read across the change. Separately, an owner replacing a seed changes the answers of criteria whose diffs touch nothing, which is exactly the input the criterion outcome history reads to declare a criterion **unreliable** and take it out of the gate; and at the merge queue a seed edit between the two runs matches on composition and is booked as the author's defect, moving the per-author prior.
-**Migration:** The seed (and the non-production configuration set, authored the same way) would have to become a versioned thing named on what a run produced, so a decision can say what state it was taken over; results and priors already accumulated were computed without it and cannot be re-read or un-trained, and requiring a non-empty seed later stops merges on every service an install already ships from.
-
 ## how-the-factory-works/06-releases/
 
 ### The deploy record's per-target key repeats across the events it has to separate
