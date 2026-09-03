@@ -15,3 +15,4 @@ What binds one service to another and to its own past, and what stops a change b
 | [The store is a contract too](09-the-store-is-a-contract-too.md) | Why a service's own store is a contract, with its own past as consumer |
 | [Work that spans services](10-work-that-spans-services.md) | How the intent already joining items answers work spanning services |
 | [Which producer a consumer reaches](11-which-producer-a-consumer-reaches.md) | How a call site is resolved to a producer contract, and where the edge between two services is held |
+| [What the derivation records](12-what-the-derivation-records.md) | Which extractor derived a consumer contract, what it could not follow, and what an upgrade that changes an extractor derives again |
