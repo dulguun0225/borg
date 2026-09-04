@@ -94,8 +94,8 @@ so it is there before the item is. All eight rows of the [default
 path](../03-gates/03-actions-at-each-gate.md) read production's,
 [Decomposition](../03-gates/07-what-particular-gates-decide/01-decomposition.md) firing
 before any [candidate environment](../05-environments/02-an-environment-per-candidate/README.md)
-exists and a candidate's own environment being created at the gate that decides its deploy,
-so unable to hold the threshold deciding it. A row a customer's extra environment adds reads
+exists, and a candidate's own environment being created at the gate that decides its deploy
+and so unable to hold the threshold that decides it. A row a customer's extra environment adds reads
 that environment. [_A role prompt or a
 skill_](../03-gates/07-what-particular-gates-decide/09-a-role-prompt-or-a-skill.md) reads the
 factory-wide settings record this section defines, having no project and so no production
