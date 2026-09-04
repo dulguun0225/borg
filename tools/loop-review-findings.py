@@ -146,6 +146,12 @@ def main() -> int:
     )
     parser.add_argument("--allowed-tools", default=ALLOWED_TOOLS)
     parser.add_argument(
+        "--finish-only",
+        action="store_true",
+        help="skip the blocks and run only the finishing prompt, for a run whose "
+        "finish step failed after the findings file was gone",
+    )
+    parser.add_argument(
         "--claude-bin", default="claude", help="path to the claude executable"
     )
     args = parser.parse_args()
@@ -192,10 +198,32 @@ def main() -> int:
             print(output, flush=True)
             return f"claude exceeded {args.iteration_timeout}s and was killed", output
 
+    def wait_for_limit(output: str) -> bool:
+        """Sleep through a limit refusal; False when the run has waited enough."""
+        nonlocal limit_waits
+        limit_waits += 1
+        if limit_waits > args.max_limit_waits:
+            print(
+                f"stop: hit a usage limit {limit_waits} times "
+                f"(max-limit-waits={args.max_limit_waits})",
+                file=sys.stderr,
+            )
+            return False
+        wait = seconds_until_reset(output)
+        why = "until the reset it names" if wait is not None else "no reset time named"
+        wait = args.limit_wait if wait is None else wait
+        print(
+            f"usage limit hit ({limit_waits}/{args.max_limit_waits}); "
+            f"sleeping {wait}s ({why}) [{stamp()}]",
+            flush=True,
+        )
+        time.sleep(wait)
+        return True
+
     iteration = 0
     failures = 0
     limit_waits = 0
-    while findings.exists():
+    while findings.exists() and not args.finish_only:
         block = first_block(findings)
         if block is None:
             # Only the preamble is left: the file's own rule says it goes.
@@ -231,24 +259,9 @@ def main() -> int:
         # A limit refusal clears on its own: wait for the window, retry, and
         # count the attempt against neither max-iterations nor max-failures.
         if failed is not None and LIMIT_PATTERN.search(output):
-            limit_waits += 1
             iteration -= 1
-            if limit_waits > args.max_limit_waits:
-                print(
-                    f"stop: hit a usage limit {limit_waits} times "
-                    f"(max-limit-waits={args.max_limit_waits})",
-                    file=sys.stderr,
-                )
+            if not wait_for_limit(output):
                 return 1
-            wait = seconds_until_reset(output)
-            why = "until the reset it names" if wait is not None else "no reset time named"
-            wait = args.limit_wait if wait is None else wait
-            print(
-                f"usage limit hit ({limit_waits}/{args.max_limit_waits}); "
-                f"sleeping {wait}s ({why}) [{stamp()}]",
-                flush=True,
-            )
-            time.sleep(wait)
             continue
 
         if failed is not None:
@@ -264,16 +277,23 @@ def main() -> int:
         else:
             failures = 0
 
-    print(f"done: {findings} removed after {iteration} iterations [{stamp()}]")
+    if not args.finish_only:
+        print(f"done: {findings} removed after {iteration} iterations [{stamp()}]")
 
     # The cold-read check and the read-through depend on which sections changed,
     # not on which session changed them, so they run once over the whole run.
-    print(f"=== finish [{stamp()}] {finish_path.name} ===", flush=True)
-    failed, _ = run_claude(finish_prompt)
-    if failed is not None:
-        print(f"finish failed: {failed}", file=sys.stderr)
-        return 1
-    return 0
+    # A limit refusal here is waited out like one on a block.
+    while True:
+        print(f"=== finish [{stamp()}] {finish_path.name} ===", flush=True)
+        failed, output = run_claude(finish_prompt)
+        if failed is not None and LIMIT_PATTERN.search(output):
+            if not wait_for_limit(output):
+                return 1
+            continue
+        if failed is not None:
+            print(f"finish failed: {failed}", file=sys.stderr)
+            return 1
+        return 0
 
 
 if __name__ == "__main__":
