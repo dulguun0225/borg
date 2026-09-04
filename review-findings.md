@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/10-fleet/
 
-### The agent run record names the credential but not the model, the effort, or the work it served, and the document contradicts itself on where stage spend lives
-**Raised by:** Cost engineering
-**Where:** `how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md` — _What an agent runs on_; `how-the-factory-works/01-one-pipeline.md` — _Dispatch is a match, not a judgment_; `how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md` — _What an item names_
-**What is wrong or missing:** The record's stated fields are the credential name, units, the period, the converted amount, the sources handed over, and the processing location. No model version, no effort, and no key to the stage, item, intent, or evaluation-set run — yet the conversion is defined per model version and effort, cost per feature "is reported per model version", and an item's and an intent's totals are said to "derive by joining the run records back to the stage or round that performed them". Nothing in the record supports either join. Separately, `01-one-pipeline.md` states that dispatch writes "what each stage spent" as a field on the item, which `02-what-an-item-names.md` explicitly denies ("not a field here").
-**What turns on it:** Cost per feature, the per-model reading, the ceiling's own conversion, and the reconciliation between what a feature cost and what a credential spent are all underivable from the record as specified; and the contradiction leaves the build free to write stage spend twice, in two records with two writers that will disagree.
-**Migration:** A key retrofitted onto the run record recovers nothing for runs already written, so an install's whole existing cost history stays attributable to a credential and to nothing else — and if the item's spend field is built as `01-one-pipeline.md` states, removing the second writer later is a change to a record the store already holds.
-**Also reached separately by:** Agent engineering — "The agent run record names the credential but not the model version, the effort, or the words the run worked from"; Legal — "The agent run record freezes where the credential resolved but not whose account it was, so the terms the produced code was generated under are unrecoverable". Three stances reached this record.
-
 ### What a model reads at once is the input to context assembly and is sourced nowhere
 **Raised by:** Agent engineering
 **Where:** `how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md` — _What an agent runs on_ (the seven-field entry), against `how-the-factory-works/01-one-pipeline.md` — _One pipeline_ ("What did not fit is recorded")
