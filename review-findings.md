@@ -13,13 +13,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 **What turns on it:** The auto-pass rate at the gates that decide the spec — the artifact everything downstream is authored from — is whatever the missing exposure group happens to shift it to, and no owner chose it. The same defect confounds the one reading that says the formula ranks anything: "the share of held-out releases whose windows failed within each band of the number" pools bands built from decisions taken on different factor sets, so a flat band profile cannot be told from mixed populations.
 **Migration:** The threshold is a single authored field on records installs already hold, and the reference it is read against — the realized auto-pass rate frozen on the policy version that set it — is pooled across all eight rows; splitting it per row later cannot be derived from what is stored, since the document itself rules out a query over decisions as a substitute for the frozen rate.
 
-### Two of the eleven gate policy parameters are given no record to be a field of
-**Raised by:** Risk scoring
-**Where:** `how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md` — _One shape across all of them_ ("Scope follows the mechanism, not the duty")
-**What is wrong or missing:** That section states the rule — "Each parameter is a field of the record its scope names, holding what an owner authored and nothing else" — and then assigns a home to eight of the eleven. **The exposure bound** and **the held-out sample rate** get none (nor does the advisory severity). Neither `01-factors-at-least.md` nor `02-how-it-learns.md` supplies one: the sample rate is only "authored with the rest of gate policy," and the bound only "the bound gate policy sets."
-**What turns on it:** An authored value with no field has no value in force to read, and a safeguard clamping it has nothing to clamp. For the held-out sample rate the scope is also the estimand: it is the selection probability behind every held-out decision, and whether it is factory-wide or per service decides whether held-out outcomes can ever be reweighted per service — which matters precisely because the design already concedes quiet services produce no held-out evidence.
-**Migration:** Both are owner-authored values, and the sample rate's grain is baked into every `Held out` field written on a never-migrated log row; a factory-wide rate cannot be decomposed into per-service propensities after the selections have been made, so the sample's evidence is stuck at whatever grain the first release chose.
-
 ## how-the-factory-works/10-fleet/
 
 ### The agent run record names the credential but not the model version, the effort, or the words the run worked from
