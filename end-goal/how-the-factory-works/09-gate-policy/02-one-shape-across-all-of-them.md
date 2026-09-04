@@ -26,14 +26,17 @@ a retention setting cannot destroy a value an owner authored.
 
 **What an owner authored is versioned the way the score's own values are.** A **policy
 version** is a row of the [decision log](../../deferred.md), appended by the log at each
-owner write, with Factory as the component that calls for the append. One parameter has no
+owner write, with Factory as the component that calls for the append, and
+[People](../11-screens/01-work-ops-factory-people.md) for a write to its declaration other
+than the key-to-name mapping, which stays outside the chain. One parameter has no
 owner to wait on at install: the [list of allowed predicate kinds](01-what-is-in-it.md) ships
 with a starting list nobody authored, so the [install's first-start
 step](../10-fleet/07-a-fleet-proposal.md) calls for the same append at install and at an
 upgrade's first start that changed it, naming the [shipped-bundle
 identity](../../deferred.md#the-products-release-channel) that list came from. It is
 [chained](../../deferred.md) like every row there, and it names every authored parameter and
-the scope it was authored on. It
+the scope it was authored on, and the People declaration in force, by per-person key and
+never by name. It
 is a row of the log and not a record of its own because a decision names it by identifier,
 and a version rewritten outside the chain would move the meaning of every decision naming it
 while the log verified clean. Every
@@ -51,9 +54,10 @@ An owner's write is two records, so it takes the order [_Tight
 integration_](../../what-the-factory-does/01-tight-integration.md) sets for one. The log
 appends the version first and Factory writes the scope record's field second, the trail's
 copy before the value in force, so a stop between them leaves a version naming what nothing
-yet reads rather than a value in force that no version records. Factory's start re-derives every
-authored field from the newest version naming its scope, which is what finishes a write a
-stop interrupted. The version is keyed on the write and the field on its scope and
+yet reads rather than a value in force that no version records. A write at People takes the
+same order, the version before the declaration. The factory's start re-derives every
+authored field, and the declaration, from the newest version naming its scope, which is what
+finishes a write a stop interrupted. The version is keyed on the write and the field on its scope and
 parameter, so a step taken again writes nothing and a re-derivation that finds the two
 already agreeing writes nothing either. It costs a version per authored write, most
 differing in one number, and one read of the log per start rather than per gate.
