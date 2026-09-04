@@ -76,10 +76,9 @@ integration_](what-the-factory-does/01-tight-integration.md)'s rule for an event
 writes more than one record. The notifier's
 restart is the [delivery record](how-the-factory-works/08-operations/07-pages.md) it overwrites
 per waiting row, so a row still waiting is delivered again and one that stopped waiting is
-not. Factory's is the newest [policy
-version](how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md) per scope, from
-which it writes again any field an owner authored that does not already hold what that
-version names.
+not. Factory's restart reads the newest [policy
+version](how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md) per scope and
+rewrites any owner-authored field not already holding what that version names.
 Every other component holds nothing between calls and resumes by being called again.
 
 **The factory's own store keeps a schema history too, the same shape [_The store is a
@@ -95,8 +94,8 @@ than the version after. The promise carries a number and the number is one, in b
 directions: a version reads what the version before it wrote, and the version before reads
 and writes what this version wrote, until the version after that removes the old form.
 
-A version's first start reads the history and starts against one holding, beyond what it
-declares, only widening rows from the version after it. It refuses to start where the
+A version's first start reads the history, and starts against one that holds, beyond the
+changes it declares, only rows from the version after it that widened the store. It refuses to start where the
 history holds a removal it does not declare, a row from a version further ahead, or a change
 it declares that the history cannot honour, and a skipped version is not a supported
 upgrade. So a bad upgrade is undone by starting the version before, with nothing restored:
