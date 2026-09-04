@@ -36,7 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # The rtk PreToolUse hook may rewrite `git ...` to `rtk git ...` before the
 # permission check, so every command pattern appears in both spellings.
-_GIT = ["status", "diff", "log", "add", "commit", "push", "restore", "rev-parse"]
+_GIT = ["status", "diff", "log", "add", "commit", "push", "restore", "rev-parse", "mv", "rm"]
 _CMDS = [
     "bash tools/consistency-commands.sh",
     "python3 tools/drop-finding.py:*",
