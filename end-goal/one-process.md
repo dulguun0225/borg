@@ -6,7 +6,7 @@ call. This file is the deployment model those components run under.
 **The factory is one process, and [the drift
 detector](how-the-factory-works/08-operations/08-drift-detection.md) is the second.** [_An
 environment per
-candidate_](how-the-factory-works/05-environments/02-an-environment-per-candidate.md) says so as
+candidate_](how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md) says so as
 a fact about what an install provides, and it is the whole of the deployment model. Every
 component the inventory lists runs inside that process, with the two exceptions already stated: the way in
 ships inside each deployed service, and the drift detector is installed beside the factory

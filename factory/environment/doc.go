@@ -56,7 +56,7 @@
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md,
 // which sets the kind as the seam between writers, the targets as a field, and
 // what a persistent kind holds;
-// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate.md
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md
 // for the candidate kind, its composition, and its teardown; and the threshold's
 // scope is ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
 package environment

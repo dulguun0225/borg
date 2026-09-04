@@ -45,7 +45,7 @@ production and not about the detector.
 That shape is every last check record's: the health monitor's per service, the deployer's per
 target of a persistent
 [environment](../05-environments/01-records-and-one-long-lived-branch.md) and its one for the
-[platform](../05-environments/02-an-environment-per-candidate.md), the notifier's
+[platform](../05-environments/02-an-environment-per-candidate/README.md), the notifier's
 one, and one each for the pass over [the constraints in
 force](../02-intent-into-items/01-intake/01-constraints-and-the-design-system.md) and the pass
 over [the advisory feed](../02-intent-into-items/01-intake/03-advisories.md). [Dispatch](../02-intent-into-items/05-dispatch.md)'s one for the pass that argues a [fleet proposal](../10-fleet/07-a-fleet-proposal.md) is the same shape, so a stopped pass, a raise or the factory's own arguing alike, is a named row rather than clean numbers. A last check is the writing component's own
@@ -63,7 +63,7 @@ is kept rather than deleted. So a record past its interval with a further pass o
 something that stopped, and never something that went away.
 
 That is why the deployer's is per persistent target and not per deploy target. A [candidate's
-environment](../05-environments/02-an-environment-per-candidate.md) exists for one item, every
+environment](../05-environments/02-an-environment-per-candidate/README.md) exists for one item, every
 deploy into one has that item waiting on it, and a deployer stopped there is already a stalled
 timeline in [Work](../11-screens/01-work-ops-factory-people.md). A record per candidate target
 would be a create, a write every pass, and a delete, per item, to report what Work reports
