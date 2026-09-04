@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/10-fleet/
-
-### The ceiling's period is stamped on the record and rolls on the owner's calendar, so it never bounds the invoice it is scoped to
-**Raised by:** Cost engineering
-**Where:** `how-the-factory-works/10-fleet/08-a-spend-ceiling.md` — _A spend ceiling_ ("over a stated period that rolls forward the way the error budget's does" and "The credential is the scope because it is where the money is: one credential is one account at one provider and one invoice")
-**What is wrong or missing:** The scope is justified by the invoice, but the period is the owner's rolling window, not the provider's billing cycle. Spend concentrated across a cycle boundary satisfies every rolling window and still doubles a month's invoice. Worse, the run record stores "the period they fall in" rather than the run's timestamp, and the ceiling has no default — so the ordinary case is a credential running unbounded until a ceiling is authored, over records whose period field was stamped against no ceiling at all, and any later change to the period's length or anchor cannot re-bucket them.
-**What turns on it:** The one enforced field on the People declaration is presented as what stands between a self-hosted factory and an unbounded provider bill; as specified it bounds a rolling sum in unpriced units and not the bill, and the clear-authorises-an-overage rule compounds this by leaving the invoice unbounded for the period a human clears.
-**Migration:** The period is a stored field on records the store already holds and the ceiling is a value owners have authored against that field's meaning, so moving to a derived period keyed on a timestamp and on the provider's cycle re-bases every ceiling in force and orphans every run record already written.
-
 ## how-the-factory-works/11-screens/
 
 ### Who held a duty at the moment of a decision is unrecoverable, so segregation of duties cannot be evidenced
