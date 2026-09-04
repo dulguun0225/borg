@@ -6,13 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/10-fleet/
 
-### What a model reads at once is the input to context assembly and is sourced nowhere
-**Raised by:** Agent engineering
-**Where:** `how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md` — _What an agent runs on_ (the seven-field entry), against `how-the-factory-works/01-one-pipeline.md` — _One pipeline_ ("What did not fit is recorded")
-**What is wrong or missing:** Context assembly "selects, from the material the stage hands the agent, what the entry's model reads at once" and writes the input manifest "before the agent starts", so the bound must be a number the factory holds ahead of the run. It is not one of the entry's seven fields; the design refuses to read facts at the provider ("The factory does not check that the credential's provider offers what the entry asks for, the way it does not check a quota — it discovers both by reaching for them"); and it is not in the shipped bundle, whose members `deferred.md` enumerates exactly (role prompts, skills, evaluation sets, starting priors, the list of allowed predicate kinds, design systems). The same file also contradicts its own count: `10-fleet/02-a-model-under-a-name.md` makes the evaluation-run cadence "a field of the entry the owner writes with the rest of it", an eighth field.
-**What turns on it:** The bound decides what every agent in the factory is handed and what every input manifest records excluded, and a truncated read is not a local cost — it "is written onto every artifact version an item's later stages author from a truncated one, and every gate below the truncation resolves too", putting a human at every remaining gate of that item. A bound guessed high silently over-truncates and floods the gates; guessed low it is discovered only by a provider rejecting the call, after the manifest claiming completeness was written.
-**Migration:** If the bound becomes a shipped per-model table, it joins the set the **shipped-bundle identity** digests, so every ungated entry, score version and policy version already carrying that identity was computed over a different set; if it becomes an entry field, every entry an owner already authored must be rewritten before any dispatch is correct.
-
 ### The ceiling's period is stamped on the record and rolls on the owner's calendar, so it never bounds the invoice it is scoped to
 **Raised by:** Cost engineering
 **Where:** `how-the-factory-works/10-fleet/08-a-spend-ceiling.md` — _A spend ceiling_ ("over a stated period that rolls forward the way the error budget's does" and "The credential is the scope because it is where the money is: one credential is one account at one provider and one invoice")
