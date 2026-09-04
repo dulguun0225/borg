@@ -61,7 +61,10 @@ differing in one number, and one read of the log per start rather than per gate.
 One field on the version is computed rather than authored. Where the write sets a [risk
 threshold](01-what-is-in-it.md), the version also carries the [realized auto-pass rate at
 that threshold](../04-risk-score/01-factors-at-least.md) as it stood when the write happened,
-computed by Factory in the same call that appends the version and frozen there. It is frozen
+one rate per [factor set](../04-risk-score/01-factors-at-least.md) the threshold is read
+against, computed by Factory in the same call that appends the version and frozen there. It
+is per set because a rate pooled over the sets moves when the mix of gates fired moves and
+not only when the score did. It is frozen
 because the version stays in force while the rate moves under it, and a query over the
 decisions taken under that version could not be the reference that movement is read against.
 It is also the one field a later version does not restate: a write that touches another

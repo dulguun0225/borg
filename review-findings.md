@@ -4,15 +4,6 @@ Run bounded to `end-goal/`: the full roster of twenty-nine, each stance reading 
 
 Regrouped after the run: each `##` heading below is the `end-goal/` file or section directory a finding names first, so one loop session handles every finding on a section. `**Raised by:**` names the discipline that wrote each entry; entries that reached one another separately sit adjacent under one heading.
 
-## how-the-factory-works/09-gate-policy/
-
-### One risk threshold is compared against numbers the same formula produces from three different factor sets
-**Raised by:** Risk scoring
-**Where:** `how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md` — _One shape across all of them_ ("Scope follows the mechanism, not the duty"), against `how-the-factory-works/04-risk-score/01-factors-at-least.md` — _Factors, at least_
-**What is wrong or missing:** The threshold is one field ("a gate row's threshold is a field of an environment record… All eight rows of the default path read production's"; the role-prompt row reads the factory-wide record's, "still the same parameter"). But the factor set differs by row: exposure is inapplicable at Decomposition, Spec, Implementation plan and Tasks; a role prompt or skill version is "scored on a set of its own." Exposure "only ever raises the number," so the four gates above a build draw from a strictly lower distribution than the four below, and the role-prompt set is a third distribution — all compared to one authored number. The document notices the change factor is "weakest exactly where the decision is cheapest to get wrong" but treats that as a factor's weakness, not as the threshold being read off incomparable scales.
-**What turns on it:** The auto-pass rate at the gates that decide the spec — the artifact everything downstream is authored from — is whatever the missing exposure group happens to shift it to, and no owner chose it. The same defect confounds the one reading that says the formula ranks anything: "the share of held-out releases whose windows failed within each band of the number" pools bands built from decisions taken on different factor sets, so a flat band profile cannot be told from mixed populations.
-**Migration:** The threshold is a single authored field on records installs already hold, and the reference it is read against — the realized auto-pass rate frozen on the policy version that set it — is pooled across all eight rows; splitting it per row later cannot be derived from what is stored, since the document itself rules out a query over decisions as a substitute for the frozen rate.
-
 ## how-the-factory-works/10-fleet/
 
 ### The agent run record names the credential but not the model version, the effort, or the words the run worked from
