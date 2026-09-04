@@ -1,6 +1,6 @@
 # Paid for is not authored by
 
-Seam 1 of [_Deferred, but not designed out_](../../deferred.md) puts an actor on every record, and an artifact's author is the model that wrote it. Whose account paid for the tokens is a third fact, recorded on the fleet entry and not on the artifact. A human who lends the factory their subscription has authored nothing.
+Seam 1 of [_Deferred, but not designed out_](../../deferred.md) puts an actor on every record, and an artifact's author is the model that wrote it. Whose account paid for the tokens is a third fact, recorded on the fleet entry and on the [agent run record](01-what-an-agent-runs-on.md) and not on the artifact. A human who lends the factory their subscription has authored nothing.
 
 Combining the two is the failure worth naming, because a human's name is in the record either way. The [_per-author prior_](../04-risk-score/01-factors-at-least.md) is per model and stays per model: two fleet entries on one model share one prior however many accounts they run on, and moving an entry from a personal account to an organisation's resets nothing. A prior that moved with the credential would make a model build up its evidence twice and attach a machine's record to a person.
 

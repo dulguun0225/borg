@@ -6,14 +6,6 @@ Regrouped after the run: each `##` heading below is the `end-goal/` file or sect
 
 ## how-the-factory-works/10-fleet/
 
-### The agent run record names the credential but not the model version, the effort, or the words the run worked from
-**Raised by:** Agent engineering
-**Where:** `how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md` — _What an agent runs on_ (the paragraph beginning "Every run of an agent writes an **agent run record**")
-**What is wrong or missing:** The record's fields are enumerated closed — credential name, units returned, the period they fall in, the converted amount, the sources handed, and the processing location — and omit the model version, the effort, and the role prompt and skill versions the run ran under. Three stated readers need what is not there: cost per feature is "reported per model version" while "reading no fleet entry and no account" (`10-fleet/08-a-spend-ceiling.md`), the rate conversion is looked up "for that model version and effort", and `11-screens/01-work-ops-factory-people.md` labels the untotalled figure "per model version". The fleet entry cannot supply them — an owner "may delete or re-credential an entry without changing what any past record says", and the credential name is deliberately not a pointer at one.
-**What turns on it:** Every agent run that fires no gate — a grouper run, an interview round, a decomposition, an evaluation-set run — has this record as its only trace, because the model version, effort and prompt versions live on the factor vector, which exists only "where an agent authored what is under decision". For those runs nothing in the factory says which model produced the intent, the questions, or the item set, and cost per feature over any install's history cannot be grouped the way the screen says it is.
-**Migration:** Adding model version, effort and prompt versions later leaves every run record already written unattributable, and there is no second record to backfill from, because the entry that held them is mutable and pointed at by nothing.
-**Also reached separately by:** Legal — "The agent run record freezes where the credential resolved but not whose account it was, so the terms the produced code was generated under are unrecoverable" (same record, a different missing field).; Cost engineering — "The agent run record names the credential but not the model, the effort, or the work it served, and the document contradicts itself on where stage spend lives". Three stances reached this record.
-
 ### The agent run record freezes where the credential resolved but not whose account it was, so the terms the produced code was generated under are unrecoverable
 **Raised by:** Legal
 **Where:** `how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md` — What an agent runs on
