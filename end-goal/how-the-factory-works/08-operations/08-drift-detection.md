@@ -5,7 +5,8 @@ Every other check in [_Operations_](README.md) reads a record the factory wrote.
 The **drift detector** is one process outside the pipeline that reads what is actually
 running on each production target and compares it against what that service's production
 [deploy record](../06-releases/05-the-deploy-record/README.md) marks for that target — the release
-it names where the target is marked complete, the previous one where it is not. The second
+it names where the target is marked complete, the previous one where it is not, and nothing
+where the complete record is a [removal](../02-intent-into-items/03-decomposition/04-retirement.md)'s. The second
 comparison is [the log](../../deferred.md)'s. Each pass it reads the chain's head, verifies
 the chain still holds the head it recorded last pass, extended and nothing else, and records
 the new one. A row's chain field holds a hash over that row's payload and over the same

@@ -59,3 +59,4 @@ The Spec gate cannot do this job — it is per item, so approving one item's spe
 | [A service that already exists](01-a-service-that-already-exists.md) | How already-running software is adopted through the same pipeline |
 | [What an item names](02-what-an-item-names.md) | What an item names, its area, and the two writers of it |
 | [Hazard severity](03-hazard-severity.md) | What the software in an area can do that no rollback undoes, and what reads it |
+| [Retirement](04-retirement.md) | What ends a service, an environment, or a target, and what the end does to the records keyed to them |
