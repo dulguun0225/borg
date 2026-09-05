@@ -235,6 +235,7 @@ hazardous operation	safety engineering
 bound	ordinary
 hazard-derived	coined
 root key	public key infrastructure
+release key	public key infrastructure
+intended effect	ordinary
 retired	ordinary
 removal	ordinary
-release key	public key infrastructure
