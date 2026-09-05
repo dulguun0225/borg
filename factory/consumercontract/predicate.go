@@ -16,26 +16,37 @@ var (
 	ErrNotFound = errors.New("consumercontract: no predicate has that id")
 	// ErrIncomplete is returned for a predicate missing something every one
 	// names: the consumer's item or service, the consumer contract version it was
-	// introduced by, the producer's service, the interface, or the element.
+	// introduced by, the producer's service, the interface, the element, or the
+	// address entry the call site read its address from.
 	ErrIncomplete = errors.New("consumercontract: the predicate is missing something every one names")
 	// ErrArgumentRefused is returned for a predicate carrying an argument its
 	// kind does not take, and for one whose kind takes an argument and has none.
 	// An argument nothing reads would be an assertion nobody can decide.
 	ErrArgumentRefused = errors.New("consumercontract: the argument is not the shape this kind of predicate takes")
 	// ErrArgumentUnreadable is returned for a range whose two ends are not two
-	// numbers and for a domain naming nothing.
+	// numbers, for a domain naming nothing, and for a "sent or left out" that is
+	// neither.
 	ErrArgumentUnreadable = errors.New("consumercontract: the argument is not something this kind can be decided against")
 )
 
+// The two values a [gatepolicy.PredicateSent] predicate's argument takes: which
+// of sending the element and leaving it out the consumer asserts.
+const (
+	Sent    = "sent"
+	LeftOut = "left out"
+)
+
 // Predicate is one assertion a consumer's build makes about one element of one
-// contract it reads, as it is stored.
+// contract it reads or one it sends to, as it is stored.
 //
-// The producer is named twice and the two are different facts. ProducerService is
-// what the consumer's own build says — a name in a file name — and is always
-// there. ProducerServiceID is that name resolved to a service record at the
-// moment the consumer contract was submitted, and is empty where it resolved to
-// nothing: a consumer may declare against an interface no release has published
-// yet, and a contract exists only from the merge that first published it.
+// The producer is named three times and the three are different facts. Address is
+// the entry of the consumer's configuration file the call site reads its address
+// from, which is the only place the edge between two services is held.
+// ProducerService is the service that entry names, and is always there.
+// ProducerServiceID is that name resolved to a service record at the moment the
+// consumer contract was submitted, and is empty where it resolved to nothing: a
+// consumer may declare against an interface no release has published yet, and a
+// contract exists only from the merge that first published it.
 type Predicate struct {
 	ID    string
 	Actor record.Actor
@@ -49,13 +60,15 @@ type Predicate struct {
 	// exists when it is written, and the merge queue writing one later would be a
 	// second writer.
 	ArtifactID        string
+	Address           string
 	ProducerService   string
 	ProducerServiceID string
 	Interface         string
 	Element           string
 	Kind              gatepolicy.PredicateKind
-	// Argument is the unit, the names of the domain, or the two ends of the
-	// range, and is empty for a kind that takes none.
+	// Argument is the unit, the names of the domain, the two ends of the range,
+	// or which of sent and left out is asserted, and is empty for a kind that
+	// takes none.
 	Argument string
 }
 
@@ -75,7 +88,8 @@ func (p Predicate) Describe() string {
 func (p Predicate) Validate() error {
 	for _, required := range []struct{ what, value string }{
 		{"consumer's item", p.ItemID}, {"consumer's service", p.ServiceID},
-		{"consumer contract version", p.ArtifactID}, {"producer's service", p.ProducerService},
+		{"consumer contract version", p.ArtifactID}, {"address entry", p.Address},
+		{"producer's service", p.ProducerService},
 		{"interface", p.Interface}, {"element", p.Element},
 	} {
 		if required.value == "" {
@@ -89,8 +103,8 @@ func (p Predicate) Validate() error {
 }
 
 // checkArgument refuses an argument of the wrong shape for the kind, and one this
-// factory cannot read: a domain naming nothing, and a range that is not two
-// numbers with the lower first.
+// factory cannot read: a domain naming nothing, a range that is not two numbers
+// with the lower first, and a "sent or left out" that is neither.
 func checkArgument(kind gatepolicy.PredicateKind, argument string) error {
 	if !kind.TakesAnArgument() {
 		if argument != "" {
@@ -103,13 +117,17 @@ func checkArgument(kind gatepolicy.PredicateKind, argument string) error {
 		return fmt.Errorf("%w: %s carries one", ErrArgumentRefused, kind)
 	}
 	switch kind {
-	case gatepolicy.PredicateDomain:
+	case gatepolicy.PredicateDomain, gatepolicy.PredicateSentDomain:
 		if len(Domain(argument)) == 0 {
 			return fmt.Errorf("%w: the domain %q names nothing", ErrArgumentUnreadable, argument)
 		}
-	case gatepolicy.PredicateRange:
+	case gatepolicy.PredicateRange, gatepolicy.PredicateSentRange:
 		if _, _, err := Range(argument); err != nil {
 			return err
+		}
+	case gatepolicy.PredicateSent:
+		if argument != Sent && argument != LeftOut {
+			return fmt.Errorf("%w: %q is neither %q nor %q", ErrArgumentUnreadable, argument, Sent, LeftOut)
 		}
 	}
 	return nil
@@ -150,48 +168,79 @@ func Range(argument string) (float64, float64, error) {
 }
 
 // Result is what deciding one predicate produced. Decided is whether the thing it
-// was decided against could answer at all: three of the five kinds can be decided
-// against a form and all five against an observed exchange, so a domain read
-// against a form is undecided rather than failed — and undecided is not a failure,
-// it is the assertion waiting for the side that can answer it.
+// was decided against could answer at all, and undecided is the third outcome a
+// predicate has for the reason a criterion does: a predicate decided against
+// nothing passes every check the factory has and assures nothing, so where the
+// candidate's run produced no exchange to decide it against it is undecided rather
+// than passing. Undecided is read at the Merge to master gate the way a failure
+// is, which is the caller's reading and not this package's.
 type Result struct {
 	Predicate Predicate
 	Decided   bool
 	Held      bool
-	// Why is what a reader of a rejection sees, and is empty where the predicate
-	// held.
+	// Why is what a reader of a rejection sees. It is empty where the predicate
+	// held and names what could not answer where it is undecided.
 	Why string
 }
 
 // AgainstForm decides one predicate against the form a producer publishes, with
 // no run to observe. It is what a consumer's own merge row checks its newly
 // derived consumer contract with, the form being the one its producer's newest
-// release publishes — which is what the consumer will meet.
+// release publishes — which is what the consumer will meet — and what a producer's
+// merge row decides a send-side predicate with, the form being its own request
+// form.
 func (p Predicate) AgainstForm(f contract.Form) Result {
 	if !p.Kind.DecidableAgainstAForm() {
-		return Result{Predicate: p}
+		return Result{Predicate: p, Why: "the form does not say what values a producer returns"}
 	}
 	element, found := f.Element(p.Element)
 	if !found {
+		if p.Kind == gatepolicy.PredicateSent && p.Argument == LeftOut {
+			// An element the consumer leaves out and the form no longer has is
+			// not a break: what it sends still fits.
+			return Result{Predicate: p, Decided: true, Held: true}
+		}
 		return Result{Predicate: p, Decided: true,
 			Why: fmt.Sprintf("%s publishes no element %s", f.Name, p.Element)}
 	}
 	switch p.Kind {
-	case gatepolicy.PredicateRead:
+	case gatepolicy.PredicateRead, gatepolicy.PredicateCalled:
 		return Result{Predicate: p, Decided: true, Held: true}
 	case gatepolicy.PredicatePopulated:
 		if !element.Populated {
 			return Result{Predicate: p, Decided: true,
 				Why: fmt.Sprintf("%s.%s is not always populated", f.Name, p.Element)}
 		}
-		return Result{Predicate: p, Decided: true, Held: true}
-	default:
+	case gatepolicy.PredicateUnit:
 		if !carriesUnit(p.Element, p.Argument) {
 			return Result{Predicate: p, Decided: true,
 				Why: fmt.Sprintf("the name %s does not carry the unit %s", p.Element, p.Argument)}
 		}
-		return Result{Predicate: p, Decided: true, Held: true}
+	case gatepolicy.PredicateSent:
+		if p.Argument == LeftOut && element.Required {
+			return Result{Predicate: p, Decided: true,
+				Why: fmt.Sprintf("%s.%s is required and this consumer leaves it out", f.Name, p.Element)}
+		}
+	case gatepolicy.PredicateSentDomain:
+		for _, name := range Domain(p.Argument) {
+			if len(element.Domain) > 0 && !contains(element.Domain, name) {
+				return Result{Predicate: p, Decided: true,
+					Why: fmt.Sprintf("this consumer sends %s=%q and %s accepts %s",
+						p.Element, name, f.Name, contract.DomainText(element.Domain))}
+			}
+		}
+	case gatepolicy.PredicateSentRange:
+		from, to, err := Range(p.Argument)
+		if err != nil {
+			return Result{Predicate: p, Decided: true, Why: err.Error()}
+		}
+		if element.Range != nil && (from < element.Range.Low || to > element.Range.High) {
+			return Result{Predicate: p, Decided: true,
+				Why: fmt.Sprintf("this consumer sends %s inside %s and %s accepts %s",
+					p.Element, p.Argument, f.Name, element.Range.Text())}
+		}
 	}
+	return Result{Predicate: p, Decided: true, Held: true}
 }
 
 // carriesUnit is whether an element's name carries the unit, which is what a unit
@@ -203,67 +252,69 @@ func carriesUnit(element, unit string) bool {
 	return strings.HasSuffix(strings.ToLower(element), strings.ToLower(unit))
 }
 
-// Document is one observed exchange: what a producer's build wrote for one unit
-// of work, as the keys the form names and the values it carried. It is a JSON
-// object read generically, so a value is a string, a number, a boolean, or null,
-// and a nested object or array is none of those — the form is flat here, which is
-// this substrate's limit and not the design's.
+func contains(names []string, name string) bool {
+	for _, one := range names {
+		if one == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Document is one observed exchange, or one row of the store a candidate's run
+// wrote into: what the build wrote for one unit of work, as the keys the form
+// names and the values it carried. It is a JSON object read generically, so a
+// value is a string, a number, a boolean, or null, and a nested object or array is
+// none of those — the form is flat here, which is this platform's limit and not
+// the design's.
 type Document map[string]any
 
 // AgainstExchange decides one predicate against every document observed on a
-// candidate's own environment. All five kinds are decidable here, which is why
-// this is the check a producer's merge row makes.
+// candidate's own environment, which for a store is the state its own environment
+// holds after the run.
 //
-// No document at all is a failure and not a pass: a producer that emitted nothing
-// has not shown that a consumer's assumption holds. A predicate is decided against
-// every document rather than against one, which is stronger than the design asks —
-// a kind has to be decidable against one observed exchange, and reading all of
-// them is the same question asked more often.
+// No document at all is undecided and not a failure and not a pass: a producer
+// that emitted nothing has shown nothing either way, and the consumer whose path a
+// run never exercised is exactly the consumer the check exists for. So is a domain
+// or a range whose element appeared in no document. A predicate decided against
+// nothing passes every check the factory has and assures nothing, and undecided is
+// read at the gate the way a failure is.
+//
+// A predicate is decided against every document rather than against one, which is
+// stronger than the design asks — a kind has to be decidable against one observed
+// exchange, and reading all of them is the same question asked more often.
 func (p Predicate) AgainstExchange(documents []Document) Result {
 	if len(documents) == 0 {
-		return Result{Predicate: p, Decided: true,
-			Why: "no exchange was observed, so nothing showed that this holds"}
+		return Result{Predicate: p, Why: "the run produced no exchange to decide this against"}
 	}
-	switch p.Kind {
-	case gatepolicy.PredicateRead:
-		for _, d := range documents {
-			if _, present := d[p.Element]; present {
-				return Result{Predicate: p, Decided: true, Held: true}
-			}
-		}
-		return Result{Predicate: p, Decided: true,
-			Why: fmt.Sprintf("no observed exchange carries %s at all", p.Element)}
-	case gatepolicy.PredicateUnit:
-		for _, d := range documents {
-			for key := range d {
-				if key == p.Element {
-					if carriesUnit(key, p.Argument) {
-						return Result{Predicate: p, Decided: true, Held: true}
-					}
-					return Result{Predicate: p, Decided: true,
-						Why: fmt.Sprintf("the name %s does not carry the unit %s", key, p.Argument)}
-				}
-			}
-		}
-		return Result{Predicate: p, Decided: true,
-			Why: fmt.Sprintf("no observed exchange carries %s at all", p.Element)}
+	if p.Kind == gatepolicy.PredicateCalled {
+		// Whether the consumer calls the operation is a fact about the consumer's
+		// build, not about what the producer's run wrote.
+		return Result{Predicate: p, Why: "an exchange does not say whether an operation is called"}
 	}
+	present := 0
 	for at, d := range documents {
-		value, present := d[p.Element]
-		if !present {
-			if p.Kind == gatepolicy.PredicatePopulated {
-				return Result{Predicate: p, Decided: true,
-					Why: fmt.Sprintf("exchange %d carries no %s", at+1, p.Element)}
-			}
-			// A domain and a range are about the values an element takes, so an
-			// exchange that does not carry it violates neither. What catches an
-			// element that stopped being there is the read or the populated
-			// predicate beside them.
+		value, carried := d[p.Element]
+		if !carried {
 			continue
 		}
+		present++
 		if why := violates(p, value); why != "" {
 			return Result{Predicate: p, Decided: true,
 				Why: fmt.Sprintf("exchange %d: %s", at+1, why)}
+		}
+	}
+	if present == 0 {
+		switch p.Kind {
+		case gatepolicy.PredicateRead, gatepolicy.PredicateSent, gatepolicy.PredicatePopulated,
+			gatepolicy.PredicateUnit:
+			return Result{Predicate: p, Decided: true,
+				Why: fmt.Sprintf("no observed exchange carries %s at all", p.Element)}
+		default:
+			// A domain and a range are about the values an element takes, so an
+			// element no exchange carried is a predicate nothing exercised.
+			return Result{Predicate: p,
+				Why: fmt.Sprintf("no observed exchange carries %s, so nothing exercised this", p.Element)}
 		}
 	}
 	return Result{Predicate: p, Decided: true, Held: true}
@@ -272,10 +323,20 @@ func (p Predicate) AgainstExchange(documents []Document) Result {
 // violates is what one value does to one predicate, in words, and empty where the
 // value is what the predicate asserts. A value that is neither a string nor a
 // number is a violation of every kind that reads one: the form is flat here, and a
-// predicate over a nested value is an assertion this substrate cannot decide.
+// predicate over a nested value is an assertion this platform cannot decide.
 func violates(p Predicate, value any) string {
 	switch p.Kind {
-	case gatepolicy.PredicatePopulated:
+	case gatepolicy.PredicateRead:
+		return ""
+	case gatepolicy.PredicateUnit:
+		if !carriesUnit(p.Element, p.Argument) {
+			return fmt.Sprintf("the name %s does not carry the unit %s", p.Element, p.Argument)
+		}
+		return ""
+	case gatepolicy.PredicatePopulated, gatepolicy.PredicateSent:
+		if p.Kind == gatepolicy.PredicateSent && p.Argument == LeftOut {
+			return p.Element + " is carried and this consumer leaves it out"
+		}
 		switch v := value.(type) {
 		case nil:
 			return p.Element + " is null"
@@ -287,18 +348,16 @@ func violates(p Predicate, value any) string {
 		default:
 			return ""
 		}
-	case gatepolicy.PredicateDomain:
+	case gatepolicy.PredicateDomain, gatepolicy.PredicateSentDomain:
 		text, ok := value.(string)
 		if !ok {
 			return fmt.Sprintf("%s is %v, which is not one of the names a domain is written in", p.Element, value)
 		}
-		for _, name := range Domain(p.Argument) {
-			if text == name {
-				return ""
-			}
+		if contains(Domain(p.Argument), text) {
+			return ""
 		}
 		return fmt.Sprintf("%s is %q, outside the domain %s", p.Element, text, p.Argument)
-	case gatepolicy.PredicateRange:
+	case gatepolicy.PredicateRange, gatepolicy.PredicateSentRange:
 		number, ok := value.(float64)
 		if !ok {
 			return fmt.Sprintf("%s is %v, which is not a number", p.Element, value)

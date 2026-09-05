@@ -265,18 +265,31 @@ func (r *Reader) safeguardsOn(ctx context.Context, parameter gatepolicy.Paramete
 	// themselves: it is carried as the parameter's own key on the service
 	// subject rather than as a subject of its own, so a row-scoped safeguard
 	// needs a service to be keyed on.
+	definition, err := gatepolicy.Define(parameter)
+	if err != nil {
+		return nil, err
+	}
+	// A safeguard on a keyed parameter names the value of that key, and one on
+	// an unkeyed parameter names none: package safeguard refuses either the
+	// other way round, so a read that asked for both would ask for a safeguard
+	// that cannot exist.
+	key := ""
+	if definition.Key != gatepolicy.KeyNone {
+		key = keyOf(definition, s)
+	}
 	if s.ServiceID != "" {
-		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectService, ID: s.ServiceID})
-		if s.GateRow != "" {
-			subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectService, ID: s.ServiceID, Key: s.GateRow})
-		}
+		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectService, ID: s.ServiceID, Key: key})
+	}
+	// A project is a subject of its own: a safeguard on one reaches its
+	// persistent environment and every service in it.
+	if s.ProjectID != "" {
+		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectProject, ID: s.ProjectID, Key: key})
 	}
 	// The attempt limit is per stage, one of the factory's own subjects the
 	// design lists directly, so a ceiling over it is drawn on the stage
 	// itself: the subject and the parameter's own key name the same thing.
 	if s.Stage != "" {
-		subjects = append(subjects,
-			safeguard.Subject{Kind: safeguard.SubjectStage, ID: string(s.Stage), Key: string(s.Stage)})
+		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectStage, ID: string(s.Stage), Key: key})
 	}
 	if s.AreaID != "" {
 		chain, _, err := area.Chain(ctx, r.pool, s.AreaID)
@@ -284,10 +297,7 @@ func (r *Reader) safeguardsOn(ctx context.Context, parameter gatepolicy.Paramete
 			return nil, err
 		}
 		for _, a := range chain {
-			subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectArea, ID: a.ID})
-			if s.GateRow != "" {
-				subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectArea, ID: a.ID, Key: s.GateRow})
-			}
+			subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectArea, ID: a.ID, Key: key})
 		}
 	}
 	// The list of allowed predicate kinds is "this section's own list", the
@@ -303,4 +313,24 @@ func (r *Reader) safeguardsOn(ctx context.Context, parameter gatepolicy.Paramete
 	}
 
 	return safeguard.BySubjects(ctx, r.pool, parameter, subjects)
+}
+
+// keyOf is the value of a parameter's own key for these subjects: the gate row
+// for the risk threshold, the stage for the attempt limit, the quantity for the
+// window's size and power, the duty for the review sample rate, the service for
+// the report channel's per-service rate and the harm mark's page cap.
+func keyOf(d gatepolicy.Definition, s Subjects) string {
+	switch d.Key {
+	case gatepolicy.KeyGateRow:
+		return s.GateRow
+	case gatepolicy.KeyStage:
+		return string(s.Stage)
+	case gatepolicy.KeyQuantity:
+		return s.Quantity
+	case gatepolicy.KeyDuty:
+		return dutyKey(s.Duty)
+	case gatepolicy.KeyService:
+		return s.ServiceID
+	}
+	return ""
 }

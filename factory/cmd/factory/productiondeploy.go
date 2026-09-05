@@ -9,6 +9,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
+	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
@@ -61,13 +62,17 @@ func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 		fmt.Fprintf(d.out, "No attempt is counted and the score learns nothing from a hold; item %s stays where it is\n", c.itemID)
 		return nil
 	}
-	return p.putOnProduction(ctx, c)
+	return p.putOnProduction(ctx, c, opened.Strategy)
 }
 
 // fireProduction fires the production deploy row over one candidate. It is its own
 // function because two callers fire it: the path, and a human approving through a
 // factory hold.
 func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, error) {
+	reached, err := p.exposureOf(ctx, c.reverifiedBuildID)
+	if err != nil {
+		return gate.Opened{}, err
+	}
 	return p.gate.Fire(ctx, gate.Firing{
 		Row:             gate.DeployToProduction,
 		ItemID:          c.itemID,
@@ -78,6 +83,7 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, e
 		CriteriaInForce: len(c.criteria),
 		Criteria:        c.criteria,
 		Measurement:     c.measurement,
+		Exposure:        reached,
 	})
 }
 
@@ -90,7 +96,7 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, e
 // release the window watches one that is actually running. Nothing here closes
 // it: the health monitor evaluates every exit, so what this leaves is a window
 // for the watch to finish.
-func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
+func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick) error {
 	d := p.d
 	// The binary the re-verification built is where it ran, which is the candidate
 	// environment's directory. Copying it is what puts the verified build on
@@ -112,14 +118,24 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 			c.reverifiedBuildID, err)
 	}
 
-	dep, err := deploy.WithoutControl(ctx, p.deploys, d.targets.at(d.dir), deployActor,
-		c.svc.ID, c.svc.Name, p.production.ID,
-		deploy.OfRelease(c.releaseID, c.reverifiedBuildID), d.credential)
+	dep, err := p.intoProduction(ctx, c, pick)
 	if err != nil {
 		return err
 	}
 	c.deployID = dep.ID
-	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production\n", dep.ID, c.releaseID)
+	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production under the strategy %s\n",
+		dep.ID, c.releaseID, dep.StrategyPerformed)
+
+	// The deployer's own last check over each production target, and its four
+	// fields on the service record. The last check is what says the deployer
+	// reached that target and when, which is what a drift-detection exemption
+	// standing on a rollout that is not advancing is refused against.
+	if err := p.recordTargetChecks(ctx, dep); err != nil {
+		return err
+	}
+	if err := p.adopt(ctx, c.svc, dep); err != nil {
+		return err
+	}
 
 	// Whether the score held this item out is read off the decisions on it rather
 	// than carried down from the firing, because a window is opened at the deploy
@@ -151,6 +167,27 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	return nil
 }
 
+// recordTargetChecks is the deployer's own last check over each target the
+// deploy reached, written after the deploy completed. There is one per target of
+// a persistent environment, and the interval it promises the next pass within is
+// how often this interface deploys — which is once per run, so the interval is
+// the watch's own, the longest thing a run does after a deploy.
+//
+// What it costs is that the interval is the run's and not a period the deployer
+// keeps: this interface deploys when a run reaches the row rather than on a pass
+// of its own, so a target whose check is older than the interval means the run
+// ended and not that the deployer stopped.
+func (p *path) recordTargetChecks(ctx context.Context, dep deploy.Deploy) error {
+	for _, target := range p.production.Targets {
+		payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q}`, dep.ID, dep.BuildID)
+		if err := deploy.RecordTargetCheck(ctx, p.checks, deployActor,
+			target.Address, atLeastASecond(p.d.watchFor), false, payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // factoryHolds is every hold the factory sets at the production deploy row that
 // lifts itself, in the order it is worth reporting them: a declared dependency that
 // is not live still, the service already holding as many analysis windows open as the
@@ -163,7 +200,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 // newest rollback — and the design gives such a hold no row: a record for it would be
 // a decision where nothing is decided, and re-testing would append one every time the
 // gate re-fired. What that costs is that how long the factory has been holding is
-// answerable for the substrate's ceiling alone, which is the one wait at a deploy row
+// answerable for the platform's ceiling alone, which is the one wait at a deploy row
 // that is written.
 func (p *path) factoryHolds(ctx context.Context, svc service.Service, it item.Item) (string, error) {
 	held, err := p.dependencyHold(ctx, it)
@@ -202,14 +239,39 @@ func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.It
 	if err != nil || !found {
 		return "", err
 	}
-	shipped, err := healthmonitor.Shipped(ctx, p.d.pool, p.production.ID, rollback.Undoing.RevertIntentID)
+	revertIntentID, err := revertIntentOf(ctx, p, svc, rollback)
+	if err != nil || revertIntentID == "" {
+		return "", err
+	}
+	shipped, err := healthmonitor.Shipped(ctx, p.d.pool, p.production.ID, revertIntentID)
 	if err != nil || shipped {
 		return "", err
 	}
-	if it.IntentID != "" && it.IntentID == rollback.Undoing.RevertIntentID {
+	if it.IntentID != "" && it.IntentID == revertIntentID {
 		return "", nil
 	}
 	return fmt.Sprintf("%s — rollback %s failed release %s and its revert, intent %s, has not shipped",
 		gate.HoldRollbackAwaitingRevert, rollback.ID, rollback.Undoing.FailedReleaseID,
-		rollback.Undoing.RevertIntentID), nil
+		revertIntentID), nil
+}
+
+// revertIntentOf is the intent whose revert a rollback is waiting for, and empty
+// where nothing is waiting. The rollback's own deploy record names the release it
+// failed and not the intent it raised: the intent is on the incident the health
+// monitor raised at the same crossing, so the link between the two is the failed
+// release, and that is the walk this makes.
+//
+// An incident that has resolved is a revert that shipped and a crossing that
+// stopped, which is why only an open one is read: [incident.Open] answers with
+// the open incident on that service and release, and its absence is a rollback
+// with nothing outstanding behind it.
+func revertIntentOf(ctx context.Context, p *path, svc service.Service, rollback deploy.Deploy) (string, error) {
+	if rollback.Undoing.FailedReleaseID == "" {
+		return "", nil
+	}
+	open, found, err := incident.Open(ctx, p.d.pool, svc.ID, rollback.Undoing.FailedReleaseID)
+	if err != nil || !found {
+		return "", err
+	}
+	return open.IntentID, nil
 }

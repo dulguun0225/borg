@@ -32,6 +32,14 @@ const ElementIDPrefix = "cone"
 // and nowhere else.
 const kinds = `('interface', 'store')`
 
+// elementKinds and positions are the element table's two CHECK value lists.
+// TestDDLListsEveryElementKind and TestDDLListsEveryPosition fail if either stops
+// agreeing with [ElementKinds] and [Positions].
+const (
+	elementKinds = `('field', 'operation', 'argument', 'message')`
+	positions    = `('output', 'input', 'store')`
+)
+
 // FormatVersion is what this package writes into format_version on every
 // insert into [Table].
 const FormatVersion = "contract/1"
@@ -68,6 +76,20 @@ const FormatVersionElement = "contract_element/1"
 // reader of a contract a reader of releases. What makes the copy safe is that both
 // rows are written by one writer inside one transaction, at one event.
 //
+// A version's item_id is empty on a release minted over an accepted commit, which
+// names a build and no item: such a release is one no gate decided, and the
+// version it publishes is keyed by the release rather than by the item. Every
+// other version names the item its release was cut from.
+//
+// An element row carries what the diff reads: its kind — one field, one operation,
+// one argument or one message — the position that says which way compatibility
+// runs for it, the type as the build states it, whether it is required and whether
+// it is always populated, the domain and the range it accepts, and the two other
+// constraints a store element can carry. accepted_domain is empty for an element
+// that accepts any name and range_low and range_high are null together for one
+// that accepts any number, so a range appearing where there was none reads as the
+// narrowing it is.
+//
 // service_id, release_id, and item_id are id fields and not foreign keys, which is
 // the rule for every link between record packages. contract_id and
 // contract_version_id are links inside this package and are checked the same way:
@@ -92,7 +114,7 @@ var DDL = []string{
 	service_id text not null,
 	release_id text not null,
 	release_number bigint not null,
-	item_id text not null,
+	item_id text not null default '',
 	major int not null,
 	minor int not null,
 	patch int not null,
@@ -100,7 +122,6 @@ var DDL = []string{
 	constraint contract_id_present check (contract_id <> ''),
 	constraint service_id_present check (service_id <> ''),
 	constraint release_id_present check (release_id <> ''),
-	constraint item_id_present check (item_id <> ''),
 	constraint release_number_positive check (release_number >= 1),
 	constraint major_starts_at_one check (major >= 1),
 	constraint minor_not_negative check (minor >= 0),
@@ -114,14 +135,26 @@ var DDL = []string{
 	contract_version_id text not null,
 	contract_id text not null,
 	name text not null,
-	element_type text not null,
+	kind text not null,
+	element_position text not null,
+	declared_type text not null,
+	required boolean not null,
 	populated boolean not null,
 	deprecated boolean not null,
+	accepted_domain text not null default '',
+	range_low double precision,
+	range_high double precision,
+	not_null boolean not null default false,
+	unique_rule boolean not null default false,
 	` + record.Constraints + `,
 	constraint contract_version_id_present check (contract_version_id <> ''),
 	constraint contract_id_present check (contract_id <> ''),
 	constraint name_present check (name <> ''),
-	constraint element_type_present check (element_type <> ''),
+	constraint element_kind_known check (kind in ` + elementKinds + `),
+	constraint element_position_known check (element_position in ` + positions + `),
+	constraint declared_type_present check (declared_type <> ''),
+	constraint range_has_both_ends_or_neither check ((range_low is null) = (range_high is null)),
+	constraint range_ends_in_order check (range_low is null or range_low <= range_high),
 	constraint one_element_per_version_and_name unique (contract_version_id, name)
 )`,
 

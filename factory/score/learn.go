@@ -12,14 +12,25 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 )
 
-// Learn is the table the score supplies, computed from every outcome in the
-// store: the starting value of each parameter, and a row for each subject an
-// outcome has moved it for. It reads records and writes none — what writes is
-// [Writer.Ensure], which appends the version this table is a field of.
-func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (SuppliedValues, error) {
-	e, err := ReadEvidence(ctx, pool, token)
+// Learned is everything one pass over the outcomes computes: the table of values
+// the score supplies, the bands of the number, the drift readings, and the false
+// alarms published per human. All four are fields of the version the pass
+// appends, so a decision naming a version can be read against what the score
+// then knew.
+type Learned struct {
+	Supplied    SuppliedValues
+	Bands       []Band
+	Drift       []Drift
+	FalseAlarms []FalseAlarm
+}
+
+// Learn is what the score supplies and what it published beside it, computed
+// from every outcome in the store. It reads records and writes none — what
+// writes is [Writer.Ensure], which appends the version this is a field of.
+func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks) (Learned, error) {
+	e, err := ReadEvidence(ctx, pool, token, marks)
 	if err != nil {
-		return nil, err
+		return Learned{}, err
 	}
 	return LearnFrom(e)
 }
@@ -28,7 +39,7 @@ func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (Supplied
 // rules are testable against a graph without reading one twice, and so that a
 // caller printing what moved and a caller appending a version read the store once
 // between them.
-func LearnFrom(e *Evidence) (SuppliedValues, error) {
+func LearnFrom(e *Evidence) (Learned, error) {
 	values := StartingValues()
 
 	limits := attemptLimits(e)
@@ -37,16 +48,28 @@ func LearnFrom(e *Evidence) (SuppliedValues, error) {
 	values = append(values, thresholds(e)...)
 	values = append(values, windowLimits(e)...)
 
-	sizes, err := windowParameters(e)
+	windows, err := windowParameters(e)
 	if err != nil {
-		return nil, err
+		return Learned{}, err
 	}
-	return append(values, sizes...), nil
+	values = append(values, windows...)
+
+	return Learned{
+		Supplied:    values,
+		Bands:       e.bands(),
+		Drift:       e.drift(),
+		FalseAlarms: e.falseAlarms(),
+	}, nil
 }
 
 // thresholds is the risk threshold per gate row. Both halves of the rule are read
 // off the same closed decisions: what the score auto-passed on the number, and
 // what it auto-passed because its own sample selected the item.
+//
+// Only a window that closed passed makes an item well and only one that failed
+// makes it badly, so a held-out release whose window timed out raises nothing:
+// the sample exists to produce an outcome, and the exit that reports none reports
+// none here either.
 func thresholds(e *Evidence) []Supplied {
 	start, _ := Starting(gatepolicy.RiskThreshold)
 	var moved []Supplied
@@ -78,7 +101,7 @@ func thresholds(e *Evidence) []Supplied {
 		case good >= heldOutPerBand:
 			bands := good / heldOutPerBand
 			value = math.Min(thresholdCeiling, start.Value+float64(bands)*thresholdBand)
-			why = fmt.Sprintf("%d held-out firing(s) at this row turned out well and none badly, which is %d band(s) of unbiased evidence that the gate was not needed",
+			why = fmt.Sprintf("%d held-out firing(s) at this row reached a window that closed passed and none that failed, which is %d band(s) of unbiased evidence that the gate was not needed",
 				good, bands)
 		}
 		if why != "" && value != start.Value {
@@ -147,12 +170,9 @@ func limitOf(limits []Supplied) func(item.Stage) float64 {
 	}
 }
 
-// itemSizeTargets is the item-size target per area, halved per stall.
-//
-// The value moves and nothing reads it: no decomposition sizes anything yet, so an area
-// whose target has halved twice decomposes exactly as it did before. That is worth
-// supplying anyway — the movement is what a later decomposition reads, and an owner can see
-// today that the score thinks this area's items are too large.
+// itemSizeTargets is the item-size target per area, halved per stall, in the
+// count of the intent's requirements an item answers — the unit decomposition
+// sets and the unit an owner authors in.
 func itemSizeTargets(e *Evidence, limit func(item.Stage) float64) []Supplied {
 	start, _ := Starting(gatepolicy.ItemSizeTarget)
 	var moved []Supplied
@@ -161,7 +181,7 @@ func itemSizeTargets(e *Evidence, limit func(item.Stage) float64) []Supplied {
 		if len(stalls) == 0 {
 			continue
 		}
-		value := math.Max(itemSizeFloor, start.Value/math.Pow(2, float64(len(stalls))))
+		value := math.Max(itemSizeFloor, math.Round(start.Value/math.Pow(2, float64(len(stalls)))))
 		if value == start.Value {
 			continue
 		}

@@ -6,8 +6,9 @@
 // None of these tests skips when the database is unreachable. The milestone
 // is demonstrated by them running, so an unreachable database fails the run.
 //
-// This file is the writer's tests: [window.Writer.Open], [window.Writer.Close],
-// and the validation each refuses. read_test.go is the reads.
+// This file is [window.Writer.Open], the validation it refuses, and the
+// fixtures the other files of this package share. close_test.go is
+// [window.Writer.Close]; read_test.go is the reads and the mark.
 package window_test
 
 import (
@@ -16,6 +17,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
+	"reflect"
 	"testing"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/boundary"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -32,7 +35,7 @@ import (
 // healthMonitor is the one writer of analysis windows, the way doc.go names it.
 var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health_monitor"}
 
-func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *window.Writer) {
+func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *window.Writer, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -65,7 +68,7 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *window.Writer) {
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
-	return ctx, pool, window.NewWriter(pool, token)
+	return ctx, pool, window.NewWriter(pool, token), token
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -83,36 +86,58 @@ func inSchema(t *testing.T, base, schema string) string {
 }
 
 // opening is a complete OpenEvent over ids of its own, so a test that needs one
-// or several does not repeat the six required fields and the three shares.
+// or several does not repeat every field a window names at the open.
 func opening() window.OpenEvent {
 	return window.OpenEvent{
 		DeployID:        record.NewID("dep"),
 		ReleaseID:       record.NewID("rel"),
+		BuildID:         record.NewID("bld"),
 		ServiceID:       record.NewID("svc"),
 		PassedAvailable: true,
-		Size:            0.1,
-		Confidence:      0.95,
-		CapSeconds:      3600,
-		Formula:         "wilson",
-		PolicyVersion:   "pv_1",
-		ScoreVersion:    "sv_1",
+		Size: map[gatepolicy.Quantity]float64{
+			gatepolicy.QuantityRequestRate: 0.1,
+			gatepolicy.QuantityErrorRate:   0.05,
+			gatepolicy.QuantityLatency:     0.1,
+		},
+		Power: map[gatepolicy.Quantity]float64{
+			gatepolicy.QuantityRequestRate: 0.8,
+			gatepolicy.QuantityErrorRate:   0.8,
+			gatepolicy.QuantityLatency:     0.8,
+		},
+		Confidence:             0.95,
+		CapSeconds:             3600,
+		BoundaryVersion:        boundary.Version,
+		Targets:                []string{"one.example", "two.example"},
+		OperationsReadAlone:    []string{"GET /items"},
+		EmissionVersionRelease: "emission/1",
+		EmissionVersionControl: "emission/1",
+		OwnHistorySize:         map[gatepolicy.Quantity]float64{gatepolicy.QuantityErrorRate: 0.2},
+		OwnHistoryRunLength:    10000,
+		PolicyVersion:          "pv_1",
+		ScoreVersion:           "sv_1",
 	}
 }
 
 func TestAWindowOpensWithEveryFieldIntact(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 	o := opening()
 
 	opened, err := w.Open(ctx, healthMonitor, o)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if opened.DeployID != o.DeployID || opened.ReleaseID != o.ReleaseID || opened.ServiceID != o.ServiceID {
+	if opened.DeployID != o.DeployID || opened.ReleaseID != o.ReleaseID ||
+		opened.BuildID != o.BuildID || opened.ServiceID != o.ServiceID {
 		t.Errorf("Open = %+v, which does not name what it was opened over", opened)
 	}
-	if opened.PassedAvailable != o.PassedAvailable || opened.HeldOut != o.HeldOut ||
-		opened.Size != o.Size || opened.Confidence != o.Confidence ||
-		opened.CapSeconds != o.CapSeconds || opened.Formula != o.Formula ||
+	if !reflect.DeepEqual(opened.Size, o.Size) || !reflect.DeepEqual(opened.Power, o.Power) ||
+		opened.Confidence != o.Confidence || opened.CapSeconds != o.CapSeconds ||
+		opened.BoundaryVersion != o.BoundaryVersion ||
+		!reflect.DeepEqual(opened.Targets, o.Targets) ||
+		!reflect.DeepEqual(opened.OperationsReadAlone, o.OperationsReadAlone) ||
+		opened.EmissionVersionRelease != o.EmissionVersionRelease ||
+		!reflect.DeepEqual(opened.OwnHistorySize, o.OwnHistorySize) ||
+		opened.OwnHistoryRunLength != o.OwnHistoryRunLength ||
 		opened.PolicyVersion != o.PolicyVersion || opened.ScoreVersion != o.ScoreVersion {
 		t.Errorf("Open = %+v, does not carry the parameters it was given, %+v", opened, o)
 	}
@@ -130,13 +155,40 @@ func TestAWindowOpensWithEveryFieldIntact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if read != opened {
+	if !reflect.DeepEqual(read, opened) {
 		t.Errorf("Get = %+v, want %+v", read, opened)
 	}
 }
 
+// TestTheBoundaryIsAllocatedOverTheWholeSet is the confidence held over the set
+// rather than per reading: the quantities on every operation read alone plus the
+// pooled one, on every target the rollout is planned to reach.
+func TestTheBoundaryIsAllocatedOverTheWholeSet(t *testing.T) {
+	ctx, _, w, _ := newTable(t)
+	opened, err := w.Open(ctx, healthMonitor, opening())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if got, want := opened.Comparisons(), 2*2*3; got != want {
+		t.Errorf("Comparisons() = %d, want two targets by two series by three quantities = %d", got, want)
+	}
+	b, carried := opened.Boundary(gatepolicy.QuantityErrorRate)
+	if !carried {
+		t.Fatal("the window carries no boundary for the error rate")
+	}
+	if b.Comparisons != opened.Comparisons() || b.Confidence != opened.Confidence {
+		t.Errorf("Boundary = %+v, which is not the window's own confidence over its own set", b)
+	}
+	if b.Worse != boundary.WorseHigher {
+		t.Errorf("the error rate reads %q as worse, want higher", b.Worse)
+	}
+	if rate, _ := opened.Boundary(gatepolicy.QuantityRequestRate); rate.Worse != boundary.WorseLower {
+		t.Errorf("the request rate reads %q as worse, want lower", rate.Worse)
+	}
+}
+
 func TestASecondWindowOverOneDeployIsRefused(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, w, _ := newTable(t)
 	o := opening()
 	if _, err := w.Open(ctx, healthMonitor, o); err != nil {
 		t.Fatalf("Open: %v", err)
@@ -150,7 +202,7 @@ func TestASecondWindowOverOneDeployIsRefused(t *testing.T) {
 }
 
 func TestASecondWindowOverOneReleaseIsRefused(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, w, _ := newTable(t)
 	o := opening()
 	if _, err := w.Open(ctx, healthMonitor, o); err != nil {
 		t.Fatalf("Open: %v", err)
@@ -163,150 +215,44 @@ func TestASecondWindowOverOneReleaseIsRefused(t *testing.T) {
 	}
 }
 
-// TestAWindowClosesOnceAtExactlyOneOfTheFourExits closes a window of its own at
-// each exit in turn, and checks Exit.Counts against the rule it encodes:
-// passed and timed out leave a release the factory can return to, failed and
-// skipped do not.
-func TestAWindowClosesOnceAtExactlyOneOfTheFourExits(t *testing.T) {
-	ctx, _, w := newTable(t)
+// TestASearchsWindowNamesABuildAndNoRelease is the window over a deploy the
+// search called for: it names the build alone, and two of them do not collide on
+// the release the neither of them has.
+func TestASearchsWindowNamesABuildAndNoRelease(t *testing.T) {
+	ctx, _, w, _ := newTable(t)
 
-	for _, exit := range window.Exits {
-		opened, err := w.Open(ctx, healthMonitor, opening())
-		if err != nil {
-			t.Fatalf("Open: %v", err)
-		}
-		closed, err := w.Close(ctx, opened.ID, exit, readFor(exit))
-		if err != nil {
-			t.Fatalf("Close(%s): %v", exit, err)
-		}
-		if closed.Open() {
-			t.Errorf("Close(%s) leaves the window open", exit)
-		}
-		if closed.Exit != exit {
-			t.Errorf("Close(%s) recorded exit %q", exit, closed.Exit)
-		}
-		if _, err := time.Parse(record.TimeLayout, closed.ClosedAt); err != nil {
-			t.Errorf("the closed time is %q: %v", closed.ClosedAt, err)
-		}
-		want := exit == window.ExitPassed || exit == window.ExitTimedOut
-		if got := exit.Counts(); got != want {
-			t.Errorf("%s.Counts() = %v, want %v", exit, got, want)
-		}
-	}
-}
-
-func TestASecondCloseOnOneWindowIsAlreadyClosed(t *testing.T) {
-	ctx, _, w := newTable(t)
-	opened, err := w.Open(ctx, healthMonitor, opening())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if _, err := w.Close(ctx, opened.ID, window.ExitPassed, closedOn()); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if _, err := w.Close(ctx, opened.ID, window.ExitFailed, closedOn()); !errors.Is(err, window.ErrAlreadyClosed) {
-		t.Errorf("Close = %v, want ErrAlreadyClosed", err)
-	}
-}
-
-func TestClosingAtAnExitOutsideExitsIsExitUnknown(t *testing.T) {
-	ctx, _, w := newTable(t)
-	opened, err := w.Open(ctx, healthMonitor, opening())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if _, err := w.Close(ctx, opened.ID, window.Exit("flaky"), closedOn()); !errors.Is(err, window.ErrExitUnknown) {
-		t.Errorf("Close = %v, want ErrExitUnknown", err)
-	}
-}
-
-// TestDDLListsEveryExit keeps the CHECK constraint and window.Exits from
-// disagreeing, the way deploy/schema_test.go's TestDDLListsEveryStrategyAndStatus
-// does for strategies and statuses: every value in window.Exits inserts
-// cleanly around the writer, and a value outside it does not.
-func TestDDLListsEveryExit(t *testing.T) {
-	ctx, pool, _ := newTable(t)
-
-	for _, exit := range window.Exits {
+	for i := 0; i < 2; i++ {
 		o := opening()
-		_, err := pool.Exec(ctx, `insert into `+window.Table+`
-			(id, format_version, actor_kind, actor_key, actor_key_basis, at, deploy_id, release_id, service_id, passed_available, held_out,
-			 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
-			 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
-			values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12, $13, $14, $15,
-			 0, 0, 0, 0)`,
-			record.NewID(window.IDPrefix), window.FormatVersion, record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.PassedAvailable,
-			o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, string(exit), record.Now())
+		o.ReleaseID = ""
+		opened, err := w.Open(ctx, healthMonitor, o)
 		if err != nil {
-			t.Errorf("inserting exit %q, one of window.Exits, was refused: %v", exit, err)
+			t.Fatalf("Open over a search's deploy: %v", err)
 		}
-	}
-
-	o := opening()
-	_, err := pool.Exec(ctx, `insert into `+window.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, deploy_id, release_id, service_id, passed_available, held_out,
-		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
-		 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
-		values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12, $13, 'flaky', $14,
-		 0, 0, 0, 0)`,
-		record.NewID(window.IDPrefix), window.FormatVersion, record.Now(), o.DeployID, o.ReleaseID, o.ServiceID, o.PassedAvailable,
-		o.Size, o.Confidence, o.CapSeconds, o.Formula, o.PolicyVersion, o.ScoreVersion, record.Now())
-	if err == nil {
-		t.Error("the store accepted an exit outside window.Exits")
-	}
-}
-
-// TestPastCapIsTrueOnlyAfterATinyCapElapsesAndNeverOnceClosed covers the one
-// exit that is not a reading of the quantity: it fires on elapsed time alone,
-// and stops firing the moment the window closes.
-func TestPastCapIsTrueOnlyAfterATinyCapElapsesAndNeverOnceClosed(t *testing.T) {
-	ctx, _, w := newTable(t)
-
-	long := opening()
-	long.CapSeconds = 3600
-	longWin, err := w.Open(ctx, healthMonitor, long)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if past, err := longWin.PastCap(time.Now()); err != nil || past {
-		t.Errorf("PastCap on a window whose cap has not elapsed = %v, %v, want false", past, err)
-	}
-
-	tiny := opening()
-	tiny.CapSeconds = 0.01
-	tinyWin, err := w.Open(ctx, healthMonitor, tiny)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if past, err := tinyWin.PastCap(time.Now()); err != nil || !past {
-		t.Errorf("PastCap after a tiny cap elapsed = %v, %v, want true", past, err)
-	}
-
-	closed, err := w.Close(ctx, tinyWin.ID, window.ExitTimedOut, closedOn())
-	if err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if past, err := closed.PastCap(time.Now()); err != nil || past {
-		t.Errorf("PastCap on a closed window = %v, %v, want false", past, err)
+		if opened.ReleaseID != "" || opened.BuildID == "" {
+			t.Errorf("a search's window = %+v, want a build and no release", opened)
+		}
 	}
 }
 
 // TestAnOpeningMissingAFieldIsIncomplete covers every required field the same
 // way, one OpenEvent with exactly one of them passed per case.
 func TestAnOpeningMissingAFieldIsIncomplete(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, w, _ := newTable(t)
 
 	for _, c := range []struct {
 		what string
 		mut  func(*window.OpenEvent)
 	}{
 		{"deploy", func(o *window.OpenEvent) { o.DeployID = "" }},
-		{"release", func(o *window.OpenEvent) { o.ReleaseID = "" }},
+		{"build", func(o *window.OpenEvent) { o.BuildID = "" }},
 		{"service", func(o *window.OpenEvent) { o.ServiceID = "" }},
-		{"formula", func(o *window.OpenEvent) { o.Formula = "" }},
+		{"boundary version", func(o *window.OpenEvent) { o.BoundaryVersion = "" }},
 		{"policy version", func(o *window.OpenEvent) { o.PolicyVersion = "" }},
 		{"score version", func(o *window.OpenEvent) { o.ScoreVersion = "" }},
+		{"size", func(o *window.OpenEvent) { o.Size = nil }},
+		{"power", func(o *window.OpenEvent) { o.Power = nil }},
+		{"target set", func(o *window.OpenEvent) { o.Targets = nil }},
+		{"emission version", func(o *window.OpenEvent) { o.EmissionVersionRelease = "" }},
 	} {
 		o := opening()
 		c.mut(&o)
@@ -316,18 +262,22 @@ func TestAnOpeningMissingAFieldIsIncomplete(t *testing.T) {
 	}
 }
 
-// TestASizeConfidenceOrCapOutOfRangeIsIncomplete covers the three shares: size
-// is above nothing and at most one, confidence is above nothing and below one,
-// and the cap is above nothing.
-func TestASizeConfidenceOrCapOutOfRangeIsIncomplete(t *testing.T) {
-	ctx, _, w := newTable(t)
+// TestASizeConfidencePowerOrCapOutOfRangeIsIncomplete covers the shares: a size
+// is above nothing and at most one, a power and the confidence are above nothing
+// and below one, and the cap is above nothing.
+func TestASizeConfidencePowerOrCapOutOfRangeIsIncomplete(t *testing.T) {
+	ctx, _, w, _ := newTable(t)
 
 	for _, c := range []struct {
 		what string
 		mut  func(*window.OpenEvent)
 	}{
-		{"size at zero", func(o *window.OpenEvent) { o.Size = 0 }},
-		{"size above one", func(o *window.OpenEvent) { o.Size = 1.5 }},
+		{"size at zero", func(o *window.OpenEvent) { o.Size[gatepolicy.QuantityErrorRate] = 0 }},
+		{"size above one", func(o *window.OpenEvent) { o.Size[gatepolicy.QuantityErrorRate] = 1.5 }},
+		{"power at one", func(o *window.OpenEvent) { o.Power[gatepolicy.QuantityErrorRate] = 1 }},
+		{"a quantity with a size and no power", func(o *window.OpenEvent) {
+			delete(o.Power, gatepolicy.QuantityErrorRate)
+		}},
 		{"confidence at zero", func(o *window.OpenEvent) { o.Confidence = 0 }},
 		{"confidence at one", func(o *window.OpenEvent) { o.Confidence = 1 }},
 		{"cap at zero", func(o *window.OpenEvent) { o.CapSeconds = 0 }},
@@ -340,20 +290,7 @@ func TestASizeConfidenceOrCapOutOfRangeIsIncomplete(t *testing.T) {
 	}
 }
 
-// closedOn is the read a test closes a window on: a pair of counts with a
-// baseline in it, which is what an exit other than swept always has. The numbers
-// are not what any of these tests assert over — what they assert is the exit —
-// but a close with no read is refused, and rightly: an exit nobody can recompute
-// is one nobody can argue with.
-func closedOn() boundary.Observed {
-	return boundary.Observed{Units: 200, Failures: 2, BaselineUnits: 200, BaselineFailures: 2}
-}
-
-// readFor is [closedOn] for every exit but swept, which takes none. A loop closing
-// windows at each of the four exits needs the read to follow the exit.
-func readFor(exit window.Exit) boundary.Observed {
-	if exit == window.ExitSkipped {
-		return boundary.Observed{}
-	}
-	return closedOn()
-}
+// closedOn is the read a test closes a window on: counts per quantity with a
+// baseline in them and one series beside them, which is what an exit other than
+// skipped always has. The numbers are not what these tests assert over — what
+// they assert is the exit — but a read is what makes an exit recomputable.

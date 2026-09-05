@@ -86,11 +86,11 @@ func TestARejectStopsThePath(t *testing.T) {
 	if payload.Verdict != string(gate.VerdictReject) {
 		t.Errorf("the closing carries verdict %q, the human rejected", payload.Verdict)
 	}
-	if payload.Feedback != "not what I asked for" {
-		t.Errorf("the closing carries feedback %q, the human typed %q", payload.Feedback, "not what I asked for")
+	if payload.Reason != "not what I asked for" {
+		t.Errorf("the closing carries the reason %q, the human typed %q", payload.Reason, "not what I asked for")
 	}
-	if payload.ReturnsTo != gate.ReturnsTo {
-		t.Errorf("the closing returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsTo)
+	if payload.ReturnsTo != gate.ReturnsToImplementation {
+		t.Errorf("the closing returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsToImplementation)
 	}
 }
 

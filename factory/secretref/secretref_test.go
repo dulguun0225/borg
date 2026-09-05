@@ -6,9 +6,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
 const value = "sk-the-value-nothing-else-may-see"
+
+// asker is the principal every call in these tests is made as: a component,
+// calling as itself, which is what the seam requires on every call.
+var asker = principal.OfComponent("deployer")
 
 func writeFile(t *testing.T, content string) string {
 	t.Helper()
@@ -58,7 +64,7 @@ func TestZeroRefNamesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if _, err := resolver.Resolve(ref); !errors.Is(err, ErrUnset) {
+	if _, err := resolver.Resolve(asker, ref); !errors.Is(err, ErrUnset) {
 		t.Fatalf("Resolve(zero) = %v, want ErrUnset", err)
 	}
 }
@@ -70,7 +76,7 @@ func TestResolveReadsTheFile(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	got, err := resolver.Resolve(MustNew("model.anthropic"))
+	got, err := resolver.Resolve(asker, MustNew("model.anthropic"))
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -80,7 +86,7 @@ func TestResolveReadsTheFile(t *testing.T) {
 
 	// The value is taken as it is, to the end of the line, trailing space
 	// included.
-	spaced, err := resolver.Resolve(MustNew("deploy.staging"))
+	spaced, err := resolver.Resolve(asker, MustNew("deploy.staging"))
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -88,7 +94,7 @@ func TestResolveReadsTheFile(t *testing.T) {
 		t.Fatalf("Resolve = %q, want the value with its trailing space", spaced)
 	}
 
-	if _, err := resolver.Resolve(MustNew("absent")); !errors.Is(err, ErrUnknown) {
+	if _, err := resolver.Resolve(asker, MustNew("absent")); !errors.Is(err, ErrUnknown) {
 		t.Fatalf("Resolve(absent) = %v, want ErrUnknown", err)
 	}
 }
@@ -148,8 +154,42 @@ func TestErrorsCarryNoValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	_, err = resolver.Resolve(MustNew("absent"))
+	_, err = resolver.Resolve(asker, MustNew("absent"))
 	if strings.Contains(err.Error(), value) {
 		t.Fatalf("the resolve error contains a value: %v", err)
+	}
+}
+
+// TestEveryResolutionIsRecordedWithWhoAskedForIt: the resolver decides nothing
+// on the principal, so what it does with one is record it beside the name — a
+// name it does not hold included, an ask for one being an ask.
+func TestEveryResolutionIsRecordedWithWhoAskedForIt(t *testing.T) {
+	resolver, err := Load(writeFile(t, "model.anthropic="+value+"\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	agent := principal.OfAgent("model/1", "dsp_one", "the item's own repository")
+	if _, err := resolver.Resolve(agent, MustNew("model.anthropic")); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if _, err := resolver.Resolve(asker, MustNew("deploy.production")); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("Resolve(absent) = %v, want ErrUnknown", err)
+	}
+
+	log := resolver.Resolutions()
+	if len(log) != 2 {
+		t.Fatalf("Resolutions() has %d entries, want 2", len(log))
+	}
+	if log[0].Name != "model.anthropic" || log[0].Principal != agent {
+		t.Errorf("the first resolution is %+v, want the agent asking for model.anthropic", log[0])
+	}
+	if log[1].Name != "deploy.production" || log[1].Principal != asker {
+		t.Errorf("the second resolution is %+v, want the deployer asking for deploy.production", log[1])
+	}
+	for _, entry := range log {
+		if strings.Contains(entry.Name, value) {
+			t.Errorf("a resolution names a value: %+v", entry)
+		}
 	}
 }

@@ -12,7 +12,7 @@ import (
 
 // TestARunThatStoppedLeavesAnItemTheNextQueueFinishes is the queue's membership
 // being the service's and not the run's. A run that stopped after one Merge to master gate
-// approved leaves that item at the queued stage, and nothing in the crude interface
+// approved leaves that item at the queued stage, and nothing in the command-line interface
 // clears one — so the next run has to finish it rather than failing on it, which is
 // what a run of a service whose queue holds somebody else's item would otherwise do
 // after it had already spent the model calls.

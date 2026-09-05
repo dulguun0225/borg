@@ -86,7 +86,7 @@ func OfService(ctx context.Context, q Querier, serviceID string) ([]Contract, er
 }
 
 // All is every contract in the factory, in the order they were first published.
-// Its readers are the crude interface's own printer and the deprecation detector,
+// Its readers are the command-line interface's own printer and the deprecation detector,
 // which has to walk every marked element there is.
 func All(ctx context.Context, q Querier) ([]Contract, error) {
 	return listContracts(ctx, q, selectContract+` order by at, id`)
@@ -208,7 +208,8 @@ func listVersions(ctx context.Context, q Querier, statement string, args ...any)
 // a [Form] is in, so a form read back out of the store equals the one that was
 // derived.
 func ElementsOf(ctx context.Context, q Querier, versionID string) ([]Element, error) {
-	rows, err := q.Query(ctx, `select name, element_type, populated, deprecated from `+ElementTable+`
+	rows, err := q.Query(ctx, `select name, kind, element_position, declared_type, required, populated, deprecated,
+		accepted_domain, range_low, range_high, not_null, unique_rule from `+ElementTable+`
 		where contract_version_id = $1 order by name`, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("contract: reading the elements of %s: %w", versionID, err)
@@ -218,8 +219,15 @@ func ElementsOf(ctx context.Context, q Querier, versionID string) ([]Element, er
 	var read []Element
 	for rows.Next() {
 		var e Element
-		if err := rows.Scan(&e.Name, &e.Type, &e.Populated, &e.Deprecated); err != nil {
+		var kind, position, domain string
+		var low, high *float64
+		if err := rows.Scan(&e.Name, &kind, &position, &e.Type, &e.Required, &e.Populated, &e.Deprecated,
+			&domain, &low, &high, &e.NotNull, &e.Unique); err != nil {
 			return nil, fmt.Errorf("contract: reading an element of %s: %w", versionID, err)
+		}
+		e.Kind, e.Position, e.Domain = ElementKind(kind), Position(position), DomainNames(domain)
+		if low != nil && high != nil {
+			e.Range = &Range{Low: *low, High: *high}
 		}
 		read = append(read, e)
 	}

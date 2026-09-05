@@ -33,7 +33,10 @@ import (
 )
 
 var (
-	owner              = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+	owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+	// approver is the human at a gate row that decides a withdrawal, which is
+	// routed away from whoever wrote it.
+	approver           = record.Actor{Kind: record.KindHuman, Key: "person:approver", Basis: record.BasisClaimed}
 	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
 )
 
@@ -49,6 +52,7 @@ type installed struct {
 	factory  *policy.Factory
 	reader   *policy.Reader
 	settings factorysettings.Settings
+	project  project.Project
 	prod     environment.Environment
 	service  service.Service
 	area     area.Area
@@ -62,10 +66,15 @@ func (i installed) subjects(row string) policy.Subjects {
 	return policy.Subjects{
 		GateRow:       row,
 		EnvironmentID: i.prod.ID,
+		ProjectID:     i.project.ID,
 		ServiceID:     i.service.ID,
 		AreaID:        i.area.ID,
 		Stage:         item.StageImplementation,
 		Quantity:      string(gatepolicy.QuantityErrorRate),
+		// Duty 9 is the owner's own, which is the duty a safeguard's rows
+		// route to; the review sample rate is one value per duty and a read
+		// naming none finds nothing authored.
+		Duty: 9,
 	}
 }
 
@@ -108,23 +117,25 @@ func newFactory(t *testing.T) (context.Context, installed) {
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	prj, err := project.NewWriter(pool, token).Create(ctx, owner, "storefront")
+	created, _, err := factory.CreateProject(ctx, owner, "storefront", []string{"/srv/storefront"}, credential)
 	if err != nil {
 		t.Fatalf("creating the project: %v", err)
 	}
+	prj := created.Project
 	svc, err := service.NewWriter(pool, token).Create(ctx, decompositionActor, "checkout", "/repos/checkout", prj.ID)
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
-	ar, err := area.NewWriter(pool, token).Declare(ctx, owner, "payments", area.InsideProject(prj.ID), area.Hazard{})
+	ar, _, err := factory.DeclareArea(ctx, owner, "payments", area.InsideProject(prj.ID), area.Hazard{})
 	if err != nil {
 		t.Fatalf("declaring the area: %v", err)
 	}
 	return ctx, installed{
 		// The reader is composed with the version in force, which is what a run
 		// does: the supplied half of every value is a field of that version.
-		pool: pool, token: token, factory: factory, reader: policy.NewReader(pool, scoreVersion(t, ctx, pool, token)),
-		settings: install.Settings, prod: install.Production, service: svc, area: ar,
+		pool: pool, token: token, factory: factory,
+		reader:   policy.NewReader(pool, token, scoreVersion(t, ctx, pool, token)),
+		settings: install.Settings, project: prj, prod: install.Production, service: svc, area: ar,
 	}
 }
 
@@ -138,6 +149,16 @@ func inSchema(t *testing.T, base, schema string) string {
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
+}
+
+// newestVersion is the policy version in force, read as the owner.
+func newestVersion(t *testing.T, ctx context.Context, in installed) policy.Version {
+	t.Helper()
+	version, err := in.reader.Newest(ctx, owner)
+	if err != nil {
+		t.Fatalf("Newest: %v", err)
+	}
+	return version
 }
 
 func effectiveOf(t *testing.T, all []policy.Effective, parameter gatepolicy.Parameter) policy.Effective {
@@ -168,7 +189,7 @@ func startingValue(t *testing.T, parameter gatepolicy.Parameter) float64 {
 // firing a threshold from a version its own decision row does not name.
 func scoreVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) score.Version {
 	t.Helper()
-	version, err := score.NewWriter(pool, token).Ensure(ctx, record.Actor{Kind: record.KindComponent, Key: "score"})
+	version, err := score.NewWriter(pool, token, score.NoMarks{}).Ensure(ctx, record.Actor{Kind: record.KindComponent, Key: "score"})
 	if err != nil {
 		t.Fatalf("ensuring the score version: %v", err)
 	}

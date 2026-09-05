@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -29,18 +30,28 @@ var (
 	ErrClearedByEmpty = errors.New("driftdetector: a mismatch is cleared by a named human")
 )
 
-// Mismatch is one disagreement between what a production target runs and what the
-// factory recorded as that service's current release.
+// Mismatch is one disagreement: either what a production target runs against
+// what the factory recorded as that service's current release ([Kind] is
+// [MismatchKindTarget]), or the log's chain no longer holding the head this
+// store recorded last pass ([Kind] is [MismatchKindChain]).
 type Mismatch struct {
 	ID    string
 	Actor record.Actor
 	At    string
+	// Kind is which of the two this is. A target mismatch names ServiceID
+	// and Target; a chain mismatch names neither, because it holds every
+	// service's production deploys at once.
+	Kind string
 	// ServiceID and Target are what disagreed: the service, and the address the
 	// drift detector read. The target is named rather than the environment,
 	// which is the stronger check — a deploy record per target would let three
-	// targets disagree with a fourth and call each of them right.
+	// targets disagree with a fourth and call each of them right. Both are
+	// empty on a [MismatchKindChain] mismatch.
 	ServiceID string
 	Target    string
+	// Detail is the chain mismatch's own words, and is empty on a target
+	// mismatch, which composes [Mismatch.Why] from the other fields instead.
+	Detail string
 	// RunningBuild is what the target said it runs, and is empty where it runs
 	// nothing at all — which is a mismatch like any other against a factory that says
 	// a release is live.
@@ -66,6 +77,9 @@ func (m Mismatch) Cleared() bool { return m.ClearedAt != "" }
 // composed here rather than stored, because every part of it is a field and a stored
 // sentence would be a second copy able to disagree with them.
 func (m Mismatch) Why() string {
+	if m.Kind == MismatchKindChain {
+		return HoldWords + ": " + m.Detail
+	}
 	running := "nothing"
 	if m.RunningBuild != "" {
 		running = "build " + m.RunningBuild
@@ -83,8 +97,10 @@ func (m Mismatch) Why() string {
 // constant for the hold names the condition rather than one instance of it.
 const HoldWords = "the drift detector found a record disagreeing with what runs"
 
-// LastCheck is the last check of one service on one target, overwritten each
-// pass.
+// LastCheck is the last check of one production target, overwritten each
+// pass. ServiceID is kept for reference; the record is one per target and
+// not one per service and target, 08-drift-detection.md:33's "the last
+// check per production target".
 type LastCheck struct {
 	ID                string
 	Actor             record.Actor
@@ -97,6 +113,33 @@ type LastCheck struct {
 	RecordedReleaseID string
 	RecordedBuildID   string
 	Agreed            bool
+	// DigestReported is whether the target answered the first comparison's
+	// digest read at all. False is not disagreement — the last check
+	// records it so a target the comparison cannot reach is listed rather
+	// than read as agreeing.
+	DigestReported bool
+	// Interval is what this pass promises the next one within, and
+	// FurtherPassOwed is whether a further pass is still owed over this
+	// target — the same two fields every last check in the factory carries,
+	// so a stopped detector is visible the way a stopped factory component
+	// is.
+	Interval        time.Duration
+	FurtherPassOwed bool
+}
+
+// Stale is whether this record has missed a pass as of now: past the
+// interval it names, with a further pass owed. It mirrors
+// lastcheck.LastCheck.Stale for the one last check this store keeps outside
+// the factory.
+func (c LastCheck) Stale(now time.Time) (bool, error) {
+	if !c.FurtherPassOwed {
+		return false, nil
+	}
+	checked, err := record.ParseTime(c.At)
+	if err != nil {
+		return false, fmt.Errorf("driftdetector: the time on %s: %w", c.ID, err)
+	}
+	return now.After(checked.Add(c.Interval)), nil
 }
 
 // Pass is one comparison the drift detector performed, as its caller hands
@@ -113,16 +156,42 @@ type Pass struct {
 	RunningBuild      string
 	RecordedReleaseID string
 	RecordedBuildID   string
+	// RunningDigest and RecordedDigest are the first comparison's own: the
+	// digest of the artifact the target reports running, against the
+	// digest the release's build names for the artifact the build runner
+	// produced. RunningDigest empty means the target reported none, and the
+	// comparison falls back to the build id alone.
+	RunningDigest  string
+	RecordedDigest string
 	// Excused is a running build the caller says an open window accounts for, as the
 	// release under watch or as the control that window's deploy record names. Set, it
 	// makes a disagreement no mismatch. doc.go says why nothing sets it here.
 	Excused bool
+	// Interval and LastPass are this pass's own last check fields: the
+	// interval the next pass is promised within, and whether the writer
+	// says no further pass is owed over this target.
+	Interval time.Duration
+	LastPass bool
 }
 
-// Agreed reports whether the target runs what the factory recorded. An unreached
-// target agrees with nothing and disagrees with nothing, which is why [Writer.Record]
-// asks Reached first.
-func (p Pass) Agreed() bool { return p.Excused || p.RunningBuild == p.RecordedBuildID }
+// Agreed reports whether the target runs what the factory recorded. An
+// unreached target agrees with nothing and disagrees with nothing, which is
+// why [Writer.Record] asks Reached first. Where both sides report a digest
+// the comparison is the digest's — a name says which build a target should
+// run and a digest says whether the bytes there are that build's — and where
+// either side reports none it falls back to the build id alone.
+func (p Pass) Agreed() bool {
+	if p.Excused {
+		return true
+	}
+	if p.RunningBuild != p.RecordedBuildID {
+		return false
+	}
+	if p.RunningDigest != "" && p.RecordedDigest != "" {
+		return p.RunningDigest == p.RecordedDigest
+	}
+	return true
+}
 
 func (p Pass) validate() error {
 	if p.ServiceID == "" || p.Target == "" {
@@ -130,6 +199,9 @@ func (p Pass) validate() error {
 	}
 	if !p.Reached && p.Why == "" {
 		return fmt.Errorf("%w: an unreached target says why", ErrPassIncomplete)
+	}
+	if p.Interval <= 0 {
+		return fmt.Errorf("%w: a pass names the interval the next one is promised within", ErrPassIncomplete)
 	}
 	return nil
 }
@@ -183,19 +255,26 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 		RecordedReleaseID: p.RecordedReleaseID,
 		RecordedBuildID:   p.RecordedBuildID,
 		Agreed:            agreed,
+		DigestReported:    p.RunningDigest != "",
+		Interval:          p.Interval,
+		FurtherPassOwed:   !p.LastPass,
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+LastCheckTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, reached, why,
-		 running_build, recorded_release_id, recorded_build_id, agreed)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		on conflict (service_id, target) do update set
-			at = excluded.at, reached = excluded.reached, why = excluded.why,
+		 running_build, recorded_release_id, recorded_build_id, agreed, digest_reported, interval_seconds, further_pass_owed)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		on conflict (target) do update set
+			at = excluded.at, service_id = excluded.service_id, reached = excluded.reached, why = excluded.why,
 			running_build = excluded.running_build,
 			recorded_release_id = excluded.recorded_release_id,
 			recorded_build_id = excluded.recorded_build_id,
-			agreed = excluded.agreed`,
+			agreed = excluded.agreed,
+			digest_reported = excluded.digest_reported,
+			interval_seconds = excluded.interval_seconds,
+			further_pass_owed = excluded.further_pass_owed`,
 		c.ID, FormatVersionLastCheck, string(c.Actor.Kind), c.Actor.Key, string(c.Actor.Basis), c.At, c.ServiceID, c.Target,
 		c.Reached, c.Why, c.RunningBuild, c.RecordedReleaseID, c.RecordedBuildID, c.Agreed,
+		c.DigestReported, int64(c.Interval/time.Second), c.FurtherPassOwed,
 	)
 	if err != nil {
 		return Recorded{}, fmt.Errorf("driftdetector: recording the last check of %s on %s: %w",
@@ -222,6 +301,7 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 			ID:                record.NewID(MismatchIDPrefix),
 			Actor:             Actor,
 			At:                record.Now(),
+			Kind:              MismatchKindTarget,
 			ServiceID:         p.ServiceID,
 			Target:            p.Target,
 			RunningBuild:      p.RunningBuild,
@@ -229,10 +309,10 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 			RecordedBuildID:   p.RecordedBuildID,
 		}
 		_, err := w.pool.Exec(ctx, `insert into `+MismatchTable+`
-			(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, running_build,
-			 recorded_release_id, recorded_build_id, later_agreements, cleared_at, cleared_by)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, '', '')`,
-			m.ID, FormatVersionMismatch, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At, m.ServiceID, m.Target,
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, running_build,
+			 recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '', 0, '', '')`,
+			m.ID, FormatVersionMismatch, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At, m.Kind, m.ServiceID, m.Target,
 			m.RunningBuild, m.RecordedReleaseID, m.RecordedBuildID,
 		)
 		if err != nil {
@@ -241,6 +321,34 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 		recorded.Raised = m.ID
 	}
 	return recorded, nil
+}
+
+// RaiseChainMismatch is the second comparison's own write: the log's chain no
+// longer holds the head this store recorded last pass, extended and nothing
+// else. It holds every service's production deploys and not one, so it names
+// neither — [MismatchKindChain] — and a chain mismatch already standing is
+// left alone rather than raised twice.
+func (w *Writer) RaiseChainMismatch(ctx context.Context, why string) (string, error) {
+	standing, err := UnclearedChain(ctx, w.pool)
+	if err != nil {
+		return "", err
+	}
+	if len(standing) > 0 {
+		return "", nil
+	}
+	m := Mismatch{
+		ID: record.NewID(MismatchIDPrefix), Actor: Actor, At: record.Now(), Kind: MismatchKindChain, Detail: why,
+	}
+	_, err = w.pool.Exec(ctx, `insert into `+MismatchTable+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, running_build,
+		 recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by)
+		values ($1, $2, $3, $4, $5, $6, $7, '', '', '', '', '', $8, 0, '', '')`,
+		m.ID, FormatVersionMismatch, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At, m.Kind, why,
+	)
+	if err != nil {
+		return "", fmt.Errorf("driftdetector: raising a chain mismatch: %w", err)
+	}
+	return m.ID, nil
 }
 
 // Clear is a human at the drift detector clearing one mismatch. It is here

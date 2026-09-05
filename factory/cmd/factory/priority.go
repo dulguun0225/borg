@@ -40,7 +40,10 @@ func priorityCommand(args []string) error {
 	}
 
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		actor := owner(*human)
+		actor, err := humanNamed(ctx, pool, token, *human)
+		if err != nil {
+			return err
+		}
 		it, err := item.NewDispatch(pool, token).SetPriority(ctx, actor, id, *priority)
 		if err != nil {
 			return err

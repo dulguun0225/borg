@@ -43,6 +43,17 @@ const providers = "openrouter, anthropic"
 // takes it: an install with one project needs never name it.
 const defaultProjectName = "default"
 
+// factoryVersion is which build of the factory this binary is, named beside the
+// extractor on every derivation: an upgrade that ships a changed extractor
+// derives again for every release in force on that toolchain, and the factory
+// version is half of what that comparison reads.
+//
+// It is a constant and nothing stamps this binary with one, so what it costs is
+// that two builds of the factory carrying two extractors would name one version
+// and the comparison would find nothing changed. The identity the design gives a
+// shipped bundle is not built.
+const factoryVersion = "unstamped"
+
 // modelCredentialNameFor is the credential name [newModel] resolved the
 // model through, carried onto every agentrun record this run writes.
 func modelCredentialNameFor(provider string) string {
@@ -135,7 +146,7 @@ func main() {
 	}
 }
 
-// subcommands is what the crude interface offers, in the order the usage message
+// subcommands is what the command-line interface offers, in the order the usage message
 // lists them. run and walk are the path and the link walk; watch is the health monitor,
 // which is the one thing that closes a analysis window; learn is the score's own pass
 // over the outcomes; approve is the emergency action at the production deploy row;
@@ -258,7 +269,7 @@ func (s *serviceFlag) Set(value string) error {
 // statements is -intent given more than once, one intent per decomposition. It is a
 // repeated flag rather than a count, because what a run needs per decomposition is the
 // statement itself: two candidates at once is the whole of what an environment per
-// candidate buys, and one flag per intent is how the crude interface says it.
+// candidate buys, and one flag per intent is how the command-line interface says it.
 //
 // An intent that changes more than one service names them before the statement,
 // comma separated and then a colon — which is this interface being told what
@@ -332,7 +343,7 @@ func runCommand(args []string) error {
 	var raw stringList
 	flags.Var(&raw, "intent", "an intent's statement, given once per decomposition; `svcA,svcB: statement` decomposes one item per service named, each waiting on the one before it")
 	pace := flags.Duration("pace", 2*time.Second, "the least time between two model calls; 0 sends them back to back")
-	ceiling := flags.Int("candidate-environments", 8, "how many candidate environments this substrate has room for at once; a candidate that meets it waits, and the wait is written into the log")
+	ceiling := flags.Int("candidate-environments", 8, "how many candidate environments this platform has room for at once; a candidate that meets it waits, and the wait is written into the log")
 	watchFor := flags.Duration("watch", time.Minute, "how long to watch this run's own windows before leaving what is open, open; `factory watch` continues from there")
 	watchEvery := flags.Duration("watch-every", time.Second, "how often to read the quantity while watching")
 	if err := flags.Parse(args); err != nil {
@@ -455,7 +466,11 @@ func walkCommand(args []string) error {
 		return err
 	}
 	defer stopLease()
-	return walk(ctx, pool, os.Stdout, token, owner(*human), id)
+	actor, err := humanNamed(ctx, pool, token, *human)
+	if err != nil {
+		return err
+	}
+	return walk(ctx, pool, os.Stdout, token, actor, id)
 }
 
 // stringList is a repeated flag whose values are read later, because reading one

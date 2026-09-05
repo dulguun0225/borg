@@ -418,3 +418,32 @@ func TestACorrectionAttachesAndAsksAgain(t *testing.T) {
 		t.Errorf("Correct on the factory's own = %v, want ErrNoRequester", err)
 	}
 }
+
+// TestTheConfirmingRoundKeepsADetectorsTier: a detector's intent arrives with
+// its tier and is refused one at the confirming round, so the round that
+// enumerates its requirements has no tier to write and must leave the one the
+// arrival wrote where it is.
+func TestTheConfirmingRoundKeepsADetectorsTier(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+	own := raised(t, ctx, in, crossing, "Revert release 9 of checkout.")
+	if own.Tier != (intent.Tier{Value: 1, PolicyVersion: "pv_1"}) {
+		t.Fatalf("the arrival wrote tier %+v, want 1 under pv_1", own.Tier)
+	}
+
+	if _, err := in.Confirm(ctx, intake, intent.Confirmation{
+		IntentID: own.ID,
+		Requirements: []intent.NewRequirement{
+			{Statement: "When a charge fails, the system shall retry it once."},
+		},
+	}); err != nil {
+		t.Fatalf("Confirm on the factory's own: %v", err)
+	}
+
+	read, err := intent.Get(ctx, pool, own.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Tier != own.Tier {
+		t.Errorf("the tier after the round is %+v, want the arrival's %+v", read.Tier, own.Tier)
+	}
+}

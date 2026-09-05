@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
@@ -16,14 +18,15 @@ import (
 	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/policy"
-	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
@@ -37,7 +40,7 @@ import (
 // composition to keep in step with it.
 func compose(ctx context.Context, d deps) (*path, error) {
 	if d.candidateCeiling < 1 {
-		return nil, fmt.Errorf("factory: the substrate's room for candidate environments is %d, and a run needs one",
+		return nil, fmt.Errorf("factory: the platform's room for candidate environments is %d, and a run needs one",
 			d.candidateCeiling)
 	}
 	if len(d.services) == 0 {
@@ -50,16 +53,22 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// decision's own row does not name. This is also where the score learns — the
 	// ensure computes the supplied table from every outcome in the store and appends
 	// a version where it has moved.
-	scoreVersion, err := score.NewWriter(d.pool, d.token).Ensure(ctx, scoreActor)
+	marks := marksOf(d.pool)
+	scoreVersion, err := score.NewWriter(d.pool, d.token, marks).Ensure(ctx, scoreActor)
+	if err != nil {
+		return nil, err
+	}
+
+	human, err := humanNamed(ctx, d.pool, d.token, d.human)
 	if err != nil {
 		return nil, err
 	}
 
 	p := &path{
 		d:             d,
-		human:         record.Actor{Kind: record.KindHuman, Key: "person:" + d.human, Basis: record.BasisClaimed},
+		human:         human,
 		lines:         bufio.NewScanner(d.in),
-		policy:        policy.NewReader(d.pool, scoreVersion),
+		policy:        policy.NewReader(d.pool, d.token, scoreVersion),
 		log:           decisionlog.NewWriter(d.pool, d.token),
 		store:         artifact.NewStore(d.pool, d.token),
 		intake:        intent.NewIntake(d.pool, d.token),
@@ -67,6 +76,8 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		dispatch:      item.NewDispatch(d.pool, d.token),
 		builds:        build.NewWriter(d.pool, d.token),
 		deploys:       deploy.NewWriter(d.pool, d.token),
+		checks:        lastcheck.NewWriter(d.pool, d.token),
+		factory:       policy.NewFactory(d.pool, d.token),
 		byItem:        map[string]*candidate{},
 		authored:      map[string]bool{},
 		serviceByID:   map[string]service.Service{},
@@ -78,7 +89,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// same event, an owner not choosing production because it exists
 	// everywhere. This ensures all three as the owner and takes the policy
 	// version in force from it.
-	installed, err := policy.NewFactory(d.pool, d.token).Install(ctx, p.human, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
+	installed, err := p.factory.Install(ctx, p.human, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
 	if err != nil {
 		return nil, err
 	}
@@ -97,27 +108,77 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	} else {
 		fmt.Fprintln(d.out, "No drift detector is installed, so every check this factory makes reads a record it wrote itself")
 	}
-	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion, d.draw, d.token), p.policy, mismatches)
-	p.queue = mergequeue.New(d.pool, d.token, p.log, release.NewWriter(d.pool, d.token), p.dispatch, p)
-	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
-		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
-
-	// The notifier and the health monitor. The notifier is composed with the owner's
-	// name because a page widens to the owner and the design gives the owner no record;
-	// the health monitor is composed with this same value as its rollbacker, the deploy
-	// agent being what reaches a target.
+	// The notifier first: the gate reaches a human through it for an
+	// acknowledgement and for the wait an escalation leaves, so it exists before
+	// the gate does. It is composed with the owner's name because a page widens
+	// to the owner and the design gives the owner no record.
 	p.notifier, err = notifier.New(d.pool, p.log, d.token, terminal{out: d.out}, d.human)
 	if err != nil {
 		return nil, err
 	}
-	p.healthMonitor, err = healthmonitor.New(d.pool, window.NewWriter(d.pool, d.token), incident.NewWriter(d.pool, d.token),
-		p.intake, p.policy, p.notifier, signalFiles{dir: d.dir}, p)
+
+	p.gate = gate.New(gate.Composition{
+		Pool:          d.pool,
+		Token:         d.token,
+		Log:           p.log,
+		Score:         score.New(d.pool, scoreVersion, d.draw, marks, d.token),
+		Policy:        p.policy,
+		Holds:         p,
+		DriftDetector: mismatches,
+		IntentState:   p.intentState,
+		HumanName:     p.nameOfKey,
+		Draw:          d.draw,
+		Notifier:      gateNotifier{notifier: p.notifier},
+		Dispatch:      p.dispatch,
+	})
+
+	// The queue. It reaches the repository and the candidate environments through
+	// this same value, which is the deployer, and it is composed without three
+	// readings the design gives it: the health monitor's store, which a mint
+	// takes its second number from, the design system constraint records, and
+	// what waits behind a rollback hold. Each is named with the value the package
+	// exposes for a factory composed without it, so the composition says which
+	// ones it is without rather than passing nothing.
+	p.queue = mergequeue.New(mergequeue.Composition{
+		Pool:         d.pool,
+		Token:        d.token,
+		Log:          p.log,
+		Releases:     release.NewWriter(d.pool, d.token),
+		Repository:   p,
+		Numbers:      mergequeue.NoNumbersSeen{},
+		DesignSystem: mergequeue.EveryMoveDiffers{},
+		Backlog:      mergequeue.NoBacklog{},
+	})
+	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
+		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
+
+	// The health monitor. It reads the quantity through the file each deployed
+	// process emits into and reaches a target through this same value, the
+	// deployer being what reaches one. The builder is nil: the search that would
+	// use it is not built.
+	//
+	// The reading against a service's own recent past is composed with a size and
+	// a run length here, the service record's fields for them not being built and
+	// the score supplying no value for either: ownHistorySize and
+	// ownHistoryRunLength say what each is and why it is that number. The
+	// explicit threshold is still composed with no run length, so it never
+	// crosses — its number is the service's objective and nothing here authors
+	// one.
+	p.healthMonitor, err = healthmonitor.New(d.pool, window.NewWriter(d.pool, d.token),
+		incident.NewWriter(d.pool, d.token), p.checks, p.intake, p.policy, p.notifier,
+		signalFiles{dir: d.dir}, p, nil, mismatches, healthmonitor.Readings{
+			OwnHistorySize:      ownHistorySize(),
+			OwnHistoryRunLength: ownHistoryRunLength,
+			Interval:            intervalResolution,
+			PassInterval:        atLeastASecond(d.watchEvery),
+		})
 	if err != nil {
 		return nil, err
 	}
-	// Enforcement. The checkout and the run it observes are both this same value,
-	// the deploy agent being what reaches a repository and a target.
-	p.contracts, err = contractcheck.New(d.pool, p.policy, p.intake, p, p)
+	// Enforcement. The checkout, the run it observes, the candidate's own store
+	// and a backfill's completion are all this same value, the deployer being
+	// what reaches a repository and a target.
+	p.contracts, err = contractcheck.New(d.pool, p.policy, p.intake, p, p, p, p)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +222,100 @@ func (p *path) serviceOf(ctx context.Context, serviceID string) (service.Service
 	return svc, nil
 }
 
+// runsOnProduction authors production's targets on a service that names none,
+// which is an owner's write and is made as the owner at this terminal: -targets
+// is what this interface calls production's addresses, and a service installed
+// here runs on all of them. It is authored once — a service already naming
+// targets is left as it is, an owner having said which it runs on.
+//
+// It matters beyond the record saying so. What is running is read per target
+// against the addresses a deploy recorded its completion on, so a service naming
+// none is a service whose current deploy no reader can find: the analysis window
+// stands the environment in for the whole set at the open, and the reading after
+// a window has closed has no such fallback and would find nothing running.
+func (p *path) runsOnProduction(ctx context.Context, svc service.Service) (service.Service, error) {
+	addresses := p.production.Addresses()
+	if len(svc.Targets) > 0 || len(addresses) == 0 {
+		return svc, nil
+	}
+	if _, err := p.factory.SetServiceTargets(ctx, p.human, svc.ID, addresses, addresses); err != nil {
+		return service.Service{}, err
+	}
+	read, found, err := service.ByName(ctx, p.d.pool, svc.Name)
+	if err != nil {
+		return service.Service{}, err
+	}
+	if !found {
+		return svc, nil
+	}
+	return read, nil
+}
+
+// ownHistoryRunLength is how many intervals a service whose behaviour has not
+// changed runs before the reading against its own recent past crosses it once.
+// A thousand intervals of the resolution emission.go fixes is under a minute of
+// a busy service and is deliberately the loose end: this reading has no control
+// moving with it, so everything that moves both arms together — a dependency
+// slowing down, a host filling up — reads here as the release having changed,
+// and a rate tight enough to catch a small regression would raise an intent for
+// every one of them.
+//
+// It is also what keeps this reading looser than the comparison beside it: the
+// comparison is read at the confidence an owner authored and this at a run
+// length, so a release inside its window is failed by the comparison and read
+// here only where the comparison found nothing.
+const ownHistoryRunLength = 1000
+
+// ownHistorySize is the smallest change in each quantity the reading against a
+// service's own recent past has to detect: the value the score supplies for the
+// analysis window's size, for every quantity the shipped emission version
+// carries. The two readings are about the same thing at the same scale — the
+// smallest regression worth catching — and the difference between them is the
+// arm each reads against, so a second number here would be a second answer to
+// one question.
+//
+// It is the supplied value and not the value in force on the service: the value
+// in force is authored per service and this is composed once, before any service
+// exists. What that costs is a service whose owner authored a coarser window size
+// being read here at the finer one.
+func ownHistorySize() map[gatepolicy.Quantity]float64 {
+	supplied, ok := score.Starting(gatepolicy.WindowSize)
+	if !ok {
+		return nil
+	}
+	sizes := map[gatepolicy.Quantity]float64{}
+	for _, quantity := range gatepolicy.Quantities {
+		sizes[quantity] = supplied.Value
+	}
+	return sizes
+}
+
+// atLeastASecond is an interval a last check can carry. The record stores whole
+// seconds — an interval shorter than one is refused rather than rounded to
+// nothing — and this interface reads as often as -watch-every says, which a test
+// sets below a second. Rounding up is the honest direction: the interval is what
+// a reader holds a check's age against, and a longer one says stopped later
+// rather than sooner.
+func atLeastASecond(every time.Duration) time.Duration {
+	if every < time.Second {
+		return time.Second
+	}
+	return every
+}
+
+// productionAddresses is the addresses of production's targets, in the
+// environment's order. It is what every read of what is running is performed
+// against: a release is current when its deploy is marked complete on every one
+// of them, so a producer deployed to three targets of four is not current and
+// holds its consumer until the fourth lands.
+func (p *path) productionAddresses() []string {
+	addresses := make([]string, 0, len(p.production.Targets))
+	for _, target := range p.production.Targets {
+		addresses = append(addresses, target.Address)
+	}
+	return addresses
+}
+
 // subjectsFor is what a policy read about one candidate is performed against: the item's
 // service and the area of this run. The service is empty on a first item of a service —
 // the spec is authored before decomposition writes the record — so a safeguard on a
@@ -196,13 +351,17 @@ func (p *path) deployOrder(ctx context.Context, svc service.Service, candidates 
 	if err != nil || !found {
 		return minted, err
 	}
+	revertIntentID, err := revertIntentOf(ctx, p, svc, rollback)
+	if err != nil {
+		return nil, err
+	}
 	reverts, rest := []*candidate{}, []*candidate{}
 	for _, c := range minted {
 		it, err := item.Get(ctx, p.d.pool, c.itemID)
 		if err != nil {
 			return nil, err
 		}
-		if it.IntentID != "" && it.IntentID == rollback.Undoing.RevertIntentID {
+		if it.IntentID != "" && it.IntentID == revertIntentID {
 			reverts = append(reverts, c)
 			continue
 		}
@@ -222,13 +381,17 @@ func (p *path) deployOrder(ctx context.Context, svc service.Service, candidates 
 // promise, and holding it in force would reject every candidate decomposed in parallel
 // with the one that introduced it.
 //
-// itemID is empty where the caller wants what the service already promises rather
-// than what a build is decided against, which is what the spec author is told.
-func (p *path) inForceFor(ctx context.Context, svc service.Service, itemID string) ([]criterion.Criterion, error) {
+// of is the items whose branches the build carries, and is empty where the caller
+// wants what the service already promises rather than what a build is decided
+// against, which is what the spec author is told. It is a list and not one id
+// because a re-verification builds the candidate onto every candidate ahead of
+// it in the queue: what that tree carries is those items' work too, so their
+// criteria are in force for it.
+func (p *path) inForceFor(ctx context.Context, svc service.Service, of []string) ([]criterion.Criterion, error) {
 	if svc.ID == "" {
 		return nil, nil
 	}
-	ids, err := p.itemsInBuild(ctx, svc.ID, itemID)
+	ids, err := p.itemsInBuild(ctx, svc.ID, of)
 	if err != nil {
 		return nil, err
 	}
@@ -236,12 +399,12 @@ func (p *path) inForceFor(ctx context.Context, svc service.Service, itemID strin
 }
 
 // itemsInBuild is a build's set of items: the ones merged into the repository
-// it was made from, plus itemID, the item whose branch it is — empty where
+// it was made from, plus the items whose branches it carries — empty where
 // the caller wants what the service already promises rather than what a
 // build is decided against. It is what [path.inForceFor] and the encoding
 // check's withdrawn-criteria read both filter by, so the two agree on which
 // build they mean.
-func (p *path) itemsInBuild(ctx context.Context, serviceID, itemID string) ([]string, error) {
+func (p *path) itemsInBuild(ctx context.Context, serviceID string, of []string) ([]string, error) {
 	merged, err := item.AtStage(ctx, p.d.pool, serviceID, item.StageMerged)
 	if err != nil {
 		return nil, err
@@ -250,8 +413,10 @@ func (p *path) itemsInBuild(ctx context.Context, serviceID, itemID string) ([]st
 	for _, it := range merged {
 		ids = append(ids, it.ID)
 	}
-	if itemID != "" {
-		ids = append(ids, itemID)
+	for _, itemID := range of {
+		if itemID != "" && !slices.Contains(ids, itemID) {
+			ids = append(ids, itemID)
+		}
 	}
 	return ids, nil
 }

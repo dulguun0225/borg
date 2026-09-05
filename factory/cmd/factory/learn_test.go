@@ -11,7 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// The milestone's demonstration through the crude interface: an item held out of a
+// The milestone's demonstration through the command-line interface: an item held out of a
 // gate the score would have gated, and a supplied value moving because the
 // outcomes of an earlier run moved it. What the rules are is score's own
 // demonstration; this is that the path obeys them.
@@ -27,25 +27,33 @@ func (alwaysDraw) Fraction() float64 { return 0 }
 // human at a row the number gated, the close event saying the sample and not the
 // threshold, and the window over its release running to the cap because the
 // factory is measuring what it guessed at.
+//
+// One verdict is typed and it is at the production deploy row. The sample takes a
+// human off a row the number gated and off no other, and on a service's first
+// release that row has a human for a second reason: the deployer's four
+// reachability fields are written at the first release, so until it lands the
+// measurement they exist for cannot be read and package gate puts a human there
+// whatever the score computed. That is the gate's own rule and not the score's,
+// which is why this asserts it per row rather than over all three.
 func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer)
+	ctx, d, out := newPath(t, theAnswer+"\napprove\n")
 	d.draw = alwaysDraw{}
 
 	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
-		t.Fatalf("the run stopped, and a held-out item needs no verdict typed: %v\noutput so far:\n%s", err, out)
+		t.Fatalf("the run stopped: %v\noutput so far:\n%s", err, out)
 	}
 	c := only(t, res)
 
-	// Every row of the item is held out, and the row that put no human there is the
-	// one the number would have gated.
+	// Every row of the item is held out, and the rows the sample decides put no
+	// human there.
 	gated := 0
 	for _, fired := range []fired{c.candidateGate, c.mergeGate, c.deployGate} {
 		if !fired.heldOut {
 			t.Errorf("the %s row does not say the item is held out", fired.row)
 			continue
 		}
-		if fired.humanDecided {
+		if fired.humanDecided && fired.row.Kind != gate.KindDeployToProduction {
 			t.Errorf("a human decided the %s row of a held-out item", fired.row)
 		}
 		if fired.number >= fired.threshold {
@@ -54,6 +62,16 @@ func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
 	}
 	if gated == 0 {
 		t.Fatalf("no row of this item read over its threshold, so nothing was held out of anything:\n%s", out)
+	}
+
+	// The production row's human is the unmeasured service and nothing the score
+	// decided: no mark is on the firing, and the open event names what is missing.
+	if !c.deployGate.humanDecided || len(c.deployGate.marks) != 0 {
+		t.Errorf("the production row says human %v with marks %v, want a human and no mark on it",
+			c.deployGate.humanDecided, c.deployGate.marks)
+	}
+	if payload := openingOf(t, ctx, d, c.deployGate.opening); payload.Unmeasured == "" {
+		t.Errorf("the production row names nothing unmeasured, and a first release has no reachability recorded yet")
 	}
 
 	// The first row was selected here and the ones below it were selected earlier:
@@ -110,11 +128,11 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	rollBackABadRelease(ctx, t, d, out)
 
-	before, found, err := score.Newest(ctx, d.pool)
+	before, found, err := score.Newest(ctx, d.pool, d.token)
 	if err != nil || !found {
 		t.Fatalf("Newest = found %v, %v", found, err)
 	}
-	learned, err := score.Learn(ctx, d.pool, d.token)
+	learned, err := score.Learn(ctx, d.pool, d.token, marksOf(d.pool))
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
@@ -124,7 +142,7 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	start, _ := score.Starting(gatepolicy.RiskThreshold)
 	moved := 0
 	for _, row := range gate.Rows {
-		threshold, ok := learned.Value(gatepolicy.RiskThreshold, string(row))
+		threshold, ok := learned.Supplied.Value(gatepolicy.RiskThreshold, row.String())
 		if !ok {
 			t.Fatalf("the score supplies no threshold for %s", row)
 		}
@@ -159,16 +177,16 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	if after.mergeGate.scoreVersion == before.ID {
 		t.Error("the run after the rollback was decided under the version the rollback taught, unmoved")
 	}
-	appended, err := score.Get(ctx, d.pool, after.mergeGate.scoreVersion)
+	appended, err := score.Get(ctx, d.pool, d.token, after.mergeGate.scoreVersion)
 	if err != nil {
 		t.Fatalf("reading the version the run named: %v", err)
 	}
 	if appended.Supersedes != before.ID {
 		t.Errorf("the version in force supersedes %q, want %q", appended.Supersedes, before.ID)
 	}
-	if was, err := score.Get(ctx, d.pool, before.ID); err != nil {
+	if was, err := score.Get(ctx, d.pool, d.token, before.ID); err != nil {
 		t.Fatalf("reading the superseded version: %v", err)
-	} else if k, _ := was.Value(gatepolicy.RiskThreshold, string(gate.MergeToMaster)); k.Moved() {
+	} else if k, _ := was.Value(gatepolicy.RiskThreshold, gate.MergeToMaster.String()); k.Moved() {
 		t.Error("the superseded version now says a threshold moved, and an append-only record does not change")
 	}
 
@@ -176,11 +194,11 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	// between them append one version. It is asserted here and not against the
 	// version the run composed, because the run shipped an item after composing —
 	// so the graph moved under it and a version of its own is the right answer.
-	first, err := score.NewWriter(d.pool, d.token).Ensure(ctx, scoreActor)
+	first, err := score.NewWriter(d.pool, d.token, marksOf(d.pool)).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	still, err := score.NewWriter(d.pool, d.token).Ensure(ctx, scoreActor)
+	still, err := score.NewWriter(d.pool, d.token, marksOf(d.pool)).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure again: %v", err)
 	}
@@ -236,7 +254,11 @@ func TestAFactoryThatHasSampledNothingSaysSo(t *testing.T) {
 	}
 
 	printed := &bytes.Buffer{}
-	if err := printHeldOut(ctx, printed, d.pool, d.token); err != nil {
+	learned, err := score.Learn(ctx, d.pool, d.token, marksOf(d.pool))
+	if err != nil {
+		t.Fatalf("Learn: %v", err)
+	}
+	if err := printHeldOut(ctx, printed, d.pool, d.token, learned.Supplied); err != nil {
 		t.Fatalf("printHeldOut: %v", err)
 	}
 	if !strings.Contains(printed.String(), "can fall and cannot rise") {

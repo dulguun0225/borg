@@ -34,13 +34,15 @@ func TestBothSidesOfWhatAConsumerDeclares(t *testing.T) {
 	}
 }
 
-// TestWhichKindsNeedARunToObserve: a domain and a range are about values, on
-// either side, and everything else is decidable against a form alone.
+// TestWhichKindsNeedARunToObserve: the received domain and the received range are
+// about what a producer returns, which is not in its form, so those two need a run
+// to observe. What the consumer sends is decided against what the form accepts.
 func TestWhichKindsNeedARunToObserve(t *testing.T) {
 	for _, k := range PredicateKinds {
 		aboutValues := k == PredicateDomain || k == PredicateRange ||
 			k == PredicateSentDomain || k == PredicateSentRange
-		if k.DecidableAgainstAForm() == aboutValues {
+		needsARun := k == PredicateDomain || k == PredicateRange
+		if k.DecidableAgainstAForm() == needsARun {
 			t.Errorf("%q is decidable against a form: %v", k, k.DecidableAgainstAForm())
 		}
 		// The unit is the third argument-taking kind on the received side, and

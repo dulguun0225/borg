@@ -28,7 +28,7 @@ func TestTheAttemptLimitIsReadThroughTheSameThreeReads(t *testing.T) {
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.AttemptLimit,
 		safeguard.Subject{Kind: safeguard.SubjectStage, ID: "implementation", Key: "implementation"},
-		safeguard.Bound{Number: 4}); err != nil {
+		safeguard.Bound{Number: 4}, safeguard.Routing{}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 	limit, err = in.reader.AttemptLimit(ctx, in.subjects("merge_to_master"))

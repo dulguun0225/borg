@@ -139,7 +139,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	}
 
 	// The deploy happened and a window opened over it.
-	current, running, err := deploy.Current(ctx, d.pool, held.serviceID, held.environmentID)
+	current, running, err := deploy.Current(ctx, d.pool, held.serviceID, held.environmentID, []string{d.dir})
 	if err != nil || !running {
 		t.Fatalf("Current = running %v, %v", running, err)
 	}

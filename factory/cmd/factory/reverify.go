@@ -5,13 +5,13 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/build"
-	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 )
 
-// Reverify is the queue's re-verification, and it is everything the deploy agent
+// Reverify is the queue's re-verification, and it is everything the deployer
 // does for one: master merged into the candidate branch, a build written for the
 // commit that produced, the environment recomposed, that build put on it, and the
 // criteria decided there.
@@ -21,7 +21,7 @@ import (
 // longer compiles, an encoding that is missing after the merge, and a criterion
 // that failed are all that. What comes back as an error is infrastructure: a
 // repository that cannot be read, a record that cannot be written.
-func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified, error) {
+func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (mergequeue.Verified, error) {
 	// The queue's membership is every item of the service at the queued stage, which
 	// is not the same set as the candidates this run authored: a run that stopped
 	// after one Merge to master gate approved leaves an item there, and the next run's queue
@@ -41,7 +41,11 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 		return mergequeue.Verified{}, err
 	}
 
-	head, err := p.masterHead(ctx, c.svc)
+	// Master as the repository has it, not as the records say: the queue read the
+	// two against each other before it asked for this and stopped the service
+	// where they disagreed, so a second comparison here would refuse a
+	// re-verification the queue has already admitted.
+	head, err := masterCommit(c.svc.Repository)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
@@ -60,6 +64,21 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 			return mergequeue.Verified{Why: "merging master into the candidate branch failed: " + firstLines(out)}, nil
 		}
 	}
+	// The speculation: every candidate ahead of this one in the queue's order,
+	// merged into this branch after master, so what is verified is this candidate
+	// against the master that would result if those merged first. A conflict with
+	// one of them is this candidate failing its own re-verification, the same
+	// disposition a conflict with master is.
+	for _, one := range ahead {
+		out, err := git(repo, "merge", "--allow-unrelated-histories",
+			"-m", "merge "+one.Branch+" into "+it.Branch+" for the speculation", one.Branch)
+		if err != nil {
+			_, _ = git(repo, "merge", "--abort")
+			return mergequeue.Verified{Why: "merging " + one.Branch +
+				", which is ahead of this candidate in the queue, failed: " + firstLines(out)}, nil
+		}
+	}
+
 	commit, err := git(repo, "rev-parse", "HEAD")
 	if err != nil {
 		return mergequeue.Verified{}, err
@@ -95,18 +114,22 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 			Why: "the tree does not compile with master merged into it: " + firstLines(err.Error())}, nil
 	}
-	dep, err := deploy.WithoutControl(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
-		c.svc.ID, c.svc.Name, c.environmentID, deploy.OfBuild(bl.ID), p.d.credential)
+	dep, err := p.intoCandidate(ctx, c, bl.ID)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
 	c.candidateDeployID = dep.ID
 
-	inForce, err := p.inForceFor(ctx, c.svc, it.ID)
+	// The criteria the tree is decided against are this item's and every item
+	// ahead of it in the queue: the speculation merged their branches in, so
+	// their encodings are in the build and their criteria are in force for it.
+	// A build holding an encoding for a criterion the set leaves out is what the
+	// encoding check refuses.
+	inForce, err := p.inForceFor(ctx, c.svc, withAhead(it, ahead))
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if err := p.checkEncodings(ctx, repo, c.svc.ID, it.ID, inForce); err != nil {
+	if err := p.checkEncodings(ctx, repo, c.svc.ID, withAhead(it, ahead), inForce); err != nil {
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 			Why: "the criteria and the encodings do not match with master merged in: " + firstLines(err.Error())}, nil
 	}
@@ -126,7 +149,11 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	for _, result := range results {
 		if result.Outcome.Blocks(false) {
 			return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
-				Why: fmt.Sprintf("criterion %s is %s against build %s", result.CriterionID, result.Outcome, bl.ID)}, nil
+				Why:                 fmt.Sprintf("criterion %s is %s against build %s", result.CriterionID, result.Outcome, bl.ID),
+				FailedCriteria:      failedCriteria(results),
+				Composition:         environment.Composition{From: c.composedFrom},
+				ApprovedComposition: environment.Composition{From: c.approvedComposition},
+			}, nil
 		}
 	}
 
@@ -144,9 +171,148 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	}
 	if check := checked.Check(); check != "" {
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
-			Why: check + " with master merged in: " + checked.Why()}, nil
+			Why:                 check + " with master merged in: " + checked.Why(),
+			Composition:         environment.Composition{From: c.composedFrom},
+			ApprovedComposition: environment.Composition{From: c.approvedComposition},
+		}, nil
 	}
-	return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Passed: true, Forms: checked.Publishes}, nil
+	return mergequeue.Verified{
+		Commit: commit, BuildID: bl.ID, Passed: true, Forms: checked.Publishes,
+		Composition:         environment.Composition{From: c.composedFrom},
+		ApprovedComposition: environment.Composition{From: c.approvedComposition},
+	}, nil
+}
+
+// withAhead is the items one re-verified tree carries: this one, and every
+// candidate ahead of it in the queue's order that the speculation merged in.
+func withAhead(it item.Item, ahead []item.Item) []string {
+	ids := make([]string, 0, len(ahead)+1)
+	ids = append(ids, it.ID)
+	for _, one := range ahead {
+		ids = append(ids, one.ID)
+	}
+	return ids
+}
+
+// failedCriteria is the criteria in force this run did not pass, which is what
+// the confirming run is over. A failure no criterion decided — a merge conflict,
+// a breaking contract diff — leaves it empty, and there the queue has no
+// confirming run to make.
+func failedCriteria(results []gate.CriterionResult) []string {
+	var failed []string
+	for _, result := range results {
+		if result.Outcome.Blocks(false) {
+			failed = append(failed, result.CriterionID)
+		}
+	}
+	return failed
+}
+
+// Head is [mergequeue.Repository]: master's head as the version control system
+// holds it, read from the repository and never derived from a record. The queue
+// reads it at every start and before every mint, and it compares it against the
+// records itself — so this answers what git says and makes no comparison of its
+// own.
+func (p *path) Head(ctx context.Context, serviceID string) (string, error) {
+	svc, err := p.serviceOf(ctx, serviceID)
+	if err != nil {
+		return "", err
+	}
+	return masterCommit(svc.Repository)
+}
+
+// Holds is the other direction of the same reading: whether master holds one
+// commit. A release record naming a commit master does not hold is git restored
+// behind the graph, and the queue stops the service on it.
+//
+// A commit the repository does not have at all reads as not held rather than as
+// an error: that is the same fact — master does not hold it — and a restore that
+// removed the object is exactly the case this reading exists for.
+func (p *path) Holds(ctx context.Context, serviceID, commit string) (bool, error) {
+	svc, err := p.serviceOf(ctx, serviceID)
+	if err != nil {
+		return false, err
+	}
+	if _, err := git(svc.Repository, "merge-base", "--is-ancestor", commit, "refs/heads/master"); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+// Confirm is [mergequeue.Repository]: the confirming run. The criteria the
+// re-verification failed are decided once more over that same build and that
+// same composition — once, and never until green — and which of them answered
+// differently is what tells the queue's second reading of a failure from its
+// third.
+//
+// It is the same run the re-verification made, made again: the encodings on the
+// candidate's own environment, over the build the re-verification produced. A
+// criterion that answered a failure and then a pass over one build decided
+// nothing, which is what makes it undecided for the build.
+func (p *path) Confirm(ctx context.Context, it item.Item, verified mergequeue.Verified) (mergequeue.Confirmation, error) {
+	if len(verified.FailedCriteria) == 0 {
+		return mergequeue.Confirmation{}, nil
+	}
+	c, err := p.candidateFor(ctx, it.ID)
+	if err != nil {
+		return mergequeue.Confirmation{}, err
+	}
+	inForce, err := p.inForceFor(ctx, c.svc, []string{it.ID})
+	if err != nil {
+		return mergequeue.Confirmation{}, err
+	}
+	results, err := p.decideCriteria(ctx, c, verified.BuildID, inForce)
+	if err != nil {
+		return mergequeue.Confirmation{}, err
+	}
+
+	failed := map[string]bool{}
+	for _, result := range results {
+		failed[result.CriterionID] = result.Outcome.Blocks(false)
+	}
+	var confirmation mergequeue.Confirmation
+	for _, id := range verified.FailedCriteria {
+		if failed[id] {
+			confirmation.Repeated = append(confirmation.Repeated, id)
+			continue
+		}
+		confirmation.Disagreed = append(confirmation.Disagreed, id)
+	}
+	if len(confirmation.Repeated) > 0 {
+		confirmation.Why = fmt.Sprintf("%d criterion(s) failed again over the re-verification's own build %s",
+			len(confirmation.Repeated), verified.BuildID)
+	}
+	return confirmation, nil
+}
+
+// VerifyCommit is [mergequeue.Repository]: a commit a human accepted at Work,
+// built and re-verified the way a candidate is. It names no item, there being
+// none — the commit reached master by another path — so there is no candidate
+// environment to run the criteria on and no contract check to make against one.
+//
+// What it verifies is that the commit builds. That is less than a candidate's
+// re-verification and it is all this interface has: the criteria and the
+// contract checks are decided against a candidate environment's own run, and a
+// commit with no item has no candidate environment. The queue mints a number for
+// what this passes, so what it costs is a release numbered over a build nothing
+// exercised.
+func (p *path) VerifyCommit(ctx context.Context, serviceID, commit string) (mergequeue.Verified, error) {
+	svc, err := p.serviceOf(ctx, serviceID)
+	if err != nil {
+		return mergequeue.Verified{}, err
+	}
+	bl, err := p.createBuild(ctx, svc.Repository, "", svc.ID, commit)
+	if err != nil {
+		return mergequeue.Verified{}, err
+	}
+	if _, err := git(svc.Repository, "switch", "--detach", commit); err != nil {
+		return mergequeue.Verified{}, err
+	}
+	if err := compiles(svc.Repository); err != nil {
+		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+			Why: "the commit a human accepted does not compile: " + firstLines(err.Error())}, nil
+	}
+	return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Passed: true}, nil
 }
 
 // FastForward moves master to the commit the re-verification produced. It is one

@@ -13,8 +13,9 @@
 // [ReportChannelRateTable] and [PageCapTable] per service.
 //
 // writer.go is [Settings], the record as it is stored; [Writer] and
-// [Writer.Ensure], which creates it with nothing authored and is idempotent on
-// the singleton constraint; [Get], which reads the whole record; and
+// [Writer.Ensure] and [Insert], which create it with nothing authored and are
+// idempotent on the singleton constraint, [Insert] inside package policy's own
+// transaction; [Get], which reads the whole record; and
 // [SetAllowedPredicateKinds] and [SetRolePromptOrSkillThreshold]. Every authoring
 // call takes a transaction. attemptlimit.go is [AttemptLimitSubject] and its six
 // values, [OfStage], [SetAttemptLimit] and [AttemptLimit]. samplerates.go is
@@ -31,7 +32,7 @@
 // place is what the score supplies, what the product shipped, or the life of the
 // install, per parameter.
 //
-// Who may write what: [Writer.Ensure] creates the record, as Factory. Every
+// Who may write what: [Writer.Ensure] and [Insert] create the record, as Factory. Every
 // authoring call is called by package policy inside the transaction that appends
 // the policy version, so the field and the version commit together or not at all.
 // Two have a second caller the design names and the code does not have yet:

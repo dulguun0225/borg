@@ -286,48 +286,54 @@ func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, by
 	return submitted, nil
 }
 
-// SubmitConsumerContract writes a consumer contract version and every predicate
-// it introduces, in one transaction — the same arrangement [Store.SubmitSpec]
-// has with the criteria, and taken for the same reason: a version whose
-// predicates were not written would be a consumer contract nobody can decide
-// against, and one [consumercontract.Insert] refuses rolls the version back
-// with it.
+// SubmitConsumerContract writes a consumer contract version, the derivation that
+// produced it, and every predicate it introduces, in one transaction — the same
+// arrangement [Store.SubmitSpec] has with the criteria, and taken for the same
+// reason: a version whose predicates were not written would be a consumer contract
+// nobody can decide against, and one [consumercontract.Insert] refuses rolls the
+// version back with it.
 //
 // serviceID is the consumer's, which the predicates carry so that a reader of one
 // knows whose assumption it is without walking to the item. The content is what a
-// human reads the version by; the predicates are what the factory decides.
+// human reads the version by; what the extractor produced is what the factory
+// decides, and a derivation that could not run at all is written as the record it
+// is rather than as an empty list.
 func (s *Store) SubmitConsumerContract(ctx context.Context, actor record.Actor, by By,
-	itemID, serviceID, content string, drafts []consumercontract.Draft) (Artifact, []consumercontract.Predicate, error) {
+	itemID, serviceID, content string, derived consumercontract.Derived) (
+	Artifact, consumercontract.Derivation, []consumercontract.Predicate, error) {
 	if err := refuse(actor, by, itemID); err != nil {
-		return Artifact{}, nil, err
+		return Artifact{}, consumercontract.Derivation{}, nil, err
 	}
 	if serviceID == "" {
-		return Artifact{}, nil, fmt.Errorf("artifact: the consumer contract version of %s names no service", itemID)
+		return Artifact{}, consumercontract.Derivation{}, nil,
+			fmt.Errorf("artifact: the consumer contract version of %s names no service", itemID)
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return Artifact{}, nil, fmt.Errorf("artifact: beginning the submission: %w", err)
+		return Artifact{}, consumercontract.Derivation{}, nil,
+			fmt.Errorf("artifact: beginning the submission: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lease.Fence(ctx, tx, s.token); err != nil {
-		return Artifact{}, nil, err
+		return Artifact{}, consumercontract.Derivation{}, nil, err
 	}
 
 	submitted, err := insertVersion(ctx, tx, actor, by, chainKey{ItemID: itemID}, KindConsumerContract, content, "")
 	if err != nil {
-		return Artifact{}, nil, err
+		return Artifact{}, consumercontract.Derivation{}, nil, err
 	}
-	written, err := consumercontract.Insert(ctx, tx, actor, consumercontract.Of{
+	derivation, written, err := consumercontract.Insert(ctx, tx, actor, consumercontract.Of{
 		ItemID: itemID, ServiceID: serviceID, ArtifactID: submitted.ID,
-	}, drafts)
+	}, derived)
 	if err != nil {
-		return Artifact{}, nil, err
+		return Artifact{}, consumercontract.Derivation{}, nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Artifact{}, nil, fmt.Errorf("artifact: committing %s: %w", submitted.ID, err)
+		return Artifact{}, consumercontract.Derivation{}, nil,
+			fmt.Errorf("artifact: committing %s: %w", submitted.ID, err)
 	}
-	return submitted, written, nil
+	return submitted, derivation, written, nil
 }
 
 // refuse is the item-kind submissions' validation: the actor, the authorship

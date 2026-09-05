@@ -19,7 +19,7 @@ func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
 	_, err := decisionlog.NewWriter(d.pool, d.token).AppendDecisionOpen(ctx, decisionlog.Entry{
-		Actor:         gate.Component(gate.Row("some_other_gate")),
+		Actor:         gate.Component(gate.Of("some_other_gate")),
 		Payload:       "a payload this walk has no shape for",
 		FormatVersion: "decision/1",
 		PolicyVersion: "policy-unauthored-m1",
@@ -36,7 +36,7 @@ func TestTheWalkSkipsAPayloadItCannotRead(t *testing.T) {
 	c := only(t, res)
 
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), c.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), c.deployID); err != nil {
 		t.Fatalf("the walk stopped on a row it cannot read: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {

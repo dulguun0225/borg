@@ -2,52 +2,86 @@
 // number by a published formula, computed once per gate firing — and the pass
 // that moves what the score supplies as outcomes arrive.
 //
-// score.go is the assessment: [Score] holds the version and the draw, [New]
-// composes one, and [Score.Assess] computes an [Assessment] from a [Change] and
-// the [Measurement] of the build's diff, which is handed in rather than stored
-// because the vector computed from it is stored instead. [OpenEvent] and
-// [CloseEvent] are the payloads a gate writes into the log. factor.go is
-// [Factor], [Group] and [Half]: each factor carries the quantity it was read
-// from, the level that quantity resolved to, the weight the formula gave it,
-// and, where the score could not compute it, the reason. An unavailable factor
-// resolves to the top of the scale; empty evidence does not — a per-author prior
-// or an area the factory has not seen starts wide and narrows as outcomes
-// arrive. factorread.go reads each factor out of the records, and formula.go is
-// [Formula], [FormulaVersion] and [Assessment.UnavailableFactors].
+// # The code
 //
-// version.go is [Version] — append-only, naming the published formula, the
-// factor set, the published rules, and every value the score supplies — with
-// [Writer], [Writer.Ensure], which appends only where what it computed has
-// stopped matching the newest stored version, and the reads [Newest], [Get] and
-// [All]. supplied.go is [Supplied], [SuppliedValues], [Starting] and
-// [StartingValues]: a supplied value is per subject and not per parameter, the
-// same key the authored field has. schema.go is [Table], [IDPrefix], [DDL] and
-// [AdvisoryLockKey], which serialises the read of the newest version and the
-// append that supersedes it.
+// score.go is [Score], [New] and [Score.Assess], with [Change], [Measurement],
+// [ExposureEvidence] and [FleetChange] — what the caller hands in — and
+// [OpenEvent] and [CloseEvent], the parts of a decision's payloads this package
+// reads back. factor.go is [Factor], [Group] and [Term]; factorsets.go is
+// [FactorSet], the three sets, [Weights] and the weights the product ships;
+// formula.go is [Formula], [FormulaVersion] and [Assessment]. factorread.go
+// reads the change, author and context factors out of the records, exposure.go
+// the exposure factor out of the evidence handed in, and prior.go the per-author
+// prior with the width and the count of resolved window exits behind it.
+// resolution.go is [Resolution] and the [Cause] of each: a resolved factor is
+// left out of the weighted means, and a firing that resolved anything is a
+// human's whatever the number reads.
 //
-// learn.go is the pass — [Learn] over the store, [LearnFrom] over an [Evidence]
-// — evidence.go is [ReadEvidence] and the [Outcome] of each item, windowlearn.go
-// moves the analysis window's three per service, and rules.go is [Rules] and
-// [LearningVersion], the published statement of how each supplied value moves.
-// Learning is a pass and never a write at a firing, so every decision of one run
-// names the version the run started with.
+// windowhistory.go is the [Evidence] methods read off the windows and the
+// stages, unexported, that windowlearn.go, rejection.go and learn.go fold: a
+// service's window and rollback history in time order, the finest size and the
+// timed-out run its traffic reached, how long a window took to resolve, and an
+// area's or a stage's stalls and successes.
 //
-// sample.go is the held-out sample: [SampleRate], the [Draw] interface with
-// [RandomDraw] and [NeverDraw], [Score.HoldOut] and the [Selection] it writes,
-// and the reads [HeldOut] and [HeldOutItems]. It selects an item and not a
-// firing, so the selection is read forward off the decisions already opened on
-// that item, and it passes nothing a safeguard put a human at.
+// version.go is [Version] — a row of the decision log, appended through
+// [decisionlog.Writer.AppendScoreVersion] and read back by shape — with
+// [Writer], [Writer.Ensure], [Writer.Recalibrate], [Writer.EnterShipped], the
+// reads [Newest], [Get] and [All], and [InForceAt], which is the version that
+// decides a gate an authored threshold binds. supplied.go is [Supplied],
+// [SuppliedValues], [Starting], [StartingValues] and [QuantitySubject].
 //
-// Who may write what: this package owns the score version table and appends to
-// it through [Writer]. It writes nothing else, and reads every other record
-// through the owning package's readers.
+// learn.go is the pass — [Learn] over the store, [LearnFrom] over an [Evidence],
+// both answering a [Learned]. evidence.go is [ReadEvidence] and the [Outcome] of
+// each item; windowlearn.go moves the analysis window's size, power and cap and
+// the window limit; rejection.go resolves a human's rejection one of four ways
+// and publishes the [FalseAlarm]s; bands.go is the [Band]s of the number;
+// drift.go is the two calibration readings and the [Drift] each publishes;
+// fit.go is [Fit], the weights a recalibration refits; rules.go is [Rules] and
+// [LearningVersion]. Learning is a pass and never a write at a firing, so every
+// decision of one run names the version the run started with.
 //
-// What defines it: the factor groups, the score version and the held-out sample
-// are ../../end-goal/how-the-factory-works/04-risk-score/README.md; the loop is
-// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md; the values it
-// supplies are the rows of
-// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md; the window
-// limit is ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md;
-// and the window's size and cap are
-// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md.
+// sample.go is the held-out sample: the [Draw] interface with [RandomDraw] and
+// [NeverDraw], [Score.HoldOut] and the [Selection] it writes, and the reads
+// [HeldOut] and [HeldOutItems]. It selects an item and not a firing, and it
+// passes nothing a safeguard put a human at and nothing a resolution did.
+//
+// marks.go is [Marks], what a named human at Ops marked as not caused by the
+// release. The record's writer is Ops and no package owns it yet, so the
+// composition hands the score whatever reads it and [NoMarks] is what a factory
+// with no such record composes.
+//
+// Two inputs arrive as parameters because nothing writes them yet:
+// [ExposureEvidence], which the component that built the change derives per
+// toolchain the way it takes the diff, and [FleetChange], which is the fleet's
+// own records. A factory that fires without either resolves the factor rather
+// than reading it as nothing.
+//
+// # The shape
+//
+// This package owns no table, which is where it departs from the shape a record
+// package has: the score version is a row of the decision log, so there is no
+// schema.go and no DDL, and package postgres does not name it. What it writes is
+// that row and nothing else, and it reads every other record through the owning
+// package's readers.
+//
+// Who may write what: this package appends score versions to the log through
+// [decisionlog.Writer]. It writes no record.
+//
+// What defines it: the four factor groups, the score version, the resolutions
+// and the three factor sets are
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md; the
+// loop, the held-out sample, the bands and the drift readings are
+// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md; the
+// values it supplies are the rows of
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md and
+// their scopes are
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md;
+// the window limit and the mark are
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md;
+// the window's size, power and cap are
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md;
+// the hazard severity the context group reads is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md;
+// and the score version as a row of the chained log is seam 2 of
+// ../../end-goal/deferred.md.
 package score

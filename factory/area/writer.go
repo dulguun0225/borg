@@ -77,7 +77,9 @@ type Writer struct {
 }
 
 // NewWriter returns the writer over pool, fencing every write with token.
-func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{pool: pool, token: token} }
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Declare writes an area inside what inside names, with the hazard severity the
 // owner declared on it. A name already taken is refused by the store's unique
@@ -86,6 +88,31 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{p
 //
 // The zero [Hazard] is an area that names no grade, which is what most are.
 func (w *Writer) Declare(ctx context.Context, actor record.Actor, name string, inside Inside, hazard Hazard) (Area, error) {
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Area{}, fmt.Errorf("area: beginning the declaration of %q: %w", name, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	a, err := Insert(ctx, tx, w.token, actor, name, inside, hazard)
+	if err != nil {
+		return Area{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Area{}, fmt.Errorf("area: committing the declaration of %q: %w", name, err)
+	}
+	return a, nil
+}
+
+// Insert writes an area inside tx, fencing it with token first. Its caller is
+// package policy, which appends the policy version in the same transaction,
+// so the area and the version commit together or not at all; [Writer.Declare]
+// is the same write where there is nothing to compose it with.
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, name string,
+	inside Inside, hazard Hazard) (Area, error) {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return Area{}, err
+	}
 	if err := actor.Validate(); err != nil {
 		return Area{}, err
 	}
@@ -107,17 +134,7 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, name string, i
 		Inside: inside,
 		Hazard: hazard,
 	}
-
-	tx, err := w.pool.Begin(ctx)
-	if err != nil {
-		return Area{}, fmt.Errorf("area: beginning the declaration of %q: %w", name, err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := lease.Fence(ctx, tx, w.token); err != nil {
-		return Area{}, err
-	}
-
-	_, err = tx.Exec(ctx, `insert into `+Table+`
+	_, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name, inside_area_id, project_id,
 		grade, hazardous_operation, hazard_bound, hazard_bound_period_seconds, item_size_target)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, null)`,
@@ -127,9 +144,6 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, name string, i
 	)
 	if err != nil {
 		return Area{}, fmt.Errorf("area: declaring %q: %w", name, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Area{}, fmt.Errorf("area: committing the declaration of %q: %w", name, err)
 	}
 	return a, nil
 }

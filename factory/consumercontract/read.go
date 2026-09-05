@@ -13,19 +13,35 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// Every read here takes the pool and not a writer, because reading a consumer
+// Every read here takes a [Querier] and not a writer, because reading a consumer
 // contract is not a reason to be handed the thing that writes one. That is the
-// arrangement every record package in the factory has.
+// arrangement every record package in the factory has, with one addition: a
+// derivation written again at an upgrade reads the newest derivation of the same
+// item from inside its own transaction, so the same reads have to work against a
+// transaction as well as against the pool.
+
+// Querier is what a read here is performed against: a pool, or the transaction a
+// write is running inside. It is two methods and not an abstraction over the
+// store, and it is the arrangement package contract already has.
+type Querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+var (
+	_ Querier = (*pgxpool.Pool)(nil)
+	_ Querier = (pgx.Tx)(nil)
+)
 
 const selectPredicate = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, artifact_id,
-	producer_service, producer_service_id, interface_name, element, kind, argument
+	address, producer_service, producer_service_id, interface_name, element, kind, argument
 	from ` + Table
 
 func scan(row pgx.Row) (Predicate, error) {
 	var p Predicate
 	var kind, basis, predicateKind string
 	err := row.Scan(&p.ID, &kind, &p.Actor.Key, &basis, &p.At, &p.ItemID, &p.ServiceID, &p.ArtifactID,
-		&p.ProducerService, &p.ProducerServiceID, &p.Interface, &p.Element, &predicateKind, &p.Argument)
+		&p.Address, &p.ProducerService, &p.ProducerServiceID, &p.Interface, &p.Element, &predicateKind, &p.Argument)
 	if err != nil {
 		return Predicate{}, err
 	}
@@ -35,9 +51,29 @@ func scan(row pgx.Row) (Predicate, error) {
 	return p, nil
 }
 
+const selectDerivation = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, artifact_id,
+	extractor, extractor_version, toolchain, factory_version, unfollowed, cause, reported
+	from ` + DerivationTable
+
+func scanDerivation(row pgx.Row) (Derivation, error) {
+	var d Derivation
+	var kind, basis, unfollowed, cause string
+	err := row.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.ItemID, &d.ServiceID, &d.ArtifactID,
+		&d.Extractor.Name, &d.Extractor.Version, &d.Extractor.Toolchain, &d.Extractor.FactoryVersion,
+		&unfollowed, &cause, &d.Reported)
+	if err != nil {
+		return Derivation{}, err
+	}
+	d.Actor.Kind = record.Kind(kind)
+	d.Actor.Basis = record.Basis(basis)
+	d.Unfollowed = splitLines(unfollowed)
+	d.Cause = Cause(cause)
+	return d, nil
+}
+
 // Get is one predicate by id.
-func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Predicate, error) {
-	p, err := scan(pool.QueryRow(ctx, selectPredicate+` where id = $1`, id))
+func Get(ctx context.Context, q Querier, id string) (Predicate, error) {
+	p, err := scan(q.QueryRow(ctx, selectPredicate+` where id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Predicate{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
@@ -47,11 +83,11 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Predicate, error) 
 }
 
 // ForArtifact is every predicate one consumer contract version introduced.
-func ForArtifact(ctx context.Context, pool *pgxpool.Pool, artifactID string) ([]Predicate, error) {
+func ForArtifact(ctx context.Context, q Querier, artifactID string) ([]Predicate, error) {
 	if artifactID == "" {
 		return nil, nil
 	}
-	return list(ctx, pool, selectPredicate+`
+	return list(ctx, q, selectPredicate+`
 		where artifact_id = $1 order by producer_service, interface_name, element, kind`, artifactID)
 }
 
@@ -66,12 +102,12 @@ func ForArtifact(ctx context.Context, pool *pgxpool.Pool, artifactID string) ([]
 // what the item declares — the same rule the artifact store's version chain
 // already sets, applied here because a predicate has no field saying it was
 // superseded.
-func ForItems(ctx context.Context, pool *pgxpool.Pool, itemIDs []string) ([]Predicate, error) {
+func ForItems(ctx context.Context, q Querier, itemIDs []string) ([]Predicate, error) {
 	if len(itemIDs) == 0 {
 		return nil, nil
 	}
-	return list(ctx, pool, `select d.id, d.actor_kind, d.actor_key, d.actor_key_basis, d.at, d.item_id, d.service_id,
-		d.artifact_id, d.producer_service, d.producer_service_id, d.interface_name, d.element,
+	return list(ctx, q, `select d.id, d.actor_kind, d.actor_key, d.actor_key_basis, d.at, d.item_id, d.service_id,
+		d.artifact_id, d.address, d.producer_service, d.producer_service_id, d.interface_name, d.element,
 		d.kind, d.argument
 		from `+Table+` d
 		where d.item_id = any($1)
@@ -116,11 +152,11 @@ func AgainstInterface(predicates []Predicate, producerServiceID, interfaceName s
 // reading about the service rather than enforcement's question about one candidate,
 // so it filters by there being a release naming the item and not by the in-force
 // range.
-func AgainstProducer(ctx context.Context, pool *pgxpool.Pool, producerServiceID string) ([]Predicate, error) {
+func AgainstProducer(ctx context.Context, q Querier, producerServiceID string) ([]Predicate, error) {
 	if producerServiceID == "" {
 		return nil, nil
 	}
-	return list(ctx, pool, selectPredicate+`
+	return list(ctx, q, selectPredicate+`
 		where producer_service_id = $1
 		order by service_id, interface_name, element, kind`, producerServiceID)
 }
@@ -137,8 +173,8 @@ func ItemsOf(predicates []Predicate) []string {
 	return items
 }
 
-func list(ctx context.Context, pool *pgxpool.Pool, statement string, args ...any) ([]Predicate, error) {
-	rows, err := pool.Query(ctx, statement, args...)
+func list(ctx context.Context, q Querier, statement string, args ...any) ([]Predicate, error) {
+	rows, err := q.Query(ctx, statement, args...)
 	if err != nil {
 		return nil, fmt.Errorf("consumercontract: reading predicates: %w", err)
 	}
@@ -168,11 +204,11 @@ func list(ctx context.Context, pool *pgxpool.Pool, statement string, args ...any
 // consumer contract naming the producer, and that is a row of this table. A
 // service on this list may have nothing in force — its consumer contracts may
 // all be outside the range — which is what the range is for.
-func ConsumerServicesEver(ctx context.Context, pool *pgxpool.Pool, producerServiceID string) ([]string, error) {
+func ConsumerServicesEver(ctx context.Context, q Querier, producerServiceID string) ([]string, error) {
 	if producerServiceID == "" {
 		return nil, nil
 	}
-	rows, err := pool.Query(ctx, `select service_id, min(at) as first from `+Table+`
+	rows, err := q.Query(ctx, `select service_id, min(at) as first from `+Table+`
 		where producer_service_id = $1 group by service_id order by first, service_id`,
 		producerServiceID)
 	if err != nil {
@@ -192,4 +228,74 @@ func ConsumerServicesEver(ctx context.Context, pool *pgxpool.Pool, producerServi
 		return nil, fmt.Errorf("consumercontract: reading who has declared against %s: %w", producerServiceID, err)
 	}
 	return services, nil
+}
+
+// DerivationFor is the derivation of one consumer contract version, and false
+// where the version has none. Every version written by this package has one, so
+// false is a version written before the derivation record existed or one written
+// around this package.
+func DerivationFor(ctx context.Context, q Querier, artifactID string) (Derivation, bool, error) {
+	if artifactID == "" {
+		return Derivation{}, false, nil
+	}
+	d, err := scanDerivation(q.QueryRow(ctx, selectDerivation+` where artifact_id = $1`, artifactID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Derivation{}, false, nil
+	} else if err != nil {
+		return Derivation{}, false, fmt.Errorf("consumercontract: reading the derivation of %s: %w", artifactID, err)
+	}
+	return d, true, nil
+}
+
+// NewestDerivation is the newest derivation of one item's consumer contract, and
+// false where the item has none. It is what [DeriveAgain] reads before it writes,
+// and what a reader asking whether a consumer's record is partial or could not
+// derive reads: a release's contract in force is its derivation by the newest
+// extractor.
+func NewestDerivation(ctx context.Context, q Querier, itemID string) (Derivation, bool, error) {
+	if itemID == "" {
+		return Derivation{}, false, nil
+	}
+	d, err := scanDerivation(q.QueryRow(ctx, selectDerivation+`
+		where item_id = $1 order by at desc, id desc limit 1`, itemID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Derivation{}, false, nil
+	} else if err != nil {
+		return Derivation{}, false, fmt.Errorf("consumercontract: reading the newest derivation of %s: %w", itemID, err)
+	}
+	return d, true, nil
+}
+
+// DerivationsForItems is the newest derivation of each of these items, in the
+// order the items were given nothing about — it is the read beside [ForItems],
+// and it answers which of the consumers in force are partial and which could not
+// be derived at all.
+func DerivationsForItems(ctx context.Context, q Querier, itemIDs []string) ([]Derivation, error) {
+	if len(itemIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := q.Query(ctx, `select d.id, d.actor_kind, d.actor_key, d.actor_key_basis, d.at, d.item_id,
+		d.service_id, d.artifact_id, d.extractor, d.extractor_version, d.toolchain, d.factory_version,
+		d.unfollowed, d.cause, d.reported
+		from `+DerivationTable+` d
+		where d.item_id = any($1)
+		and d.at = (select max(newest.at) from `+DerivationTable+` newest where newest.item_id = d.item_id)
+		order by d.service_id, d.item_id`, itemIDs)
+	if err != nil {
+		return nil, fmt.Errorf("consumercontract: reading the derivations of %d items: %w", len(itemIDs), err)
+	}
+	defer rows.Close()
+
+	var read []Derivation
+	for rows.Next() {
+		d, err := scanDerivation(rows)
+		if err != nil {
+			return nil, fmt.Errorf("consumercontract: reading a derivation: %w", err)
+		}
+		read = append(read, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("consumercontract: reading the derivations of %d items: %w", len(itemIDs), err)
+	}
+	return read, nil
 }

@@ -29,7 +29,10 @@
 //
 // A statement is written once and never updated; the state, the two counts,
 // and the fields the confirming round writes advance in place, an intent being
-// an ordinary record that nothing chains.
+// an ordinary record that nothing chains. The tier is one of those fields for
+// a request and not for a detector's intent: [Intake.Confirm] writes it only
+// where the confirmation carries one, so the tier the arrival wrote for a
+// detector's intent stays where it is.
 //
 // A question is a record written twice: it is asked and the answer is written
 // onto it, and a reader tells the two apart by the answered_at field, which

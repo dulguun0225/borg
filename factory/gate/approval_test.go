@@ -34,7 +34,7 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Fire at %s for %s: %v", row, itemID, err)
 		}
-		closing, err := g.Decide(ctx, opened, human, verdict, feedback)
+		closing, err := g.Decide(ctx, opened, gate.Given{Actor: human, Verdict: verdict, Reason: feedback})
 		if err != nil {
 			t.Fatalf("Decide at %s for %s: %v", row, itemID, err)
 		}
@@ -75,7 +75,7 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 		t.Errorf("ApprovalTimes names %s, which was rejected at that row", rejectedItem)
 	}
 
-	if _, err := gate.ApprovalTimes(ctx, pool, token, owner, gate.Row("some_other_row")); !errors.Is(err, gate.ErrRowUnknown) {
+	if _, err := gate.ApprovalTimes(ctx, pool, token, owner, gate.Of(gate.Kind("some_other_row"))); !errors.Is(err, gate.ErrRowUnknown) {
 		t.Errorf("ApprovalTimes at a row this package does not fire = %v, want ErrRowUnknown", err)
 	}
 }

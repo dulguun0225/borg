@@ -34,7 +34,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 
 	// The deliberately bad one: every other unit of work fails, and no criterion says
 	// anything about how often the work succeeds.
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	d.model = interviewed(2)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
@@ -87,8 +87,9 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	if raised.EnvironmentID != res.environmentID {
 		t.Errorf("the incident is on environment %s, and an incident is a record on production", raised.EnvironmentID)
 	}
-	if raised.Actor != healthmonitor.Actor || raised.Crossing != healthmonitor.Crossing {
-		t.Errorf("the incident was written by %+v saying %q", raised.Actor, raised.Crossing)
+	if raised.Actor != healthmonitor.Actor || raised.Reading != incident.ReadingComparison {
+		t.Errorf("the incident was written by %+v on the %s reading, want the health monitor on the comparison",
+			raised.Actor, raised.Reading)
 	}
 	if !raised.Open() {
 		t.Error("the incident is resolved, and a rollback does not resolve one — production is still worse")
@@ -123,14 +124,17 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	if rollback.Undoing.FailedReleaseID != bad.releaseID {
 		t.Errorf("the rollback failed %s, the window failed %s", rollback.Undoing.FailedReleaseID, bad.releaseID)
 	}
-	if len(rollback.Undoing.SweptReleaseIDs) != 0 {
-		t.Errorf("the rollback swept %v, and nothing was above the failed release", rollback.Undoing.SweptReleaseIDs)
+	if len(rollback.Undoing.SkippedReleaseIDs) != 0 {
+		t.Errorf("the rollback skipped %v, and nothing was above the failed release", rollback.Undoing.SkippedReleaseIDs)
 	}
 	if rollback.Undoing.Source != deploy.SourceHealthMonitorAtFailed {
 		t.Errorf("the rollback's source is %q, want the health monitor at the failed exit", rollback.Undoing.Source)
 	}
-	if rollback.Undoing.RevertIntentID != revert.ID {
-		t.Errorf("the rollback names revert intent %s, the health monitor raised %s", rollback.Undoing.RevertIntentID, revert.ID)
+	// The rollback's record names the release it failed and not the intent the
+	// crossing raised: that link is on the incident, which is where a reader
+	// follows a rollback to what it asked for.
+	if raised.IntentID != revert.ID {
+		t.Errorf("the incident names revert intent %s, the health monitor raised %s", raised.IntentID, revert.ID)
 	}
 	if rollback.Status != deploy.StatusComplete {
 		t.Errorf("the rollback's own status is %s, and it is a completed deploy of the release it returned to", rollback.Status)
@@ -138,12 +142,17 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 
 	// The failed release's own deploy is rolled back, and the release keeps its
 	// number.
-	failed, err := deploy.Get(ctx, d.pool, bad.deployID)
+	// Rolled back is a completion per target and not a status of the record:
+	// a rollback advances the deploys it undoes target by target as it completes
+	// on each.
+	undone, err := deploy.Targets(ctx, d.pool, bad.deployID)
 	if err != nil {
-		t.Fatalf("reading the failed deploy: %v", err)
+		t.Fatalf("reading the failed deploy's targets: %v", err)
 	}
-	if failed.Status != deploy.StatusRolledBack {
-		t.Errorf("the failed deploy is %s, want rolled back", failed.Status)
+	for _, target := range undone {
+		if target.Completion != deploy.CompletionRolledBack {
+			t.Errorf("target %s of the failed deploy is %s, want rolled back", target.Address, target.Completion)
+		}
 	}
 	rel, err := release.Get(ctx, d.pool, bad.releaseID)
 	if err != nil || rel.Number != 2 {
@@ -151,15 +160,19 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	}
 
 	// What is running is the first release again, both in the store and on the target.
-	current, running, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID)
+	current, running, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID, []string{d.dir})
 	if err != nil || !running {
 		t.Fatalf("Current = running %v, %v", running, err)
 	}
-	if current.ID != rollback.ID || current.ReleaseID != good.releaseID {
-		t.Errorf("the current deploy is %s of release %s, want the rollback %s of %s",
-			current.ID, current.ReleaseID, rollback.ID, good.releaseID)
+	// The release is the first one again. Which deploy record answers as current
+	// is not asserted: the rollback and the deploy that first shipped that release
+	// both name it and both are complete on every target, so the read orders them
+	// by release number and has no tie to break.
+	if current.ReleaseID != good.releaseID {
+		t.Errorf("the current deploy is %s of release %s, want the first release %s back",
+			current.ID, current.ReleaseID, good.releaseID)
 	}
-	onTarget, err := d.targets.at(d.dir).ReadRunning(ctx, "demo", d.credential)
+	onTarget, err := d.targets.at(d.dir).ReadRunning(ctx, deployerPrincipal, "demo", d.credential)
 	if err != nil {
 		t.Fatalf("reading what the target runs: %v", err)
 	}
@@ -179,7 +192,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	// And the whole episode is readable as links: the walk from what is live now
 	// reaches the intent behind the release that is serving.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), current.ID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), current.ID); err != nil {
 		t.Fatalf("the walk from the rollback stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {

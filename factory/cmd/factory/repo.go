@@ -193,12 +193,12 @@ func repoFiles(repo string) ([]agent.File, error) {
 }
 
 // createBuild writes the build record for one commit: the artifact digest —
-// sha256 of the commit hash, this substrate never producing a binary digest
+// sha256 of the commit hash, this platform never producing a binary digest
 // of its own, the local target running the checked-out commit directly rather
 // than a built artifact of its own — and, for a Go module, its go.sum
 // resolved into entries with licence "unknown", this milestone having no
 // licence resolver. Criterion results of the build's own process are none:
-// nothing in this crude interface decides a criterion at that place yet.
+// nothing in this command-line interface decides a criterion at that place yet.
 func (p *path) createBuild(ctx context.Context, repo, itemID, serviceID, commit string) (build.Build, error) {
 	sum := sha256.Sum256([]byte(commit))
 	draft := build.Draft{
@@ -215,6 +215,12 @@ func (p *path) createBuild(ctx context.Context, repo, itemID, serviceID, commit 
 	case coverage != "":
 		draft.ResolvedSetCoverage = map[string]string{"go": coverage}
 	}
+	// What the change reaches and whether it ships a schema change: two readings
+	// of this checkout, taken where the repository is and recorded on the record
+	// the gate rows and enforcement read them off. measure.go says why each is
+	// derived here and nowhere else.
+	reached, declares := reaches(ctx, repo, commit, resolved)
+	draft.Exposure, draft.DeclaresSchemaChange = &reached, declares
 	return p.builds.Create(ctx, buildActor, draft)
 }
 

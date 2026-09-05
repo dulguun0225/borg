@@ -54,15 +54,15 @@ type InForce struct {
 // out of order, and what the last known-good release is about is which close is
 // the most recent evidence.
 func (c *Check) LastKnownGood(ctx context.Context, serviceID string) (release.Release, string, bool, error) {
-	closed, err := window.ClosedWithoutFailing(ctx, c.pool, serviceID)
+	closed, err := window.ClosedPassedOrTimedOut(ctx, c.pool, serviceID)
 	if err != nil {
 		return release.Release{}, "", false, err
 	}
 	if len(closed) == 0 {
 		return release.Release{}, "", false, nil
 	}
-	// ClosedWithoutFailing returns them newest close first, which is the order this
-	// question is asked in and the one thing this reads it for.
+	// ClosedPassedOrTimedOut returns them newest close first, which is the order
+	// this question is asked in and the one thing this reads it for.
 	newest := closed[0]
 	lastGood, err := release.Get(ctx, c.pool, newest.ReleaseID)
 	if err != nil {

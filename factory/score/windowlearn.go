@@ -3,58 +3,43 @@ package score
 import (
 	"fmt"
 	"math"
-	"slices"
 	"time"
 
-	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
-	"github.com/dulguun0225/borg/factory/window"
 )
 
-// windowParameters is the analysis window's three per service. Two of them move both
-// ways.
+// windowParameters is the analysis window's parameters per service: the size and
+// the power per quantity, and the cap. The confidence is not among them and that
+// is stated rather than left to be discovered — no outcome says the confidence a
+// comparison must reach was too high, and the one thing that establishes a failed
+// release was fine is a human marking the rollback as not caused by the release,
+// which says the comparison was confounded and nothing about how confident it
+// should have been.
 //
-// The cap tracks how long that service's windows actually take to resolve, in both
-// directions: a cap under what a window needed closes unresolved one that would
-// have resolved, and a cap far above it holds the next deploy for nothing. The
-// safeguard's direction on this parameter is a floor, and that is an owner's bound
-// rather than a direction for evidence — reading it as one is what made this rule
-// one-way until 2026-08-20.
+// Which parameter an event moves is a fact of the record rather than a judgment
+// about the regression. A miss on a window that closed passed cleared what it
+// should have caught, so it is evidence about the power; a miss on a window that
+// timed out ruled nothing out at all, so it is evidence about the size. Reading
+// one event as both would move two supplied values against a single piece of
+// evidence.
 //
 // The size is the coarser of two numbers, and that is the whole of the answer to
-// the ratchet. What harm asks for gets finer per miss and never coarser. What the
-// service's traffic can resolve is arithmetic over volume, computed fresh from the
-// read its newest closed window carries — and a size finer than that is a size the
+// the ratchet. What the evidence asks for gets finer per miss and never coarser.
+// The finest size the traffic reaches is the window's own arithmetic, computed
+// there and reported on the record — a size finer than that is a size the
 // comparison can never rule anything out at, so the window ends at the cap every
-// time, protects nothing, and holds the next deploy for the whole cap. Asking for
-// the finer of the two would be the factory watching longer and catching less.
+// time, protects nothing, and holds the next deploy for the whole cap.
 //
-// The two inputs are different questions and only one of them is about harm, which
-// is why [_The analysis window_]'s restriction to evidence traceable to the health
-// signal is not being reopened here: that restriction governs what is worth
-// catching, and reachability governs whether anything can be caught at all.
-//
-// The confidence stays one-way, and the reason is arithmetic rather than a missing
-// rule: the units a window needs grow as the log of one over one-minus-confidence
-// and as the inverse square of the size, so tightening the confidence from the
-// convention to its ceiling costs about a doubling where two halvings of the size
-// cost sixteen times. It does not compound, so it does not produce the failure the
-// size's own rule exists to prevent.
+// The cap tracks how long that service's windows actually take to resolve, in
+// both directions: a cap under what a window needed closes unresolved one that
+// would have resolved, and a cap far above it holds the next deploy for nothing.
 func windowParameters(e *Evidence) ([]Supplied, error) {
 	size, _ := Starting(gatepolicy.WindowSize)
-	confidence, _ := Starting(gatepolicy.WindowConfidence)
+	power, _ := Starting(gatepolicy.WindowPower)
 	startingCap, _ := Starting(gatepolicy.WindowCap)
 
 	var moved []Supplied
 	for _, service := range e.Services() {
-		misses := e.Misses(service)
-		falsePasses := 0
-		for _, w := range misses {
-			if w.Exit == window.ExitPassed {
-				falsePasses++
-			}
-		}
-
 		// The cap first, because what the size can reach depends on how long the
 		// window is allowed to run.
 		capSeconds := startingCap.Value
@@ -82,46 +67,79 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 			}
 		}
 
-		if confidenceValue := 1 - (1-confidence.Value)/math.Pow(2, float64(falsePasses)); falsePasses > 0 {
-			value := math.Min(windowConfidenceCeiling, confidenceValue)
-			if value != confidence.Value {
-				moved = append(moved, Supplied{
-					Parameter: gatepolicy.WindowConfidence, Subject: service, Value: value,
-					Why: fmt.Sprintf("%d window(s) on this service closed passed over a release an incident was raised against, so the boundary said it had ruled out what it had not", falsePasses),
-				})
-			}
-		}
-
-		// The size: the coarser of what harm asks for and what the traffic reaches.
-		wanted := math.Max(windowSizeFloor, size.Value/math.Pow(2, float64(len(misses))))
-		why := ""
-		if len(misses) > 0 {
-			why = fmt.Sprintf("%d window(s) on this service closed without failing a release over a release an incident was raised against, so the size they watched at was too coarse",
-				len(misses))
-		}
-		traffic, known, err := e.traffic(service)
-		if err != nil {
-			return nil, err
-		}
-		value := wanted
-		if known {
-			reach, err := reachable(traffic, capSeconds, confidence.Value, size.Value)
-			if err != nil {
-				return nil, err
-			}
-			if reach > value {
-				value = reach
-				why = fmt.Sprintf("%s%.3g unit(s) of work a second is what this service's newest closed window read, which reaches %v and no finer inside a cap of %vs",
-					prefix(why), traffic.UnitsPerSecond, reach, capSeconds)
-			}
-		}
-		if why != "" && value != size.Value {
-			moved = append(moved, Supplied{
-				Parameter: gatepolicy.WindowSize, Subject: service, Value: value, Why: why,
-			})
-		}
+		moved = append(moved, sizes(e, service, size.Value)...)
+		moved = append(moved, powers(e, service, power.Value, size.Value)...)
 	}
 	return moved, nil
+}
+
+// sizes is the size in force per quantity on one service: the coarser of what the
+// evidence asks for and the finest size the traffic reached, the latter read off
+// the freshest closed window that reports one.
+//
+// Which quantity's size a miss names is the incident's, and where the incident
+// names none — a human's undo among them — the miss moves the size of every
+// quantity, which is what the design says of an undo.
+func sizes(e *Evidence, service string, startingSize float64) []Supplied {
+	misses := e.missesOnATimedOutWindow(service)
+	wanted := math.Max(windowSizeFloor, startingSize/math.Pow(2, float64(len(misses))))
+	reached, known := e.finestSizeReached(service)
+
+	var moved []Supplied
+	for _, quantity := range gatepolicy.Quantities {
+		value, why := wanted, ""
+		if len(misses) > 0 {
+			why = fmt.Sprintf("%d window(s) on this service timed out over a release an incident was raised against, so nothing was ruled out at the size they watched at",
+				len(misses))
+		}
+		if known && reached[quantity] > value {
+			value = reached[quantity]
+			why = fmt.Sprintf("%sthe newest closed window of this service reports %v as the finest size its traffic reached on this quantity inside the cap",
+				prefix(why), reached[quantity])
+		}
+		if why == "" || value == startingSize {
+			continue
+		}
+		moved = append(moved, Supplied{
+			Parameter: gatepolicy.WindowSize, Subject: QuantitySubject(service, quantity),
+			Value: value, Why: why,
+		})
+	}
+	return moved
+}
+
+// powers is the power in force per quantity on one service. It rises on a false
+// pass — a window that closed passed over a release an incident was later raised
+// against, the exit that rules a regression out having cleared one it should have
+// caught — and falls where the service's windows run to the cap on volume a lower
+// rate would have closed within, which is the power's own observable and not the
+// size's.
+func powers(e *Evidence, service string, startingPower, sizeInForce float64) []Supplied {
+	falsePasses := len(e.falsePasses(service))
+	timedOut := e.timedOutRun(service, sizeInForce)
+
+	value, why := startingPower, ""
+	switch {
+	case falsePasses > 0:
+		value = math.Min(windowPowerCeiling, 1-(1-startingPower)/math.Pow(2, float64(falsePasses)))
+		why = fmt.Sprintf("%d window(s) on this service closed passed over a release an incident was raised against, so a regression of the size in force reached passed",
+			falsePasses)
+	case timedOut >= windowsPerPowerFall:
+		value = math.Max(windowPowerFloor, startingPower-windowPowerStep)
+		why = fmt.Sprintf("%d window(s) of this service in a row timed out on traffic that reached the size in force, which is volume a lower power would have closed passed within",
+			timedOut)
+	}
+	if why == "" || value == startingPower {
+		return nil
+	}
+	var moved []Supplied
+	for _, quantity := range gatepolicy.Quantities {
+		moved = append(moved, Supplied{
+			Parameter: gatepolicy.WindowPower, Subject: QuantitySubject(service, quantity),
+			Value: value, Why: why,
+		})
+	}
+	return moved
 }
 
 // prefix joins the two halves of a size's reason where both apply, so a row that
@@ -133,76 +151,33 @@ func prefix(why string) string {
 	return why + "; and "
 }
 
-// reachable is the finest size this service's traffic can rule anything out at
-// inside its cap, on the same lattice the tightening moves along — the starting
-// size halved, and halved again, down to the floor. It is the lattice and not a
-// closed form so that the two inputs to the size in force are commensurable: a
-// value that has been halved twice is compared against a reachable value that
-// could have been halved twice.
-//
-// The units a size needs come from [boundary.Boundary.UnitsToClean], which is the
-// same arithmetic the health monitor reads the window against. A second copy of it
-// here would be two able to disagree, and this is the one number in the factory
-// whose whole point is that it matches what the boundary actually does.
-func reachable(t Traffic, capSeconds, confidence, startingSize float64) (float64, error) {
-	available := t.UnitsPerSecond * capSeconds
-	for _, size := range sizeLattice(startingSize) {
-		needed, err := boundary.Boundary{Size: size, Confidence: confidence}.UnitsToClean(t.BaselineRate)
-		if err != nil {
-			// At this baseline rate the ratio drifts the other way, so nothing is
-			// ruled out at this size however much traffic arrives. The next size up
-			// is the one to ask about.
-			continue
-		}
-		if needed <= available {
-			return size, nil
-		}
-	}
-	// Not even the size the score starts at is reachable. The score does not ask
-	// for anything coarser than that: a quiet service ending every window at the
-	// cap is a state the design has and reports as weak, and coarsening past the
-	// calibrated value would be the factory quietly agreeing to catch less than it
-	// was installed to catch.
-	return startingSize, nil
-}
-
-// sizeLattice is the sizes the tightening can produce, finest first: the starting
-// size halved until it reaches the floor. It is generated by halving down rather
-// than doubling up from the floor, because those are two different sets — the floor
-// is not a power of two below the starting size — and a reachable value taken off
-// the wrong one would not be comparable with what harm asks for.
-func sizeLattice(startingSize float64) []float64 {
-	var descending []float64
-	for size := startingSize; size > windowSizeFloor; size /= 2 {
-		descending = append(descending, size)
-	}
-	descending = append(descending, windowSizeFloor)
-	slices.Reverse(descending)
-	return descending
-}
-
 // windowLimits is the window limit per service, folded over that service's own
-// history in order. The fold and not a count, because the two kinds of evidence are not commutative: three
-// windows closing without failing a release after a rollback are a service earning its
-// throughput back, and the same three before it are a service that had it and
-// lost it.
+// history in order. The fold and not a count, because the two kinds of evidence
+// are not commutative: three windows closing passed after a rollback are a
+// service earning its throughput back, and the same three before it are a service
+// that had it and lost it.
+//
+// What moves it is stated exit by exit. A window closing passed raises it and a
+// rollback that undid more than its target lowers it; timed out and skipped raise
+// nothing, a release nothing ruled anything out on not being a release that
+// behaved. A rollback a human marked is excluded from both.
 func windowLimits(e *Evidence) []Supplied {
 	start, _ := Starting(gatepolicy.WindowLimit)
 	var moved []Supplied
 	for _, service := range e.Services() {
 		limit := start.Value
-		noHarm, rollbacks := 0, 0
+		passed, rollbacks := 0, 0
 		since := 0
 		for _, event := range e.serviceHistory(service) {
 			switch {
-			case event.noHarm:
-				noHarm++
+			case event.passed:
+				passed++
 				since++
 				if since >= windowsPerRaise {
 					since = 0
 					limit = math.Min(windowLimitCeiling, limit+1)
 				}
-			case event.sweeping:
+			case event.undidMoreThanItsTarget:
 				rollbacks++
 				since = 0
 				limit = math.Max(start.Value, limit-1)
@@ -213,7 +188,7 @@ func windowLimits(e *Evidence) []Supplied {
 		}
 		moved = append(moved, Supplied{
 			Parameter: gatepolicy.WindowLimit, Subject: service, Value: limit,
-			Why: fmt.Sprintf("%d window(s) of this service closed without failing a release and %d rollback(s) swept a release, folded in order", noHarm, rollbacks),
+			Why: fmt.Sprintf("%d window(s) of this service closed passed and %d rollback(s) undid more than their target, folded in order", passed, rollbacks),
 		})
 	}
 	return moved

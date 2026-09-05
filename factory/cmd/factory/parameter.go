@@ -30,7 +30,7 @@ func authorCommand(args []string) error {
 	serviceName := flags.String("service", "", "the service, for a parameter that is a field of one")
 	areaName := flags.String("area", "", "the area, for a parameter that is a field of one")
 	projectName := flags.String("project", defaultProjectName, "the project, for the risk threshold, read on production's environment for it")
-	gateRow := flags.String("gate", string(gate.MergeToMaster), "the gate row a threshold applies at, or role_prompt_or_skill for the factory's own row")
+	gateRow := flags.String("gate", gate.MergeToMaster.String(), "the gate row a threshold applies at, or role_prompt_or_skill for the factory's own row")
 	stage := flags.String("stage", string(item.StageImplementation), "the stage an attempt limit applies to")
 	quantity := flags.String("quantity", string(gatepolicy.QuantityErrorRate), "the quantity the window size applies to")
 	human := flags.String("human", "owner", "the owner authoring it")
@@ -47,7 +47,10 @@ func authorCommand(args []string) error {
 
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		factory := policy.NewFactory(pool, token)
-		actor := owner(*human)
+		actor, err := humanNamed(ctx, pool, token, *human)
+		if err != nil {
+			return err
+		}
 
 		if parameter == gatepolicy.AllowedPredicateKinds {
 			version, err := factory.AuthorAllowedPredicateKinds(ctx, actor, strings.Split(*value, ","))
@@ -112,6 +115,6 @@ func authorCommand(args []string) error {
 	})
 }
 func authored(parameter gatepolicy.Parameter, value string, version policy.Version) error {
-	fmt.Printf("Authored %s = %s on %s; policy version %s\n", parameter, value, version.Subject, version.ID)
+	fmt.Printf("Authored %s = %s on %s; policy version %s\n", parameter, value, version.Scope, version.ID)
 	return nil
 }

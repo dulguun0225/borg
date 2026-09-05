@@ -85,6 +85,15 @@ func (i *Intake) Confirm(ctx context.Context, actor record.Actor, confirmation C
 		if err != nil {
 			return err
 		}
+		if !confirmation.Tier.Written() {
+			// A detector's intent arrived with its tier and is refused one
+			// here, so this round has none to write and leaves the arrival's
+			// where it is.
+			_, err = tx.Exec(ctx, `update `+Table+`
+				set state = $1, intended_effect = $2 where id = $3`,
+				string(StateRefined), confirmation.IntendedEffect, in.ID)
+			return err
+		}
 		_, err = tx.Exec(ctx, `update `+Table+`
 			set state = $1, intended_effect = $2, tier = $3, tier_policy_version = $4 where id = $5`,
 			string(StateRefined), confirmation.IntendedEffect,

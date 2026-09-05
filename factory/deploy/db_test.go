@@ -2,8 +2,9 @@
 // through package postgres, the way decisionlog's do; deps.txt records the
 // test edge. They apply this package's DDL themselves rather than calling
 // postgres.Apply, which does not know this package until integration wires it
-// in. The target the rollout tests reach is [targetseam.NewFake]; localtarget
-// is where a real process runs, in that package's own tests.
+// in, and release's beside it, which [deploy.Current] orders by. The target the
+// rollout tests reach is [targetseam.NewFake]; localtarget is where a real
+// process runs, in that package's own tests.
 //
 // None of these tests skips when the database is unreachable. The milestone is
 // demonstrated by them running, so an unreachable database fails the run.
@@ -25,7 +26,9 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
@@ -34,6 +37,14 @@ import (
 // inside it, and a writer over it. The schema is dropped when the test ends,
 // so a rerun on a database a previous run left dirty starts clean.
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *deploy.Writer) {
+	ctx, pool, w, _ := newTableWithToken(t)
+	return ctx, pool, w
+}
+
+// newTableWithToken is [newTable] with the lease token as well, for the tests
+// that write through another package's writer: one lease, one token, and a
+// second acquisition would fence the first writer out.
+func newTableWithToken(t *testing.T) (context.Context, *pgxpool.Pool, *deploy.Writer, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -60,21 +71,20 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *deploy.Writer) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
-	for n, statement := range lease.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying the lease schema statement %d: %v", n+1, err)
-		}
-	}
-	for n, statement := range deploy.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying statement %d: %v", n+1, err)
+	for name, statements := range map[string][]string{
+		"lease": lease.DDL, "release": release.DDL, "deploy": deploy.DDL,
+	} {
+		for n, statement := range statements {
+			if _, err := pool.Exec(ctx, statement); err != nil {
+				t.Fatalf("applying %s statement %d: %v", name, n+1, err)
+			}
 		}
 	}
 	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
-	return ctx, pool, deploy.NewWriter(pool, token)
+	return ctx, pool, deploy.NewWriter(pool, token), token
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -91,249 +101,223 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var deployer = record.Actor{Kind: record.KindComponent, Key: "deploy"}
+// The actor on a deploy record is the deployer and never an agent: deploying is
+// not a stage an agent is dispatched to. The principal at the seam is the same
+// component, calling as itself.
+var (
+	deployer      = record.Actor{Kind: record.KindComponent, Key: "deployer"}
+	deployerCalls = principal.OfComponent("deployer")
+	credential    = secretref.MustNew("deploy.production")
+)
 
 // productionID stands for production's environment record. The deploy record
-// names an environment by the record's id from M2 on, and there are no foreign
-// keys between record tables, so this test names one it never creates.
+// names an environment by the record's id, and there are no foreign keys between
+// record tables, so these tests name one they never create.
 const productionID = "env_000000000000000000000000000000a"
 
-// storedStatus is the status column as the store has it, read raw because the
-// package exposes no Get — a deploy is read through [deploy.Current], and a
-// started one is exactly what Current does not name.
-func storedStatus(ctx context.Context, t *testing.T, pool *pgxpool.Pool, id string) deploy.Status {
+// twoTargets is an environment with two targets, in the order a rollout reaches
+// them.
+var twoTargets = []deploy.Reaching{
+	{Address: "/srv/one", KeptInstances: 2},
+	{Address: "/srv/two", KeptInstances: 2},
+}
+
+func addressesOf(targets []deploy.Reaching) []string {
+	var addresses []string
+	for _, target := range targets {
+		addresses = append(addresses, target.Address)
+	}
+	return addresses
+}
+
+// mintRelease writes a release so that [deploy.Current] has a number to order
+// by. The deploy record names a release by id and the number is the release's,
+// which is what orders the current one.
+func mintRelease(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, serviceID string) release.Release {
 	t.Helper()
-	var status string
-	if err := pool.QueryRow(ctx, `select status from deploy where id = $1`, id).Scan(&status); err != nil {
-		t.Fatalf("reading the status of %s: %v", id, err)
+	r, err := release.NewWriter(pool, token).Mint(ctx, deployer, release.Minting{
+		ServiceID: serviceID,
+		BuildID:   record.NewID("bl"),
+		Commit:    record.NewID("cm"),
+		ItemID:    record.NewID("it"),
+	})
+	if err != nil {
+		t.Fatalf("minting a release: %v", err)
 	}
-	return deploy.Status(status)
+	return r
 }
 
-func TestTheRecordAdvancesInPlace(t *testing.T) {
-	ctx, pool, w := newTable(t)
+// completeOn marks every named target of the deploy complete, which is what the
+// rollout does one target at a time.
+func completeOn(t *testing.T, ctx context.Context, w *deploy.Writer, id string, addresses ...string) {
+	t.Helper()
+	for _, address := range addresses {
+		if err := w.ReachTarget(ctx, id, address); err != nil {
+			t.Fatalf("reaching %s: %v", address, err)
+		}
+		if err := w.CompleteTarget(ctx, id, address, targetseam.ReplacementDrained); err != nil {
+			t.Fatalf("completing %s: %v", address, err)
+		}
+	}
+}
 
-	d, err := w.Start(ctx, deployer, record.NewID("svc"), productionID, deploy.OfRelease(record.NewID("rel"), record.NewID("bld")))
+// TestTheIdentityIsThePairAndASequenceNumber: service and environment are the
+// record's grain and not its identity, so two deploys of one release onto one
+// environment are two records, numbered per pair as the deployer begins each.
+func TestTheIdentityIsThePairAndASequenceNumber(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID, other = "svc_a", "svc_b"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+
+	beginning := deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+	}
+	first, err := w.Start(ctx, deployer, beginning)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if d.Status != deploy.StatusStarted || d.Strategy != deploy.StrategyWithoutControl {
-		t.Errorf("Start returned status %q, strategy %q; want started, without_control", d.Status, d.Strategy)
+	second, err := w.Start(ctx, deployer, beginning)
+	if err != nil {
+		t.Fatalf("a second deploy of one release onto one environment: %v", err)
 	}
-	if _, err := time.Parse(record.TimeLayout, d.At); err != nil {
-		t.Errorf("the record has timestamp %q: %v", d.At, err)
+	if first.Number != 1 || second.Number != 2 {
+		t.Errorf("the sequence numbers are %d and %d, want 1 and 2", first.Number, second.Number)
 	}
-	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusStarted {
-		t.Errorf("the store has status %q, want started", got)
+	if first.ID == second.ID {
+		t.Error("two deploys of one release onto one environment are one record")
 	}
 
-	var count int
+	beginning.ServiceID = other
+	elsewhere, err := w.Start(ctx, deployer, beginning)
+	if err != nil {
+		t.Fatalf("Start on another service: %v", err)
+	}
+	if elsewhere.Number != 1 {
+		t.Errorf("another pair's first number is %d, want 1 — the sequence is per pair", elsewhere.Number)
+	}
+
+	read, err := deploy.Get(ctx, pool, first.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Number != first.Number || read.ReleaseID != r.ID || read.EnvironmentID != productionID {
+		t.Errorf("Get = %+v, want the record Start returned", read)
+	}
+	if _, err := deploy.Get(ctx, pool, "dep_00000000000000000000000000000000"); !errors.Is(err, deploy.ErrNotFound) {
+		t.Errorf("Get of nothing = %v, want %v", err, deploy.ErrNotFound)
+	}
+}
+
+// TestCompletionIsPerTarget: one record names one release for the whole
+// environment and completion is a field per target on it, so a deploy that
+// reached one target of two is a recorded partial deploy and not a mismatch
+// found after the fact.
+func TestCompletionIsPerTarget(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+
+	d, err := w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	targets, err := deploy.Targets(ctx, pool, d.ID)
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("the deploy has %d targets, want the environment's two", len(targets))
+	}
+	for n, target := range targets {
+		if target.Completion != deploy.CompletionNotReached {
+			t.Errorf("target %s starts %s, want not reached", target.Address, target.Completion)
+		}
+		if target.Position != n || target.Address != twoTargets[n].Address {
+			t.Errorf("target %d is %s at position %d, want the environment's order", n, target.Address, target.Position)
+		}
+		if target.KeptInstances != 2 {
+			t.Errorf("target %s keeps %d instances, want the count written at the start", target.Address, target.KeptInstances)
+		}
+	}
+
+	completeOn(t, ctx, w, d.ID, "/srv/one")
+	if err := w.Complete(ctx, d.ID); !errors.Is(err, deploy.ErrTargetsIncomplete) {
+		t.Errorf("Complete with one target of two = %v, want ErrTargetsIncomplete", err)
+	}
+
+	partial, err := deploy.Targets(ctx, pool, d.ID)
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	if partial[0].Completion != deploy.CompletionComplete || partial[1].Completion != deploy.CompletionNotReached {
+		t.Errorf("the targets read %s and %s, want the first complete and the second not reached",
+			partial[0].Completion, partial[1].Completion)
+	}
+	if partial[0].ReachedAt == "" || partial[0].CompleteAt == "" {
+		t.Error("the completed target names neither when it was reached nor when it completed")
+	}
+	if partial[0].Replacement != targetseam.ReplacementDrained {
+		t.Errorf("the completed target reports %q, want the drain the seam reported", partial[0].Replacement)
+	}
+
+	completeOn(t, ctx, w, d.ID, "/srv/two")
 	if err := w.Complete(ctx, d.ID); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusComplete {
-		t.Errorf("the store has status %q, want complete", got)
-	}
-	if err := pool.QueryRow(ctx, `select count(*) from deploy`).Scan(&count); err != nil {
-		t.Fatalf("counting the records: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("the table holds %d records, want 1 — the record advances in place", count)
-	}
-
-	if err := w.Complete(ctx, d.ID); !errors.Is(err, deploy.ErrNotStarted) {
-		t.Errorf("a second Complete = %v, want %v", err, deploy.ErrNotStarted)
-	}
-	if err := w.Complete(ctx, "dep_00000000000000000000000000000000"); !errors.Is(err, deploy.ErrNotFound) {
-		t.Errorf("Complete of nothing = %v, want %v", err, deploy.ErrNotFound)
+		t.Fatalf("Complete with every target complete: %v", err)
 	}
 }
 
-// TestCurrentIsWhatIsRunningNotWhatIsNewest walks the distinction the record
-// exists for: a started deploy does not change the answer, and a completed one
-// does.
-func TestCurrentIsWhatIsRunningNotWhatIsNewest(t *testing.T) {
-	ctx, pool, w := newTable(t)
-	serviceID := record.NewID("svc")
+// TestTheStoreRefusesWhatTheWriterDoes inserts around the writer, which is how
+// the store's own refusals are tested: the writer's checks are not what this
+// asserts.
+func TestTheStoreRefusesWhatTheWriterDoes(t *testing.T) {
+	ctx, pool, _ := newTable(t)
 
-	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
-		t.Fatalf("Current = running %v, err %v; want nothing running in an empty table", running, err)
-	}
+	const insert = `insert into deploy
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, number,
+		 release_id, build_id, status, failed_step, strategy_picked, strategy_performed,
+		 snapshot_name, snapshot_digest, snapshot_deleted_at)
+		values ($1, $2, 'component', 'deployer', '', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
 
-	first, err := w.Start(ctx, deployer, serviceID, productionID, deploy.OfRelease(record.NewID("rel"), record.NewID("bld")))
-	if err != nil {
-		t.Fatalf("Start: %v", err)
+	cases := map[string]struct {
+		releaseID, buildID, status, step, picked, performed string
+		snapshotName, snapshotDigest, deletedAt             string
+		want                                                string
+	}{
+		"a release with no build": {
+			releaseID: "rel_a", status: "started", want: "names_a_build_for_its_release",
+		},
+		"failed with no step": {
+			buildID: "bl_a", status: "failed", want: "failed_names_its_step",
+		},
+		"a step with no failure": {
+			buildID: "bl_a", status: "started", step: "somewhere", want: "failed_names_its_step",
+		},
+		"one strategy and not the other": {
+			buildID: "bl_a", status: "started", picked: "with_control", want: "strategies_together",
+		},
+		"a snapshot with no digest": {
+			buildID: "bl_a", status: "started", snapshotName: "before-the-drop", want: "snapshot_names_its_digest",
+		},
+		"a deletion with no snapshot": {
+			buildID: "bl_a", status: "started", deletedAt: record.Now(), want: "snapshot_deleted_names_one",
+		},
 	}
-	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
-		t.Fatalf("Current = running %v, err %v; a started deploy is not running", running, err)
-	}
-
-	if err := w.Complete(ctx, first.ID); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-	current, running, err := deploy.Current(ctx, pool, serviceID, productionID)
-	if err != nil || !running {
-		t.Fatalf("Current = running %v, err %v; want the completed deploy", running, err)
-	}
-	if current.ID != first.ID {
-		t.Errorf("Current names %s, want %s", current.ID, first.ID)
-	}
-
-	second, err := w.Start(ctx, deployer, serviceID, productionID, deploy.OfRelease(record.NewID("rel"), record.NewID("bld")))
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	current, running, err = deploy.Current(ctx, pool, serviceID, productionID)
-	if err != nil || !running {
-		t.Fatalf("Current = running %v, err %v", running, err)
-	}
-	if current.ID != first.ID {
-		t.Errorf("Current names %s while a newer deploy is only started, want still %s", current.ID, first.ID)
-	}
-
-	if err := w.Complete(ctx, second.ID); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-	current, running, err = deploy.Current(ctx, pool, serviceID, productionID)
-	if err != nil || !running {
-		t.Fatalf("Current = running %v, err %v", running, err)
-	}
-	if current.ID != second.ID {
-		t.Errorf("Current names %s, want the most recently completed, %s", current.ID, second.ID)
-	}
-
-	// Another environment of the same service answers for itself.
-	if _, running, err := deploy.Current(ctx, pool, serviceID, "staging"); err != nil || running {
-		t.Errorf("Current in another environment = running %v, err %v; want nothing", running, err)
-	}
-}
-
-// TestTheRolloutWithoutAControlThroughTheSeam is the rollout against the seam's
-// fake: the record advances to complete, the target is asked for exactly one
-// named operation, and what was recorded is the credential's reference — no value
-// anywhere, the fake's Call having no field that could hold one.
-func TestTheRolloutWithoutAControlThroughTheSeam(t *testing.T) {
-	ctx, pool, w := newTable(t)
-	target := targetseam.NewFake()
-	credential := secretref.MustNew("target.production")
-	serviceID := record.NewID("svc")
-	releaseID := record.NewID("rel")
-	buildID := record.NewID("bld")
-
-	d, err := deploy.WithoutControl(ctx, w, target, deployer, serviceID, "checkout", productionID,
-		deploy.OfRelease(releaseID, buildID), credential)
-	if err != nil {
-		t.Fatalf("WithoutControl: %v", err)
-	}
-	if d.Status != deploy.StatusComplete {
-		t.Errorf("WithoutControl returned status %q, want complete", d.Status)
-	}
-	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusComplete {
-		t.Errorf("the store has status %q, want complete", got)
-	}
-
-	calls := target.Calls()
-	if len(calls) != 1 {
-		t.Fatalf("the target saw %d operations, want 1: %+v", len(calls), calls)
-	}
-	call := calls[0]
-	if call.Op != targetseam.OpDeploy {
-		t.Errorf("the operation is %q, want %q", call.Op, targetseam.OpDeploy)
-	}
-	if call.Service != "checkout" || call.Build != buildID {
-		t.Errorf("the target was asked to deploy %q of %q, want %q of %q", call.Build, call.Service, buildID, "checkout")
-	}
-	if call.Credential != credential {
-		t.Errorf("the call records credential reference %v, want %v", call.Credential, credential)
-	}
-
-	current, running, err := deploy.Current(ctx, pool, serviceID, productionID)
-	if err != nil || !running {
-		t.Fatalf("Current = running %v, err %v", running, err)
-	}
-	if current.ReleaseID != releaseID {
-		t.Errorf("Current names release %s, want %s", current.ReleaseID, releaseID)
-	}
-}
-
-// brokenTarget fails every operation, standing in for a target the rollout
-// cannot reach.
-type brokenTarget struct{ err error }
-
-func (b brokenTarget) Deploy(context.Context, targetseam.Deployment) error { return b.err }
-func (b brokenTarget) Stop(context.Context, string, secretref.Ref) error   { return b.err }
-func (b brokenTarget) ReadRunning(context.Context, string, secretref.Ref) (targetseam.Running, error) {
-	return targetseam.Running{}, b.err
-}
-
-func TestATargetErrorLeavesTheRecordStarted(t *testing.T) {
-	ctx, pool, w := newTable(t)
-	unreachable := errors.New("the target is unreachable")
-	serviceID := record.NewID("svc")
-
-	d, err := deploy.WithoutControl(ctx, w, brokenTarget{err: unreachable}, deployer,
-		serviceID, "checkout", productionID, deploy.OfRelease(record.NewID("rel"), record.NewID("bld")),
-		secretref.MustNew("target.production"))
-	if !errors.Is(err, unreachable) {
-		t.Fatalf("WithoutControl = %v, want the target's error", err)
-	}
-	if d.ID == "" {
-		t.Fatal("the error path returns no record, and the started record is what a caller has to point at")
-	}
-	if got := storedStatus(ctx, t, pool, d.ID); got != deploy.StatusStarted {
-		t.Errorf("the store has status %q, want started — the drift detector that would settle it is M4", got)
-	}
-	if _, running, err := deploy.Current(ctx, pool, serviceID, productionID); err != nil || running {
-		t.Errorf("Current = running %v, err %v; a deploy that never completed is not running", running, err)
-	}
-}
-
-func TestTheStoreRefusesWhatTheWriterRefuses(t *testing.T) {
-	ctx, pool, w := newTable(t)
-
-	if _, err := w.Start(ctx, deployer, record.NewID("svc"), "", deploy.OfRelease(record.NewID("rel"), record.NewID("bld"))); !errors.Is(err, deploy.ErrEnvironmentEmpty) {
-		t.Errorf("Start with no environment = %v, want %v", err, deploy.ErrEnvironmentEmpty)
-	}
-	if _, err := w.Start(ctx, record.Actor{}, record.NewID("svc"), productionID, deploy.OfRelease(record.NewID("rel"), record.NewID("bld"))); !errors.Is(err, record.ErrKindUnknown) {
-		t.Errorf("Start with no actor = %v, want %v", err, record.ErrKindUnknown)
-	}
-
-	insert := func(environment, strategy, status string) error {
-		_, err := pool.Exec(ctx, `insert into deploy (id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, release_id, build_id, strategy, status)
-			values ($1, $2, 'component', 'deploy', '', $3, $4, $5, $6, $7, $8, $9)`,
-			record.NewID(deploy.IDPrefix), deploy.FormatVersion, record.Now(), record.NewID("svc"), environment,
-			record.NewID("rel"), record.NewID("bld"), strategy, status)
-		return err
-	}
-	if err := insert("", "without_control", "started"); err == nil {
-		t.Error("the store accepted a deploy with no environment")
-	}
-	if err := insert(productionID, "with_a_control", "started"); err == nil {
-		t.Error("the store accepted a strategy the CHECK does not list — with a control is M4's edit")
-	}
-	if err := insert(productionID, "without_control", "watching"); err == nil {
-		t.Error("the store accepted a status the CHECK does not list")
-	}
-}
-
-// TestAnEmptyLinkIsRefusedTwice covers this package's two link columns at one
-// of them. An empty link names nothing, so it is refused by the writer and by
-// the store, the way every other required field is; record's doc.go states
-// what a link is checked for.
-func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
-	ctx, pool, w := newTable(t)
-
-	if _, err := w.Start(ctx, deployer, "", productionID, deploy.OfRelease(record.NewID("rel"), record.NewID("bld"))); !errors.Is(err, deploy.ErrServiceIDEmpty) {
-		t.Errorf("Start naming no service = %v, want %v", err, deploy.ErrServiceIDEmpty)
-	}
-	if _, err := w.Start(ctx, deployer, record.NewID("svc"), productionID, deploy.What{}); !errors.Is(err, deploy.ErrBuildIDEmpty) {
-		t.Errorf("Start naming nothing deployed = %v, want %v", err, deploy.ErrBuildIDEmpty)
-	}
-
-	_, err := pool.Exec(ctx, `insert into deploy (id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, release_id, build_id, strategy, status)
-		values ($1, $2, 'component', 'deploy', '', $3, '', 'production', $4, $5, 'without_control', 'started')`,
-		record.NewID(deploy.IDPrefix), deploy.FormatVersion, record.Now(), record.NewID("rel"), record.NewID("bld"))
-	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
-		t.Errorf("inserting a deploy naming no service = %v, want a violation of service_id_present", err)
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, insert,
+				record.NewID(deploy.IDPrefix), deploy.FormatVersion, record.Now(), "svc_a", productionID, 1,
+				c.releaseID, c.buildID, c.status, c.step, c.picked, c.performed,
+				c.snapshotName, c.snapshotDigest, c.deletedAt)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("the store took the row: %v, want a violation of %s", err, c.want)
+			}
+		})
 	}
 }

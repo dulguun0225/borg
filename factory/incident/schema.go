@@ -10,7 +10,7 @@ const IDPrefix = "inc"
 
 // FormatVersion is written into every incident record's format_version
 // column.
-const FormatVersion = "incident/1"
+const FormatVersion = "incident/2"
 
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
@@ -26,6 +26,16 @@ const FormatVersion = "incident/1"
 // record, and a human's judgment about live software reaches production by
 // another road.
 //
+// reading names which of the three readings crossed, quantity which of the
+// service's quantities it crossed on, and size beside confidence or run_length
+// is the rest of the boundary it was read against: a reading that closes states
+// a confidence and one that never does states a run length, and
+// reading_states_its_own_boundary is the CHECK that a reading names the pair the
+// design says it states and not the other. boundary_version, policy_version and
+// score_version are the versions in force at the reading. failure_records is the
+// failure records the health monitor copied at the crossing, a field of the
+// incident rather than a link to the store.
+//
 // intent_id is the intent the crossing raised through intake, and is empty on an
 // incident that raised none — which is every incident on a release whose window
 // is still open, where what follows is a rollback rather than an item.
@@ -38,7 +48,15 @@ var DDL = []string{
 	service_id text not null,
 	release_id text not null,
 	deploy_id text not null,
-	crossing text not null,
+	reading text not null,
+	quantity text not null,
+	size double precision not null,
+	confidence double precision not null,
+	run_length double precision not null,
+	boundary_version text not null,
+	policy_version text not null,
+	score_version text not null,
+	failure_records text not null,
 	intent_id text not null,
 	observations int not null,
 	status text not null,
@@ -49,7 +67,16 @@ var DDL = []string{
 	constraint service_id_present check (service_id <> ''),
 	constraint release_id_present check (release_id <> ''),
 	constraint deploy_id_present check (deploy_id <> ''),
-	constraint crossing_present check (crossing <> ''),
+	constraint reading_known check (reading in ('comparison', 'own_history', 'explicit_threshold')),
+	constraint quantity_present check (quantity <> ''),
+	constraint size_positive check (size > 0),
+	constraint boundary_version_present check (boundary_version <> ''),
+	constraint policy_version_present check (policy_version <> ''),
+	constraint score_version_present check (score_version <> ''),
+	constraint reading_states_its_own_boundary check (
+		(confidence > 0) <> (run_length > 0)
+		and (reading in ('own_history', 'explicit_threshold')) = (run_length > 0)
+	),
 	constraint observations_not_negative check (observations >= 0),
 	constraint status_known check (status in ('open', 'resolved')),
 	constraint resolved_together check ((status = 'resolved') = (resolved_at <> '')),

@@ -15,14 +15,14 @@ import (
 
 // defaultTier is what this interface proposes at the confirming round. Gate
 // policy does not yet author a tier value and package intent defines no
-// default of its own, so this is the crude interface's own placeholder until
+// default of its own, so this is the command-line interface's own placeholder until
 // that parameter exists — a later dispatch's decision, not this one's.
 var defaultTier = intent.Tier{Value: 1, PolicyVersion: "unauthored"}
 
 // take is the intent a decomposition is authored from. Package intent's
 // rewrite dropped the statement-keyed lookup [take] used to read: a detector's
 // removal intent and a health monitor's revert intent are now found only by
-// evidence or by id, and this crude interface is handed a statement rather
+// evidence or by id, and this command-line interface is handed a statement rather
 // than either — so an owner re-typing the exact words of an intent already
 // waiting takes a second one in rather than resuming the first, which this
 // milestone's decision leaves open.
@@ -90,7 +90,7 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 	if err != nil {
 		return nil, nil, err
 	}
-	promised, err := p.inForceFor(ctx, firstSvc, "")
+	promised, err := p.inForceFor(ctx, firstSvc, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -140,7 +140,7 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 			if err != nil {
 				return nil, nil, err
 			}
-			itsPromised, err := p.inForceFor(ctx, c.svc, "")
+			itsPromised, err := p.inForceFor(ctx, c.svc, nil)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -270,7 +270,7 @@ func (p *path) interview(ctx context.Context, in intent.Intent, serviceName stri
 	// neither a question nor an answer. This interface has no screen for the
 	// round a requester does owe, so where there is one it states the one
 	// criterion the spec author produced and confirms it itself — a
-	// simplification this milestone's crude interface makes rather than
+	// simplification this milestone's command-line interface makes rather than
 	// prompting a second time for a round the design gives the requester, and
 	// an open point this dispatch leaves.
 	confirmation := intent.Confirmation{IntentID: in.ID}

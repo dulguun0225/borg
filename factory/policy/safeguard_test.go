@@ -21,7 +21,7 @@ func TestASafeguardNeverWidens(t *testing.T) {
 		t.Fatalf("AuthorWindowLimit: %v", err)
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.WindowLimit,
-		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 5}); err != nil {
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 5}, safeguard.Routing{}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 
@@ -46,7 +46,7 @@ func TestASafeguardNeverWidens(t *testing.T) {
 		t.Fatalf("AuthorWindowConfidence: %v", err)
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.WindowConfidence,
-		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 0.9}); err != nil {
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 0.9}, safeguard.Routing{}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 	all, err = in.reader.All(ctx, in.subjects("merge_to_master"))
@@ -64,7 +64,7 @@ func TestASafeguardNeverWidens(t *testing.T) {
 func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	before, err := in.reader.AtGate(ctx, in.subjects("deploy_to_production"))
+	before, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -75,12 +75,12 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 
 	placed, version, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RiskThreshold,
 		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID, Key: "deploy_to_production"},
-		safeguard.Bound{Number: 0})
+		safeguard.Bound{Number: 0}, safeguard.Routing{})
 	if err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 
-	after, err := in.reader.AtGate(ctx, in.subjects("deploy_to_production"))
+	after, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 
 	// The other row has no safeguard: a safeguard on a gate row reaches that row
 	// and no other.
-	elsewhere, err := in.reader.AtGate(ctx, in.subjects("merge_to_master"))
+	elsewhere, err := in.reader.AtGate(ctx, owner, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -107,17 +107,32 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 		t.Error("a safeguard on the deploy row reached the merge row")
 	}
 
-	// Withdrawing it stops it applying, and the firing that follows names no
-	// safeguard.
-	if _, err := in.factory.WithdrawSafeguard(ctx, owner, placed.ID); err != nil {
-		t.Fatalf("WithdrawSafeguard: %v", err)
+	// Writing the withdrawal does not stop it applying: a withdrawal is decided
+	// and not merely written, and until the gate row that decides it approves it
+	// the safeguard stands.
+	written, _, err := in.factory.WriteSafeguardWithdrawal(ctx, owner, placed.ID)
+	if err != nil {
+		t.Fatalf("WriteSafeguardWithdrawal: %v", err)
 	}
-	withdrawn, err := in.reader.AtGate(ctx, in.subjects("deploy_to_production"))
+	pending, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if !pending.HumanBySafeguard {
+		t.Error("a pending withdrawal took the human off the row before the row that decides it approved it")
+	}
+
+	// The approval is where it leaves force, and the firing that follows names
+	// no safeguard.
+	if _, err := in.factory.ApproveSafeguardWithdrawal(ctx, approver, written.ID); err != nil {
+		t.Fatalf("ApproveSafeguardWithdrawal: %v", err)
+	}
+	withdrawn, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
 	if withdrawn.HumanBySafeguard || len(withdrawn.Safeguards) != 0 {
-		t.Errorf("a withdrawn safeguard still applies: %+v", withdrawn)
+		t.Errorf("an approved withdrawal leaves the safeguard applying: %+v", withdrawn)
 	}
 }
 
@@ -134,13 +149,13 @@ func TestASafeguardOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RiskThreshold,
 		safeguard.Subject{Kind: safeguard.SubjectArea, ID: in.area.ID, Key: "merge_to_master"},
-		safeguard.Bound{Number: 0}); err != nil {
+		safeguard.Bound{Number: 0}, safeguard.Routing{}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 
 	subjects := in.subjects("merge_to_master")
 	subjects.AreaID = inner.ID
-	applied, err := in.reader.AtGate(ctx, subjects)
+	applied, err := in.reader.AtGate(ctx, owner, subjects)
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}

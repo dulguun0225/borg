@@ -29,7 +29,10 @@ func haltCommand(args []string) error {
 	}
 
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		actor := owner(*human)
+		actor, err := humanNamed(ctx, pool, token, *human)
+		if err != nil {
+			return err
+		}
 		if *withdraw != "" {
 			wd, err := halt.NewWriter(pool, token).InsertWithdrawal(ctx, actor, *withdraw)
 			if err != nil {

@@ -1,152 +1,32 @@
 // The notifier's own tests: what qualifies for a page, who a delivery reaches, and
-// the three events a page is a sequence of. The page events are rows of the decision
-// log, so this reaches a database; mail and chat write nothing, which is one of the
-// things asserted here.
+// the four events a page is a sequence of. The page events are rows of the decision
+// log, so this reaches a database; mail and chat write a delivery record and
+// nothing else, which is one of the things asserted here. fixtures_test.go holds
+// the notifier and the People writer these tests are composed over, and the small
+// reads made directly against the log and this package's own delivery table.
+// driftpass_test.go holds the notifier's own last check and its reads of the
+// drift detector's store.
 //
 // These tests do not skip when the database is unreachable — the milestone is
 // demonstrated by them running, so an unreachable database fails the run.
 package notifier_test
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"net/url"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
-	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
-	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// theOwner is who a page widens to. The notifier is composed with the name, because
-// the design gives the owner no record.
-const theOwner = "owner"
-
-// testActor is who this test's own reads and writes around the notifier are made
-// as, where the write is not the notifier's own.
-var testActor = record.Actor{Kind: record.KindComponent, Key: "test"}
-
-// theHumanOwner is the owner as a human actor, for writes the People declaration
-// takes.
-var theHumanOwner = record.Actor{Kind: record.KindHuman, Key: theOwner, Basis: record.BasisClaimed}
-
-// recorder is a [notifier.Deliverer] that reaches nothing and keeps what it was
-// handed, which is what says a delivery happened on a channel that writes no record.
-type recorder struct {
-	delivered []notifier.Delivery
-	refuse    error
-}
-
-func (r *recorder) Deliver(_ context.Context, d notifier.Delivery) error {
-	if r.refuse != nil {
-		return r.refuse
-	}
-	r.delivered = append(r.delivered, d)
-	return nil
-}
-
-// on is how many deliveries went out on one channel.
-func (r *recorder) on(channel notifier.Channel) int {
-	n := 0
-	for _, d := range r.delivered {
-		if d.Channel == channel {
-			n++
-		}
-	}
-	return n
-}
-
-// newNotifier gives a test a schema of its own with the whole factory schema
-// applied, a recorder in place of the three channels, and the notifier over both.
-func newNotifier(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token, *notifier.Notifier, *recorder) {
-	t.Helper()
-	ctx := t.Context()
-
-	var suffix [8]byte
-	if _, err := rand.Read(suffix[:]); err != nil {
-		t.Fatalf("naming the test schema: %v", err)
-	}
-	schema := "notifier_" + hex.EncodeToString(suffix[:])
-
-	pool, err := postgres.Open(ctx, inSchema(t, postgres.URL(), schema))
-	if err != nil {
-		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", postgres.URL(), err)
-	}
-	t.Cleanup(func() {
-		drop, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if _, err := pool.Exec(drop, `drop schema if exists `+pgx.Identifier{schema}.Sanitize()+` cascade`); err != nil {
-			t.Errorf("dropping schema %s: %v", schema, err)
-		}
-		pool.Close()
-	})
-	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
-		t.Fatalf("creating schema %s: %v", schema, err)
-	}
-	if err := postgres.Apply(ctx, pool); err != nil {
-		t.Fatalf("applying the schema: %v", err)
-	}
-	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
-	if err != nil {
-		t.Fatalf("acquiring the lease: %v", err)
-	}
-
-	channels := &recorder{}
-	n, err := notifier.New(pool, decisionlog.NewWriter(pool, token), token, channels, theOwner)
-	if err != nil {
-		t.Fatalf("composing the notifier: %v", err)
-	}
-	return ctx, pool, token, n, channels
-}
-
-// inSchema points a connection URL at one schema and nothing else, so every
-// unqualified name in the DDL and in the writers' statements resolves there.
-func inSchema(t *testing.T, base, schema string) string {
-	t.Helper()
-	parsed, err := url.Parse(base)
-	if err != nil {
-		t.Fatalf("parsing %s: %v", base, err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-// readLog is every row in the log, read as [testActor] through a reader of the
-// test's own — a read this test wants and not one the notifier makes on its
-// behalf.
-func readLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) []decisionlog.Row {
-	t.Helper()
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, testActor)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
-	return rows
-}
-
-// verifyLog fails the test if the chain does not verify, as [testActor].
-func verifyLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) {
-	t.Helper()
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, testActor); err != nil {
-		t.Errorf("the chain does not verify: %v", err)
-	}
-}
-
-// TestOnlyAPageWritesARecord is the narrow channel: everything waiting on a human
-// goes out on mail and chat, and neither writes anything, because a delivery that
-// changes no state is no evidence and a record per delivery would size the log by how
-// often the factory notifies.
-func TestOnlyAPageWritesARecord(t *testing.T) {
+// TestMailAndChatWriteADeliveryRecordAndNoLogRow is the narrow channel split
+// from the other two: everything waiting on a human goes out on mail and
+// chat, and both write a delivery record — "written on mail and chat too" —
+// while only the log holds a page event, and a wait that does not qualify
+// for one writes none.
+func TestMailAndChatWriteADeliveryRecordAndNoLogRow(t *testing.T) {
 	ctx, pool, token, n, channels := newNotifier(t)
 
 	waiting := notifier.Wait{
@@ -168,6 +48,14 @@ func TestOnlyAPageWritesARecord(t *testing.T) {
 		t.Error("a page went out about a gate decision")
 	}
 
+	for _, channel := range []notifier.Channel{notifier.ChannelMail, notifier.ChannelChat} {
+		recipient, accepted, found := deliveryRow(t, ctx, pool, waiting.Row, channel)
+		if !found || recipient != theOwner || !accepted {
+			t.Errorf("the delivery record for %s = recipient %q accepted %t found %t, want %q true true",
+				channel, recipient, accepted, found, theOwner)
+		}
+	}
+
 	rows := readLog(t, ctx, pool, token)
 	if len(rows) != 1 || rows[0].Shape != decisionlog.ShapeReadEvent {
 		t.Errorf("the log holds %+v after mail and chat, want only this read's own event", rows)
@@ -175,16 +63,16 @@ func TestOnlyAPageWritesARecord(t *testing.T) {
 }
 
 // TestAPageWritesOneReachedEventPerHolder is the first delivery: it reaches every
-// human holding the duty at once, there being no rotation naming which one it reaches
+// key holding the duty at once, there being no rotation naming which one it reaches
 // first.
 func TestAPageWritesOneReachedEventPerHolder(t *testing.T) {
 	ctx, pool, token, n, channels := newNotifier(t)
 
 	holding := people.OfDuty(12)
-	writer := people.NewWriter(pool, token)
-	for _, human := range []string{"ada", "grace"} {
-		if _, err := writer.Declare(ctx, theHumanOwner, human, holding); err != nil {
-			t.Fatalf("declaring that %s holds %s: %v", human, holding, err)
+	writer := peopleWriter(pool, token)
+	for _, key := range []string{"hk_ada", "hk_grace"} {
+		if _, err := writer.Declare(ctx, theHumanOwner, key, holding); err != nil {
+			t.Fatalf("declaring that %s holds %s: %v", key, holding, err)
 		}
 	}
 
@@ -198,7 +86,7 @@ func TestAPageWritesOneReachedEventPerHolder(t *testing.T) {
 		t.Fatalf("Notify: %v", err)
 	}
 	if len(events) != 2 {
-		t.Fatalf("the page wrote %d event(s), and two humans hold the duty", len(events))
+		t.Fatalf("the page wrote %d event(s), and two keys hold the duty", len(events))
 	}
 	if channels.on(notifier.ChannelPage) != 2 {
 		t.Errorf("the page went out %d times, want one per holder", channels.on(notifier.ChannelPage))
@@ -224,8 +112,8 @@ func TestAPageWritesOneReachedEventPerHolder(t *testing.T) {
 		}
 		reached[e.Reached] = true
 	}
-	if !reached["ada"] || !reached["grace"] {
-		t.Errorf("the page reached %v, want both holders", reached)
+	if !reached["hk_ada"] || !reached["hk_grace"] {
+		t.Errorf("the page reached %v, want both holder keys and never a name", reached)
 	}
 
 	// The rows are the log's, written as the notifier and not as whoever created the
@@ -274,7 +162,7 @@ func TestAPageWidensExactlyOnceToTheOwner(t *testing.T) {
 	ctx, pool, token, n, _ := newNotifier(t)
 
 	holding := people.OfObligation(people.ObligationDriftDetector)
-	if _, err := people.NewWriter(pool, token).Declare(ctx, theHumanOwner, "sre", holding); err != nil {
+	if _, err := peopleWriter(pool, token).Declare(ctx, theHumanOwner, "hk_sre", holding); err != nil {
 		t.Fatalf("declaring who installed the drift detector: %v", err)
 	}
 	waiting := notifier.Wait{
@@ -287,7 +175,7 @@ func TestAPageWidensExactlyOnceToTheOwner(t *testing.T) {
 	if _, err := n.Widen(ctx, waiting); !errors.Is(err, notifier.ErrNothingReached) {
 		t.Errorf("Widen before any delivery = %v, want %v", err, notifier.ErrNothingReached)
 	}
-	if _, err := n.Answered(ctx, waiting, "sre"); !errors.Is(err, notifier.ErrNothingReached) {
+	if _, err := n.Answered(ctx, waiting, "hk_sre"); !errors.Is(err, notifier.ErrNothingReached) {
 		t.Errorf("Answered before any delivery = %v, want %v", err, notifier.ErrNothingReached)
 	}
 
@@ -312,7 +200,7 @@ func TestAPageWidensExactlyOnceToTheOwner(t *testing.T) {
 	if len(read) != 2 {
 		t.Fatalf("the page's sequence is %d event(s), want reached then widened: %+v", len(read), read)
 	}
-	if notifier.Event(read[0].Event) != notifier.EventReached || read[0].Reached != "sre" {
+	if notifier.Event(read[0].Event) != notifier.EventReached || read[0].Reached != "hk_sre" {
 		t.Errorf("the first event is %+v, want reached to the holder", read[0])
 	}
 	if notifier.Event(read[1].Event) != notifier.EventWidened || read[1].Reached != theOwner {
@@ -320,7 +208,7 @@ func TestAPageWidensExactlyOnceToTheOwner(t *testing.T) {
 	}
 
 	// Answered closes the sequence, naming who ended the wait.
-	if _, err := n.Answered(ctx, waiting, "sre"); err != nil {
+	if _, err := n.Answered(ctx, waiting, "hk_sre"); err != nil {
 		t.Fatalf("Answered: %v", err)
 	}
 	read, err = n.EventsFor(ctx, waiting.Row)
@@ -328,10 +216,43 @@ func TestAPageWidensExactlyOnceToTheOwner(t *testing.T) {
 		t.Fatalf("EventsFor: %v", err)
 	}
 	last := read[len(read)-1]
-	if notifier.Event(last.Event) != notifier.EventAnswered || last.Reached != "sre" {
+	if notifier.Event(last.Event) != notifier.EventAnswered || last.Reached != "hk_sre" {
 		t.Errorf("the last event is %+v, want answered by the human who ended it", last)
 	}
 	verifyLog(t, ctx, pool, token)
+}
+
+// TestAcknowledgeStopsTheWideningAndNotASecondTime is the fourth event: it
+// decides nothing and ends no wait, and it stops only the widening.
+func TestAcknowledgeStopsTheWideningAndNotASecondTime(t *testing.T) {
+	ctx, _, _, n, _ := newNotifier(t)
+
+	waiting := notifier.Wait{
+		Row: "dl_ack", Kind: notifier.KindOwnerFired,
+		Waiting: "the owner's own judgment", Worse: true,
+	}
+	if _, err := n.Notify(ctx, waiting); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if _, err := n.Acknowledge(ctx, waiting, "hk_alice"); err != nil {
+		t.Fatalf("Acknowledge: %v", err)
+	}
+	if _, err := n.Widen(ctx, waiting); !errors.Is(err, notifier.ErrAcknowledged) {
+		t.Errorf("Widen after an acknowledgement = %v, want %v", err, notifier.ErrAcknowledged)
+	}
+
+	// The row still waits: acknowledging it does not answer it, and a
+	// second acknowledgement from another holder is still accepted.
+	if _, err := n.Acknowledge(ctx, waiting, "hk_bob"); err != nil {
+		t.Fatalf("a second Acknowledge from another holder: %v", err)
+	}
+
+	if _, err := n.Answered(ctx, waiting, "owner"); err != nil {
+		t.Fatalf("Answered: %v", err)
+	}
+	if _, err := n.Acknowledge(ctx, waiting, "hk_alice"); !errors.Is(err, notifier.ErrAlreadyAnswered) {
+		t.Errorf("Acknowledge after Answered = %v, want %v", err, notifier.ErrAlreadyAnswered)
+	}
 }
 
 // TestThePageConditionIsSettledPerKind is what makes "nothing else fires one"
@@ -380,6 +301,25 @@ func TestThePageConditionIsSettledPerKind(t *testing.T) {
 	}
 }
 
+// TestGateRevertDecisionCanPage is finding 4's own fix: a gate decision on a
+// revert, unlike an ordinary one, can leave production worse, so its own
+// kind takes the condition rather than refusing it outright.
+func TestGateRevertDecisionCanPage(t *testing.T) {
+	ctx, _, _, n, _ := newNotifier(t)
+
+	waiting := notifier.Wait{
+		Row: "dl_revert", Kind: notifier.KindGateRevertDecision,
+		Waiting: "a human decides on a revert while the rollback still holds", Worse: true,
+	}
+	events, err := n.Notify(ctx, waiting)
+	if err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if len(events) != 1 {
+		t.Errorf("a revert-gate decision wrote %d page event(s), want one", len(events))
+	}
+}
+
 // TestAnIncompleteWaitIsRefused is the two things every wait names: what waits, and
 // what it is waiting for.
 func TestAnIncompleteWaitIsRefused(t *testing.T) {
@@ -395,10 +335,12 @@ func TestAnIncompleteWaitIsRefused(t *testing.T) {
 	}
 }
 
-// TestADeliveryThatFailedWritesNoRecord is the order the notifier keeps: the record
-// says a page was delivered, so writing it before the delivery failed would say
-// something that did not happen.
-func TestADeliveryThatFailedWritesNoRecord(t *testing.T) {
+// TestADeliveryThatFailedWritesADeliveryRecordAndNoPageEvent is the split
+// "written on mail and chat too, and on a refused send" makes possible: a
+// row no delivery was ever accepted for is reported as a fault of the
+// channel and against nobody, which needs the record even where the send
+// failed.
+func TestADeliveryThatFailedWritesADeliveryRecordAndNoPageEvent(t *testing.T) {
 	ctx, pool, token, _, _ := newNotifier(t)
 
 	refused := errors.New("the pager is unreachable")
@@ -408,16 +350,22 @@ func TestADeliveryThatFailedWritesNoRecord(t *testing.T) {
 		t.Fatalf("composing the notifier: %v", err)
 	}
 
-	_, err = n.Notify(ctx, notifier.Wait{
+	waiting := notifier.Wait{
 		Row: "mis_unreachable", Kind: notifier.KindDriftMismatch,
 		Waiting: "a record disagrees with what runs", Worse: true,
-	})
+	}
+	_, err = n.Notify(ctx, waiting)
 	if !errors.Is(err, refused) {
 		t.Errorf("Notify over a channel that refused = %v, want the channel's own error", err)
 	}
 	rows := readLog(t, ctx, pool, token)
 	if len(rows) != 1 || rows[0].Shape != decisionlog.ShapeReadEvent {
 		t.Errorf("the log holds %+v after a delivery that failed, want only this read's own event", rows)
+	}
+	recipient, accepted, found := deliveryRow(t, ctx, pool, waiting.Row, notifier.ChannelMail)
+	if !found || accepted || recipient != theOwner {
+		t.Errorf("the delivery record for the refused mail send = recipient %q accepted %t found %t, want %q false true",
+			recipient, accepted, found, theOwner)
 	}
 }
 

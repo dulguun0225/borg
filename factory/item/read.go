@@ -97,7 +97,7 @@ func IDsInArea(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]string
 }
 
 // ForIntent is every item decomposed from one intent, in the order they were decomposed. One
-// intent yields one item through the crude interface and several where decomposition
+// intent yields one item through the command-line interface and several where decomposition
 // divides the work, and both readers of this want all of them: what a rollback's
 // revert intent became, and what an incident's intent became.
 //

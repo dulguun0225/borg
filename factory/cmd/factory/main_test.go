@@ -50,7 +50,7 @@ func TestOneChangeShips(t *testing.T) {
 		t.Fatalf("reading the questions: %v", err)
 	}
 	// Two questions: the spec author's own, answered with the scripted line,
-	// and the confirming round's, which this crude interface answers itself.
+	// and the confirming round's, which this command-line interface answers itself.
 	if len(questions) != 2 {
 		t.Fatalf("the intent has %d questions, want the spec author's and the confirming round's", len(questions))
 	}
@@ -112,7 +112,7 @@ func TestOneChangeShips(t *testing.T) {
 
 	// The deploy completed and Current names it — what is running, not what
 	// is newest.
-	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID)
+	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID, []string{d.dir})
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestOneChangeShips(t *testing.T) {
 
 	// The target runs the build. What crosses the seam is the build and never the
 	// release: a target runs a binary rather than a name.
-	running, err := d.targets.at(d.dir).ReadRunning(ctx, "demo", d.credential)
+	running, err := d.targets.at(d.dir).ReadRunning(ctx, deployerPrincipal, "demo", d.credential)
 	if err != nil {
 		t.Fatalf("reading what the target runs: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestOneChangeShips(t *testing.T) {
 	// The walk alone — the walk subcommand's code — reaches the intent's
 	// statement from the deploy id, and reports the chain clean.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), c.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), c.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {
@@ -191,11 +191,12 @@ func TestOneChangeShips(t *testing.T) {
 
 	// Every decision names the policy version and the score version it was
 	// decided under, and both are records rather than names.
-	scoreVersion, found, err := score.Newest(ctx, d.pool)
+	scoreVersion, found, err := score.Newest(ctx, d.pool, d.token)
 	if err != nil || !found {
 		t.Fatalf("reading the score version: %v", err)
 	}
-	policyVersion, err := policy.InForce(ctx, d.pool)
+	reader := policy.NewReader(d.pool, d.token, scoreVersion)
+	policyVersion, err := reader.Newest(ctx, owner(t, ctx, d.pool, d.token, d.human))
 	if err != nil {
 		t.Fatalf("reading the policy version: %v", err)
 	}
@@ -207,26 +208,37 @@ func TestOneChangeShips(t *testing.T) {
 			t.Errorf("an opening names policy version %q, want the record %q", opening.PolicyVersion, policyVersion.ID)
 		}
 	}
-	if _, err := score.Get(ctx, d.pool, rows[0].ScoreVersion); err != nil {
+	if _, err := score.Get(ctx, d.pool, d.token, rows[0].ScoreVersion); err != nil {
 		t.Errorf("the score version a decision names does not read back: %v", err)
 	}
-	if _, err := policy.Get(ctx, d.pool, rows[0].PolicyVersion); err != nil {
+	if _, err := reader.Version(ctx, owner(t, ctx, d.pool, d.token, d.human), rows[0].PolicyVersion); err != nil {
 		t.Errorf("the policy version a decision names does not read back: %v", err)
 	}
 
 	// The merge row's opening names the implementation version under decision and
 	// the whole vector; neither deploy row's names an artifact, there being none
 	// under decision at a deploy.
+	// The merge row is an event gate: what it decides is whether a merge happens
+	// at all, so it names the build it decides over and no artifact version.
 	mergeOpening := openingPayload(t, rows[2])
-	if mergeOpening.ArtifactID != c.implArtifactID {
-		t.Errorf("the merge opening names artifact %s, the decision was over implementation %s",
-			mergeOpening.ArtifactID, c.implArtifactID)
+	if mergeOpening.ArtifactID != "" {
+		t.Errorf("the merge opening names artifact %s, and no document is under decision at an event gate",
+			mergeOpening.ArtifactID)
+	}
+	if mergeOpening.BuildID != c.buildID {
+		t.Errorf("the merge opening names build %s, the decision was over %s", mergeOpening.BuildID, c.buildID)
 	}
 	if len(mergeOpening.Vector) == 0 || mergeOpening.Number <= 0 {
 		t.Errorf("the merge opening carries %d factors and number %v", len(mergeOpening.Vector), mergeOpening.Number)
 	}
-	if len(mergeOpening.Unavailable) != 0 {
-		t.Errorf("the merge opening names %v as unavailable, and every factor is computable here", mergeOpening.Unavailable)
+	// Nothing is resolved: every factor of the set with a build is computable
+	// here, the exposure factor included — package exposure derives what the
+	// change reaches from the diff and the build's resolved set, and the build
+	// record carries the list. A resolution would put a human at the row whatever
+	// the number read, so what decides this row is the number alone.
+	if len(mergeOpening.Resolutions) != 0 {
+		t.Errorf("the merge opening resolves %v, and every factor over a build is computable",
+			mergeOpening.Resolutions)
 	}
 	if len(mergeOpening.Criteria) != 1 || mergeOpening.Criteria[0].Outcome != criterion.OutcomePassed {
 		t.Errorf("the merge opening carries criteria %+v, want the one criterion passed", mergeOpening.Criteria)

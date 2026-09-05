@@ -61,7 +61,7 @@ type deps struct {
 	// error rather than a service the run invents.
 	services []serviceRepo
 	area     string // the area's name, empty where the run names none
-	// candidateCeiling is how many candidate environments this substrate has room
+	// candidateCeiling is how many candidate environments this platform has room
 	// for at once. It is the factory's own infrastructure limit and not gate
 	// policy: the design says of the condition it holds on that no parameter of an
 	// owner's limits it. A candidate that meets it waits, and the wait is written

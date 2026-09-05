@@ -33,7 +33,7 @@ func TestTheThreeItemsOfAMigrationGetTheBreakingChangeThrough(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("reading the contract: found %v, %v", found, err)
 	}
-	waiting, found, err := intent.OnEvidence(ctx, d.pool, intent.Evidence{ContractID: con.ID, Element: "Detail"})
+	waiting, found, err := intent.OnEvidence(ctx, d.pool, intent.Evidence{ContractID: con.ID, Element: "Health.Detail"})
 	if err != nil {
 		t.Fatalf("reading the detector's intent: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestTheThreeItemsOfAMigrationGetTheBreakingChangeThrough(t *testing.T) {
 	if len(removed.published) != 1 || removed.published[0].Version.Semver != (contract.Semver{Major: 2}) {
 		t.Fatalf("the removal published %+v, want 2.0.0 — a removal is the major", removed.published)
 	}
-	if len(removed.published[0].Change.Removed) != 1 || removed.published[0].Change.Removed[0] != "Detail" {
+	if len(removed.published[0].Change.Removed) != 1 || removed.published[0].Change.Removed[0] != "Health.Detail" {
 		t.Errorf("the removal's diff removed %v", removed.published[0].Change.Removed)
 	}
 }

@@ -26,12 +26,11 @@ import (
 	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/legalhold"
+	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
-	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/safeguard"
-	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/screenstatemachine"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
@@ -109,12 +108,11 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"safeguard", safeguard.DDL},
 		{"halt", halt.DDL},
 		{"legalhold", legalhold.DDL},
-		{"score", score.DDL},
-		{"policy", policy.DDL},
 		{"window", window.DDL},
 		{"incident", incident.DDL},
 		{"people", people.DDL},
 		{"last_check", lastcheck.DDL},
+		{"notifier", notifier.DeliveryDDL},
 	} {
 		for n, statement := range owner.ddl {
 			if _, err := pool.Exec(ctx, statement); err != nil {

@@ -1,6 +1,5 @@
-// The derivation and the diff, which are the two parts of this package that are
-// arithmetic over text rather than rows: neither reaches a database, so both are
-// tested here and the records are tested in db_test.go.
+// The derivation, which is arithmetic over text rather than rows: it reaches no
+// database. The diff is diff_test.go and the records are db_test.go.
 package contract_test
 
 import (
@@ -8,13 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/contract"
 )
 
-// write puts one file in a fresh directory and returns the directory.
+// checkout puts files in a fresh directory and returns the directory.
 func checkout(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -28,16 +26,25 @@ func checkout(t *testing.T, files map[string]string) string {
 
 const health = `package main
 
-// Health is what this service publishes.
+// Health is what this service returns.
 type Health struct {
-	Status         string ` + "`borg:\"populated\"`" + `
+	Status         string ` + "`borg:\"populated,domain=ok|error\"`" + `
 	SendTimeMillis int64  ` + "`borg:\"populated\"`" + `
 	Detail         string ` + "`borg:\"deprecated\"`" + `
 	unexported     string
 }
+
+// Ask is what a caller sends.
+type Ask struct {
+	Deep  bool  ` + "`borg:\"required\"`" + `
+	Since int64 ` + "`borg:\"range=0..100\"`" + `
+}
+
+// Fetch is the operation.
+func Fetch(id string, ask Ask) Health { return Health{} }
 `
 
-func TestDeriveReadsTheFormOutOfTheSource(t *testing.T) {
+func TestDeriveReadsEveryKindOfElementOutOfTheSource(t *testing.T) {
 	dir := checkout(t, map[string]string{
 		"contract.health.go": health,
 		"main.go":            "package main\n\nfunc main() {}\n",
@@ -57,29 +64,78 @@ func TestDeriveReadsTheFormOutOfTheSource(t *testing.T) {
 	for _, e := range form.Elements {
 		names = append(names, e.Name)
 	}
-	if want := []string{"Detail", "SendTimeMillis", "Status"}; !slices.Equal(names, want) {
-		t.Fatalf("the elements are %v, want %v — sorted, and the unexported field left out", names, want)
+	want := []string{
+		"Ask", "Ask.Deep", "Ask.Since", "Fetch", "Fetch.ask", "Fetch.id",
+		"Health", "Health.Detail", "Health.SendTimeMillis", "Health.Status",
 	}
-	status, _ := form.Element("Status")
+	if !slices.Equal(names, want) {
+		t.Fatalf("the elements are\n%v\nwant\n%v — sorted, the unexported field left out", names, want)
+	}
+
+	for _, e := range []struct {
+		name     string
+		kind     contract.ElementKind
+		position contract.Position
+	}{
+		{"Fetch", contract.ElementOperation, contract.PositionOutput},
+		{"Fetch.id", contract.ElementArgument, contract.PositionInput},
+		{"Ask", contract.ElementMessage, contract.PositionInput},
+		{"Ask.Deep", contract.ElementField, contract.PositionInput},
+		{"Health", contract.ElementMessage, contract.PositionOutput},
+		{"Health.Status", contract.ElementField, contract.PositionOutput},
+	} {
+		got, found := form.Element(e.name)
+		if !found {
+			t.Fatalf("the form has no element %s", e.name)
+		}
+		if got.Kind != e.kind || got.Position != e.position {
+			t.Errorf("%s is a %q in position %q, want a %q in position %q",
+				e.name, got.Kind, got.Position, e.kind, e.position)
+		}
+	}
+
+	status, _ := form.Element("Health.Status")
 	if status.Type != "string" || !status.Populated || status.Deprecated {
-		t.Fatalf("Status is %+v, want a populated unmarked string", status)
+		t.Errorf("Health.Status is %+v, want a populated unmarked string", status)
 	}
-	sendTime, _ := form.Element("SendTimeMillis")
-	if sendTime.Type != "int64" {
-		t.Fatalf("SendTimeMillis is a %q, want the source's own int64", sendTime.Type)
+	if !slices.Equal(status.Domain, []string{"ok", "error"}) {
+		t.Errorf("Health.Status accepts %v, want the tag's two names", status.Domain)
 	}
-	detail, _ := form.Element("Detail")
-	if detail.Populated || !detail.Deprecated {
-		t.Fatalf("Detail is %+v, want optional and marked deprecated", detail)
+	since, _ := form.Element("Ask.Since")
+	if since.Range == nil || *since.Range != (contract.Range{Low: 0, High: 100}) {
+		t.Errorf("Ask.Since accepts %v, want 0..100", since.Range)
 	}
-	if marked := form.Marked(); !slices.Equal(marked, []string{"Detail"}) {
-		t.Fatalf("the marked elements are %v, want Detail alone", marked)
+	deep, _ := form.Element("Ask.Deep")
+	if !deep.Required {
+		t.Error("Ask.Deep is not required, and the tag says it is")
+	}
+	if id, _ := form.Element("Fetch.id"); !id.Required || id.Type != "string" {
+		t.Errorf("Fetch.id is %+v, want a required string — a caller has no way not to pass one", id)
+	}
+	if fetch, _ := form.Element("Fetch"); fetch.Type == "" {
+		t.Error("the operation carries no type, so a signature redeclared would not read as a retype")
+	}
+	if marked := form.Marked(); !slices.Equal(marked, []string{"Health.Detail"}) {
+		t.Fatalf("the marked elements are %v, want Health.Detail alone", marked)
+	}
+}
+
+func TestAnOperationCarriesTheMarkInItsDocComment(t *testing.T) {
+	dir := checkout(t, map[string]string{
+		"contract.health.go": "package main\n\n//borg:deprecated\nfunc Old() {}\n\nfunc New() {}\n",
+	})
+	forms, err := contract.Derive(dir)
+	if err != nil {
+		t.Fatalf("deriving: %v", err)
+	}
+	if marked := forms[0].Marked(); !slices.Equal(marked, []string{"Old"}) {
+		t.Fatalf("the marked elements are %v, want Old — Go has no tag on a func", marked)
 	}
 }
 
 func TestDeriveReadsTheKindOffTheFileName(t *testing.T) {
 	dir := checkout(t, map[string]string{
-		"store.ledger.go": "package main\n\ntype Ledger struct {\n\tID string `borg:\"populated\"`\n}\n",
+		"store.ledger.go": "package main\n\ntype Ledger struct {\n\tID string `borg:\"populated,notnull,unique\"`\n}\n",
 	})
 	forms, err := contract.Derive(dir)
 	if err != nil {
@@ -90,6 +146,16 @@ func TestDeriveReadsTheKindOffTheFileName(t *testing.T) {
 	}
 	if !forms[0].Kind.Forward() {
 		t.Fatal("a store's promise does not run forward, and the whole rollback rule rests on it")
+	}
+	id, found := forms[0].Element("Ledger.ID")
+	if !found {
+		t.Fatal("the store's form has no element Ledger.ID")
+	}
+	if id.Position != contract.PositionStore {
+		t.Errorf("Ledger.ID is in position %q, and a store is read and written by one service", id.Position)
+	}
+	if !id.NotNull || !id.Unique {
+		t.Errorf("Ledger.ID is %+v, want the two constraints the tag states", id)
 	}
 }
 
@@ -111,10 +177,12 @@ func TestDeriveIgnoresEveryFileThatIsNotOne(t *testing.T) {
 
 func TestDeriveRefusesAContractFileItCannotRead(t *testing.T) {
 	for name, content := range map[string]string{
-		"no exported struct": "package main\n\ntype health struct{ A string }\n",
-		"two of them":        "package main\n\ntype A struct{ X string }\ntype B struct{ Y string }\n",
-		"does not parse":     "package main\n\ntype A struct{",
-		"an embedded field":  "package main\n\ntype A struct{ B }\ntype B struct{}\n",
+		"nothing exported":      "package main\n\ntype health struct{ A string }\n",
+		"does not parse":        "package main\n\ntype A struct{",
+		"an embedded field":     "package main\n\ntype A struct{ B }\ntype B struct{}\n",
+		"an unnamed argument":   "package main\n\nfunc Fetch(string) {}\n",
+		"a domain naming none":  "package main\n\ntype A struct{ X string `borg:\"domain=\"` }\n",
+		"a range that is not a": "package main\n\ntype A struct{ X int `borg:\"range=high\"` }\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := checkout(t, map[string]string{"contract.health.go": content})
@@ -127,147 +195,19 @@ func TestDeriveRefusesAContractFileItCannotRead(t *testing.T) {
 	}
 }
 
-// A form and its versions.
-
-func TestDiffBreaksOnThreeThingsForAnInterface(t *testing.T) {
-	before := form(contract.KindInterface,
-		element("Status", "string", true, false),
-		element("Detail", "string", false, false),
-		element("Count", "int64", false, false),
-	)
-	for name, after := range map[string]contract.Form{
-		"an element removed": form(contract.KindInterface,
-			element("Status", "string", true, false),
-			element("Count", "int64", false, false)),
-		"a type changed": form(contract.KindInterface,
-			element("Status", "string", true, false),
-			element("Detail", "string", false, false),
-			element("Count", "int32", false, false)),
-		"a populated element weakened": form(contract.KindInterface,
-			element("Status", "string", false, false),
-			element("Detail", "string", false, false),
-			element("Count", "int64", false, false)),
-	} {
-		t.Run(name, func(t *testing.T) {
-			change := contract.Diff(before, after)
-			if !change.Moved() {
-				t.Fatal("the form moved and the diff says it did not")
-			}
-			if len(change.Breaking) == 0 {
-				t.Fatalf("%s is not breaking, and every consumer reading that element does: %s",
-					name, change.Describe())
-			}
-		})
+func TestTwoMessagesAreTwoSetsOfElements(t *testing.T) {
+	dir := checkout(t, map[string]string{
+		"contract.health.go": "package main\n\ntype A struct{ X string }\ntype B struct{ X string }\n",
+	})
+	forms, err := contract.Derive(dir)
+	if err != nil {
+		t.Fatalf("deriving: %v", err)
 	}
-}
-
-func TestDiffBreaksOnNothingAnInterfaceMayDo(t *testing.T) {
-	before := form(contract.KindInterface, element("Status", "string", true, false))
-	after := form(contract.KindInterface,
-		element("Status", "string", true, true),
-		element("Detail", "string", false, false),
-		element("Count", "int64", true, false),
-	)
-	change := contract.Diff(before, after)
-	if len(change.Breaking) != 0 {
-		t.Fatalf("adding elements and marking one breaks %v, and neither breaks a consumer", change.Breaking)
+	var names []string
+	for _, e := range forms[0].Elements {
+		names = append(names, e.Name)
 	}
-	if !slices.Equal(change.Added, []string{"Count", "Detail"}) {
-		t.Fatalf("added %v, want Count and Detail", change.Added)
-	}
-	if !slices.Equal(change.Marked, []string{"Status"}) {
-		t.Fatalf("marked %v, want Status", change.Marked)
-	}
-	if next := contract.FirstVersion.Next(len(change.Breaking) > 0); next != (contract.Semver{Major: 1, Minor: 1}) {
-		t.Fatalf("the version moves to %s, want 1.1.0 — a mark and an addition are a minor", next)
-	}
-}
-
-func TestDiffBreaksAStoreOnAPopulatedAddition(t *testing.T) {
-	before := form(contract.KindStore, element("ID", "string", true, false))
-	after := form(contract.KindStore,
-		element("ID", "string", true, false),
-		element("Amount", "int64", true, false),
-	)
-	change := contract.Diff(before, after)
-	if !slices.Equal(change.Breaking, []string{"Amount"}) {
-		t.Fatalf("breaking is %v, want Amount — a store promises forward, and the build being restored does not write it",
-			change.Breaking)
-	}
-	// The same addition on an interface breaks nothing, which is the whole
-	// difference between the two promises.
-	asInterface := contract.Diff(form(contract.KindInterface, element("ID", "string", true, false)),
-		form(contract.KindInterface,
-			element("ID", "string", true, false),
-			element("Amount", "int64", true, false)))
-	if len(asInterface.Breaking) != 0 {
-		t.Fatalf("the same addition breaks %v on a published interface, and a consumer reads what it reads",
-			asInterface.Breaking)
-	}
-}
-
-func TestTheFirstFormBreaksNothing(t *testing.T) {
-	after := form(contract.KindStore,
-		element("ID", "string", true, false),
-		element("Amount", "int64", true, false),
-	)
-	change := contract.Diff(contract.Form{}, after)
-	if len(change.Breaking) != 0 {
-		t.Fatalf("a contract's first form breaks %v, and there is no earlier build to break", change.Breaking)
-	}
-	if !change.Moved() {
-		t.Fatal("a first form did not move, and the release that publishes it mints a version")
-	}
-}
-
-func TestAVersionMovesOnlyWhereTheFormDoes(t *testing.T) {
-	one := form(contract.KindInterface, element("Status", "string", true, false))
-	// The same elements in the other order are the same form: the order is not
-	// part of the identity, so two builds that declare them differently publish
-	// one form.
-	same := contract.Form{Name: "health", Kind: contract.KindInterface, Elements: []contract.Element{
-		element("Status", "string", true, false),
-	}}
-	if contract.Diff(one, same).Moved() {
-		t.Fatal("an unchanged form moved, so every release would mint a version")
-	}
-	if got := contract.Diff(one, same).Describe(); got != "the form is unchanged" {
-		t.Fatalf("an unchanged form describes itself as %q", got)
-	}
-}
-
-func TestSemverRoundTripsAndThePatchNeverMoves(t *testing.T) {
-	v := contract.FirstVersion
-	for range 3 {
-		v = v.Next(false)
-	}
-	v = v.Next(true)
-	if v != (contract.Semver{Major: 2}) {
-		t.Fatalf("three minors and a major from 1.0.0 is %s, want 2.0.0", v)
-	}
-	parsed, err := contract.ParseSemver(v.String())
-	if err != nil || parsed != v {
-		t.Fatalf("parsing %s gave %s, %v", v, parsed, err)
-	}
-	if v.Patch != 0 {
-		t.Fatal("the patch moved, and nothing in a form is a patch-level change")
-	}
-}
-
-func TestDDLListsEveryKind(t *testing.T) {
-	joined := ""
-	for _, statement := range contract.DDL {
-		joined += statement
-	}
-	for _, kind := range contract.Kinds {
-		if !strings.Contains(joined, "'"+string(kind)+"'") {
-			t.Fatalf("the schema does not list kind %q, so the store would admit a contract this package refuses", kind)
-		}
-	}
-}
-
-func TestElementSubjectIsStableAcrossVersions(t *testing.T) {
-	if got := contract.ElementSubject("con_abc", "Status"); got != "con_abc.Status" {
-		t.Fatalf("the subject of an element is %q", got)
+	if want := []string{"A", "A.X", "B", "B.X"}; !slices.Equal(names, want) {
+		t.Fatalf("the elements are %v, want %v — a field is named by the message it is in", names, want)
 	}
 }

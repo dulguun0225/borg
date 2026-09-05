@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/exposure"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -167,8 +168,8 @@ func TestAnEmptyServiceIDIsRefusedTwice(t *testing.T) {
 		t.Errorf("Create = %v, want %v", err, build.ErrServiceIDEmpty)
 	}
 
-	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity)
-		values ($1, $2, 'component', 'dispatch', '', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', '')`,
+	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, declares_schema_change)
+		values ($1, $2, 'component', 'dispatch', '', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', '', false)`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a build naming no service = %v, want a violation of service_id_present", err)
@@ -217,5 +218,61 @@ func TestForCommitAnswersWhichBuildIsAlreadyThere(t *testing.T) {
 	// commit built for an item.
 	if _, ok, err := build.ForCommit(ctx, pool, "it_b", serviceID, commit); err != nil || ok {
 		t.Errorf("ForCommit for another item = ok %v, %v", ok, err)
+	}
+}
+
+// TestTheExposureListIsStoredAndAnEmptyOneIsNotNothing: what the build runner
+// derived from its own checkout is on the record, and a build no extractor ran
+// for is told from a diff that reached nothing new. The two call for opposite
+// responses at a gate, so the column keeps them apart rather than an empty list
+// standing for both.
+func TestTheExposureListIsStoredAndAnEmptyOneIsNotNothing(t *testing.T) {
+	ctx, pool, w := newTable(t)
+	itemID, serviceID := record.NewID("it"), record.NewID("svc")
+
+	reached := exposure.Evidence{
+		OutboundCalls:     []string{"main.go:3 — a new import of net/http"},
+		DependencyChanges: []string{"go.mod:5 — example.com/x v1.2.3, licence MIT"},
+	}
+	draft := draftOf(itemID, serviceID, "aaaa")
+	draft.Exposure = &reached
+	draft.DeclaresSchemaChange = true
+	created, err := w.Create(ctx, dispatch, draft)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !created.DeclaresSchemaChange {
+		t.Error("the record does not say the build declares a schema change")
+	}
+	read, found, err := build.Exposure(ctx, pool, created.ID)
+	if err != nil || !found {
+		t.Fatalf("Exposure = found %v, %v", found, err)
+	}
+	if !reflect.DeepEqual(read, reached) {
+		t.Errorf("Exposure = %+v, want %+v", read, reached)
+	}
+
+	// A diff that reached nothing new is a reading and answers found.
+	empty := exposure.Evidence{}
+	nothing := draftOf(itemID, serviceID, "bbbb")
+	nothing.Exposure = &empty
+	made, err := w.Create(ctx, dispatch, nothing)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if read, found, err := build.Exposure(ctx, pool, made.ID); err != nil || !found || len(read.List()) != 0 {
+		t.Errorf("Exposure of a diff that reached nothing = %+v, found %v, %v", read, found, err)
+	}
+
+	// A build no extractor ran for holds none, which is what resolves the factor.
+	unread, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "cccc"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if read, found, err := build.Exposure(ctx, pool, unread.ID); err != nil || found {
+		t.Errorf("Exposure of a build nobody read = %+v, found %v, %v", read, found, err)
+	}
+	if got, err := build.Get(ctx, pool, unread.ID); err != nil || got.DeclaresSchemaChange {
+		t.Errorf("a build declaring no schema change reads %+v, %v", got, err)
 	}
 }

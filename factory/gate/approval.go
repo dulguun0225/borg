@@ -36,7 +36,7 @@ import (
 // any record and the log is where it is. What that costs grows with the log,
 // and what would remove it is an index on the log this package does not own.
 func ApprovalTimes(ctx context.Context, pool *pgxpool.Pool, token lease.Token, principal record.Actor, row Row) (map[string]string, error) {
-	if _, err := Actions(row); err != nil {
+	if err := row.Validate(); err != nil {
 		return nil, err
 	}
 	rows, err := decisionlog.NewReader(pool, token).Read(ctx, principal)
@@ -60,7 +60,7 @@ func ApprovalTimes(ctx context.Context, pool *pgxpool.Pool, token lease.Token, p
 			// error either, which is what package score already does with one.
 			continue
 		}
-		if Row(opening.Gate) == row && opening.ItemID != "" {
+		if opening.Gate == row.String() && opening.ItemID != "" {
 			itemOf[r.ID] = opening.ItemID
 		}
 	}

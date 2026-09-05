@@ -24,7 +24,7 @@ func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 	}
 
 	// Two questions: the spec author's own, answered with the scripted line,
-	// and the confirming round's, which this crude interface answers itself —
+	// and the confirming round's, which this command-line interface answers itself —
 	// authorintent.go's own comment says why.
 	questions, err := intent.Questions(ctx, d.pool, only(t, res).intentID)
 	if err != nil {

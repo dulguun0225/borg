@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
 // ErrUnknown is returned by [Resolver.Resolve] for a name the file does not
@@ -43,9 +46,25 @@ var ErrFormat = errors.New("secretref: the secrets file is malformed")
 // long as the Resolver does. Nothing here wipes a value, checks who can read
 // the file, or separates one secret from another: seam 3 separates storage and
 // not reach, and this is that.
+//
+// Every call to [Resolver.Resolve] takes the principal making it and records it
+// beside the name asked for, on the in-memory log [Resolver.Resolutions]
+// returns. The log decides nothing: the resolver answers a name whoever asks
+// for it, so what the log is for is that the seam has something to show for
+// what was asked and by whom before anything enforces it.
 type Resolver struct {
 	path    string
 	secrets map[string]string
+
+	mu          sync.Mutex
+	resolutions []Resolution
+}
+
+// Resolution is one call to [Resolver.Resolve]: who made it and which name they
+// asked for. It holds no value, and there is no field on it that could.
+type Resolution struct {
+	Principal principal.Principal
+	Name      string
 }
 
 // Load reads the file at path and returns a resolver over it. A later change
@@ -82,10 +101,21 @@ func Load(path string) (*Resolver, error) {
 	return &Resolver{path: path, secrets: secrets}, nil
 }
 
-// Resolve is the secret the reference names. It returns [ErrUnset] for the
-// zero [Ref] and [ErrUnknown] for a name the file does not have; neither error
-// nor any other this package returns contains a value.
-func (r *Resolver) Resolve(ref Ref) (string, error) {
+// Resolve is the secret the reference names, resolved for p. It returns
+// [ErrUnset] for the zero [Ref] and [ErrUnknown] for a name the file does not
+// have; neither error nor any other this package returns contains a value.
+//
+// The principal is recorded beside the name asked for and decides nothing: the
+// resolver is addressed by credential name, so an agent at one project's Spec
+// stage naming another project's production deploy credential is answered, and
+// the record of who asked is what a policy would read if one attached here.
+// A call is recorded whether or not the name resolves, an ask for a name the
+// file does not hold being an ask.
+func (r *Resolver) Resolve(p principal.Principal, ref Ref) (string, error) {
+	r.mu.Lock()
+	r.resolutions = append(r.resolutions, Resolution{Principal: p, Name: ref.Name()})
+	r.mu.Unlock()
+
 	if ref.IsZero() {
 		return "", ErrUnset
 	}
@@ -94,4 +124,14 @@ func (r *Resolver) Resolve(ref Ref) (string, error) {
 		return "", fmt.Errorf("%w: %q is not in %s", ErrUnknown, ref.Name(), r.path)
 	}
 	return value, nil
+}
+
+// Resolutions is every call [Resolver.Resolve] has taken, in the order it took
+// them: the principal that made it and the name asked for. It is in memory and
+// not a record — the log is the composition's to read, and nothing in the graph
+// holds a row for it.
+func (r *Resolver) Resolutions() []Resolution {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]Resolution(nil), r.resolutions...)
 }

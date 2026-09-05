@@ -40,7 +40,7 @@ const (
 
 // removeStatement is what the detector asks for, derived from the contract and the
 // element and from nothing else.
-var removeStatement = contractcheck.RemovalStatement(theService, theHealthInterface, "Detail")
+var removeStatement = contractcheck.RemovalStatement(theService, theHealthInterface, "Health.Detail")
 
 // approvals enough for any of these episodes. A row that auto-passes reads nothing
 // and a surplus is never read, so the count is not worth predicting.
@@ -147,25 +147,44 @@ func storeFile(name string, fields ...field) agent.File {
 }
 
 // structFile is the source of a contract file or a mirror: one exported struct
-// type, whatever it is called, with the `borg` tag on the fields that carry one.
+// type, whatever it is called, with the `borg` tag on the fields that carry one
+// and a `json` tag on every one of them.
+//
+// The json tag is the element's own name, which is the message's name and the
+// field's: a message contributes itself and one element per field, named
+// Message.Field, so a document keyed by the field alone would be a document
+// naming nothing any predicate asserts. The tag is what keeps the exchange the
+// process writes and the form the derivation reads spelled the same way.
 func structFile(fields []field) string {
 	var b strings.Builder
 	b.WriteString("package main\n\n// Health is what this file declares.\ntype Health struct {\n")
 	for _, f := range fields {
+		json := fmt.Sprintf("Health.%s", f.name)
 		if f.tag == "" {
-			fmt.Fprintf(&b, "\t%s %s\n", f.name, f.kind)
+			fmt.Fprintf(&b, "\t%s %s `json:%q`\n", f.name, f.kind, json)
 			continue
 		}
-		fmt.Fprintf(&b, "\t%s %s `borg:%q`\n", f.name, f.kind, f.tag)
+		fmt.Fprintf(&b, "\t%s %s `borg:%q json:%q`\n", f.name, f.kind, f.tag, json)
 	}
 	b.WriteString("}\n")
 	return b.String()
 }
 
+// mirrorAddress is the address a consumer reaches one producer's interface at.
+// A call site does not say which producer it reaches — the address arrives
+// through the service's configuration — so the address is the name the mirror
+// file and the configuration file agree on, and it is derived here rather than
+// chosen so that the two cannot drift apart.
+func mirrorAddress(producer, interfaceName string) string {
+	return producer + "-" + interfaceName
+}
+
 // mirrorFiles is what a consumer's build carries: the mirror of the interface it
-// reads, and the code that reads it. What the factory takes as declared is the
-// mirror's fields the code actually selects, so both files are needed and a field in
-// one without a read in the other declares nothing.
+// reads, the entry that says which producer that mirror's address reaches, and
+// the code that reads it. What the factory takes as declared is the mirror's
+// fields the code actually selects, so all three are needed — a field in one
+// without a read in the other declares nothing, and a mirror whose address the
+// configuration file does not hold could not be derived at all.
 func mirrorFiles(producer, interfaceName string, fields ...field) []agent.File {
 	var reads strings.Builder
 	reads.WriteString("package main\n\n// read is what this service does with the interface it consumes.\nfunc read(h Health) string {\n\treturn \"\"")
@@ -173,17 +192,21 @@ func mirrorFiles(producer, interfaceName string, fields ...field) []agent.File {
 		fmt.Fprintf(&reads, " + fmt.Sprint(h.%s)", f.name)
 	}
 	reads.WriteString("\n}\n")
+	address := mirrorAddress(producer, interfaceName)
 	return []agent.File{
-		{Path: consumercontract.FileName(producer, interfaceName), Content: structFile(fields)},
+		{Path: consumercontract.FileName(address), Content: structFile(fields)},
+		{Path: consumercontract.ConfigurationFile,
+			Content: fmt.Sprintf("%s %s %s\n", address, producer, interfaceName)},
 		{Path: "reader.go", Content: "package main\n\nimport \"fmt\"\n" +
 			strings.TrimPrefix(reads.String(), "package main\n")},
 	}
 }
 
 // contractMainGo is the program every one of these fakes writes: the long-lived process that
-// exercises itself, appends one line per unit of work to the file BORG_SIGNAL names,
-// and — where it publishes an interface — one JSON document per unit to the file
-// BORG_EXCHANGE names.
+// exercises itself, appends one line per unit of work to the file BORG_SIGNAL names —
+// the time the unit finished, a tab, and the outcome, which is the second emission
+// version's shape — and, where it publishes an interface, one JSON document per unit
+// to the file BORG_EXCHANGE names.
 //
 // The document is marshalled from the contract's own type, so its keys are the
 // element names the derivation read out of the same source. Two spellings of one name
@@ -200,7 +223,7 @@ func contractMainGo(exchange string) []agent.File {
 		"func main() {",
 		"\tsignal := os.Getenv(\"BORG_SIGNAL\")",
 		"\tfor {",
-		"\t\temit(signal, \"ok\\n\")",
+		"\t\temit(signal, time.Now().UTC().Format(time.RFC3339Nano)+\"\\tok\\n\")",
 		"\t\twriteExchange()",
 		"\t\ttime.Sleep(time.Millisecond)",
 		"\t}",

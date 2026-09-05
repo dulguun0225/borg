@@ -5,18 +5,18 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/environment"
-	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
 // runQueue runs the merge queue once for the service and writes what it did onto
 // each candidate. The queue reaches the repository and the candidate environments
-// through this same value, which is the deploy agent: [path.Reverify] and
+// through this same value, which is the deployer: [path.Reverify] and
 // [path.FastForward] are the two calls it makes.
 //
 // A merged candidate's environment is torn down here rather than inside the queue.
-// Teardown is the deploy agent's — it stops the software and then writes the time —
+// Teardown is the deployer's — it stops the software and then writes the time —
 // and the queue orders merges and reaches no deploy target.
 func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate, error) {
 	members, err := p.queue.Members(ctx, svc.ID)
@@ -33,16 +33,27 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 	}
 	fmt.Fprintf(p.d.out, "The merge queue for %s, in order: %v\n", svc.Name, named)
 
-	outcomes, err := p.queue.Run(ctx, svc.ID)
+	pass, err := p.queue.Run(ctx, svc.ID)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Fprintf(p.d.out, "Master of %s is at %s; the newest release in the records names %s\n",
+		svc.Name, pass.Master.Head, pass.Master.NewestCommit)
+	if pass.Master.CompletedItemID != "" {
+		fmt.Fprintf(p.d.out, "  master already held the commit of item %s, so the queue wrote the release its own fast-forward implied\n",
+			pass.Master.CompletedItemID)
+	}
+	if pass.Stopped != "" {
+		fmt.Fprintf(p.d.out, "The queue fast-forwarded nothing for %s: %s; wait row %s\n",
+			svc.Name, pass.Stopped, pass.StopWaitRow)
+	}
+
 	// A member this run did not author is adopted: the queue's membership is the
 	// service's, so a run that merges an item another run left queued has to tear its
 	// environment down and deploy its release like any other. What is returned is
 	// those, for the caller to report and to deploy beside its own.
 	var adopted []*candidate
-	for _, outcome := range outcomes {
+	for _, outcome := range pass.Outcomes {
 		c, err := p.candidateFor(ctx, outcome.ItemID)
 		if err != nil {
 			return adopted, err
@@ -53,21 +64,38 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 		}
 		c.reverifiedBuildID = outcome.BuildID
 		c.reverifiedCommit = outcome.Commit
+
+		if outcome.Stopped != "" {
+			c.factoryHold = outcome.Stopped
+			c.holdWaitRow = outcome.WaitRow
+			fmt.Fprintf(p.d.out, "Item %s is held at the queue: %s; wait row %s\n",
+				outcome.ItemID, outcome.Stopped, outcome.WaitRow)
+			continue
+		}
 		if !outcome.Merged {
 			c.queueRejected = true
 			c.queueWhy = outcome.Why
-			c.queueWaitRow = outcome.WaitRow
-			fmt.Fprintf(p.d.out, "The queue rejected item %s on its own merits: %s\n", outcome.ItemID, outcome.Why)
-			fmt.Fprintf(p.d.out, "  wait row %s written as the queue; the item is back at %s with an attempt counted there, and keeps its environment\n",
-				outcome.WaitRow, gate.ReturnsTo)
+			c.queueWaitRow = outcome.Rejection.Row
+			// The item's own transition is the composition's write: the queue's row
+			// in components.md names no dispatch, so what a rejection causes on the
+			// item is written here and the rejection says what it is.
+			if err := p.returnRejected(ctx, outcome); err != nil {
+				return adopted, err
+			}
 			continue
 		}
 		c.merged = true
 		c.releaseID = outcome.Release.ID
 		c.releaseNumber = outcome.Release.Number
 		c.published = outcome.Published
-		fmt.Fprintf(p.d.out, "Master fast-forwarded to %s; release %s minted, number %d\n",
-			outcome.Commit, outcome.Release.ID, outcome.Release.Number)
+		if _, err := p.dispatch.End(ctx, mergequeue.Actor, outcome.ItemID); err != nil {
+			return adopted, err
+		}
+		fmt.Fprintf(p.d.out, "Master fast-forwarded to %s; release %s minted, number %d; item %s is merged\n",
+			outcome.Commit, outcome.Release.ID, outcome.Release.Number, outcome.ItemID)
+		for _, skipped := range outcome.SkippedNumbers {
+			fmt.Fprintf(p.d.out, "  number %d was passed over: the health monitor's store names it and the records do not\n", skipped)
+		}
 		for _, published := range outcome.Published {
 			switch {
 			case published.Created && published.Moved:
@@ -86,6 +114,36 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 		}
 	}
 	return adopted, nil
+}
+
+// returnRejected is what a rejection causes on the item: it goes back to the
+// stage the rejection names, with an attempt counted there. The queue writes
+// neither — its row in components.md names the gate component, the build runner
+// and the log and names no dispatch — so the transition is the composition's,
+// and the actor is the queue, which is what the rejection row already says.
+//
+// The attempt is not incremented here either: an attempt is counted when a
+// stage is entered to author, so what this does is send the item back to be
+// entered again. The rejection's CountsAnAttempt is what says it will be, and
+// it is on the row for a reader.
+func (p *path) returnRejected(ctx context.Context, outcome mergequeue.Outcome) error {
+	r := outcome.Rejection
+	fmt.Fprintf(p.d.out, "The queue rejected item %s on its own merits: %s\n", outcome.ItemID, outcome.Why)
+	fmt.Fprintf(p.d.out, "  it read the failure as %s, and learns from it as from a %s (the per-author prior moves: %v)\n",
+		r.Reading, r.LearnsAs, r.PriorMoves)
+	for _, moved := range r.Moved {
+		fmt.Fprintf(p.d.out, "  %s moved from %s to %s\n", moved.What, moved.From, moved.To)
+	}
+	if r.ReturnsTo == "" {
+		fmt.Fprintf(p.d.out, "  rejection row %s written as the queue; the item is sent back to nothing\n", r.Row)
+		return nil
+	}
+	if _, err := p.dispatch.ReturnTo(ctx, mergequeue.Actor, outcome.ItemID, item.Stage(r.ReturnsTo)); err != nil {
+		return err
+	}
+	fmt.Fprintf(p.d.out, "  rejection row %s written as the queue; the item is back at %s with an attempt counted there, and keeps its environment\n",
+		r.Row, r.ReturnsTo)
+	return nil
 }
 
 // candidateFor is the candidate of one item: the one this run authored where it
@@ -131,7 +189,7 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 	if c.environmentID == "" || c.tornDown {
 		return nil
 	}
-	if err := p.d.targets.at(c.environmentDir).Stop(ctx, c.svc.Name, p.d.credential); err != nil {
+	if err := p.d.targets.at(c.environmentDir).Stop(ctx, deployerPrincipal, c.svc.Name, p.d.credential); err != nil {
 		return err
 	}
 	if err := p.candidates.TearDown(ctx, deployActor, c.environmentID, environment.ReasonMerged, environment.Rate{}); err != nil {

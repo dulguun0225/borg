@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/decisionlog"
@@ -27,6 +28,7 @@ import (
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
@@ -48,7 +50,7 @@ const (
 // demonstration needs one.
 const theArea = "payments"
 
-// theCeiling is how many candidate environments the tests give the substrate room
+// theCeiling is how many candidate environments the tests give the platform room
 // for. It is high enough that no test meets it by accident, and the one test about
 // the ceiling lowers it to one.
 const theCeiling = 8
@@ -139,7 +141,7 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 		t.Fatalf("loading the secrets file: %v", err)
 	}
 	credential := secretref.MustNew("deploy.local")
-	if _, err := resolver.Resolve(credential); err != nil {
+	if _, err := resolver.Resolve(deployerPrincipal, credential); err != nil {
 		t.Fatalf("resolving the deploy credential: %v", err)
 	}
 
@@ -151,7 +153,7 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	t.Cleanup(func() {
 		for dir, target := range targets.made {
 			for _, name := range services {
-				if err := target.Stop(context.Background(), name, credential); err != nil {
+				if err := target.Stop(context.Background(), deployerPrincipal, name, credential); err != nil {
 					t.Errorf("stopping the %s service on %s: %v", name, dir, err)
 				}
 			}
@@ -215,7 +217,7 @@ const (
 // work changes may exist already, and decomposition writes a service's identity once.
 func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 	t.Helper()
-	installOwner := owner(d.human)
+	installOwner := owner(t, ctx, d.pool, d.token, d.human)
 	installed, err := policy.NewFactory(d.pool, d.token).Install(ctx, installOwner, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
 	if err != nil {
 		t.Fatalf("installing the factory: %v", err)
@@ -256,6 +258,20 @@ func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 	}
 }
 
+// owner is the actor an authoring write in these tests is made as: the
+// per-person key the People mapping gives the name, minted where the name is
+// new, which is what every subcommand does with -human. It fails the test
+// rather than returning an error, a mapping the factory cannot write being
+// nothing any of these tests is about.
+func owner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, name string) record.Actor {
+	t.Helper()
+	actor, err := humanNamed(ctx, pool, token, name)
+	if err != nil {
+		t.Fatalf("resolving %q to a per-person key: %v", name, err)
+	}
+	return actor
+}
+
 // inSchema points a connection URL at one schema and nothing else, so every
 // unqualified name in the DDL and in the writers' statements resolves there.
 func inSchema(t *testing.T, base, schema string) string {
@@ -276,17 +292,32 @@ func inSchema(t *testing.T, base, schema string) string {
 // event before it answers.
 func readLog(t *testing.T, ctx context.Context, d deps) []decisionlog.Row {
 	t.Helper()
-	rows, err := decisionlog.NewReader(d.pool, d.token).Read(ctx, owner(d.human))
+	rows, err := decisionlog.NewReader(d.pool, d.token).Read(ctx, owner(t, ctx, d.pool, d.token, d.human))
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}
 	return rows
 }
 
+// openingOf is the opening payload of one firing, found in the log by the id the
+// firing recorded. It is here rather than in a test because more than one test
+// asks the same question of a row it already holds: what the open event said
+// beyond what [fired] keeps.
+func openingOf(t *testing.T, ctx context.Context, d deps, openingID string) gate.OpeningPayload {
+	t.Helper()
+	for _, row := range readLog(t, ctx, d) {
+		if row.ID == openingID {
+			return openingPayload(t, row)
+		}
+	}
+	t.Fatalf("the log holds no row %s", openingID)
+	return gate.OpeningPayload{}
+}
+
 // verifyLog is the chain walk, as the human the deps compose with.
 func verifyLog(t *testing.T, ctx context.Context, d deps) error {
 	t.Helper()
-	return decisionlog.NewReader(d.pool, d.token).Verify(ctx, owner(d.human))
+	return decisionlog.NewReader(d.pool, d.token).Verify(ctx, owner(t, ctx, d.pool, d.token, d.human))
 }
 
 // decisionRows is rows filtered to the decision shape, in log order. Every
@@ -318,7 +349,15 @@ func only(t *testing.T, s shipped) *candidate {
 // approvals is a scripted human approving every row that puts one there. A row
 // that auto-passes consumes nothing, so a script with more approvals than rows is
 // harmless and a script with fewer is what fails.
-const approvals = "approve\napprove\napprove\n"
+//
+// It is long enough for several items over several runs. A service's first
+// release is decided by a human at every row — no earlier release to return to,
+// an author nobody has approved, an area with no history, which is what the
+// supplied threshold is calibrated to — and the items after it auto-pass, so
+// most of these lines are consumed by the first item of each service.
+const approvals = "approve\napprove\napprove\napprove\napprove\napprove\n" +
+	"approve\napprove\napprove\napprove\napprove\napprove\n" +
+	"approve\napprove\napprove\napprove\napprove\napprove\n"
 
 // openingPayload and closingPayload unmarshal what a decision row says, which
 // every assertion over a firing reads through.

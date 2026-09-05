@@ -68,9 +68,9 @@ func (v SuppliedValues) Value(p gatepolicy.Parameter, subject string) (Supplied,
 
 // Text renders the table for a reader: the starting value of each parameter in
 // the order [starting] lists them, and under each the subjects an outcome has
-// moved it for. It is what a printer shows and what the crude interface reads
-// aloud; what a version stores is the structure, because package policy reads a
-// number out of it and no reader of prose can.
+// moved it for. It is what a printer shows and what the command-line interface
+// reads aloud; what a version stores is the structure, because package policy
+// reads a number out of it and no reader of prose can.
 func (v SuppliedValues) Text() string {
 	var b strings.Builder
 	for _, s := range starting {
@@ -97,6 +97,13 @@ func (v SuppliedValues) movedFor(p gatepolicy.Parameter) []Supplied {
 	return moved
 }
 
+// StartingHeldOutSampleRate is where the held-out sample rate starts. One in
+// ten: lower and the unbiased evidence the threshold's rise depends on arrives
+// too slowly to move anything on an install shipping a few items a day; higher
+// and the factory is auto-passing changes it wanted gated often enough that an
+// owner would notice it as the score having changed its mind.
+const StartingHeldOutSampleRate = 0.10
+
 // starting is the value the score supplies for ten of gate policy's eleven rows
 // before any outcome has moved it. There is none for the list of allowed
 // predicate kinds, which no outcome teaches, so a factory with nothing authored
@@ -107,7 +114,7 @@ func (v SuppliedValues) movedFor(p gatepolicy.Parameter) []Supplied {
 // than where it stays. [Rules] is what moves each.
 var starting = []Supplied{
 	{
-		Parameter: gatepolicy.RiskThreshold, Value: 0.30,
+		Parameter: gatepolicy.RiskThreshold, Value: 0.20,
 		Why: "calibrated so that a service's first release — no earlier release to return to, an author nobody has approved, an area with no history — is decided by a human, and the item after it is not",
 	},
 	{
@@ -123,20 +130,20 @@ var starting = []Supplied{
 		Why: "a stage that fails once has usually had a reply the protocol refused rather than work the factory cannot do, and a limit this low turns solvable work into human work no more than a few tokens later",
 	},
 	{
-		Parameter: gatepolicy.ItemSizeTarget, Value: 300,
-		Why: "lines, above the minimum that an item ships by itself; nothing reads it until a decomposition sizes anything",
+		Parameter: gatepolicy.ItemSizeTarget, Value: 5,
+		Why: "the count of the intent's requirements an item answers, above the minimum that it ships by itself, which is the unit decomposition sets",
 	},
 	{
 		Parameter: gatepolicy.WindowSize, Value: 0.02,
-		Why: "the smallest regression a comparison must rule out, as a share; the traffic a comparison needs scales as the inverse square of this, so it is the coarse end of what is worth catching",
+		Why: "the smallest regression a comparison must rule out, as a share, one value per quantity on a subject [QuantitySubject] keys; the traffic a comparison needs scales as the inverse square of this, so it is the coarse end of what is worth catching",
 	},
 	{
 		Parameter: gatepolicy.WindowConfidence, Value: 0.95,
-		Why: "the confidence required of that comparison, at the convention a reader of a sequential test expects",
+		Why: "the confidence required of that comparison, at the convention a reader of a sequential test expects; no outcome moves it, because nothing in the record says a confidence was too high",
 	},
 	{
 		Parameter: gatepolicy.WindowPower, Value: 0.80,
-		Why: "how reliably a regression of the size in force is caught rather than reaching passed, at the convention a reader of a sequential test expects, one value for every quantity until an outcome moves one apart from the rest",
+		Why: "how reliably a regression of the size in force is caught rather than reaching passed, at the convention a reader of a sequential test expects, one value per quantity on a subject [QuantitySubject] keys",
 	},
 	{
 		Parameter: gatepolicy.WindowCap, Value: 86400,
@@ -147,19 +154,22 @@ var starting = []Supplied{
 		Why: "the serial factory: one window open per service, so a rollback undoes one release, which is the safe end of a parameter whose cost appears only at the first rollback",
 	},
 	{
-		// This is [SampleRate]'s own number and the two are not wired together:
-		// [HoldOut] reads the constant directly, because a sample that moved
-		// under a policy read of itself could not be reasoned about as a fixed
-		// rate. The starting value here is published so an owner reading the
-		// value in force sees the number [HoldOut] actually draws against
-		// rather than nothing.
-		Parameter: gatepolicy.HeldOutSampleRate, Value: SampleRate,
-		Why: "how often the score auto-passes a change it would have gated, to keep unbiased signal on the authors and areas it has stopped trusting; the constant the sample itself draws against, published here so it is not invisible to a reader of the value in force",
+		Parameter: gatepolicy.HeldOutSampleRate, Value: StartingHeldOutSampleRate,
+		Why: "how often the score auto-passes a change it would have gated, to keep unbiased signal on the authors and areas it has stopped trusting; [Score.HoldOut] draws against the value in force, which is what an owner authored where they authored one, this where they did not, and a safeguard's ceiling over either",
 	},
 	{
 		Parameter: gatepolicy.ReviewSampleRate, Value: 0.05,
 		Why: "how often a change the score would have auto-passed is put in front of a duty's human anyway, one value for every duty until an outcome moves one apart from the rest; low enough that it samples rather than replaces the gate it stands beside",
 	},
+}
+
+// QuantitySubject is the subject a value authored per service and per quantity
+// is supplied for: the analysis window's size and its power, which are one value
+// per quantity because a detectable change in an error rate and one in a latency
+// quantile are not one number. It is the key both this package and package
+// policy read the row by, declared once here so the two cannot spell it apart.
+func QuantitySubject(serviceID string, quantity gatepolicy.Quantity) string {
+	return serviceID + "/" + string(quantity)
 }
 
 // Starting is the value the score supplies for one parameter before any outcome

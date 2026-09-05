@@ -21,10 +21,13 @@
 // writer_shapes.go holds the six one-row methods that name no version and
 // close nothing: [Writer.AppendPageEvent], [Writer.AppendReworkRequest],
 // [Writer.AppendQueueRejection], [Writer.AppendPolicyVersion],
-// [Writer.AppendScoreVersion], [Writer.AppendInstallEvent]. truncate.go holds
+// [Writer.AppendScoreVersion], [Writer.AppendInstallEvent], and
+// [Writer.AppendPolicyVersionInTx], the one append a caller's own
+// transaction holds — package policy's, which writes the scope record's
+// field in the same one. truncate.go holds
 // [Cut] and [Writer.Truncate]. read.go holds [Reader], [NewReader], and
 // [Reader.Read], [Reader.Verify], [Reader.ClosedDecisions], [Reader.Pending],
-// each of which appends a read event before it answers. verify.go holds the
+// [Reader.ByShape], each of which appends a read event before it answers. verify.go holds the
 // chain walk beneath [Reader.Verify], with [Break] and [BrokenError] naming
 // the first row that breaks it. closed.go holds [Closed] and the pairing
 // beneath [Reader.ClosedDecisions].

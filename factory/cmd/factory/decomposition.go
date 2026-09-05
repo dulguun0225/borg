@@ -61,6 +61,10 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 				return nil, err
 			}
 		}
+		svc, err = p.runsOnProduction(ctx, svc)
+		if err != nil {
+			return nil, err
+		}
 		p.serviceByID[svc.ID] = svc
 
 		var waitsOn []string

@@ -154,7 +154,7 @@ func TestRetireRefusesWhileSomethingStillNamesTheService(t *testing.T) {
 	}
 
 	for _, still := range []struct {
-		name                       string
+		name                      string
 		contracts, items, depends int
 	}{
 		{"a consumer contract in force", 1, 0, 0},

@@ -21,7 +21,7 @@ func TestGatePolicyIsAuthoredByAHuman(t *testing.T) {
 		t.Errorf("a component authoring the window limit = %v, want ErrNotAnOwner", err)
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, component, gatepolicy.WindowLimit,
-		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2}); !errors.Is(err, policy.ErrNotAnOwner) {
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2}, safeguard.Routing{}); !errors.Is(err, policy.ErrNotAnOwner) {
 		t.Errorf("a component placing a safeguard = %v, want ErrNotAnOwner", err)
 	}
 	if _, err := in.factory.Install(ctx, component, "acme", []string{"/srv"}, credential, 8); !errors.Is(err, policy.ErrNotAnOwner) {

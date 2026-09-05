@@ -26,7 +26,7 @@ func TestTheWindowLimitHoldsTheNextProductionDeploy(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a hold is not an error: %v\noutput so far:\n%s", err, out)
@@ -79,11 +79,11 @@ func TestTheWindowLimitHoldsTheNextProductionDeploy(t *testing.T) {
 // is linear, so returning to a target below a failed release undoes every release
 // above it — the failed one failed, the rest skipped.
 //
-// The steps are driven one at a time rather than through a run, because this substrate
+// The steps are driven one at a time rather than through a run, because this platform
 // replaces the process rather than shifting traffic: the lower release stops emitting
 // the moment the upper one deploys, so a run that deploys both back to back leaves the
 // lower one with nothing for its comparison to read. The pause between the two deploys
-// is what a substrate keeping a control would not need, and it is where a window limit
+// is what a platform keeping a control would not need, and it is where a window limit
 // above one is
 // weakest here.
 func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
@@ -99,7 +99,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	}
 
 	// Two bad candidates, both merged, and then deployed one at a time.
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	d.model = interviewed(2)
 	path := p(ctx, t, d)
 	var candidates []*candidate
@@ -123,7 +123,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 		t.Fatalf("deploying the lower release: %v\noutput so far:\n%s", err, out)
 	}
 	// Long enough for the lower release to emit something for its own comparison to
-	// read, which is what a substrate keeping a control would give it for free.
+	// read, which is what a platform keeping a control would give it for free.
 	time.Sleep(200 * time.Millisecond)
 	if err := path.productionDeploy(ctx, upper); err != nil {
 		t.Fatalf("deploying the upper release: %v\noutput so far:\n%s", err, out)
@@ -152,8 +152,8 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	if upperWindow.Exit != window.ExitSkipped {
 		t.Errorf("the upper window closed %q, want swept", upperWindow.Exit)
 	}
-	if upperWindow.Exit.Counts() {
-		t.Error("a swept window counts as a release to return to, and nothing is left running a swept release's build")
+	if upperWindow.Exit.PassedOrTimedOut() {
+		t.Error("a skipped window counts as a release to return to, and nothing is left running a skipped release's build")
 	}
 
 	// One rollback undid both, and the two are named apart: one failed release is
@@ -169,17 +169,25 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 	if rollback.Undoing.FailedReleaseID != lower.releaseID {
 		t.Errorf("the rollback failed %s, the lower release is %s", rollback.Undoing.FailedReleaseID, lower.releaseID)
 	}
-	if len(rollback.Undoing.SweptReleaseIDs) != 1 || rollback.Undoing.SweptReleaseIDs[0] != upper.releaseID {
+	if len(rollback.Undoing.SkippedReleaseIDs) != 1 || rollback.Undoing.SkippedReleaseIDs[0] != upper.releaseID {
 		t.Errorf("the rollback swept %v, want the one release above it, %s",
-			rollback.Undoing.SweptReleaseIDs, upper.releaseID)
+			rollback.Undoing.SkippedReleaseIDs, upper.releaseID)
 	}
 	for _, undone := range []*candidate{lower, upper} {
 		dep, err := deploy.Get(ctx, d.pool, undone.deployID)
 		if err != nil {
 			t.Fatalf("reading the deploy of %s: %v", undone.releaseID, err)
 		}
-		if dep.Status != deploy.StatusRolledBack {
-			t.Errorf("the deploy of release %s is %s, and one rollback undid both", undone.releaseID, dep.Status)
+		_ = dep
+		targets, err := deploy.Targets(ctx, d.pool, undone.deployID)
+		if err != nil {
+			t.Fatalf("reading the targets of the deploy of %s: %v", undone.releaseID, err)
+		}
+		for _, target := range targets {
+			if target.Completion != deploy.CompletionRolledBack {
+				t.Errorf("target %s of the deploy of release %s is %s, and one rollback undid both",
+					target.Address, undone.releaseID, target.Completion)
+			}
 		}
 	}
 	if err := verifyLog(t, ctx, d); err != nil {

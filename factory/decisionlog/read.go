@@ -109,3 +109,29 @@ func (r *Reader) Pending(ctx context.Context, principal record.Actor) ([]Row, er
 	}
 	return pending, nil
 }
+
+// ByShape is every row of one shape, in row order, after appending a read
+// event naming principal and the shape asked for. It is how a caller that
+// stores a record as a row of the log — the policy version and the score
+// version are the two — reads its own rows back, rather than by a query of
+// its own against the table.
+//
+// It reads the whole log and filters in memory, the way
+// [Reader.ClosedDecisions] does, and for the same reason: a query narrowed by
+// what a payload names would put that payload's shape inside this package.
+func (r *Reader) ByShape(ctx context.Context, principal record.Actor, shape Shape) ([]Row, error) {
+	if err := r.appendReadEvent(ctx, principal, string(shape)+" rows"); err != nil {
+		return nil, err
+	}
+	rows, err := readAll(ctx, r.pool)
+	if err != nil {
+		return nil, err
+	}
+	var of []Row
+	for _, row := range rows {
+		if row.Shape == shape {
+			of = append(of, row)
+		}
+	}
+	return of, nil
+}

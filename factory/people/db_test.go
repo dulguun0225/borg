@@ -21,15 +21,17 @@ import (
 
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/score"
 )
 
 // owner is the one writer of declarations, the way doc.go names it: a human,
 // and never a component.
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
-func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *people.Writer) {
+func newTable(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token, *people.Writer) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -62,7 +64,7 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *people.Writer) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	return ctx, pool, people.NewWriter(pool, token)
+	return ctx, pool, token, people.NewWriter(pool, token, policy.NewFactory(pool, token))
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -80,24 +82,24 @@ func inSchema(t *testing.T, base, schema string) string {
 }
 
 func TestDeclaringADutyAndAnObligationReadBackAsHolding(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, _, w := newTable(t)
 
-	duty, err := w.Declare(ctx, owner, "alice", people.OfDuty(3))
+	duty, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(3))
 	if err != nil {
 		t.Fatalf("Declare of a duty: %v", err)
 	}
-	if duty.Human != "alice" || duty.Duty != 3 || duty.Obligation != "" {
+	if duty.Key != "hk_alice" || duty.Duty != 3 || duty.Obligation != "" {
 		t.Errorf("Declare of a duty = %+v, which does not name what it was declared with", duty)
 	}
 	if !duty.Holds() {
 		t.Error("a freshly declared duty reads as not holding")
 	}
 
-	obligation, err := w.Declare(ctx, owner, "bob", people.OfObligation(people.ObligationDriftDetector))
+	obligation, err := w.Declare(ctx, owner, "hk_bob", people.OfObligation(people.ObligationDriftDetector))
 	if err != nil {
 		t.Fatalf("Declare of an obligation: %v", err)
 	}
-	if obligation.Human != "bob" || obligation.Duty != 0 || obligation.Obligation != people.ObligationDriftDetector {
+	if obligation.Key != "hk_bob" || obligation.Duty != 0 || obligation.Obligation != people.ObligationDriftDetector {
 		t.Errorf("Declare of an obligation = %+v, which does not name what it was declared with", obligation)
 	}
 	if !obligation.Holds() {
@@ -111,28 +113,22 @@ func TestDeclaringADutyAndAnObligationReadBackAsHolding(t *testing.T) {
 	if readDuty != duty {
 		t.Errorf("Get = %+v, want %+v", readDuty, duty)
 	}
-	readObligation, err := people.Get(ctx, pool, obligation.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if readObligation != obligation {
-		t.Errorf("Get = %+v, want %+v", readObligation, obligation)
-	}
 }
 
 func TestAComponentActorIsRefused(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, _, w := newTable(t)
 	component := record.Actor{Kind: record.KindComponent, Key: "dispatch"}
 
-	if _, err := w.Declare(ctx, component, "alice", people.OfDuty(1)); !errors.Is(err, people.ErrNotAnOwner) {
+	if _, err := w.Declare(ctx, component, "hk_alice", people.OfDuty(1)); !errors.Is(err, people.ErrNotAnOwner) {
 		t.Errorf("Declare by a component = %v, want ErrNotAnOwner", err)
 	}
 
 	// Around the writer, the CHECK constraint refuses the same thing.
 	_, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
-		values ($1, $2, 'component', 'dispatch', '', $3, 'alice', 1, '', '')`,
-		record.NewID(people.IDPrefix), people.FormatVersion, record.Now())
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
+		 credential_account, spend_ceiling, withdrawn_at)
+		values ($1, $2, 'component', 'dispatch', '', $3, 'hk_alice', 1, '', '', 0, '')`,
+		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now())
 	if err == nil {
 		t.Error("the store accepted a declaration written by a component")
 	}
@@ -141,37 +137,46 @@ func TestAComponentActorIsRefused(t *testing.T) {
 // TestAHoldingNamingBothOrNeitherOrOutsideTheirRangeIsUnknown covers every way
 // a Holding can fail to name exactly one valid thing.
 func TestAHoldingNamingBothOrNeitherOrOutsideTheirRangeIsUnknown(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, _, w := newTable(t)
 
-	if _, err := w.Declare(ctx, owner, "alice", people.Holding{Duty: 1, Obligation: people.ObligationHosting}); !errors.Is(err, people.ErrHoldingUnknown) {
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.Holding{Duty: 1, Obligation: people.ObligationHosting}); !errors.Is(err, people.ErrHoldingUnknown) {
 		t.Errorf("Declare naming both a duty and an obligation = %v, want ErrHoldingUnknown", err)
 	}
-	if _, err := w.Declare(ctx, owner, "alice", people.Holding{}); !errors.Is(err, people.ErrHoldingUnknown) {
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.Holding{}); !errors.Is(err, people.ErrHoldingUnknown) {
 		t.Errorf("Declare naming neither = %v, want ErrHoldingUnknown", err)
 	}
-	if _, err := w.Declare(ctx, owner, "alice", people.OfDuty(0)); !errors.Is(err, people.ErrHoldingUnknown) {
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(0)); !errors.Is(err, people.ErrHoldingUnknown) {
 		t.Errorf("Declare of duty 0 = %v, want ErrHoldingUnknown", err)
 	}
-	if _, err := w.Declare(ctx, owner, "alice", people.OfDuty(13)); !errors.Is(err, people.ErrHoldingUnknown) {
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(13)); !errors.Is(err, people.ErrHoldingUnknown) {
 		t.Errorf("Declare of duty 13 = %v, want ErrHoldingUnknown", err)
 	}
-	if _, err := w.Declare(ctx, owner, "alice", people.OfObligation("catering")); !errors.Is(err, people.ErrHoldingUnknown) {
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfObligation("catering")); !errors.Is(err, people.ErrHoldingUnknown) {
 		t.Errorf("Declare of an unknown obligation = %v, want ErrHoldingUnknown", err)
 	}
 }
 
+// TestDeclareRefusesAnEmptyKey is the identity's own requirement: a write
+// names the per-person key it is about.
+func TestDeclareRefusesAnEmptyKey(t *testing.T) {
+	ctx, _, _, w := newTable(t)
+	if _, err := w.Declare(ctx, owner, "", people.OfDuty(1)); !errors.Is(err, people.ErrKeyEmpty) {
+		t.Errorf("Declare with no key = %v, want ErrKeyEmpty", err)
+	}
+}
+
 // TestDeclaringTheSamePairTwiceIsOneRowAndRedeclaringClearsAWithdrawal is
-// [Writer.Declare]'s idempotence: the insert conflicts on the human and the
+// [Writer.Declare]'s idempotence: the insert conflicts on the key and the
 // holding, so a second declaration of one pair is the first row again, and
 // re-declaring a holding somebody gave up is how they take it back.
 func TestDeclaringTheSamePairTwiceIsOneRowAndRedeclaringClearsAWithdrawal(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, _, w := newTable(t)
 
-	first, err := w.Declare(ctx, owner, "alice", people.OfDuty(5))
+	first, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(5))
 	if err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
-	second, err := w.Declare(ctx, owner, "alice", people.OfDuty(5))
+	second, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(5))
 	if err != nil {
 		t.Fatalf("Declare again: %v", err)
 	}
@@ -187,7 +192,7 @@ func TestDeclaringTheSamePairTwiceIsOneRowAndRedeclaringClearsAWithdrawal(t *tes
 		t.Fatalf("All = %d rows, want 1 for one pair declared twice", len(all))
 	}
 
-	withdrawn, err := w.Withdraw(ctx, first.ID)
+	withdrawn, err := w.Withdraw(ctx, owner, first.ID)
 	if err != nil {
 		t.Fatalf("Withdraw: %v", err)
 	}
@@ -195,7 +200,7 @@ func TestDeclaringTheSamePairTwiceIsOneRowAndRedeclaringClearsAWithdrawal(t *tes
 		t.Error("Withdraw left the holding standing")
 	}
 
-	redeclared, err := w.Declare(ctx, owner, "alice", people.OfDuty(5))
+	redeclared, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(5))
 	if err != nil {
 		t.Fatalf("Declare after Withdraw: %v", err)
 	}
@@ -207,16 +212,16 @@ func TestDeclaringTheSamePairTwiceIsOneRowAndRedeclaringClearsAWithdrawal(t *tes
 	}
 }
 
-// TestHoldersReturnsEveryHolderInDeclarationOrderAndNoneForAnUnheldDuty is what
-// the notifier routes on: every human who holds a duty, in the order they
+// TestHoldersReturnsEveryHolderKeyInDeclarationOrderAndNoneForAnUnheldDuty is
+// what the notifier routes on: every key holding a duty, in the order it
 // declared it, and no holders is a routing answer and not an error.
-func TestHoldersReturnsEveryHolderInDeclarationOrderAndNoneForAnUnheldDuty(t *testing.T) {
-	ctx, pool, w := newTable(t)
+func TestHoldersReturnsEveryHolderKeyInDeclarationOrderAndNoneForAnUnheldDuty(t *testing.T) {
+	ctx, pool, _, w := newTable(t)
 
-	if _, err := w.Declare(ctx, owner, "alice", people.OfDuty(7)); err != nil {
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(7)); err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
-	if _, err := w.Declare(ctx, owner, "bob", people.OfDuty(7)); err != nil {
+	if _, err := w.Declare(ctx, owner, "hk_bob", people.OfDuty(7)); err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
 
@@ -224,8 +229,8 @@ func TestHoldersReturnsEveryHolderInDeclarationOrderAndNoneForAnUnheldDuty(t *te
 	if err != nil {
 		t.Fatalf("Holders: %v", err)
 	}
-	if len(holders) != 2 || holders[0] != "alice" || holders[1] != "bob" {
-		t.Errorf("Holders(duty 7) = %v, want [alice bob] in declaration order", holders)
+	if len(holders) != 2 || holders[0] != "hk_alice" || holders[1] != "hk_bob" {
+		t.Errorf("Holders(duty 7) = %v, want [hk_alice hk_bob] in declaration order", holders)
 	}
 
 	none, err := people.Holders(ctx, pool, people.OfDuty(8))
@@ -242,13 +247,13 @@ func TestHoldersReturnsEveryHolderInDeclarationOrderAndNoneForAnUnheldDuty(t *te
 // holding is still readable against the row that routed it, and Holders reads
 // only what still stands.
 func TestWithdrawKeepsTheRowAndExcludesItFromHolders(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, _, w := newTable(t)
 
-	declared, err := w.Declare(ctx, owner, "alice", people.OfDuty(9))
+	declared, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(9))
 	if err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
-	if _, err := w.Withdraw(ctx, declared.ID); err != nil {
+	if _, err := w.Withdraw(ctx, owner, declared.ID); err != nil {
 		t.Fatalf("Withdraw: %v", err)
 	}
 
@@ -270,33 +275,34 @@ func TestWithdrawKeepsTheRowAndExcludesItFromHolders(t *testing.T) {
 }
 
 // TestDDLHoldsEveryDuty keeps the CHECK constraint and people.Duties from
-// disagreeing, the way deploy/schema_test.go's
-// TestDDLListsEveryStrategyAndStatus does for strategies and statuses: every
-// duty in people.Duties inserts cleanly around the writer, and duty 0 with no
-// obligation and duty 13 are both refused.
+// disagreeing: every duty in people.Duties inserts cleanly around the writer,
+// and duty 0 with no obligation and duty 13 are both refused.
 func TestDDLHoldsEveryDuty(t *testing.T) {
-	ctx, pool, _ := newTable(t)
+	ctx, pool, _, _ := newTable(t)
 
 	for _, duty := range people.Duties {
 		_, err := pool.Exec(ctx, `insert into `+people.Table+`
-			(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
-			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, $5, '', '')`,
-			record.NewID(people.IDPrefix), people.FormatVersion, record.Now(), "human_for_duty", int(duty))
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
+			 credential_account, spend_ceiling, withdrawn_at)
+			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, $5, '', '', 0, '')`,
+			record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now(), "hk_for_duty", int(duty))
 		if err != nil {
 			t.Errorf("inserting duty %d, one of people.Duties, was refused: %v", duty, err)
 		}
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
-		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'nobody', 0, '', '')`,
-		record.NewID(people.IDPrefix), people.FormatVersion, record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
+		 credential_account, spend_ceiling, withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 0, '', '', 0, '')`,
+		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted duty 0 with no obligation")
 	}
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
-		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'nobody', 13, '', '')`,
-		record.NewID(people.IDPrefix), people.FormatVersion, record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
+		 credential_account, spend_ceiling, withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 13, '', '', 0, '')`,
+		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted duty 13, which is outside the twelve")
 	}
 }
@@ -305,22 +311,162 @@ func TestDDLHoldsEveryDuty(t *testing.T) {
 // people.Obligations: every obligation inserts cleanly with duty 0, and one
 // outside the three does not.
 func TestDDLListsEveryObligation(t *testing.T) {
-	ctx, pool, _ := newTable(t)
+	ctx, pool, _, _ := newTable(t)
 
 	for _, obligation := range people.Obligations {
 		_, err := pool.Exec(ctx, `insert into `+people.Table+`
-			(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
-			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, 0, $5, '')`,
-			record.NewID(people.IDPrefix), people.FormatVersion, record.Now(), "human_for_obligation", string(obligation))
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
+			 credential_account, spend_ceiling, withdrawn_at)
+			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, 0, $5, '', 0, '')`,
+			record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now(), "hk_for_obligation", string(obligation))
 		if err != nil {
 			t.Errorf("inserting obligation %q, one of people.Obligations, was refused: %v", obligation, err)
 		}
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
-		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'nobody', 0, 'catering', '')`,
-		record.NewID(people.IDPrefix), people.FormatVersion, record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
+		 credential_account, spend_ceiling, withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 0, 'catering', '', 0, '')`,
+		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted an obligation outside people.Obligations")
+	}
+}
+
+// TestDeclareAppendsAPolicyVersionBeforeTheDeclaration is
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md's rule: a write to the
+// declaration appends a policy version with People as caller, naming the
+// duty by key, before the table itself changes.
+func TestDeclareAppendsAPolicyVersionBeforeTheDeclaration(t *testing.T) {
+	ctx, pool, token, w := newTable(t)
+	reader := policy.NewReader(pool, token, score.Version{})
+
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(4)); err != nil {
+		t.Fatalf("Declare: %v", err)
+	}
+	newest, err := reader.Newest(ctx, owner)
+	if err != nil {
+		t.Fatalf("Newest: %v", err)
+	}
+	if newest.Caller != policy.CallerPeople {
+		t.Errorf("the version's caller = %q, want %q", newest.Caller, policy.CallerPeople)
+	}
+	found := false
+	for _, p := range newest.Declaration.People {
+		if p.Key == "hk_alice" {
+			for _, d := range p.Duties {
+				if d == 4 {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the version's declaration = %+v, want hk_alice holding duty 4", newest.Declaration)
+	}
+}
+
+// TestWriteMappingRoundTripsAndResolvesAName is the one place a key maps to
+// a name, kept outside the chain.
+func TestWriteMappingRoundTripsAndResolvesAName(t *testing.T) {
+	ctx, pool, token, _ := newTable(t)
+
+	if _, err := people.WriteMapping(ctx, pool, token, owner, "hk_alice", "Alice", "09:00", "17:00", "UTC"); err != nil {
+		t.Fatalf("WriteMapping: %v", err)
+	}
+	name, err := people.NameOf(ctx, pool, "hk_alice")
+	if err != nil {
+		t.Fatalf("NameOf: %v", err)
+	}
+	if name != "Alice" {
+		t.Errorf("NameOf = %q, want Alice", name)
+	}
+
+	// Writing it again for the same key updates the one row.
+	if _, err := people.WriteMapping(ctx, pool, token, owner, "hk_alice", "Alice Smith", "", "", ""); err != nil {
+		t.Fatalf("WriteMapping again: %v", err)
+	}
+	name, err = people.NameOf(ctx, pool, "hk_alice")
+	if err != nil {
+		t.Fatalf("NameOf: %v", err)
+	}
+	if name != "Alice Smith" {
+		t.Errorf("NameOf after a second write = %q, want Alice Smith", name)
+	}
+}
+
+// TestDeleteMappingIsRefusedUnderALegalHoldAndDeletesOtherwise is the legal
+// hold's own refusal: DeleteMapping calls the caller's check first, and
+// refuses the deletion with ErrLegalHoldReaches where it reports a hold
+// standing, leaving the mapping and every record the key is written on
+// untouched.
+func TestDeleteMappingIsRefusedUnderALegalHoldAndDeletesOtherwise(t *testing.T) {
+	ctx, pool, token, _ := newTable(t)
+	if _, err := people.WriteMapping(ctx, pool, token, owner, "hk_alice", "Alice", "", "", ""); err != nil {
+		t.Fatalf("WriteMapping: %v", err)
+	}
+
+	held := func(context.Context) (bool, error) { return true, nil }
+	if err := people.DeleteMapping(ctx, pool, token, "hk_alice", held); !errors.Is(err, people.ErrLegalHoldReaches) {
+		t.Errorf("DeleteMapping under a hold = %v, want ErrLegalHoldReaches", err)
+	}
+	if _, err := people.NameOf(ctx, pool, "hk_alice"); err != nil {
+		t.Errorf("NameOf after a refused deletion: %v, want the mapping still standing", err)
+	}
+
+	clear := func(context.Context) (bool, error) { return false, nil }
+	if err := people.DeleteMapping(ctx, pool, token, "hk_alice", clear); err != nil {
+		t.Fatalf("DeleteMapping with no hold: %v", err)
+	}
+	if _, err := people.NameOf(ctx, pool, "hk_alice"); !errors.Is(err, people.ErrMappingNotFound) {
+		t.Errorf("NameOf after deletion = %v, want ErrMappingNotFound", err)
+	}
+}
+
+// TestRederiveWritesBackADutyTheVersionNamesThatTheTableLost is the
+// factory's start finishing a write a stop interrupted: the table is put
+// directly in that state, since nothing in the factory can write one
+// without the other, and Rederive is what a version with no matching row
+// repairs.
+func TestRederiveWritesBackADutyTheVersionNamesThatTheTableLost(t *testing.T) {
+	ctx, pool, token, w := newTable(t)
+	reader := policy.NewReader(pool, token, score.Version{})
+
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(6)); err != nil {
+		t.Fatalf("Declare: %v", err)
+	}
+	declared, err := people.ByHolding(ctx, pool, "hk_alice", people.OfDuty(6))
+	if err != nil {
+		t.Fatalf("ByHolding: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `delete from `+people.Table+` where id = $1`, declared.ID); err != nil {
+		t.Fatalf("deleting the row directly: %v", err)
+	}
+	if holders, err := people.Holders(ctx, pool, people.OfDuty(6)); err != nil || len(holders) != 0 {
+		t.Fatalf("the row survived the direct delete: holders %v, err %v", holders, err)
+	}
+
+	rewritten, err := people.Rederive(ctx, pool, token, reader, owner)
+	if err != nil {
+		t.Fatalf("Rederive: %v", err)
+	}
+	if len(rewritten) != 1 || rewritten[0] != "hk_alice" {
+		t.Errorf("Rederive rewrote %v, want [hk_alice]", rewritten)
+	}
+	holders, err := people.Holders(ctx, pool, people.OfDuty(6))
+	if err != nil {
+		t.Fatalf("Holders: %v", err)
+	}
+	if len(holders) != 1 || holders[0] != "hk_alice" {
+		t.Errorf("Holders after Rederive = %v, want [hk_alice]", holders)
+	}
+
+	// A re-derivation that finds the table already agreeing writes nothing.
+	again, err := people.Rederive(ctx, pool, token, reader, owner)
+	if err != nil {
+		t.Fatalf("Rederive again: %v", err)
+	}
+	if len(again) != 0 {
+		t.Errorf("a re-derivation over a table that agrees rewrote %v", again)
 	}
 }

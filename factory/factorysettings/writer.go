@@ -99,20 +99,34 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 // where it does not exist. It is idempotent: the insert does nothing on the
 // singleton conflict, so two callers ensuring at once leave one record.
 func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Settings, error) {
-	if err := actor.Validate(); err != nil {
-		return Settings{}, err
-	}
-
 	tx, err := w.pool.Begin(ctx)
 	if err != nil {
 		return Settings{}, fmt.Errorf("factorysettings: beginning the ensure: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := lease.Fence(ctx, tx, w.token); err != nil {
+
+	if _, err := Insert(ctx, tx, w.token, actor); err != nil {
 		return Settings{}, err
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return Settings{}, fmt.Errorf("factorysettings: committing the ensure: %w", err)
+	}
+	return Get(ctx, w.pool)
+}
 
-	_, err = tx.Exec(ctx, `insert into `+Table+`
+// Insert creates the record inside tx, fencing it with token first, and returns
+// it whether this call created it or found it. Its caller is package policy,
+// which appends the policy version in the same transaction. It is idempotent
+// the way [Writer.Ensure] is: the insert does nothing on the singleton
+// conflict, so two callers at once leave one record.
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor) (Settings, error) {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return Settings{}, err
+	}
+	if err := actor.Validate(); err != nil {
+		return Settings{}, err
+	}
+	_, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, only_row, allowed_predicate_kinds)
 		values ($1, $2, $3, $4, $5, $6, true, '')
 		on conflict (only_row) do nothing`,
@@ -121,10 +135,7 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Settings, erro
 	if err != nil {
 		return Settings{}, fmt.Errorf("factorysettings: creating the record: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return Settings{}, fmt.Errorf("factorysettings: committing the ensure: %w", err)
-	}
-	return Get(ctx, w.pool)
+	return getIn(ctx, tx)
 }
 
 // SetAllowedPredicateKinds writes the list an owner authored, inside tx.
@@ -181,21 +192,32 @@ func insertKeyed(ctx context.Context, tx pgx.Tx, actor record.Actor, table, pref
 	return nil
 }
 
+const selectSettings = `select id, actor_kind, actor_key, actor_key_basis, at, allowed_predicate_kinds,
+	role_prompt_or_skill_threshold, advisory_severity, held_out_sample_rate,
+	decision_log_retention_seconds, report_retention_seconds, backup_retention_seconds,
+	retention_floor_seconds, report_channel_rate, harm_mark_pages, seam_5_enforced
+	from ` + Table + ` where only_row`
+
 // Get is the factory-wide settings record. It takes the pool and not a [Writer],
 // because reading it is not a reason to be handed the thing that creates it.
 func Get(ctx context.Context, pool *pgxpool.Pool) (Settings, error) {
+	return scanSettings(pool.QueryRow(ctx, selectSettings))
+}
+
+// getIn is [Get] inside a transaction, which is what [Insert] answers with: the
+// record it created, or the one that was already there.
+func getIn(ctx context.Context, tx pgx.Tx) (Settings, error) {
+	return scanSettings(tx.QueryRow(ctx, selectSettings))
+}
+
+func scanSettings(row pgx.Row) (Settings, error) {
 	var s Settings
 	var kind, basis, allowed string
 	var threshold, severity, heldOut *float64
 	var decisionLog, report, backup, floor, rate *int64
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, allowed_predicate_kinds,
-		role_prompt_or_skill_threshold, advisory_severity, held_out_sample_rate,
-		decision_log_retention_seconds, report_retention_seconds, backup_retention_seconds,
-		retention_floor_seconds, report_channel_rate, harm_mark_pages, seam_5_enforced
-		from `+Table+` where only_row`).
-		Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &allowed,
-			&threshold, &severity, &heldOut,
-			&decisionLog, &report, &backup, &floor, &rate, &s.HarmMarkPages, &s.Seam5Enforced)
+	err := row.Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &allowed,
+		&threshold, &severity, &heldOut,
+		&decisionLog, &report, &backup, &floor, &rate, &s.HarmMarkPages, &s.Seam5Enforced)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Settings{}, ErrNotFound
 	} else if err != nil {

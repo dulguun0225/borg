@@ -65,13 +65,17 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Release, error) {
 }
 
 // Highest is the service's highest-numbered release, and false where it has
-// none. It is master's head: the commit of that release, reached through the
-// build it names. Numbers are never reused and a rolled-back release keeps its
-// own, so the maximum is always right, and a counter beside it would be the same
-// fact written twice at one event.
+// none. Numbers are never reused and a rolled-back release keeps its own, so the
+// maximum is always right, and a counter beside it would be the same fact
+// written twice at one event.
 //
-// It takes the pool and not a [Writer], because reading what master is at is not
-// a reason to be handed the thing that mints.
+// It is not master's head. What master holds is read from master, at every start
+// and before every mint, and the queue compares the two: master's head being the
+// commit this release names is the ordinary case, and a commit past it or a
+// commit missing is what the queue writes a wait over.
+//
+// It takes the pool and not a [Writer], because reading the highest number is
+// not a reason to be handed the thing that mints.
 func Highest(ctx context.Context, pool *pgxpool.Pool, serviceID string) (Release, bool, error) {
 	r, err := scan(pool.QueryRow(ctx, selectRelease+` where service_id = $1
 		order by number desc limit 1`, serviceID))
@@ -84,7 +88,10 @@ func Highest(ctx context.Context, pool *pgxpool.Pool, serviceID string) (Release
 }
 
 // ForItem is the release minted for one item, and false where none was. One item
-// is one release, so there is at most one.
+// is one release — a rule of the store, through the partial unique index over
+// item_id — so there is at most one. An empty item is no release and no error:
+// a release over an accepted commit names none, and asking which release an
+// unnamed item has is a question about nothing.
 //
 // It is what says a fast-forward already happened. The fast-forward, the mint, and
 // the item's advance to merged are three writes across a repository and two
@@ -151,11 +158,12 @@ func Below(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int
 }
 
 // CountForService is how many releases the service has, leaving out the
-// releases of exceptItemID.
+// releases of exceptItemID. A release that names no item is counted: it is a
+// release of the service like any other, and it is not the item being left out.
 func CountForService(ctx context.Context, pool *pgxpool.Pool, serviceID, exceptItemID string) (int, error) {
 	var count int
 	err := pool.QueryRow(ctx, `select count(*) from `+Table+`
-		where service_id = $1 and item_id <> $2`, serviceID, exceptItemID).Scan(&count)
+		where service_id = $1 and (item_id is null or item_id <> $2)`, serviceID, exceptItemID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("release: counting the releases of %s: %w", serviceID, err)
 	}

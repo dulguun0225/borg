@@ -87,17 +87,23 @@ type candidate struct {
 	// consumer's item is ordered behind its producer's.
 	waitsOn []string
 	// requirementIDs is which of the intent's requirements this item answers,
-	// written by decomposition; the crude interface derives one per intent, so
+	// written by decomposition; the command-line interface derives one per intent, so
 	// this is empty or one long today.
 	requirementIDs []string
 
 	// The candidate's own environment and what happened on it.
-	environmentID     string
-	environmentDir    string
-	composedFrom      []environment.Composed
-	candidateDeployID string
-	criteria          []gate.CriterionResult
-	tornDown          bool
+	environmentID  string
+	environmentDir string
+	composedFrom   []environment.Composed
+	// approvedComposition is what the environment was composed from at the run
+	// that passed at Merge to master, kept beside composedFrom because the
+	// re-verification recomposes and overwrites that one. Comparing the two is
+	// the whole of how the queue tells its second reading of a failure from its
+	// third: what changed between them is a release the author's work never saw.
+	approvedComposition []environment.Composed
+	candidateDeployID   string
+	criteria            []gate.CriterionResult
+	tornDown            bool
 
 	// The three firings, each as it was decided. The Decomposition row is not
 	// among them: it decides a set and is on the [decompositionSet].
@@ -113,7 +119,7 @@ type candidate struct {
 
 	// factoryHold is the factory's own hold where one stopped the candidate before
 	// its gate could fire, and holdWaitRow is the log row where that hold is
-	// written — which is the substrate's and not the dependency's.
+	// written — which is the platform's and not the dependency's.
 	factoryHold string
 	holdWaitRow string
 

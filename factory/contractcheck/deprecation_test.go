@@ -1,6 +1,6 @@
-// Check.Deprecated and Check.RaiseRemovals: the deprecation list emptying
-// releases a breaking change, and a safeguard's predicate blocks the same
-// removal until it is withdrawn.
+// Check.Deprecated and Check.Raise: the deprecation list emptying raises a
+// brownout, that brownout's window establishing volume raises the removal, and
+// a safeguard's predicate blocks the same removal until it is withdrawn.
 package contractcheck_test
 
 import (
@@ -16,8 +16,11 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// TestTheDeprecationListIsAQueryAndTheDetectorRaisesTheRemovalOnce.
-func TestTheDeprecationListIsAQueryAndTheDetectorRaisesTheRemovalOnce(t *testing.T) {
+// TestTheDeprecationListIsAQueryAndTheDetectorRaisesTheBrownoutThenTheRemoval:
+// the list emptying raises the brownout alone, and the removal follows only on
+// that brownout's own window having reached its cap uncrossed having received
+// volume — nobody has to remember the last two items of a migration.
+func TestTheDeprecationListIsAQueryAndTheDetectorRaisesTheBrownoutThenTheRemoval(t *testing.T) {
 	ctx, g := newGraph(t)
 
 	marked := published(element("Status", "string", true, false), element("Detail", "string", false, true))
@@ -39,8 +42,8 @@ func TestTheDeprecationListIsAQueryAndTheDetectorRaisesTheRemovalOnce(t *testing
 	if !slices.Contains(list[0].Consumers(), g.consumer.ID) {
 		t.Errorf("the list names %v, want the consumer", list[0].Consumers())
 	}
-	if raised, err := g.check.RaiseRemovals(ctx); err != nil || len(raised) != 0 {
-		t.Fatalf("the detector raised %d removals while a consumer still declares the element, %v", len(raised), err)
+	if raised, err := g.check.Raise(ctx); err != nil || len(raised) != 0 {
+		t.Fatalf("the detector raised %d brownouts or removals while a consumer still declares the element, %v", len(raised), err)
 	}
 
 	// The consumer's next release stops reading it. Nothing withdrew anything: the
@@ -56,26 +59,60 @@ func TestTheDeprecationListIsAQueryAndTheDetectorRaisesTheRemovalOnce(t *testing
 	if len(list) != 1 || !list[0].Empty() {
 		t.Fatalf("the list on Detail is %+v after the consumer stopped reading it", list)
 	}
-	raised, err := g.check.RaiseRemovals(ctx)
+
+	// The emptied list raises the brownout, and the brownout alone: the last
+	// inference before something is destroyed is checked against the running world
+	// instead of trusted.
+	raised, err := g.check.Raise(ctx)
 	if err != nil {
-		t.Fatalf("RaiseRemovals: %v", err)
+		t.Fatalf("Raise: %v", err)
 	}
-	if len(raised) != 1 || !raised[0].New {
-		t.Fatalf("the detector raised %+v, want one new intent", raised)
+	if len(raised) != 1 || !raised[0].New || !raised[0].Brownout {
+		t.Fatalf("the detector raised %+v, want one new brownout", raised)
 	}
-	want := contractcheck.RemovalStatement(g.producer.Name, theInterface, "Detail")
-	if raised[0].Intent.Statement != want {
-		t.Errorf("the intent's statement is %q, want %q", raised[0].Intent.Statement, want)
+	wantBrownout := contractcheck.BrownoutStatement(g.producer.Name, theInterface, "Detail")
+	if raised[0].Intent.Statement != wantBrownout {
+		t.Errorf("the brownout's statement is %q, want %q", raised[0].Intent.Statement, wantBrownout)
 	}
 
-	// A second pass takes nothing in: the intent is still unrefined, and the
-	// statement is the handle.
-	again, err := g.check.RaiseRemovals(ctx)
+	// A second pass takes nothing in: the brownout has not shipped yet, and the
+	// evidence is the handle that stops a second one arriving beside it.
+	again, err := g.check.Raise(ctx)
 	if err != nil {
-		t.Fatalf("the second RaiseRemovals: %v", err)
+		t.Fatalf("the second Raise: %v", err)
 	}
 	if len(again) != 1 || again[0].New || again[0].Intent.ID != raised[0].Intent.ID {
-		t.Fatalf("the second pass raised %+v, want the intent the first one took in", again)
+		t.Fatalf("the second pass raised %+v, want the brownout intent the first one took in", again)
+	}
+
+	// The brownout ships: a release on the same evidence that disables Detail in
+	// behaviour while leaving the form unchanged, its window run to the cap having
+	// received volume on both arms. Its own intent finishing is what lets the
+	// removal be raised newly on the same evidence, the evidence key otherwise
+	// still naming the brownout as the one intent not yet finished on it.
+	shipOnIntent(t, ctx, g, g.producer, raised[0].Intent.ID, []contract.Form{marked}, nil, window.ExitTimedOut)
+	finishIntent(t, ctx, g, raised[0].Intent.ID)
+
+	removed, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("Raise after the brownout shipped: %v", err)
+	}
+	if len(removed) != 1 || !removed[0].New || removed[0].Brownout {
+		t.Fatalf("the detector raised %+v, want one new removal", removed)
+	}
+	wantRemoval := contractcheck.RemovalStatement(g.producer.Name, theInterface, "Detail")
+	if removed[0].Intent.Statement != wantRemoval {
+		t.Errorf("the removal's statement is %q, want %q", removed[0].Intent.Statement, wantRemoval)
+	}
+
+	// A further pass takes nothing in: the removal intent is still unrefined, and
+	// the statement is the handle.
+	again2, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("the third Raise: %v", err)
+	}
+	if len(again2) != 1 || again2[0].New || again2[0].Intent.ID != removed[0].Intent.ID {
+		t.Fatalf("the third pass raised %+v, want the removal intent the previous one took in", again2)
 	}
 }
 
@@ -94,18 +131,28 @@ func TestASafeguardsPredicateBlocksTheRemovalAndIsToldApartFromAConsumerContract
 	}
 	placed, _, err := g.factory.AddSafeguard(ctx, theOwner, gatepolicy.SafeguardPredicate,
 		safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, "Detail")},
-		safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead}})
+		safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead}}, safeguard.Routing{})
 	if err != nil {
 		t.Fatalf("adding the safeguard: %v", err)
 	}
 
-	// The detector still raises the removal — a safeguard never stops the item existing.
-	raised, err := g.check.RaiseRemovals(ctx)
+	// The detector still raises the brownout and, once it ships and its window
+	// establishes, the removal — a safeguard never stops either item existing.
+	raised, err := g.check.Raise(ctx)
 	if err != nil {
-		t.Fatalf("RaiseRemovals: %v", err)
+		t.Fatalf("Raise: %v", err)
 	}
-	if len(raised) != 1 || !raised[0].New {
-		t.Fatalf("the detector raised %+v with a safeguard standing, want the removal intent", raised)
+	if len(raised) != 1 || !raised[0].New || !raised[0].Brownout {
+		t.Fatalf("the detector raised %+v with a safeguard standing, want the brownout intent", raised)
+	}
+	shipOnIntent(t, ctx, g, g.producer, raised[0].Intent.ID, []contract.Form{full}, nil, window.ExitTimedOut)
+	finishIntent(t, ctx, g, raised[0].Intent.ID)
+	removed, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("Raise after the brownout shipped: %v", err)
+	}
+	if len(removed) != 1 || !removed[0].New || removed[0].Brownout {
+		t.Fatalf("the detector raised %+v with a safeguard standing, want the removal intent", removed)
 	}
 
 	trimmed := published(element("Status", "string", true, false))
@@ -125,9 +172,14 @@ func TestASafeguardsPredicateBlocksTheRemovalAndIsToldApartFromAConsumerContract
 	}
 
 	// Withdrawing it lets the next candidate through, which is how an invented read
-	// is taken back.
-	if _, err := g.factory.WithdrawSafeguard(ctx, theOwner, placed.ID); err != nil {
-		t.Fatalf("withdrawing the safeguard: %v", err)
+	// is taken back — and it takes two writes, the withdrawal and the approval
+	// the gate row that decides it makes.
+	written, _, err := g.factory.WriteSafeguardWithdrawal(ctx, theOwner, placed.ID)
+	if err != nil {
+		t.Fatalf("writing the withdrawal: %v", err)
+	}
+	if _, err := g.factory.ApproveSafeguardWithdrawal(ctx, theApprover, written.ID); err != nil {
+		t.Fatalf("approving the withdrawal: %v", err)
 	}
 	after := candidateOf(t, ctx, g, g.producer, []contract.Form{trimmed}, nil, ok())
 	checked, err = g.check.Enforce(ctx, after, g.production)

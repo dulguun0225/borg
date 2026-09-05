@@ -86,7 +86,7 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	// The safeguard on the allowed predicate kinds reaches the parameter it was
 	// drawn on: what an owner reads afterwards is the union, which is the whole of
 	// what a safeguard on a list does.
-	allowed, err := policy.NewReader(pool, score.Version{}).All(ctx, policy.Subjects{
+	allowed, err := policy.NewReader(pool, testToken(t, ctx, pool), score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
 	if err != nil {
@@ -105,8 +105,21 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 		}
 	}
 
+	// A safeguard leaves force at the row that decides its withdrawal, so it is
+	// two commands: the withdrawal written, and the row approved by a human other
+	// than the one who wrote it.
 	if err := safeguardCommand([]string{"-withdraw", safeguards[0].ID}); err != nil {
 		t.Fatalf("safeguard -withdraw: %v", err)
+	}
+	// The withdrawal's id is read out of its own table: package safeguard has no
+	// read that lists withdrawals, there being no caller for one but this.
+	var withdrawalID string
+	if err := pool.QueryRow(ctx, `select id from `+safeguard.WithdrawalTable+
+		` where safeguard_id = $1`, safeguards[0].ID).Scan(&withdrawalID); err != nil {
+		t.Fatalf("reading the withdrawal that was written: %v", err)
+	}
+	if err := approveCommand([]string{"-safeguard-withdrawal", withdrawalID, "-human", "reviewer"}); err != nil {
+		t.Fatalf("approve -safeguard-withdrawal: %v", err)
 	}
 	safeguards, err = safeguard.All(ctx, pool)
 	if err != nil {

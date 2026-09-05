@@ -49,7 +49,7 @@
 // inside the one that appends the policy version, so the safeguard and the
 // version commit together or not at all. Nothing here deletes a row. Every
 // mechanism a safeguard binds reads through [BySubjects] and writes nothing;
-// [All] is what the crude interface prints.
+// [All] is what the command-line interface prints.
 //
 // What defines it: the one writer, the subjects, the routing field, a
 // safeguard being a bound rather than a precedence, and the cost of the query

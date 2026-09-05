@@ -5,12 +5,13 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/driftdetector"
-	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/policy"
 )
 
 // TestADriftMismatchHoldsTheProductionDeployAndPages is the one hold the factory
@@ -31,8 +32,9 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// Installing the drift detector is substrate outside the twelve duties,
 	// so the page a mismatch fires reaches whoever the declaration says installed
 	// it.
-	installer := "sre"
-	if _, err := people.NewWriter(d.pool, d.token).Declare(ctx, owner(d.human), installer,
+	installer := owner(t, ctx, d.pool, d.token, "sre")
+	if _, err := people.NewWriter(d.pool, d.token, policy.NewFactory(d.pool, d.token)).Declare(ctx,
+		owner(t, ctx, d.pool, d.token, d.human), installer.Key,
 		people.OfObligation(people.ObligationDriftDetector)); err != nil {
 		t.Fatalf("declaring who installed the drift detector: %v", err)
 	}
@@ -43,6 +45,10 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		ServiceID: serviceOf(ctx, t, d), Target: d.dir, Reached: true,
 		RunningBuild: "bl_somebodyelses", RecordedBuildID: "bl_thefactorys",
 		RecordedReleaseID: "rel_thefactorys",
+		// The interval is what this pass promises the next one within, which
+		// the notifier reads to tell a detector that stopped from one that
+		// found nothing.
+		Interval: time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("recording the pass: %v", err)
@@ -53,9 +59,10 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 
 	// The next change: the production deploy row fires with the mismatch on its
 	// open event and a human at it, and the human holds.
-	// One verdict is asked for and not three: by the second change the score
-	// auto-passes the two rows above production, and the mismatch is what puts a human
-	// at that one.
+	// One verdict and not three: the second item on this service reads under the
+	// threshold at every row and every factor over a build is valued, so the two
+	// rows above production auto-pass and the mismatch is the only thing putting
+	// a human anywhere — which is what this test is about.
 	d.in = strings.NewReader("hold the record is wrong and I am checking the target\n")
 	d.model = interviewed(0)
 	res, err := run(ctx, d, of(theSecondStatement))
@@ -69,8 +76,8 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if !c.deployGate.humanDecided {
 		t.Error("no human decided at the row, and a mismatch puts one there whatever the number reads")
 	}
-	if !strings.Contains(c.deployGate.whyHuman, gate.WhyMismatch) {
-		t.Errorf("the row says a human decided because %q, want the mismatch among the reasons", c.deployGate.whyHuman)
+	if c.deployGate.mismatch == "" {
+		t.Error("the row carries no mismatch, and what the drift detector found is what put the human there")
 	}
 	rows := readLog(t, ctx, d)
 	var opening decisionlog.Row
@@ -94,11 +101,11 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if len(events) != 1 || notifier.Event(events[0].Event) != notifier.EventReached {
 		t.Fatalf("the page's events are %+v, want one reached", events)
 	}
-	if events[0].Reached != installer {
+	if events[0].Reached != installer.Key {
 		t.Errorf("the page reached %q, and %q is who the declaration says installed the drift detector",
-			events[0].Reached, installer)
+			events[0].Reached, installer.Key)
 	}
-	if !strings.Contains(out.String(), "PAGE reached to "+installer) {
+	if !strings.Contains(out.String(), "PAGE reached to "+installer.Key) {
 		t.Errorf("the page was not delivered:\n%s", out)
 	}
 
@@ -129,7 +136,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// Cleared at the drift detector and nowhere else, and the answered event
 	// is written by the pass that finds it cleared — because that store calls
 	// nothing.
-	if _, err := driftdetector.NewWriter(d.driftdetector).Clear(ctx, raised.Raised, installer); err != nil {
+	if _, err := driftdetector.NewWriter(d.driftdetector).Clear(ctx, raised.Raised, installer.Key); err != nil {
 		t.Fatalf("clearing the mismatch: %v", err)
 	}
 	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
@@ -140,7 +147,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 		t.Fatalf("reading the page events: %v", err)
 	}
 	last := events[len(events)-1]
-	if notifier.Event(last.Event) != notifier.EventAnswered || last.Reached != installer {
+	if notifier.Event(last.Event) != notifier.EventAnswered || last.Reached != installer.Key {
 		t.Errorf("the page's last event is %+v, want answered by %q", last, installer)
 	}
 

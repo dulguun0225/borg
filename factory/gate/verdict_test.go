@@ -5,6 +5,7 @@ package gate_test
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
@@ -24,8 +25,8 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	if opened.HumanDecides || opened.WhyHuman != "" {
-		t.Fatalf("a number of 0.1 against a threshold of 0.3 put a human at the row: %q", opened.WhyHuman)
+	if opened.HumanDecides || len(opened.Marks) != 0 {
+		t.Fatalf("a number of 0.1 against a threshold of 0.3 put a human at the row: %v", opened.Marks)
 	}
 	closing, err := g.AutoPass(ctx, opened)
 	if err != nil {
@@ -50,11 +51,11 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 		t.Fatalf("Read: %v", err)
 	}
 	var opening gate.OpeningPayload
-	if err := json.Unmarshal([]byte(rows[0].Payload), &opening); err != nil {
+	if err := json.Unmarshal([]byte(rowByID(t, rows, opened.Row.ID).Payload), &opening); err != nil {
 		t.Fatalf("unmarshalling the opening payload: %v", err)
 	}
-	if opening.WaitsOn != "" {
-		t.Errorf("an auto-passed firing waits on %q, want nothing", opening.WaitsOn)
+	if opening.WaitsOn.Duty != 0 || opening.WaitsOn.Human != "" || len(opening.WaitsOn.Holders) != 0 {
+		t.Errorf("an auto-passed firing waits on %+v, want nothing", opening.WaitsOn)
 	}
 	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
 		t.Fatalf("Verify after an auto-pass: %v", err)
@@ -62,32 +63,33 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 }
 
 // TestASafeguardAddsAHumanWhateverTheNumberReads: a safeguard can only add. The
-// number is well under the threshold and a human decides anyway, the reason
-// says so, and the factory may not close the decision itself.
+// number is well under the threshold and a human decides anyway, the mark says
+// so, and the factory may not close the decision itself.
 func TestASafeguardAddsAHumanWhateverTheNumberReads(t *testing.T) {
 	safeguarded := applied(0.3)
 	safeguarded.HumanBySafeguard = true
 	safeguarded.Safeguards = []string{"sfg_00000000000000000000000000000001"}
 	s, p := &fakeScore{assessment: assessed(0.05)}, &fakePolicy{applied: safeguarded}
-	ctx, _, _, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, deployFiring())
+	opened, err := g.Fire(ctx, deployFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	if !opened.HumanDecides || opened.WhyHuman != gate.WhySafeguard {
-		t.Fatalf("the safeguard put no human at the row: human %v because %q", opened.HumanDecides, opened.WhyHuman)
+	if !opened.HumanDecides || !slices.Contains(opened.Marks, gate.MarkSafeguard) {
+		t.Fatalf("the safeguard put no human at the row: human %v marks %v", opened.HumanDecides, opened.Marks)
 	}
 	if _, err := g.AutoPass(ctx, opened); !errors.Is(err, gate.ErrHumanDecides) {
 		t.Fatalf("AutoPass over a firing a safeguard reached = %v, want ErrHumanDecides", err)
 	}
-	if _, err := g.Decide(ctx, opened, owner, gate.VerdictApprove, ""); err != nil {
+	if _, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove}); err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
 }
 
 // TestBothReasonsAreToldApart: a number over the threshold and a safeguard at
-// once says so, because withdrawing the safeguard would not remove the human.
+// once each leave their own mark, because withdrawing the safeguard would not
+// remove the human the number put there.
 func TestBothReasonsAreToldApart(t *testing.T) {
 	safeguarded := applied(0.3)
 	safeguarded.HumanBySafeguard = true
@@ -98,8 +100,8 @@ func TestBothReasonsAreToldApart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	if opened.WhyHuman != gate.WhyBoth {
-		t.Errorf("the firing says %q, want both reasons", opened.WhyHuman)
+	if !slices.Contains(opened.Marks, gate.MarkTheNumber) || !slices.Contains(opened.Marks, gate.MarkSafeguard) {
+		t.Errorf("the firing's marks are %v, want both the number and the safeguard", opened.Marks)
 	}
 }
 
@@ -107,24 +109,24 @@ func TestBothReasonsAreToldApart(t *testing.T) {
 // and nowhere after it, and hold is offered by the deploy row alone.
 func TestEachRowOffersItsOwnActions(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, _, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	merged, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
 		t.Fatalf("Fire at the merge row: %v", err)
 	}
-	if _, err := g.Decide(ctx, merged, owner, gate.VerdictHold, ""); !errors.Is(err, gate.ErrVerdictUnknown) {
+	if _, err := g.Decide(ctx, merged, gate.Given{Actor: owner, Verdict: gate.VerdictHold}); !errors.Is(err, gate.ErrVerdictUnknown) {
 		t.Errorf("holding at the merge row = %v, want ErrVerdictUnknown", err)
 	}
 
-	deployed, err := g.Fire(ctx, deployFiring())
+	deployed, err := g.Fire(ctx, deployFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire at the deploy row: %v", err)
 	}
-	if _, err := g.Decide(ctx, deployed, owner, gate.VerdictReject, "no"); !errors.Is(err, gate.ErrVerdictUnknown) {
+	if _, err := g.Decide(ctx, deployed, gate.Given{Actor: owner, Verdict: gate.VerdictReject, Reason: "no"}); !errors.Is(err, gate.ErrVerdictUnknown) {
 		t.Errorf("rejecting at the deploy row = %v, want ErrVerdictUnknown", err)
 	}
-	if _, err := g.Decide(ctx, deployed, owner, gate.Verdict("edit"), ""); !errors.Is(err, gate.ErrVerdictUnknown) {
+	if _, err := g.Decide(ctx, deployed, gate.Given{Actor: owner, Verdict: gate.Verdict("edit")}); !errors.Is(err, gate.ErrVerdictUnknown) {
 		t.Errorf("an action neither row has = %v, want ErrVerdictUnknown", err)
 	}
 }
@@ -136,11 +138,11 @@ func TestAHoldCloses(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, deployFiring())
+	opened, err := g.Fire(ctx, deployFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	closing, err := g.Decide(ctx, opened, owner, gate.VerdictHold, "the dependency is not live")
+	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictHold, Reason: "the dependency is not live"})
 	if err != nil {
 		t.Fatalf("Decide(hold): %v", err)
 	}
@@ -178,7 +180,7 @@ func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 		t.Fatalf("Fire: %v", err)
 	}
 	feedback := "the encoding of cr_0000000000000000000000000000000b asserts the code, not the criterion"
-	closing, err := g.Decide(ctx, opened, owner, gate.VerdictReject, feedback)
+	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictReject, Reason: feedback})
 	if err != nil {
 		t.Fatalf("Decide(reject, feedback): %v", err)
 	}
@@ -187,17 +189,17 @@ func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
 		t.Fatalf("unmarshalling the closing payload: %v", err)
 	}
-	if payload.Verdict != string(gate.VerdictReject) || payload.Feedback != feedback {
+	if payload.Verdict != string(gate.VerdictReject) || payload.Reason != feedback {
 		t.Errorf("the closing says %+v", payload)
 	}
-	if payload.ReturnsTo != gate.ReturnsTo {
-		t.Errorf("the reject returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsTo)
+	if payload.ReturnsTo != gate.ReturnsToImplementation {
+		t.Errorf("the reject returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsToImplementation)
 	}
 }
 
-// TestARejectWithoutFeedbackIsRefused: the action is "Reject with feedback", so
-// a reject carrying none is refused and no close event is appended.
-func TestARejectWithoutFeedbackIsRefused(t *testing.T) {
+// TestARejectWithoutReasonIsRefused: a reject and a hold each carry a reason, so
+// one carrying none is refused and no close event is appended.
+func TestARejectWithoutReasonIsRefused(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
@@ -205,18 +207,19 @@ func TestARejectWithoutFeedbackIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	if _, err := g.Decide(ctx, opened, owner, gate.VerdictReject, ""); !errors.Is(err, gate.ErrFeedbackMissing) {
-		t.Fatalf("Decide(reject, no feedback) = %v, want ErrFeedbackMissing", err)
+	if _, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictReject}); !errors.Is(err, gate.ErrReasonMissing) {
+		t.Fatalf("Decide(reject, no reason) = %v, want ErrReasonMissing", err)
 	}
 
-	// Read appends its own read event, so the opening and that event are the two
-	// rows a refused reject leaves.
+	// Fire's own check that nothing is already pending reads the log first,
+	// which appends a read event ahead of the opening; this Read appends one
+	// more, so the log holds three rows and not the one this firing appended.
 	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("the log holds %d rows after the refused reject, want the opening and the read event", len(rows))
+	if len(rows) != 3 {
+		t.Fatalf("the log holds %d rows after the refused reject, want 3", len(rows))
 	}
 }
 
@@ -254,8 +257,8 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 	if payload.Verdict != string(gate.VerdictReject) || payload.AutoRejectedBy != gate.AutoRejectedByContractDiff {
 		t.Fatalf("the close event reads %+v", payload)
 	}
-	if payload.Feedback == "" || payload.ReturnsTo != gate.ReturnsTo {
-		t.Errorf("a mechanical reject carries feedback %q and returns to %q", payload.Feedback, payload.ReturnsTo)
+	if payload.Reason == "" || payload.ReturnsTo != gate.ReturnsToImplementation {
+		t.Errorf("a mechanical reject carries a reason %q and returns to %q", payload.Reason, payload.ReturnsTo)
 	}
 	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
 		t.Fatalf("the chain does not verify after a mechanical reject: %v", err)
@@ -275,7 +278,7 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 	}
 	// And the production deploy row does not reject at all: by then the merge has
 	// happened and the number is assigned.
-	deploy, err := g.Fire(ctx, deployFiring())
+	deploy, err := g.Fire(ctx, deployFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("firing the deploy row: %v", err)
 	}
@@ -311,7 +314,7 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 		t.Fatalf("Fire: %v", err)
 	}
 	if opened.HumanDecides {
-		t.Errorf("a held-out firing put a human at the row: %s", opened.WhyHuman)
+		t.Errorf("a held-out firing put a human at the row: %v", opened.Marks)
 	}
 	if !opened.HeldOut || opened.WhyHeldOut != score.SelectedHere {
 		t.Errorf("the firing reads held out %v because %q", opened.HeldOut, opened.WhyHeldOut)

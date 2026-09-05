@@ -5,8 +5,8 @@
 // # The code
 //
 // schema.go is [Table], [IDPrefix], [FormatVersion] and [DDL]. writer.go is
-// [Area], [Inside], [Writer] and [NewWriter] with [Writer.Declare] and
-// [SetItemSizeTarget], and the reads [Get], [ByName] and [Chain]. hazard.go is
+// [Area], [Inside], [Writer] and [NewWriter] with [Writer.Declare], [Insert]
+// and [SetItemSizeTarget], and the reads [Get], [ByName] and [Chain]. hazard.go is
 // [Grade], [Grades], [Hazard] and [SeverityInForce]. The tests are db_test.go,
 // every one of them against the database.
 //
@@ -31,7 +31,8 @@
 // The item-size target's unit is the count of its intent's requirements an item
 // answers — the field decomposition writes per item.
 //
-// Who may write what: [Writer.Declare] is an owner declaring an area at Factory,
+// Who may write what: [Writer.Declare] and [Insert] are an owner declaring an
+// area at Factory, [Insert] inside package policy's own transaction,
 // and [SetItemSizeTarget] is an owner authoring the target on one, called by
 // package policy inside the transaction that appends the policy version — the
 // arrangement package criterion already has with the artifact store, and for the

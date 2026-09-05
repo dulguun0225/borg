@@ -80,10 +80,10 @@ func TestOneIntentBecomesTwoItemsAndTheContractArrivesWithTheRelease(t *testing.
 	if err != nil {
 		t.Fatalf("FormOf: %v", err)
 	}
-	if len(form.Elements) != 2 {
+	if len(form.Elements) != 3 {
 		t.Fatalf("the form has %d elements: %+v", len(form.Elements), form.Elements)
 	}
-	status, _ := form.Element("Status")
+	status, _ := form.Element("Health.Status")
 	if !status.Populated {
 		t.Error("Status is not always populated, and the source tags it populated")
 	}
@@ -111,12 +111,12 @@ func TestOneIntentBecomesTwoItemsAndTheContractArrivesWithTheRelease(t *testing.
 			t.Errorf("a predicate names producer %q, want the demo service's id", p.ProducerServiceID)
 		}
 	}
-	for _, want := range []string{"Status/read", "Status/populated", "Status/domain", "Detail/read"} {
+	for _, want := range []string{"Health.Status/read", "Health.Status/populated", "Health.Status/domain", "Health.Detail/read"} {
 		if !kinds[want] {
 			t.Errorf("%s was not derived; the consumer contract is %v", want, kinds)
 		}
 	}
-	if kinds["Detail/populated"] {
+	if kinds["Health.Detail/populated"] {
 		t.Error("Detail was declared populated, and the mirror tags it with nothing")
 	}
 }

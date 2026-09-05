@@ -17,6 +17,7 @@ import (
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/project"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -65,26 +66,61 @@ func newOwner(t *testing.T) (context.Context, *pgxpool.Pool) {
 // same process acquires it as, so a fixture's own write and a subcommand's
 // withPool re-acquiring afterward are the same instance reacquiring rather than
 // two instances disagreeing over who holds it.
+// testToken is the lease this test holds, acquired once and answered again on
+// every call. Acquiring twice takes the lease a second time and fences the first
+// token out, so a test that took one per write would refuse its own second
+// write — which is what the one-process rule does to two processes and not what
+// any of these tests is about.
 func testToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool) lease.Token {
 	t.Helper()
+	if held, taken := tokens[pool]; taken {
+		return held
+	}
 	token, err := lease.Acquire(ctx, pool, defaultInstance(), time.Minute)
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
+	if tokens == nil {
+		tokens = map[*pgxpool.Pool]lease.Token{}
+	}
+	tokens[pool] = token
+	t.Cleanup(func() { delete(tokens, pool) })
 	return token
 }
+
+// tokens is the lease each test's pool holds, so [testToken] answers the same
+// one twice. It is keyed by pool because each test opens one of its own, and the
+// entry is dropped when that test ends.
+var tokens map[*pgxpool.Pool]lease.Token
 
 // install is what the run's first take does, which everything an owner authors on
 // depends on.
 func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.Environment {
 	t.Helper()
 	installed, err := policy.NewFactory(pool, testToken(t, ctx, pool)).Install(ctx,
-		owner("owner"), defaultProjectName,
+		owner(t, ctx, pool, testToken(t, ctx, pool), "owner"), defaultProjectName,
 		[]string{t.TempDir()}, secretref.MustNew("deploy.local"), theCeiling)
 	if err != nil {
 		t.Fatalf("installing: %v", err)
 	}
 	return installed.Production
+}
+
+// policyVersions is every policy version, read the way a reader of the log
+// reads one: through [policy.Reader], which carries the fencing token and
+// appends a read event naming the human it is read as. The score version it is
+// composed with is the zero value — a read of the versions resolves no
+// parameter, so the version the reader holds decides nothing here.
+func policyVersions(t *testing.T, ctx context.Context, pool *pgxpool.Pool) ([]policy.Version, error) {
+	t.Helper()
+	// The lease is taken again rather than reused: each subcommand takes one of
+	// its own for the life of the command, so the token this test held before
+	// they ran is fenced out by the last of them.
+	token, err := lease.Acquire(ctx, pool, defaultInstance(), time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return policy.NewReader(pool, token, score.Version{}).Versions(ctx, owner(t, ctx, pool, token, "owner"))
 }
 
 func decomposeService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) service.Service {

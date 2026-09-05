@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/exposure"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -68,6 +69,17 @@ type Draft struct {
 	// ShippedBundleIdentity names the release of the product that made this
 	// build, present on a search build and empty otherwise.
 	ShippedBundleIdentity string
+	// Exposure is the exposure list the build runner derived from the diff
+	// between the base and this build's commit, and nil where no extractor ran
+	// for the toolchain. Nil and an empty list are different readings: nil is a
+	// build nobody read, which resolves the score's exposure factor, and an
+	// empty list is a diff that reached nothing new, which lowers the number.
+	Exposure *exposure.Evidence
+	// DeclaresSchemaChange is whether the checkout this build was made from
+	// ships a schema change. It is the build's own reading, and it is what the
+	// store rule asks before it requires the candidate environment to have
+	// applied the change twice.
+	DeclaresSchemaChange bool
 	// Results is what the build's own process decided: every criterion whose
 	// encoding declares the build, decided as the build runner performed it.
 	// [Writer.Create] records these as run 0 through [criterion.InsertResults],
@@ -89,6 +101,7 @@ type Build struct {
 	NoticeFile                string
 	DesignSystemConstraintID  string
 	ShippedBundleIdentity     string
+	DeclaresSchemaChange      bool
 }
 
 // Writer is the one writer of build records.
@@ -105,8 +118,8 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 const insertBuild = `insert into ` + Table + `
 	(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash,
 	artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file,
-	design_system_constraint_id, shipped_bundle_identity)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+	design_system_constraint_id, shipped_bundle_identity, exposure, declares_schema_change)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`
 
 const insertResolvedEntry = `insert into ` + ResolvedTable + `
 	(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, ecosystem, source, package,
@@ -138,6 +151,15 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 	if err != nil {
 		return Build{}, fmt.Errorf("build: encoding the resolved set coverage: %w", err)
 	}
+	var reached *string
+	if draft.Exposure != nil {
+		encoded, err := json.Marshal(draft.Exposure)
+		if err != nil {
+			return Build{}, fmt.Errorf("build: encoding the exposure list: %w", err)
+		}
+		text := string(encoded)
+		reached = &text
+	}
 
 	b := Build{
 		ID:                        record.NewID(IDPrefix),
@@ -152,6 +174,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 		NoticeFile:                draft.NoticeFile,
 		DesignSystemConstraintID:  draft.DesignSystemConstraintID,
 		ShippedBundleIdentity:     draft.ShippedBundleIdentity,
+		DeclaresSchemaChange:      draft.DeclaresSchemaChange,
 	}
 
 	tx, err := w.pool.Begin(ctx)
@@ -167,6 +190,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 		b.ID, FormatVersion, string(b.Actor.Kind), b.Actor.Key, string(b.Actor.Basis), b.At,
 		b.ItemID, b.ServiceID, b.CommitHash, b.ArtifactDigest, string(coverage),
 		b.ResolvedSetCouldNotDerive, b.NoticeFile, b.DesignSystemConstraintID, b.ShippedBundleIdentity,
+		reached, b.DeclaresSchemaChange,
 	); err != nil {
 		return Build{}, fmt.Errorf("build: creating %s: %w", b.ID, err)
 	}
@@ -197,7 +221,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 
 const selectBuild = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash,
 	artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file,
-	design_system_constraint_id, shipped_bundle_identity
+	design_system_constraint_id, shipped_bundle_identity, declares_schema_change
 	from ` + Table
 
 // Get is one build by id. It takes the pool and not a [Writer], because
@@ -238,7 +262,7 @@ func scan(row scanner) (Build, error) {
 	var kind, basis, coverage string
 	if err := row.Scan(&b.ID, &kind, &b.Actor.Key, &basis, &b.At, &b.ItemID, &b.ServiceID, &b.CommitHash,
 		&b.ArtifactDigest, &coverage, &b.ResolvedSetCouldNotDerive, &b.NoticeFile,
-		&b.DesignSystemConstraintID, &b.ShippedBundleIdentity); err != nil {
+		&b.DesignSystemConstraintID, &b.ShippedBundleIdentity, &b.DeclaresSchemaChange); err != nil {
 		return Build{}, err
 	}
 	b.Actor.Kind = record.Kind(kind)
@@ -268,4 +292,64 @@ func Newest(ctx context.Context, pool *pgxpool.Pool, itemID string) (Build, bool
 		return Build{}, false, fmt.Errorf("build: reading the newest build of %s: %w", itemID, err)
 	}
 	return b, true, nil
+}
+
+// Resolved is what one build resolved, in the order the entries were written.
+// It is a read of the table this package owns and takes the pool for the reason
+// [Get] does.
+//
+// The merge queue is what asks: at a re-verification the re-resolved set's
+// digests are compared to the approved build's, and a difference rejects the
+// candidate there. A version is not an identity for bytes, so the comparison is
+// of the digests and not of the versions, and an entry whose resolver produced
+// no digest carries the field empty — which the comparison reads as it stands,
+// this package deciding nothing about it.
+func Resolved(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]ResolvedEntry, error) {
+	rows, err := pool.Query(ctx, `select ecosystem, source, package, version, digest, licence, required_by
+		from `+ResolvedTable+` where build_id = $1 order by at, id`, buildID)
+	if err != nil {
+		return nil, fmt.Errorf("build: reading what %s resolved: %w", buildID, err)
+	}
+	defer rows.Close()
+
+	var read []ResolvedEntry
+	for rows.Next() {
+		var e ResolvedEntry
+		if err := rows.Scan(&e.Ecosystem, &e.Source, &e.Package, &e.Version, &e.Digest,
+			&e.Licence, &e.RequiredBy); err != nil {
+			return nil, fmt.Errorf("build: reading an entry of what %s resolved: %w", buildID, err)
+		}
+		read = append(read, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("build: reading what %s resolved: %w", buildID, err)
+	}
+	return read, nil
+}
+
+// Exposure is the exposure list one build's runner derived, and false where the
+// record holds none — a build no extractor ran for, whose factor is resolved
+// rather than read as nothing. An empty list is a reading and answers true: the
+// diff reached nothing new.
+//
+// It is a read of its own and not a field of [Build], because it is the one
+// column here a reader either wants whole or not at all: what a human at
+// Implementation argues with is the list beside the diff, and every other reader
+// of a build record wants none of it.
+func Exposure(ctx context.Context, pool *pgxpool.Pool, buildID string) (exposure.Evidence, bool, error) {
+	var stored *string
+	err := pool.QueryRow(ctx, `select exposure from `+Table+` where id = $1`, buildID).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return exposure.Evidence{}, false, fmt.Errorf("%w: %s", ErrNotFound, buildID)
+	} else if err != nil {
+		return exposure.Evidence{}, false, fmt.Errorf("build: reading what %s reached: %w", buildID, err)
+	}
+	if stored == nil {
+		return exposure.Evidence{}, false, nil
+	}
+	var read exposure.Evidence
+	if err := json.Unmarshal([]byte(*stored), &read); err != nil {
+		return exposure.Evidence{}, false, fmt.Errorf("build: decoding what %s reached: %w", buildID, err)
+	}
+	return read, true, nil
 }

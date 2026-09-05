@@ -1,23 +1,27 @@
-// The derivation and the deciding, which are the two parts of this package that
-// reach no database: one reads a checkout and the other is arithmetic over a form
-// and over observed documents. The record is tested in db_test.go.
+// The extractor: what one Go checkout declares, which producer each predicate is
+// over, and what it records about itself. It reaches no database. Deciding one
+// predicate is decide_test.go and the records are db_test.go.
 package consumercontract_test
 
 import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/consumercontract"
-	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 )
 
 // allowed is the list of allowed predicate kinds in force in these tests: the
-// five kinds the factory owns, which is the unauthored value and what an owner
+// nine kinds the factory owns, which is the unauthored value and what an owner
 // extends.
 var allowed = gatepolicy.AllowedPredicateKindNames()
+
+// extractor is this factory's Go extractor at some factory version, which is what
+// every record it writes names.
+var extractor = consumercontract.GoExtractor("test")
 
 func checkout(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -30,202 +34,240 @@ func checkout(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+// mirror is the consumer's mirror of the producer's health interface, written the
+// way the producer's own contract file is written.
 const mirror = `package main
 
-// Health is what this service reads of the producer's health interface.
+// Health is what the producer returns.
 type Health struct {
 	Status         string ` + "`borg:\"populated,domain=ok|error\"`" + `
 	SendTimeMillis int64  ` + "`borg:\"unit=millis\"`" + `
 	Detail         string
 	Unread         string ` + "`borg:\"populated\"`" + `
 }
+
+// Ask is what the consumer sends.
+type Ask struct {
+	Deep   bool
+	Reason string ` + "`borg:\"domain=slow|error\"`" + `
+}
+
+// Fetch is the operation.
+func Fetch(ask Ask) Health { return Health{} }
 `
 
-const reads = `package main
+const uses = `package main
 
 import "fmt"
 
-func report(h Health) {
+func report() {
+	ask := Ask{Reason: "slow"}
+	h := Fetch(ask)
 	fmt.Println(h.Status, h.SendTimeMillis, h.Detail)
 }
 
-func main() { report(Health{}) }
+func main() { report() }
 `
 
-func TestDeriveDeclaresTheFieldsTheCodeReads(t *testing.T) {
-	dir := checkout(t, map[string]string{
-		consumercontract.FileName("producer", "health"): mirror,
-		"main.go": reads,
-	})
-	drafts, err := consumercontract.Derive(dir, allowed)
+// derived is what one checkout declares, keyed element/kind, with the failure
+// reported where the extraction could not run.
+func derived(t *testing.T, dir string) (consumercontract.Derived, map[string]string) {
+	t.Helper()
+	d, err := consumercontract.Derive(dir, allowed, extractor)
 	if err != nil {
 		t.Fatalf("deriving: %v", err)
 	}
 	got := map[string]string{}
-	for _, d := range drafts {
-		if d.ProducerService != "producer" || d.Interface != "health" {
-			t.Fatalf("a draft names %s.%s, want producer.health", d.ProducerService, d.Interface)
+	for _, draft := range d.Drafts {
+		got[draft.Element+"/"+string(draft.Kind)] = draft.Argument
+	}
+	return d, got
+}
+
+func TestDeriveDeclaresBothSidesOfWhatTheCodeDoes(t *testing.T) {
+	dir := checkout(t, map[string]string{
+		"consumes.txt":                      "health producer health\n",
+		consumercontract.FileName("health"): mirror,
+		"main.go":                           uses,
+	})
+	d, got := derived(t, dir)
+	if d.CouldNotDerive() {
+		t.Fatalf("the derivation could not run: %s", d.Describe())
+	}
+	for _, draft := range d.Drafts {
+		if draft.ProducerService != "producer" || draft.Interface != "health" || draft.Address != "health" {
+			t.Fatalf("a draft names %s.%s through %q, want producer.health through the entry",
+				draft.ProducerService, draft.Interface, draft.Address)
 		}
-		got[d.Element+"/"+string(d.Kind)] = d.Argument
 	}
 	for _, want := range []string{
-		"Status/read", "Status/populated", "Status/domain",
-		"SendTimeMillis/read", "SendTimeMillis/unit",
-		"Detail/read",
+		// What it receives.
+		"Health.Status/read", "Health.Status/populated", "Health.Status/domain",
+		"Health.SendTimeMillis/read", "Health.SendTimeMillis/unit", "Health.Detail/read",
+		// What it sends.
+		"Fetch/called", "Ask.Reason/sent", "Ask.Reason/sent_domain", "Ask.Deep/sent",
 	} {
 		if _, found := got[want]; !found {
 			t.Fatalf("%s was not derived; derived %v", want, got)
 		}
 	}
-	if got["Status/domain"] != "ok|error" {
-		t.Fatalf("the domain of Status is %q", got["Status/domain"])
+	if got["Health.Status/domain"] != "ok|error" {
+		t.Fatalf("the domain of Health.Status is %q", got["Health.Status/domain"])
 	}
-	if got["SendTimeMillis/unit"] != "millis" {
-		t.Fatalf("the unit of SendTimeMillis is %q", got["SendTimeMillis/unit"])
+	if got["Health.SendTimeMillis/unit"] != "millis" {
+		t.Fatalf("the unit of Health.SendTimeMillis is %q", got["Health.SendTimeMillis/unit"])
+	}
+	if got["Ask.Reason/sent"] != consumercontract.Sent {
+		t.Errorf("Ask.Reason is %q, and the code writes it", got["Ask.Reason/sent"])
+	}
+	// An element the consumer does not write is one it leaves out, which is what
+	// a producer breaks by making the element required.
+	if got["Ask.Deep/sent"] != consumercontract.LeftOut {
+		t.Errorf("Ask.Deep is %q, and nothing in the consumer writes it", got["Ask.Deep/sent"])
 	}
 	// The field nothing reads declares nothing, however many tags it carries.
 	// That is what makes a consumer which stops reading an element stop declaring
 	// it with nobody remembering to.
 	for key := range got {
-		if len(key) > 6 && key[:6] == "Unread" {
+		if strings.HasPrefix(key, "Health.Unread") {
 			t.Fatalf("%s was derived, and nothing in the consumer reads that field", key)
 		}
 	}
 }
 
-func TestDeriveIsSilentAboutAReadItCannotSee(t *testing.T) {
-	// The read is through a map and not a selector, which is one of the two blind
-	// cases: an unprotected assumption, and what a safeguard's predicate is for.
+func TestAStoreConsumerDeclaresItsWritesAsWellAsItsReads(t *testing.T) {
 	dir := checkout(t, map[string]string{
-		consumercontract.FileName("producer", "health"): mirror,
+		"consumes.txt":                      "ledger self ledger store\n",
+		consumercontract.FileName("ledger"): "package main\n\ntype Ledger struct {\n\tID string `borg:\"populated\"`\n\tAmount int64 `borg:\"range=0..100\"`\n}\n",
 		"main.go": `package main
+
+import "fmt"
+
+func main() {
+	row := Ledger{Amount: 3}
+	row.ID = "a"
+	fmt.Println(row.ID)
+}
+`,
+	})
+	d, got := derived(t, dir)
+	if d.CouldNotDerive() {
+		t.Fatalf("the derivation could not run: %s", d.Describe())
+	}
+	for _, want := range []string{"Ledger.ID/sent", "Ledger.Amount/sent", "Ledger.Amount/sent_range", "Ledger.ID/read"} {
+		if _, found := got[want]; !found {
+			t.Fatalf("%s was not derived; a store's consumer writes as well as reads. derived %v", want, got)
+		}
+	}
+	if got["Ledger.Amount/sent_range"] != "0..100" {
+		t.Errorf("the range written is %q", got["Ledger.Amount/sent_range"])
+	}
+}
+
+func TestWhichProducerIsTheEntryPairedWithTheCallSite(t *testing.T) {
+	for name, of := range map[string]struct {
+		files      map[string]string
+		couldNot   bool
+		predicates bool
+	}{
+		"an address in no entry": {files: map[string]string{
+			"consumes.txt":                      "other producer health\n",
+			consumercontract.FileName("health"): mirror, "main.go": uses,
+		}, couldNot: true},
+		"no configuration file at all": {files: map[string]string{
+			consumercontract.FileName("health"): mirror, "main.go": uses,
+		}, couldNot: true},
+		"an entry naming no service": {files: map[string]string{
+			"consumes.txt":                      "health\n",
+			consumercontract.FileName("health"): mirror, "main.go": uses,
+		}, couldNot: true},
+		"an address outside the factory": {files: map[string]string{
+			"consumes.txt":                      "health outside\n",
+			consumercontract.FileName("health"): mirror, "main.go": uses,
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, got := derived(t, checkout(t, of.files))
+			if d.CouldNotDerive() != of.couldNot {
+				t.Fatalf("%s derived %s, want could not derive = %v", name, d.Describe(), of.couldNot)
+			}
+			if d.CouldNotDerive() {
+				if d.Cause != consumercontract.CauseExtractionFailed || d.Reported == "" {
+					t.Fatalf("the cause is %q reporting %q, and the reader at the gate has to know which",
+						d.Cause, d.Reported)
+				}
+				return
+			}
+			if len(got) != 0 && !of.predicates {
+				t.Fatalf("%s derived %v, and a call through an address outside the factory is covered by nothing",
+					name, got)
+			}
+		})
+	}
+}
+
+func TestAServiceThatConsumesNothingDerivesCompletely(t *testing.T) {
+	d, got := derived(t, checkout(t, map[string]string{"main.go": "package main\n\nfunc main() {}\n"}))
+	if d.CouldNotDerive() || d.Partial() || len(got) != 0 {
+		t.Fatalf("a service with no mirror derived %s with %v — that is an empty list and not a could not derive",
+			d.Describe(), got)
+	}
+}
+
+func TestAConstructTheExtractorCannotFollowMakesTheRecordPartial(t *testing.T) {
+	dir := checkout(t, map[string]string{
+		"consumes.txt":                      "health producer health\n",
+		consumercontract.FileName("health"): mirror,
+		"main.go": `package main
+
+import "reflect"
 
 func main() {
 	by := map[string]string{"Status": "ok"}
 	_ = by["Status"]
+	_ = reflect.TypeOf(by)
 }
 `,
 	})
-	drafts, err := consumercontract.Derive(dir, allowed)
-	if err != nil {
-		t.Fatalf("deriving: %v", err)
+	d, got := derived(t, dir)
+	if !d.Partial() {
+		t.Fatalf("the record is complete and the extractor met %d construct(s) it could not follow", len(d.Unfollowed))
 	}
-	if len(drafts) != 0 {
-		t.Fatalf("derived %v from a checkout whose only read is a map key", drafts)
+	if len(d.Unfollowed) != 2 {
+		t.Fatalf("the unfollowed constructs are %v, want the reflection and the string-keyed access", d.Unfollowed)
+	}
+	// The read through a map is one of the two blind cases, and what it costs is
+	// an unprotected assumption — which is what the record now says out loud.
+	for key := range got {
+		if strings.HasPrefix(key, "Health.Status/") {
+			t.Fatalf("%s was derived, and the only read of it is a map key", key)
+		}
 	}
 }
 
-func TestDeriveRefusesAKindOutsideTheCatalog(t *testing.T) {
+func TestAMirrorTheExtractorCannotReadIsCouldNotDerive(t *testing.T) {
 	dir := checkout(t, map[string]string{
-		consumercontract.FileName("producer", "health"): mirror,
-		"main.go": reads,
+		"consumes.txt":                      "health producer health\n",
+		consumercontract.FileName("health"): "package main\n\ntype A struct{",
+	})
+	d, _ := derived(t, dir)
+	if d.Cause != consumercontract.CauseExtractionFailed || d.Reported == "" {
+		t.Fatalf("a mirror that does not parse derived %s, want could not derive naming what the extractor reported",
+			d.Describe())
+	}
+}
+
+func TestDeriveRefusesAKindOutsideTheListInForce(t *testing.T) {
+	dir := checkout(t, map[string]string{
+		"consumes.txt":                      "health producer health\n",
+		consumercontract.FileName("health"): mirror,
+		"main.go":                           uses,
 	})
 	// A list an owner narrowed to the read predicate alone is not a state gate
 	// policy can reach — a safeguard may only extend it — but it is what this
 	// check is about: a consumer picks from the list and cannot invent a kind.
-	_, err := consumercontract.Derive(dir, []string{string(gatepolicy.PredicateRead)})
+	_, err := consumercontract.Derive(dir, []string{string(gatepolicy.PredicateRead)}, extractor)
 	if !errors.Is(err, consumercontract.ErrNotAnAllowedPredicateKind) {
 		t.Fatalf("deriving against a list of one kind returned %v, want ErrNotAnAllowedPredicateKind", err)
-	}
-}
-
-func TestDeriveRefusesAMirrorItCannotRead(t *testing.T) {
-	dir := checkout(t, map[string]string{
-		consumercontract.FileName("producer", "health"): "package main\n\ntype A struct{}\ntype B struct{}\n",
-	})
-	if _, err := consumercontract.Derive(dir, allowed); !errors.Is(err, consumercontract.ErrDerivation) {
-		t.Fatalf("a mirror with two exported struct types returned %v, want ErrDerivation", err)
-	}
-}
-
-// Deciding one predicate.
-
-func predicate(element string, kind gatepolicy.PredicateKind, argument string) consumercontract.Predicate {
-	return consumercontract.Predicate{
-		ItemID: "it_1", ServiceID: "svc_1", ArtifactID: "art_1",
-		ProducerService: "producer", ProducerServiceID: "svc_2", Interface: "health",
-		Element: element, Kind: kind, Argument: argument,
-	}
-}
-
-var published = contract.Form{Name: "health", Kind: contract.KindInterface, Elements: []contract.Element{
-	{Name: "Status", Type: "string", Populated: true},
-	{Name: "SendTimeMillis", Type: "int64"},
-}}
-
-func TestAgainstFormDecidesThreeKindsAndLeavesTwo(t *testing.T) {
-	for name, of := range map[string]struct {
-		p       consumercontract.Predicate
-		decided bool
-		held    bool
-	}{
-		"a read of an element the form has":    {predicate("Status", gatepolicy.PredicateRead, ""), true, true},
-		"a read of an element it does not":     {predicate("Gone", gatepolicy.PredicateRead, ""), true, false},
-		"populated where the form says so":     {predicate("Status", gatepolicy.PredicatePopulated, ""), true, true},
-		"populated where the form says not":    {predicate("SendTimeMillis", gatepolicy.PredicatePopulated, ""), true, false},
-		"a unit the name carries":              {predicate("SendTimeMillis", gatepolicy.PredicateUnit, "millis"), true, true},
-		"a unit the name does not":             {predicate("SendTimeMillis", gatepolicy.PredicateUnit, "seconds"), true, false},
-		"a domain, which a form cannot answer": {predicate("Status", gatepolicy.PredicateDomain, "ok|error"), false, false},
-		"a range, which a form cannot answer":  {predicate("SendTimeMillis", gatepolicy.PredicateRange, "0..10"), false, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			result := of.p.AgainstForm(published)
-			if result.Decided != of.decided || result.Held != of.held {
-				t.Fatalf("%s decided %v held %v (%s), want decided %v held %v",
-					name, result.Decided, result.Held, result.Why, of.decided, of.held)
-			}
-			if of.decided && !of.held && result.Why == "" {
-				t.Fatal("a failure with no words is a rejection nobody can read")
-			}
-		})
-	}
-}
-
-func TestAgainstExchangeDecidesEveryKind(t *testing.T) {
-	good := []consumercontract.Document{
-		{"Status": "ok", "SendTimeMillis": float64(3)},
-		{"Status": "error", "SendTimeMillis": float64(7)},
-	}
-	for name, of := range map[string]struct {
-		p         consumercontract.Predicate
-		documents []consumercontract.Document
-		held      bool
-	}{
-		"a read that is carried":      {predicate("Status", gatepolicy.PredicateRead, ""), good, true},
-		"a read that is not":          {predicate("Gone", gatepolicy.PredicateRead, ""), good, false},
-		"populated in every exchange": {predicate("Status", gatepolicy.PredicatePopulated, ""), good, true},
-		"empty in one":                {predicate("Status", gatepolicy.PredicatePopulated, ""), []consumercontract.Document{{"Status": "ok"}, {"Status": ""}}, false},
-		"inside its domain":           {predicate("Status", gatepolicy.PredicateDomain, "ok|error"), good, true},
-		"outside its domain":          {predicate("Status", gatepolicy.PredicateDomain, "ok"), good, false},
-		"inside its range":            {predicate("SendTimeMillis", gatepolicy.PredicateRange, "0..10"), good, true},
-		"outside its range":           {predicate("SendTimeMillis", gatepolicy.PredicateRange, "0..5"), good, false},
-		"a unit the name carries":     {predicate("SendTimeMillis", gatepolicy.PredicateUnit, "millis"), good, true},
-		"no exchange at all":          {predicate("Status", gatepolicy.PredicateRead, ""), nil, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			result := of.p.AgainstExchange(of.documents)
-			if !result.Decided {
-				t.Fatal("an observed exchange decides every kind, and this one decided nothing")
-			}
-			if result.Held != of.held {
-				t.Fatalf("%s held %v (%s), want %v", name, result.Held, result.Why, of.held)
-			}
-		})
-	}
-}
-
-func TestAPredicateRefusesAnArgumentOfTheWrongShape(t *testing.T) {
-	for name, p := range map[string]consumercontract.Predicate{
-		"a read carrying one":     predicate("Status", gatepolicy.PredicateRead, "millis"),
-		"a unit carrying none":    predicate("Status", gatepolicy.PredicateUnit, ""),
-		"a range that is one end": predicate("Status", gatepolicy.PredicateRange, "3"),
-		"a range the wrong way":   predicate("Status", gatepolicy.PredicateRange, "9..1"),
-		"a domain of nothing":     predicate("Status", gatepolicy.PredicateDomain, "||"),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := p.Validate(); err == nil {
-				t.Fatalf("%s validated, and nothing could decide it", name)
-			}
-		})
 	}
 }

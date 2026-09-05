@@ -18,220 +18,327 @@ import (
 // The derivation. A consumer's assumptions are read out of its build and never
 // entered by hand, and how much of a consumer's reading is visible is a property
 // of that interface's toolchain rather than of the factory — so this file is Go's
-// derivation, and a second toolchain replaces it rather than extending it.
+// extractor, and a second toolchain ships a second one rather than extending this.
 //
 // The convention is one file name at the root of the repository:
 //
-//	consume.<producer service>.<interface>.go
+//	consume.<address>.go
 //
-// It holds exactly one exported struct type — the mirror of the interface the
-// consumer reads — whose exported fields are the elements it may read. What is
-// derived is the fields that the consumer's own source actually selects: a field in
-// the mirror that nothing reads is not declared. That is what makes a consumer
-// which stops reading an element stop declaring it, with nobody remembering to,
-// and it is the whole mechanism the deprecation list rests on.
+// where <address> is an entry of the configuration file address.go reads. The
+// mirror is written the way the producer's own contract file is written — the same
+// messages, fields, operations and tags — so its form is derived through
+// [contract.DeriveFile] and there is one convention rather than two.
 //
-// A `borg` struct tag on a mirror field says what else is asserted about it:
-// `populated`, `unit=millis`, `domain=ok|error`, `range=0..100`. A field that is
-// read declares the read predicate whether or not it has a tag, and a field that
-// is not read declares nothing however many tags it carries.
+// What is derived is what the consumer's own source does with the mirror:
 //
-// Both of the design's blind cases are real here and neither is silent. A read this
-// misses is one made through reflection, through a map, or through a name the parse
-// cannot see as a selector — an unprotected assumption, which is what a safeguard's
-// predicate covers. A read it invents is a field name the mirror shares with some
-// other type in the consumer's own code, since the resolution is syntactic and
-// nothing here type-checks — which is what withdrawing a safeguard, or the
-// producer's blocked removal item asking the consumer to confirm, is for.
+//   - a field of a message the interface returns, or of a store, that the source
+//     reads declares that it is read, and what the mirror's tags say about it:
+//     that it arrives populated, that its name carries a unit, that its values
+//     stay inside a domain or a range;
+//   - a field of a message the interface accepts that the source writes declares
+//     that it is sent, and the domain or range of what it sends; one the source
+//     does not write declares that it is left out, which is what a producer
+//     breaks by making it required;
+//   - an operation the source calls declares that it is called at all.
+//
+// A field the mirror holds and the source never touches declares nothing. That is
+// what makes a consumer which stops reading an element stop declaring it, with
+// nobody remembering to, and it is the whole mechanism the deprecation list rests
+// on.
+//
+// Both of the design's blind cases are real here and neither is silent. A read
+// this misses is one made through reflection, through a map, or through a name the
+// parse cannot see as a selector; the two it can see itself it records as
+// constructs it could not follow, which makes the record partial. A read it invents
+// is a field name the mirror shares with some other type in the consumer's own
+// code, since the resolution is syntactic and nothing here type-checks — which is
+// what withdrawing a safeguard, or the producer's blocked removal item asking the
+// consumer to confirm, is for.
 
 // consumePrefix is the file-name prefix of a mirror.
 const consumePrefix = "consume."
 
-// The tag words a mirror field may carry beside contract's own. Each names the
-// predicate kind it declares, and the three that take an argument carry it after
-// an equals sign.
+// tagUnit is the one tag word this extractor reads that a form does not carry:
+// the unit belongs to an element's name, so a form has no field for one and a
+// consumer asserting a unit says which it expects.
+const tagUnit = "unit"
+
+// Toolchain and ExtractorName are what this extractor is, and ExtractorVersion is
+// which one it is. The version moves when what this file derives changes, because
+// an upgrade that ships a changed extractor derives again for every release in
+// force on the toolchain and that is the fact it compares.
 const (
-	tagUnit   = "unit"
-	tagDomain = "domain"
-	tagRange  = "range"
+	Toolchain        = "go"
+	ExtractorName    = "go/ast"
+	ExtractorVersion = "1"
 )
 
-// ErrDerivation is returned where a file follows the naming convention and is not
-// something a consumer contract can be derived from: it does not parse, or it
-// holds no exported struct type or more than one.
-//
-// It is an error and not an empty consumer contract, for the reason contract's own
-// derivation refuses the same shape: a build that names a mirror file and declares
-// nothing from it is a build whose author meant to declare something, and reading
-// it as no consumer contract would silently drop the protection the consumer was
-// owed.
-var ErrDerivation = errors.New("consumercontract: a mirror file the derivation cannot read")
-
-// ErrNotAnAllowedPredicateKind is returned for a tag word naming a kind of
-// assertion that is not in the list of allowed predicate kinds in force. A
-// consumer picks from the list and cannot invent a kind of assertion at
-// consumer contract time, and this is that rule at the derivation.
-var ErrNotAnAllowedPredicateKind = errors.New("consumercontract: that kind of assertion is not in the list of allowed predicate kinds in force")
-
-// FileName is the file one consumer's mirror is derived from, which is what an
-// agent is told to write and what a test writes directly.
-func FileName(producerService, interfaceName string) string {
-	return consumePrefix + producerService + "." + interfaceName + ".go"
+// GoExtractor is this extractor as a record names one. The factory version is the
+// caller's: an extractor ships with the factory, so a derivation is a function of
+// the code and of the factory version.
+func GoExtractor(factoryVersion string) Extractor {
+	return Extractor{
+		Name: ExtractorName, Version: ExtractorVersion,
+		Toolchain: Toolchain, FactoryVersion: factoryVersion,
+	}
 }
 
-// Derive is every predicate the checkout at root declares, in the order of the
-// producer, the interface, the element, and the kind. allowed is the list of
-// allowed predicate kinds in force, which is what limits the kinds a
-// consumer contract may draw from; a tag naming a kind outside it is
-// [ErrNotAnAllowedPredicateKind], and one naming a kind inside it that this
-// factory has no decider for is [gatepolicy.ErrPredicateKindUnknown] — which is
-// where a list wide enough to admit an undecidable assertion is actually
-// refused.
+// ErrNotAnAllowedPredicateKind is returned for an assertion whose kind is not in
+// the list of allowed predicate kinds in force. A consumer picks from the list and
+// cannot invent a kind of assertion at consumer contract time, and this is that
+// rule at the derivation.
+var ErrNotAnAllowedPredicateKind = errors.New("consumercontract: that kind of assertion is not in the list of allowed predicate kinds in force")
+
+// FileName is the file one mirror is written in, which is what an agent is told to
+// write and what a test writes directly.
+func FileName(address string) string { return consumePrefix + address + ".go" }
+
+// Derive is what this extractor makes of the checkout at root: the predicates it
+// found, the constructs it could not follow, or the cause it could not derive at
+// all. allowed is the list of allowed predicate kinds in force, and an assertion
+// outside it is [ErrNotAnAllowedPredicateKind] — the one thing here that is the
+// build's fault rather than the extractor's.
 //
-// A checkout with no mirror file declares nothing, which is every service that
-// consumes nothing and is not an error. Only the root directory is read, which is
-// the same limit contract's derivation has and for the same reason.
-func Derive(root string, allowed []string) ([]Draft, error) {
+// A checkout with no mirror file declares nothing and derives completely, which is
+// every service that consumes nothing. A mirror whose address the configuration
+// file does not hold, a configuration file that is missing while a mirror names an
+// address, and a mirror this extractor cannot read are all could not derive: a
+// record, not an empty list, because "no consumer reads this" and "no consumer's
+// read was visible" call for opposite responses.
+//
+// Only the root directory is read, which is the same limit contract's derivation
+// has and for the same reason.
+func Derive(root string, allowed []string, extractor Extractor) (Derived, error) {
+	derived := Derived{Extractor: extractor}
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil, fmt.Errorf("consumercontract: reading the checkout at %s: %w", root, err)
+		return failed(extractor, fmt.Sprintf("reading the checkout at %s: %v", root, err)), nil
 	}
-	mirrors := map[string]mirror{}
-	var order []string
+	var mirrors []string
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+		if !entry.IsDir() {
+			if address, ok := named(entry.Name()); ok {
+				mirrors = append(mirrors, address)
+			}
 		}
-		producer, interfaceName, ok := named(entry.Name())
-		if !ok {
-			continue
-		}
-		fields, err := mirrorFields(filepath.Join(root, entry.Name()))
-		if err != nil {
-			return nil, err
-		}
-		key := producer + "." + interfaceName
-		mirrors[key] = mirror{producer: producer, interfaceName: interfaceName, fields: fields}
-		order = append(order, key)
 	}
+	slices.Sort(mirrors)
 	if len(mirrors) == 0 {
-		return nil, nil
+		return derived, nil
 	}
-	slices.Sort(order)
 
-	read, err := selectors(root)
+	addresses, found, err := Entries(root)
 	if err != nil {
-		return nil, err
+		return failed(extractor, err.Error()), nil
+	}
+	if !found {
+		return failed(extractor, fmt.Sprintf("%d mirror(s) name an address and the checkout holds no %s",
+			len(mirrors), ConfigurationFile)), nil
 	}
 
+	source, err := readSource(root)
+	if err != nil {
+		return failed(extractor, err.Error()), nil
+	}
+	derived.Unfollowed = source.unfollowed
+
+	for _, address := range mirrors {
+		entry, held := addresses[address]
+		if !held {
+			return failed(extractor, fmt.Sprintf("the address %s is in no entry of %s", address, ConfigurationFile)), nil
+		}
+		if entry.Outside {
+			// A call through an address outside the factory is covered by
+			// nothing, which is what the design says of such a call.
+			continue
+		}
+		kind := contract.KindInterface
+		if entry.Store {
+			kind = contract.KindStore
+		}
+		path := filepath.Join(root, FileName(address))
+		form, err := contract.DeriveFile(path, kind, entry.Interface)
+		if err != nil {
+			return failed(extractor, err.Error()), nil
+		}
+		units, err := mirrorUnits(path)
+		if err != nil {
+			return failed(extractor, err.Error()), nil
+		}
+		drafts, err := declared(entry, form, units, source, allowed)
+		if err != nil {
+			return Derived{}, err
+		}
+		derived.Drafts = append(derived.Drafts, drafts...)
+	}
+	return derived, nil
+}
+
+// failed is a could-not-derive record for an extraction that ran and failed, with
+// what the extractor reported. The other cause — no extractor for the toolchain —
+// is the caller's: this file is an extractor, so it cannot be the one that is
+// missing.
+func failed(extractor Extractor, reported string) Derived {
+	return Derived{Extractor: extractor, Cause: CauseExtractionFailed, Reported: reported}
+}
+
+// declared is what one mirror's form declares, given what the consumer's source
+// does with it.
+func declared(entry Entry, form contract.Form, units map[string]string, source consumerSource,
+	allowed []string) ([]Draft, error) {
 	var drafts []Draft
-	for _, key := range order {
-		m := mirrors[key]
-		for _, field := range m.fields {
-			if !read[field.name] {
+	add := func(element string, kind gatepolicy.PredicateKind, argument string) error {
+		if !slices.Contains(allowed, string(kind)) {
+			return fmt.Errorf("%w: %s", ErrNotAnAllowedPredicateKind, kind)
+		}
+		if _, err := gatepolicy.DecidablePredicate(string(kind)); err != nil {
+			return err
+		}
+		if err := checkArgument(kind, argument); err != nil {
+			return err
+		}
+		drafts = append(drafts, Draft{
+			Address: entry.Address, ProducerService: entry.ProducerService,
+			Interface: entry.Interface, Element: element, Kind: kind, Argument: argument,
+		})
+		return nil
+	}
+
+	for _, e := range form.Elements {
+		simple := simpleName(e.Name)
+		switch e.Kind {
+		case contract.ElementOperation:
+			if !source.calls[simple] {
 				continue
 			}
-			kinds, err := field.declares(allowed)
-			if err != nil {
-				return nil, fmt.Errorf("consumercontract: %s of %s: %w", field.name, key, err)
+			if err := add(e.Name, gatepolicy.PredicateCalled, ""); err != nil {
+				return nil, err
 			}
-			for _, k := range kinds {
-				drafts = append(drafts, Draft{
-					ProducerService: m.producer,
-					Interface:       m.interfaceName,
-					Element:         field.name,
-					Kind:            k.kind,
-					Argument:        k.argument,
-				})
+		case contract.ElementField:
+			written := source.writes[simple]
+			read := source.reads[simple]
+			switch {
+			case e.Position == contract.PositionInput:
+				// What the consumer sends. An element it does not write is one
+				// it leaves out, which is what a producer breaks by making the
+				// element required.
+				argument := LeftOut
+				if written {
+					argument = Sent
+				}
+				if err := add(e.Name, gatepolicy.PredicateSent, argument); err != nil {
+					return nil, err
+				}
+				if !written {
+					continue
+				}
+				if err := sendsInside(add, e); err != nil {
+					return nil, err
+				}
+			case e.Position == contract.PositionStore && written:
+				// A store's consumer writes as well as reads, a rollback making
+				// the restored build the store's writer again.
+				if err := add(e.Name, gatepolicy.PredicateSent, Sent); err != nil {
+					return nil, err
+				}
+				if err := sendsInside(add, e); err != nil {
+					return nil, err
+				}
+				if read {
+					if err := add(e.Name, gatepolicy.PredicateRead, ""); err != nil {
+						return nil, err
+					}
+					if err := receives(add, e, units); err != nil {
+						return nil, err
+					}
+				}
+			case read:
+				if err := add(e.Name, gatepolicy.PredicateRead, ""); err != nil {
+					return nil, err
+				}
+				if err := receives(add, e, units); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
 	return drafts, nil
 }
 
-type mirror struct {
-	producer      string
-	interfaceName string
-	fields        []mirrorField
-}
-
-type mirrorField struct {
-	name string
-	tags []string
-}
-
-type assertion struct {
-	kind     gatepolicy.PredicateKind
-	argument string
-}
-
-// declares is what one mirror field asserts: the read predicate, because the field
-// is read, and one more per tag word. The read comes first, so a reader of a
-// consumer contract sees the assumption the derivation found before the ones the
-// build stated.
-func (f mirrorField) declares(allowed []string) ([]assertion, error) {
-	asserted := []assertion{{kind: gatepolicy.PredicateRead}}
-	for _, word := range f.tags {
-		name, argument, _ := strings.Cut(word, "=")
-		switch name {
-		case contract.TagPopulated:
-			asserted = append(asserted, assertion{kind: gatepolicy.PredicatePopulated})
-		case tagUnit, tagDomain, tagRange:
-			asserted = append(asserted, assertion{kind: gatepolicy.PredicateKind(name), argument: argument})
-		default:
-			// A word this derivation does not know is not an error: the same field
-			// may carry tags for other tools, and contract's own derivation ignores
-			// what it does not read for the same reason.
-			continue
+// sendsInside is what the consumer asserts about the values it sends: the domain
+// and the range the mirror states.
+func sendsInside(add func(string, gatepolicy.PredicateKind, string) error, e contract.Element) error {
+	if len(e.Domain) > 0 {
+		if err := add(e.Name, gatepolicy.PredicateSentDomain, contract.DomainText(e.Domain)); err != nil {
+			return err
 		}
 	}
-	for _, a := range asserted {
-		if !slices.Contains(allowed, string(a.kind)) {
-			return nil, fmt.Errorf("%w: %s", ErrNotAnAllowedPredicateKind, a.kind)
-		}
-		if _, err := gatepolicy.DecidablePredicate(string(a.kind)); err != nil {
-			return nil, err
-		}
-		if err := checkArgument(a.kind, a.argument); err != nil {
-			return nil, err
-		}
+	if e.Range != nil {
+		return add(e.Name, gatepolicy.PredicateSentRange, e.Range.Text())
 	}
-	return asserted, nil
+	return nil
 }
 
-// named is the producer's service and the interface a file's own name says, and
-// false for a file that is not a mirror. A _test.go file is never one: what the
-// service reads is what its code reads, and a test is not part of it.
-func named(file string) (string, string, bool) {
+// receives is what the consumer asserts about what it reads: that the element
+// arrives populated, that its name carries a unit, and the domain and range its
+// values stay inside.
+func receives(add func(string, gatepolicy.PredicateKind, string) error, e contract.Element,
+	units map[string]string) error {
+	if e.Populated {
+		if err := add(e.Name, gatepolicy.PredicatePopulated, ""); err != nil {
+			return err
+		}
+	}
+	if unit := units[e.Name]; unit != "" {
+		if err := add(e.Name, gatepolicy.PredicateUnit, unit); err != nil {
+			return err
+		}
+	}
+	if len(e.Domain) > 0 {
+		if err := add(e.Name, gatepolicy.PredicateDomain, contract.DomainText(e.Domain)); err != nil {
+			return err
+		}
+	}
+	if e.Range != nil {
+		return add(e.Name, gatepolicy.PredicateRange, e.Range.Text())
+	}
+	return nil
+}
+
+// simpleName is an element's name without what it belongs to, which is what a
+// selector in the consumer's source spells: the form names a field Message.Field
+// and the source writes x.Field.
+func simpleName(name string) string {
+	if _, after, found := strings.Cut(name, "."); found {
+		return after
+	}
+	return name
+}
+
+// named is the address a file's own name says, and false for a file that is not a
+// mirror. A _test.go file is never one: what the service reads is what its code
+// reads, and a test is not part of it.
+func named(file string) (string, bool) {
 	if !strings.HasSuffix(file, ".go") || strings.HasSuffix(file, "_test.go") {
-		return "", "", false
+		return "", false
 	}
-	rest, found := strings.CutPrefix(strings.TrimSuffix(file, ".go"), consumePrefix)
-	if !found {
-		return "", "", false
+	address, found := strings.CutPrefix(strings.TrimSuffix(file, ".go"), consumePrefix)
+	if !found || address == "" || strings.Contains(address, ".") {
+		return "", false
 	}
-	producer, interfaceName, found := strings.Cut(rest, ".")
-	if !found || producer == "" || interfaceName == "" || strings.Contains(interfaceName, ".") {
-		return "", "", false
-	}
-	return producer, interfaceName, true
+	return address, true
 }
 
-// mirrorFields is the exported fields of the one exported struct type in a mirror
-// file, with the `borg` tag words of each.
-func mirrorFields(path string) ([]mirrorField, error) {
-	source, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("consumercontract: reading %s: %w", path, err)
-	}
+// mirrorUnits is the unit each of a mirror's fields asserts, by the element name
+// the form gives it. The unit is the one thing a form does not carry — it belongs
+// to an element's name — so it is read off the mirror's own tags.
+func mirrorUnits(path string) (map[string]string, error) {
 	fset := token.NewFileSet()
-	parsed, err := parser.ParseFile(fset, path, source, parser.SkipObjectResolution)
+	parsed, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s does not parse: %w", ErrDerivation, path, err)
+		return nil, fmt.Errorf("%s does not parse: %v", path, err)
 	}
-
-	var structType *ast.StructType
-	found := 0
+	units := map[string]string{}
 	for _, decl := range parsed.Decls {
 		generic, ok := decl.(*ast.GenDecl)
 		if !ok || generic.Tok != token.TYPE {
@@ -242,68 +349,27 @@ func mirrorFields(path string) ([]mirrorField, error) {
 			if !ok || !typeSpec.Name.IsExported() {
 				continue
 			}
-			if s, ok := typeSpec.Type.(*ast.StructType); ok {
-				structType = s
-				found++
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+			for _, field := range structType.Fields.List {
+				if field.Tag == nil {
+					continue
+				}
+				for _, word := range contract.TagWords(field.Tag.Value) {
+					name, argument, found := strings.Cut(word, "=")
+					if !found || name != tagUnit || argument == "" {
+						continue
+					}
+					for _, ident := range field.Names {
+						if ident.IsExported() {
+							units[typeSpec.Name.Name+"."+ident.Name] = argument
+						}
+					}
+				}
 			}
 		}
 	}
-	if found != 1 {
-		return nil, fmt.Errorf("%w: %s holds %d exported struct types and a mirror holds one",
-			ErrDerivation, path, found)
-	}
-
-	var fields []mirrorField
-	for _, field := range structType.Fields.List {
-		var words []string
-		if field.Tag != nil {
-			words = contract.TagWords(field.Tag.Value)
-		}
-		for _, ident := range field.Names {
-			if ident.IsExported() {
-				fields = append(fields, mirrorField{name: ident.Name, tags: words})
-			}
-		}
-	}
-	return fields, nil
-}
-
-// selectors is every field name the consumer's own source selects, anywhere at
-// the root of its repository. It is the whole of what makes a consumer contract
-// derived rather than stated: a name here is a name the consumer's code reads,
-// and a mirror field that never appears is a field the consumer does not read.
-//
-// It is syntactic. `x.Status` counts wherever it appears and whatever x is, so a
-// field name the mirror shares with another type reads as a read of the mirror's —
-// a read invented, which is one of the two blind cases the design names. A read
-// through a map key or through reflection appears as no selector at all, which is
-// the other.
-func selectors(root string) (map[string]bool, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil, fmt.Errorf("consumercontract: reading the checkout at %s: %w", root, err)
-	}
-	read := map[string]bool{}
-	fset := token.NewFileSet()
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		parsed, err := parser.ParseFile(fset, filepath.Join(root, name), nil, parser.SkipObjectResolution)
-		if err != nil {
-			// A file that does not parse is not something to read reads out of,
-			// and it is not this derivation's to refuse either: the build has to
-			// compile one step earlier, and a mirror that does not parse is
-			// refused above by name.
-			continue
-		}
-		ast.Inspect(parsed, func(node ast.Node) bool {
-			if selector, ok := node.(*ast.SelectorExpr); ok && selector.Sel != nil {
-				read[selector.Sel.Name] = true
-			}
-			return true
-		})
-	}
-	return read, nil
+	return units, nil
 }

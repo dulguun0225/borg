@@ -80,14 +80,21 @@ func inSchema(t *testing.T, base, schema string) string {
 }
 
 // raising is a complete Raising over ids of its own, so a test that needs one
-// or several does not repeat all five required fields.
+// or several does not repeat all the required fields.
 func raising() incident.Raising {
 	return incident.Raising{
-		EnvironmentID: record.NewID("env"),
-		ServiceID:     record.NewID("svc"),
-		ReleaseID:     record.NewID("rel"),
-		DeployID:      record.NewID("dep"),
-		Crossing:      "boundary crossed at 0.4",
+		EnvironmentID:   record.NewID("env"),
+		ServiceID:       record.NewID("svc"),
+		ReleaseID:       record.NewID("rel"),
+		DeployID:        record.NewID("dep"),
+		Reading:         incident.ReadingComparison,
+		Quantity:        "error_rate",
+		Size:            0.02,
+		Confidence:      0.99,
+		BoundaryVersion: "interval-paired-difference/v1",
+		PolicyVersion:   record.NewID("pol"),
+		ScoreVersion:    record.NewID("scr"),
+		FailureRecords:  `[{"failure_class":"timeout","count":3}]`,
 	}
 }
 
@@ -100,7 +107,11 @@ func TestRaiseWritesTheIncidentOpenWithNoObservations(t *testing.T) {
 		t.Fatalf("Raise: %v", err)
 	}
 	if raised.EnvironmentID != r.EnvironmentID || raised.ServiceID != r.ServiceID ||
-		raised.ReleaseID != r.ReleaseID || raised.DeployID != r.DeployID || raised.Crossing != r.Crossing {
+		raised.ReleaseID != r.ReleaseID || raised.DeployID != r.DeployID ||
+		raised.Reading != r.Reading || raised.Quantity != r.Quantity || raised.Size != r.Size ||
+		raised.Confidence != r.Confidence || raised.BoundaryVersion != r.BoundaryVersion ||
+		raised.PolicyVersion != r.PolicyVersion || raised.ScoreVersion != r.ScoreVersion ||
+		raised.FailureRecords != r.FailureRecords {
 		t.Errorf("Raise = %+v, which does not name what it was raised over", raised)
 	}
 	if !raised.Open() {
@@ -134,9 +145,11 @@ func TestAHumanActorIsRefused(t *testing.T) {
 	r := raising()
 	_, err := pool.Exec(ctx, `insert into `+incident.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
-		 crossing, intent_id, observations, status, resolved_at)
-		values ($1, $2, 'human', 'owner', 'claimed', $3, $4, $5, $6, $7, $8, '', 0, 'open', '')`,
-		record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID, r.Crossing)
+		 reading, quantity, size, confidence, run_length, boundary_version, policy_version, score_version, failure_records,
+		 intent_id, observations, status, resolved_at)
+		values ($1, $2, 'human', 'owner', 'claimed', $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15, '', 0, 'open', '')`,
+		record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
+		string(r.Reading), r.Quantity, r.Size, r.Confidence, r.BoundaryVersion, r.PolicyVersion, r.ScoreVersion, r.FailureRecords)
 	if err == nil {
 		t.Error("the store accepted an incident written by a human")
 	}
@@ -249,10 +262,12 @@ func TestDDLListsEveryStatus(t *testing.T) {
 		}
 		_, err := pool.Exec(ctx, `insert into `+incident.Table+`
 			(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
-			 crossing, intent_id, observations, status, resolved_at)
-			values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, '', 0, $9, $10)`,
+			 reading, quantity, size, confidence, run_length, boundary_version, policy_version, score_version, failure_records,
+			 intent_id, observations, status, resolved_at)
+			values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15, '', 0, $16, $17)`,
 			record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
-			r.Crossing, string(status), resolvedAt)
+			string(r.Reading), r.Quantity, r.Size, r.Confidence, r.BoundaryVersion, r.PolicyVersion, r.ScoreVersion, r.FailureRecords,
+			string(status), resolvedAt)
 		if err != nil {
 			t.Errorf("inserting status %q, one of incident.Statuses, was refused: %v", status, err)
 		}
@@ -261,9 +276,11 @@ func TestDDLListsEveryStatus(t *testing.T) {
 	r := raising()
 	_, err := pool.Exec(ctx, `insert into `+incident.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
-		 crossing, intent_id, observations, status, resolved_at)
-		values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, '', 0, 'flaky', '')`,
-		record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID, r.Crossing)
+		 reading, quantity, size, confidence, run_length, boundary_version, policy_version, score_version, failure_records,
+		 intent_id, observations, status, resolved_at)
+		values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15, '', 0, 'flaky', '')`,
+		record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
+		string(r.Reading), r.Quantity, r.Size, r.Confidence, r.BoundaryVersion, r.PolicyVersion, r.ScoreVersion, r.FailureRecords)
 	if err == nil {
 		t.Error("the store accepted a status outside incident.Statuses")
 	}
@@ -309,12 +326,60 @@ func TestARaisingMissingAFieldIsIncomplete(t *testing.T) {
 		{"service", func(r *incident.Raising) { r.ServiceID = "" }},
 		{"release", func(r *incident.Raising) { r.ReleaseID = "" }},
 		{"deploy", func(r *incident.Raising) { r.DeployID = "" }},
-		{"crossing", func(r *incident.Raising) { r.Crossing = "" }},
+		{"quantity", func(r *incident.Raising) { r.Quantity = "" }},
+		{"boundary version", func(r *incident.Raising) { r.BoundaryVersion = "" }},
+		{"policy version", func(r *incident.Raising) { r.PolicyVersion = "" }},
+		{"score version", func(r *incident.Raising) { r.ScoreVersion = "" }},
 	} {
 		r := raising()
 		c.mut(&r)
 		if _, err := w.Raise(ctx, healthMonitor, r); !errors.Is(err, incident.ErrIncomplete) {
 			t.Errorf("Raise missing %s = %v, want ErrIncomplete", c.what, err)
 		}
+	}
+}
+
+// TestAReadingOutsideReadingsIsRefused is the mirror of the CHECK in [DDL]:
+// [Reading] is a closed set of three, and a crossing naming a fourth is refused
+// by the writer before it reaches the store.
+func TestAReadingOutsideReadingsIsRefused(t *testing.T) {
+	ctx, _, w := newTable(t)
+
+	r := raising()
+	r.Reading = "flaky"
+	if _, err := w.Raise(ctx, healthMonitor, r); !errors.Is(err, incident.ErrReadingUnknown) {
+		t.Errorf("Raise with an unknown reading = %v, want ErrReadingUnknown", err)
+	}
+}
+
+// TestARaisingStatesExactlyOneOfConfidenceAndRunLength is
+// [ErrBoundaryIncomplete]: a reading that closes states a confidence, one that
+// never does states a run length, and a crossing naming both or neither is not
+// interpretable against the boundary it claims to have been read against.
+func TestARaisingStatesExactlyOneOfConfidenceAndRunLength(t *testing.T) {
+	ctx, _, w := newTable(t)
+
+	neither := raising()
+	neither.Confidence = 0
+	if _, err := w.Raise(ctx, healthMonitor, neither); !errors.Is(err, incident.ErrBoundaryIncomplete) {
+		t.Errorf("Raise with neither confidence nor run length = %v, want ErrBoundaryIncomplete", err)
+	}
+
+	both := raising()
+	both.RunLength = 500
+	if _, err := w.Raise(ctx, healthMonitor, both); !errors.Is(err, incident.ErrBoundaryIncomplete) {
+		t.Errorf("Raise with both confidence and run length = %v, want ErrBoundaryIncomplete", err)
+	}
+
+	ownHistory := raising()
+	ownHistory.Reading, ownHistory.Confidence, ownHistory.RunLength = incident.ReadingOwnHistory, 0, 500
+	if _, err := w.Raise(ctx, healthMonitor, ownHistory); err != nil {
+		t.Errorf("Raise of an own-history crossing stating a run length = %v, want it accepted", err)
+	}
+
+	comparisonWithRunLength := raising()
+	comparisonWithRunLength.Confidence, comparisonWithRunLength.RunLength = 0, 500
+	if _, err := w.Raise(ctx, healthMonitor, comparisonWithRunLength); !errors.Is(err, incident.ErrBoundaryIncomplete) {
+		t.Errorf("Raise of a comparison crossing stating a run length = %v, want ErrBoundaryIncomplete", err)
 	}
 }

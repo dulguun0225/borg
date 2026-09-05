@@ -4,21 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dulguun0225/borg/factory/area"
-	"github.com/dulguun0225/borg/factory/environment"
-	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
-	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
-	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
-	"github.com/dulguun0225/borg/factory/safeguard"
-	"github.com/dulguun0225/borg/factory/secretref"
-	"github.com/dulguun0225/borg/factory/service"
+	"github.com/dulguun0225/borg/factory/score"
 )
 
 // ErrNotAnOwner is returned by every authoring call for an actor that is not a
@@ -29,373 +24,214 @@ import (
 var ErrNotAnOwner = errors.New("policy: gate policy is authored by a human")
 
 // Factory is the writer of everything an owner authors: it calls into the
-// package that owns each record and appends the policy version in the same
-// transaction. At the milestone that builds the four screens, Factory the
-// screen is what calls this; until then the crude interface does.
+// package that owns each record and appends the policy version, as a row of the
+// decision log, in the same transaction.
+//
+// At the milestone that builds the four screens, Factory the screen is what
+// calls this; until then the command-line interface does.
 type Factory struct {
 	pool  *pgxpool.Pool
 	token lease.Token
+	log   *decisionlog.Writer
+
+	// Declaration is the People declaration in force, supplied by whatever
+	// composes the factory: every version names it by per-person key, and this
+	// package may not read it — the direction between the two is People to
+	// here. A nil value carries the declaration the version in force names
+	// forward unchanged, which is what a factory whose People screen is not
+	// built does.
+	Declaration func(ctx context.Context) (DeclarationSnapshot, error)
+
+	// AutoPassRates is the realized auto-pass rate at a threshold, one per
+	// factor set, computed in the same call that appends the version and frozen
+	// there. It is supplied rather than computed here because what it is
+	// computed from is the score's own decisions. A nil value freezes no rate,
+	// which is what a factory with no such reader composed does, and
+	// [Reader.AuthoredAutoPassRate] then finds none.
+	AutoPassRates func(ctx context.Context, scope Scope, gateRow string, threshold float64) ([]AutoPassRate, error)
 }
 
 // NewFactory returns the writer over pool, fencing every write with token.
 func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory {
-	return &Factory{pool: pool, token: token}
+	return &Factory{pool: pool, token: token, log: decisionlog.NewWriter(pool, token)}
 }
 
-// Installed is what [Factory.Install] found or created.
-type Installed struct {
-	Settings   factorysettings.Settings
-	Project    project.Project
-	Production environment.Environment
-	Version    Version
+// Created is what a write that creates a record hands back to the version that
+// names it: the scope the record is, and the id where the record is a
+// safeguard, a halt, a legal hold or a withdrawal of one.
+type Created struct {
+	Scope        Scope
+	SafeguardID  string
+	HaltID       string
+	LegalHoldID  string
+	WithdrawalID string
 }
 
-// Install is the records that exist before any parameter is authored: the
-// factory-wide settings record, which exists before any project does; the
-// project itself, an owner's widest grouping of work; and production's
-// environment for it, which an owner does not choose because production
-// exists everywhere and which is created in the same event as the project.
-// Each creation appends a policy version, so a factory that has been
-// installed has a version in force with nothing authored — which is what a
-// gate names when an owner has authored nothing at all.
+// write is one owner write: what the version says, what it does to the state
+// the version carries, and the record write itself.
+type write struct {
+	caller    Caller
+	actor     record.Actor
+	action    Action
+	parameter gatepolicy.Parameter
+	scope     Scope
+	number    float64
+	list      []string
+
+	// authored is whether this write puts a value on the version's authored
+	// state. A creation, a safeguard, a halt and a hold each author no
+	// parameter and set it false.
+	authored bool
+
+	// mint runs before the version is appended, for a write whose version names
+	// a record its own writer mints the id of. apply runs after the version, for
+	// every write that authors a field on a record that already exists: the log
+	// appends the version first and Factory writes the field second. Both run in
+	// the one transaction, so neither can be left without the other.
+	mint  func(ctx context.Context, tx pgx.Tx) (Created, error)
+	apply func(ctx context.Context, tx pgx.Tx) error
+
+	// dropSafeguard, dropHalt and dropLegalHold are what an approved withdrawal
+	// takes out of force.
+	dropSafeguard string
+	dropHalt      string
+	dropLegalHold string
+
+	// declaration replaces what the version in force names, for a write at
+	// People. Every other write carries it forward.
+	declaration *DeclarationSnapshot
+
+	// rates is the realized auto-pass rate frozen on a write that set a risk
+	// threshold, and empty on every other.
+	rates []AutoPassRate
+
+	// keyExtra is what a write whose value is not a number or a list adds to
+	// its own key, so that two such writes differing in what they carry derive
+	// two keys: the People declaration is the one, and its key is a digest of
+	// what the version will name.
+	keyExtra string
+}
+
+// append is every owner write: read the version in force, derive the write's
+// key, and where that key is not the one the version in force already carries,
+// open one fenced transaction and put the version and the record write in it.
 //
-// The production environment's platform is "local", composed on demand,
-// through the credential given — the one implementation this milestone has —
-// and candidateCeiling is authored on it as
-// [environment.SetMaxConcurrentCandidateEnvironments], not as gate policy:
-// room is the platform's own infrastructure limit and no parameter of an
-// owner's, so it is authored without a policy version.
-//
-// It is idempotent. Running it against a factory that has every record
-// appends no version and returns what is there, so the crude interface may
-// call it at every start.
-func (f *Factory) Install(ctx context.Context, actor record.Actor, projectName string,
-	targets []string, credential secretref.Ref, candidateCeiling int) (Installed, error) {
-	if err := ownerOnly(actor); err != nil {
-		return Installed{}, err
+// A step taken again derives the same key as the version in force and returns
+// that version, having written nothing.
+func (f *Factory) append(ctx context.Context, w write) (Version, error) {
+	if err := ownerOnly(w.actor); err != nil {
+		return Version{}, err
 	}
 
-	settings, err := factorysettings.NewWriter(f.pool, f.token).Ensure(ctx, actor)
-	if err != nil {
-		return Installed{}, err
-	}
-	if err := f.versionForCreation(ctx, actor, Subject{Kind: "factory_settings", ID: settings.ID}); err != nil {
-		return Installed{}, err
+	previous, err := f.newest(ctx, w.actor)
+	if err != nil && !errors.Is(err, ErrNoVersion) {
+		return Version{}, err
 	}
 
-	proj, found, err := project.ByName(ctx, f.pool, projectName)
-	if err != nil {
-		return Installed{}, err
+	key := writeKey(w.caller, w.actor, w.action, w.parameter, w.scope, w.number, w.list,
+		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold)
+	if w.mint == nil && previous.Key != "" && previous.Key == key {
+		return previous, nil
 	}
-	if !found {
-		proj, err = project.NewWriter(f.pool, f.token).Create(ctx, actor, projectName)
+
+	declaration := previous.Declaration
+	switch {
+	case w.declaration != nil:
+		declaration = *w.declaration
+	case f.Declaration != nil:
+		declaration, err = f.Declaration(ctx)
 		if err != nil {
-			return Installed{}, err
+			return Version{}, fmt.Errorf("policy: reading the People declaration in force: %w", err)
 		}
-	}
-	if err := f.versionForCreation(ctx, actor, Subject{Kind: "project", ID: proj.ID}); err != nil {
-		return Installed{}, err
-	}
-
-	production, found, err := environment.Production(ctx, f.pool, proj.ID)
-	if err != nil {
-		return Installed{}, err
-	}
-	if !found {
-		envTargets := make([]environment.Target, len(targets))
-		for n, address := range targets {
-			envTargets[n] = environment.Target{Address: address}
-		}
-		production, err = environment.NewWriter(f.pool, f.token).Create(ctx, actor, environment.Spec{
-			Kind:       environment.KindProduction,
-			ProjectID:  proj.ID,
-			Name:       environment.ProductionName,
-			Targets:    envTargets,
-			Credential: credential,
-			Platform: environment.Platform{
-				Name:               "local",
-				Credential:         credential,
-				CanComposeOnDemand: true,
-			},
-		})
-		if err != nil {
-			return Installed{}, err
-		}
-	}
-	if err := f.versionForCreation(ctx, actor, Subject{Kind: "environment", ID: production.ID}); err != nil {
-		return Installed{}, err
-	}
-	if err := f.setCandidateCeiling(ctx, actor, production.ID, candidateCeiling); err != nil {
-		return Installed{}, err
-	}
-
-	version, err := InForce(ctx, f.pool)
-	if err != nil {
-		return Installed{}, err
-	}
-	return Installed{Settings: settings, Project: proj, Production: production, Version: version}, nil
-}
-
-// setCandidateCeiling authors the substrate's room for candidate environments
-// on production's record, in a transaction of its own and with no policy
-// version appended: the ceiling is not gate policy, doc.go says why.
-func (f *Factory) setCandidateCeiling(ctx context.Context, actor record.Actor, productionID string, ceiling int) error {
-	tx, err := f.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("policy: beginning the candidate-environment ceiling on %s: %w", productionID, err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := lease.Fence(ctx, tx, f.token); err != nil {
-		return err
-	}
-	if err := environment.SetMaxConcurrentCandidateEnvironments(ctx, tx, f.token, actor, productionID, ceiling); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("policy: committing the candidate-environment ceiling on %s: %w", productionID, err)
-	}
-	return nil
-}
-
-// versionForCreation appends a created version for a record, and appends nothing
-// where one already names it — which is what makes Install idempotent.
-func (f *Factory) versionForCreation(ctx context.Context, actor record.Actor, subject Subject) error {
-	var existing string
-	err := f.pool.QueryRow(ctx, `select id from `+Table+`
-		where action = 'created' and subject_kind = $1 and subject_id = $2`,
-		subject.Kind, subject.ID).Scan(&existing)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("policy: reading the creation of %s: %w", subject, err)
-	}
-	_, err = f.write(ctx, actor, ActionCreated, "", subject, "", func(pgx.Tx) error { return nil })
-	return err
-}
-
-// AuthorGateThreshold authors the number one gate row compares against on one
-// environment. It is the one parameter this milestone's gates read.
-func (f *Factory) AuthorGateThreshold(ctx context.Context, actor record.Actor, environmentID, gateRow string, threshold float64) (Version, error) {
-	subject := Subject{Kind: "environment", ID: environmentID, Qualifier: gateRow}
-	return f.author(ctx, actor, gatepolicy.RiskThreshold, subject, func(tx pgx.Tx) error {
-		return environment.SetGateThreshold(ctx, tx, f.token, actor, environmentID, gateRow, threshold)
-	})
-}
-
-// AuthorRolePromptOrSkillThreshold authors the threshold the gate row that decides a
-// version of what an agent is told reads. It is the same parameter as the one
-// above on a different record, that row having no project and so no production
-// environment to read. Nothing reads it until that row is built.
-func (f *Factory) AuthorRolePromptOrSkillThreshold(ctx context.Context, actor record.Actor, threshold float64) (Version, error) {
-	settings, err := factorysettings.Get(ctx, f.pool)
-	if err != nil {
-		return Version{}, err
-	}
-	subject := Subject{Kind: "factory_settings", ID: settings.ID, Qualifier: "role_prompt_or_skill"}
-	return f.author(ctx, actor, gatepolicy.RiskThreshold, subject, func(tx pgx.Tx) error {
-		return factorysettings.SetRolePromptOrSkillThreshold(ctx, tx, settings.ID, threshold)
-	})
-}
-
-// AuthorAttemptLimit authors how many attempts one stage gets.
-func (f *Factory) AuthorAttemptLimit(ctx context.Context, actor record.Actor, stage item.Stage, limit int) (Version, error) {
-	settings, err := factorysettings.Get(ctx, f.pool)
-	if err != nil {
-		return Version{}, err
-	}
-	// OfStage refuses a stage that is not retried; the interview's rounds and
-	// decomposition's re-decompositions are two more subjects of the same
-	// parameter that this method, taking an item.Stage, has no way to name —
-	// a caller wanting those authors factorysettings.SetAttemptLimit directly.
-	limitSubject, err := factorysettings.OfStage(stage)
-	if err != nil {
-		return Version{}, err
-	}
-	subject := Subject{Kind: "factory_settings", ID: settings.ID, Qualifier: string(stage)}
-	return f.author(ctx, actor, gatepolicy.AttemptLimit, subject, func(tx pgx.Tx) error {
-		return factorysettings.SetAttemptLimit(ctx, tx, actor, settings.ID, limitSubject, limit)
-	})
-}
-
-// AuthorAllowedPredicateKinds authors what kinds of assertion a consumer
-// contract may draw from. Nothing reads it until contracts are built.
-func (f *Factory) AuthorAllowedPredicateKinds(ctx context.Context, actor record.Actor, allowed []string) (Version, error) {
-	settings, err := factorysettings.Get(ctx, f.pool)
-	if err != nil {
-		return Version{}, err
-	}
-	subject := Subject{Kind: "factory_settings", ID: settings.ID}
-	return f.author(ctx, actor, gatepolicy.AllowedPredicateKinds, subject, func(tx pgx.Tx) error {
-		return factorysettings.SetAllowedPredicateKinds(ctx, tx, settings.ID, allowed)
-	})
-}
-
-// AuthorItemSizeTarget authors how large an item in one area is meant to be.
-// Nothing reads it until a decomposition sizes anything.
-func (f *Factory) AuthorItemSizeTarget(ctx context.Context, actor record.Actor, areaID string, target float64) (Version, error) {
-	subject := Subject{Kind: "area", ID: areaID}
-	return f.author(ctx, actor, gatepolicy.ItemSizeTarget, subject, func(tx pgx.Tx) error {
-		return area.SetItemSizeTarget(ctx, tx, areaID, target)
-	})
-}
-
-// The four an owner authors on a service. Nothing reads any of them until the
-// analysis window is built, which is stated once here and again in service's
-// parameters.go.
-
-// AuthorWindowSize authors the smallest regression a comparison must rule out on
-// one quantity. It is per quantity because a detectable change in an error rate
-// and one in a latency quantile are not one number, so the subject the version
-// records is the service and the quantity together.
-func (f *Factory) AuthorWindowSize(ctx context.Context, actor record.Actor, serviceID string,
-	quantity gatepolicy.Quantity, size float64) (Version, error) {
-	subject := Subject{Kind: "service", ID: serviceID, Qualifier: string(quantity)}
-	return f.author(ctx, actor, gatepolicy.WindowSize, subject, func(tx pgx.Tx) error {
-		return service.SetWindowSize(ctx, tx, f.token, actor, serviceID, quantity, size)
-	})
-}
-
-// AuthorWindowConfidence authors how sure that comparison must be.
-func (f *Factory) AuthorWindowConfidence(ctx context.Context, actor record.Actor, serviceID string, confidence float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.WindowConfidence, serviceID, confidence, service.SetWindowConfidence)
-}
-
-// AuthorWindowCap authors the elapsed time in seconds that ends a window which
-// will never reach its volume.
-func (f *Factory) AuthorWindowCap(ctx context.Context, actor record.Actor, serviceID string, seconds float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.WindowCap, serviceID, seconds, service.SetWindowCap)
-}
-
-// AuthorWindowLimit authors how many analysis windows one service may hold open at once.
-func (f *Factory) AuthorWindowLimit(ctx context.Context, actor record.Actor, serviceID string, limit float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.WindowLimit, serviceID, limit, service.SetWindowLimit)
-}
-
-func (f *Factory) authorOnService(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,
-	serviceID string, value float64, set func(context.Context, pgx.Tx, string, float64) error) (Version, error) {
-	subject := Subject{Kind: "service", ID: serviceID}
-	return f.author(ctx, actor, parameter, subject, func(tx pgx.Tx) error {
-		return set(ctx, tx, serviceID, value)
-	})
-}
-
-// Safeguard places one, in the direction the parameter's definition gives it, and
-// appends the version in the same transaction. The bound is one value of three
-// shapes — a number, a list, or a predicate — which is package safeguard's
-// [safeguard.Bound], so this signature does not grow an argument each time a
-// shape arrives.
-func (f *Factory) AddSafeguard(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,
-	subject safeguard.Subject, bound safeguard.Bound) (safeguard.Safeguard, Version, error) {
-	if err := ownerOnly(actor); err != nil {
-		return safeguard.Safeguard{}, Version{}, err
 	}
 
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
-		return safeguard.Safeguard{}, Version{}, fmt.Errorf("policy: beginning the safeguard: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := lease.Fence(ctx, tx, f.token); err != nil {
-		return safeguard.Safeguard{}, Version{}, err
-	}
-
-	// Routing is not yet a parameter of this method: nothing above it composes
-	// a duty or a named human to route to, so every safeguard this caller
-	// places routes to the duty the design names at that gate and to the
-	// owner everywhere else, which is [safeguard.Routing]'s zero value.
-	placed, err := safeguard.Insert(ctx, tx, f.token, actor, parameter, subject, bound, safeguard.Routing{})
-	if err != nil {
-		return safeguard.Safeguard{}, Version{}, err
-	}
-	version, err := appendVersion(ctx, tx, actor, ActionSafeguardAdded, parameter,
-		Subject{Kind: string(subject.Kind), ID: subject.ID}, placed.ID)
-	if err != nil {
-		return safeguard.Safeguard{}, Version{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return safeguard.Safeguard{}, Version{}, fmt.Errorf("policy: committing the safeguard on %s: %w", subject, err)
-	}
-	return placed, version, nil
-}
-
-// WithdrawSafeguard marks one withdrawn, which is what stops a mechanism
-// reading it. The safeguard's row stays, so a safeguard that was in force when
-// a decision was taken is still readable beside it.
-func (f *Factory) WithdrawSafeguard(ctx context.Context, actor record.Actor, safeguardID string) (Version, error) {
-	if err := ownerOnly(actor); err != nil {
-		return Version{}, err
-	}
-	safeguards, err := safeguard.All(ctx, f.pool)
-	if err != nil {
-		return Version{}, err
-	}
-	var withdrawing safeguard.Safeguard
-	for _, p := range safeguards {
-		if p.ID == safeguardID {
-			withdrawing = p
-		}
-	}
-	if withdrawing.ID == "" {
-		return Version{}, fmt.Errorf("%w: %s", safeguard.ErrNotFound, safeguardID)
-	}
-	// safeguard.Withdraw inserts a withdrawal and approves it in the same
-	// call, standing in for the gate row [_A safeguard's
-	// withdrawal_](../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/10-a-safeguards-withdrawal.md)
-	// decides until that row exists: the row is not built, so this call is not
-	// the decision the design wants and this method's own name says so more
-	// than its behaviour does.
-	return f.write(ctx, actor, ActionWithdrawn, withdrawing.Parameter,
-		Subject{Kind: string(withdrawing.Subject.Kind), ID: withdrawing.Subject.ID}, safeguardID,
-		func(tx pgx.Tx) error { return safeguard.Withdraw(ctx, tx, f.token, actor, safeguardID) })
-}
-
-func (f *Factory) author(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,
-	subject Subject, write func(pgx.Tx) error) (Version, error) {
-	if err := ownerOnly(actor); err != nil {
-		return Version{}, err
-	}
-	return f.write(ctx, actor, ActionAuthored, parameter, subject, "", write)
-}
-
-// write is every authoring write: one transaction, the record's own writer
-// called inside it, and the policy version appended before it commits. So a
-// value that moved without the version moving is not a state the store can be
-// left in.
-func (f *Factory) write(ctx context.Context, actor record.Actor, action Action,
-	parameter gatepolicy.Parameter, subject Subject, safeguardID string, apply func(pgx.Tx) error) (Version, error) {
-	tx, err := f.pool.Begin(ctx)
-	if err != nil {
-		return Version{}, fmt.Errorf("policy: beginning the write of %s: %w", subject, err)
+		return Version{}, fmt.Errorf("policy: beginning the write of %s: %w", w.scope, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := lease.Fence(ctx, tx, f.token); err != nil {
 		return Version{}, err
 	}
-
-	// The lock covers the write and the append together. What it serialises is
-	// reading the version in force and appending the one that supersedes it: two
-	// writers doing that at once would each supersede the same version, and the
-	// sequence an auditor walks would fork. The unique constraint refuses the fork;
-	// this is what means a second owner authoring at the same moment waits for the
-	// first rather than being refused.
+	// The lock covers the read of the version in force above and the append
+	// below. Two owner writes at once would otherwise each carry forward the
+	// state the other was about to change, and the newer version would name an
+	// authored value the older one had already moved.
 	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey()); err != nil {
 		return Version{}, fmt.Errorf("policy: taking the version lock: %w", err)
 	}
 
-	if err := apply(tx); err != nil {
-		return Version{}, err
+	version := Version{
+		Actor: w.actor, Caller: w.caller, Action: w.action, Parameter: w.parameter,
+		Scope: w.scope, Number: w.number, List: w.list, Key: key,
+		Authored: slices.Clone(previous.Authored), Safeguards: slices.Clone(previous.Safeguards),
+		Halts: slices.Clone(previous.Halts), LegalHolds: slices.Clone(previous.LegalHolds),
+		Declaration: declaration, AutoPassRates: w.rates,
 	}
-	version, err := appendVersion(ctx, tx, actor, action, parameter, subject, safeguardID)
+	if w.mint != nil {
+		created, err := w.mint(ctx, tx)
+		if err != nil {
+			return Version{}, err
+		}
+		if created.Scope.Kind != "" {
+			version.Scope = created.Scope
+		}
+		version.SafeguardID, version.HaltID = created.SafeguardID, created.HaltID
+		version.LegalHoldID, version.WithdrawalID = created.LegalHoldID, created.WithdrawalID
+		version.Safeguards = withID(version.Safeguards, created.SafeguardID)
+		version.Halts = withID(version.Halts, created.HaltID)
+		version.LegalHolds = withID(version.LegalHolds, created.LegalHoldID)
+	}
+	if w.authored {
+		version.Authored = withAuthored(version.Authored, AuthoredValue{
+			Parameter: w.parameter, Scope: w.scope, Number: w.number, List: w.list,
+		})
+	}
+	version.SafeguardID = firstOf(version.SafeguardID, w.dropSafeguard)
+	version.HaltID = firstOf(version.HaltID, w.dropHalt)
+	version.LegalHoldID = firstOf(version.LegalHoldID, w.dropLegalHold)
+	version.Safeguards = withoutID(version.Safeguards, w.dropSafeguard)
+	version.Halts = withoutID(version.Halts, w.dropHalt)
+	version.LegalHolds = withoutID(version.LegalHolds, w.dropLegalHold)
+
+	body, err := version.marshal()
 	if err != nil {
 		return Version{}, err
 	}
+	row, err := f.log.AppendPolicyVersionInTx(ctx, tx, decisionlog.Entry{
+		Actor: w.actor, Payload: body, FormatVersion: FormatVersion,
+	})
+	if err != nil {
+		return Version{}, err
+	}
+	version.ID, version.At = row.ID, row.At
+
+	if w.apply != nil {
+		if err := w.apply(ctx, tx); err != nil {
+			return Version{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
-		return Version{}, fmt.Errorf("policy: committing the write of %s: %w", subject, err)
+		return Version{}, fmt.Errorf("policy: committing the write of %s: %w", version.Scope, err)
 	}
 	return version, nil
+}
+
+// author is an owner authoring one number on the record its scope names.
+func (f *Factory) author(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,
+	scope Scope, number float64, apply func(context.Context, pgx.Tx) error) (Version, error) {
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionAuthored,
+		parameter: parameter, scope: scope, number: number, authored: true, apply: apply,
+	})
+}
+
+// newest is the version in force, read as the actor making the write. Reading
+// the log appends a read event, so an owner write is a read event, a version,
+// and the field it authored.
+func (f *Factory) newest(ctx context.Context, actor record.Actor) (Version, error) {
+	return NewReader(f.pool, f.token, score.Version{}).Newest(ctx, actor)
 }
 
 func ownerOnly(actor record.Actor) error {
@@ -406,4 +242,38 @@ func ownerOnly(actor record.Actor) error {
 		return fmt.Errorf("%w: %s %q", ErrNotAnOwner, actor.Kind, actor.Key)
 	}
 	return nil
+}
+
+// withAuthored replaces the value for one parameter and scope, or adds it. The
+// version names one value per parameter and scope, so re-authoring one moves it
+// rather than listing it twice.
+func withAuthored(values []AuthoredValue, value AuthoredValue) []AuthoredValue {
+	for n, held := range values {
+		if held.Parameter == value.Parameter && held.Scope == value.Scope {
+			values[n] = value
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func withID(ids []string, id string) []string {
+	if id == "" || slices.Contains(ids, id) {
+		return ids
+	}
+	return append(ids, id)
+}
+
+func withoutID(ids []string, id string) []string {
+	if id == "" {
+		return ids
+	}
+	return slices.DeleteFunc(ids, func(held string) bool { return held == id })
+}
+
+func firstOf(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

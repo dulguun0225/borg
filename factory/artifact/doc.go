@@ -50,7 +50,8 @@
 // revises through [screenstatemachine.Insert], all in one transaction, so the
 // spec, its criteria, its withdrawals and its machines commit together or not
 // at all. [Store.SubmitConsumerContract] is the same arrangement with
-// [consumercontract.Insert]. Those are the record-to-record imports in the
+// [consumercontract.Insert], which writes the derivation that produced the
+// version beside the predicates it introduces. Those are the record-to-record imports in the
 // factory, and each is here because this package is the one writer of every
 // table it reaches — the alternative in each case is two writers of one
 // table.

@@ -398,7 +398,7 @@ func BySubjects(ctx context.Context, pool *pgxpool.Pool, parameter gatepolicy.Pa
 
 // All is every safeguard ever placed, an approved withdrawal's included, in
 // the order they were placed, with [Safeguard.Withdrawn] read off
-// [WithdrawalTable]. It is what the crude interface prints; a mechanism reads
+// [WithdrawalTable]. It is what the command-line interface prints; a mechanism reads
 // [BySubjects].
 func All(ctx context.Context, pool *pgxpool.Pool) ([]Safeguard, error) {
 	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind,

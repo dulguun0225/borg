@@ -87,7 +87,7 @@ func AllowedPredicateKindNames() []string {
 // factory has no decider for. A list an owner widened admits the name; what
 // refuses it is the derivation, which is where the design's cost of a wide
 // list — an assertion that cannot be decided against one observed exchange —
-// actually falls on this substrate.
+// actually falls on this platform.
 var ErrPredicateKindUnknown = errors.New("gatepolicy: this factory has no decider for that kind of predicate")
 
 // DecidablePredicate is the kind by that name, and an error for a name outside
@@ -126,16 +126,19 @@ func (k PredicateKind) TakesAnArgument() bool {
 }
 
 // DecidableAgainstAForm is whether the kind can be decided against a contract's
-// form alone, with no run to observe. Five of the nine can: whether the form has
+// form alone, with no run to observe. Seven of the nine can: whether the form has
 // the element, whether the form says it is always populated, whether its name
-// carries the unit, whether the form has the operation, and whether the request
-// element the consumer sends or leaves out is one the form accepts or requires. A
-// domain and a range are about values, on either side, and need one observed
-// exchange — which costs one kind of assumption being caught one gate later than
-// the rest.
+// carries the unit, whether the form has the operation, whether the request
+// element the consumer sends or leaves out is one the form accepts or requires,
+// and whether the values it sends stay inside what the form accepts — an input
+// element's accepted domain and range being part of the form.
+//
+// The two that cannot are the received domain and the received range. What a
+// producer returns is not in its form, so those need one observed exchange —
+// which costs one kind of assumption being caught one gate later than the rest.
 func (k PredicateKind) DecidableAgainstAForm() bool {
 	switch k {
-	case PredicateDomain, PredicateRange, PredicateSentDomain, PredicateSentRange:
+	case PredicateDomain, PredicateRange:
 		return false
 	default:
 		return true

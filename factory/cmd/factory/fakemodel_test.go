@@ -89,7 +89,7 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 		// design asks for: a revert restores a behaviour the service already promises, so
 		// the honest version introduces none. What the simplification costs is one
 		// criterion per revert that nobody asked for.
-		if strings.Contains(user, "Revert release") {
+		if strings.Contains(user, "failed its analysis window and was rolled back") {
 			return agent.Reply{
 				Text: "SPEC:\nRestore the behaviour the failed release changed, leaving every criterion in force as it is.\n" +
 					"CRITERION: When asked what it was restored from, the system shall respond harm.",
@@ -176,7 +176,12 @@ func interviewed(failEvery int) *fakeModel { return &fakeModel{specCalls: 1, fai
 // criterion in force and is failed by its window instead — which is the shape of
 // defect the criteria cannot see.
 //
-// The file's content depends on failEvery and on nothing else, so two good candidates
+// Each line is the time the exercise finished, a tab, and the outcome, which is
+// the second emission version's shape: the time is what the factory assigns a
+// unit of work to an interval by, and without it a service can be read against
+// another build and never against its own past.
+//
+// The source depends on failEvery and on nothing else, so two good candidates
 // of one service write identical bytes and their merge does not conflict, and a run
 // that writes the good version over the bad one is a real revert.
 func mainGo(failEvery int) []string {
@@ -201,7 +206,7 @@ func mainGo(failEvery int) []string {
 		"\t\tif signal != \"\" {",
 		"\t\t\tf, err := os.OpenFile(signal, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)",
 		"\t\t\tif err == nil {",
-		"\t\t\t\t_, _ = f.WriteString(" + emit + " + \"\\n\")",
+		"\t\t\t\t_, _ = f.WriteString(time.Now().UTC().Format(time.RFC3339Nano) + \"\\t\" + " + emit + " + \"\\n\")",
 		"\t\t\t\t_ = f.Close()",
 		"\t\t\t}",
 		"\t\t}",

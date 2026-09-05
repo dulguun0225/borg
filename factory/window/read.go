@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -15,26 +16,52 @@ import (
 // not a reason to be handed the thing that opens and closes them. That is the
 // arrangement every record package in the factory has.
 
-const selectWindow = `select id, actor_kind, actor_key, actor_key_basis, at, deploy_id, release_id, service_id,
-	passed_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
-	exit, closed_at, closed_on_units, closed_on_failures,
-	closed_on_baseline_units, closed_on_baseline_failures
+const selectWindow = `select id, actor_kind, actor_key, actor_key_basis, at,
+	deploy_id, release_id, build_id, service_id, measures_nothing, passed_available, held_out,
+	sizes, powers, confidence, cap_seconds, boundary_version, targets, operations_read_alone,
+	emission_version_release, emission_version_control, quantities_outside,
+	own_history_sizes, own_history_run_length, threshold_sizes, threshold_run_length,
+	policy_version, score_version, exit, closed_at, closed_on, finest_size_reached
 	from ` + Table
 
 func scan(row pgx.Row) (Window, error) {
 	var w Window
 	var kind, basis, exit string
-	err := row.Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At, &w.DeployID, &w.ReleaseID, &w.ServiceID,
-		&w.PassedAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
-		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt,
-		&w.ClosedOn.Units, &w.ClosedOn.Failures,
-		&w.ClosedOn.BaselineUnits, &w.ClosedOn.BaselineFailures)
+	var sizes, powers, targets, operations, outside string
+	var ownHistorySizes, thresholdSizes, closedOn, finest string
+	err := row.Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At,
+		&w.DeployID, &w.ReleaseID, &w.BuildID, &w.ServiceID,
+		&w.MeasuresNothing, &w.PassedAvailable, &w.HeldOut,
+		&sizes, &powers, &w.Confidence, &w.CapSeconds, &w.BoundaryVersion, &targets, &operations,
+		&w.EmissionVersionRelease, &w.EmissionVersionControl, &outside,
+		&ownHistorySizes, &w.OwnHistoryRunLength, &thresholdSizes, &w.ThresholdRunLength,
+		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt, &closedOn, &finest)
 	if err != nil {
 		return Window{}, err
 	}
 	w.Actor.Kind = record.Kind(kind)
 	w.Actor.Basis = record.Basis(basis)
 	w.Exit = Exit(exit)
+	w.Targets = decodeNames(targets)
+	w.OperationsReadAlone = decodeNames(operations)
+	w.QuantitiesOutside = decodeQuantities(outside)
+	for _, into := range []struct {
+		stored string
+		field  *map[gatepolicy.Quantity]float64
+	}{
+		{sizes, &w.Size}, {powers, &w.Power},
+		{ownHistorySizes, &w.OwnHistorySize}, {thresholdSizes, &w.ThresholdSize},
+		{finest, &w.FinestSizeReached},
+	} {
+		shares, err := decodeShares(into.stored)
+		if err != nil {
+			return Window{}, err
+		}
+		*into.field = shares
+	}
+	if w.ClosedOn, err = decodeRead(closedOn); err != nil {
+		return Window{}, err
+	}
 	return w, nil
 }
 
@@ -80,7 +107,7 @@ func ForDeploy(ctx context.Context, pool *pgxpool.Pool, deployID string) (Window
 }
 
 // AllOpen is every open window of one service, oldest first. That order is the
-// order they opened, which is the order a rollback sweeps and the order the
+// order they opened, which is the order a rollback skips over and the order the
 // health monitor evaluates them in.
 func AllOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID, ` and exit = '' order by at, id`, "the open windows")
@@ -88,8 +115,8 @@ func AllOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Windo
 
 // CountOpen is how many windows the service holds open, which is what the window
 // limit is compared against. The limit itself is what an owner authored on the
-// service record or
-// what the score supplies, read through package policy — not a field here.
+// service record or what the score supplies, read through package policy — not a
+// field here.
 func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, error) {
 	var count int
 	err := pool.QueryRow(ctx, `select count(*) from `+Table+`
@@ -100,23 +127,38 @@ func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, 
 	return count, nil
 }
 
-// ClosedWithoutFailing is every window of the service whose exit leaves a release
-// the factory can return to — passed or timed out, which is what [Exit.Counts]
-// says. It is what both the last known-good release and a rollback's target are
-// computed from, and neither is computed here: the order is the release's number, which
-// this package does not read, and copying that number onto a window would be one
-// fact in two places able to disagree.
+// ClosedPassedOrTimedOut is every window of the service that closed at one of
+// those two exits, newest close first. It is what both the last known-good
+// release and a rollback's target are computed from, and neither is computed
+// here: the order is the release's number, which this package does not read, and
+// so is the deploy record that says whether the release's build ever took
+// traffic, which both queries also descend past.
 //
-// The rows come back newest close first, which is a stable order and not the
-// answer to either question — a caller ordering by number is the answer.
-func ClosedWithoutFailing(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
+// It names the two exits it admits rather than the three that close without
+// failing the release, because skipped leaves nothing running to return to.
+func ClosedPassedOrTimedOut(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID,
 		` and exit in ('`+string(ExitPassed)+`', '`+string(ExitTimedOut)+`') order by closed_at desc, id`,
-		"the windows closed without failing a release")
+		"the windows that closed passed or timed out")
+}
+
+// LastKnownGood is the window whose release is the service's last known-good
+// release: the newest closed window whose exit is passed or timed out. It is the
+// standing value, where a rollback's target is computed for one rollback, and it
+// is false where the service has none.
+//
+// The caller still has to descend past a release whose deploy stopped before its
+// build took traffic, which is a fact of the deploy record and not of this one.
+func LastKnownGood(ctx context.Context, pool *pgxpool.Pool, serviceID string) (Window, bool, error) {
+	closed, err := ClosedPassedOrTimedOut(ctx, pool, serviceID)
+	if err != nil || len(closed) == 0 {
+		return Window{}, false, err
+	}
+	return closed[0], true, nil
 }
 
 // All is every window of one service, oldest open first. It is what a reader of
-// the service's history walks, and what the crude interface prints.
+// the service's history walks, and what the command-line interface prints.
 func All(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID, ` order by at, id`, "the windows")
 }
@@ -129,36 +171,22 @@ func All(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, e
 //
 // Open windows are left out because an open window has no exit and so says
 // nothing about an outcome yet. The whole table is read at once, which is what
-// learning over every outcome costs while the store is small, and it is the same
-// cost the decision log's own whole-log read already carries.
+// learning over every outcome costs while the store is small.
 func Closed(ctx context.Context, pool *pgxpool.Pool) ([]Window, error) {
-	rows, err := pool.Query(ctx, selectWindow+` where exit <> '' order by closed_at, id`)
-	if err != nil {
-		return nil, fmt.Errorf("window: reading the closed windows: %w", err)
-	}
-	defer rows.Close()
-
-	var read []Window
-	for rows.Next() {
-		w, err := scan(rows)
-		if err != nil {
-			return nil, fmt.Errorf("window: reading a closed window: %w", err)
-		}
-		read = append(read, w)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("window: reading the closed windows: %w", err)
-	}
-	return read, nil
+	return query(ctx, pool, selectWindow+` where exit <> '' order by closed_at, id`, "the closed windows")
 }
 
-// list is every read that returns more than one window. The suffix is a constant
-// of this package at each call site and never input, so writing it into the
-// statement is not a place anything can be injected.
+// list is every read that returns more than one window of one service. The
+// suffix is a constant of this package at each call site and never input, so
+// writing it into the statement is not a place anything can be injected.
 func list(ctx context.Context, pool *pgxpool.Pool, serviceID, suffix, what string) ([]Window, error) {
-	rows, err := pool.Query(ctx, selectWindow+` where service_id = $1`+suffix, serviceID)
+	return query(ctx, pool, selectWindow+` where service_id = $1`+suffix, what, serviceID)
+}
+
+func query(ctx context.Context, pool *pgxpool.Pool, statement, what string, args ...any) ([]Window, error) {
+	rows, err := pool.Query(ctx, statement, args...)
 	if err != nil {
-		return nil, fmt.Errorf("window: reading %s of %s: %w", what, serviceID, err)
+		return nil, fmt.Errorf("window: reading %s: %w", what, err)
 	}
 	defer rows.Close()
 
@@ -166,12 +194,12 @@ func list(ctx context.Context, pool *pgxpool.Pool, serviceID, suffix, what strin
 	for rows.Next() {
 		w, err := scan(rows)
 		if err != nil {
-			return nil, fmt.Errorf("window: reading a window of %s: %w", serviceID, err)
+			return nil, fmt.Errorf("window: reading a window: %w", err)
 		}
 		read = append(read, w)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("window: reading %s of %s: %w", what, serviceID, err)
+		return nil, fmt.Errorf("window: reading %s: %w", what, err)
 	}
 	return read, nil
 }

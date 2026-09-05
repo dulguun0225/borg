@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -33,7 +34,7 @@ func learnCommand(args []string) error {
 	}
 
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		inForce, found, err := score.Newest(ctx, pool)
+		inForce, found, err := score.Newest(ctx, pool, token)
 		if err != nil {
 			return err
 		}
@@ -43,13 +44,14 @@ func learnCommand(args []string) error {
 			fmt.Println("No score version has been appended yet")
 		}
 
-		learned, err := score.Learn(ctx, pool, token)
+		learned, err := score.Learn(ctx, pool, token, marksOf(pool))
 		if err != nil {
 			return err
 		}
-		printSupplied(os.Stdout, learned, inForce)
+		printSupplied(os.Stdout, learned.Supplied, inForce)
+		printBands(os.Stdout, learned)
 
-		if err := printHeldOut(ctx, os.Stdout, pool, token); err != nil {
+		if err := printHeldOut(ctx, os.Stdout, pool, token, learned.Supplied); err != nil {
 			return err
 		}
 
@@ -57,7 +59,7 @@ func learnCommand(args []string) error {
 			fmt.Println("\nNothing was appended: -dry reads the outcomes and writes nothing.")
 			return nil
 		}
-		appended, err := score.NewWriter(pool, token).Ensure(ctx, scoreActor)
+		appended, err := score.NewWriter(pool, token, marksOf(pool)).Ensure(ctx, scoreActor)
 		if err != nil {
 			return err
 		}
@@ -122,17 +124,62 @@ func heldRow(learned score.SuppliedValues, s score.Supplied) bool {
 	return false
 }
 
+// printBands prints the three readings a version carries beside the table: the
+// bands of the number, which say whether the number ranks anything at all, the
+// factors and priors calibration found drifted, and the weights the fit gave
+// each factor set. All three are fields of the version the pass appends, so an
+// owner arguing with a decision reads them where the decision names them.
+func printBands(out io.Writer, learned score.Learned) {
+	fmt.Fprintln(out, "\nThe bands of the number, per factor set, with the resolved held-out windows behind each:")
+	if len(learned.Bands) == 0 {
+		fmt.Fprintln(out, "  none: no held-out window has resolved, so nothing says whether the number ranks anything")
+	}
+	for _, b := range learned.Bands {
+		where := "factory-wide"
+		if b.Service != "" {
+			where = b.Service
+		}
+		fmt.Fprintf(out, "  %s on %s, %.1f to %.1f: %d window(s), %.0f%% failed\n",
+			b.FactorSet, where, b.From, b.To, b.Windows, b.FailedShare*100)
+	}
+
+	fmt.Fprintln(out, "\nWhat calibration found drifted, which is resolved at every firing until a recalibration is in force:")
+	if len(learned.Drift) == 0 {
+		fmt.Fprintln(out, "  nothing: every factor's distribution is where it was calibrated and every prior still separates")
+	}
+	for _, d := range learned.Drift {
+		what := "factor " + d.Factor
+		if d.Factor == "" {
+			what = "the prior of " + d.Author
+		}
+		fmt.Fprintf(out, "  %s: %s\n", what, d.Why)
+	}
+
+	fmt.Fprintln(out, "\nHow many rejections resolved as false alarms, per human — it moves no threshold and is published so that rejecting is not free:")
+	if len(learned.FalseAlarms) == 0 {
+		fmt.Fprintln(out, "  none")
+	}
+	for _, f := range learned.FalseAlarms {
+		fmt.Fprintf(out, "  %s: %d of %d rejection(s)\n", f.Human, f.Count, f.Rejections)
+	}
+}
+
 // printHeldOut prints the items the score has selected into its sample, which is
 // the one thing the learning does that changes what the factory decides rather
-// than what it supplies.
-func printHeldOut(ctx context.Context, out io.Writer, pool *pgxpool.Pool, token lease.Token) error {
+// than what it supplies. The rate it names is the one in force in the table this
+// pass computed, not a constant: the rate is a value the score supplies and an
+// owner may author over.
+func printHeldOut(ctx context.Context, out io.Writer, pool *pgxpool.Pool, token lease.Token,
+	supplied score.SuppliedValues,
+) error {
 	items, err := score.HeldOutItems(ctx, pool, token)
 	if err != nil {
 		return err
 	}
 	if len(items) == 0 {
+		rate, _ := supplied.Value(gatepolicy.HeldOutSampleRate, "")
 		fmt.Fprintf(out, "\nThe score has held no item out, so every threshold it supplies can fall and cannot rise: the only evidence for raising one is a change the score wanted gated and did not gate. It holds out %.0f in every 100 firings it would have gated.\n",
-			score.SampleRate*100)
+			rate.Value*100)
 		return nil
 	}
 	fmt.Fprintln(out, "\nHeld out of the gate the score would have gated:")

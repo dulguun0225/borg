@@ -191,7 +191,8 @@ func TestTheTwoBaselinesAreDifferent(t *testing.T) {
 		t.Fatalf("writing the build: %v", err)
 	}
 	trimmed := published(element("Status", "string", true, false))
-	if _, err := g.releases.MintWith(ctx, theActor, g.producer.ID, bl.ID, merged.ID,
+	if _, err := g.releases.MintWith(ctx, theActor,
+		release.Minting{ServiceID: g.producer.ID, BuildID: bl.ID, Commit: bl.CommitHash, ItemID: merged.ID},
 		func(ctx context.Context, tx pgx.Tx, r release.Release) error {
 			_, err := contract.PublishAll(ctx, tx, theActor, g.producer.ID, r.ID, r.Number,
 				merged.ID, []contract.Form{trimmed})

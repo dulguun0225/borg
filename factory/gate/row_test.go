@@ -2,14 +2,18 @@
 package gate_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/gate"
 )
 
-// TestEveryRowHasActionsAndAWait: nothing may be fired that has no actions, and
-// a row that waits on nobody would leave a pending decision no reader can chase.
-func TestEveryRowHasActionsAndAWait(t *testing.T) {
+// TestEveryRowHasActionsAndOffersRefer: nothing may be fired that has no
+// actions, and refer is on every row because it is about the human at it and
+// not about the event — who a row waits on beyond that is read from the People
+// declaration and the holds standing at the firing, and is not a fact of the
+// row alone.
+func TestEveryRowHasActionsAndOffersRefer(t *testing.T) {
 	for _, row := range gate.Rows {
 		actions, err := gate.Actions(row)
 		if err != nil {
@@ -22,8 +26,8 @@ func TestEveryRowHasActionsAndAWait(t *testing.T) {
 		if actions[0] != gate.VerdictApprove {
 			t.Errorf("%s does not offer approve first: %v", row, actions)
 		}
-		if gate.WaitsOn(row) == "" {
-			t.Errorf("%s names nothing it waits on", row)
+		if !slices.Contains(actions, gate.VerdictRefer) {
+			t.Errorf("%s does not offer refer: %v", row, actions)
 		}
 	}
 }

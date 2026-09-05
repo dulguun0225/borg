@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/incident"
@@ -25,7 +26,7 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)
@@ -43,8 +44,20 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	// running program would have emitted, which is the one thing here that is not the
 	// factory's own doing — the quantity is the build's, and this stands in for a build
 	// that got worse.
+	//
+	// Each line carries the time the unit of work finished, which is the second
+	// emission version's shape and what the factory assigns a unit to an interval
+	// by. They are spread over the last two seconds, so the reading against the
+	// service's own recent past has intervals to read a spread between rather than
+	// one interval holding four hundred failures — a window closes on the count of
+	// intervals and never on the volume inside one.
 	signal := localtarget.SignalFile(d.dir, c.reverifiedBuildID)
-	if err := os.WriteFile(signal, []byte(strings.Repeat("error\n", 400)), 0o644); err != nil {
+	var failing strings.Builder
+	for n := range 400 {
+		at := time.Now().Add(-2 * time.Second).Add(time.Duration(n) * 5 * time.Millisecond)
+		failing.WriteString(at.UTC().Format(time.RFC3339Nano) + "\terror\n")
+	}
+	if err := os.WriteFile(signal, []byte(failing.String()), 0o644); err != nil {
 		t.Fatalf("writing what the running build emits: %v", err)
 	}
 
@@ -79,8 +92,9 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	if _, rolled, err := deploy.NewestRollback(ctx, d.pool, res.serviceID, res.environmentID); err != nil || rolled {
 		t.Errorf("NewestRollback = %v, %v; nothing rolls back after the window has closed", rolled, err)
 	}
-	if !strings.Contains(out.String(), "a crossing after the window closed") {
-		t.Errorf("the pass does not say the crossing was after the window closed:\n%s", out)
+	if !strings.Contains(out.String(), "A crossing after the window over release") ||
+		!strings.Contains(out.String(), "nothing was rolled back") {
+		t.Errorf("the pass does not say the crossing was after the window closed and rolled nothing back:\n%s", out)
 	}
 
 	// A second crossing on the same service and release is an observation on the

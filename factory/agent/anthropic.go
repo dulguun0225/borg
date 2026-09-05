@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
@@ -110,7 +111,11 @@ type response struct {
 func (a Anthropic) Complete(ctx context.Context, system, user string) (Reply, error) {
 	// The value exists from here to the header write and in nothing a caller
 	// can reach afterwards.
-	credential, err := a.Resolver.Resolve(a.Credential)
+	//
+	// The principal recorded is this component's own: nothing yet carries the
+	// dispatch's principal down to a [Model], so the resolver sees the client
+	// asking for the credential and not who the running stage is.
+	credential, err := a.Resolver.Resolve(principal.OfComponent("agent"), a.Credential)
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: resolving the model credential: %w", err)
 	}

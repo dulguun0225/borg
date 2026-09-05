@@ -2,74 +2,118 @@ package deploy
 
 import (
 	"context"
+	"errors"
 	"fmt"
-
-	"github.com/dulguun0225/borg/factory/record"
-	"github.com/dulguun0225/borg/factory/secretref"
-	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
-// Restore is the slow rollback: the target's build put back on the target and
-// waited for. It writes the rollback's deploy record started, puts the build of the
-// release being returned to on the target through the seam, advances that record to
-// complete, and then advances the deploy of the failed release and of every
-// release the rollback swept to rolled back.
+// Artifacts is where the artifact a build produced is read from, so that its
+// digest can be computed before a rollback puts that build back on a target.
+// The caller implements it: the artifact host is outside the factory's recovery
+// unit and this package reaches nothing.
+type Artifacts interface {
+	// Digest is the digest of the artifact the build produced, computed over the
+	// content the host holds now and not read off a record.
+	Digest(ctx context.Context, buildID string) (string, error)
+}
+
+// ErrDigestDiffers is returned by [Restore] where the artifact the build names
+// no longer digests to what the build recorded. Redeploying by name alone
+// restores a name and not the bytes it was verified under, so the deployer
+// shifts no traffic, marks the rollback's record failed at that step, and the
+// failed release keeps serving. It pages at that exit: production is running a
+// release the factory has just failed, and nothing the factory has will improve
+// it.
+var ErrDigestDiffers = errors.New("deploy: the artifact no longer digests to what the build recorded")
+
+// Restoration is the slow rollback: a deploy of the release being returned to,
+// naming what it failed, what it skipped, and the source that called for it,
+// with the digest verified before anything is put anywhere.
+type Restoration struct {
+	// Performance is the deploy this rollback is. Its What is the release being
+	// returned to and that release's build, and its Configuration is the value
+	// set that release ran under — a rollback restores the configuration version
+	// the deploy record named for that release beside its code.
+	Performance
+	// Undoing is the release this rollback failed, the ones it skipped, and the
+	// source that called for it.
+	Undoing Undoing
+	// RecordedDigest is the artifact digest the build record holds, which is what
+	// the artifact host's content is verified against.
+	RecordedDigest string
+	// Artifacts is what the digest is computed through, and is required: a
+	// rollback that verified nothing would restore a name and not the bytes.
+	Artifacts Artifacts
+	// UndoneDeployIDs are the deploys this rollback undoes — the failed
+	// release's own and those of every release it skipped — whose targets are
+	// advanced to rolled back as this rollback completes on each.
+	UndoneDeployIDs []string
+}
+
+// Restore is the slow rollback: the build of the release being returned to put
+// back on the targets and waited for. It verifies the artifact's digest first,
+// writes the rollback's deploy record, performs the deploy the way any other is
+// performed, and then advances the deploys it undoes to rolled back, target by
+// target.
 //
-// Slow is the design's own word for it and it is the only rollback this substrate
-// has. The fast path shifts traffic onto the target's own instances — long-lived,
-// warm, and sized for all of production, kept running while any open window could
-// return to them. A target that runs a release as a local process keeps nothing of
-// the old build running, so there is nothing to shift traffic onto and the build
-// has to be started from cold. What that costs is the time between the crossing and
-// the restored build serving, during which production is running the failed
-// release.
+// Slow is the design's own word for it, and it is what a rollout that kept no
+// control leaves: with a control the release a rollback returns to is still
+// running at full capacity and the rollback is a traffic shift onto it. Here the
+// build has to be started from cold, and what that costs is the time between the
+// crossing and the restored build serving, during which production is running
+// the failed release.
 //
-// The order is the one [WithoutControl] keeps and for the same reason. The
-// rollback's own record is written first and completed before anything is
-// marked undone: a store that said a release was rolled back with nothing put
-// back in its place would describe a service running nothing. A target error
-// leaves the rollback's record started and nothing marked undone, which is the
-// disagreement the drift detector reads targets to raise.
-func Restore(ctx context.Context, w *Writer, target targetseam.Target, actor record.Actor,
-	serviceID, serviceName, environmentID string, what What, undoing Undoing,
-	credential secretref.Ref) (Deploy, error) {
-	if what.ReleaseID == "" {
+// The order is [Perform]'s and for the same reason. The rollback's own record is
+// completed before anything is marked undone: a store that said a release was
+// rolled back with nothing put back in its place would describe a service
+// running nothing.
+func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
+	if r.What.ReleaseID == "" {
 		return Deploy{}, fmt.Errorf("%w: a rollback returns to a numbered release", ErrUndoingIncomplete)
 	}
+	if r.Artifacts == nil || r.RecordedDigest == "" {
+		return Deploy{}, fmt.Errorf("%w: the build's recorded digest is what it is verified against",
+			ErrDigestDiffers)
+	}
 
-	d, err := w.StartUndoing(ctx, actor, serviceID, environmentID, what, undoing)
+	token, digest, err := mintWayInToken()
+	if err != nil {
+		return Deploy{}, err
+	}
+	d, err := w.StartUndoing(ctx, r.Actor, r.beginning(digest), r.Undoing)
 	if err != nil {
 		return Deploy{}, err
 	}
 
-	if err := target.Deploy(ctx, targetseam.Deployment{
-		Service:    serviceName,
-		Build:      what.BuildID,
-		Credential: credential,
-	}); err != nil {
-		return d, fmt.Errorf("deploy: putting build %s back on the target for %s: %w", what.BuildID, serviceName, err)
+	// The digest is verified before anything is deployed, and the record exists
+	// before the verification, so a rollback refused at this step is a record
+	// standing for Ops rather than a refusal with nothing behind it.
+	found, err := r.Artifacts.Digest(ctx, r.What.BuildID)
+	if err != nil {
+		return d, fail(ctx, w, r.Performance, d, StepArtifactDigest,
+			fmt.Errorf("%w: reading the artifact of %s: %w", ErrDigestDiffers, r.What.BuildID, err))
+	}
+	if found != r.RecordedDigest {
+		return d, fail(ctx, w, r.Performance, d, StepArtifactDigest,
+			fmt.Errorf("%w: build %s holds %s, the record says %s",
+				ErrDigestDiffers, r.What.BuildID, found, r.RecordedDigest))
 	}
 
-	if err := w.Complete(ctx, d.ID); err != nil {
+	d, err = perform(ctx, w, r.Performance, d, token)
+	if err != nil {
 		return d, err
 	}
-	d.Status = StatusComplete
 
 	// Every release this rollback undid, failed first. The failed release and
-	// the swept ones are the same write with different reasons, which is why the two
-	// are kept apart on the record and treated alike here.
-	for _, releaseID := range append([]string{undoing.FailedReleaseID}, undoing.SweptReleaseIDs...) {
-		undone, err := ByRelease(ctx, w.pool, environmentID, releaseID)
-		if err != nil {
-			return d, err
+	// the skipped ones are the same write with different reasons, which is why
+	// the two are kept apart on the record and treated alike here. Each target
+	// is advanced as this rollback completed on it, a target the release never
+	// reached included.
+	for _, undone := range r.UndoneDeployIDs {
+		if undone == d.ID {
+			continue
 		}
-		for _, u := range undone {
-			if u.ID == d.ID || u.Status == StatusRolledBack {
-				continue
-			}
-			if err := w.Undo(ctx, u.ID); err != nil {
-				return d, err
-			}
+		if err := w.Undo(ctx, undone); err != nil {
+			return d, err
 		}
 	}
 	return d, nil

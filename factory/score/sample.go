@@ -12,17 +12,6 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 )
 
-// SampleRate is the share of firings the score would have gated that it holds
-// out of the gate instead. It is the score's own number and not an owner's: gate
-// policy is seven rows and the sample is not one of them, and an owner who wants
-// a row never sampled adds a safeguard at it, which the sample may not pass.
-//
-// One in ten is where it starts. Lower and the unbiased evidence the threshold's
-// rise depends on arrives too slowly to move anything on an install shipping a
-// few items a day; higher and the factory is auto-passing changes it wanted gated
-// often enough that an owner would notice it as the score having changed its mind.
-const SampleRate = 0.10
-
 // Draw is the random number the sample is drawn from. It is an interface because
 // the selection has to be repeatable in a test and random in a factory, and
 // because a package that reached a global source of randomness could not be asked
@@ -49,12 +38,21 @@ type NeverDraw struct{}
 func (NeverDraw) Fraction() float64 { return 1 }
 
 // Selection is what the sample decided about one firing: whether the score is
-// holding this item out, and which of the two ways it came to be held out. The
-// reason is on the open event because a firing that reads the same to an owner
-// for two different reasons is one they cannot argue with.
+// holding this item out, which of the two ways it came to be held out, and the
+// rate in force at the selection. The reason is on the open event because a
+// firing that reads the same to an owner for two different reasons is one they
+// cannot argue with, and the rate is beside it so that a held-out outcome can be
+// weighted by the probability that selected it, per service or per author, at
+// whatever scope the rate was authored.
 type Selection struct {
 	HeldOut bool
 	Why     string
+	// RateInForce is the held-out sample rate this selection was drawn against:
+	// what an owner authored where they authored one and what the score supplies
+	// otherwise, after every safeguard clamping it on that item's service,
+	// project and area. It is the caller's read, package policy being where the
+	// value in force is resolved.
+	RateInForce float64
 }
 
 // The two ways an item is held out, in the words the open event stores.
@@ -86,40 +84,50 @@ const (
 // HoldOut is whether the score holds this item out of the gate the firing would
 // otherwise put a human at. It is asked after the policy has been read, because
 // the question is about a gate the score itself would have gated and the score
-// does not know the threshold in force.
+// does not know the threshold or the rate in force: rate is what an owner
+// authored where they authored one and what the score supplies otherwise,
+// clamped by every safeguard reaching that item's service, project and area.
 //
-// Three rules, in this order. A safeguard is never passed: a human a safeguard
+// Four rules, in this order. A safeguard is never passed: a human a safeguard
 // added at a gate is a human an owner added, and a sample that could pass one
-// would be the single mechanism in the design that removes a human from a gate,
-// which is what a safeguard exists to prevent. An item an earlier decision says
-// was selected stays selected, whatever the number reads now — that is what makes
-// the selection an item's property rather than a firing's. And otherwise the draw
-// selects, but only where the score would have gated: holding out what it was
-// going to pass anyway would produce no evidence about a gate.
+// would be the single mechanism in the design that removes a human from a gate.
+// A resolved vector is never passed either, whether the score could not compute
+// the factor or computed a value the design resolves on — the score is in no
+// position to auto-pass a gate its own number never decided. An item an earlier
+// decision says was selected stays selected, whatever the number reads now. And
+// otherwise the draw selects, but only where the score would have gated: holding
+// out what it was going to pass anyway would produce no evidence about a gate.
 //
-// A firing over a set is not sampled. Decomposition decides over several items at
-// once, so one draw there would select several items on one number, and the row's
-// number is its riskiest member's rather than any one item's. What that costs is
-// that decomposition's own row never produces unbiased evidence, and the threshold an
-// owner authors there moves only by falling.
-func (s *Score) HoldOut(ctx context.Context, itemID string, wouldGate, bySafeguard bool) (Selection, error) {
-	if itemID == "" || bySafeguard {
+// A firing over a set is not sampled, which the caller says by asking for no
+// selection at Decomposition: that row decides over several items at once, so
+// one draw there would select several items on one number.
+func (s *Score) HoldOut(ctx context.Context, itemID string, rate float64,
+	wouldGate, bySafeguard bool, resolved []Resolution) (Selection, error) {
+
+	if itemID == "" || bySafeguard || len(resolved) > 0 {
 		return Selection{}, nil
 	}
-	selected, err := heldOutBefore(ctx, s.pool, s.token, itemID)
+	selectedEarlier, err := heldOutBefore(ctx, s.pool, s.token, itemID)
 	if err != nil {
 		return Selection{}, err
 	}
-	if selected {
-		return Selection{HeldOut: true, Why: SelectedEarlier}, nil
+	return s.decide(rate, wouldGate, selectedEarlier), nil
+}
+
+// decide is the sample's rule over what the log already said: the stickiness
+// first, then the draw. It is separate from the read so that the rule is
+// testable as a rule, the way every other arithmetic in this package is.
+func (s *Score) decide(rate float64, wouldGate, selectedEarlier bool) Selection {
+	if selectedEarlier {
+		return Selection{HeldOut: true, Why: SelectedEarlier, RateInForce: rate}
 	}
-	if !wouldGate {
-		return Selection{}, nil
+	if !wouldGate || rate <= 0 {
+		return Selection{}
 	}
-	if s.draw.Fraction() < SampleRate {
-		return Selection{HeldOut: true, Why: SelectedHere}, nil
+	if s.draw.Fraction() < rate {
+		return Selection{HeldOut: true, Why: SelectedHere, RateInForce: rate}
 	}
-	return Selection{}, nil
+	return Selection{}
 }
 
 // heldOutBefore is whether any decision already opened on this item says the
@@ -151,8 +159,8 @@ func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, token lease.Token, i
 }
 
 // HeldOutItems is every item any decision says the score selected, in the order
-// the selections were made. It is what the crude interface prints and what a
-// reader asking which items reached production with a human removed follows.
+// the selections were made. It is what the command-line interface prints and what
+// a reader asking which items reached production with a human removed follows.
 func HeldOutItems(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]string, error) {
 	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
 	if err != nil {

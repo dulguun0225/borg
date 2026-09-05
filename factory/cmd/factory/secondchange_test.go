@@ -57,7 +57,7 @@ func twoRunsOnOneService(t *testing.T, firstVerdicts, secondInput string) (conte
 // item set holds the first item, it having merged. It ships as release number 2,
 // and the walk from its deploy reaches its own intent.
 func TestASecondChangeShips(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, approvals, "")
+	ctx, d, first, second := twoRunsOnOneService(t, approvals, approvals)
 
 	if second.itemID == first.itemID {
 		t.Errorf("both runs report item %s, a second change is a second item", second.itemID)
@@ -105,7 +105,7 @@ func TestASecondChangeShips(t *testing.T) {
 
 	// The walk from the second deploy reaches the second intent and no other.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), second.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), second.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theSecondStatement) {
@@ -130,7 +130,7 @@ func TestASecondChangeShips(t *testing.T) {
 // it was in, and its release gave the service something to return to. The factory
 // earns the autonomy rather than starting with it.
 func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, approvals, "")
+	ctx, d, first, second := twoRunsOnOneService(t, approvals, approvals)
 
 	for name, firing := range map[string]fired{
 		"candidate deploy": first.candidateGate,
@@ -147,7 +147,7 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 		"production":       second.deployGate,
 	} {
 		if firing.humanDecided {
-			t.Fatalf("the second item's %s row put a human there because %q", name, firing.whyHuman)
+			t.Fatalf("the second item's %s row put a human there because %v", name, firing.marks)
 		}
 	}
 	if second.deployID == "" {
@@ -172,8 +172,9 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 	}
 	for _, row := range rows[6:] {
 		if row.Part == decisionlog.PartOpen {
-			if payload := openingPayload(t, row); payload.WaitsOn != "" {
-				t.Errorf("an auto-passed firing waits on %q", payload.WaitsOn)
+			payload := openingPayload(t, row)
+			if payload.WaitsOn.Duty != 0 || payload.WaitsOn.Human != "" || len(payload.WaitsOn.Holders) > 0 {
+				t.Errorf("an auto-passed firing waits on %+v", payload.WaitsOn)
 			}
 			continue
 		}
@@ -196,7 +197,7 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 // and the run stops with the release minted, nothing deployed, no attempt
 // counted, and the item where it was.
 func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
-	ctx, d, _, _ := twoRunsOnOneService(t, approvals, "")
+	ctx, d, _, _ := twoRunsOnOneService(t, approvals, approvals)
 
 	// The risk threshold's subject is a row-scoped safeguard drawn on the
 	// service the row fires for — package policy's own [Reader] reads it that
@@ -207,12 +208,16 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 		t.Fatalf("reading the service: found %v, %v", found, err)
 	}
 	placed, version, err := policy.NewFactory(d.pool, d.token).AddSafeguard(ctx,
-		owner(d.human), gatepolicy.RiskThreshold,
-		safeguard.Subject{Kind: safeguard.SubjectService, ID: svc.ID, Key: string(gate.DeployToProduction)}, safeguard.Bound{Number: 0})
+		owner(t, ctx, d.pool, d.token, d.human), gatepolicy.RiskThreshold,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: svc.ID, Key: gate.DeployToProduction.String()}, safeguard.Bound{Number: 0}, safeguard.Routing{})
 	if err != nil {
 		t.Fatalf("placing the safeguard: %v", err)
 	}
 
+	// One verdict and not three: the third item on this service reads under the
+	// threshold at every row and every factor over a build is valued, so the two
+	// rows above production auto-pass and the safeguard is the only thing putting
+	// a human anywhere.
 	d.in = strings.NewReader("hold the window before this one is still open\n")
 	res, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
@@ -223,12 +228,15 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	if !third.held {
 		t.Fatal("the verdict was hold and the run does not say so")
 	}
-	if third.mergeGate.humanDecided {
-		t.Errorf("the merge row put a human there because %q, and the safeguard names the deploy row alone", third.mergeGate.whyHuman)
+	// The safeguard's own mark is at the deploy row and at no other: it names that
+	// row, and no other row carries a mark at all.
+	if slices.Contains(third.mergeGate.marks, gate.MarkSafeguard) {
+		t.Errorf("the merge row carries the safeguard's mark %v, and the safeguard names the deploy row alone",
+			third.mergeGate.marks)
 	}
-	if !third.deployGate.humanDecided || third.deployGate.whyHuman != gate.WhySafeguard {
-		t.Errorf("the deploy row says human %v because %q, want the safeguard",
-			third.deployGate.humanDecided, third.deployGate.whyHuman)
+	if !third.deployGate.humanDecided || !slices.Contains(third.deployGate.marks, gate.MarkSafeguard) {
+		t.Errorf("the deploy row says human %v because %v, want the safeguard among the marks",
+			third.deployGate.humanDecided, third.deployGate.marks)
 	}
 	if third.deployGate.number >= third.deployGate.threshold {
 		t.Errorf("the deploy number is %v against a threshold of %v, and the safeguard is what put a human there rather than the number",
@@ -250,7 +258,7 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	if third.deployID != "" {
 		t.Errorf("the run deployed %s, and a hold stops the event", third.deployID)
 	}
-	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID)
+	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID, []string{d.dir})
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
@@ -299,16 +307,24 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	// Withdrawing the safeguard leaves the row the score's again, which is what a
 	// safeguard being a bound rather than a precedence means at this row: nothing
 	// else moved.
-	if _, err := policy.NewFactory(d.pool, d.token).WithdrawSafeguard(ctx,
-		owner(d.human), placed.ID); err != nil {
-		t.Fatalf("withdrawing the safeguard: %v", err)
+	written, _, err := policy.NewFactory(d.pool, d.token).WriteSafeguardWithdrawal(ctx,
+		owner(t, ctx, d.pool, d.token, d.human), placed.ID)
+	if err != nil {
+		t.Fatalf("writing the withdrawal: %v", err)
 	}
-	applied, err := policy.NewReader(d.pool, score.Version{}).AtGate(ctx, policy.Subjects{
-		GateRow:       string(gate.DeployToProduction),
-		EnvironmentID: res.environmentID,
-		ServiceID:     res.serviceID,
-		AreaID:        res.areaID,
-	})
+	// The safeguard leaves force at the row that decides the withdrawal, closed by
+	// a human other than the one who wrote it — the row is routed away from them.
+	if _, err := policy.NewFactory(d.pool, d.token).ApproveSafeguardWithdrawal(ctx,
+		owner(t, ctx, d.pool, d.token, "reviewer"), written.ID); err != nil {
+		t.Fatalf("approving the withdrawal: %v", err)
+	}
+	applied, err := policy.NewReader(d.pool, d.token, score.Version{}).AtGate(ctx,
+		gate.Component(gate.DeployToProduction), policy.Subjects{
+			GateRow:       gate.DeployToProduction.String(),
+			EnvironmentID: res.environmentID,
+			ServiceID:     res.serviceID,
+			AreaID:        res.areaID,
+		})
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -324,7 +340,7 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 // and the second is based on master, so what the first item merged is in the tree
 // the second one starts from.
 func TestTheSecondCandidateBranchIsBasedOnMaster(t *testing.T) {
-	_, d, first, second := twoRunsOnOneService(t, approvals, "")
+	_, d, first, second := twoRunsOnOneService(t, approvals, approvals)
 
 	if _, err := git(theRepo(d), "merge-base", "--is-ancestor", "master", second.branch); err != nil {
 		t.Errorf("master is not an ancestor of %s, and every candidate after the first release is based on master: %v",

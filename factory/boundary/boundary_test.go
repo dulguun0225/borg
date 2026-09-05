@@ -12,270 +12,424 @@ import (
 	"github.com/dulguun0225/borg/factory/boundary"
 )
 
-// theBoundary is a coarse size at the conventional confidence: one unit in ten
-// failing above the baseline, ruled out at ninety-five per cent. Coarse, because a
-// test that needed the traffic a two per cent size needs would be a test of
-// arithmetic run over hundreds of thousands of simulated units.
-var theBoundary = boundary.Boundary{Size: 0.1, Confidence: 0.95}
+// theBoundary is a coarse size at the conventional confidence over one
+// comparison: one unit in ten above the baseline, ruled out at ninety-five per
+// cent. Coarse, because a test that needed the traffic a two per cent size needs
+// would be a test of arithmetic run over hundreds of thousands of simulated
+// intervals.
+var theBoundary = boundary.Boundary{
+	Size: 0.1, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher,
+}
 
-func TestTheCrossingIsWhatTheConfidenceMeans(t *testing.T) {
-	want := math.Log(1 / 0.05)
-	if got := theBoundary.Crossing(); math.Abs(got-want) > 1e-12 {
-		t.Errorf("Crossing() = %v, want log(1/0.05) = %v", got, want)
+// intervals is a series of intervals in which each arm serves units and fails at
+// its own rate, with no noise between intervals beyond the counts themselves.
+func intervals(n int, units int64, rate, baselineRate float64) boundary.Observed {
+	var o boundary.Observed
+	for i := 0; i < n; i++ {
+		o.Intervals = append(o.Intervals, boundary.Counts{
+			Units: units, Count: int64(math.Round(rate * float64(units))),
+			BaselineUnits: units, BaselineCount: int64(math.Round(baselineRate * float64(units))),
+		})
+	}
+	return o
+}
+
+func TestTheCrossingHoldsTheConfidenceOverTheSet(t *testing.T) {
+	if got, want := theBoundary.Crossing(), math.Log(1/0.05); math.Abs(got-want) > 1e-12 {
+		t.Errorf("Crossing() over one comparison = %v, want log(1/0.05) = %v", got, want)
+	}
+	over12 := theBoundary
+	over12.Comparisons = 12
+	if got, want := over12.Crossing(), math.Log(12/0.05); math.Abs(got-want) > 1e-12 {
+		t.Errorf("Crossing() over twelve comparisons = %v, want log(12/0.05) = %v", got, want)
+	}
+	if over12.Crossing() <= theBoundary.Crossing() {
+		t.Error("a boundary allocated over twelve comparisons is not stricter than one over a single reading")
 	}
 }
 
 // TestARegressionCrosses is the failed exit: a release failing far above its
-// baseline crosses, and the reading carries every number the verdict came from.
+// control crosses, and the reading carries every number the verdict came from.
 func TestARegressionCrosses(t *testing.T) {
-	reading, err := theBoundary.Evaluate(boundary.Observed{
-		Units: 400, Failures: 200,
-		BaselineUnits: 1000, BaselineFailures: 50,
-	})
+	reading, err := theBoundary.Evaluate(intervals(4, 200, 0.5, 0.05))
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	if !reading.Harm || reading.Clean {
-		t.Errorf("harm=%v clean=%v at half the units failing against a baseline of one in twenty (log %v against %v)",
-			reading.Harm, reading.Clean, reading.Log, reading.Crossing)
+	if !reading.Failed || reading.Passed {
+		t.Errorf("failed=%v passed=%v at half the units failing against a control of one in twenty (log %v against %v)",
+			reading.Failed, reading.Passed, reading.Log, reading.Crossing)
+	}
+	if reading.Intervals != 4 {
+		t.Errorf("Intervals = %d, want the four read on both arms", reading.Intervals)
+	}
+	if math.Abs(reading.Difference-0.45) > 0.01 {
+		t.Errorf("Difference = %v, want about 0.45", reading.Difference)
 	}
 	if reading.Unavailable != "" {
-		t.Errorf("the reading is unavailable: %s", reading.Unavailable)
-	}
-	if math.Abs(reading.Rate-0.5) > 1e-12 {
-		t.Errorf("rate = %v, 200 of 400 units failed", reading.Rate)
-	}
-	// The baseline is smoothed by half a failure in one unit, so it is not the
-	// raw share and the difference is what stops a baseline with no failure
-	// failing the first one the release has.
-	wantBaseline := (50 + 0.5) / (1000 + 1)
-	if math.Abs(reading.BaselineRate-wantBaseline) > 1e-12 {
-		t.Errorf("baseline rate = %v, want the smoothed %v", reading.BaselineRate, wantBaseline)
-	}
-	if math.Abs(reading.Alternative-(wantBaseline+theBoundary.Size)) > 1e-12 {
-		t.Errorf("alternative = %v, want the baseline plus the size", reading.Alternative)
+		t.Errorf("Unavailable = %q on a reading that crossed", reading.Unavailable)
 	}
 }
 
-// TestNoRegressionCloses is the passed exit: a release failing at its baseline's
-// own rate rules out a regression of the size, and it takes about as many units
-// as the arithmetic says it should.
-func TestNoRegressionCloses(t *testing.T) {
-	const baselineUnits, baselineFailures = 4000, 200 // one in twenty
-	baselineRate := (float64(baselineFailures) + 0.5) / (baselineUnits + 1)
-	expected, err := theBoundary.UnitsToClean(baselineRate)
-	if err != nil {
-		t.Fatalf("UnitsToClean: %v", err)
-	}
-
-	// Twice the expected units, failing at the baseline's rate: comfortably past
-	// the crossing without the test resting on the exact count.
-	units := int64(2 * expected)
-	reading, err := theBoundary.Evaluate(boundary.Observed{
-		Units: units, Failures: int64(baselineRate * float64(units)),
-		BaselineUnits: baselineUnits, BaselineFailures: baselineFailures,
-	})
+// TestNoRegressionRulesOneOut is the passed exit: arms that behave alike rule
+// out a change of the size.
+func TestNoRegressionRulesOneOut(t *testing.T) {
+	reading, err := theBoundary.Evaluate(intervals(30, 500, 0.05, 0.05))
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	if !reading.Clean || reading.Harm {
-		t.Errorf("clean=%v harm=%v after %d units at the baseline's own rate (log %v against %v)",
-			reading.Clean, reading.Harm, units, reading.Log, reading.Crossing)
-	}
-
-	// And at a tenth of the expected units neither exit is reached, which is the
-	// window still open: the duration is measured and never set.
-	early := int64(expected / 10)
-	reading, err = theBoundary.Evaluate(boundary.Observed{
-		Units: early, Failures: int64(baselineRate * float64(early)),
-		BaselineUnits: baselineUnits, BaselineFailures: baselineFailures,
-	})
-	if err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	if reading.Clean || reading.Harm {
-		t.Errorf("clean=%v harm=%v after %d units, a tenth of what the arithmetic asks for",
-			reading.Clean, reading.Harm, early)
+	if !reading.Passed || reading.Failed {
+		t.Errorf("passed=%v failed=%v with both arms at one in twenty (log %v against %v)",
+			reading.Passed, reading.Failed, reading.Log, reading.Crossing)
 	}
 }
 
-// TestTheUnitsNeededScaleAsTheInverseSquareOfTheSize is the design's own claim
-// about this arithmetic, checked as a property of it: decomposing the size tenfold
-// multiplies the units a comparison needs by about a hundred, which is why
-// closing a window faster by coarsening the boundary runs out quickly.
-func TestTheUnitsNeededScaleAsTheInverseSquareOfTheSize(t *testing.T) {
-	// The property is the limit as the size goes to nothing, so the two sizes are
-	// both small against the baseline. At a size comparable to the baseline the
-	// divergence is no longer quadratic and the ratio is nearer forty than a hundred,
-	// which is the arithmetic being honest rather than the property failing.
-	const baselineRate = 0.5
-	coarse, err := boundary.Boundary{Size: 0.05, Confidence: 0.95}.UnitsToClean(baselineRate)
-	if err != nil {
-		t.Fatalf("UnitsToClean at the coarse size: %v", err)
-	}
-	fine, err := boundary.Boundary{Size: 0.005, Confidence: 0.95}.UnitsToClean(baselineRate)
-	if err != nil {
-		t.Fatalf("UnitsToClean at the fine size: %v", err)
-	}
-
-	ratio := fine / coarse
-	if ratio < 90 || ratio > 110 {
-		t.Errorf("decomposing the size tenfold multiplied the units by %v, want about a hundred (%v then %v)",
-			ratio, coarse, fine)
-	}
-}
-
-// TestAFirstReleaseCanNeitherBePassedNorFailed is the exit table's own
-// exception: a release with no baseline has no comparison, so nothing about it
-// is discovered by watching and its window ends at the cap.
-func TestAFirstReleaseCanNeitherBePassedNorFailed(t *testing.T) {
-	reading, err := theBoundary.Evaluate(boundary.Observed{Units: 100000, Failures: 100000})
+// TestTheIntervalIsTheUnit is the change finding 23 names: a burst of traffic
+// inside one interval buys nothing the next interval does not, so one interval
+// carrying the whole volume rules out less than the same volume spread over
+// many.
+func TestTheIntervalIsTheUnit(t *testing.T) {
+	burst, err := theBoundary.Evaluate(intervals(1, 15000, 0.05, 0.05))
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	if reading.Harm || reading.Clean {
-		t.Errorf("harm=%v clean=%v with no baseline, and every unit failing", reading.Harm, reading.Clean)
+	spread, err := theBoundary.Evaluate(intervals(30, 500, 0.05, 0.05))
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if burst.Passed {
+		t.Error("one interval holding the whole volume closed the window passed, which is the request as the unit")
+	}
+	if !spread.Passed {
+		t.Error("the same volume over thirty intervals did not rule the change out")
+	}
+	if -burst.Log >= -spread.Log {
+		t.Errorf("the burst accumulated %v against the spread's %v", burst.Log, spread.Log)
+	}
+}
+
+// TestASilentReleaseArmBesideAServingControlFails is the design's plainest case,
+// read on the request rate: the units are both arms' arrivals and the count is
+// the release arm's own, so an arm that received nothing is a difference of one
+// in the direction that is worse.
+func TestASilentReleaseArmBesideAServingControlFails(t *testing.T) {
+	requestRate := boundary.Boundary{
+		Size: 0.1, Confidence: 0.95, Comparisons: 3, Worse: boundary.WorseLower,
+	}
+	var o boundary.Observed
+	for i := 0; i < 3; i++ {
+		o.Intervals = append(o.Intervals, boundary.Counts{
+			Units: 100, Count: 0, BaselineUnits: 100, BaselineCount: 100,
+		})
+	}
+	reading, err := requestRate.Evaluate(o)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if !reading.Failed {
+		t.Errorf("a release arm that received nothing beside a control serving everything did not cross (log %v against %v, unavailable %q)",
+			reading.Log, reading.Crossing, reading.Unavailable)
+	}
+}
+
+// TestAnArmTakingItsShareOfTrafficDoesNotCross is the other side of the same
+// reading: two arms splitting the traffic evenly rule the shortfall out.
+func TestAnArmTakingItsShareOfTrafficDoesNotCross(t *testing.T) {
+	requestRate := boundary.Boundary{
+		Size: 0.1, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseLower,
+	}
+	var o boundary.Observed
+	for i := 0; i < 40; i++ {
+		o.Intervals = append(o.Intervals, boundary.Counts{
+			Units: 200, Count: 100, BaselineUnits: 200, BaselineCount: 100,
+		})
+	}
+	reading, err := requestRate.Evaluate(o)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if reading.Failed {
+		t.Errorf("two arms splitting the traffic evenly crossed on the request rate (log %v)", reading.Log)
+	}
+	if !reading.Passed {
+		t.Errorf("two arms splitting the traffic evenly did not rule the shortfall out (log %v against %v)",
+			reading.Log, reading.Crossing)
+	}
+}
+
+// TestNoControlIsNeitherExit is a release with nothing beside it: the reading is
+// unavailable rather than clear, and the window it belongs to ends at its cap.
+func TestNoControlIsNeitherExit(t *testing.T) {
+	reading, err := theBoundary.Evaluate(boundary.Observed{Intervals: []boundary.Counts{
+		{Units: 400, Count: 8}, {Units: 380, Count: 6},
+	}})
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if reading.Failed || reading.Passed {
+		t.Error("a release with no arm beside it reached an exit")
 	}
 	if reading.Unavailable != boundary.NoBaseline {
 		t.Errorf("Unavailable = %q, want %q", reading.Unavailable, boundary.NoBaseline)
 	}
-	// The rate is still reported: what a human reads is available where a verdict
-	// is not.
-	if reading.Rate != 1 {
-		t.Errorf("rate = %v, every unit failed", reading.Rate)
+}
+
+// TestNothingReadOnEitherArmIsNoVolume is the read whose period the store does
+// not cover: no volume, never a low one.
+func TestNothingReadOnEitherArmIsNoVolume(t *testing.T) {
+	reading, err := theBoundary.Evaluate(boundary.Observed{})
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if reading.Unavailable != boundary.NoVolume {
+		t.Errorf("Unavailable = %q, want %q", reading.Unavailable, boundary.NoVolume)
 	}
 }
 
-// TestABaselineWithNoHeadroomIsUnavailable is the other unreachable reading: a
-// service failing so often that raising its rate by the size passes every unit
-// failing has nothing above it to detect a regression in, which is exactly the
-// service the design says an absolute threshold is worth stating for.
-func TestABaselineWithNoHeadroomIsUnavailable(t *testing.T) {
-	reading, err := theBoundary.Evaluate(boundary.Observed{
-		Units: 100, Failures: 99,
-		BaselineUnits: 100, BaselineFailures: 95,
-	})
+func TestABaselineWithNoHeadroomIsNeitherExit(t *testing.T) {
+	reading, err := theBoundary.Evaluate(intervals(5, 100, 0.99, 0.95))
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
 	if reading.Unavailable != boundary.NoHeadroom {
-		t.Errorf("Unavailable = %q, want %q (baseline %v, alternative %v)",
-			reading.Unavailable, boundary.NoHeadroom, reading.BaselineRate, reading.Alternative)
-	}
-	if reading.Harm || reading.Clean {
-		t.Errorf("harm=%v clean=%v with no headroom above the baseline", reading.Harm, reading.Clean)
+		t.Errorf("Unavailable = %q, want %q", reading.Unavailable, boundary.NoHeadroom)
 	}
 }
 
-// TestTheBoundaryHoldsUnderRepeatedReading is what the whole construction is
-// for, and the one property a fixed-horizon threshold does not have. A release
-// running at exactly its baseline's rate is read after every single unit, which
-// is the most looks anybody could take; the share of runs that ever cross toward
-// harm has to stay under one-minus-confidence, and a threshold read that way
-// would cross in nearly all of them.
-func TestTheBoundaryHoldsUnderRepeatedReading(t *testing.T) {
-	const (
-		runs          = 400
-		unitsPerRun   = 2000
-		baselineUnits = 20000
-		baselineRate  = 0.1
-	)
-	b := boundary.Boundary{Size: 0.1, Confidence: 0.95}
-	// The generator is seeded, so a failure here is a defect and never a run of
-	// bad luck a rerun hides.
-	random := rand.New(rand.NewSource(4))
+// TestTheSpreadBetweenIntervalsIsWhatTheStatisticIsScaledBy is the correlation
+// the design says the interval absorbs: a service whose arms differ by nothing
+// on average but swing between intervals rules a change out more slowly than one
+// that does not swing.
+func TestTheSpreadBetweenIntervalsIsWhatTheStatisticIsScaledBy(t *testing.T) {
+	steady := intervals(20, 400, 0.05, 0.05)
+	var swinging boundary.Observed
+	for i := 0; i < 20; i++ {
+		count := int64(10)
+		if i%2 == 0 {
+			count = 30
+		}
+		swinging.Intervals = append(swinging.Intervals, boundary.Counts{
+			Units: 400, Count: count, BaselineUnits: 400, BaselineCount: 20,
+		})
+	}
+	steadyReading, err := theBoundary.Evaluate(steady)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	swingingReading, err := theBoundary.Evaluate(swinging)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if swingingReading.Deviation <= steadyReading.Deviation {
+		t.Errorf("the swinging service's spread %v is not above the steady one's %v",
+			swingingReading.Deviation, steadyReading.Deviation)
+	}
+	if -swingingReading.Log >= -steadyReading.Log {
+		t.Errorf("the swinging service ruled the change out at %v, no slower than the steady one's %v",
+			swingingReading.Log, steadyReading.Log)
+	}
+}
 
+// TestTheIntervalsNeededScaleAsTheInverseSquareOfTheSize is the design's claim
+// about how traffic scales, checked as arithmetic: a size three times finer
+// costs about nine times the intervals.
+func TestTheIntervalsNeededScaleAsTheInverseSquareOfTheSize(t *testing.T) {
+	coarse := boundary.Boundary{Size: 0.09, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher}
+	fine := coarse
+	fine.Size = 0.03
+
+	coarseIntervals, err := coarse.IntervalsToPassed(0.02)
+	if err != nil {
+		t.Fatalf("IntervalsToPassed: %v", err)
+	}
+	fineIntervals, err := fine.IntervalsToPassed(0.02)
+	if err != nil {
+		t.Fatalf("IntervalsToPassed: %v", err)
+	}
+	if ratio := fineIntervals / coarseIntervals; math.Abs(ratio-9) > 0.001 {
+		t.Errorf("a size three times finer cost %v times the intervals, want 9", ratio)
+	}
+}
+
+// TestThePowerCostsMoreIntervalsThanEvenOdds is what the power is for: reaching
+// passed reliably costs more than reaching it half the time, and the two agree
+// at even odds.
+func TestThePowerCostsMoreIntervalsThanEvenOdds(t *testing.T) {
+	even, err := theBoundary.IntervalsForPassed(0.02, 0.5)
+	if err != nil {
+		t.Fatalf("IntervalsForPassed: %v", err)
+	}
+	toPassed, err := theBoundary.IntervalsToPassed(0.02)
+	if err != nil {
+		t.Fatalf("IntervalsToPassed: %v", err)
+	}
+	if math.Abs(even-toPassed) > 1e-9 {
+		t.Errorf("IntervalsForPassed at even odds = %v, want IntervalsToPassed's %v", even, toPassed)
+	}
+	reliable, err := theBoundary.IntervalsForPassed(0.02, 0.9)
+	if err != nil {
+		t.Fatalf("IntervalsForPassed: %v", err)
+	}
+	if reliable <= even {
+		t.Errorf("a power of nine in ten cost %v intervals, no more than even odds' %v", reliable, even)
+	}
+}
+
+// TestTheFinestSizeIsTheIntervalsReadTheOtherWayRound is what a window records
+// at its close: the size the traffic actually reached, which is the size that
+// would have needed exactly the intervals it read.
+func TestTheFinestSizeIsTheIntervalsReadTheOtherWayRound(t *testing.T) {
+	fine := boundary.Boundary{Size: 0.02, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher}
+	needed, err := fine.IntervalsForPassed(0.05, 0.8)
+	if err != nil {
+		t.Fatalf("IntervalsForPassed: %v", err)
+	}
+	finest, err := fine.FinestSize(0.05, 0.8, int(math.Ceil(needed)))
+	if err != nil {
+		t.Fatalf("FinestSize: %v", err)
+	}
+	if math.Abs(finest-fine.Size) > 0.001 {
+		t.Errorf("FinestSize over the intervals that size needs = %v, want about %v", finest, fine.Size)
+	}
+	coarser, err := fine.FinestSize(0.05, 0.8, 4)
+	if err != nil {
+		t.Fatalf("FinestSize: %v", err)
+	}
+	if coarser <= finest {
+		t.Errorf("four intervals reached %v, no coarser than the %v the full count reached", coarser, finest)
+	}
+}
+
+func TestIntervalsToFailedRefusesADifferenceThatDriftsTheOtherWay(t *testing.T) {
+	if _, err := theBoundary.IntervalsToFailed(0.02, 0.01); !errors.Is(err, boundary.ErrNoCrossing) {
+		t.Errorf("IntervalsToFailed at a difference under half the size = %v, want ErrNoCrossing", err)
+	}
+	crossing, err := theBoundary.IntervalsToFailed(0.02, 0.2)
+	if err != nil {
+		t.Fatalf("IntervalsToFailed: %v", err)
+	}
+	if crossing <= 0 {
+		t.Errorf("IntervalsToFailed = %v at a difference twice the size", crossing)
+	}
+}
+
+// TestTheUnitsNeededAreTheOtherBound is the within-interval bound: it reads a
+// rate rather than a series, and it scales the same way.
+func TestTheUnitsNeededAreTheOtherBound(t *testing.T) {
+	coarse := boundary.Boundary{Size: 0.03, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher}
+	fine := coarse
+	fine.Size = 0.01
+	coarseUnits, err := coarse.UnitsToPassed(0.5)
+	if err != nil {
+		t.Fatalf("UnitsToPassed: %v", err)
+	}
+	fineUnits, err := fine.UnitsToPassed(0.5)
+	if err != nil {
+		t.Fatalf("UnitsToPassed: %v", err)
+	}
+	if ratio := fineUnits / coarseUnits; ratio < 8 || ratio > 10 {
+		t.Errorf("a size three times finer cost %v times the units, want about 9", ratio)
+	}
+	if _, err := coarse.UnitsToFailed(0.5, 0.5); !errors.Is(err, boundary.ErrNoCrossing) {
+		t.Errorf("UnitsToFailed at the baseline rate = %v, want ErrNoCrossing", err)
+	}
+}
+
+func TestCoarsestIsTheSizeInForce(t *testing.T) {
+	if got := boundary.Coarsest(0.01, 0.04, 0.02); got != 0.04 {
+		t.Errorf("Coarsest = %v, want the coarsest floor 0.04", got)
+	}
+}
+
+// TestTheConfidenceHoldsOverManyReadings is the rate the authored confidence
+// bounds, simulated: over services where nothing changed, the share of windows
+// that cross against the release stays under one in twenty.
+func TestTheConfidenceHoldsOverManyReadings(t *testing.T) {
+	random := rand.New(rand.NewSource(20260905))
+	const runs, perWindow = 400, 40
 	crossed := 0
-	for range runs {
-		var units, failures int64
-		for range unitsPerRun {
-			units++
-			if random.Float64() < baselineRate {
-				failures++
-			}
-			reading, err := b.Evaluate(boundary.Observed{
-				Units: units, Failures: failures,
-				BaselineUnits: baselineUnits, BaselineFailures: baselineUnits * baselineRate,
+	for run := 0; run < runs; run++ {
+		var o boundary.Observed
+		failedNow := false
+		for i := 0; i < perWindow && !failedNow; i++ {
+			o.Intervals = append(o.Intervals, boundary.Counts{
+				Units: 300, Count: draw(random, 300, 0.05),
+				BaselineUnits: 300, BaselineCount: draw(random, 300, 0.05),
 			})
+			reading, err := theBoundary.Evaluate(o)
 			if err != nil {
 				t.Fatalf("Evaluate: %v", err)
 			}
-			if reading.Harm {
-				crossed++
-				break
-			}
-			if reading.Clean {
-				break
+			if reading.Failed {
+				failedNow = true
 			}
 		}
+		if failedNow {
+			crossed++
+		}
 	}
-
-	// Ville's inequality bounds this at one-minus-confidence over the whole
-	// sequence of reads, however long it is. The allowance above it is the
-	// sampling error of 400 runs and not slack in the bound.
-	share := float64(crossed) / runs
-	if share > 0.05+0.04 {
-		t.Errorf("%d of %d runs at the baseline's own rate crossed toward harm (%.3f), and the bound is 0.05",
-			crossed, runs, share)
+	if rate := float64(crossed) / runs; rate > 0.05 {
+		t.Errorf("%d of %d windows over services where nothing changed crossed against the release (%.3f), above the authored one in twenty",
+			crossed, runs, rate)
 	}
 }
 
-func TestAnUnreadableBoundaryOrCountIsRefused(t *testing.T) {
+func draw(random *rand.Rand, units int64, rate float64) int64 {
+	var count int64
+	for i := int64(0); i < units; i++ {
+		if random.Float64() < rate {
+			count++
+		}
+	}
+	return count
+}
+
+// TestARunLengthIsAConfidenceReadFromTheOtherEnd is the reading that never
+// closes: no last look to spend a rate against, so what is stated is the mean
+// number of intervals between crossings when nothing has changed.
+func TestARunLengthIsAConfidenceReadFromTheOtherEnd(t *testing.T) {
+	b, err := boundary.AtRunLength(0.1, 1000, 3, boundary.WorseHigher)
+	if err != nil {
+		t.Fatalf("AtRunLength: %v", err)
+	}
+	if math.Abs(b.RunLength()-1000) > 1e-9 {
+		t.Errorf("RunLength() = %v, want the thousand it was built from", b.RunLength())
+	}
+	if got, want := b.Crossing(), math.Log(3*1000); math.Abs(got-want) > 1e-9 {
+		t.Errorf("Crossing() = %v, want log(3 x 1000) = %v", got, want)
+	}
+	if _, err := boundary.AtRunLength(0.1, 1, 1, boundary.WorseHigher); !errors.Is(err, boundary.ErrRunLengthTooShort) {
+		t.Errorf("AtRunLength at one observation = %v, want ErrRunLengthTooShort", err)
+	}
+}
+
+func TestValidateRefusesWhatIsNotABoundary(t *testing.T) {
 	for _, refused := range []struct {
 		what string
 		b    boundary.Boundary
 		want error
 	}{
-		{"a size of nothing", boundary.Boundary{Size: 0, Confidence: 0.95}, boundary.ErrSizeOutOfRange},
-		{"a size above one", boundary.Boundary{Size: 1.5, Confidence: 0.95}, boundary.ErrSizeOutOfRange},
-		{"a confidence of one", boundary.Boundary{Size: 0.5, Confidence: 1}, boundary.ErrConfidenceOutOfRange},
-		{"a confidence of nothing", boundary.Boundary{Size: 0.5, Confidence: 0}, boundary.ErrConfidenceOutOfRange},
+		{"a size of nothing", boundary.Boundary{Size: 0, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher}, boundary.ErrSizeOutOfRange},
+		{"a confidence of one", boundary.Boundary{Size: 0.1, Confidence: 1, Comparisons: 1, Worse: boundary.WorseHigher}, boundary.ErrConfidenceOutOfRange},
+		{"no comparison", boundary.Boundary{Size: 0.1, Confidence: 0.95, Comparisons: 0, Worse: boundary.WorseHigher}, boundary.ErrComparisonsNotPositive},
+		{"no direction", boundary.Boundary{Size: 0.1, Confidence: 0.95, Comparisons: 1}, boundary.ErrWorseUnknown},
 	} {
-		if _, err := refused.b.Evaluate(boundary.Observed{}); !errors.Is(err, refused.want) {
-			t.Errorf("Evaluate with %s = %v, want %v", refused.what, err, refused.want)
-		}
-	}
-
-	for _, refused := range []boundary.Observed{
-		{Units: -1},
-		{Units: 10, Failures: 11},
-		{BaselineUnits: 10, BaselineFailures: -1},
-	} {
-		if _, err := theBoundary.Evaluate(refused); !errors.Is(err, boundary.ErrUnitsNegative) {
-			t.Errorf("Evaluate(%+v) = %v, want %v", refused, err, boundary.ErrUnitsNegative)
+		if err := refused.b.Validate(); !errors.Is(err, refused.want) {
+			t.Errorf("Validate with %s = %v, want %v", refused.what, err, refused.want)
 		}
 	}
 }
 
-// TestARegressionTooSmallToNameDriftsTheOtherWay is where the boundary's own
-// indifference lies, and it is not at the alternative. The drift changes sign at
-// the rate where the two hypotheses are equally well supported per unit, which
-// sits between the baseline and the alternative and nearer the baseline — so a
-// regression below it closes the window clean, one above it eventually fails
-// however long that takes, and the size is what says which regressions the
-// window was opened to reach quickly.
-func TestARegressionTooSmallToNameDriftsTheOtherWay(t *testing.T) {
-	const baselineRate = 0.1
-	barely := baselineRate + 0.005 // a real regression, and far below the alternative
-	if _, err := theBoundary.UnitsToHarm(baselineRate, barely); !errors.Is(err, boundary.ErrNoCrossing) {
-		t.Errorf("UnitsToHarm at a regression of a two-hundredth = %v, want %v", err, boundary.ErrNoCrossing)
+func TestCountsThatAreNotCountsAreRefused(t *testing.T) {
+	_, err := theBoundary.Evaluate(boundary.Observed{Intervals: []boundary.Counts{{Units: 10, Count: 11}}})
+	if !errors.Is(err, boundary.ErrCountsNegative) {
+		t.Errorf("Evaluate with more failures than units = %v, want ErrCountsNegative", err)
 	}
-	// Just under the alternative it does drift toward harm, and slowly: the units
-	// it asks for are more than a release at the alternative's own rate needs.
-	near, err := theBoundary.UnitsToHarm(baselineRate, baselineRate+0.08)
-	if err != nil {
-		t.Fatalf("UnitsToHarm just under the alternative: %v", err)
-	}
-	at, err := theBoundary.UnitsToHarm(baselineRate, theBoundary.Alternative(baselineRate))
-	if err != nil {
-		t.Fatalf("UnitsToHarm at the alternative: %v", err)
-	}
-	if near <= at {
-		t.Errorf("a regression of eight hundredths crosses in %v units and one of a tenth in %v, and the smaller one should be slower",
-			near, at)
-	}
-	// And a release running below its baseline never crosses toward harm at all.
-	if _, err := theBoundary.UnitsToHarm(baselineRate, baselineRate/2); !errors.Is(err, boundary.ErrNoCrossing) {
-		t.Errorf("UnitsToHarm below the baseline = %v, want %v", err, boundary.ErrNoCrossing)
+}
+
+func TestTotalsAddAcrossIntervals(t *testing.T) {
+	totals := intervals(3, 100, 0.1, 0.2).Totals()
+	want := boundary.Counts{Units: 300, Count: 30, BaselineUnits: 300, BaselineCount: 60}
+	if totals != want {
+		t.Errorf("Totals = %+v, want %+v", totals, want)
 	}
 }

@@ -4,7 +4,12 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
@@ -12,114 +17,255 @@ import (
 
 var (
 	// ErrFiringIncomplete is returned by [Gate.Fire] for a firing missing
-	// something its row always has. Every row names an item, a build, a service,
-	// and the environment whose threshold decides them; the merge row also names
-	// the artifact version under decision and neither deploy row names one, there
-	// being no artifact under decision at a deploy.
+	// something its row always has, or naming something its row never has.
 	ErrFiringIncomplete = errors.New("gate: the firing is missing something its row always has")
-	// ErrVerdictUnknown is returned for a verdict the row does not offer.
-	ErrVerdictUnknown = errors.New("gate: the row does not offer that verdict")
-	// ErrFeedbackMissing is returned for a reject with no feedback. The action is
-	// "Reject with feedback": the feedback is what goes back up the pipeline, so
-	// a reject without it decides nothing the item's next attempt can use.
-	ErrFeedbackMissing = errors.New("gate: a reject carries feedback")
+	// ErrReasonMissing is returned for a reject or a hold with no reason. The
+	// reason is what goes back up the pipeline, so a reject without it decides
+	// nothing the item's next attempt can use. The log's writer refuses the same
+	// close, which is where the refusal belongs; this one is so that a caller is
+	// told before a transaction is opened.
+	ErrReasonMissing = errors.New("gate: a reject and a hold each carry a reason")
 	// ErrHumanDecides is returned by [Gate.AutoPass] for a firing that put a
-	// human at the row. Nothing in the design removes a human from a gate, so the
-	// factory may not close a decision it was not asked to make.
+	// human at the row. Nothing in the design removes a human from a gate, so
+	// the factory may not close a decision it was not asked to make.
 	ErrHumanDecides = errors.New("gate: this firing put a human at the row, and the factory does not decide over one")
 	// ErrCheckMissing is returned by [Gate.AutoReject] for a rejection that does
-	// not name the check that rejected. A mechanical rejection is only readable
-	// against the check it came from, and one that names none is a reject a human
-	// cannot tell from a verdict.
+	// not name the check that rejected and what it found.
 	ErrCheckMissing = errors.New("gate: a mechanical reject names the check that rejected and what it found")
+	// ErrIntentStops is returned by [Gate.Fire] and [Gate.FireSet] for an item
+	// whose intent is unrefined, re-decomposing, escalated, or dropped. No open
+	// event is appended, so nothing is decided, no attempt is counted, and the
+	// score learns nothing.
+	ErrIntentStops = errors.New("gate: the item's intent stops every component that could move it")
+	// ErrRowPending is returned by [Gate.Fire] where an open event on that row
+	// and that item is already pending. The one exception is the open event Edit
+	// in place appends naming the row it supersedes.
+	ErrRowPending = errors.New("gate: an open event on this row and this item is pending")
+	// ErrIntentStateNotComposed is returned where a firing on an item is asked
+	// of a gate composed with no reader of the intent's state. The state is read
+	// before every such firing, so a gate that cannot read it fires nothing
+	// rather than firing without the read.
+	ErrIntentStateNotComposed = errors.New("gate: this gate has no reader of the intent's state, and a row on an item is not fired without one")
+	// ErrDispatchNotComposed is returned by [Gate.EnforceAttemptLimit] where the
+	// gate holds no dispatch to write the escalation with.
+	ErrDispatchNotComposed = errors.New("gate: this gate has no dispatch, and the escalation is dispatch's write")
 )
 
 // Score is what the gate asks about a change before it fires: the vector, the
-// two halves, and the number. It is an interface so that a test can hold a fake
-// where the real score would read the whole graph; package score is the
-// implementation.
+// two halves, the number, and the sample. It is an interface so that a test can
+// hold a fake where the real score would read the whole graph; package score is
+// the implementation.
 type Score interface {
 	Assess(ctx context.Context, c score.Change) (score.Assessment, error)
 	// HoldOut is whether the score holds this item out of the gate the firing
 	// would otherwise put a human at. It is asked after the policy has answered,
 	// because the question is about a gate the score itself would have gated and
-	// the score does not know the threshold in force.
-	HoldOut(ctx context.Context, itemID string, wouldGate, bySafeguard bool) (score.Selection, error)
+	// the score does not know the threshold in force, and it is handed the rate
+	// in force after every safeguard clamping it. It may pass nothing a
+	// safeguard put a human at and nothing a resolved vector put one at.
+	HoldOut(ctx context.Context, itemID string, rate float64,
+		wouldGate, bySafeguard bool, resolved []score.Resolution) (score.Selection, error)
+	// Version is the score version every decision this gate opens names. It is
+	// asked of the score rather than read off an assessment because three rows
+	// read no factor set at all, and a decision still names the version in
+	// force at its firing.
+	Version() score.Version
 }
 
 // Policy is what the gate asks about the values in force: the threshold for this
-// row, where it came from, whether a safeguard adds a human, and the policy
-// version the firing is decided under. Package policy is the implementation.
+// row, where it came from, whether a safeguard adds a human, the policy version
+// the firing is decided under, the two sample rates, and the attempt limit.
+// Package policy is the implementation.
 type Policy interface {
-	AtGate(ctx context.Context, s policy.Subjects) (policy.Applied, error)
+	AtGate(ctx context.Context, principal record.Actor, s policy.Subjects) (policy.Applied, error)
+	// HeldOutSampleRate is how often the score auto-passes a change it would
+	// have gated, a field of the factory-wide settings record with a safeguard
+	// as a ceiling over it.
+	HeldOutSampleRate(ctx context.Context, s policy.Subjects) (policy.Effective, error)
+	// ReviewSampleRate is how often a change the score would have auto-passed is
+	// put in front of that duty's human anyway. It is per duty, so the subjects
+	// name the duty the row waits on, and a safeguard is a floor under it.
+	ReviewSampleRate(ctx context.Context, s policy.Subjects) (policy.Effective, error)
+	// AttemptLimit is how many attempts one stage gets.
+	AttemptLimit(ctx context.Context, s policy.Subjects) (policy.Effective, error)
+	// ExposureBound is where the exposure factor stops being weighed and puts a
+	// human at the row instead. The score supplies a value for that row and may
+	// not read what an owner authored, so the gate reads it here and hands it to
+	// the score with the change.
+	ExposureBound(ctx context.Context, s policy.Subjects) (policy.Effective, error)
 }
 
-// DriftDetector is what the gate asks about the drift detector's own store when the
-// production deploy row fires: whether a mismatch stands for this service, and
-// what disagrees. It is an interface because that store is not the factory's — no
-// factory component may write it, and a gate that imported the package owning it
-// would be a gate holding a second pool. [NoDriftDetector] is what a factory with
-// none installed is composed with.
-//
-// The design puts this read at the moment the row fires and nowhere else, which
-// is the same rule every other check a gate makes keeps.
+// DriftDetector is what the gate asks about the drift detector's own store when
+// a deploy to production row fires: whether a mismatch stands for this service,
+// and what disagrees. It is an interface because that store is not the factory's
+// — no factory component may write it, and a gate that imported the package
+// owning it would be a gate holding a second pool. [NoDriftDetector] is what a
+// factory with none installed is composed with.
 type DriftDetector interface {
 	// Mismatch is whether an uncleared mismatch stands for the service, and what
 	// disagrees, in words a human reads on the open event.
 	Mismatch(ctx context.Context, serviceID string) (bool, string, error)
 }
 
-// NoDriftDetector is the answer of a factory with no drift detector installed: no
-// mismatch, ever. It is a value rather than a nil interface, so that a factory
-// composed without one says so and a caller cannot forget to check.
+// NoDriftDetector is the answer of a factory with no drift detector installed:
+// no mismatch, ever. It is a value rather than a nil interface, so that a
+// factory composed without one says so and a caller cannot forget to check.
 //
-// What it costs is what the design says installing the drift detector
-// buys: with none installed, every check the factory makes reads a record the
-// factory wrote, so a factory whose records are wrong reports itself healthy
-// and nothing contradicts it. That is visible in what the crude interface
-// prints and nowhere else.
+// What it costs is what the design says installing the drift detector buys:
+// with none installed, every check the factory makes reads a record the factory
+// wrote, so a factory whose records are wrong reports itself healthy and nothing
+// contradicts it.
 type NoDriftDetector struct{}
 
 // Mismatch is never one.
 func (NoDriftDetector) Mismatch(context.Context, string) (bool, string, error) { return false, "", nil }
 
-// decisionFormatVersion is the format version every row of a decision — the
-// open event and the close event, over one item's build or over a set — is
-// appended with. It names [decisionlog.ShapeDecision] through
-// [decisionlog.Formats].
+// IntentState is the read of the state of the intent an item was decomposed
+// from, performed before every firing on that item. It is a function the
+// composition supplies rather than a read this package makes, because what it
+// takes is the item's intent and this package decides events rather than
+// following records from one to the next.
+type IntentState func(ctx context.Context, itemID string) (intent.State, error)
+
+// HumanName resolves a human actor's per-person key to the name the People
+// declaration records for it. The gate needs it for one comparison and no other:
+// the author on an artifact version is the person's name, and the actor on a
+// close event is the per-person key, so the refusal of a close by the version's
+// own author is a comparison across the mapping People keeps outside the chain.
+//
+// It is a function the composition supplies because that mapping is the one part
+// of the declaration deliberately outside the chain, so that an erasure deletes
+// it alone. A nil value compares the key against the author unresolved, which
+// refuses a self-approval only where the two are spelled the same.
+type HumanName func(ctx context.Context, key string) (string, error)
+
+// Notifier is the two calls a gate makes on the component that reaches humans:
+// the acknowledged event of a page a row already fired, and the wait an
+// escalation leaves. It is an interface because the notifier's callers hand it a
+// wait rather than the other way round, so nothing that creates one is imported
+// there.
+type Notifier interface {
+	// Acknowledged is the page's acknowledged event, written where the row that
+	// was acknowledged also pages: one act at Work writes both.
+	Acknowledged(ctx context.Context, openID string, human record.Actor) error
+	// Escalated is the wait an item stopped at the attempt limit leaves, which
+	// is what puts it in Work as an escalation.
+	Escalated(ctx context.Context, itemID string, stage item.Stage, reason string) error
+}
+
+// NoNotifier is what a factory composed with no notifier uses: nothing is
+// delivered. What it costs is that an acknowledgement is a row of the log and
+// nothing else, and an escalation reaches Work through the item's stage alone.
+type NoNotifier struct{}
+
+// Acknowledged delivers nothing.
+func (NoNotifier) Acknowledged(context.Context, string, record.Actor) error { return nil }
+
+// Escalated delivers nothing.
+func (NoNotifier) Escalated(context.Context, string, item.Stage, string) error { return nil }
+
+// decisionFormatVersion is the format version every row of a decision — the open
+// event, the close event, the abandonment and the acknowledgement, over one
+// item's build or over a set — is appended with. It names
+// [decisionlog.ShapeDecision] through [decisionlog.Formats].
 const decisionFormatVersion = "decision/1"
 
-// Gate is the gate component: it appends a decision's two rows through the log's
-// writer, asking the score and the policy before the first.
+// Composition is what a gate is built from. It is a struct rather than ten
+// arguments so that every one is named where the gate is composed, and so that a
+// factory composed without the drift detector, the notifier, or anything
+// computing holds says which of them it is without.
+type Composition struct {
+	Pool   *pgxpool.Pool
+	Token  lease.Token
+	Log    *decisionlog.Writer
+	Score  Score
+	Policy Policy
+	// Holds computes the factory's own holds at a deploy row. A nil value is
+	// [NoHolds].
+	Holds Holds
+	// DriftDetector is the independent store's read. A nil value is
+	// [NoDriftDetector].
+	DriftDetector DriftDetector
+	// IntentState is the read every firing on an item performs first. A nil
+	// value fires no row on an item.
+	IntentState IntentState
+	// HumanName resolves a close event's actor to the name an artifact version
+	// records as its author. A nil value compares the two unresolved.
+	HumanName HumanName
+	// Draw is where the review sample's randomness comes from. A nil value is
+	// [NeverDraw], which is a factory that runs no review sample.
+	Draw Draw
+	// Notifier is what the acknowledgement and the escalation reach a human
+	// through. A nil value is [NoNotifier].
+	Notifier Notifier
+	// Dispatch is the item's writer, which the gate calls to write an escalation
+	// onto an item that exceeded the attempt limit. A nil value refuses that
+	// call with [ErrDispatchNotComposed].
+	Dispatch *item.Dispatch
+}
+
+// Gate is the gate component: it fires a row, asks the score and the policy what
+// applies, and appends the rows of that firing's decision through the log's
+// writer.
 type Gate struct {
+	pool          *pgxpool.Pool
+	token         lease.Token
 	log           *decisionlog.Writer
 	score         Score
 	policy        Policy
+	holds         Holds
 	driftdetector DriftDetector
+	intentState   IntentState
+	humanName     HumanName
+	draw          Draw
+	notifier      Notifier
+	dispatch      *item.Dispatch
 }
 
-// New returns the gate over the log, the score, the policy, and the independent
-// driftdetector's store. A nil driftdetector is [NoDriftDetector]: composing a factory without
-// one is something a caller does deliberately, and a gate that panicked on it
-// would make the drift detector required where the design makes installing
-// it the owner's.
-func New(log *decisionlog.Writer, s Score, p Policy, r DriftDetector) *Gate {
-	if r == nil {
-		r = NoDriftDetector{}
+// New returns the gate over one composition, with the three optional components
+// replaced by the value that says a factory was composed without them.
+func New(c Composition) *Gate {
+	if c.Holds == nil {
+		c.Holds = NoHolds{}
 	}
-	return &Gate{log: log, score: s, policy: p, driftdetector: r}
+	if c.DriftDetector == nil {
+		c.DriftDetector = NoDriftDetector{}
+	}
+	if c.Notifier == nil {
+		c.Notifier = NoNotifier{}
+	}
+	if c.Draw == nil {
+		c.Draw = NeverDraw{}
+	}
+	return &Gate{
+		pool: c.Pool, token: c.Token, log: c.Log,
+		score: c.Score, policy: c.Policy, holds: c.Holds,
+		driftdetector: c.DriftDetector, intentState: c.IntentState,
+		humanName: c.HumanName, draw: c.Draw, notifier: c.Notifier, dispatch: c.Dispatch,
+	}
 }
 
 // Component is the actor an open event is written as, and a close event too
 // where the factory decides for itself: the gate component firing that row.
 //
 // It is exported because a mechanical rejection has a consequence outside this
-// package — the item goes back to a stage — and whatever performs that has to name
-// the same actor the close event does. A caller composing the name itself would be
-// a second place the convention lives.
+// package — the item goes back to a stage — and whatever performs that has to
+// name the same actor the close event does.
 func Component(row Row) record.Actor {
-	return record.Actor{Kind: record.KindComponent, Key: "gate." + string(row)}
+	return record.Actor{Kind: record.KindComponent, Key: "gate." + row.String()}
 }
 
 // component is [Component], for this package's own calls.
 func component(row Row) record.Actor { return Component(row) }
+
+// stops reports whether the intent's state stops every component that could move
+// the item. The four are the design's own list, and refined and delivered are
+// the two that do not stop one.
+func stops(state intent.State) bool {
+	switch state {
+	case intent.StateUnrefined, intent.StateReDecomposing, intent.StateEscalated, intent.StateDropped:
+		return true
+	default:
+		return false
+	}
+}

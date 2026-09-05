@@ -4,9 +4,17 @@
 // passing, so a run that got them wrong would fail somewhere else and say
 // something else.
 //
-// The failed exit, the four window exits, and the rollback itself are demonstrated
-// through the crude interface in cmd/factory, where there is a target to deploy against
-// and a process emitting the quantity. What is here is the arithmetic of the graph.
+// The failed exit, the four window exits, and the rollback itself are
+// demonstrated through the command-line interface in cmd/factory, where there
+// is a target to deploy against and a process emitting the quantity. What is
+// here is the arithmetic of the graph.
+//
+// A silent release arm beside a serving control failing on the request rate is
+// [boundary.TestASilentReleaseArmBesideAServingControlFails]'s, package
+// boundary being the one this package asks that arithmetic of; and a
+// rollback's deploy record naming the failed release apart from the skipped
+// ones, and its dedup against a release named both, are deploy's own — its own
+// database tests are where that writer's rules belong.
 //
 // These tests do not skip when the database is unreachable — the milestone is
 // demonstrated by them running, so an unreachable database fails the run.
@@ -17,7 +25,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -27,14 +34,23 @@ import (
 	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
+	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/targetseam"
 	"github.com/dulguun0225/borg/factory/window"
 )
+
+// errorRate is the one quantity these tests carry a size for: what a window's
+// exit is read against here is the arithmetic of the graph and not the reading
+// itself, so one quantity is enough to satisfy every constraint an open and a
+// close carry.
+const errorRate = gatepolicy.QuantityErrorRate
 
 // The two ids this test names records against. Neither points at a record: an id field
 // is checked for being present and not for pointing at anything, which record's doc.go
@@ -42,6 +58,7 @@ import (
 const (
 	theService     = "svc_underwatch"
 	theEnvironment = "env_production"
+	theTarget      = "/srv/one"
 )
 
 var theActor = record.Actor{Kind: record.KindComponent, Key: "test"}
@@ -54,7 +71,27 @@ type graph struct {
 	deploys  *deploy.Writer
 	windows  *window.Writer
 	items    *item.Decomposition
+	monitor  *healthmonitor.HealthMonitor
 }
+
+// fakeEmission satisfies [healthmonitor.Emission] with nothing behind it: the
+// tests here are the arithmetic over the graph, and none of them evaluates a
+// window's series.
+type fakeEmission struct{}
+
+func (fakeEmission) Read(context.Context, healthmonitor.Reading) (healthmonitor.Series, error) {
+	return healthmonitor.Series{}, nil
+}
+func (fakeEmission) History(context.Context, healthmonitor.History) (healthmonitor.Series, error) {
+	return healthmonitor.Series{}, nil
+}
+func (fakeEmission) FailureRecords(context.Context, healthmonitor.Reading) ([]healthmonitor.FailureRecord, error) {
+	return nil, nil
+}
+func (fakeEmission) Spent(context.Context, string, time.Duration) (healthmonitor.Spend, error) {
+	return healthmonitor.Spend{}, nil
+}
+func (fakeEmission) Shape(context.Context, healthmonitor.Arm) (string, error) { return "", nil }
 
 // newGraph gives a test a schema of its own with the whole factory schema applied.
 func newGraph(t *testing.T) (context.Context, graph) {
@@ -90,13 +127,22 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
 
+	windows := window.NewWriter(pool, token)
+	incidents := incident.NewWriter(pool, token)
+	monitor, err := healthmonitor.New(pool, windows, incidents, nil, nil, nil, nil,
+		fakeEmission{}, nil, nil, nil, healthmonitor.Readings{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
 	return ctx, graph{
 		pool:     pool,
 		builds:   build.NewWriter(pool, token),
 		releases: release.NewWriter(pool, token),
 		deploys:  deploy.NewWriter(pool, token),
-		windows:  window.NewWriter(pool, token),
+		windows:  windows,
 		items:    item.NewDecomposition(pool, token),
+		monitor:  monitor,
 	}
 }
 
@@ -112,13 +158,17 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-// shipOne writes the records one release leaves behind: an item, a build, the release,
-// a completed production deploy of it, and a window over that deploy at the exit named.
-// An empty exit leaves the window open.
+// watching is the service these tests read the graph as.
+var watching = healthmonitor.Watching{ID: theService, Name: "under-watch", EnvironmentID: theEnvironment}
+
+// shipOne writes the records one release leaves behind: an item, a build, the
+// release, a completed production deploy of it, and a window over that deploy
+// at the exit named. An empty exit leaves the window open.
 //
-// It is what a run does, written directly. The point of writing it here rather than
-// running the path is that a test can put the windows in an order a run cannot easily
-// produce, which is exactly the case the rollback's target exists for.
+// It is what a run does, written directly. The point of writing it here rather
+// than running the path is that a test can put the windows in an order a run
+// cannot easily produce, which is exactly the case the rollback's target
+// exists for.
 func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit window.Exit) release.Release {
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
@@ -133,22 +183,36 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
 	}
-	rel, err := g.releases.Mint(ctx, theActor, theService, bl.ID, it.ID)
+	rel, err := g.releases.Mint(ctx, theActor, release.Minting{
+		ServiceID: theService, BuildID: bl.ID, Commit: bl.CommitHash, ItemID: it.ID,
+	})
 	if err != nil {
 		t.Fatalf("minting the release: %v", err)
 	}
-	dep, err := g.deploys.Start(ctx, theActor, theService, theEnvironment, deploy.OfRelease(rel.ID, bl.ID))
+	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
+		ServiceID: theService, EnvironmentID: theEnvironment,
+		What: deploy.OfRelease(rel.ID, bl.ID), Targets: []deploy.Reaching{{Address: theTarget, KeptInstances: 1}},
+	})
 	if err != nil {
 		t.Fatalf("starting the deploy: %v", err)
+	}
+	if err := g.deploys.ReachTarget(ctx, dep.ID, theTarget); err != nil {
+		t.Fatalf("reaching the target: %v", err)
+	}
+	if err := g.deploys.CompleteTarget(ctx, dep.ID, theTarget, targetseam.ReplacementDrained); err != nil {
+		t.Fatalf("completing the target: %v", err)
 	}
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
 	w, err := g.windows.Open(ctx, healthmonitor.Actor, window.OpenEvent{
-		DeployID: dep.ID, ReleaseID: rel.ID, ServiceID: theService,
+		DeployID: dep.ID, ReleaseID: rel.ID, BuildID: bl.ID, ServiceID: theService,
 		PassedAvailable: rel.Number > 1,
-		Size:            0.1, Confidence: 0.95, CapSeconds: 60,
-		Formula: boundary.Formula, PolicyVersion: "pv_test", ScoreVersion: "scv_test",
+		Size:            map[gatepolicy.Quantity]float64{errorRate: 0.1},
+		Power:           map[gatepolicy.Quantity]float64{errorRate: 0.8},
+		Confidence:      0.95, CapSeconds: 60,
+		BoundaryVersion: boundary.Version, Targets: []string{theTarget},
+		EmissionVersionRelease: "emission/1", PolicyVersion: "pv_test", ScoreVersion: "scv_test",
 	})
 	if err != nil {
 		t.Fatalf("opening the window: %v", err)
@@ -162,10 +226,11 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 }
 
 // TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt is the whole of what a
-// rollback returns to. It descends past harm, past swept, and past any window still
-// open, and it descends from the release being rolled back rather than from the top —
-// stated per service alone the query would return a release above the failed one and
-// the factory would restore the change it had just failed.
+// rollback returns to. It descends past failed, past skipped, and past any
+// window still open, and it descends from the release being rolled back rather
+// than from the top — stated per service alone the query would return a
+// release above the failed one and the factory would restore the change it had
+// just failed.
 func TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt(t *testing.T) {
 	ctx, g := newGraph(t)
 
@@ -178,19 +243,19 @@ func TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt(t *testing.T) {
 
 	// A rollback of the topmost release returns to the newest one below it that
 	// counts, which is the passed close and not the failed one above it or the open one.
-	target, found, err := healthmonitor.TargetBelow(ctx, g.pool, theService, five.Number)
+	target, found, err := g.monitor.TargetBelow(ctx, watching, five.Number)
 	if err != nil || !found {
 		t.Fatalf("TargetBelow(%d) = found %v, %v", five.Number, found, err)
 	}
 	if target.ID != two.ID {
-		t.Errorf("a rollback of release %d returns to %d, want %d — it descends past harm and past swept",
+		t.Errorf("a rollback of release %d returns to %d, want %d — it descends past failed and past skipped",
 			five.Number, target.Number, two.Number)
 	}
 
-	// Asked below the clean one, it descends to the cap: closing at the cap counts,
+	// Asked below the passed one, it descends to the cap: closing at the cap counts,
 	// because a release that was never failed is one the factory can return to and
 	// requiring a passed close would leave a quiet service with no target at all.
-	target, found, err = healthmonitor.TargetBelow(ctx, g.pool, theService, two.Number)
+	target, found, err = g.monitor.TargetBelow(ctx, watching, two.Number)
 	if err != nil || !found {
 		t.Fatalf("TargetBelow(%d) = found %v, %v", two.Number, found, err)
 	}
@@ -200,13 +265,13 @@ func TestTheTargetIsTheNewestReleaseBelowWhoseWindowCountsIt(t *testing.T) {
 
 	// A service's first release has no target at all: nothing below it closed without
 	// failing it, and there is no earlier build to redeploy.
-	if _, found, err := healthmonitor.TargetBelow(ctx, g.pool, theService, one.Number); err != nil || found {
+	if _, found, err := g.monitor.TargetBelow(ctx, watching, one.Number); err != nil || found {
 		t.Errorf("TargetBelow(%d) = found %v, %v; a first release has no target", one.Number, found, err)
 	}
 
-	// The releases a rollback of the clean one sweeps: every release above it, whatever
-	// its own window closed at. Master is linear, so returning to a target below them
-	// undoes all of them and that is not a choice.
+	// The releases a rollback of the passed one undoes: every release above it,
+	// whatever its own window closed at. Master is linear, so returning to a
+	// target below them undoes all of them and that is not a choice.
 	above, err := release.Above(ctx, g.pool, theService, two.Number)
 	if err != nil {
 		t.Fatalf("Above: %v", err)
@@ -236,7 +301,7 @@ func TestAWindowThatFailedToCloseLeavesTheTargetOlderThanItShouldBe(t *testing.T
 	two := shipOne(t, ctx, g, "in_2", "") // a window nothing closed
 	three := shipOne(t, ctx, g, "in_3", "")
 
-	target, found, err := healthmonitor.TargetBelow(ctx, g.pool, theService, three.Number)
+	target, found, err := g.monitor.TargetBelow(ctx, watching, three.Number)
 	if err != nil || !found {
 		t.Fatalf("TargetBelow = found %v, %v", found, err)
 	}
@@ -291,7 +356,9 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
 	}
-	rel, err := g.releases.Mint(ctx, theActor, theService, bl.ID, it.ID)
+	rel, err := g.releases.Mint(ctx, theActor, release.Minting{
+		ServiceID: theService, BuildID: bl.ID, Commit: bl.CommitHash, ItemID: it.ID,
+	})
 	if err != nil {
 		t.Fatalf("minting the release: %v", err)
 	}
@@ -301,7 +368,10 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 
 	// A deploy started and not completed: still not shipped, which is the same rule
 	// current release keeps.
-	dep, err := g.deploys.Start(ctx, theActor, theService, theEnvironment, deploy.OfRelease(rel.ID, bl.ID))
+	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
+		ServiceID: theService, EnvironmentID: theEnvironment,
+		What: deploy.OfRelease(rel.ID, bl.ID), Targets: []deploy.Reaching{{Address: theTarget, KeptInstances: 1}},
+	})
 	if err != nil {
 		t.Fatalf("starting the deploy: %v", err)
 	}
@@ -309,6 +379,12 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 		t.Errorf("Shipped for a deploy that has not completed = %v, %v", shipped, err)
 	}
 
+	if err := g.deploys.ReachTarget(ctx, dep.ID, theTarget); err != nil {
+		t.Fatalf("reaching the target: %v", err)
+	}
+	if err := g.deploys.CompleteTarget(ctx, dep.ID, theTarget, targetseam.ReplacementDrained); err != nil {
+		t.Fatalf("completing the target: %v", err)
+	}
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
@@ -330,114 +406,22 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	_ = second
 }
 
-// TestARollbackNamesTheFailedReleaseApartFromTheSkipped is why the two are separate
-// fields: one failed release is one revert item, and the swept ones were never
-// failed — their code is still on master and the revert redelivers them.
-func TestARollbackNamesTheFailedReleaseApartFromTheSkipped(t *testing.T) {
-	ctx, g := newGraph(t)
-
-	one := shipOne(t, ctx, g, "in_1", window.ExitTimedOut)
-	two := shipOne(t, ctx, g, "in_2", window.ExitFailed)
-	three := shipOne(t, ctx, g, "in_3", window.ExitSkipped)
-
-	rollback, err := g.deploys.StartUndoing(ctx, theActor, theService, theEnvironment,
-		deploy.OfRelease(one.ID, one.BuildID), deploy.Undoing{
-			FailedReleaseID: two.ID,
-			SweptReleaseIDs: []string{three.ID},
-			Source:          deploy.SourceHealthMonitorAtFailed,
-			RevertIntentID:  "in_revert",
-		})
-	if err != nil {
-		t.Fatalf("StartUndoing: %v", err)
-	}
-	if err := g.deploys.Complete(ctx, rollback.ID); err != nil {
-		t.Fatalf("completing the rollback: %v", err)
-	}
-
-	read, found, err := deploy.NewestRollback(ctx, g.pool, theService, theEnvironment)
-	if err != nil || !found {
-		t.Fatalf("NewestRollback = found %v, %v", found, err)
-	}
-	if read.ID != rollback.ID {
-		t.Errorf("the newest rollback is %s, want %s", read.ID, rollback.ID)
-	}
-	if !read.Undoing.Any() {
-		t.Error("the rollback's record does not read as a rollback's, and the failed release is what says so")
-	}
-	if read.Undoing.FailedReleaseID != two.ID {
-		t.Errorf("it failed %s, want %s", read.Undoing.FailedReleaseID, two.ID)
-	}
-	if len(read.Undoing.SweptReleaseIDs) != 1 || read.Undoing.SweptReleaseIDs[0] != three.ID {
-		t.Errorf("it swept %v, want the one release above the failed one", read.Undoing.SweptReleaseIDs)
-	}
-	if read.Undoing.RevertIntentID != "in_revert" {
-		t.Errorf("it names revert intent %q", read.Undoing.RevertIntentID)
-	}
-
-	// One release cannot be both. The two are apart so the revert rule can name one,
-	// and a rollback saying otherwise is refused where it is written.
-	if _, err := g.deploys.StartUndoing(ctx, theActor, theService, theEnvironment,
-		deploy.OfRelease(one.ID, one.BuildID), deploy.Undoing{
-			FailedReleaseID: two.ID, SweptReleaseIDs: []string{two.ID},
-			Source: deploy.SourceHealthMonitorAtFailed,
-		}); err == nil {
-		t.Error("a rollback naming one release as both failed and swept was written")
-	}
-	// And an ordinary deploy is not a rollback's record: it names neither.
-	ordinary, err := g.deploys.Start(ctx, theActor, theService, theEnvironment, deploy.OfRelease(one.ID, one.BuildID))
-	if err != nil {
-		t.Fatalf("starting an ordinary deploy: %v", err)
-	}
-	if ordinary.Undoing.Any() {
-		t.Errorf("an ordinary deploy reads as a rollback's: %+v", ordinary.Undoing)
-	}
-	// The source is what a rollback carries beside its actor, and the actor stays the
-	// agent that performed it.
-	if read.Actor != theActor {
-		t.Errorf("the rollback's actor is %+v, and the source is what says who called for it", read.Actor)
-	}
-	if read.Undoing.Source != deploy.SourceHealthMonitorAtFailed {
-		t.Errorf("the rollback's source is %q", read.Undoing.Source)
-	}
-	human := deploy.SourceOfHuman("ada", "the dashboards look wrong")
-	if !strings.Contains(human, "ada") || !strings.Contains(human, "the dashboards look wrong") {
-		t.Errorf("a human's source reads %q, and it names them and their reason", human)
-	}
-}
-
-// TestASignalWithNothingToReadLeavesTheWindowOpen is what a release just deployed
-// looks like, and what an implementation that emits nothing looks like too: no units,
-// so neither exit is reachable and the cap is what ends the window. Nothing here can
-// tell the two apart.
-func TestASignalWithNothingToReadLeavesTheWindowOpen(t *testing.T) {
-	b := boundary.Boundary{Size: 0.1, Confidence: 0.95}
-	reading, err := b.Evaluate(boundary.Observed{BaselineUnits: 1000, BaselineFailures: 1})
-	if err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	if reading.Harm || reading.Clean {
-		t.Errorf("harm=%v clean=%v with nothing emitted yet", reading.Harm, reading.Clean)
-	}
-	if reading.Unavailable != "" {
-		t.Errorf("the reading is unavailable (%s), and the baseline is there — it is the release that has said nothing",
-			reading.Unavailable)
-	}
-}
-
 // closedOn is the read a test closes a window on: a pair of counts with a
-// baseline in it, which is what an exit other than swept always has. The numbers
-// are not what any of these tests assert over — what they assert is the exit —
-// but a close with no read is refused, and rightly: an exit nobody can recompute
-// is one nobody can argue with.
-func closedOn() boundary.Observed {
-	return boundary.Observed{Units: 200, Failures: 2, BaselineUnits: 200, BaselineFailures: 2}
+// baseline in it, which is what an exit other than skipped always has. The
+// numbers are not what any of these tests assert over — what they assert is
+// the exit — but a close with no read is refused, and rightly: an exit nobody
+// can recompute is one nobody can argue with.
+func closedOn() window.Read {
+	return window.Read{Quantities: map[gatepolicy.Quantity]boundary.Counts{
+		errorRate: {Units: 200, Count: 2, BaselineUnits: 200, BaselineCount: 2},
+	}}
 }
 
-// readFor is [closedOn] for every exit but swept, which takes none. A loop closing
-// windows at each of the four exits needs the read to follow the exit.
-func readFor(exit window.Exit) boundary.Observed {
+// readFor is [closedOn] for every exit but skipped, which takes none. A loop
+// closing windows at each of the four exits needs the read to follow the exit.
+func readFor(exit window.Exit) window.Closing {
 	if exit == window.ExitSkipped {
-		return boundary.Observed{}
+		return window.Closing{}
 	}
-	return closedOn()
+	return window.Closing{On: closedOn()}
 }

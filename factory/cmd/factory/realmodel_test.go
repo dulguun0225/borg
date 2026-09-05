@@ -126,7 +126,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loading %s: %v", realModelSecrets, err)
 	}
-	value, err := resolver.Resolve(secretref.MustNew(credentialName))
+	value, err := resolver.Resolve(deployerPrincipal, secretref.MustNew(credentialName))
 	if err != nil {
 		t.Fatalf("resolving %s from %s: %v", credentialName, realModelSecrets, err)
 	}
@@ -208,7 +208,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	}
 
 	// The deploy completed, and the target is running what it put there.
-	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID)
+	current, found, err := deploy.Current(ctx, d.pool, res.serviceID, res.environmentID, []string{d.dir})
 	if err != nil {
 		t.Fatalf("reading the current deploy: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		t.Errorf("the current deploy is %q found=%t status=%s, the path deployed %s and completes it",
 			current.ID, found, current.Status, c.deployID)
 	}
-	running, err := d.targets.at(d.dir).ReadRunning(ctx, theService, d.credential)
+	running, err := d.targets.at(d.dir).ReadRunning(ctx, deployerPrincipal, theService, d.credential)
 	if err != nil {
 		t.Fatalf("reading what the target runs: %v", err)
 	}
@@ -253,9 +253,9 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		{"merge to master", c.mergeGate},
 		{"deploy to production", c.deployGate},
 	} {
-		t.Logf("%s: number %.3f against threshold %.3f (%s), human %v (%s)",
+		t.Logf("%s: number %.3f against threshold %.3f (%s), human %v (%v)",
 			fired.row, fired.got.number, fired.got.threshold, fired.got.thresholdFrom,
-			fired.got.humanDecided, fired.got.whyHuman)
+			fired.got.humanDecided, fired.got.marks)
 		if !fired.got.humanDecided {
 			t.Errorf("%s auto-passed a service's first release at %.3f against %.3f",
 				fired.row, fired.got.number, fired.got.threshold)
@@ -299,7 +299,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 
 	// The walk reaches the statement from the deploy, over a clean chain.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), c.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), c.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), realModelStatement) {

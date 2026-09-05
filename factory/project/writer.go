@@ -34,7 +34,9 @@ type Writer struct {
 }
 
 // NewWriter returns the writer over pool, fencing every write with token.
-func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{pool: pool, token: token} }
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Create writes a project in a transaction of its own. The write that creates a
 // project writes production's environment in the same event, and that

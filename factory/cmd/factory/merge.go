@@ -34,17 +34,21 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
+	reached, err := p.exposureOf(ctx, c.buildID)
+	if err != nil {
+		return err
+	}
 	opened, err := p.gate.Fire(ctx, gate.Firing{
 		Row:             gate.MergeToMaster,
 		ItemID:          c.itemID,
 		BuildID:         c.buildID,
-		ArtifactID:      c.implArtifactID,
 		ServiceID:       c.svc.ID,
 		AreaID:          p.areaID,
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(c.criteria),
 		Criteria:        c.criteria,
 		Measurement:     c.measurement,
+		Exposure:        reached,
 	})
 	if err != nil {
 		return err
@@ -65,7 +69,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		}
 		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, checked.Why())
 		fmt.Fprintf(p.d.out, "  close event %s written as %s; item %s goes back to %s with an attempt counted there\n",
-			closing.ID, closing.Actor.Key, c.itemID, gate.ReturnsTo)
+			closing.ID, closing.Actor.Key, c.itemID, item.StageImplementation)
 		return nil
 	}
 
@@ -80,7 +84,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there, and keeps its environment\n",
-			feedback, c.itemID, gate.ReturnsTo)
+			feedback, c.itemID, item.StageImplementation)
 		return nil
 	}
 
@@ -124,7 +128,7 @@ func (p *path) enforceContracts(ctx context.Context, c *candidate, buildID strin
 // what it declares of others, who consumes it, and what still names an element it
 // breaks.
 func reportContracts(out io.Writer, checked contractcheck.Checked) {
-	if len(checked.Publishes) == 0 && len(checked.Declares) == 0 {
+	if len(checked.Publishes) == 0 && len(checked.Declares.Drafts) == 0 {
 		fmt.Fprintln(out, "  this build publishes no contract and declares nothing of another service")
 		return
 	}
@@ -151,7 +155,10 @@ func reportContracts(out io.Writer, checked contractcheck.Checked) {
 			}
 		}
 	}
-	for _, declared := range checked.Declares {
+	if checked.Declares.CouldNotDerive() || checked.Declares.Partial() {
+		fmt.Fprintf(out, "  the derivation of what it declares is %s\n", checked.Declares.Describe())
+	}
+	for _, declared := range checked.Declares.Drafts {
 		fmt.Fprintf(out, "  it declares %s on %s.%s.%s\n",
 			declared.Kind, declared.ProducerService, declared.Interface, declared.Element)
 	}

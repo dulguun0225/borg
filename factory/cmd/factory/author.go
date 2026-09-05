@@ -8,6 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
@@ -26,7 +27,7 @@ import (
 //
 // [item.Dispatch.Advance] counts the item's own attempt at entering
 // implementation_plan, tasks and implementation in turn: this milestone's
-// crude interface authors nothing at the first two, so they are passed
+// command-line interface authors nothing at the first two, so they are passed
 // through rather than skipped, the stage order admitting no other way there.
 func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refined) error {
 	d := p.d
@@ -106,7 +107,7 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	if err != nil {
 		return err
 	}
-	inForce, err := p.inForceFor(ctx, c.svc, c.itemID)
+	inForce, err := p.inForceFor(ctx, c.svc, []string{c.itemID})
 	if err != nil {
 		return err
 	}
@@ -215,38 +216,50 @@ func (p *path) consumerContractStage(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	drafts, err := consumercontract.Derive(c.svc.Repository, allowed.List)
+	derived, err := p.declaresIn(ctx, c.svc.Repository, allowed.List)
 	if err != nil {
 		return err
 	}
-	if len(drafts) == 0 {
+	// A build that declares nothing and derived completely submits no version.
+	// A run that could not derive, or one that met a construct it could not
+	// follow, submits one whatever it found: "no consumer reads this" and "no
+	// consumer's read was visible" call for opposite responses, and the record
+	// is where the two are told apart.
+	if len(derived.Drafts) == 0 && !derived.CouldNotDerive() && !derived.Partial() {
 		return nil
 	}
-	// The producer's name resolved to a record, where there is one. A consumer may
-	// declare against an interface no release has published yet, and the empty id is
-	// that answer: the consumer contract still says which service the build named.
-	said := make([]string, 0, len(drafts))
-	for n := range drafts {
-		producer, found, err := service.ByName(ctx, p.d.pool, drafts[n].ProducerService)
-		if err != nil {
-			return err
-		}
-		if found {
-			drafts[n].ProducerServiceID = producer.ID
-		}
-		said = append(said, fmt.Sprintf("%s.%s.%s %s", drafts[n].ProducerService,
-			drafts[n].Interface, drafts[n].Element, drafts[n].Kind))
+	said := make([]string, 0, len(derived.Drafts))
+	for _, draft := range derived.Drafts {
+		said = append(said, fmt.Sprintf("%s.%s.%s %s", draft.ProducerService,
+			draft.Interface, draft.Element, draft.Kind))
 	}
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: p.d.modelName}
-	art, written, err := p.store.SubmitConsumerContract(ctx, p.implementerActor(), by, c.itemID, c.svc.ID,
-		fmt.Sprintf("%d predicate(s) derived from the build of item %s", len(drafts), c.itemID), drafts)
+	art, derivation, written, err := p.store.SubmitConsumerContract(ctx, p.implementerActor(), by,
+		c.itemID, c.svc.ID,
+		fmt.Sprintf("%d predicate(s) derived from the build of item %s", len(derived.Drafts), c.itemID),
+		derived)
 	if err != nil {
 		return err
 	}
 	c.consumerContractArtifactID = art.ID
 	fmt.Fprintf(p.d.out, "Consumer contract %s derived from the build: %d predicate(s) — %v\n",
 		art.ID, len(written), said)
+	fmt.Fprintf(p.d.out, "  the derivation is %s\n", derivation.Describe())
 	return nil
+}
+
+// DeclaresSchemaChange is [contractcheck.Checkout]: whether the candidate's
+// build declares a schema change, read off the build record the build runner
+// wrote it on. It is a reading of the checkout, taken where the repository was
+// and recorded rather than re-taken here — the build's own process is what
+// declared it, and a re-reading later would be over a repository other items
+// have merged into.
+func (p *path) DeclaresSchemaChange(ctx context.Context, c contractcheck.Candidate) (bool, error) {
+	bl, err := build.Get(ctx, p.d.pool, c.BuildID)
+	if err != nil {
+		return false, err
+	}
+	return bl.DeclaresSchemaChange, nil
 }
 
 // Publishes is [contractcheck.Checkout]: what the candidate's build publishes, read
@@ -260,27 +273,42 @@ func (p *path) Publishes(ctx context.Context, c contractcheck.Candidate) ([]cont
 	return contract.Derive(repo)
 }
 
-// Declares is [contractcheck.Checkout]: what the candidate's build declares about
-// what it reads, drawn from the allowed predicate kinds in force.
-func (p *path) Declares(ctx context.Context, c contractcheck.Candidate, allowed []string) ([]consumercontract.Draft, error) {
+// Declares is [contractcheck.Checkout]: what the extractor made of the
+// candidate's build — the predicates it found, the constructs it could not
+// follow, or the cause it could not derive at all — drawn from the allowed
+// predicate kinds in force.
+func (p *path) Declares(ctx context.Context, c contractcheck.Candidate, allowed []string) (consumercontract.Derived, error) {
 	repo, err := p.repoOfItem(ctx, c)
 	if err != nil {
-		return nil, err
+		return consumercontract.Derived{}, err
 	}
-	drafts, err := consumercontract.Derive(repo, allowed)
+	return p.declaresIn(ctx, repo, allowed)
+}
+
+// declaresIn is one run of the extractor over one checkout, with each producer's
+// name resolved to its record where there is one. A consumer may declare against
+// an interface no release has published yet, and the empty id is that answer: the
+// consumer contract still says which service the build named.
+//
+// It is the one place the extractor is named, so the version the implementation
+// stage submits and the version enforcement reads are derived by the same
+// extractor at the same factory version — which is what makes a re-derivation
+// after an upgrade a comparison and not a guess.
+func (p *path) declaresIn(ctx context.Context, repo string, allowed []string) (consumercontract.Derived, error) {
+	derived, err := consumercontract.Derive(repo, allowed, consumercontract.GoExtractor(factoryVersion))
 	if err != nil {
-		return nil, err
+		return consumercontract.Derived{}, err
 	}
-	for n := range drafts {
-		producer, found, err := service.ByName(ctx, p.d.pool, drafts[n].ProducerService)
+	for n := range derived.Drafts {
+		producer, found, err := service.ByName(ctx, p.d.pool, derived.Drafts[n].ProducerService)
 		if err != nil {
-			return nil, err
+			return consumercontract.Derived{}, err
 		}
 		if found {
-			drafts[n].ProducerServiceID = producer.ID
+			derived.Drafts[n].ProducerServiceID = producer.ID
 		}
 	}
-	return drafts, nil
+	return derived, nil
 }
 
 // repoOfItem is the repository a candidate's checkout is in, which is the service

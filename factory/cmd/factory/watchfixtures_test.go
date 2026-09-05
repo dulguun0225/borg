@@ -18,6 +18,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
+	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/window"
@@ -40,7 +41,7 @@ func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.B
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	d.model = interviewed(2)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
@@ -59,7 +60,15 @@ func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.B
 	if err != nil || !found {
 		t.Fatalf("NewestRollback = found %v, %v", found, err)
 	}
-	revert, err := intent.Get(ctx, d.pool, rollback.Undoing.RevertIntentID)
+	// The rollback's deploy record names the release it failed and not the intent
+	// the crossing raised: that intent is on the incident the health monitor
+	// raised at the same crossing, and the failed release is the link between the
+	// two — the same walk the production deploy row's own hold makes.
+	open, found, err := incident.Open(ctx, d.pool, res.serviceID, rollback.Undoing.FailedReleaseID)
+	if err != nil || !found {
+		t.Fatalf("incident.Open over the failed release = found %v, %v", found, err)
+	}
+	revert, err := intent.Get(ctx, d.pool, open.IntentID)
 	if err != nil {
 		t.Fatalf("reading the revert intent: %v", err)
 	}

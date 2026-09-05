@@ -2,43 +2,72 @@ package score
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
 
-	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
-	"github.com/dulguun0225/borg/factory/decisionlog"
-	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
-	"github.com/dulguun0225/borg/factory/window"
 )
 
 // reading is one factor as it was read: the level, the quantity in words, and
-// the reason the score could not compute it.
+// what resolved it where something did. unavailable is the factor the score
+// could not compute; resolved is a value the design resolves rather than weighs,
+// with the cause it names.
 type reading struct {
 	level       float64
 	words       string
 	unavailable string
+	resolved    string
+	cause       Cause
+	// evidence is the exposure list, and empty on every other factor.
+	evidence []string
+	// width, closes, claimed and verified are the per-author prior's, and are
+	// nothing on every other factor.
+	width    float64
+	closes   int
+	claimed  int
+	verified int
 }
 
+// size reads the change under decision: the lines the diff changes, or at
+// Decomposition the count of the intent's requirements the proposed set answers,
+// which is the unit the item-size target is authored in. A proposed set is never
+// unavailable — the set exists and was read — which is what keeps the four rows
+// above a build from resolving on a diff that was never going to be there.
 func (s *Score) size(_ context.Context, c Change) (reading, error) {
-	if c.Measurement.Unavailable != "" {
-		return reading{unavailable: c.Measurement.Unavailable}, nil
+	m := c.Measurement
+	if m.FromProposedSet() {
+		return reading{
+			level: level(float64(m.RequirementsProposed), requirementsBreakpoints, 1.0),
+			words: fmt.Sprintf("%d requirement(s) answered by the set decomposition proposed", m.RequirementsProposed),
+		}, nil
 	}
-	lines := c.Measurement.LinesChanged
+	if m.Unavailable != "" {
+		return reading{unavailable: m.Unavailable}, nil
+	}
 	return reading{
-		level: level(float64(lines), sizeBreakpoints, 1.0),
-		words: fmt.Sprintf("%d lines changed", lines),
+		level: level(float64(m.LinesChanged), sizeBreakpoints, 1.0),
+		words: fmt.Sprintf("%d lines changed", m.LinesChanged),
 	}, nil
 }
 
+// reach reads how much of the system the change can affect: the share of the
+// service's files the diff touches, or at Decomposition the services the
+// proposed set spans.
 func (s *Score) reach(_ context.Context, c Change) (reading, error) {
 	m := c.Measurement
+	if m.FromProposedSet() {
+		return reading{
+			level: level(float64(m.ServicesProposed), consumersBreakpoints, 1.0),
+			words: fmt.Sprintf("%d service(s) the set decomposition proposed spans", m.ServicesProposed),
+		}, nil
+	}
 	if m.Unavailable != "" {
 		return reading{unavailable: m.Unavailable}, nil
 	}
@@ -49,25 +78,6 @@ func (s *Score) reach(_ context.Context, c Change) (reading, error) {
 	return reading{
 		level: level(share, reachBreakpoints, 1.0),
 		words: fmt.Sprintf("%d of the service's %d files", m.FilesChanged, m.FilesInTree),
-	}, nil
-}
-
-// coverage reads the criteria that decided the build. Coverage in the sense of
-// lines executed is measured by nothing in the factory, so what this factor
-// reads is how many criteria decided this build and whether any of them failed,
-// which is the protection the factory actually has. A failed criterion is the
-// top of the scale on its own: the gate above is what rejects it, and a number
-// that read low on a failing build would be the score disagreeing with a run.
-func (s *Score) coverage(_ context.Context, c Change) (reading, error) {
-	if c.CriteriaFailed > 0 {
-		return reading{
-			level: 1.0,
-			words: fmt.Sprintf("%d of %d criteria failed against this build", c.CriteriaFailed, c.CriteriaInForce),
-		}, nil
-	}
-	return reading{
-		level: level(float64(c.CriteriaInForce), criteriaBreakpoints, 0.1),
-		words: fmt.Sprintf("%d criteria in force decided this build and all passed", c.CriteriaInForce),
 	}, nil
 }
 
@@ -94,10 +104,17 @@ func (s *Score) churn(ctx context.Context, c Change) (reading, error) {
 }
 
 // reversibility reads whether the service has a release to return to, this
-// item's own excluded. A first release has none, which is what the design says
-// of one: no control, nothing able to close a window passed, and no rollback
-// target.
+// item's own excluded, and resolves where the diff destroys stored data. A first
+// release has none, which is what the design says of one: no control, nothing
+// able to close a window passed, and no rollback target.
 func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
+	if c.Measurement.DestroysStoredData && c.AtImplementation {
+		return reading{
+			resolved: "the diff destroys stored data, so a human decides at Implementation with the diff in front of them",
+			cause:    CauseDestroysStoredData,
+			words:    "the diff destroys stored data",
+		}, nil
+	}
 	earlier, err := release.CountForService(ctx, s.pool, c.ServiceID, c.ItemID)
 	if err != nil {
 		return reading{}, err
@@ -107,166 +124,85 @@ func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 	}
 	return reading{
 		level: 0.3,
-		words: fmt.Sprintf("%d earlier releases of this service, none of them watched", earlier),
+		words: fmt.Sprintf("%d earlier releases of this service", earlier),
 	}, nil
 }
 
-// prior reads every outcome on the author's own work. The author is the one that
-// wrote the implementation version the build was made from, and the prior is kept
-// per model version and not per family or per role, so two agents on one model
-// version share it and a fleet entry moved to a newer version starts its evidence
-// over.
-//
-// Three kinds of outcome, and the design says all three move it: a human's
-// verdict on a version that author wrote, a analysis window closing over a release of
-// an item that author wrote, and a human undoing one of those releases after it
-// shipped. A window closing without failing the release counts for the author
-// and one that fails it counts against — which is what "every outcome on that
-// author's artifact moves it, a window closing without failing the release
-// included" asks for, and it is what lets a prior
-// narrow on a factory that has stopped putting humans at gates.
-//
-// A swept window is not counted either way: a rollback aimed below the release
-// undid it, so its health monitor stopped before it decided anything. An undo is
-// counted whatever reason the human gave — the restriction to evidence traceable
-// to the health monitor is the analysis window's parameters' rule and not this one's,
-// because building the wrong thing well says something about the author and
-// nothing about the health monitor.
-//
-// It reads two rows per item the author wrote, on top of the whole log. That is
-// what an outcome-based prior costs while the store is small, and it is the same
-// cost, one level up, that reading the whole log for one author's verdicts already
-// carries.
-func (s *Score) prior(ctx context.Context, c Change) (reading, error) {
-	implementation, found, err := artifact.NewestOfKind(ctx, s.pool, c.ItemID, artifact.KindImplementation)
-	if err != nil {
-		return reading{}, err
-	}
-	if !found || implementation.Author == "" {
-		return reading{unavailable: "the item has no implementation version naming an author, so there is no author to hold a prior on"}, nil
-	}
-	authored, err := artifact.IDsByAuthor(ctx, s.pool, implementation.Author)
-	if err != nil {
-		return reading{}, err
-	}
-	approved, rejected, err := s.humanVerdicts(ctx, func(opening OpenEvent) bool {
-		return contains(authored, opening.ArtifactID)
-	})
-	if err != nil {
-		return reading{}, err
-	}
-
-	shipped, failed, undone, err := s.outcomesOfAuthor(ctx, implementation.Author)
-	if err != nil {
-		return reading{}, err
-	}
-	return reading{
-		level: evidenceLevel(approved+shipped, rejected+failed+undone),
-		words: fmt.Sprintf("%s: %d human approval(s) and %d rejection(s) on its own versions, %d release(s) watched without being failed, %d failed by a window, %d undone by a human",
-			implementation.Author, approved, rejected, shipped, failed, undone),
-	}, nil
-}
-
-// outcomesOfAuthor is what became of the releases of the items this author wrote a
-// version of: how many were watched to a close without being failed, how many a window
-// failed, and how many a human undid.
-//
-// A release is counted once at most. A release failed by its own window is
-// usually also the release a rollback undid, and counting both would be one
-// outcome told twice — so an undo is counted only where the window did not
-// already fail it, which is the case the design means: a human undoing
-// something the health monitor did not catch.
-func (s *Score) outcomesOfAuthor(ctx context.Context, author string) (shipped, failed, undone int, err error) {
-	items, err := artifact.ItemsByAuthor(ctx, s.pool, author)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	if len(items) == 0 {
-		return 0, 0, 0, nil
-	}
-
-	rollbacks, err := deploy.Rollbacks(ctx, s.pool)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	undoneRelease := map[string]bool{}
-	for _, d := range rollbacks {
-		if d.Undoing.Source != deploy.SourceHealthMonitorAtFailed {
-			undoneRelease[d.Undoing.FailedReleaseID] = true
-		}
-	}
-
-	for _, itemID := range items {
-		rel, released, err := release.ForItem(ctx, s.pool, itemID)
-		if err != nil {
-			return 0, 0, 0, err
-		}
-		if !released {
-			continue
-		}
-		w, watched, err := window.ForRelease(ctx, s.pool, rel.ID)
-		if err != nil {
-			return 0, 0, 0, err
-		}
-		switch {
-		case watched && w.Exit == window.ExitFailed:
-			failed++
-		case undoneRelease[rel.ID]:
-			undone++
-		case watched && w.Exit.Counts():
-			shipped++
-		}
-	}
-	return shipped, failed, undone, nil
-}
-
-// businessArea reads the human verdicts on items in the same area. What the
-// design has this factor read is what the change touches in this customer's
-// business, and nothing in the factory says what an area is worth to a business
-// — so what it reads is the area's own record of being got wrong, which starts
-// wide and narrows the way a prior does. On a factory where one author works
-// one area it says nearly what the prior says, and the two only diverge once
-// there are several of each.
-func (s *Score) businessArea(ctx context.Context, c Change) (reading, error) {
+// hazardSeverity reads the hazard severity in force on the item's area, which is
+// the context group's one declared input and the only term in the vector an
+// owner writes rather than the factory derives. An irreversible value is
+// resolved rather than weighed, at Implementation and at no gate above it: a
+// human at all four would stop the factory authoring in such an area at all.
+func (s *Score) hazardSeverity(ctx context.Context, c Change) (reading, error) {
 	if c.AreaID == "" {
-		return reading{unavailable: "the item names no area, so nothing says what part of the business it touches"}, nil
+		return reading{unavailable: "the item names no area, so nothing says what harm its software can do"}, nil
 	}
-	items, err := item.IDsInArea(ctx, s.pool, c.AreaID)
+	grade, err := area.SeverityInForce(ctx, s.pool, c.AreaID)
 	if err != nil {
 		return reading{}, err
 	}
-	approved, rejected, err := s.humanVerdicts(ctx, func(opening OpenEvent) bool {
-		return contains(items, opening.ItemID)
-	})
-	if err != nil {
-		return reading{}, err
+	switch grade {
+	case area.GradeIrreversible:
+		if !c.AtImplementation {
+			return reading{level: 1.0, words: "the area is graded irreversible"}, nil
+		}
+		return reading{
+			resolved: "the hazard severity in force on this area is irreversible, so a human decides at Implementation whatever the formula returns",
+			cause:    CauseIrreversibleHazard,
+			words:    "the area is graded irreversible",
+		}, nil
+	case area.GradeRecoverable:
+		return reading{level: 0.5, words: "the area is graded recoverable"}, nil
+	case area.GradeNegligible:
+		return reading{level: 0.1, words: "the area is graded negligible"}, nil
 	}
-	return reading{
-		level: evidenceLevel(approved, rejected),
-		words: fmt.Sprintf("%d human approvals and %d rejections on items in this area", approved, rejected),
-	}, nil
+	return reading{level: 0.1, words: "no area on this item's chain names a hazard severity"}, nil
+}
+
+// intentSource reads where the intent this item answers came from. An intent
+// grouped from reports carries text the factory did not author and no gate has
+// admitted, so it resolves at Spec: that channel is the one way in the factory
+// cannot authenticate.
+func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
+	it, err := item.Get(ctx, s.pool, c.ItemID)
+	if err != nil {
+		return reading{unavailable: fmt.Sprintf("the item could not be read, so nothing says where its intent came from: %v", err)}, nil
+	}
+	if it.IntentID == "" {
+		return reading{unavailable: "the item names no intent, so nothing says where the request came from"}, nil
+	}
+	in, err := intent.Get(ctx, s.pool, it.IntentID)
+	if err != nil {
+		return reading{unavailable: fmt.Sprintf("the intent could not be read: %v", err)}, nil
+	}
+	switch in.Source {
+	case intent.SourceReports:
+		if !c.AtSpec {
+			return reading{level: 1.0, words: "the intent was grouped from reports"}, nil
+		}
+		return reading{
+			resolved: "the intent was grouped from reports, whose text the factory did not author and no gate has admitted, so a human decides at Spec",
+			cause:    CauseReportSourcedIntent,
+			words:    "the intent was grouped from reports",
+		}, nil
+	case intent.SourceDetector:
+		return reading{level: 0.4, words: "the factory raised this intent itself"}, nil
+	default:
+		return reading{level: 0.2, words: "an owner typed this request"}, nil
+	}
 }
 
 // consumers reads which sibling services declare they consume what this one
-// publishes. It is a query over the graph a contract and a consumer contract make:
-// the contracts this service publishes, and the other services whose consumer
-// contracts name one of them.
+// publishes. It is a query over the graph a contract and a consumer contract
+// make: the contracts this service publishes, and the other services whose
+// consumer contracts name one of them.
 //
 // Two filters and both are deliberate. A consumer contract whose item has no
 // release is left out, because a consumer contract is written at the
 // implementation stage and a candidate that never merges leaves one behind; what
 // says it is a release's is a release naming the same item. And this service's
 // own consumer contracts are left out, because a service declaring against its
-// own store contract is its own past and not a sibling — that consumer is real
-// and is what a store's forward promise is for, and it is not what this factor is
-// asking about.
-//
-// What it does not filter by is the in-force range. That range is enforcement's
-// question about one candidate at one moment; this is a reading about the service,
-// computed at every firing over the whole graph the way every other factor here is.
-//
-// An undeclared consumer is still exactly what this factor cannot see, which is
-// the derivation's blind case one level up rather than a limit of this query.
+// own store contract is its own past and not a sibling.
 func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 	published, err := contract.OfService(ctx, s.pool, c.ServiceID)
 	if err != nil {
@@ -309,52 +245,34 @@ func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 	}, nil
 }
 
-// humanVerdicts counts the closed decisions a human gave over a subject the
-// caller accepts. A hold is neither: a hold teaches the score nothing, which is
-// what separates it from a reject. An auto-passed decision is not counted
-// either — its close event's actor is the gate component, so the human test
-// leaves it out.
-func (s *Score) humanVerdicts(ctx context.Context, wanted func(OpenEvent) bool) (approved, rejected int, err error) {
-	closed, err := decisionlog.NewReader(s.pool, s.token).ClosedDecisions(ctx, component)
-	if err != nil {
-		return 0, 0, err
+// fleetShare, fleetDeparture and fleetReversibility are the three factors that
+// replace the change group on the row that decides a version of what an agent is
+// told. The two readings are the caller's: the fleet's records are that row's
+// own, and no component writes one yet, so a factory that fires this row without
+// them resolves both rather than reading them as nothing.
+func (s *Score) fleetShare(_ context.Context, c Change) (reading, error) {
+	if c.Fleet.Unavailable != "" {
+		return reading{unavailable: c.Fleet.Unavailable}, nil
 	}
-	for _, d := range closed {
-		if d.CloseEvent.Actor.Kind != record.KindHuman {
-			continue
-		}
-		var opening OpenEvent
-		if err := json.Unmarshal([]byte(d.OpenEvent.Payload), &opening); err != nil {
-			// A payload this package cannot read is a row some other component
-			// wrote in a shape it does not know, which is not evidence about an
-			// author and is not an error either.
-			continue
-		}
-		if !wanted(opening) {
-			continue
-		}
-		var closing CloseEvent
-		if err := json.Unmarshal([]byte(d.CloseEvent.Payload), &closing); err != nil {
-			continue
-		}
-		switch closing.Verdict {
-		case VerdictApproved:
-			approved++
-		case VerdictRejected:
-			rejected++
-		}
-	}
-	return approved, rejected, nil
+	return reading{
+		level: c.Fleet.ShareWorkingFromIt,
+		words: fmt.Sprintf("%.0f%% of the factory works from the version this one replaces", c.Fleet.ShareWorkingFromIt*100),
+	}, nil
 }
 
-func contains(values []string, want string) bool {
-	if want == "" {
-		return false
+func (s *Score) fleetDeparture(_ context.Context, c Change) (reading, error) {
+	if c.Fleet.Unavailable != "" {
+		return reading{unavailable: c.Fleet.Unavailable}, nil
 	}
-	for _, v := range values {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return reading{
+		level: c.Fleet.Departure,
+		words: fmt.Sprintf("%.0f%% of this version differs from the version in force", c.Fleet.Departure*100),
+	}, nil
+}
+
+func (s *Score) fleetReversibility(_ context.Context, _ Change) (reading, error) {
+	return reading{
+		level: 0.3,
+		words: "withdrawal is a second record and nothing was deployed, so every version of what an agent is told is reversible",
+	}, nil
 }

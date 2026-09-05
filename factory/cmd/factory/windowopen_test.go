@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/boundary"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -42,13 +43,16 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 	// The parameters are copied onto the record at the open, which is what makes a
 	// reading at an exit interpretable: an owner re-authoring the size afterwards does
 	// not change what a window already closed is read to have meant.
-	if w.Size != theWindowSize || w.Confidence != theWindowConfidence || w.CapSeconds != theWindowCap {
+	// The size is one value per quantity, an owner authoring the smallest change
+	// worth catching per quantity and not one number for the service.
+	if w.Size[gatepolicy.QuantityErrorRate] != theWindowSize ||
+		w.Confidence != theWindowConfidence || w.CapSeconds != theWindowCap {
 		t.Errorf("the window carries size %v, confidence %v, cap %v; the owner authored %v, %v, %v",
 			w.Size, w.Confidence, w.CapSeconds, theWindowSize, theWindowConfidence, theWindowCap)
 	}
-	if w.Formula != boundary.Formula {
-		t.Errorf("the window names formula %q, want %q — the size and the confidence alone do not say what was done with them",
-			w.Formula, boundary.Formula)
+	if w.BoundaryVersion != boundary.Version {
+		t.Errorf("the window names boundary version %q, want %q — the size and the confidence alone do not say what was done with them",
+			w.BoundaryVersion, boundary.Version)
 	}
 	if w.PolicyVersion == "" || w.ScoreVersion == "" {
 		t.Errorf("the window names policy version %q and score version %q", w.PolicyVersion, w.ScoreVersion)
@@ -68,11 +72,11 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 
 	// CloseEvent at the cap counts as a release the factory can return to, which is what
 	// makes the second release measurable at all.
-	if !w.Exit.Counts() {
+	if !w.Exit.PassedOrTimedOut() {
 		t.Error("a window closed at the cap does not count as a release to return to, and a release nothing failed is one")
 	}
 	// A rollback of it has no target all the same, there being nothing below it.
-	if _, found, err := healthmonitor.TargetBelow(ctx, d.pool, res.serviceID, 1); err != nil || found {
+	if _, found, err := p(ctx, t, d).healthMonitor.TargetBelow(ctx, watching(res, "demo"), 1); err != nil || found {
 		t.Errorf("TargetBelow(1) = found %v, %v; a service's first release has no target at all", found, err)
 	}
 

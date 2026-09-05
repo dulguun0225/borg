@@ -15,33 +15,40 @@
 # package and open the pool through postgres, which that package cannot import
 # itself once postgres applies its DDL — the arrangement decisionlog's line
 # has carried since M0 — so each record package has a test line naming
-# postgres. decisionlog's also names secretref for the demonstration that a
-# resolved secret's value reaches no record, which is the one test that needs
-# a secret and a database at once. score's names criterion, gate, policy, and
-# the record packages its tests populate: the outcomes it counts are the
-# decisions a gate wrote and the windows the health monitor closed, so its tests
-# fire real gates rather than writing those rows by hand — a test that wrote
-# them would prove only that the score can read what the test writes — and a
-# gate is fired with a policy. Its rules are also tested without a database at
-# all, over outcomes the test assembles and indexes the way a read of the store
-# does, which is what keeps a rule about arithmetic testable as arithmetic.
+# postgres. decisionlog's also names secretref, and principal for the caller
+# the resolver takes, for the demonstration that a resolved secret's value
+# reaches no record, which is the one test that needs a secret and a database
+# at once. score's names the record packages its tests
+# populate and the log its versions and its decisions are rows of. It does not
+# name gate: the score version is a row score appends itself, and the payload a
+# decision carries is score's own shape, so a test firing a gate to reach either
+# would be a test of two packages at once, and gate imports score, so the
+# arrangement inverts as well. Its rules are tested without a database at all,
+# over outcomes the test assembles and indexes the way a read of the store does,
+# which is what keeps a rule about arithmetic testable as arithmetic.
 # notifier's and healthmonitor's name postgres
 # although neither owns a table: the notifier's page events are rows of the log
 # and the health monitor's answers are queries over the graph, so both need a
-# database and records to read. driftdetector's tests open its own store
-# through its own opener and never postgres, which is the independence checked
-# rather than asserted; cmd/driftdetector's test opens both and asserts the
+# database and records to read. Most of driftdetector's tests open its own
+# store through its own opener and never postgres, which is the independence
+# checked rather than asserted; head_test.go is the one file that also opens
+# the factory's own store, through postgres and decisionlog, because the
+# second comparison reads the factory's log directly and a test of it needs
+# a log to read. cmd/driftdetector's test opens both and asserts the
 # factory's row counts are unchanged across a pass. mergequeue's names the
 # packages its tests write through, reaching the whole schema through
 # postgres.Apply and driving the queue over a fake repository; what a
 # re-verification does to a repository and to a candidate environment is the
-# crude interface's own demonstration. consumercontract's
+# command-line interface's own demonstration. consumercontract's
 # names artifact, because the one writer of those rows is the store and a test
 # that inserted them directly would prove only that the columns accept what it
 # wrote. contractcheck's names most of the graph, because what it answers is a
 # query over releases, windows, deploys, contracts, consumer contracts, and
-# safeguards at once, and it holds fakes for the two seams — a checkout and a
-# run — that a package test has no repository and no process for.
+# safeguards at once, and it holds fakes for the four seams — a checkout, a
+# run, a candidate's store, and a backfill's completion — that a package test
+# has no repository, no process, and no deploy target for. It also names
+# targetseam, because completing a deploy target the way the deployer would is
+# what its fixtures ship a release through.
 #
 # The edges whose reason the list does not make obvious have it stated here.
 #
@@ -69,6 +76,30 @@
 # is — belongs to the package that owns the criterion, so the gate names it rather
 # than keeping a second spelling of it.
 #
+# The gate's other edges are the reads the design puts at the moment of firing
+# and at no other, one per thing a firing has to know. artifact is the version
+# under decision: its content digest goes on the open event beside its
+# identifier, and its author is what the refusal of a close by that author
+# compares against. people is who holds the row's duty, read at the firing for
+# what the open event says and again at the close for the two refusals that turn
+# on whether a second holder exists. halt is the one hold no approve passes, read
+# here rather than computed by a caller because the refusal it carries is the
+# gate's. environment is whether every target of the production environment
+# serves a share, which bounds the strategy to the row without a control where
+# one does not; area is the hazard severity that bounds the schedule; service is
+# the four fields the deployer populates, without which the production deploy row
+# cannot auto-pass. item is the count the attempt limit is compared against and
+# the dispatch that writes the escalation onto an item that exceeded it. intent
+# is the six states an intent may be in, read before every firing on an item —
+# the read itself is a function the composition supplies, and this edge is for
+# the vocabulary.
+#
+# What it does not import is the records the factory's own holds are computed
+# from: the deploy records of a dependency's service, the open windows, the error
+# budget, the advisories, the freeze. Those reach the gate through the Holds
+# interface its caller implements, which is what keeps the fan-out here to what a
+# firing itself reads.
+#
 # gatepolicy is imported by everything that holds an authored value and by
 # nothing it imports itself. It owns no table and is the vocabulary of gate
 # policy — the parameters, what each value means, and the direction a safeguard on it
@@ -76,52 +107,75 @@
 #
 # score reads the graph, so it imports the record packages the factors are
 # computed from: the artifacts an author wrote, the closed decisions in the
-# log, the items in an area, the releases of a service, and the contracts it
-# publishes with the consumer contracts naming them. It writes only its
-# own version record. What it does not import is a repository: the one input
-# that is not a record is the build's diff, measured by the component that
-# built and handed to it.
+# log, the items in an area and the intents they answer, the areas whose hazard
+# severity the context group reads, the releases of a service, and the contracts
+# it publishes with the consumer contracts naming them. It writes one thing and
+# it is not a record: the score version is a row of the decision log, so score
+# owns no table and postgres does not name it. What it does not import is a
+# repository: the two inputs that are not records are the build's diff and the
+# exposure list, both derived per toolchain by the component that built and
+# handed to it.
 #
-# Four of those edges arrive with the learning. Three are outcomes rather than
-# factors: window for the exits and the read each window closed on, deploy for the
-# rollbacks and what each swept, and incident for the crossing that says a window's
-# size was too coarse. The fourth is boundary, and it is an import for arithmetic:
-# whether a size the score is asking for is reachable at all is the units that size
-# needs against the traffic a service receives, and the units it needs are what the
-# health monitor already reads the window against. A second copy of that arithmetic
-# here would be two able to disagree about the one number whose whole purpose is to
-# match what the boundary does.
+# Three of those edges arrive with the learning, and all three are outcomes
+# rather than factors: window for the exits and the finest size each window
+# reports the traffic reached, deploy for the rollbacks and the releases each
+# undid, and incident for the crossing that says a window's size or its power was
+# too coarse. What it does not import is boundary: whether a size is reachable at
+# all is arithmetic the window does and reports on its record, and a second copy
+# of it here would be two able to disagree about the one number whose whole
+# purpose is to match what the boundary does.
 # What it still does not import is policy — the direction is policy -> score,
 # because the value in force is the authored one where there is one and the
 # supplied one otherwise, and a score that read the authored value would be
 # supplying a value against what an owner wrote.
 #
 # policy is Factory's writer, so it imports every record an owner authors a
-# value on — the environment, the service, the area, the factory-wide settings record,
-# and the safeguard — and calls the transaction-taking write each of them exposes,
-# appending the policy version inside the same transaction. It imports score
+# value on or creates — the environment, the service, the area, the project, the
+# factory-wide settings record, the safeguard, the halt and the legal hold — and
+# calls the transaction-taking write each of them exposes. It imports decisionlog
+# because the policy version is a row of the log rather than a table of its own:
+# it appends through the log's writer inside the same transaction as the record
+# write, and reads every version back through the log's reader. It imports score
 # for the value the score supplies where an owner authored nothing. It imports
-# project because Install creates the project and production's environment for
-# it in the same event, an owner's request naming the project by name alone.
+# project because the write that creates one writes production's environment in
+# the same event, an owner's request naming the project by name alone.
 #
 # mergequeue imports gate because the shape of a decision's two payloads is
 # gate's: the queue's order is the time of the merge approval in the log, and a
 # queue that unmarshalled those payloads itself would be a second place naming
-# the same JSON fields. It asks gate for the approval times instead. What it does
-# not import is anything that reaches a repository or a deploy target — that is
-# behind an interface its caller implements.
+# the same JSON fields. It asks gate for the approval times instead. It also
+# takes from gate the vocabulary a rejection is written in: the stage the item
+# returns to, and the verdict the score learns the rejection as.
 #
-# cmd/factory imports nearly everything, because it is the crude interface the
+# Its other edges are the records one pass reads. intent is the state that
+# permits an item's membership and the tier its order begins with, read per
+# member. halt is the one authored record whose subject is the factory, read
+# because records.md names the merge queue one of its two readers. build is the
+# two comparisons no criterion reads: the design system constraint record the
+# two builds name, and the digests of what each resolved. environment is an
+# import for a type — the composition a run was performed against, compared
+# between the run that passed and the re-verification, which is what tells the
+# second reading of a failure from the third. What it does not import is
+# anything that reaches a repository or a deploy target, and it does not import
+# item's dispatch either: components.md's row for the queue names no dispatch,
+# so the transition an outcome causes is the caller's write.
+#
+# cmd/factory imports nearly everything, because it is the command-line interface the
 # four screens are deferred with — the one place the whole path is composed,
 # the one place an owner can author a parameter or place a safeguard, and the
-# deploy agent the merge queue and the health monitor reach a repository, a
+# deployer the merge queue and the health monitor reach a repository, a
 # candidate environment, and a rollback through.
 #
 # cmd/driftdetector imports what one pass reads: the production environment
 # record, the services, the current production deploy of each, the releases and
 # open windows an excused build is read from, the seam and the local target it
 # reads through, and its own store. Everything it touches of the factory's it
-# only selects from.
+# only selects from. build is the recorded artifact digest the first
+# comparison reads beside the build id. lastcheck is the third comparison's
+# own read, lastcheck.Stale over the factory's pool, to find a factory
+# component that stopped. principal is what every operation of the seam now
+# takes; the drift detector calls as itself, a component, the same as every
+# other caller of a seam that decides nothing on the principal it carries.
 #
 # Four more edges arrive with everything downstream of a deploy.
 #
@@ -130,6 +184,20 @@
 # of those four counts here would be two able to disagree with the package that
 # evaluates them. It is the arrangement consumercontract -> contract already has.
 #
+# build -> exposure is an import for a type. The exposure list the build runner
+# derived is stored on the build record, and the vocabulary of the four kinds
+# belongs to the package that derives them; a second spelling here would be two
+# able to disagree. It is the arrangement window -> boundary already has. The
+# score keeps a spelling of its own, which is the repetition this module pays for
+# locality: the score reads no repository and this decides no gate, so a caller
+# holding both hands one to the other in one place.
+#
+# exposure imports nothing inside this module. It is the extractor over a
+# checkout — one git diff and the four readings over it — per toolchain, and a
+# package with no dependencies is what makes a program analysis testable over a
+# temporary repository alone. It is the arrangement contract's own derivation
+# has.
+#
 # boundary imports nothing, inside this module or out of it beyond the standard
 # library. It is the analysis window's arithmetic over numbers its caller has
 # already read, and a package with no dependencies is what makes the one part of
@@ -137,20 +205,49 @@
 #
 # healthmonitor is the health monitor and imports what it writes and what it reads
 # the graph through: the window and the incident it writes, the intake it raises a
-# revert intent through, the notifier it reports a rollback on, the policy for the
-# window's parameters, and release, item, and deploy for the records a
-# rollback's target and a settled incident are computed from. gatepolicy is the
-# vocabulary the size and the power are keyed by — [gatepolicy.Quantity] — one of
-# which it reads today. boundary is the one import that is arithmetic rather than
-# a record: the window's size and confidence resolve to a boundary. What it does
-# not import is a repository or a deploy target — a rollback is behind an
-# interface its caller implements, and so is the quantity it reads. That is the
+# revert intent through, the notifier it pages on a failed exit that rolled
+# nothing back, the policy for the window's parameters, and release, item, and
+# deploy for the records a rollback's target and a settled incident are computed
+# from. gatepolicy is the vocabulary the size and the power are keyed by, one per
+# quantity. lastcheck is its own last check per service, a writer among the
+# seven records.md names, and decisionlog is for [decisionlog.Row], the shape the
+# notifier's own delivery reads back. service is the four fields the deployer
+# populates, without which a window opens recording only that it measures
+# nothing, and the objective an explicit threshold is read against. boundary is
+# the one import that is arithmetic rather than a record: the window's size and
+# confidence resolve to a boundary. What it does not import is a repository or a
+# deploy target — a rollback is behind an interface its caller implements, and so
+# is the quantity it reads and the control it starts and tears down. That is the
 # arrangement mergequeue already has.
 #
+# people imports policy because a write to the holding table — a duty held,
+# an obligation named — appends a policy version with People as caller before
+# the table itself changes, through policy.Factory.AppendPeopleVersion, which
+# policy already exposes for this direction. Policy does not import people
+# back: the declaration policy's version carries is supplied to it by the
+# composition, never read from this package, which is why the edge runs one
+# way.
+#
 # notifier imports people because routing is a read of that declaration, and
-# decisionlog because a page event is a row of the log. It imports nothing that
-# creates a wait: its callers hand it one, so the component that delivers
-# everything waiting on a human depends on none of the things that wait.
+# decisionlog because a page event is a row of the log. It imports lastcheck
+# to write the notifier's own record beside the health monitor's and the
+# deployer's, and driftdetector because the notifier is the one reader of the
+# detector's store: the detector calls nothing, so the notifier reads it
+# itself, widens and answers the one wait that has no other caller, and
+# catches up the detector's own delivery at the factory's next start. It
+# imports nothing that creates a wait its caller does not hand it, and
+# factorysettings for the harm-marked report page's cap and off switch.
+# service is the paging hours a wait of the second kind is deferred against.
+#
+# driftdetector imports decisionlog for decisionlog.Row and
+# decisionlog.Row.ChainHash alone, to recompute the log's chain forward from
+# the head it recorded: it selects decision_log directly with a query of its
+# own rather than through decisionlog.Reader, which would append a read event
+# this package has no fencing token to write. It imports lastcheck for
+# lastcheck.Stale, an ordinary read over the factory's pool, to find a
+# factory component that stopped. Both reach the factory's store read-only
+# and never through postgres, which would make it a store the factory
+# applies and no longer independent of it.
 #
 # Three more edges arrive with contracts.
 #
@@ -162,14 +259,18 @@
 #
 # contractcheck is enforcement and imports what it reads the graph through: the
 # contract and the consumer contract it decides between, the deploy record that says what
-# is running, the release and window records a service's last known-good release
-# is computed from, the policy for the list of allowed predicate kinds and the
-# safeguards' predicates, the service for the name a removal statement is written with, the
-# intent it raises a removal through, and gate for the vocabulary of which
+# is running, the environment for the addresses production's current release is read
+# against, the release and window records a service's last known-good release
+# is computed from, boundary for the counts a window closed on and gatepolicy for
+# the predicate kind vocabulary those counts and the store rule are read against,
+# the policy for the list of allowed predicate kinds and the safeguards' predicates,
+# the service for the name a removal statement is written with, item and intent for
+# the walk from a release back to the intent whose evidence a brownout is keyed by
+# and the removal it raises through, and gate for the vocabulary of which
 # mechanical check rejected. What it does not import is a repository or a deploy
 # target — a form and a consumer contract are derived behind an interface its caller
-# implements, and so is the run it observes. That is the arrangement healthmonitor
-# already has.
+# implements, and so is the run it observes and the store state and the backfill's
+# completion it reads. That is the arrangement healthmonitor already has.
 #
 # driftdetector imports record and nothing else. Its store is not the factory's — no
 # factory component may write it — so it brings its own opener and its own
@@ -186,10 +287,12 @@
 record
 gatepolicy
 boundary
+exposure
 lease -> record
 decisionlog -> record lease
-secretref
-targetseam -> secretref
+principal -> record
+secretref -> principal
+targetseam -> principal secretref
 intent -> record lease
 project -> record lease
 service -> record gatepolicy lease secretref
@@ -202,35 +305,35 @@ contract -> record
 consumercontract -> contract gatepolicy record
 screenstatemachine -> lease record
 artifact -> consumercontract criterion screenstatemachine lease record
-build -> criterion lease record
-release -> lease record
-deploy -> record secretref targetseam lease
+build -> criterion exposure lease record
+release -> lease record artifact
+deploy -> record secretref targetseam lease principal release lastcheck service
 area -> record gatepolicy lease
 environment -> record gatepolicy secretref lease
 factorysettings -> record gatepolicy item lease
 safeguard -> record gatepolicy lease
 halt -> record lease
 legalhold -> record lease
-window -> boundary record lease
+window -> boundary gatepolicy record lease
 incident -> record lease
-people -> record lease
-driftdetector -> record
-score -> record gatepolicy boundary artifact consumercontract contract decisionlog deploy incident item lease release window
-policy -> record gatepolicy area environment factorysettings item lease project safeguard score secretref service
-gate -> criterion decisionlog lease policy record score
-mergequeue -> contract decisionlog gate item lease record release
-notifier -> decisionlog lease people record
-healthmonitor -> boundary deploy gatepolicy incident intent item notifier policy record release window
-contractcheck -> consumercontract contract deploy gate intent policy record release service window
-agent -> secretref
-localtarget -> secretref targetseam
-postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease people policy project release safeguard score screenstatemachine service window
+people -> record lease policy
+driftdetector -> record decisionlog lastcheck
+score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease release window
+policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold project safeguard score secretref service
+gate -> area artifact criterion decisionlog environment halt intent item lease people policy record score service
+mergequeue -> build contract decisionlog environment gate halt intent item lease record release
+notifier -> decisionlog driftdetector factorysettings lastcheck lease people record service
+healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier policy record release service window
+contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item policy record release service window
+agent -> secretref principal
+localtarget -> principal secretref targetseam
+postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease notifier people project release safeguard screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lease legalhold localtarget mergequeue notifier people policy postgres project record release safeguard score secretref service targetseam window
-cmd/driftdetector -> driftdetector deploy environment localtarget postgres release secretref service targetseam window
+cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment exposure factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release safeguard score secretref service targetseam window
+cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
-test decisionlog -> secretref
+test decisionlog -> secretref principal
 test intent -> postgres lease
 test project -> postgres lease
 test service -> postgres lease
@@ -241,25 +344,26 @@ test criterion -> postgres lease
 test contract -> postgres
 test consumercontract -> postgres artifact contract gatepolicy lease record
 test artifact -> postgres lease
-test build -> postgres lease
+test build -> postgres exposure lease
 test screenstatemachine -> postgres lease record
 test release -> postgres lease
 test deploy -> postgres lease
 test area -> postgres lease
 test environment -> postgres lease
 test lastcheck -> postgres lease
+test driftdetector -> postgres lease decisionlog
 test factorysettings -> postgres lease
 test safeguard -> postgres lease
 test halt -> postgres lease
 test legalhold -> postgres lease
 test window -> postgres lease
 test incident -> postgres lease
-test people -> postgres lease
-test notifier -> postgres decisionlog lease people record
-test healthmonitor -> postgres boundary build deploy item lease record release window
-test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lease policy record release safeguard secretref service window
-test score -> postgres artifact boundary consumercontract contract criterion deploy factorysettings gate policy project release service window
-test policy -> postgres project
-test gate -> postgres
-test mergequeue -> decisionlog gate item lease postgres record release
-test cmd/driftdetector -> build decisionlog lease project record
+test people -> postgres lease policy score
+test notifier -> postgres decisionlog driftdetector factorysettings lastcheck lease people policy record service
+test healthmonitor -> postgres boundary build deploy item lease record release targetseam window
+test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lease policy record release safeguard secretref service targetseam window
+test score -> postgres area artifact decisionlog intent item lease record release window
+test policy -> postgres area decisionlog environment factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service
+test gate -> postgres area artifact criterion decisionlog environment factorysettings halt intent item lease people policy project record safeguard score secretref service
+test mergequeue -> build decisionlog environment gate halt intent item lease postgres record release
+test cmd/driftdetector -> boundary build decisionlog gatepolicy lease project record

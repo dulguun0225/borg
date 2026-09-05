@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
@@ -30,9 +31,15 @@ func (v *varyingScore) Assess(_ context.Context, c score.Change) (score.Assessme
 // HoldOut selects nothing. The Decomposition row does not ask, and a test that
 // drives one asserts that: the sample selects an item and one draw over a set
 // would select several on a number that is none of theirs.
-func (v *varyingScore) HoldOut(_ context.Context, itemID string, _, _ bool) (score.Selection, error) {
+func (v *varyingScore) HoldOut(_ context.Context, itemID string, _ float64, _, _ bool, _ []score.Resolution) (score.Selection, error) {
 	v.heldOutAsked = append(v.heldOutAsked, itemID)
 	return score.Selection{}, nil
+}
+
+// Version is the score version every decision this varying score's gate opens
+// names.
+func (v *varyingScore) Version() score.Version {
+	return score.Version{ID: testScoreVersion, FormulaVersion: score.FormulaVersion}
 }
 
 // TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember: the one row
@@ -98,7 +105,7 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 		t.Errorf("the score was asked with measurement %+v", s.asked.Measurement)
 	}
 
-	closing, err := g.Decide(ctx, opened, owner, gate.VerdictApprove, "")
+	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove})
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
@@ -126,7 +133,7 @@ func TestARejectAtDecompositionNamesNoStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FireSet: %v", err)
 	}
-	closing, err := g.Decide(ctx, opened, owner, gate.VerdictReject, "this should have been three items")
+	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictReject, Reason: "this should have been three items"})
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
@@ -166,17 +173,34 @@ func TestASetFiringMissingSomethingIsRefused(t *testing.T) {
 	}
 }
 
-// TestEditInPlaceAtDecompositionIsRefusedWithItsReason: re-decomposing is not built, so a
-// bad decomposition is rejected rather than repaired, and the vocabulary says so.
+// TestEditInPlaceAtDecompositionIsRefusedWithItsReason: re-decomposing is not
+// built, so a bad decomposition is rejected rather than repaired, and edit in
+// place — a human authoring a new version while the row waits — is refused with
+// its own reason. Decomposition still offers approve, reject and refer: refer
+// is on every row, and it is not edit in place.
 func TestEditInPlaceAtDecompositionIsRefusedWithItsReason(t *testing.T) {
-	if gate.ErrEditInPlaceRefused == nil {
-		t.Fatal("the refusal has no reason to carry")
-	}
 	actions, err := gate.Actions(gate.Decomposition)
 	if err != nil {
 		t.Fatalf("Actions: %v", err)
 	}
-	if len(actions) != 2 {
-		t.Fatalf("Decomposition offers %v, want approve and reject — the third action is refused", actions)
+	if len(actions) != 3 || actions[0] != gate.VerdictApprove ||
+		!slices.Contains(actions, gate.VerdictReject) || !slices.Contains(actions, gate.VerdictRefer) {
+		t.Fatalf("Decomposition offers %v, want approve, reject and refer", actions)
+	}
+
+	s, p := &varyingScore{by: map[string]float64{"it_a": 0.2, "it_b": 0.3}}, &fakePolicy{applied: applied(0.5)}
+	ctx, _, _, g := newGate(t, s, p)
+	opened, err := g.FireSet(ctx, gate.SetFiring{
+		IntentID:      "in_0000000000000000000000000000000a",
+		EnvironmentID: "env_000000000000000000000000000000a",
+		Members: []gate.SetMember{
+			{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("FireSet: %v", err)
+	}
+	if _, err := g.EditInPlace(ctx, opened, gate.Firing{}); !errors.Is(err, gate.ErrEditInPlaceRefused) {
+		t.Errorf("EditInPlace at Decomposition = %v, want ErrEditInPlaceRefused", err)
 	}
 }

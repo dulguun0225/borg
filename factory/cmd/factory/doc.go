@@ -1,4 +1,4 @@
-// Command factory is the crude interface: one binary on a terminal, standing in
+// Command factory is the command-line interface: one binary on a terminal, standing in
 // for the four screens that are not built yet.
 //
 // Twelve subcommands. "run" walks the whole path once — the install, intake,
@@ -66,16 +66,29 @@
 //     version ensured first, then the collaborators, the install's three
 //     records — the factory-wide settings record, the project, and
 //     production's environment for it — and the two versions in force; plus
-//     serviceOf, subjectsFor, deployOrder, itemsInBuild, and inForceFor, which
-//     the stages below read from the path it built.
+//     runsOnProduction, which authors production's addresses on a service
+//     naming none, ownHistorySize and ownHistoryRunLength, what the reading
+//     against a service's own recent past is read at, and serviceOf,
+//     subjectsFor, deployOrder, itemsInBuild, and inForceFor, which the stages
+//     below read from the path it built.
 //
 // The path a run walks stage by stage:
 //
 //   - path.go — the component actors, the path struct (a run's collaborators,
-//     and the deploy agent mergequeue and contractcheck reach through), and
-//     run, which walks the whole path once per intent over the install's
-//     dependency layers, plus layer, one dependency layer's own walk below
-//     decomposition.
+//     and the deployer mergequeue, healthmonitor and contractcheck reach
+//     through), the seams it satisfies and the three small ones composed
+//     beside it — intentState, nameOfKey and gateNotifier — and run, which
+//     walks the whole path once per intent over the install's dependency
+//     layers, plus layer, one dependency layer's own walk below decomposition.
+//   - holds.go — Standing, the factory's own holds at a deploy row, and the
+//     four reads enforcement makes of a candidate's own store and of a
+//     backfill's completion, each saying which records it cannot reach.
+//   - marks.go — marks, the releases a named human at Ops marked as not caused
+//     by the release, which the score and its learning pass exclude.
+//   - rollout.go — how a deploy is performed on this platform: the deployer's
+//     principal, the targets in the environment's order, intoCandidate and
+//     intoProduction, strategyOf, and adopt, the deployer's four fields on the
+//     service record.
 //   - decomposition.go — decomposeItems, one item per service an intent
 //     changes, decompositionGate, the Decomposition row fired over the set
 //     where it yielded more than one, and decompositionAttemptLimit, the limit
@@ -91,22 +104,27 @@
 //     already waiting for the one caller that knows which, in place of the
 //     statement-keyed lookup package intent's rewrite no longer offers.
 //   - candidateenv.go — candidateEnvironment, the Deploy to candidate
-//     environment row and composing and deploying to it; substrateWait and
-//     SubstrateWaitKind, the wait a full substrate writes into the log; and
+//     environment row and composing and deploying to it; platformWait and
+//     PlatformWaitKind, the wait a full platform writes into the log; and
 //     decideCriteria, checkEncodings, compositionFor, dependencyHold,
 //     describeComposition, recordCriterionRun, and nextCriterionRun, which two
 //     runs of the encodings are recorded as on a build's criterion results.
 //   - author.go — specStage, implementationStage, and consumerContractStage,
 //     the three authoring stages against the model; Publishes, Declares,
-//     repoOfItem, the deploy agent's side of contractcheck; and writeManifest
-//     and filesSize, the input manifest a dispatch writes before the agent
-//     runs.
+//     DeclaresSchemaChange, repoOfItem, the deployer's side of contractcheck;
+//     and writeManifest and filesSize, the input manifest a dispatch writes
+//     before the agent runs.
 //   - repo.go — the git and filesystem operations a stage needs: masterHead,
 //     compiles, buildInto, runEncodings, repoFiles, copyFile; and createBuild,
-//     resolvedGoModules and readGoModule, the build record and its resolved
-//     set of Go modules.
+//     resolvedGoModules and readGoModule, the build record with its resolved
+//     set of Go modules, the exposure list its runner derived, and whether its
+//     checkout declares a schema change.
 //   - measure.go — measure, the build's diff taken once at firing and handed
-//     to the score, and the numstat parsing beneath it.
+//     to the score, and the numstat parsing beneath it; reaches and
+//     declaresSchemaChange, the two readings the build runner makes of its own
+//     checkout — the exposure list package exposure derives, and whether the
+//     checkout ships a schema change — and factorExposure and path.exposureOf,
+//     which read that list off the build record and hand it to the score.
 //   - attempt.go — stageAttempts and attempt, the per-stage attempt limit and
 //     spend a call to the model is wrapped in; and recordAgentRun and
 //     recordIntentRun, the agentrun record each call writes.
@@ -118,8 +136,11 @@
 //
 //   - merge.go — mergeGate, the Merge to master row, and enforceContracts,
 //     the two contract checks it reads before a human decides.
-//   - reverify.go — Reverify and FastForward, the deploy agent's two calls
-//     the merge queue makes: re-verifying a candidate and landing it.
+//   - reverify.go — the whole of [mergequeue.Repository]: Head and Holds, the
+//     two readings of master; Reverify, which merges master and every candidate
+//     ahead of this one before it builds; Confirm, the confirming run over the
+//     criteria a re-verification failed; FastForward; and VerifyCommit, a commit
+//     a human accepted.
 //   - queuerun.go — runQueue, running the merge queue once for a service and
 //     tearing down what it merged; candidateFor, tearDown.
 //   - productiondeploy.go — productionDeploy, the Deploy to production row
@@ -128,10 +149,17 @@
 //
 // The watch and its operations:
 //
-//   - watch.go — the health monitor's own seams (signalFiles, terminal,
-//     RollBack) and its loop: watchTo, watchPass, reportReading,
-//     driftDetectorPages, escalated, approveThrough; and Observed,
-//     readExchange, raiseRemovals for contractcheck.
+//   - watch.go — the loop: watchTo, watchPass, reportWatched and reportAfter,
+//     driftDetectorPages, escalated, approveThrough; terminal, where a delivery
+//     goes; and Observed, readExchange, raiseRemovals for contractcheck.
+//   - emission.go — signalFiles, [healthmonitor.Emission] over the file each
+//     deployed process writes; the two emission versions the factory has
+//     shipped and the interval resolution the second is cut by; readSignal,
+//     emitted.intervals and paired beneath them; and the two readings this
+//     platform cannot give.
+//   - rollback.go — [healthmonitor.Deployer]: StartControl, TearDownControl,
+//     RollBack and DeploySearch, with artifactsOf, the digest a rollback is
+//     verified against.
 //   - ops.go — peopleCommand, watchCommand, approveCommand: the three
 //     subcommands downstream of a deploy; and pathFlags/withPath, composing a
 //     path for one of them with no model.
@@ -140,13 +168,17 @@
 //
 //   - area.go — areaCommand, declaring an area inside -project unless -inside
 //     names an area.
-//   - authoring.go — owner, the actor an authoring write is made as, and
-//     withPool, opening the database and applying the schema for the first
-//     command an owner reaches.
+//   - authoring.go — humanNamed, which resolves -human's name to the
+//     per-person key the People mapping gives it and mints one where the name
+//     is new, and withPool, opening the database and applying the schema for
+//     the first command an owner reaches.
 //   - parameter.go — authorCommand, authoring one parameter on the record its
 //     scope names, and authored, printing what was authored.
-//   - safeguard.go — safeguardCommand, placing or withdrawing a safeguard, and
-//     safeguardSubject, resolving -subject to what it binds — "gate_row:" is
+//   - withdrawal.go — approveWithdrawal, the three rows outside every item a
+//     human closes here: a safeguard's withdrawal, a halt's withdrawal, and a
+//     shortening of decision-log retention.
+//   - safeguard.go — safeguardCommand, placing a safeguard or writing its
+//     withdrawal, and safeguardSubject, resolving -subject to what it binds — "gate_row:" is
 //     drawn on -service, keyed by the row, because package policy's own reader
 //     keys a row-scoped safeguard that way.
 //   - halt.go — haltCommand, setting the one authored record whose subject is
@@ -187,13 +219,17 @@
 // writers and holds no table, and every read goes through the owning
 // package's readers. What it implements for two components is a seam rather than a
 // record: it is [mergequeue.Repository] and [contractcheck.Checkout] because
-// reaching a repository is the deploy agent's, [contractcheck.Exchanges] because
-// observing a run is, and [healthmonitor.Rollbacker] because reaching a deploy target
-// is.
+// reaching a repository is the deployer's, [contractcheck.Exchanges],
+// [contractcheck.StoreState] and [contractcheck.Backfills] because observing a
+// run and reading a candidate's own store are, [healthmonitor.Deployer] because
+// reaching a deploy target is, and [gate.Holds] because computing the factory's
+// own holds reads most of the graph. [contractcheck.Checkout] is also where the
+// build's own reading of whether its checkout declares a schema change is
+// answered, read off the build record the run wrote it on.
 //
 // Every subcommand acquires the lease before it touches the store, whether it
 // writes or only reads: a read still appends a read event, which is itself a
-// write of the log, so the one-process rule holds for the crude interface's
+// write of the log, so the one-process rule holds for the command-line interface's
 // twelve subcommands and not only for "run". acquireLease in main.go takes it
 // under this process's own instance — the machine's hostname and this
 // process's id — starts a goroutine renewing it every third of its ttl for
@@ -202,7 +238,7 @@
 // carries. A held lease is a start failure, printed on stderr naming the
 // holder, with a non-zero exit.
 //
-// What defines it: the crude interface in place of the four screens is
+// What defines it: the command-line interface in place of the four screens is
 // ../../../roadmap.md#m1--one-change-ships; more than one service and the
 // contract queries are ../../../roadmap.md#m5--contracts-bind-services.
 package main

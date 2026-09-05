@@ -4,76 +4,279 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/score"
 )
 
-// Row is one of the four gate rows this milestone builds. The design's eight
-// rows are ../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md.
-type Row string
+// Kind is which gate row a firing is at. Twelve of the thirteen are fixed rows;
+// [KindDeployToEnvironment] is the one a customer's own environment
+// parameterises, a [Row] naming the environment beside it.
+type Kind string
 
 const (
-	// Decomposition is the stage's own gate: the one row where approving admits
-	// several timelines at once. It fires where decomposition yielded more than one item
-	// and nowhere else — a decomposition that yields one produced no set to ratify — and what
-	// is approved is the set: how many items, which service each changes, and what
-	// waits on what. One verdict covers the whole decomposition however many services it
-	// changes, which is the design's refusal of a per-service approval.
-	Decomposition Row = "decomposition"
-	// DeployToCandidateEnvironment is where the candidate's own environment is
-	// created and the candidate's build is put on it. What the deploy provides is
-	// the criteria: nothing else attaches to this row — no strategy, no rollout,
-	// no analysis window — because a candidate environment has no organic traffic.
-	DeployToCandidateEnvironment Row = "deploy_to_candidate_environment"
-	// MergeToMaster is the release event: where a candidate becomes a numbered
-	// release, and where the verdict on the candidate is given. Approving it
-	// admits the candidate to the merge queue.
-	MergeToMaster Row = "merge_to_master"
-	// DeployToProduction is the last row before a release takes traffic, and the
-	// one that offers hold and no reject.
-	DeployToProduction Row = "deploy_to_production"
+	// KindDecomposition is the stage's own gate: the one row where approving
+	// admits several timelines at once. It fires where decomposition yielded
+	// more than one item and nowhere else, and what is approved is the set.
+	KindDecomposition Kind = "decomposition"
+	// KindSpec is where the acceptance criteria of one item are confirmed.
+	KindSpec Kind = "spec"
+	// KindImplementationPlan is where how the item will be built is decided.
+	KindImplementationPlan Kind = "implementation_plan"
+	// KindTasks is where the approved plan divided into work is decided.
+	KindTasks Kind = "tasks"
+	// KindImplementation is where the build's diff against master is decided.
+	KindImplementation Kind = "implementation"
+	// KindDeployToCandidateEnvironment is where the candidate's own environment
+	// is created and the candidate's build is put on it. Nothing else attaches
+	// to this row: no strategy, no rollout, no analysis window.
+	KindDeployToCandidateEnvironment Kind = "deploy_to_candidate_environment"
+	// KindMergeToMaster is the release event, and the latest row anything may
+	// be sent back from.
+	KindMergeToMaster Kind = "merge_to_master"
+	// KindDeployToProduction is the last row before a release takes traffic,
+	// and the one that picks the rollout strategy.
+	KindDeployToProduction Kind = "deploy_to_production"
+	// KindDeployToEnvironment is the row a customer that defines a further
+	// environment gets, one per environment. It is fed from master, so it takes
+	// deploy to production's actions and neither a strategy nor a window.
+	KindDeployToEnvironment Kind = "deploy_to_environment"
+	// KindRolePromptOrSkill is the first row outside every item: a version of
+	// what an agent is told.
+	KindRolePromptOrSkill Kind = "a_role_prompt_or_a_skill"
+	// KindSafeguardWithdrawal is the second: the record that removes a human
+	// from a gate. It reads no factor set and no threshold.
+	KindSafeguardWithdrawal Kind = "a_safeguards_withdrawal"
+	// KindHaltWithdrawal is the third: the record that ends a halt. It reads no
+	// factor set and no threshold either, and routes to the owner.
+	KindHaltWithdrawal Kind = "a_halts_withdrawal"
+	// KindDecisionLogRetentionShortening is the row that decides a shortening of
+	// decision-log retention, which takes the safeguard withdrawal's shape.
+	KindDecisionLogRetentionShortening Kind = "decision_log_retention_shortening"
 )
 
-// Rows is every row this package fires, in the order the path reaches them.
-var Rows = []Row{Decomposition, DeployToCandidateEnvironment, MergeToMaster, DeployToProduction}
+// Kinds is every kind a row may have, in the order the design names them: the
+// eight of the default path, the further deploy row, and the four that belong to
+// no item.
+var Kinds = []Kind{
+	KindDecomposition, KindSpec, KindImplementationPlan, KindTasks, KindImplementation,
+	KindDeployToCandidateEnvironment, KindMergeToMaster, KindDeployToProduction,
+	KindDeployToEnvironment,
+	KindRolePromptOrSkill, KindSafeguardWithdrawal, KindHaltWithdrawal,
+	KindDecisionLogRetentionShortening,
+}
 
-// Verdict is what a decision closes with.
+// Row is one gate row: its kind and, on [KindDeployToEnvironment] alone, the
+// environment that row deploys into. It is a value rather than a string so that
+// a customer defining a further environment gets a row of its own without a
+// second vocabulary, and so that no caller composes the environment into a name
+// of its own.
+type Row struct {
+	Kind Kind
+	// EnvironmentID is the environment a further deploy row deploys into. It is
+	// required on [KindDeployToEnvironment] and refused on every other kind:
+	// production's own row is [KindDeployToProduction], and a candidate
+	// environment is composed at the row rather than named on it.
+	EnvironmentID string
+}
+
+// Of is the row of one kind, for every kind but [KindDeployToEnvironment].
+func Of(kind Kind) Row { return Row{Kind: kind} }
+
+// DeployTo is the further deploy row for one customer-defined environment.
+func DeployTo(environmentID string) Row {
+	return Row{Kind: KindDeployToEnvironment, EnvironmentID: environmentID}
+}
+
+// The rows of the default path and the four outside it, as values, so that a
+// caller names a row rather than composing one.
+var (
+	Decomposition                  = Of(KindDecomposition)
+	Spec                           = Of(KindSpec)
+	ImplementationPlan             = Of(KindImplementationPlan)
+	Tasks                          = Of(KindTasks)
+	Implementation                 = Of(KindImplementation)
+	DeployToCandidateEnvironment   = Of(KindDeployToCandidateEnvironment)
+	MergeToMaster                  = Of(KindMergeToMaster)
+	DeployToProduction             = Of(KindDeployToProduction)
+	RolePromptOrSkill              = Of(KindRolePromptOrSkill)
+	SafeguardWithdrawal            = Of(KindSafeguardWithdrawal)
+	HaltWithdrawal                 = Of(KindHaltWithdrawal)
+	DecisionLogRetentionShortening = Of(KindDecisionLogRetentionShortening)
+)
+
+// Rows is every row of the default path, in the order the path reaches them. A
+// further deploy row is not here: there is one per environment a customer
+// defined, so the set is the environment records and not a list.
+var Rows = []Row{
+	Decomposition, Spec, ImplementationPlan, Tasks, Implementation,
+	DeployToCandidateEnvironment, MergeToMaster, DeployToProduction,
+}
+
+// String is how a row is written onto an event and read back: the kind, and the
+// environment after it on a further deploy row.
+func (r Row) String() string {
+	if r.Kind == KindDeployToEnvironment {
+		return string(r.Kind) + ":" + r.EnvironmentID
+	}
+	return string(r.Kind)
+}
+
+var (
+	// ErrRowUnknown is returned for a kind outside [Kinds].
+	ErrRowUnknown = errors.New("gate: not a gate row")
+	// ErrRowEnvironment is returned for a further deploy row naming no
+	// environment, and for any other row naming one.
+	ErrRowEnvironment = errors.New("gate: a further deploy row names the environment it deploys into, and no other row names one")
+)
+
+// Validate refuses a row whose kind is unknown and one that names an environment
+// where its kind takes none.
+func (r Row) Validate() error {
+	if !slices.Contains(Kinds, r.Kind) {
+		return fmt.Errorf("%w: %q", ErrRowUnknown, r.Kind)
+	}
+	if r.Kind == KindDeployToEnvironment && r.EnvironmentID == "" {
+		return fmt.Errorf("%w: %s names none", ErrRowEnvironment, r.Kind)
+	}
+	if r.Kind != KindDeployToEnvironment && r.EnvironmentID != "" {
+		return fmt.Errorf("%w: %s names %q", ErrRowEnvironment, r.Kind, r.EnvironmentID)
+	}
+	return nil
+}
+
+// RowFrom is the row an open event's stored name reads back as, which is what a
+// reader of a pending row and of a decision already closed composes a [Row]
+// from.
+func RowFrom(name string) (Row, error) {
+	kind, environmentID, parameterised := cut(name)
+	row := Row{Kind: Kind(kind)}
+	if parameterised {
+		row.EnvironmentID = environmentID
+	}
+	if err := row.Validate(); err != nil {
+		return Row{}, err
+	}
+	return row, nil
+}
+
+// cut splits a stored row name at the one colon a further deploy row carries.
+func cut(name string) (kind, environmentID string, parameterised bool) {
+	for i := range len(name) {
+		if name[i] == ':' {
+			return name[:i], name[i+1:], true
+		}
+	}
+	return name, "", false
+}
+
+// ArtifactGate reports whether the row decides over a document a stage has
+// written, which is the kind of gate that names an artifact version on its open
+// event. The others are event gates: they decide whether a merge or a deploy
+// happens at all, and Decomposition, which decides a set, and the three rows
+// that decide a record rather than a version.
+func (r Row) ArtifactGate() bool {
+	switch r.Kind {
+	case KindSpec, KindImplementationPlan, KindTasks, KindImplementation, KindRolePromptOrSkill:
+		return true
+	default:
+		return false
+	}
+}
+
+// DecidesAnItem reports whether the row is on an item's path. The four rows that
+// are not — a role prompt or a skill, the two withdrawals, and the shortening of
+// decision-log retention — have no stage to be at, no build to point at, and no
+// release to reach, so nothing reads an intent's state for them, no attempt is
+// counted at them, and a reject at one sends nothing back.
+func (r Row) DecidesAnItem() bool {
+	switch r.Kind {
+	case KindRolePromptOrSkill, KindSafeguardWithdrawal, KindHaltWithdrawal,
+		KindDecisionLogRetentionShortening:
+		return false
+	default:
+		return true
+	}
+}
+
+// ReadsAThreshold reports whether the row is decided against the risk threshold
+// at all. Three rows are not: a safeguard's withdrawal, a halt's withdrawal, and
+// the shortening of decision-log retention each read no factor set and no
+// threshold, a human being at them always — a row the score could auto-pass
+// would be the score deciding to remove a human from a gate, to stop being
+// stopped, or to destroy the evidence it learns from.
+func (r Row) ReadsAThreshold() bool {
+	switch r.Kind {
+	case KindSafeguardWithdrawal, KindHaltWithdrawal, KindDecisionLogRetentionShortening:
+		return false
+	default:
+		return true
+	}
+}
+
+// Deploys reports whether the row decides a deploy, which is the set of rows a
+// hold is available at.
+func (r Row) Deploys() bool {
+	switch r.Kind {
+	case KindDeployToCandidateEnvironment, KindDeployToProduction, KindDeployToEnvironment:
+		return true
+	default:
+		return false
+	}
+}
+
+// Verdict is what a decision closes with. There are four, and the log's writer
+// accepts the same four.
 type Verdict string
 
 const (
-	// VerdictApprove admits the event. At the merge row the caller performs the
-	// merge itself, there being no merge queue yet.
+	// VerdictApprove admits the event or the document.
 	VerdictApprove Verdict = "approve"
-	// VerdictReject sends the item back up the pipeline and requires feedback.
-	// It is available up to the merge to master and nowhere after it.
+	// VerdictReject sends the item back to the stage the verdict names and
+	// requires a reason. It is available up to the merge to master and nowhere
+	// after it.
 	VerdictReject Verdict = "reject"
 	// VerdictHold leaves the event queued with the change still good. It counts
 	// no attempt and teaches the score nothing, and only a deploy row offers it.
 	// This is the hold a human sets, which is the one of the design's three
-	// written as a decision; the factory's own is [HoldDependencyNotLive] or
-	// [HoldNoRoomForAnotherEnvironment], and neither is a verdict.
+	// written as a decision; the factory's own are the conditions hold.go names,
+	// and none of them is a verdict.
 	VerdictHold Verdict = "hold"
+	// VerdictRefer is a human saying they cannot judge what they were shown:
+	// not a fault found, which is a reject, and not a stop on the event, which
+	// is a hold. It is on every row because it is about the human and not the
+	// event. [Gate.Refer] is what gives it, because a refer re-fires the row to
+	// a holder who has not referred it and is refused where none is left.
+	VerdictRefer Verdict = "refer"
 )
 
-// ErrRowUnknown is returned for a row outside [Rows].
-var ErrRowUnknown = errors.New("gate: not a gate row this milestone builds")
+// Verdicts is every verdict, in the order the design names them.
+var Verdicts = []Verdict{VerdictApprove, VerdictReject, VerdictHold, VerdictRefer}
 
-// Actions is what may be done at one row. Decomposition approves or rejects a
-// set, and its third action is refused with [ErrEditInPlaceRefused]; the candidate
-// deploy row approves, holds, or rejects — it is fed from a candidate, and reject
-// is available up to the merge to master; the merge row approves or rejects; the
-// production deploy row approves or holds, the merge having happened and the number
-// being already assigned, so there is nothing left to reject to.
+// ErrVerdictUnknown is returned for a verdict the row does not offer.
+var ErrVerdictUnknown = errors.New("gate: the row does not offer that verdict")
+
+// Actions is what may be done at one row. Refer is on all of them. Reject is
+// available up to the merge to master and nowhere after it, so the production
+// deploy row and every further deploy row offer approve, hold and refer alone.
+// Hold is a deploy row's: it stops an event that would otherwise happen, and at
+// the four rows outside an item a hold would name a state the row is already in
+// — a version or a withdrawal nobody approved simply is not in force.
 func Actions(row Row) ([]Verdict, error) {
-	switch row {
-	case Decomposition:
-		return []Verdict{VerdictApprove, VerdictReject}, nil
-	case DeployToCandidateEnvironment:
-		return []Verdict{VerdictApprove, VerdictHold, VerdictReject}, nil
-	case MergeToMaster:
-		return []Verdict{VerdictApprove, VerdictReject}, nil
-	case DeployToProduction:
-		return []Verdict{VerdictApprove, VerdictHold}, nil
+	if err := row.Validate(); err != nil {
+		return nil, err
+	}
+	switch row.Kind {
+	case KindDecomposition, KindSpec, KindImplementationPlan, KindTasks, KindImplementation,
+		KindMergeToMaster, KindRolePromptOrSkill, KindSafeguardWithdrawal, KindHaltWithdrawal,
+		KindDecisionLogRetentionShortening:
+		return []Verdict{VerdictApprove, VerdictReject, VerdictRefer}, nil
+	case KindDeployToCandidateEnvironment:
+		return []Verdict{VerdictApprove, VerdictReject, VerdictHold, VerdictRefer}, nil
+	case KindDeployToProduction, KindDeployToEnvironment:
+		return []Verdict{VerdictApprove, VerdictHold, VerdictRefer}, nil
 	default:
-		return nil, fmt.Errorf("%w: %q", ErrRowUnknown, row)
+		return nil, fmt.Errorf("%w: %q", ErrRowUnknown, row.Kind)
 	}
 }
 
@@ -89,91 +292,99 @@ func permits(row Row, verdict Verdict) error {
 	return nil
 }
 
-// WaitsOn is what an open event waits on: the duty a human at it is performing,
-// or the holder where the design names no duty. It is on the open event so a
-// reader of a pending decision knows who the verdict is waited on from, and it is
-// empty on an auto-pass because nothing is waited on.
-//
-// The merge row names duty 7, which the design says of it in as many words: a
-// human deciding there is performing UAT. Neither deploy row names a duty,
-// because the design names none for either — a human at one is deciding whether
-// the deploy happens and not verifying an artifact, and inventing a duty number
-// for a row would put a claim on the open event that the design does not make.
-// What such a row waits on is whoever holds it, and the screen that shows a
-// duty holder their rows is M7's.
-func WaitsOn(row Row) string {
-	switch row {
-	case MergeToMaster:
-		return "duty 7, UAT — the owner"
-	case Decomposition, DeployToCandidateEnvironment, DeployToProduction:
-		return "whoever holds this gate row — the owner, under no numbered duty of its own"
+// ReturnsTo is a stage a reject may send an item back to: the four an item
+// authors at, and the two things below Spec that are not among its stages,
+// because a defect above the item is not repairable inside it.
+type ReturnsTo string
+
+const (
+	// ReturnsToSpec is the earliest of an item's own stages.
+	ReturnsToSpec = ReturnsTo(item.StageSpec)
+	// ReturnsToImplementationPlan is the plan stage.
+	ReturnsToImplementationPlan = ReturnsTo(item.StageImplementationPlan)
+	// ReturnsToTasks is the tasks stage.
+	ReturnsToTasks = ReturnsTo(item.StageTasks)
+	// ReturnsToImplementation is the implementation stage, and the default at
+	// the two event gates that reject, there being no stage of their own and
+	// none between.
+	ReturnsToImplementation = ReturnsTo(item.StageImplementation)
+	// ReturnsToDecomposition is decomposition running again over the intent: an
+	// item that should have been three names it, and the set that comes out is
+	// decided at Decomposition like any other.
+	ReturnsToDecomposition ReturnsTo = "decomposition"
+	// ReturnsToTheInterview is the earliest thing reachable: the intent returns
+	// to the unrefined state it starts in and raises a question for whoever
+	// holds duty 3.
+	ReturnsToTheInterview ReturnsTo = "the interview"
+)
+
+// ReturnsToTargets is every stage a reject may name, in the order a reject
+// reaches back through them.
+var ReturnsToTargets = []ReturnsTo{
+	ReturnsToTheInterview, ReturnsToDecomposition,
+	ReturnsToSpec, ReturnsToImplementationPlan, ReturnsToTasks, ReturnsToImplementation,
+}
+
+// ErrReturnsToUnknown is returned for a reject naming a target outside
+// [ReturnsToTargets], and for one at a row whose reject names nothing.
+var ErrReturnsToUnknown = errors.New("gate: the reject names no stage the item may return to")
+
+// DefaultReturnsTo is the stage a reject sends the item to where the verdict
+// names none: the row's own stage at an artifact gate, and Implementation at the
+// two event gates that reject, there being no stage of their own and none
+// between. Decomposition names nothing at all — its reject re-decomposes the set
+// rather than sending an item anywhere — and neither does a row outside every
+// item, there being no stage above it to send anything to.
+func DefaultReturnsTo(row Row) (ReturnsTo, bool) {
+	switch row.Kind {
+	case KindSpec:
+		return ReturnsToSpec, true
+	case KindImplementationPlan:
+		return ReturnsToImplementationPlan, true
+	case KindTasks:
+		return ReturnsToTasks, true
+	case KindImplementation, KindDeployToCandidateEnvironment, KindMergeToMaster:
+		return ReturnsToImplementation, true
 	default:
-		return ""
+		return "", false
 	}
 }
 
-// ReturnsTo is the stage a reject sends the item back to where the verdict names
-// none. Both rows that reject default to Implementation, there being no stage of
-// their own and none between; the production deploy row does not reject at all.
-const ReturnsTo = "implementation"
-
 // ErrEditInPlaceRefused is returned for Decomposition's third action. Edit in
-// place at that row is a human re-decomposing the set by hand, and re-decomposing is not
-// built: it needs a stage that decides the decomposition rather than one told what to
-// produce, and the crude interface is told. A rejection is what stops a bad decomposition
-// here, and repairing one is what the next thing to touch decomposition owes.
+// place at that row is a human re-decomposing the set by hand, and
+// re-decomposing is not built: it needs a stage that decides the decomposition
+// rather than one told what to produce. A rejection is what stops a bad
+// decomposition here, and repairing one is what the next thing to touch
+// decomposition owes.
 var ErrEditInPlaceRefused = errors.New("gate: no set to edit in place — re-decomposing is not built, so a bad decomposition is rejected rather than repaired")
 
-// The conditions the factory's own hold is computed from, in the words a caller
-// reports it with. A hold of this kind is not a verdict and writes nothing: it is
-// recomputed at every firing, because a record for it would be a decision where
-// the design says nothing is decided, and re-testing would append one every time
-// the gate re-fired.
-//
-// They are constants here and computed by the caller. What computes them reads the
-// item's declared dependencies and the deploy records of their services, and this
-// package imports neither — what it owns is the vocabulary, so a caller cannot
-// report a hold under a name of its own.
-const (
-	// HoldDependencyNotLive is a declared dependency that is not its service's
-	// current release. At the candidate deploy row the question is whether it is
-	// live at all, the environment being composed from it; at the production
-	// deploy row, whether it is live still — a producer that was live when its
-	// consumer verified can be rolled back before that consumer deploys.
-	HoldDependencyNotLive = "a declared dependency is not its service's current release"
-	// HoldNoRoomForAnotherEnvironment is the substrate with no room for another
-	// candidate environment. It is the one condition at the candidate deploy row
-	// decomposition could not have declared, and the one hold here that is written
-	// anywhere: it is not a record and no parameter of an owner's limits it, so it
-	// goes into the log as a wait, with the component that met it as the actor.
-	HoldNoRoomForAnotherEnvironment = "the substrate has no room for another candidate environment"
-	// HoldWindowLimitReached is the service already holding as many analysis windows open
-	// as the window limit allows. It is computed from records that already exist — the open
-	// windows — so it writes nothing and is recomputed at every firing, and it
-	// lifts itself when one of those windows closes. It is a wait on the factory
-	// and not on a human, which is why it does not page.
-	HoldWindowLimitReached = "the service holds as many analysis windows open as the window limit allows"
-	// HoldRollbackAwaitingRevert is a rollback whose revert has not shipped. Master
-	// keeps the change that was rolled back and the next item was built on master,
-	// so deploying it would redeliver the defect just removed. It writes nothing,
-	// it lifts itself when the revert ships, and it does not hold the revert — a
-	// dependency hold that blocked its own dependency would never lift.
-	HoldRollbackAwaitingRevert = "a rollback's revert has not shipped, so deploying would redeliver the defect it removed"
-	// HoldDriftMismatch is a record the drift detector found disagreeing with what
-	// runs. It is the other kind of hold and the only one of it: no evidence the
-	// factory can gather lifts it, because every remedy the factory has reads the
-	// record in question. So this is the one factory hold that fires the row rather
-	// than stopping the deploy before a decision is opened — a human decides, and
-	// the notifier pages, because the service cannot receive its own fixes until
-	// one of them ends it.
-	HoldDriftMismatch = "the drift detector found a record disagreeing with what runs"
-)
+// ErrStrategySafeguardRefused is returned for the production deploy row's
+// fourth action. Safeguarding the strategy is an owner's write at Factory
+// rather than a verdict at this row, and package safeguard is where it is
+// placed; the row itself decides the deploy.
+var ErrStrategySafeguardRefused = errors.New("gate: safeguarding the strategy is a safeguard an owner places and not a verdict given here")
 
-// ErrStrategySafeguardRefused is returned for the production deploy row's third
-// action. A strategy that keeps a control needs a substrate that decides what
-// share of arriving traffic reaches each of two builds; a target that runs a
-// release as a local process moves a process instead, so the row is unavailable
-// here and every deploy goes without a control — the same exemption a service's
-// first release already takes, arriving for the whole install rather than for
-// one release.
-var ErrStrategySafeguardRefused = errors.New("gate: no strategy a safeguard can keep — this substrate moves a process rather than traffic, so every deploy goes without a control")
+// ErrNoFactorSet is returned for a row that reads no factor set at all, which is
+// the three rows [Row.ReadsAThreshold] names: a human is at each of them always,
+// so there is nothing for a set of factors to decide.
+var ErrNoFactorSet = errors.New("gate: this row reads no factor set and no threshold")
+
+// FactorSetAt is which of the score's three sets a firing at this row is scored
+// on. Which set a firing is on is this package's to say, because a gate row is
+// this package's vocabulary: the four rows below a build weigh four groups, the
+// four above weigh three, exposure being inapplicable there rather than
+// unavailable, and the row that decides a version of what an agent is told
+// weighs a set of its own.
+func FactorSetAt(row Row) (score.FactorSet, error) {
+	switch row.Kind {
+	case KindDecomposition, KindSpec, KindImplementationPlan, KindTasks:
+		return score.SetAboveABuild, nil
+	case KindImplementation, KindDeployToCandidateEnvironment, KindMergeToMaster,
+		KindDeployToProduction, KindDeployToEnvironment:
+		return score.SetWithABuild, nil
+	case KindRolePromptOrSkill:
+		return score.SetRolePromptOrSkill, nil
+	default:
+		return "", fmt.Errorf("%w: %s", ErrNoFactorSet, row)
+	}
+}

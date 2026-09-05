@@ -20,8 +20,10 @@ import (
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/notifier"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
@@ -50,10 +52,10 @@ func (p *path) implementerActor() record.Actor {
 	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
 }
 
-// path is one run's collaborators, composed once. It is also the deploy agent: it
+// path is one run's collaborators, composed once. It is also the deployer: it
 // implements [mergequeue.Repository] and [contractcheck.Checkout], because
 // everything the queue needs done to a repository and everything enforcement needs
-// read out of a checkout is the deploy agent's work, and neither of those
+// read out of a checkout is the deployer's work, and neither of those
 // components reaches one.
 type path struct {
 	d          deps
@@ -64,6 +66,7 @@ type path struct {
 	areaID     string
 
 	policy        *policy.Reader
+	factory       *policy.Factory
 	log           *decisionlog.Writer
 	gate          *gate.Gate
 	store         *artifact.Store
@@ -72,6 +75,7 @@ type path struct {
 	dispatch      *item.Dispatch
 	builds        *build.Writer
 	deploys       *deploy.Writer
+	checks        *lastcheck.Writer
 	candidates    *environment.Candidates
 	queue         *mergequeue.Queue
 	contracts     *contractcheck.Check
@@ -100,12 +104,91 @@ type path struct {
 	serviceByID map[string]service.Service
 }
 
+// The seams this value implements. Every one of them is a thing the package
+// that declares it cannot do: reaching a repository, reaching a deploy target,
+// reading a checkout, observing a run, reading a candidate's own store, reading
+// a backfill's completion, and computing the factory's own holds.
 var (
 	_ mergequeue.Repository    = (*path)(nil)
-	_ healthmonitor.Rollbacker = (*path)(nil)
+	_ healthmonitor.Deployer   = (*path)(nil)
 	_ contractcheck.Checkout   = (*path)(nil)
 	_ contractcheck.Exchanges  = (*path)(nil)
+	_ contractcheck.StoreState = (*path)(nil)
+	_ contractcheck.Backfills  = (*path)(nil)
+	_ gate.Holds               = (*path)(nil)
 )
+
+// intentState is [gate.IntentState]: the state of the intent an item was
+// decomposed from, read before every firing on that item. It is a function the
+// composition supplies because what it takes is the item's intent, and a gate
+// decides events rather than following records from one to the next.
+func (p *path) intentState(ctx context.Context, itemID string) (intent.State, error) {
+	it, err := item.Get(ctx, p.d.pool, itemID)
+	if err != nil {
+		return "", err
+	}
+	if it.IntentID == "" {
+		return intent.StateRefined, nil
+	}
+	in, err := intent.Get(ctx, p.d.pool, it.IntentID)
+	if err != nil {
+		return "", err
+	}
+	return in.State, nil
+}
+
+// nameOfKey is [gate.HumanName]: a per-person key resolved to the name the
+// People mapping records for it. The gate needs it for one comparison — the
+// author on an artifact version is a name and the actor on a close event is a
+// key — and a key whose mapping was erased or never written resolves to itself,
+// which compares as the two being different people.
+func (p *path) nameOfKey(ctx context.Context, key string) (string, error) {
+	name, err := people.NameOf(ctx, p.d.pool, key)
+	if err != nil {
+		return key, nil
+	}
+	return name, nil
+}
+
+// gateNotifier is [gate.Notifier]: the two calls a gate makes on the component
+// that reaches humans. It is a type of its own rather than the notifier itself
+// because the gate's two calls take a row and an item, and the notifier's own
+// entrance takes a [notifier.Wait] — so the wait is composed here, where what it
+// waits on is known.
+type gateNotifier struct{ notifier *notifier.Notifier }
+
+// Acknowledged is the page's acknowledged event, written where the row that was
+// acknowledged also pages: one act at Work writes both.
+func (g gateNotifier) Acknowledged(ctx context.Context, openID string, human record.Actor) error {
+	if g.notifier == nil {
+		return nil
+	}
+	_, err := g.notifier.Acknowledge(ctx, notifier.Wait{
+		Row: openID, Kind: notifier.KindDriftMismatch,
+		Waiting: "a human at Work acknowledged the row this page was about",
+		Holding: people.OfDuty(takeOverIssues),
+	}, human.Key)
+	return err
+}
+
+// Escalated is the wait an item stopped at the attempt limit leaves, which is
+// what puts it in Work as an escalation. It routes to the duty that takes over
+// issues the factory cannot fix on its own, and it is worse where something live
+// is worse — which watch.go's own escalation read decides from the intent's
+// source and this one cannot, holding only the item and the stage.
+func (g gateNotifier) Escalated(ctx context.Context, itemID string, stage item.Stage, reason string) error {
+	if g.notifier == nil {
+		return nil
+	}
+	_, err := g.notifier.Notify(ctx, notifier.Wait{
+		Row:     itemID,
+		Kind:    notifier.KindItemEscalated,
+		Waiting: fmt.Sprintf("the factory gave up on %s at %s: %s", itemID, stage, reason),
+		Holding: people.OfDuty(takeOverIssues),
+		Worse:   true,
+	})
+	return err
+}
 
 // run walks the whole path once for each intent it is given, from a statement to
 // a running release, stopping with the first error.
@@ -201,7 +284,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		return s, nil
 	}
 	if c := p.byItem[itemOfDeploy(ctx, d.pool, deployed)]; c != nil && c.svc.ID != "" {
-		if live, running, err := deploy.Current(ctx, d.pool, c.svc.ID, p.production.ID); err == nil && running {
+		if live, running, err := deploy.Current(ctx, d.pool, c.svc.ID, p.production.ID, p.productionAddresses()); err == nil && running {
 			deployed = live.ID
 		}
 	}

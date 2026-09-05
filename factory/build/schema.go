@@ -52,6 +52,15 @@ const FormatVersionResolved = "build_resolved_entry/1"
 // design_system_constraint_id is empty on a build in a project with no user
 // interface. shipped_bundle_identity is empty except on a search build,
 // which names the release of the product that made it.
+//
+// exposure is the exposure list the build runner derived from its own checkout,
+// as JSON, and it is the one nullable column here: null is a build no extractor
+// ran for, and an empty list is a diff that reached nothing new. The two call
+// for opposite responses at a gate — the first resolves the factor and the
+// second lowers the number — so they are told apart in the column rather than
+// inferred from an empty list. declares_schema_change is the build's own
+// reading of whether its checkout ships a schema change, which is what the
+// store rule's double application is asked about.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -64,6 +73,8 @@ var DDL = []string{
 	notice_file text not null,
 	design_system_constraint_id text not null,
 	shipped_bundle_identity text not null,
+	exposure text,
+	declares_schema_change boolean not null,
 	` + record.Constraints + `,
 	constraint service_id_present check (service_id <> ''),
 	constraint commit_hash_present check (commit_hash <> ''),

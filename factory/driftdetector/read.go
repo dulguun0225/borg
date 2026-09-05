@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,12 +30,19 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 //
 // More than one target may disagree at once and the answer is one sentence, because
 // the gate's open event holds one: the sentences are joined, so a row naming two
-// targets says both rather than picking one.
+// targets says both rather than picking one. An uncleared chain mismatch holds
+// every service's production deploys, so it is folded into the answer for
+// every serviceID asked about.
 func (s *Store) Mismatch(ctx context.Context, serviceID string) (bool, string, error) {
 	standing, err := Uncleared(ctx, s.pool, serviceID)
 	if err != nil {
 		return false, "", err
 	}
+	chain, err := UnclearedChain(ctx, s.pool)
+	if err != nil {
+		return false, "", err
+	}
+	standing = append(standing, chain...)
 	if len(standing) == 0 {
 		return false, "", nil
 	}
@@ -45,20 +53,29 @@ func (s *Store) Mismatch(ctx context.Context, serviceID string) (bool, string, e
 	return true, strings.Join(said, "; "), nil
 }
 
-// Uncleared is every mismatch of one service that no human has cleared, oldest
-// first. It is what holds that service's production deploys, and what the notifier
-// pages about.
+// Uncleared is every target mismatch of one service that no human has
+// cleared, oldest first. It is what holds that service's production
+// deploys, and what the notifier pages about. A chain mismatch is never in
+// this answer — [UnclearedChain] is where it is read.
 //
-// An empty service is every uncleared mismatch, which is what a reader of the whole
-// store — the crude interface's own printing — asks for.
+// An empty service is every uncleared target mismatch, which is what a reader
+// of the whole store — the command-line interface's own printing — asks for.
 func Uncleared(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Mismatch, error) {
-	where := ` where cleared_at = '' order by at, id`
+	where := ` where cleared_at = '' and kind = '` + MismatchKindTarget + `' order by at, id`
 	args := []any{}
 	if serviceID != "" {
-		where = ` where cleared_at = '' and service_id = $1 order by at, id`
+		where = ` where cleared_at = '' and kind = '` + MismatchKindTarget + `' and service_id = $1 order by at, id`
 		args = append(args, serviceID)
 	}
 	return mismatches(ctx, pool, where, args...)
+}
+
+// UnclearedChain is every uncleared chain mismatch, oldest first. There is at
+// most one at a time in ordinary operation — [Writer.RaiseChainMismatch]
+// leaves one standing alone rather than raising a second — but a reader
+// asks for every one there is rather than assuming that.
+func UnclearedChain(ctx context.Context, pool *pgxpool.Pool) ([]Mismatch, error) {
+	return mismatches(ctx, pool, ` where cleared_at = '' and kind = '`+MismatchKindChain+`' order by at, id`)
 }
 
 // All is every mismatch, cleared or not, oldest first. A cleared one is kept: the
@@ -79,19 +96,19 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Mismatch, error) {
 	return m, nil
 }
 
-const selectMismatch = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, target, running_build,
-	recorded_release_id, recorded_build_id, later_agreements, cleared_at, cleared_by
+const selectMismatch = `select id, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, running_build,
+	recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by
 	from ` + MismatchTable
 
 func scanMismatch(row pgx.Row) (Mismatch, error) {
 	var m Mismatch
-	var kind, basis string
-	err := row.Scan(&m.ID, &kind, &m.Actor.Key, &basis, &m.At, &m.ServiceID, &m.Target, &m.RunningBuild,
-		&m.RecordedReleaseID, &m.RecordedBuildID, &m.LaterAgreements, &m.ClearedAt, &m.ClearedBy)
+	var actorKind, basis string
+	err := row.Scan(&m.ID, &actorKind, &m.Actor.Key, &basis, &m.At, &m.Kind, &m.ServiceID, &m.Target, &m.RunningBuild,
+		&m.RecordedReleaseID, &m.RecordedBuildID, &m.Detail, &m.LaterAgreements, &m.ClearedAt, &m.ClearedBy)
 	if err != nil {
 		return Mismatch{}, err
 	}
-	m.Actor.Kind = record.Kind(kind)
+	m.Actor.Kind = record.Kind(actorKind)
 	m.Actor.Basis = record.Basis(basis)
 	return m, nil
 }
@@ -126,7 +143,7 @@ func mismatches(ctx context.Context, pool *pgxpool.Pool, suffix string, args ...
 // agreement or nothing rather than a second row.
 func unclearedOn(ctx context.Context, pool *pgxpool.Pool, serviceID, target string) (Mismatch, bool, error) {
 	m, err := scanMismatch(pool.QueryRow(ctx, selectMismatch+`
-		where service_id = $1 and target = $2 and cleared_at = '' order by at limit 1`,
+		where kind = '`+MismatchKindTarget+`' and service_id = $1 and target = $2 and cleared_at = '' order by at limit 1`,
 		serviceID, target))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Mismatch{}, false, nil
@@ -143,7 +160,7 @@ func unclearedOn(ctx context.Context, pool *pgxpool.Pool, serviceID, target stri
 // as health.
 func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]LastCheck, error) {
 	statement := `select id, actor_kind, actor_key, actor_key_basis, at, service_id, target, reached, why,
-		running_build, recorded_release_id, recorded_build_id, agreed
+		running_build, recorded_release_id, recorded_build_id, agreed, digest_reported, interval_seconds, further_pass_owed
 		from ` + LastCheckTable
 	args := []any{}
 	if serviceID != "" {
@@ -162,12 +179,17 @@ func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]La
 	for rows.Next() {
 		var c LastCheck
 		var kind, basis string
+		var seconds int64
+		var furtherPassOwed bool
 		if err := rows.Scan(&c.ID, &kind, &c.Actor.Key, &basis, &c.At, &c.ServiceID, &c.Target,
-			&c.Reached, &c.Why, &c.RunningBuild, &c.RecordedReleaseID, &c.RecordedBuildID, &c.Agreed); err != nil {
+			&c.Reached, &c.Why, &c.RunningBuild, &c.RecordedReleaseID, &c.RecordedBuildID, &c.Agreed,
+			&c.DigestReported, &seconds, &furtherPassOwed); err != nil {
 			return nil, fmt.Errorf("driftdetector: reading a last check: %w", err)
 		}
 		c.Actor.Kind = record.Kind(kind)
 		c.Actor.Basis = record.Basis(basis)
+		c.Interval = time.Duration(seconds) * time.Second
+		c.FurtherPassOwed = furtherPassOwed
 		read = append(read, c)
 	}
 	if err := rows.Err(); err != nil {

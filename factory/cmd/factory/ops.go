@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -31,6 +32,12 @@ import (
 // or prints the declaration. Nothing enforces it and nothing has to: a page or a gate
 // row with no holder recorded widens to the owner, who is the person that would have
 // written the row.
+//
+// The holding is written against a per-person key and the argument is a name, so
+// the name is resolved through the People mapping the same way -human is — and a
+// name nobody has a key for gets one, which is what makes `factory people alice
+// -duty 6` work on a fresh install. Printing resolves the other way, key back to
+// name, and prints the key itself where the mapping has been erased.
 func peopleCommand(args []string) error {
 	flags := flag.NewFlagSet("people", flag.ContinueOnError)
 	duty := flags.Int("duty", 0, "one of the owner's twelve duties, by number")
@@ -61,26 +68,38 @@ func peopleCommand(args []string) error {
 			holding = people.OfObligation(people.Obligation(*obligation))
 		}
 
-		writer := people.NewWriter(pool, token)
+		actor, err := humanNamed(ctx, pool, token, *human)
+		if err != nil {
+			return err
+		}
+		// The holder's own key and mapping, minted where the name is new. A
+		// holding is written against a key and never a name, so this write is
+		// what makes the row readable back as a person.
+		held, err := humanNamed(ctx, pool, token, holder)
+		if err != nil {
+			return err
+		}
+
+		writer := people.NewWriter(pool, token, policy.NewFactory(pool, token))
 		if *withdraw {
-			standing, err := people.ByHolding(ctx, pool, holder, holding)
+			standing, err := people.ByHolding(ctx, pool, held.Key, holding)
 			if err != nil {
 				return err
 			}
-			ended, err := writer.Withdraw(ctx, standing.ID)
+			ended, err := writer.Withdraw(ctx, actor, standing.ID)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%s no longer holds %s, as of %s; the row is kept\n", ended.Human, holding, ended.WithdrawnAt)
+			fmt.Printf("%s no longer holds %s, as of %s; the row is kept\n", holder, holding, ended.WithdrawnAt)
 			return nil
 		}
 
-		declared, err := writer.Declare(ctx, owner(*human), holder, holding)
+		declared, err := writer.Declare(ctx, actor, held.Key, holding)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("%s holds %s, declared as %s by %s %s\n",
-			declared.Human, holding, declared.ID, declared.Actor.Kind, *human)
+			holder, holding, declared.ID, declared.Actor.Kind, *human)
 		fmt.Println("A page about a row belonging to this holding reaches every human who holds it at once, and widens once to the owner")
 		return nil
 	})
@@ -100,9 +119,21 @@ func printPeople(ctx context.Context, pool *pgxpool.Pool) error {
 		if !d.Holds() {
 			state = "withdrew at " + d.WithdrawnAt
 		}
-		fmt.Printf("  %s: %s — %s\n", d.Human, holdingOf(d), state)
+		fmt.Printf("  %s: %s — %s\n", nameOrKey(ctx, pool, d.Key), holdingOf(d), state)
 	}
 	return nil
+}
+
+// nameOrKey is one per-person key as a reader sees it: the name the mapping
+// gives it, and the key itself where the mapping was erased or never written.
+// A key with no name is not an error — the mapping is the one record an erasure
+// reaches, and the holding it left behind still routes.
+func nameOrKey(ctx context.Context, pool *pgxpool.Pool, key string) string {
+	name, err := people.NameOf(ctx, pool, key)
+	if err != nil {
+		return key
+	}
+	return name
 }
 
 // holdingOf is one declaration's holding, read back off the row's two columns.
@@ -196,6 +227,9 @@ func approveCommand(args []string) error {
 	human := flags.String("human", "owner", "the human deciding")
 	verdict := flags.String("verdict", string(gate.VerdictApprove), "approve or hold")
 	reason := flags.String("reason", "", "what the human says with the verdict, which goes on the close event")
+	safeguardWithdrawal := flags.String("safeguard-withdrawal", "", "approve this safeguard's withdrawal instead, which is where a safeguard leaves force")
+	haltWithdrawal := flags.String("halt-withdrawal", "", "approve this halt's withdrawal instead, which is where a halt ends")
+	retention := flags.Int64("retention", 0, "approve this shortening of decision-log retention, in seconds")
 
 	id := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -203,6 +237,15 @@ func approveCommand(args []string) error {
 	}
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	// The three rows outside every item take no item and no target: what they
+	// decide is a record, so they neither reach a deploy target nor read a
+	// secret, and withdrawal.go closes them without composing the path.
+	if *safeguardWithdrawal != "" || *haltWithdrawal != "" || *retention > 0 {
+		if id != "" {
+			return errors.New("factory approve: a withdrawal and a shortening decide a record and not an item, so neither takes one")
+		}
+		return approveWithdrawal(*safeguardWithdrawal, *haltWithdrawal, *retention, *human)
 	}
 	if id == "" || flags.NArg() != 0 {
 		return errors.New("factory approve: one argument, the item's id, and then any flags")

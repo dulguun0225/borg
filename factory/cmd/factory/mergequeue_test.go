@@ -1,6 +1,6 @@
 // Candidate environments and the merge queue: an environment of its own per
 // candidate, two proceeding at once, a candidate whose reverification fails,
-// the priority that reorders the queue, and the substrate with no room left.
+// the priority that reorders the queue, and the platform with no room left.
 package main
 
 import (
@@ -84,12 +84,12 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 	}
 	// Nothing is current on a candidate environment: Current reads the records
 	// that name a release.
-	if _, running, err := deploy.Current(ctx, d.pool, res.serviceID, env.ID); err != nil || running {
+	if _, running, err := deploy.Current(ctx, d.pool, res.serviceID, env.ID, []string{d.dir}); err != nil || running {
 		t.Errorf("Current on a candidate environment = running %v, %v", running, err)
 	}
 
 	// The criteria were decided against the build, on that environment, by the
-	// deploy agent — twice at the candidate deploy row and twice more at the
+	// deployer — twice at the candidate deploy row and twice more at the
 	// queue's re-verification, which reuses this same build because nothing
 	// changed to rebuild for, each of the two runs a row of its own in run order.
 	results, err := criterion.ResultsForBuild(ctx, d.pool, candidateDeploy.BuildID)
@@ -104,7 +104,7 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 			t.Errorf("run %d is %s over the build, want passed", n+1, r.Outcome)
 		}
 		if r.Actor.Key != "deploy" {
-			t.Errorf("run %d was written by %q, want the deploy agent", n+1, r.Actor.Key)
+			t.Errorf("run %d was written by %q, want the deployer", n+1, r.Actor.Key)
 		}
 	}
 	if !strings.Contains(out.String(), "ran twice on the candidate environment") {
@@ -135,7 +135,7 @@ func TestTwoCandidatesProceedAtOnce(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the two-candidate run stopped: %v\noutput so far:\n%s", err, out)
@@ -226,7 +226,7 @@ func TestTwoCandidatesProceedAtOnce(t *testing.T) {
 			t.Errorf("item %s minted release %s and deployed nothing", c.itemID, c.releaseID)
 		}
 	}
-	running, err := d.targets.at(d.dir).ReadRunning(ctx, "demo", d.credential)
+	running, err := d.targets.at(d.dir).ReadRunning(ctx, deployerPrincipal, "demo", d.credential)
 	if err != nil {
 		t.Fatalf("reading what production runs: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a queue rejection is not an error: %v\noutput so far:\n%s", err, out)
@@ -270,7 +270,10 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 	if b.releaseID != "" {
 		t.Errorf("the rejected candidate minted release %s", b.releaseID)
 	}
-	if !strings.Contains(b.queueWhy, "merging master") {
+	// The merge that conflicted is the speculation's: the queue re-verifies each
+	// candidate against master plus every candidate ahead of it, so what this one
+	// conflicts with is the branch in front of it and not master itself.
+	if !strings.Contains(b.queueWhy, "CONFLICT") || !strings.Contains(b.queueWhy, "merging item/") {
 		t.Errorf("the queue rejected it because %q, want the merge that conflicted", b.queueWhy)
 	}
 
@@ -333,7 +336,7 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 			t.Errorf("the rejection payload is %+v, want kind %q for item %s",
 				payload, mergequeue.RejectionKind, b.itemID)
 		}
-		if payload.ReturnsTo != gate.ReturnsTo || !payload.CountsAnAttempt {
+		if payload.ReturnsTo != string(gate.ReturnsToImplementation) || !payload.CountsAnAttempt {
 			t.Errorf("the rejection returns the item to %q and counts an attempt %v",
 				payload.ReturnsTo, payload.CountsAnAttempt)
 		}
@@ -362,7 +365,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	// The priority is written between the Merge to master gate and the queue, which is what
 	// a screen would do: the run does both in one call, so this test drives the
 	// steps rather than run itself.
-	d.in = strings.NewReader("")
+	d.in = strings.NewReader(approvals)
 	p, err := compose(ctx, d)
 	if err != nil {
 		t.Fatalf("composing the path: %v", err)
@@ -381,7 +384,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	}
 
 	// The second-approved candidate is pushed to the front.
-	if _, err := item.NewDispatch(d.pool, d.token).SetPriority(ctx, owner(d.human), candidates[1].itemID, 5); err != nil {
+	if _, err := item.NewDispatch(d.pool, d.token).SetPriority(ctx, owner(t, ctx, d.pool, d.token, d.human), candidates[1].itemID, 5); err != nil {
 		t.Fatalf("setting the priority: %v", err)
 	}
 	members, err := p.queue.Members(ctx, theServiceRecord(t, ctx, p).ID)
@@ -404,11 +407,11 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	}
 }
 
-// TestTheSubstrateWithNoRoomWaits is the other hold at the candidate deploy row,
-// and the one that writes: the substrate has no room for another environment, that
+// TestThePlatformWithNoRoomWaits is the other hold at the candidate deploy row,
+// and the one that writes: the platform has no room for another environment, that
 // condition is not a record, and no parameter of an owner's limits it — so it goes
-// into the log as a wait with the deploy agent as caller and actor.
-func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
+// into the log as a wait with the deployer as caller and actor.
+func TestThePlatformWithNoRoomWaits(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.candidateCeiling = 1
 
@@ -424,8 +427,8 @@ func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
 	if b.environmentID != "" {
 		t.Errorf("the second candidate got environment %s with the ceiling at one", b.environmentID)
 	}
-	if b.factoryHold != gate.HoldNoRoomForAnotherEnvironment {
-		t.Errorf("the second candidate's hold is %q, want the substrate's", b.factoryHold)
+	if b.factoryHold != gate.HoldNoRoomOnThePlatform {
+		t.Errorf("the second candidate's hold is %q, want the platform's", b.factoryHold)
 	}
 	if b.candidateGate.opening != "" {
 		t.Error("the candidate deploy row fired for the held candidate, and a factory hold is not a verdict")
@@ -445,14 +448,14 @@ func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
 			t.Errorf("the wait row is %s, the run reported %s", row.ID, b.holdWaitRow)
 		}
 		if row.Actor.Key != "deploy" {
-			t.Errorf("the wait row's actor is %q, want the deploy agent that met the condition", row.Actor.Key)
+			t.Errorf("the wait row's actor is %q, want the deployer that met the condition", row.Actor.Key)
 		}
-		var payload substrateWait
+		var payload platformWait
 		if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
 			t.Fatalf("reading the wait payload: %v", err)
 		}
-		if payload.Kind != SubstrateWaitKind || payload.ItemID != b.itemID {
-			t.Errorf("the wait payload is %+v, want kind %q for item %s", payload, SubstrateWaitKind, b.itemID)
+		if payload.Kind != PlatformWaitKind || payload.ItemID != b.itemID {
+			t.Errorf("the wait payload is %+v, want kind %q for item %s", payload, PlatformWaitKind, b.itemID)
 		}
 		if payload.Ceiling != 1 || payload.Live != 1 {
 			t.Errorf("the wait payload says %d live against a ceiling of %d, want 1 and 1", payload.Live, payload.Ceiling)

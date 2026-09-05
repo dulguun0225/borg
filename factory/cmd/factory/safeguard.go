@@ -19,12 +19,9 @@ import (
 	"github.com/dulguun0225/borg/factory/safeguard"
 )
 
-// -route-duty and -route-human are read and validated but not yet reached:
-// [policy.Factory.AddSafeguard] places every safeguard with [safeguard.Routing]'s
-// zero value, routing to the owner, because nothing above it composes a duty
-// or a named human to route to — package policy's own comment on the method
-// says so. A safeguard command naming either prints that it was not wired
-// rather than silently placing an unrouted safeguard.
+// -route-duty and -route-human are the safeguard's own routing, which the rows
+// it puts a human at and the row that withdraws it are routed by. A safeguard
+// naming neither routes to the owner, which is where every unheld row goes.
 
 // safeguardCommand places a safeguard or withdraws one. The direction is not a
 // flag: it differs per parameter and points the same way in each, so an owner
@@ -37,29 +34,45 @@ func safeguardCommand(args []string) error {
 	bound := flags.String("bound", "", "the number the safeguard bounds by, a comma-separated list for the list of allowed predicate kinds, or kind[=argument] for a safeguard's predicate; a safeguard on the risk threshold takes none")
 	withdraw := flags.String("withdraw", "", "the id of a safeguard to withdraw instead of placing one")
 	human := flags.String("human", "owner", "the owner placing it")
-	routeDuty := flags.Int("route-duty", 0, "route this safeguard's rows to one of the owner's twelve duties (not yet wired to policy; see the comment above)")
-	routeHuman := flags.String("route-human", "", "route this safeguard's rows to a named human's per-person key (not yet wired to policy; see the comment above)")
+	routeDuty := flags.Int("route-duty", 0, "route this safeguard's rows to one of the owner's twelve duties")
+	routeHuman := flags.String("route-human", "", "route this safeguard's rows to this human, by name")
 	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	routing := safeguard.Routing{Duty: *routeDuty, HumanKey: *routeHuman}
-	if err := routing.Validate(); err != nil {
 		return err
 	}
 
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		factory := policy.NewFactory(pool, token)
-		actor := owner(*human)
-		if routing.Duty != 0 || routing.HumanKey != "" {
-			fmt.Println("-route-duty and -route-human are not yet wired to policy.Factory.AddSafeguard; this safeguard routes to the owner")
+		actor, err := humanNamed(ctx, pool, token, *human)
+		if err != nil {
+			return err
 		}
-
-		if *withdraw != "" {
-			version, err := factory.WithdrawSafeguard(ctx, actor, *withdraw)
+		// The routing names a human by their per-person key and an owner types a
+		// name, so the name is resolved through the People mapping the way -human
+		// is — the same crossing, at the one place a safeguard names a person.
+		routing := safeguard.Routing{Duty: *routeDuty}
+		if *routeHuman != "" {
+			routed, err := humanNamed(ctx, pool, token, *routeHuman)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Safeguard %s withdrawn; policy version %s\n", *withdraw, version.ID)
+			routing.HumanKey = routed.Key
+		}
+		if err := routing.Validate(); err != nil {
+			return err
+		}
+
+		// Withdrawing writes the withdrawal record and takes the safeguard out of
+		// nothing: a safeguard leaves force at the gate row A safeguard's
+		// withdrawal, decided by a human always and routed away from whoever wrote
+		// it. `factory approve` is where that row fires.
+		if *withdraw != "" {
+			written, version, err := factory.WriteSafeguardWithdrawal(ctx, actor, *withdraw)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Withdrawal %s written for safeguard %s; policy version %s\n",
+				written.ID, *withdraw, version.ID)
+			fmt.Printf("The safeguard stands until the row that decides it closes: `factory approve -safeguard-withdrawal %s`\n", written.ID)
 			return nil
 		}
 		if *name == "" || *subject == "" {
@@ -94,7 +107,7 @@ func safeguardCommand(args []string) error {
 			}
 		}
 
-		placed, version, err := factory.AddSafeguard(ctx, actor, parameter, on, of)
+		placed, version, err := factory.AddSafeguard(ctx, actor, parameter, on, of, routing)
 		if err != nil {
 			return err
 		}
@@ -119,7 +132,11 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceN
 		return safeguard.Subject{}, fmt.Errorf("factory safeguard: a subject is written kind:name, not %q", written)
 	}
 	if kind == "gate_row" {
-		if _, err := gate.Actions(gate.Row(name)); err != nil {
+		row, err := gate.RowFrom(name)
+		if err != nil {
+			return safeguard.Subject{}, err
+		}
+		if _, err := gate.Actions(row); err != nil {
 			return safeguard.Subject{}, err
 		}
 		svc, err := namedService(ctx, pool, serviceName)

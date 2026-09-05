@@ -10,7 +10,6 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -157,9 +156,9 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 	// Every authoring write appended a policy version, so the sequence is as long
 	// as the writes plus the three the install made — the factory-wide settings
 	// record, the project, and production's environment for it.
-	versions, err := policy.All(ctx, pool)
+	versions, err := policyVersions(t, ctx, pool)
 	if err != nil {
-		t.Fatalf("All: %v", err)
+		t.Fatalf("Versions: %v", err)
 	}
 	if len(versions) != 10 {
 		t.Errorf("%d policy versions exist, want three creations and seven authorings", len(versions))
@@ -193,9 +192,9 @@ func TestAuthoringRefusesWhatItCannotResolve(t *testing.T) {
 
 	// Nothing was authored, so nothing moved the policy version past the
 	// install's three creations.
-	versions, err := policy.All(ctx, pool)
+	versions, err := policyVersions(t, ctx, pool)
 	if err != nil {
-		t.Fatalf("All: %v", err)
+		t.Fatalf("Versions: %v", err)
 	}
 	if len(versions) != 3 {
 		t.Errorf("%d policy versions exist after refused writes, want the install's three", len(versions))

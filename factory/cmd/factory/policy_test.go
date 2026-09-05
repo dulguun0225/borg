@@ -42,7 +42,7 @@ func TestPolicyReadsWhatIsInForce(t *testing.T) {
 	// What the print reads is what the reader reads, so the assertion over its
 	// content is on the reader: every parameter resolves, and the two with a
 	// mechanism at this milestone say so.
-	effectives, err := policy.NewReader(pool, score.Version{}).All(ctx, policy.Subjects{
+	effectives, err := policy.NewReader(pool, testToken(t, ctx, pool), score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
 	if err != nil {

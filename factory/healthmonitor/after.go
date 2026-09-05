@@ -2,109 +2,136 @@ package healthmonitor
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// AfterWindow reads the release running in production whose window has already
-// closed, and returns false where there is nothing to read — no completed deploy, or
-// a release still under watch, which is [HealthMonitor.Watch]'s.
+// AfterReading is what [HealthMonitor.AfterWindow] found: the release read, and
+// what its own-history crossing raised, where it crossed.
+type AfterReading struct {
+	Release        release.Release
+	Crossed        bool
+	IncidentID     string
+	RaisedIntentID string
+	// WhyNoRollback is why nothing is rolled back for this crossing: the window
+	// over the release has closed, so the factory's own authority to roll it
+	// back has ended. It is empty where nothing crossed.
+	WhyNoRollback string
+}
+
+// AfterWindow reads the release running in production against the service's own
+// recent history, and returns false where there is nothing to read — no
+// completed deploy, or a release still under watch, which is
+// [HealthMonitor.Watch]'s.
 //
-// The health monitor keeps running after the window closes. What it finds then is not a
-// rollback candidate: the change has been live for a week and the window's authority
-// ended long before. It is an incident and an unrefined intent, taking the same
-// stages and the same gates as an intent an owner typed — which is the whole of
-// "finds issues and fixes bugs".
+// The health monitor keeps running after the window closes, on this one reading:
+// the control was torn down with the window, so no comparison is left to run.
+// What it finds then is not a rollback candidate — the change has been live for
+// a week and the window's authority ended long before. It is an unrefined
+// intent, taking the same stages and the same gates as one an owner typed —
+// which is the whole of "finds issues and fixes bugs".
 //
 // The second crossing on one release is an observation on the incident already
-// open and never a second intent. That is what keeps a service failing steadily from
-// filling Work with one item per pass, and what it costs is that the count of
-// observations is all a reader has about how long it has been crossing.
-func (h *HealthMonitor) AfterWindow(ctx context.Context, w Watching) (Reading, bool, error) {
+// open and never a second intent. That is what keeps a service failing
+// steadily from filling Work with one item per pass, and what it costs is that
+// the count of observations is all a reader has about how long it has been
+// crossing.
+//
+// A release whose deploy opened no window — which nothing on this path
+// produces, a production deploy always opening one — is read for its own
+// history alone and raises nothing: doc.go says why, and it is where this
+// package's own record of what is in force today, [Readings], would have to be
+// asked for the policy and score versions an incident needs and is not.
+func (h *HealthMonitor) AfterWindow(ctx context.Context, w Watching) (AfterReading, bool, error) {
 	if err := w.validate(); err != nil {
-		return Reading{}, false, err
+		return AfterReading{}, false, err
+	}
+	svc, err := service.Get(ctx, h.pool, w.ID)
+	if err != nil {
+		return AfterReading{}, false, err
 	}
 
-	current, running, err := deploy.Current(ctx, h.pool, w.ID, w.EnvironmentID)
+	current, running, err := deploy.Current(ctx, h.pool, w.ID, w.EnvironmentID, targetsOrDefault(svc.Targets, w))
 	if err != nil || !running {
-		return Reading{}, false, err
+		return AfterReading{}, false, err
 	}
 	win, watched, err := window.ForRelease(ctx, h.pool, current.ReleaseID)
 	if err != nil {
-		return Reading{}, false, err
+		return AfterReading{}, false, err
 	}
 	if watched && win.Open() {
-		// The window is still open, so this release is the window's own business and
-		// the window's authority still runs. Reading it here as well would evaluate one
-		// release twice in one pass and could fail it and raise an item for it at
-		// once.
-		return Reading{}, false, nil
+		// The window is still open, so this release is the window's own business
+		// and the window's authority still runs. Reading it here as well would
+		// evaluate one release twice in one pass and could fail it and raise an
+		// item for it at once.
+		return AfterReading{}, false, nil
 	}
 
 	rel, err := release.Get(ctx, h.pool, current.ReleaseID)
 	if err != nil {
-		return Reading{}, false, err
+		return AfterReading{}, false, err
 	}
-	reading := Reading{Release: rel}
+	reading := AfterReading{Release: rel}
 
-	observed, baseline, hasBaseline, err := h.observe(ctx, w, rel)
+	sizes, runLength := h.ownHistorySizes(win, watched)
+	targets := targetsOrDefault(win.Targets, w)
+	cross, err := h.ownHistory(ctx, w, win, Arm{BuildID: rel.BuildID, DeployID: current.ID},
+		sizes, runLength, targets, KindOwnHistory)
 	if err != nil {
 		return reading, true, err
 	}
-	reading.Observed, reading.Baseline, reading.HasBaseline = observed, baseline, hasBaseline
-
-	// The boundary the closed window was read against, so what fails a release
-	// after its window is the same arithmetic that would have failed it inside it.
-	// A release that was never watched — which nothing on this path produces, a
-	// production deploy always opening one — is read against what is in force now.
-	b := boundary.Boundary{Size: win.Size, Confidence: win.Confidence}
-	if !watched {
-		parameters, err := h.policy.WindowParameters(ctx, w.ID)
-		if err != nil {
-			return reading, true, err
-		}
-		// The size and the power are authored per quantity; the health monitor
-		// reads only the error rate for now, a second quantity waiting on the
-		// health monitor observing more than one.
-		b = boundary.Boundary{Size: parameters.Size[gatepolicy.QuantityErrorRate].Number, Confidence: parameters.Confidence.Number}
-	}
-	reading.Boundary, err = b.Evaluate(observed)
-	if err != nil {
-		return reading, true, err
-	}
-	if !reading.Boundary.Harm {
+	if cross == nil || !watched {
+		// Unwatched has no policy or score version to raise an incident with,
+		// which nothing on this path produces in practice.
 		return reading, true, nil
 	}
+	reading.Crossed = true
 
-	raised, err := h.recordCrossing(ctx, w, rel, current.ID, false)
+	statement := fmt.Sprintf("%s's release %d is failing against its own recent history after its analysis window closed",
+		w.Name, rel.Number)
+	crossed, err := h.recordCrossing(ctx, w, rel, current.ID, cross, win.PolicyVersion, win.ScoreVersion, "", statement)
 	if err != nil {
 		return reading, true, err
 	}
-	reading.IncidentID, reading.RaisedIntentID = raised.IncidentID, raised.IntentID
+	reading.IncidentID, reading.RaisedIntentID = crossed.Incident.ID, crossed.IntentID
 	reading.WhyNoRollback = "the window over this release has closed, so the factory's own authority to roll it back has ended"
 	return reading, true, nil
 }
 
-// ResolveSettled resolves every open incident of the service whose two conditions
-// hold: the crossing has stopped against what is running, and what was raised from
-// it has finished. Both are facts about other records, which is why the incident's
-// own writer checks neither.
+// ownHistorySizes is the size per quantity and the run length the own-history
+// reading is read at: what the window recorded at its open for a release that
+// was watched, and what is in force today for one that was not — which nothing
+// on this path produces, a production deploy always opening a window, and is
+// kept so this reading still has an answer if that ever changes.
+func (h *HealthMonitor) ownHistorySizes(win window.Window, watched bool) (map[gatepolicy.Quantity]float64, float64) {
+	if watched {
+		return win.OwnHistorySize, win.OwnHistoryRunLength
+	}
+	return h.readings.OwnHistorySize, h.readings.OwnHistoryRunLength
+}
+
+// ResolveSettled resolves every open incident of the service whose two
+// conditions hold: the crossing has stopped against what is running, and what
+// was raised from it has finished. Both are facts about other records, which is
+// why the incident's own writer checks neither.
 //
 // A rollback does not reach either condition on its own. It stops the crossing
-// against the failed release and leaves production worse than it should be, which
-// is what the hold and the page both say — and what was raised from it is the revert,
-// which has to ship.
+// against the failed release and leaves production worse than it should be,
+// which is what the hold and the page both say — and what was raised from it is
+// the revert, which has to ship.
 //
 // It returns the incidents it resolved. An incident it cannot resolve is not an
-// error: this is a pass over what is settled, and everything else is still open.
+// error: this is a pass over what is settled, and everything else is still
+// open.
 func (h *HealthMonitor) ResolveSettled(ctx context.Context, w Watching) ([]incident.Incident, error) {
 	if err := w.validate(); err != nil {
 		return nil, err
@@ -142,12 +169,17 @@ func (h *HealthMonitor) ResolveSettled(ctx context.Context, w Watching) ([]incid
 	return resolved, nil
 }
 
-// crossingStopped is whether the release the incident is about is still running and
-// still crossing. A release that is no longer running is not crossing against what is
-// running, which is the condition as the design words it: the release was rolled
-// back, or a later release replaced it.
+// crossingStopped is whether the release the incident is about is still running
+// and still crossing against its own recent history. A release that is no
+// longer running is not crossing against what is running, which is the
+// condition as the design words it: the release was rolled back, or a later
+// release replaced it.
 func (h *HealthMonitor) crossingStopped(ctx context.Context, w Watching, i incident.Incident) (bool, error) {
-	current, running, err := deploy.Current(ctx, h.pool, w.ID, w.EnvironmentID)
+	svc, err := service.Get(ctx, h.pool, w.ID)
+	if err != nil {
+		return false, err
+	}
+	current, running, err := deploy.Current(ctx, h.pool, w.ID, w.EnvironmentID, targetsOrDefault(svc.Targets, w))
 	if err != nil {
 		return false, err
 	}
@@ -159,28 +191,22 @@ func (h *HealthMonitor) crossingStopped(ctx context.Context, w Watching, i incid
 	if err != nil {
 		return false, err
 	}
-	observed, _, _, err := h.observe(ctx, w, rel)
+	win, watched, err := window.ForRelease(ctx, h.pool, i.ReleaseID)
 	if err != nil {
 		return false, err
 	}
-	parameters, err := h.policy.WindowParameters(ctx, w.ID)
+	sizes, runLength := h.ownHistorySizes(win, watched)
+	targets := targetsOrDefault(win.Targets, w)
+	cross, err := h.ownHistory(ctx, w, win, Arm{BuildID: rel.BuildID, DeployID: current.ID},
+		sizes, runLength, targets, KindOwnHistory)
 	if err != nil {
 		return false, err
 	}
-	// The size and the power are authored per quantity; the health monitor reads
-	// only the error rate for now, a second quantity waiting on the health
-	// monitor observing more than one.
-	reading, err := boundary.Boundary{
-		Size: parameters.Size[gatepolicy.QuantityErrorRate].Number, Confidence: parameters.Confidence.Number,
-	}.Evaluate(observed)
-	if err != nil {
-		return false, err
-	}
-	return !reading.Harm, nil
+	return cross == nil, nil
 }
 
-// raisedHasShipped is whether what the incident raised has finished. An incident
-// that raised no intent has nothing to wait for.
+// raisedHasShipped is whether what the incident raised has finished. An
+// incident that raised no intent has nothing to wait for.
 func (h *HealthMonitor) raisedHasShipped(ctx context.Context, w Watching, i incident.Incident) (bool, error) {
 	if i.IntentID == "" {
 		return true, nil
@@ -188,18 +214,18 @@ func (h *HealthMonitor) raisedHasShipped(ctx context.Context, w Watching, i inci
 	return Shipped(ctx, h.pool, w.EnvironmentID, i.IntentID)
 }
 
-// Shipped is whether every item decomposed from one intent has shipped: a release minted
-// for it, and a deploy of that release into the environment that completed. An
-// intent nothing has been decomposed from has not shipped — the factory has not worked it
-// yet.
+// Shipped is whether every item decomposed from one intent has shipped: a
+// release minted for it, and a deploy of that release into the environment that
+// completed. An intent nothing has been decomposed from has not shipped — the
+// factory has not worked it yet.
 //
 // It is exported and takes the pool because two mechanisms ask it of the same
-// intent and neither of them is the other. This package asks it of the intent an
-// incident raised, to decide whether the incident is settled; whatever computes the
-// hold a rollback leaves asks it of the rollback's revert intent, to decide whether
-// the hold still stands. One function, because the two would otherwise be the same
-// non-obvious predicate written twice and able to disagree about whether a revert
-// has shipped.
+// intent and neither of them is the other. This package asks it of the intent
+// an incident raised, to decide whether the incident is settled; whatever
+// computes the hold a rollback leaves asks it of the rollback's revert intent,
+// to decide whether the hold still stands. One function, because the two would
+// otherwise be the same non-obvious predicate written twice and able to
+// disagree about whether a revert has shipped.
 func Shipped(ctx context.Context, pool *pgxpool.Pool, environmentID, intentID string) (bool, error) {
 	if intentID == "" {
 		return false, nil

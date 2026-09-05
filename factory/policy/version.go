@@ -1,172 +1,261 @@
 package policy
 
 import (
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// ErrNoVersion is returned by [Get] where no version has the id, and by
-// [InForce] where nothing has been written yet — a factory that has not been
-// installed has no policy version, and a gate cannot fire without one.
+// ErrNoVersion is returned where no policy version has been appended yet — a
+// factory that has not been installed has none, and a gate cannot fire without
+// one — and by [Reader.Version] where no version has the id asked for.
 var ErrNoVersion = errors.New("policy: no policy version")
 
-// Action is what an authoring write was.
+// FormatVersion is what every policy version row of the decision log declares
+// itself as, and what [decisionlog.Formats] maps to
+// [decisionlog.ShapePolicyVersion].
+const FormatVersion = "policy_version/1"
+
+// Caller is the component that called for the append. The log is the writer of
+// every policy version; who called is a field of the row.
+type Caller string
+
+const (
+	// CallerFactory is an owner's write at Factory.
+	CallerFactory Caller = "Factory"
+	// CallerPeople is a write to the People declaration other than the
+	// key-to-name mapping, which stays outside the chain.
+	CallerPeople Caller = "People"
+	// CallerInstall is the install's first-start step, which appends for the
+	// shipped list of allowed predicate kinds at install and at an upgrade's
+	// first start that changed it. Nothing calls as this yet: the install step
+	// is not built.
+	CallerInstall Caller = "the install's first-start step"
+)
+
+// Action is what the write was.
 type Action string
 
 const (
-	// ActionCreated is a record Factory created: the factory-wide settings record, or
-	// production's environment. It authors no parameter and is the first
-	// version a factory has.
+	// ActionCreated is a record Factory created: the factory-wide settings
+	// record, a project with production's environment, a customer's
+	// environment, or an area.
 	ActionCreated Action = "created"
-	// ActionAuthored is an owner authoring one parameter on one record.
+	// ActionAuthored is an owner authoring one value on one record.
 	ActionAuthored Action = "authored"
 	// ActionSafeguardAdded is an owner placing a safeguard.
 	ActionSafeguardAdded Action = "safeguard_added"
-	// ActionWithdrawn is an owner withdrawing one.
+	// ActionHaltSet is an owner setting the halt whose subject is the factory.
+	ActionHaltSet Action = "halt_set"
+	// ActionLegalHoldSet is an owner setting a legal hold.
+	ActionLegalHoldSet Action = "legal_hold_set"
+	// ActionWithdrawalWritten is a withdrawal of a safeguard, a halt or a legal
+	// hold written pending. What it withdraws stands until the gate row that
+	// decides it approves it.
+	ActionWithdrawalWritten Action = "withdrawal_written"
+	// ActionWithdrawalApproved is that gate row's approval, which is where the
+	// withdrawal comes into force.
+	ActionWithdrawalApproved Action = "withdrawal_approved"
+	// ActionDeclarationWritten is a write to the People declaration, with
+	// People as the caller.
+	ActionDeclarationWritten Action = "declaration_written"
+	// ActionWithdrawn is a record an owner withdrew that no gate row decides:
+	// an environment a customer defined.
 	ActionWithdrawn Action = "withdrawn"
 )
 
-// Subject is where an authoring write landed: the record, and the second name
-// its scope needs where it needs one — the gate row for a threshold, the stage
-// for an attempt limit.
-type Subject struct {
-	Kind      string
-	ID        string
-	Qualifier string
+// Scope is the record an authored value is a field of, and the value of the
+// parameter's own key where the parameter has one: the gate row for a
+// threshold, the stage for an attempt limit, the quantity for the window's size
+// and power, the duty for the review sample rate.
+type Scope struct {
+	Kind string
+	ID   string
+	Key  string
 }
 
-func (s Subject) String() string {
-	if s.Qualifier == "" {
+// The record kinds a scope names.
+const (
+	ScopeEnvironment     = "environment"
+	ScopeService         = "service"
+	ScopeArea            = "area"
+	ScopeFactorySettings = "factory_settings"
+	ScopeProject         = "project"
+)
+
+func (s Scope) String() string {
+	if s.Key == "" {
 		return s.Kind + ":" + s.ID
 	}
-	return s.Kind + ":" + s.ID + ":" + s.Qualifier
+	return s.Kind + ":" + s.ID + ":" + s.Key
 }
 
-// Version is one policy version as it is stored: one authoring write, and the
-// version it replaced.
+// AuthoredValue is one authored parameter as a version names it: the parameter,
+// the scope it was authored on, and the value.
+type AuthoredValue struct {
+	Parameter gatepolicy.Parameter `json:"parameter"`
+	Scope     Scope                `json:"scope"`
+	Number    float64              `json:"number,omitempty"`
+	List      []string             `json:"list,omitempty"`
+}
+
+// AutoPassRate is the realized auto-pass rate at a threshold for one factor
+// set, as it stood when the write happened.
+type AutoPassRate struct {
+	FactorSet string  `json:"factor_set"`
+	Rate      float64 `json:"rate"`
+}
+
+// PersonDeclaration is one row of the People declaration as a version names it:
+// by per-person key and never by name.
+type PersonDeclaration struct {
+	Key            string     `json:"key"`
+	Duties         []int      `json:"duties,omitempty"`
+	CredentialName string     `json:"credential_name,omitempty"`
+	SpendCeiling   float64    `json:"spend_ceiling,omitempty"`
+	Rates          []UnitRate `json:"rates,omitempty"`
+}
+
+// UnitRate is one rate an owner authored per kind of unit a provider returns,
+// per model version and effort.
+type UnitRate struct {
+	Unit         string  `json:"unit"`
+	ModelVersion string  `json:"model_version,omitempty"`
+	Effort       string  `json:"effort,omitempty"`
+	Rate         float64 `json:"rate"`
+}
+
+// DeclarationSnapshot is the People declaration in force, by key. Package
+// policy cannot read it — the direction between the two packages is People to
+// here — so it is supplied to [Factory] by the composition and copied onto each
+// version.
+type DeclarationSnapshot struct {
+	People []PersonDeclaration `json:"people,omitempty"`
+}
+
+// Version is one policy version: a row of the decision log, naming the write
+// and the whole authored state as it stood after it.
 type Version struct {
-	ID          string
-	Actor       record.Actor
-	At          string
-	Action      Action
-	Parameter   gatepolicy.Parameter
-	Subject     Subject
-	SafeguardID string
-	Supersedes  string
+	// ID is the log row's id, which is what a decision names.
+	ID    string
+	Actor record.Actor
+	At    string
+
+	Caller    Caller
+	Action    Action
+	Parameter gatepolicy.Parameter
+	Scope     Scope
+	Number    float64
+	List      []string
+
+	SafeguardID  string
+	HaltID       string
+	LegalHoldID  string
+	WithdrawalID string
+
+	// Key is the deterministic key of the write: a step taken again carries the
+	// same key as the version in force and appends nothing.
+	Key string
+
+	// Authored is every authored parameter and the scope it was authored on.
+	Authored []AuthoredValue
+	// Safeguards, Halts and LegalHolds are the ids of each in force.
+	Safeguards []string
+	Halts      []string
+	LegalHolds []string
+	// Declaration is the People declaration in force, by per-person key.
+	Declaration DeclarationSnapshot
+	// AutoPassRates is the realized auto-pass rate at the threshold this write
+	// set, one per factor set, and is empty on every version that set none. It
+	// is the one field a later version does not restate.
+	AutoPassRates []AutoPassRate
 }
 
-// append writes one version inside tx. Every authoring write goes through the
-// same call, so no write can move the policy without moving the version.
-func appendVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, action Action,
-	parameter gatepolicy.Parameter, subject Subject, safeguardID string) (Version, error) {
-	if err := actor.Validate(); err != nil {
-		return Version{}, err
-	}
+// payload is the version as it is serialised into the log row. The actor, the
+// time and the id are the row's own columns and are not repeated here.
+type payload struct {
+	Caller        Caller               `json:"caller"`
+	Action        Action               `json:"action"`
+	Parameter     gatepolicy.Parameter `json:"parameter,omitempty"`
+	Scope         Scope                `json:"scope"`
+	Number        float64              `json:"number,omitempty"`
+	List          []string             `json:"list,omitempty"`
+	SafeguardID   string               `json:"safeguard_id,omitempty"`
+	HaltID        string               `json:"halt_id,omitempty"`
+	LegalHoldID   string               `json:"legal_hold_id,omitempty"`
+	WithdrawalID  string               `json:"withdrawal_id,omitempty"`
+	Key           string               `json:"key"`
+	Authored      []AuthoredValue      `json:"authored,omitempty"`
+	Safeguards    []string             `json:"safeguards,omitempty"`
+	Halts         []string             `json:"halts,omitempty"`
+	LegalHolds    []string             `json:"legal_holds,omitempty"`
+	Declaration   DeclarationSnapshot  `json:"declaration"`
+	AutoPassRates []AutoPassRate       `json:"auto_pass_rates,omitempty"`
+}
 
-	var supersedes string
-	err := tx.QueryRow(ctx, `select id from `+Table+` order by at desc, id desc limit 1`).Scan(&supersedes)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return Version{}, fmt.Errorf("policy: reading the version in force: %w", err)
-	}
-
-	v := Version{
-		ID:          record.NewID(IDPrefix),
-		Actor:       actor,
-		At:          record.Now(),
-		Action:      action,
-		Parameter:   parameter,
-		Subject:     subject,
-		SafeguardID: safeguardID,
-		Supersedes:  supersedes,
-	}
-	_, err = tx.Exec(ctx, `insert into `+Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		v.ID, FormatVersion, string(v.Actor.Kind), v.Actor.Key, string(v.Actor.Basis), v.At, string(v.Action),
-		string(v.Parameter), v.Subject.Kind, v.Subject.ID, v.Subject.Qualifier,
-		v.SafeguardID, v.Supersedes,
-	)
+func (v Version) marshal() (string, error) {
+	body, err := json.Marshal(payload{
+		Caller: v.Caller, Action: v.Action, Parameter: v.Parameter, Scope: v.Scope,
+		Number: v.Number, List: v.List, SafeguardID: v.SafeguardID, HaltID: v.HaltID,
+		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, Key: v.Key,
+		Authored: v.Authored, Safeguards: v.Safeguards, Halts: v.Halts, LegalHolds: v.LegalHolds,
+		Declaration: v.Declaration, AutoPassRates: v.AutoPassRates,
+	})
 	if err != nil {
-		return Version{}, fmt.Errorf("policy: appending a version for %s on %s: %w", action, subject, err)
+		return "", fmt.Errorf("policy: serialising the version of %s: %w", v.Scope, err)
 	}
-	return v, nil
+	return string(body), nil
 }
 
-const selectVersion = `select id, actor_kind, actor_key, actor_key_basis, at, action, parameter,
-	subject_kind, subject_id, qualifier, safeguard_id, supersedes
-	from ` + Table
-
-// InForce is the policy version in force, which is the newest row. A gate
-// firing names it, so a factory with no version is [ErrNoVersion] and not an
-// empty string passed off as a version.
-func InForce(ctx context.Context, pool *pgxpool.Pool) (Version, error) {
-	return scanVersion(pool.QueryRow(ctx, selectVersion+` order by at desc, id desc limit 1`), "in force")
+// versionOf reads one log row back as a version. A row of another shape is
+// refused rather than half-read.
+func versionOf(row decisionlog.Row) (Version, error) {
+	if row.Shape != decisionlog.ShapePolicyVersion {
+		return Version{}, fmt.Errorf("policy: row %s is a %s and not a policy version", row.ID, row.Shape)
+	}
+	var p payload
+	if err := json.Unmarshal([]byte(row.Payload), &p); err != nil {
+		return Version{}, fmt.Errorf("policy: reading the version %s: %w", row.ID, err)
+	}
+	return Version{
+		ID: row.ID, Actor: row.Actor, At: row.At,
+		Caller: p.Caller, Action: p.Action, Parameter: p.Parameter, Scope: p.Scope,
+		Number: p.Number, List: p.List, SafeguardID: p.SafeguardID, HaltID: p.HaltID,
+		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, Key: p.Key,
+		Authored: p.Authored, Safeguards: p.Safeguards, Halts: p.Halts, LegalHolds: p.LegalHolds,
+		Declaration: p.Declaration, AutoPassRates: p.AutoPassRates,
+	}, nil
 }
 
-// Get is one version by id, which is what a reader of a decision follows to the
-// write that was the last one before it was decided.
-func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Version, error) {
-	return scanVersion(pool.QueryRow(ctx, selectVersion+` where id = $1`, id), id)
-}
-
-// All is every policy version, oldest first, which is how the writes before a
-// version are replayed.
-func All(ctx context.Context, pool *pgxpool.Pool) ([]Version, error) {
-	rows, err := pool.Query(ctx, selectVersion+` order by at, id`)
-	if err != nil {
-		return nil, fmt.Errorf("policy: reading the versions: %w", err)
+// writeKey is the deterministic key of one write: the caller, the actor, what
+// was done, the parameter, the scope, and the value. A step taken again derives
+// the same key, and [Factory] appends nothing where the version in force
+// already carries it, so a repeated step writes nothing.
+//
+// The time of the call is not in it, because a key that carried the time would
+// differ at every repeat and there would be no repeated step to recognise. The
+// comparison is against the version in force and not against every version ever
+// appended, so an owner who sets a value, sets another, and sets the first again
+// writes all three.
+func writeKey(caller Caller, actor record.Actor, action Action, parameter gatepolicy.Parameter,
+	scope Scope, number float64, list []string, named string) string {
+	h := sha256.New()
+	for _, field := range []string{
+		string(caller), string(actor.Kind), actor.Key, string(actor.Basis), string(action),
+		string(parameter), scope.Kind, scope.ID, scope.Key,
+		strconv.FormatFloat(number, 'g', -1, 64), strings.Join(list, "\n"), named,
+	} {
+		h.Write([]byte(strconv.Itoa(len(field))))
+		h.Write([]byte(":"))
+		h.Write([]byte(field))
 	}
-	defer rows.Close()
-
-	var read []Version
-	for rows.Next() {
-		v, err := scanRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		read = append(read, v)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("policy: reading the versions: %w", err)
-	}
-	return read, nil
-}
-
-func scanVersion(row pgx.Row, named string) (Version, error) {
-	var v Version
-	var kind, basis, action, parameter string
-	err := row.Scan(&v.ID, &kind, &v.Actor.Key, &basis, &v.At, &action, &parameter,
-		&v.Subject.Kind, &v.Subject.ID, &v.Subject.Qualifier, &v.SafeguardID, &v.Supersedes)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Version{}, fmt.Errorf("%w: %s", ErrNoVersion, named)
-	} else if err != nil {
-		return Version{}, fmt.Errorf("policy: reading the version %s: %w", named, err)
-	}
-	v.Actor.Kind = record.Kind(kind)
-	v.Actor.Basis = record.Basis(basis)
-	v.Action = Action(action)
-	v.Parameter = gatepolicy.Parameter(parameter)
-	return v, nil
-}
-
-func scanRow(rows pgx.Rows) (Version, error) {
-	var v Version
-	var kind, basis, action, parameter string
-	err := rows.Scan(&v.ID, &kind, &v.Actor.Key, &basis, &v.At, &action, &parameter,
-		&v.Subject.Kind, &v.Subject.ID, &v.Subject.Qualifier, &v.SafeguardID, &v.Supersedes)
-	if err != nil {
-		return Version{}, fmt.Errorf("policy: reading a version: %w", err)
-	}
-	v.Actor.Kind = record.Kind(kind)
-	v.Actor.Basis = record.Basis(basis)
-	v.Action = Action(action)
-	v.Parameter = gatepolicy.Parameter(parameter)
-	return v, nil
+	return hex.EncodeToString(h.Sum(nil))
 }

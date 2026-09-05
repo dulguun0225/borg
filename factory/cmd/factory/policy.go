@@ -28,14 +28,19 @@ func policyCommand(args []string) error {
 	serviceName := flags.String("service", "", "read the service-scoped parameters of this service")
 	areaName := flags.String("area", "", "read the area-scoped parameters of this area")
 	projectName := flags.String("project", defaultProjectName, "read the risk threshold of production's environment for this project")
-	gateRow := flags.String("gate", string(gate.MergeToMaster), "read the threshold of this gate row")
+	human := flags.String("human", "owner", "the human this read is made as, which the read event names")
+	gateRow := flags.String("gate", gate.MergeToMaster.String(), "read the threshold of this gate row")
 	stage := flags.String("stage", string(item.StageImplementation), "read the attempt limit of this stage")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool, _ lease.Token) error {
-		subjects := policy.Subjects{GateRow: *gateRow, Stage: item.Stage(*stage)}
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
+		row, err := gate.RowFrom(*gateRow)
+		if err != nil {
+			return err
+		}
+		subjects := policy.Subjects{GateRow: row.String(), Stage: item.Stage(*stage)}
 		if *serviceName != "" {
 			svc, err := namedService(ctx, pool, *serviceName)
 			if err != nil {
@@ -54,6 +59,7 @@ func policyCommand(args []string) error {
 		if err != nil {
 			return err
 		}
+
 		production, found, err := environment.Production(ctx, pool, prj.ID)
 		if err != nil {
 			return err
@@ -62,17 +68,10 @@ func policyCommand(args []string) error {
 			subjects.EnvironmentID = production.ID
 		}
 
-		version, err := policy.InForce(ctx, pool)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Policy version %s in force: %s %s on %s by %s\n",
-			version.ID, version.Action, version.Parameter, version.Subject, version.Actor.Key)
-
 		// The newest score version and not an ensured one: this command prints what
 		// is in force and authors nothing, and an ensure here would have a read
 		// append a record.
-		scoreVersion, found, err := score.Newest(ctx, pool)
+		scoreVersion, found, err := score.Newest(ctx, pool, token)
 		if err != nil {
 			return err
 		}
@@ -82,7 +81,19 @@ func policyCommand(args []string) error {
 			fmt.Println("No score version has been appended, so every supplied value is where the formula was calibrated")
 		}
 
-		effectives, err := policy.NewReader(pool, scoreVersion).All(ctx, subjects)
+		actor, err := humanNamed(ctx, pool, token, *human)
+		if err != nil {
+			return err
+		}
+		reader := policy.NewReader(pool, token, scoreVersion)
+		version, err := reader.Newest(ctx, actor)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Policy version %s in force: %s %s on %s by %s\n",
+			version.ID, version.Action, version.Parameter, version.Scope, version.Actor.Key)
+
+		effectives, err := reader.All(ctx, subjects)
 		if err != nil {
 			return err
 		}

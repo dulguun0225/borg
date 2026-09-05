@@ -13,8 +13,6 @@ import (
 	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
-	"github.com/dulguun0225/borg/factory/deploy"
-	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
@@ -28,65 +26,12 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// The three things the health monitor and the notifier are handed, all three
-// substrate: where the quantity comes from, what performs a rollback, and where a
-// delivery goes. Each is an interface in the package that needs it, so neither the
-// health monitor nor the notifier knows it is running against a local process and a
-// terminal.
-
-// signalFiles reads the quantity out of the file each deployed process emits into.
-// One file per build in the directory that build ran in, which is what makes a
-// release's own counts tellable from the counts of the build that ran there before
-// it — package localtarget names the file, being the thing that told the process
-// where to write it.
-//
-// A build that emitted nothing reads as no units, which the boundary treats as a
-// window with nothing to say yet. That is right for a release just deployed and it
-// is also what an implementation that ignored the instruction to emit looks like, and
-// nothing here can tell the two apart.
-type signalFiles struct{ dir string }
-
-func (s signalFiles) Read(_ context.Context, q healthmonitor.Quantity) (boundary.Observed, error) {
-	units, failures, err := countSignal(localtarget.SignalFile(s.dir, q.BuildID))
-	if err != nil {
-		return boundary.Observed{}, err
-	}
-	observed := boundary.Observed{Units: units, Failures: failures}
-	if q.BaselineBuildID == "" {
-		return observed, nil
-	}
-	observed.BaselineUnits, observed.BaselineFailures, err = countSignal(localtarget.SignalFile(s.dir, q.BaselineBuildID))
-	return observed, err
-}
-
-// countSignal is the lines one build emitted and how many of them were not "ok". A
-// file that is not there is nothing emitted rather than an error: a build deployed a
-// moment ago has emitted nothing yet, and so has one that was never started.
-//
-// Any line that is not exactly "ok" counts as a failure, rather than only the word
-// the instruction names. That is the lenient direction and it is the safe one here:
-// a program emitting something the factory cannot read is not a program the factory
-// should read as healthy.
-func countSignal(path string) (int64, int64, error) {
-	content, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, 0, nil
-	} else if err != nil {
-		return 0, 0, fmt.Errorf("factory: reading the quantity at %s: %w", path, err)
-	}
-	var units, failures int64
-	for _, line := range strings.Split(string(content), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		units++
-		if line != "ok" {
-			failures++
-		}
-	}
-	return units, failures, nil
-}
+// The watch: the health monitor read until every window it holds open has
+// closed, and everything downstream of a deploy beside it. What the health
+// monitor reads is emission.go, what performs a rollback is rollback.go, and
+// where a delivery goes is the terminal below — each an interface in the
+// package that needs it, so neither the health monitor nor the notifier knows
+// it is running against a local process and a terminal.
 
 // terminal is where a delivery goes on an install with nothing to deliver to: all
 // three channels to the run's own output, told apart by the channel they went out
@@ -104,37 +49,6 @@ func (t terminal) Deliver(_ context.Context, d notifier.Delivery) error {
 		return nil
 	}
 	fmt.Fprintf(t.out, "PAGE %s to %s: %s\n", d.Event, d.To, d.Wait.Waiting)
-	return nil
-}
-
-// RollBack is [healthmonitor.Rollbacker]: the deploy agent performing the slow
-// rollback the health monitor called for. It is the deploy agent's because reaching a
-// deploy target is, and the health monitor reaches none.
-//
-// The target's build is already in production's directory, put there by the deploy
-// that shipped it and never removed — so restoring it is a deploy of a binary that is
-// still on disk, and there is nothing to rebuild. What that costs is that a directory
-// pruned between the deploy and the rollback would leave the rollback with nothing to
-// put back, which nothing here prunes.
-func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
-	dep, err := deploy.Restore(ctx, p.deploys, p.d.targets.at(p.d.dir), deployActor,
-		r.ServiceID, r.ServiceName, r.EnvironmentID,
-		deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
-		deploy.Undoing{
-			FailedReleaseID: r.FailedReleaseID,
-			SweptReleaseIDs: r.SweptReleaseIDs,
-			Source:          r.Source,
-			RevertIntentID:  r.RevertIntentID,
-		}, p.d.credential)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(p.d.out, "Rollback %s complete: build %s of release %s is back on the target\n",
-		dep.ID, r.ToBuildID, r.ToReleaseID)
-	fmt.Fprintf(p.d.out, "  it failed release %s and swept %d above it; source: %s\n",
-		r.FailedReleaseID, len(r.SweptReleaseIDs), r.Source)
-	fmt.Fprintf(p.d.out, "  the revert it raised is intent %s, and every production deploy of this service holds until that ships\n",
-		r.RevertIntentID)
 	return nil
 }
 
@@ -170,9 +84,9 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
 
-	readings, err := p.healthMonitor.Watch(ctx, w)
-	for _, reading := range readings {
-		p.reportReading(reading)
+	watched, err := p.healthMonitor.Watch(ctx, w)
+	for _, one := range watched {
+		p.reportWatched(one)
 	}
 	if err != nil {
 		return err
@@ -182,8 +96,8 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	if err != nil {
 		return err
 	}
-	if found && after.Boundary.Harm {
-		p.reportReading(after)
+	if found && after.Crossed {
+		p.reportAfter(after)
 	}
 
 	resolved, err := p.healthMonitor.ResolveSettled(ctx, w)
@@ -193,107 +107,92 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	for _, i := range resolved {
 		fmt.Fprintf(p.d.out, "Incident %s resolved: the crossing has stopped against what runs and what it raised has shipped\n", i.ID)
 	}
-	return p.driftDetectorPages(ctx, svc)
+	return p.driftDetectorPages(ctx)
 }
 
-// reportReading prints one reading as an owner would read it: the numbers the
-// verdict came from, the exit where there was one, and what followed.
-func (p *path) reportReading(r healthmonitor.Reading) {
+// reportWatched prints one window's reading as an owner would read it: the
+// counts the verdict came from per quantity, the boundary the first crossing was
+// read against, the exit where the window reached one, and what followed.
+//
+// Every number the exit was reached from is printed whether or not anything
+// crossed, because a window that closed on evidence nobody can recompute is one
+// nobody can argue with.
+func (p *path) reportWatched(one healthmonitor.Watched) {
 	out := p.d.out
-	where := "the window over release " + fmt.Sprint(r.Release.Number)
-	if r.Window.ID == "" {
-		where = "release " + fmt.Sprint(r.Release.Number) + ", whose window has closed"
-	}
-	fmt.Fprintf(out, "The health monitor read %s: %d unit(s), %d failed (rate %.4f)\n",
-		where, r.Observed.Units, r.Observed.Failures, r.Boundary.Rate)
-	if r.HasBaseline {
-		fmt.Fprintf(out, "  against release %d: %d unit(s), %d failed — baseline rate %.4f, alternative %.4f\n",
-			r.Baseline.Number, r.Observed.BaselineUnits, r.Observed.BaselineFailures,
-			r.Boundary.BaselineRate, r.Boundary.Alternative)
-	}
-	if r.Boundary.Unavailable != "" {
-		fmt.Fprintf(out, "  neither exit is reachable: %s\n", r.Boundary.Unavailable)
+	fmt.Fprintf(out, "The health monitor read window %s over release %d\n", one.Window.ID, one.Release.Number)
+	if one.HasBaseline {
+		fmt.Fprintf(out, "  against release %d, whose build the other arm runs\n", one.Baseline.Number)
 	} else {
-		fmt.Fprintf(out, "  log ratio %.3f against a crossing of %.3f in either direction (size %v, confidence %v, %s)\n",
-			r.Boundary.Log, r.Boundary.Crossing, r.Window.Size, r.Window.Confidence, r.Window.Formula)
+		fmt.Fprintf(out, "  against nothing: %s\n", boundary.NoBaseline)
 	}
-	switch r.Exit {
+	for quantity, counts := range one.Evaluated.Read.Quantities {
+		fmt.Fprintf(out, "  %s: %d unit(s), %d counted; baseline %d unit(s), %d counted\n",
+			quantity, counts.Units, counts.Count, counts.BaselineUnits, counts.BaselineCount)
+	}
+	if !one.Evaluated.Volume {
+		fmt.Fprintln(out, "  no series was read on both arms, so this window says nothing about the release yet")
+	}
+	if crossed := one.Evaluated.Crossed; crossed != nil {
+		fmt.Fprintf(out, "  the %s reading crossed on %s of %s: log ratio %.3f against a crossing of %.3f (size %v, confidence %v)\n",
+			crossed.Kind, crossed.Quantity, crossed.Operation,
+			crossed.Reading.Log, crossed.Reading.Crossing, crossed.Boundary.Size, crossed.Boundary.Confidence)
+	}
+	if one.ControlCrossing != nil {
+		fmt.Fprintln(out, "  the control is itself failing against the service's own history, so the passed exit is not available while it stands")
+	}
+	switch one.Exit {
 	case window.ExitPassed:
 		fmt.Fprintln(out, "  clean: a regression of the size worth catching is ruled out, and the window closed early on evidence")
 	case window.ExitTimedOut:
 		fmt.Fprintln(out, "  cap: neither exit was reached in the time allowed, so the window closed unresolved — weak protection, reported as weak")
 	case window.ExitFailed:
 		fmt.Fprintf(out, "  harm: the release is failed, incident %s raised, revert intent %s taken in\n",
-			r.IncidentID, r.RaisedIntentID)
+			one.IncidentID, one.RaisedIntentID)
+		if one.Rolled != nil {
+			fmt.Fprintf(out, "  rolled back to release %d, skipping %d above the failed one\n",
+				one.Target.Number, len(one.Rolled.SkippedReleaseIDs))
+		}
+		for _, id := range one.SkippedWindows {
+			fmt.Fprintf(out, "  window %s closed skipped: its release is no longer running\n", id)
+		}
 	}
-	if r.WhyNoRollback != "" {
-		fmt.Fprintf(out, "  nothing was rolled back: %s\n", r.WhyNoRollback)
-	}
-	if r.Exit == "" && r.IncidentID != "" {
-		fmt.Fprintf(out, "  a crossing after the window closed: incident %s, and intent %s at the start of the pipeline\n",
-			r.IncidentID, r.RaisedIntentID)
+	if one.WhyNoRollback != "" {
+		fmt.Fprintf(out, "  nothing was rolled back: %s\n", one.WhyNoRollback)
 	}
 }
 
-// driftDetectorPages is the notifier reading the drift detector's own store,
-// which is the one wait nothing calls the notifier about: that store writes
-// into nothing of the factory's and calls nothing, so both ends of its page are
-// read rather than told.
+// reportAfter prints the reading the health monitor keeps making once the window
+// has closed: the release read against the service's own recent history, and the
+// intent a crossing there raises instead of a rollback.
+func (p *path) reportAfter(after healthmonitor.AfterReading) {
+	fmt.Fprintf(p.d.out, "A crossing after the window over release %d closed: incident %s, and intent %s at the start of the pipeline\n",
+		after.Release.Number, after.IncidentID, after.RaisedIntentID)
+	fmt.Fprintf(p.d.out, "  nothing was rolled back: %s\n", after.WhyNoRollback)
+}
+
+// driftDetectorPages is the notifier's own pass over the drift detector's
+// store: the mismatches it found, the detector's per-target last check, and the
+// deliveries the detector recorded for itself while the factory was not running.
+// All three are reads and not calls, because that store writes into nothing of
+// the factory's and calls nothing.
 //
-// A mismatch nobody has been reached about is paged. One still uncleared on a later
-// pass widens, once, to the owner. One a human has passed is answered — here, at the
-// pass that finds it passed, because clearing it happened where nothing calls.
-func (p *path) driftDetectorPages(ctx context.Context, svc service.Service) error {
+// The pass is the notifier's and not this interface's: it holds the routing, the
+// page events and the delivery record, and a copy of the read here would be a
+// second place deciding when a mismatch widens.
+func (p *path) driftDetectorPages(ctx context.Context) error {
 	if p.d.driftdetector == nil || p.notifier == nil {
 		return nil
 	}
-	all, err := driftdetector.All(ctx, p.d.driftdetector)
-	if err != nil {
+	if err := p.notifier.SweepDriftDetector(ctx, p.d.driftdetector); err != nil {
 		return err
 	}
-	for _, m := range all {
-		if m.ServiceID != svc.ID {
-			continue
-		}
-		w := notifier.Wait{
-			Row:     m.ID,
-			Kind:    notifier.KindDriftMismatch,
-			Waiting: m.Why(),
-			Holding: people.OfObligation(people.ObligationDriftDetector),
-			Worse:   true,
-		}
-		events, err := p.notifier.EventsFor(ctx, m.ID)
-		if err != nil {
-			return err
-		}
-		var reached, widened, answered bool
-		for _, e := range events {
-			switch notifier.Event(e.Event) {
-			case notifier.EventReached:
-				reached = true
-			case notifier.EventWidened:
-				widened = true
-			case notifier.EventAnswered:
-				answered = true
-			}
-		}
-
-		switch {
-		case !reached:
-			if _, err := p.notifier.Notify(ctx, w); err != nil {
-				return err
-			}
-		case m.Cleared() && !answered:
-			if _, err := p.notifier.Answered(ctx, w, m.ClearedBy); err != nil {
-				return err
-			}
-		case !m.Cleared() && !widened:
-			if _, err := p.notifier.Widen(ctx, w); err != nil {
-				return err
-			}
-		}
+	if err := p.notifier.SweepDriftDetectorStale(ctx, p.d.driftdetector); err != nil {
+		return err
 	}
-	return nil
+	if err := p.notifier.CatchUpDriftDetectorDelivery(ctx, p.d.driftdetector); err != nil {
+		return err
+	}
+	return p.notifier.RecordOwnLastCheck(ctx, atLeastASecond(p.d.watchEvery))
 }
 
 // escalated is the page a stage out of attempts fires, and the one place the
@@ -384,7 +283,13 @@ func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.V
 	report(p.d.out, opened, c.criteria)
 	fmt.Fprintf(p.d.out, "  approving through accepts what the hold was preventing: %s\n", held)
 
-	closing, err := p.gate.Decide(ctx, opened, p.human, verdict, reason)
+	// The approve names the hold it is going through, which is the whole of what
+	// approving through one is: a bare approve while a hold stands is refused.
+	given := gate.Given{Actor: p.human, Verdict: verdict, Reason: reason}
+	if verdict == gate.VerdictApprove {
+		given.Holds = opened.Holds
+	}
+	closing, err := p.gate.Decide(ctx, opened, given)
 	if err != nil {
 		return err
 	}
@@ -394,7 +299,7 @@ func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.V
 		fmt.Fprintf(p.d.out, "The verdict is %s; the hold stands and nothing is deployed\n", verdict)
 		return nil
 	}
-	return p.putOnProduction(ctx, c)
+	return p.putOnProduction(ctx, c, opened.Strategy)
 }
 
 // exchangeFiles is [contractcheck.Exchanges]: the documents one build wrote on the
@@ -472,7 +377,7 @@ func (p *path) raiseRemovals(ctx context.Context) error {
 		}
 		fmt.Fprintln(p.d.out)
 	}
-	raised, err := p.contracts.RaiseRemovals(ctx)
+	raised, err := p.contracts.Raise(ctx)
 	if err != nil {
 		return err
 	}

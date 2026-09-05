@@ -43,7 +43,7 @@ func TestTheValueInForceIsAReadOfThreeThings(t *testing.T) {
 	// A safeguard: a ceiling over the window limit caps the authored value, and the safeguard
 	// that did it is named.
 	placed, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.WindowLimit,
-		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2})
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2}, safeguard.Routing{})
 	if err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
@@ -63,11 +63,11 @@ func TestTheValueInForceIsAReadOfThreeThings(t *testing.T) {
 	}
 }
 
-// TestEveryParameterResolvesAndFiveAreReadByNothing: an owner can author every
-// parameter this milestone gives a writer, and the read says which of the
-// thirteen changes anything at this milestone rather than leaving an owner to
-// discover it.
-func TestEveryParameterResolvesAndFiveAreReadByNothing(t *testing.T) {
+// TestEveryParameterResolvesAndSomeAreReadByNothing: an owner can author every
+// one of the thirteen parameters gate policy's eleven rows hold, and the read
+// says which of them changes anything at this milestone rather than leaving an
+// owner to discover it.
+func TestEveryParameterResolvesAndSomeAreReadByNothing(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	authorings := []struct {
@@ -96,6 +96,21 @@ func TestEveryParameterResolvesAndFiveAreReadByNothing(t *testing.T) {
 		{gatepolicy.WindowLimit, func() (policy.Version, error) {
 			return in.factory.AuthorWindowLimit(ctx, owner, in.service.ID, 3)
 		}, 3},
+		{gatepolicy.WindowPower, func() (policy.Version, error) {
+			return in.factory.AuthorWindowPower(ctx, owner, in.service.ID, gatepolicy.QuantityErrorRate, 0.9)
+		}, 0.9},
+		{gatepolicy.ExposureBound, func() (policy.Version, error) {
+			return in.factory.AuthorExposureBound(ctx, owner, in.service.ID, 0.3)
+		}, 0.3},
+		{gatepolicy.AdvisorySeverity, func() (policy.Version, error) {
+			return in.factory.AuthorAdvisorySeverity(ctx, owner, 7)
+		}, 7},
+		{gatepolicy.HeldOutSampleRate, func() (policy.Version, error) {
+			return in.factory.AuthorHeldOutSampleRate(ctx, owner, 0.05)
+		}, 0.05},
+		{gatepolicy.ReviewSampleRate, func() (policy.Version, error) {
+			return in.factory.AuthorReviewSampleRate(ctx, owner, 9, 0.02)
+		}, 0.02},
 	}
 	for _, a := range authorings {
 		version, err := a.author()
@@ -130,6 +145,8 @@ func TestEveryParameterResolvesAndFiveAreReadByNothing(t *testing.T) {
 			read++
 		}
 	}
+	// Every parameter of the eleven rows has a writer here, so the read count
+	// below is the only thing that says which of them a mechanism reads.
 	// Eight of the thirteen are read by something now that contracts are built:
 	// the threshold, the limit, the window's size, confidence, cap and limit, the
 	// held-out sample rate, and the list of allowed predicate kinds, whose reader

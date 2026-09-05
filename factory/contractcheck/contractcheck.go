@@ -14,8 +14,9 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// Actor is who this component's one write is made as: the removal intent the
-// detector takes in through intake. Every other operation here reads.
+// Actor is who this component's writes are made as: the brownout intent and the
+// removal intent the detector takes in through intake. Every other operation here
+// reads.
 var Actor = record.Actor{Kind: record.KindComponent, Key: "contract_check"}
 
 // Candidate is the candidate one check is about: the item, the service it
@@ -42,9 +43,10 @@ func (c Candidate) validate() error {
 }
 
 // Checkout is what the candidate's build says: what it publishes, and what it
-// declares about what it reads. It is an interface because reaching a checkout is
-// the deploy agent's work and this component reaches none — the arrangement the
-// merge queue already has for everything it needs done to a repository.
+// declares about what it reads and sends. It is an interface because reaching a
+// checkout is the deployer's work and this component reaches none — the
+// arrangement the merge queue already has for everything it needs done to a
+// repository.
 //
 // Both derivations are one toolchain's, which is why they are behind this seam and
 // not inlined: a second toolchain is a second implementation of these two methods
@@ -52,21 +54,99 @@ func (c Candidate) validate() error {
 type Checkout interface {
 	// Publishes is every form the candidate's build publishes.
 	Publishes(ctx context.Context, c Candidate) ([]contract.Form, error)
-	// Declares is every predicate the candidate's build declares, drawn from the
-	// allowed predicate kinds in force.
-	Declares(ctx context.Context, c Candidate, allowed []string) ([]consumercontract.Draft, error)
+	// Declares is what the extractor made of the candidate's build: the
+	// predicates it found, the constructs it could not follow, or the cause it
+	// could not derive at all.
+	Declares(ctx context.Context, c Candidate, allowed []string) (consumercontract.Derived, error)
+	// DeclaresSchemaChange is whether the candidate's build declares a schema
+	// change at all — the reading the build's own process made of its checkout.
+	// It is asked because a form that moves is not a change to apply: a store
+	// contract's form is derived from the code, and a build can move it without
+	// shipping anything for a deploy to run. The two exercises the candidate
+	// environment performs on a change — applying it twice, and the snapshot
+	// before a destructive one — are asked for only where a change is declared,
+	// so a candidate that declares none is not refused for a change it does not
+	// carry.
+	DeclaresSchemaChange(ctx context.Context, c Candidate) (bool, error)
 }
 
 // Exchanges is what the candidate's run wrote: one document per unit of work,
 // which is what a predicate is decided against. It is an interface for the reason
 // the health monitor's signal is one — what emits it is the software the factory wrote
-// and where it lands is the substrate's arrangement, so a check that read a file
+// and where it lands is the platform's arrangement, so a check that read a file
 // would be a check that only works on one kind of target.
 type Exchanges interface {
 	// Observed is every exchange document the candidate's build wrote on its own
-	// environment. None is a real answer: a producer that emitted nothing has not
-	// shown that a consumer's assumption holds.
+	// environment. None is a real answer: a predicate decided against nothing is
+	// undecided, and undecided is read at the gate the way a failure is.
 	Observed(ctx context.Context, c Candidate) ([]consumercontract.Document, error)
+}
+
+// StoreState is the candidate environment's own store after the run, which is
+// what decides a store migration's middle items: their diff is empty by
+// construction, both forms being present throughout, so the diff alone would pass
+// them unconditionally.
+//
+// It is a seam for the reason [Exchanges] is: reaching a store is the deployer's
+// work through the environment's credential, and this component reaches none.
+type StoreState interface {
+	// Rows is what the candidate's run left in its environment's own store for
+	// one store contract, one document per row, which every store declaration in
+	// force — read and write — is decided against. None is undecided, the way no
+	// exchange is.
+	Rows(ctx context.Context, c Candidate, storeName string) ([]consumercontract.Document, error)
+	// AppliedTwice is what a second application of the candidate's schema change
+	// changed on that environment. Every change is authored to be applied twice
+	// without effect, because an engine that cannot put a change and its history
+	// row in one transaction can leave a change applied with no row, and a second
+	// application that changes anything is a rejection at Merge to master.
+	AppliedTwice(ctx context.Context, c Candidate) (SecondApplication, error)
+	// Snapshot is the snapshot the candidate environment took and verified before
+	// a change that destroys stored data. One it cannot take and verify is a
+	// rejection at Merge to master, the deploy of such a change resting on it.
+	Snapshot(ctx context.Context, c Candidate) (Snapshot, error)
+}
+
+// SecondApplication is what applying the candidate's schema change a second time
+// did.
+type SecondApplication struct {
+	// Ran is whether the environment applied it twice at all. False is a
+	// candidate with no schema change to apply.
+	Ran bool
+	// Changed is whether the second application changed anything, and What says
+	// what it changed for the words a rejection is read in.
+	Changed bool
+	What    string
+}
+
+// Snapshot is the snapshot taken before a destructive change.
+type Snapshot struct {
+	// Taken and Verified are the two steps: a snapshot the deployer cannot take
+	// and verify is a deploy not performed, and the candidate environment
+	// exercises it the same way.
+	Taken    bool
+	Verified bool
+	// Name is where what the change destroys can still be read, and Why is what
+	// stopped it where it was not taken or not verified.
+	Name string
+	Why  string
+}
+
+// Backfills is which backfills a deploy record marks complete. The item that
+// moves reads to a store's new form and the removal after it are each rejected at
+// Merge to master while no deploy record marks the backfill for that element
+// complete: a new form filled only by writes made after it reads every earlier row
+// as absent, and the drop then destroys the only copy.
+//
+// It is a seam and not a read of the deploy record here, because the field the
+// deployer writes it on is not built. Its caller implements this against the
+// deploy records once it is.
+type Backfills interface {
+	// Complete is the deploy record that marks the backfill for one element of
+	// one store contract complete, and false where none does. The element is
+	// either side of the pair a backfill fills: the one it filled and the one it
+	// filled from are one backfill, and the deployer's row names both.
+	Complete(ctx context.Context, serviceID, contractName, element string) (string, bool, error)
 }
 
 var (
@@ -78,42 +158,63 @@ var (
 	// diff and nothing to decide, and it would pass every candidate silently.
 	ErrNoCheckout = errors.New("contractcheck: a check with no checkout to read decides nothing")
 	// ErrNoExchanges is returned by [New] for a component with no run to observe.
-	// Two of the five predicate kinds are decidable against nothing else, so a
-	// component without this would report a consumer's assumption as met when it
-	// had not been read.
+	// Two of the nine predicate kinds are decidable against nothing else, so a
+	// component without this would report a consumer's assumption as undecided
+	// where a run would have decided it.
 	ErrNoExchanges = errors.New("contractcheck: a check with no run to observe cannot decide a consumer contract")
+	// ErrNoStoreState is returned by [New] for a component with no candidate
+	// store to read. A store migration's middle items have an empty diff by
+	// construction, so a component without this would pass them unconditionally.
+	ErrNoStoreState = errors.New("contractcheck: a check with no candidate store to read cannot decide a store migration")
+	// ErrNoBackfills is returned by [New] for a component that cannot read which
+	// backfills are complete. Without it the item that moves reads and the
+	// removal after it would ship over rows the copy never reached.
+	ErrNoBackfills = errors.New("contractcheck: a check that cannot read a backfill's completion cannot decide a drop")
 )
 
 // Check is enforcement over one factory: the producer's own diff, every consumer
-// contract, the consumer contracts in force, the deprecation list, and
-// the detector that raises a removal.
+// contract, the consumer contracts in force, the store migration a candidate
+// declares, the deprecation list, and the detector that raises a brownout and a
+// removal.
 //
-// It writes one record and only one — the removal intent, through intake — and
-// everything else it does is a read of the graph. That is what makes "what does
-// this break" a query rather than an estimate.
+// It writes two records and only two — the brownout intent and the removal intent,
+// both through intake — and everything else it does is a read of the graph. That is
+// what makes "what does this break" a query rather than an estimate.
 type Check struct {
 	pool      *pgxpool.Pool
 	policy    *policy.Reader
 	intake    *intent.Intake
 	checkout  Checkout
 	exchanges Exchanges
+	store     StoreState
+	backfills Backfills
 }
 
 // New returns the check over pool, reading what is in force through the policy,
-// taking a removal intent in through intake, and reading a candidate through the
-// checkout and its run through exchanges.
+// taking an intent in through intake, and reading a candidate through the
+// checkout, its run through exchanges, its environment's store through store, and
+// a backfill's completion through backfills.
 //
-// A nil intake is allowed and the two seams are not. A factory that cannot take an
-// intent in still enforces — the diff and the consumer contracts are most of what
-// enforcement does — and what it loses is the detector, which is the one thing here
-// that writes.
+// A nil intake is allowed and the four seams are not. A factory that cannot take
+// an intent in still enforces — the diff and the consumer contracts are most of
+// what enforcement does — and what it loses is the detector, which is the one thing
+// here that writes.
 func New(pool *pgxpool.Pool, p *policy.Reader, intake *intent.Intake,
-	checkout Checkout, exchanges Exchanges) (*Check, error) {
+	checkout Checkout, exchanges Exchanges, store StoreState, backfills Backfills) (*Check, error) {
 	if checkout == nil {
 		return nil, ErrNoCheckout
 	}
 	if exchanges == nil {
 		return nil, ErrNoExchanges
 	}
-	return &Check{pool: pool, policy: p, intake: intake, checkout: checkout, exchanges: exchanges}, nil
+	if store == nil {
+		return nil, ErrNoStoreState
+	}
+	if backfills == nil {
+		return nil, ErrNoBackfills
+	}
+	return &Check{
+		pool: pool, policy: p, intake: intake, checkout: checkout,
+		exchanges: exchanges, store: store, backfills: backfills,
+	}, nil
 }

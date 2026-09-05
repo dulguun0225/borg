@@ -140,23 +140,23 @@ func printDecision(ctx context.Context, pool *pgxpool.Pool, out io.Writer,
 	fmt.Fprintf(out, "  number %.3f against threshold %.3f (%s)\n",
 		payload.Number, payload.Threshold, payload.ThresholdFrom)
 	if payload.HumanDecides {
-		fmt.Fprintf(out, "  a human decided: %s\n", payload.WhyHuman)
+		fmt.Fprintf(out, "  a human decided: %v\n", payload.Marks)
 	} else {
 		fmt.Fprintln(out, "  no human decided: the number was under the threshold and no safeguard added one")
 	}
 	for _, id := range payload.Safeguards {
 		fmt.Fprintf(out, "  safeguard %s applied\n", id)
 	}
-	for _, name := range payload.Unavailable {
-		fmt.Fprintf(out, "  factor %s was unavailable\n", name)
+	for _, r := range payload.Resolutions {
+		fmt.Fprintf(out, "  factor %s was resolved rather than valued: %s\n", r.Factor, r.Why)
 	}
 	fmt.Fprintf(out, "  close event %s carries verdict %s, decided by %s %s\n",
 		closing.ID, verdict.Verdict, closing.Actor.Kind, closing.Actor.Key)
 	if verdict.WhyItAutoPassed != "" {
 		fmt.Fprintf(out, "  why it auto-passed: %s\n", verdict.WhyItAutoPassed)
 	}
-	if verdict.Feedback != "" {
-		fmt.Fprintf(out, "  feedback: %s\n", verdict.Feedback)
+	if verdict.Reason != "" {
+		fmt.Fprintf(out, "  what the human wrote: %s\n", verdict.Reason)
 	}
 	if verdict.ReturnsTo != "" {
 		fmt.Fprintf(out, "  the item returns to %s\n", verdict.ReturnsTo)

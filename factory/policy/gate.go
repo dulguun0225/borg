@@ -5,6 +5,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -35,8 +36,11 @@ type Applied struct {
 // AtGate is what applies at one gate firing: the threshold in force for the row
 // and whether a safeguard adds a human. Both reads run at the moment of firing,
 // which is what the design requires of every check a gate makes.
-func (r *Reader) AtGate(ctx context.Context, s Subjects) (Applied, error) {
-	version, err := InForce(ctx, r.pool)
+//
+// principal is who the firing is read as: naming the version in force is a read
+// of the log, and the log appends a read event for every one.
+func (r *Reader) AtGate(ctx context.Context, principal record.Actor, s Subjects) (Applied, error) {
+	version, err := r.Newest(ctx, principal)
 	if err != nil {
 		return Applied{}, err
 	}

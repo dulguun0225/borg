@@ -12,6 +12,11 @@ import (
 // Publication is one contract of one release: the release, its number, the item
 // it was cut from, and the form that release's build publishes. The service is the
 // form's publisher, which is the service the release is of.
+//
+// ItemID is empty on a release minted over an accepted commit, which names a build
+// and no item. The queue writes that release's contract versions in the same write
+// as the release, as it does at a fast-forward, so the release is the key and the
+// item is what a version has where a gate decided one.
 type Publication struct {
 	ServiceID     string
 	ReleaseID     string
@@ -139,12 +144,18 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 			v.Semver, c.Name, p.ReleaseNumber, err)
 	}
 	for _, e := range form.Elements {
+		var low, high *float64
+		if e.Range != nil {
+			low, high = &e.Range.Low, &e.Range.High
+		}
 		if _, err := tx.Exec(ctx, `insert into `+ElementTable+`
 			(id, format_version, actor_kind, actor_key, actor_key_basis, at, contract_version_id, contract_id, name,
-			element_type, populated, deprecated)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			kind, element_position, declared_type, required, populated, deprecated, accepted_domain,
+			range_low, range_high, not_null, unique_rule)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
 			record.NewID(ElementIDPrefix), FormatVersionElement, string(actor.Kind), actor.Key, string(actor.Basis), v.At,
-			v.ID, c.ID, e.Name, e.Type, e.Populated, e.Deprecated,
+			v.ID, c.ID, e.Name, string(e.Kind), string(e.Position), e.Type, e.Required, e.Populated, e.Deprecated,
+			DomainText(e.Domain), low, high, e.NotNull, e.Unique,
 		); err != nil {
 			return Published{}, fmt.Errorf("contract: writing element %s of %s %s: %w",
 				e.Name, c.Name, v.Semver, err)
@@ -177,9 +188,12 @@ func PublishAll(ctx context.Context, tx pgx.Tx, actor record.Actor,
 	return published, nil
 }
 
+// validate refuses a publication missing something every one names. The item is
+// not among them: a release minted over an accepted commit names a build and no
+// item, and the version it publishes is keyed by the release.
 func (p Publication) validate() error {
 	for _, required := range []struct{ what, value string }{
-		{"service", p.ServiceID}, {"release", p.ReleaseID}, {"item", p.ItemID},
+		{"service", p.ServiceID}, {"release", p.ReleaseID},
 	} {
 		if required.value == "" {
 			return fmt.Errorf("%w: it names no %s", ErrPublishIncomplete, required.what)

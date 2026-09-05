@@ -79,7 +79,9 @@ type Writer struct {
 }
 
 // NewWriter returns the writer over pool, fencing every write with token.
-func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{pool: pool, token: token} }
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Create writes a service's identity: its name, its repository, and the project
 // it is in. A name already taken is refused by the store's unique constraint,

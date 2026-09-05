@@ -3,7 +3,9 @@ package policy
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -11,6 +13,10 @@ import (
 // so that a gate can hold one behind an interface and a test can hold a fake.
 type Reader struct {
 	pool *pgxpool.Pool
+	// log is how every policy version is read. A version is a row of the
+	// decision log, so reading one is reading the log, which appends a read
+	// event of its own.
+	log *decisionlog.Reader
 	// score is the score version the supplied half of every answer is read out
 	// of. It is held rather than read per answer because a supplied value moves
 	// as outcomes arrive: a reader that read the newest version at each resolve
@@ -20,13 +26,13 @@ type Reader struct {
 	score score.Version
 }
 
-// NewReader returns the reader over pool, reading what the score supplies out of
-// version. The zero version is the starting values — the numbers the formula was
-// calibrated at — which is what a factory that has appended no version yet
-// supplies, so a reader composed before the first ensure answers with those and
-// not with nothing.
-func NewReader(pool *pgxpool.Pool, version score.Version) *Reader {
-	return &Reader{pool: pool, score: version}
+// NewReader returns the reader over pool, reading the log's rows with token and
+// reading what the score supplies out of version. The zero version is the
+// starting values — the numbers the formula was calibrated at — which is what a
+// factory that has appended no version yet supplies, so a reader composed
+// before the first ensure answers with those and not with nothing.
+func NewReader(pool *pgxpool.Pool, token lease.Token, version score.Version) *Reader {
+	return &Reader{pool: pool, log: decisionlog.NewReader(pool, token), score: version}
 }
 
 // Subjects is what a read is performed against: the records whose fields hold
@@ -37,6 +43,10 @@ type Subjects struct {
 	GateRow       string
 	EnvironmentID string
 	ServiceID     string
+	// ProjectID is the project a safeguard drawn on a project reaches this
+	// read through. It is a subject of its own, the design's list naming a
+	// project beside a service and an area.
+	ProjectID string
 	// AreaID is the narrowest area; the chain above it is walked, because a
 	// safeguard drawn on any area in the chain reaches an item in the narrowest.
 	AreaID string

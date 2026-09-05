@@ -4,27 +4,30 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
-	"github.com/dulguun0225/borg/factory/gate"
-	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
 
-// Actor is who the queue's writes are made as. The rejection row names it as the
-// caller and as the actor, the design's arrangement for something that happened
-// where no gate fired.
+// Actor is who the queue's writes are made as. The rejection row and every wait
+// it opens name it as the caller and as the actor, the design's arrangement for
+// something that happened where no gate fired.
 var Actor = record.Actor{Kind: record.KindComponent, Key: "merge_queue"}
+
+// healthMonitorActorKey is the key the health monitor's own actor carries,
+// spelled here rather than imported. One of the two items the halt's stop passes
+// is an item the health monitor raised, which is read off the intent the item was
+// decomposed from, and importing that component for one string would be an edge
+// deps.txt has no reason for. The spelling is the one healthmonitor.Actor uses,
+// so a change to it is found by one search.
+const healthMonitorActorKey = "health_monitor"
 
 // lockName is what [AdvisoryLockKey] hashes, the service id appended. It names
 // this package so that no other part of the factory derives the same key from a
@@ -32,67 +35,98 @@ var Actor = record.Actor{Kind: record.KindComponent, Key: "merge_queue"}
 // its own inside the transaction this one's holder calls it from.
 const lockName = "borg/factory/mergequeue/"
 
-// AdvisoryLockKey is the PostgreSQL advisory lock [Queue.Run] holds for the whole
-// of a run, one key per service: the first eight bytes of SHA-256 of [lockName]
-// plus the service id, big-endian, with the top bit cleared so the value is
-// positive. Per service rather than one key, because two services' merges have
-// nothing to serialise against each other for.
+// AdvisoryLockKey is the PostgreSQL advisory lock a run and an acceptance hold
+// for the whole of their work, one key per service: the first eight bytes of
+// SHA-256 of [lockName] plus the service id, big-endian, with the top bit cleared
+// so the value is positive. Per service rather than one key, because two
+// services' merges have nothing to serialise against each other for.
 func AdvisoryLockKey(serviceID string) int64 {
 	sum := sha256.Sum256([]byte(lockName + serviceID))
 	return int64(binary.BigEndian.Uint64(sum[:8]) & 0x7fffffffffffffff)
 }
 
-// ErrServiceIDEmpty is returned by [Queue.Run] for a run naming no service. The
-// order is per service, so a run over every service at once would be a queue the
-// design does not have.
-var ErrServiceIDEmpty = errors.New("mergequeue: the service id is empty")
+var (
+	// ErrServiceIDEmpty is returned by [Queue.Run], [Queue.Members] and
+	// [Queue.AcceptCommit] for a call naming no service. The order is per
+	// service, so a run over every service at once would be a queue the design
+	// does not have.
+	ErrServiceIDEmpty = errors.New("mergequeue: the service id is empty")
+	// ErrCommitEmpty is returned by [Queue.AcceptCommit] for an acceptance
+	// naming no commit.
+	ErrCommitEmpty = errors.New("mergequeue: the commit is empty")
+	// ErrNotAHuman is returned by [Queue.AcceptCommit] for an acceptance a
+	// component made. A commit the queue did not put on master is accepted by a
+	// human at Work and by nothing else.
+	ErrNotAHuman = errors.New("mergequeue: a commit the queue did not make is accepted by a human")
+	// ErrNoWaitStanding is returned by [Queue.AcceptCommit] where no wait of the
+	// queue's stands over that service and commit: either master never held a
+	// commit the queue did not make, or the wait has already ended.
+	ErrNoWaitStanding = errors.New("mergequeue: no wait of the queue's stands over that commit")
+)
 
-// Verified is what a re-verification produced: the commit the candidate branch
-// reached once master was merged into it, the build made from that commit, and
-// whether every pre-merge check decided against the candidate-environment run
-// passed.
-//
-// A re-verification that changed nothing — master already an ancestor of the
-// candidate — names the build already in force rather than a new one: a rebuild is
-// a new build, and nothing was rebuilt.
-//
-// Why is what failed, in words a human reads on the rejection row, and is empty
-// where it passed. A merge conflict, a criterion that failed, a breaking contract
-// diff, and a consumer contract the candidate does not satisfy all
-// arrive here as a candidate that failed its own re-verification, which is the same
-// disposition for several reasons — so the reason is on the row.
-//
-// Forms is what the re-verified build publishes, derived from the checkout the
-// re-verification produced. The queue does not reach a checkout, so the derivation
-// is the deploy agent's and the write is the queue's — which is the same division
-// the criteria already have, where the agent decides them on the environment and
-// the queue reads what it produced.
-type Verified struct {
-	Commit  string
-	BuildID string
-	Passed  bool
-	Why     string
-	Forms   []contract.Form
+// Composition is what the queue is built from. It is a struct rather than eight
+// arguments so that every one is named where the queue is composed, and so that
+// a factory composed without a reader of the health monitor's store, of the
+// design system constraint records, or of the rollbacks says which of them it is
+// without.
+type Composition struct {
+	Pool     *pgxpool.Pool
+	Token    lease.Token
+	Log      *decisionlog.Writer
+	Releases *release.Writer
+	// Repository is everything done to a repository and a candidate's
+	// environment. Every run reads master through it, so it is required.
+	Repository Repository
+	// Numbers is the second reading a mint takes. A nil value is [NoNumbersSeen].
+	Numbers Numbers
+	// DesignSystem reads two design system constraint records. A nil value is
+	// [EveryMoveDiffers].
+	DesignSystem DesignSystem
+	// Backlog is how many releases wait behind a rollback hold. A nil value is
+	// [NoBacklog].
+	Backlog Backlog
 }
 
-// Repository is everything the queue needs done to the service's repository and
-// the candidate's environment, which the queue does not reach itself. Whatever
-// composes the deploy agent implements it.
-type Repository interface {
-	// Reverify builds the candidate branch onto the master it will actually merge
-	// into, recomposes the candidate's environment, puts that build on it, and
-	// decides the criteria there. An error is an infrastructure failure and stops
-	// the run; a candidate that failed on its merits is a [Verified] with Passed
-	// false and Why saying what.
-	Reverify(ctx context.Context, it item.Item) (Verified, error)
-	// FastForward moves the service's master to the commit the re-verification
-	// produced, and refuses anything that is not a fast-forward.
-	FastForward(ctx context.Context, it item.Item, commit string) error
+// Queue is the merge queue over one factory.
+type Queue struct {
+	pool         *pgxpool.Pool
+	token        lease.Token
+	log          *decisionlog.Writer
+	releases     *release.Writer
+	repo         Repository
+	numbers      Numbers
+	designSystem DesignSystem
+	backlog      Backlog
+}
+
+// New returns the queue over one composition, with the three optional readings
+// replaced by the value that says a factory was composed without them.
+func New(c Composition) *Queue {
+	if c.Numbers == nil {
+		c.Numbers = NoNumbersSeen{}
+	}
+	if c.DesignSystem == nil {
+		c.DesignSystem = EveryMoveDiffers{}
+	}
+	if c.Backlog == nil {
+		c.Backlog = NoBacklog{}
+	}
+	return &Queue{
+		pool: c.Pool, token: c.Token, log: c.Log, releases: c.Releases, repo: c.Repository,
+		numbers: c.Numbers, designSystem: c.DesignSystem, backlog: c.Backlog,
+	}
 }
 
 // Outcome is what the queue did with one candidate. Merged names the release it
-// minted; rejected names what the re-verification found and the log row that says
-// so.
+// minted; a rejection names what the re-verification found, which of the three
+// readings it was, and the log row that says so; a stop names the condition that
+// held the candidate and the wait row that stands for it.
+//
+// The item's own transition is not written here. The queue's row in
+// ../../end-goal/components.md names the gate component, the build runner and the
+// log, and names no dispatch, so what the outcome causes on the item — merged
+// after a fast-forward, [Rejection.ReturnsTo] with an attempt counted there after
+// a rejection — is written by the caller.
 type Outcome struct {
 	ItemID  string
 	Merged  bool
@@ -100,244 +134,53 @@ type Outcome struct {
 	BuildID string
 	Commit  string
 	Why     string
+	// Stopped is the condition that held this candidate, and is empty where the
+	// queue reached it. WaitRow is the log row that stop stands as.
+	Stopped string
 	WaitRow string
 	// Published is what the fast-forward did to each contract the build declares:
 	// the contract created where this is its first release, the version minted
 	// where the form moved, and what the diff was. It is empty on a rejection and
 	// on a merge of a build that declares no contract, which is most of them.
 	Published []contract.Published
+	// Rejection is what the queue read the failure as and wrote into the log, and
+	// is the zero value on a merge and on a stop.
+	Rejection Rejection
+	// SkippedNumbers is the numbers the mint passed over, which happens where the
+	// health monitor's store names a higher number than the records do. It is
+	// empty at every other mint.
+	SkippedNumbers []int64
 }
 
-// RejectionKind is what a rejection row's payload says it is, so a reader can
-// tell the queue's rejection rows from every other kind of payload sharing the
-// log's queue_rejection shape.
-const RejectionKind = "merge_queue_rejection"
-
-// RejectionPayload is what the queue writes into the log when a candidate fails
-// its own re-verification, through [decisionlog.Writer.AppendQueueRejection]. It
-// is its own shape and neither a wait nor a decision: no gate fired — the Merge
-// to master gate's own having closed as an approval — so there is no firing to
-// open a row at and no factor vector computed for it.
-//
-// It says that an attempt was counted, which is the one thing about this row that
-// a reader cannot see from the row: the count is on the item's per-stage row, and
-// the design counts this rejection against the limit at the stage the item is sent
-// back to.
-type RejectionPayload struct {
-	Kind            string `json:"kind"`
-	ItemID          string `json:"item_id"`
-	ServiceID       string `json:"service_id"`
-	BuildID         string `json:"build_id"`
-	Commit          string `json:"commit"`
-	Why             string `json:"why"`
-	ReturnsTo       string `json:"returns_to"`
-	CountsAnAttempt bool   `json:"counts_an_attempt"`
+// Pass is what one run of the queue over one service did: what it read of master
+// before it minted anything, the stop that held the whole service where one
+// stood, and one outcome per candidate it reached.
+type Pass struct {
+	ServiceID string
+	// Master is the reading the queue made of master against the service's
+	// release records, at the start and before every mint.
+	Master Master
+	// Stopped is why the queue fast-forwarded nothing at all for this service,
+	// and is empty where it ran. StopWaitRow is the log row that stop stands as.
+	Stopped     string
+	StopWaitRow string
+	Outcomes    []Outcome
 }
 
-// Queue is the merge queue over one factory.
-type Queue struct {
-	pool     *pgxpool.Pool
-	token    lease.Token
-	log      *decisionlog.Writer
-	releases *release.Writer
-	dispatch *item.Dispatch
-	repo     Repository
-}
-
-// New returns the queue over pool, writing through the log and the release
-// writer, reading the approval times gate row's own decisions closed at through
-// token and [Actor] as the reading principal, and reaching the repository
-// through repo.
-func New(pool *pgxpool.Pool, token lease.Token, log *decisionlog.Writer, releases *release.Writer,
-	dispatch *item.Dispatch, repo Repository) *Queue {
-	return &Queue{pool: pool, token: token, log: log, releases: releases, dispatch: dispatch, repo: repo}
-}
-
-// Members is the queue's membership for one service, in the queue's order: the
-// items whose stage says Merge to master approved them and whose fast-forward has
-// not happened, ordered by the priority an owner set — greater first — and then by
-// the time of that approval in the log.
-//
-// An item at that stage with no approval in the log is ordered last among its
-// priority. It is not a state the path produces, the stage being written on the
-// approval; ordering it rather than refusing it is what keeps a reader of the queue
-// from being unable to see it at all.
-func (q *Queue) Members(ctx context.Context, serviceID string) ([]item.Item, error) {
-	if serviceID == "" {
-		return nil, ErrServiceIDEmpty
-	}
-	members, err := item.AtStage(ctx, q.pool, serviceID, item.StageQueued)
-	if err != nil {
-		return nil, err
-	}
-	if len(members) == 0 {
-		return nil, nil
-	}
-	approved, err := gate.ApprovalTimes(ctx, q.pool, q.token, Actor, gate.MergeToMaster)
-	if err != nil {
-		return nil, err
-	}
-	sort.SliceStable(members, func(a, b int) bool {
-		first, second := members[a], members[b]
-		if first.Priority != second.Priority {
-			return first.Priority > second.Priority
-		}
-		firstAt, secondAt := approved[first.ID], approved[second.ID]
-		if firstAt == secondAt {
-			// The sort is stable and this is the last word, so a tie keeps the
-			// order the membership query returned — which is the time the item was
-			// decomposition. Ordering on the id instead would be an order derived from random
-			// bytes, and it would throw away the one the store already gave.
-			return false
-		}
-		// An unapproved item's empty time would sort first, and it belongs last:
-		// an empty string is less than every timestamp.
-		if firstAt == "" || secondAt == "" {
-			return secondAt == ""
-		}
-		return firstAt < secondAt
-	})
-	return members, nil
-}
-
-// Run takes each member of the service's queue in order and re-verifies it
-// against the master that actually resulted. A candidate that passes fast-forwards,
-// is minted a release, and advances to merged; one that fails goes back to
-// Implementation with an attempt counted there and a row in the log saying why, and
-// the run goes on to the next.
-//
-// The whole run holds one advisory lock per service, so two runs of one service
-// cannot interleave. It is session-level and taken on one connection of its own,
-// because a run performs git work and several transactions and a transaction held
-// across all of it would hold row locks nothing needs held.
-func (q *Queue) Run(ctx context.Context, serviceID string) ([]Outcome, error) {
-	if serviceID == "" {
-		return nil, ErrServiceIDEmpty
-	}
+// lock takes the session-level advisory lock a run and an acceptance hold for the
+// whole of their work, and answers with what releases it and the connection.
+func (q *Queue) lock(ctx context.Context, serviceID string) (func(), error) {
 	conn, err := q.pool.Acquire(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("mergequeue: taking a connection for the run of %s: %w", serviceID, err)
+		return nil, fmt.Errorf("mergequeue: taking a connection for %s: %w", serviceID, err)
 	}
-	defer conn.Release()
 	key := AdvisoryLockKey(serviceID)
 	if _, err := conn.Exec(ctx, `select pg_advisory_lock($1)`, key); err != nil {
+		conn.Release()
 		return nil, fmt.Errorf("mergequeue: taking the run lock for %s: %w", serviceID, err)
 	}
-	defer func() { _, _ = conn.Exec(context.WithoutCancel(ctx), `select pg_advisory_unlock($1)`, key) }()
-
-	// The membership is read under the lock, so an approval landing mid-run joins
-	// the next run rather than a run that has already decided its order.
-	members, err := q.Members(ctx, serviceID)
-	if err != nil {
-		return nil, err
-	}
-
-	outcomes := make([]Outcome, 0, len(members))
-	for _, it := range members {
-		outcome, err := q.one(ctx, it)
-		if err != nil {
-			return outcomes, err
-		}
-		outcomes = append(outcomes, outcome)
-	}
-	return outcomes, nil
-}
-
-// one is the queue's whole treatment of a single candidate.
-//
-// A member that already has a release is a fast-forward and a mint that landed and
-// an advance that did not, which is the one half-write the three writes below can
-// leave. It is finished here rather than re-verified: re-verifying it would find
-// master already in its branch, fast-forward to the commit master is at, and mint a
-// second number for one merge — and nothing in the store refuses that, a release
-// being unique on the service and the number and not on the item.
-func (q *Queue) one(ctx context.Context, it item.Item) (Outcome, error) {
-	minted, found, err := release.ForItem(ctx, q.pool, it.ID)
-	if err != nil {
-		return Outcome{}, err
-	}
-	if found {
-		if _, err := q.dispatch.End(ctx, Actor, it.ID); err != nil {
-			return Outcome{}, err
-		}
-		return Outcome{ItemID: it.ID, Merged: true, Release: minted, BuildID: minted.BuildID}, nil
-	}
-
-	verified, err := q.repo.Reverify(ctx, it)
-	if err != nil {
-		return Outcome{}, fmt.Errorf("mergequeue: re-verifying %s: %w", it.ID, err)
-	}
-	if !verified.Passed {
-		return q.reject(ctx, it, verified)
-	}
-	if verified.Commit == "" || verified.BuildID == "" {
-		return Outcome{}, fmt.Errorf("mergequeue: the re-verification of %s passed and names commit %q, build %q",
-			it.ID, verified.Commit, verified.BuildID)
-	}
-
-	if err := q.repo.FastForward(ctx, it, verified.Commit); err != nil {
-		return Outcome{}, fmt.Errorf("mergequeue: fast-forwarding master of %s to %s: %w", it.ServiceID, verified.Commit, err)
-	}
-	// The mint, and the contract versions the release publishes, in one
-	// transaction. A contract changes only inside its service's items and every
-	// write to it happens at a release, so the fast-forward is the event for both —
-	// and one merge must not be able to leave a number with no version, or a version
-	// under a number nothing minted.
-	var published []contract.Published
-	minted, err = q.releases.MintWith(ctx, Actor, it.ServiceID, verified.BuildID, it.ID,
-		func(ctx context.Context, tx pgx.Tx, r release.Release) error {
-			published, err = contract.PublishAll(ctx, tx, Actor,
-				it.ServiceID, r.ID, r.Number, it.ID, verified.Forms)
-			return err
-		})
-	if err != nil {
-		return Outcome{}, err
-	}
-	if _, err := q.dispatch.End(ctx, Actor, it.ID); err != nil {
-		return Outcome{}, err
-	}
-	return Outcome{
-		ItemID:    it.ID,
-		Merged:    true,
-		Release:   minted,
-		BuildID:   verified.BuildID,
-		Commit:    verified.Commit,
-		Published: published,
-	}, nil
-}
-
-// reject is what the queue does with a candidate that failed its own
-// re-verification: it writes the row, then sends the item back. In that order,
-// because the row is the only record of the rejection and an item back at
-// Implementation with nothing saying why is the worse of the two half-writes.
-func (q *Queue) reject(ctx context.Context, it item.Item, verified Verified) (Outcome, error) {
-	payload, err := json.Marshal(RejectionPayload{
-		Kind:            RejectionKind,
-		ItemID:          it.ID,
-		ServiceID:       it.ServiceID,
-		BuildID:         verified.BuildID,
-		Commit:          verified.Commit,
-		Why:             verified.Why,
-		ReturnsTo:       gate.ReturnsTo,
-		CountsAnAttempt: true,
-	})
-	if err != nil {
-		return Outcome{}, fmt.Errorf("mergequeue: marshalling the rejection of %s: %w", it.ID, err)
-	}
-	row, err := q.log.AppendQueueRejection(ctx, decisionlog.Entry{
-		Actor: Actor, Payload: string(payload), FormatVersion: "queue_rejection/1",
-	})
-	if err != nil {
-		return Outcome{}, err
-	}
-	if _, err := q.dispatch.ReturnTo(ctx, Actor, it.ID, item.StageImplementation); err != nil {
-		return Outcome{}, err
-	}
-	return Outcome{
-		ItemID:  it.ID,
-		BuildID: verified.BuildID,
-		Commit:  verified.Commit,
-		Why:     verified.Why,
-		WaitRow: row.ID,
+	return func() {
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `select pg_advisory_unlock($1)`, key)
+		conn.Release()
 	}, nil
 }

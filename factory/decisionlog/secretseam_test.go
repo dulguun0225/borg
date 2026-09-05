@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
@@ -27,12 +28,17 @@ func TestAResolvedSecretReachesNoRecord(t *testing.T) {
 	}
 
 	credential := secretref.MustNew("deploy.staging")
-	resolved, err := resolver.Resolve(credential)
+	deployer := principal.OfComponent("deployer")
+	resolved, err := resolver.Resolve(deployer, credential)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if resolved != value {
 		t.Fatalf("Resolve = %q, want the value", resolved)
+	}
+	resolutions := resolver.Resolutions()
+	if len(resolutions) != 1 || resolutions[0].Principal != deployer {
+		t.Fatalf("Resolutions() = %+v, want one naming %s", resolutions, deployer)
 	}
 
 	// What a component writes about a deploy: the reference, which is what

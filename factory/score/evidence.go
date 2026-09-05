@@ -3,12 +3,10 @@ package score
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"sort"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/incident"
@@ -21,22 +19,23 @@ import (
 
 // Outcome is what the graph says became of one item. It is the score's own
 // reading and not a field of any record: nothing writes down that an item turned
-// out well, and what says so is a release with a window that closed without
-// harm, no rollback naming it, no incident on it, and no human having rejected it
-// anywhere.
+// out well, and what says so is a release whose window closed passed, no
+// rollback naming it, no incident on it, and no rejection of it that resolved as
+// a gate the factory needed.
 type Outcome string
 
 const (
 	// OutcomeUnknown is an item nothing downstream has decided yet: no release,
-	// or a window still open. It is evidence for nothing and is not counted
-	// against anything — the same distinction the factor readings keep between an
-	// empty history and an unavailable factor.
+	// a window still open, or a window that ruled nothing out. It is evidence
+	// for nothing and is not counted against anything — the same distinction the
+	// factor readings keep between an empty history and a resolved factor.
 	OutcomeUnknown Outcome = "unknown"
-	// OutcomeWell is an item that shipped and was neither failed nor
-	// complained about.
+	// OutcomeWell is an item whose release a window closed passed, and which
+	// nothing failed or complained about.
 	OutcomeWell Outcome = "well"
-	// OutcomeBadly is an item a human rejected, or one whose release a rollback
-	// failed, or one whose release an incident was raised against.
+	// OutcomeBadly is an item a human's rejection resolved against, or one whose
+	// release a window failed, or one whose release an incident was raised
+	// against.
 	OutcomeBadly Outcome = "badly"
 )
 
@@ -50,15 +49,20 @@ type Firing struct {
 	// HumanClosed is whether the close event's actor was a human, which is what
 	// separates a verdict from the factory agreeing with itself.
 	HumanClosed bool
+	// ClosedBy is the actor that closed it, which is the human a false alarm is
+	// published against.
+	ClosedBy record.Actor
+	// At is when the close was appended, which orders one item's firings.
+	At string
 }
 
 // Evidence is every outcome the score learns from, read once. It is a value and
-// not a set of methods over a pool, because the six rules ask about the same
-// records from different angles and a factory that read them per rule would read
-// the log six times.
+// not a set of methods over a pool, because the rules ask about the same records
+// from different angles and a factory that read them per rule would read the
+// records once per rule.
 //
-// What it reads is five whole tables and the whole log. That is what learning over
-// every outcome costs while the store is small, and it is the same cost the
+// What it reads is five whole tables and the whole log. That is what learning
+// over every outcome costs while the store is small, and it is the same cost the
 // per-author prior already carries — a query narrowed by what a payload names
 // would put the payload's shape inside the log.
 type Evidence struct {
@@ -69,19 +73,28 @@ type Evidence struct {
 	items     []item.Item
 	stages    []item.StageTotals
 	releases  []release.Release
+	// digests is the content digest of every artifact version a human decided
+	// on, which is what a re-authored version is compared against.
+	digests map[string]string
+	// marked is every release whose rollback a human marked as not caused by the
+	// release. It is read by everything here that learns and by nothing that
+	// acts.
+	marked map[string]bool
 
 	releaseOfItem   map[string]release.Release
+	itemOfRelease   map[string]string
+	serviceOfItem   map[string]string
 	windowOfRelease map[string]window.Window
 	failed          map[string]bool
-	swept           map[string]bool
+	skipped         map[string]bool
 	incidentOn      map[string]bool
-	rejected        map[string]bool
+	rejectedNeeded  map[string]bool
 }
 
 // ReadEvidence reads every outcome the score learns from. It reads the log
 // through token, appending one read event as the score's own component actor,
-// and writes nothing else.
-func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (*Evidence, error) {
+// reads the marks through marks, and writes nothing else.
+func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks) (*Evidence, error) {
 	e := newEvidence()
 
 	closed, err := decisionlog.NewReader(pool, token).ClosedDecisions(ctx, component)
@@ -98,11 +111,11 @@ func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (*
 			// not an error either.
 			continue
 		}
-		f := Firing{OpenEvent: opening, CloseEvent: closing, HumanClosed: d.CloseEvent.Actor.Kind == record.KindHuman}
-		e.firings = append(e.firings, f)
-		if f.HumanClosed && closing.Verdict == VerdictRejected && opening.ItemID != "" {
-			e.rejected[opening.ItemID] = true
-		}
+		e.firings = append(e.firings, Firing{
+			OpenEvent: opening, CloseEvent: closing,
+			HumanClosed: d.CloseEvent.Actor.Kind == record.KindHuman,
+			ClosedBy:    d.CloseEvent.Actor, At: d.CloseEvent.At,
+		})
 	}
 
 	if e.windows, err = window.Closed(ctx, pool); err != nil {
@@ -123,6 +136,12 @@ func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (*
 	if e.releases, err = release.All(ctx, pool); err != nil {
 		return nil, err
 	}
+	if e.marked, err = markedSet(ctx, marks); err != nil {
+		return nil, err
+	}
+	if err := e.readDigests(ctx, pool); err != nil {
+		return nil, err
+	}
 
 	e.index()
 	return e, nil
@@ -131,51 +150,92 @@ func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (*
 // newEvidence is an empty [Evidence] with its maps made.
 func newEvidence() *Evidence {
 	return &Evidence{
+		digests:         map[string]string{},
+		marked:          map[string]bool{},
 		releaseOfItem:   map[string]release.Release{},
+		itemOfRelease:   map[string]string{},
+		serviceOfItem:   map[string]string{},
 		windowOfRelease: map[string]window.Window{},
 		failed:          map[string]bool{},
-		swept:           map[string]bool{},
+		skipped:         map[string]bool{},
 		incidentOn:      map[string]bool{},
-		rejected:        map[string]bool{},
+		rejectedNeeded:  map[string]bool{},
 	}
 }
 
+// readDigests reads the content digest of every artifact version a human decided
+// on. A rejection resolves by what the re-authored version differs in, and a
+// digest is what says two versions are not the same text.
+func (e *Evidence) readDigests(ctx context.Context, pool *pgxpool.Pool) error {
+	for _, f := range e.firings {
+		id := f.OpenEvent.ArtifactID
+		if !f.HumanClosed || id == "" {
+			continue
+		}
+		if _, read := e.digests[id]; read {
+			continue
+		}
+		a, err := artifact.Get(ctx, pool, id)
+		if err != nil {
+			// A decision naming a version the store no longer holds is a
+			// truncated trail and not an error here: the rejection it belongs to
+			// stays unresolved, which moves nothing.
+			continue
+		}
+		e.digests[id] = a.ContentDigest
+	}
+	return nil
+}
+
 // index builds what the rules read across the tables: which release an item has,
-// which window watched it, and which releases a rollback or an incident named. It
-// is a step of its own so that a test can assemble the slices and index them the
-// way a read of the store does, rather than filling six maps by hand and getting
-// one of them wrong.
+// which window watched it, which releases a rollback or an incident named, and
+// which rejections resolved as gates the factory needed. It is a step of its own
+// so that a test can assemble the slices and index them the way a read of the
+// store does, rather than filling the maps by hand and getting one of them wrong.
 func (e *Evidence) index() {
+	for _, it := range e.items {
+		e.serviceOfItem[it.ID] = it.ServiceID
+	}
 	for _, r := range e.releases {
 		e.releaseOfItem[r.ItemID] = r
+		e.itemOfRelease[r.ID] = r.ItemID
 	}
 	for _, w := range e.windows {
 		e.windowOfRelease[w.ReleaseID] = w
 	}
 	for _, d := range e.rollbacks {
+		if e.marked[d.Undoing.FailedReleaseID] {
+			continue
+		}
 		e.failed[d.Undoing.FailedReleaseID] = true
-		for _, id := range d.Undoing.SweptReleaseIDs {
-			e.swept[id] = true
+		for _, id := range d.Undoing.SkippedReleaseIDs {
+			e.skipped[id] = true
 		}
 	}
 	for _, i := range e.incidents {
 		e.incidentOn[i.ReleaseID] = true
 	}
+	for _, r := range e.resolvedRejections() {
+		if r.MovesTheThreshold() {
+			e.rejectedNeeded[r.ItemID] = true
+		}
+	}
 }
 
-// Outcome is what became of one item. A rejection by a human, a rollback that
-// failed its release, and an incident against its release are each enough to
-// make it badly; a release whose window closed without failing a release and none of those
-// makes it well; anything else is unknown.
+// Outcome is what became of one item. A rejection that resolved as a gate the
+// factory needed, a window that failed its release, and an incident against its
+// release are each enough to make it badly; a release whose window closed passed
+// and none of those makes it well; anything else is unknown.
 //
-// A swept release is neither. Its own health monitor stopped because a rollback aimed
-// below it undid it, so nothing was ever decided about the change — which is the
-// same reading [window.Exit.Counts] gives that exit one level down.
+// timed out and skipped are neither, and that is the whole of the rule: a
+// comparison the cap closed unresolved and a release a rollback undid before
+// anything measured it each report no outcome. Counting one as good would put
+// back exactly what the sample was built to remove, silence read as success.
 func (e *Evidence) Outcome(itemID string) Outcome {
 	if itemID == "" {
 		return OutcomeUnknown
 	}
-	if e.rejected[itemID] {
+	if e.rejectedNeeded[itemID] {
 		return OutcomeBadly
 	}
 	r, released := e.releaseOfItem[itemID]
@@ -186,30 +246,39 @@ func (e *Evidence) Outcome(itemID string) Outcome {
 		return OutcomeBadly
 	}
 	w, watched := e.windowOfRelease[r.ID]
-	if !watched || w.Open() || !w.Exit.Counts() {
+	if !watched || w.Open() || w.Exit != window.ExitPassed {
 		return OutcomeUnknown
 	}
 	return OutcomeWell
 }
 
-// Misses is every window of one service that closed without failing a
-// release over a release an incident was later raised against. That is the
-// crossing the health monitor could have seen and did not: the window said it
-// was done watching and the same quantity crossed afterwards, so the size it
-// was watching at was too coarse.
+// falsePasses is every window of one service that closed passed over a release
+// an incident was later raised against: the crossing the health monitor could
+// have seen and did not, on a window that said it had ruled a regression out. It
+// is evidence about the power, the exit that rules a regression out having
+// cleared one it should have caught.
 //
-// A rollback is not one of these and cannot be. The health monitor rolls a
-// release back at the failed exit and nowhere else, so a rollback the
-// factory performed always has a failed window under it and never a window
-// that closed without failing a release; what happens outside a window is an
-// incident and an item. A human's undo is not one either: the design counts
-// only evidence traceable to the health monitor here, a human's reason is
-// prose, and the factory does not judge prose — so an undo moves the per-author
-// prior and not the window's size.
-func (e *Evidence) Misses(serviceID string) []window.Window {
+// A window a mark excluded is not one of these: what crossed the boundary was
+// not the change, which is evidence about nothing.
+func (e *Evidence) falsePasses(serviceID string) []window.Window {
 	var missed []window.Window
 	for _, w := range e.windows {
-		if w.ServiceID == serviceID && w.Exit.Counts() && e.incidentOn[w.ReleaseID] {
+		if w.ServiceID == serviceID && w.Exit == window.ExitPassed &&
+			e.incidentOn[w.ReleaseID] && !e.marked[w.ReleaseID] {
+			missed = append(missed, w)
+		}
+	}
+	return missed
+}
+
+// missesOnATimedOutWindow is every window of one service that timed out over a
+// release an incident was later raised against. Nothing was ruled out at all
+// there, so the event is evidence about the size and never about the power.
+func (e *Evidence) missesOnATimedOutWindow(serviceID string) []window.Window {
+	var missed []window.Window
+	for _, w := range e.windows {
+		if w.ServiceID == serviceID && w.Exit == window.ExitTimedOut &&
+			e.incidentOn[w.ReleaseID] && !e.marked[w.ReleaseID] {
 			missed = append(missed, w)
 		}
 	}
@@ -230,9 +299,10 @@ func (e *Evidence) Services() []string {
 	return sorted(seen)
 }
 
-// Areas is every area the items name, ordered. An item decomposed with no area declared
-// names none, and those are left out: the item-size target is a field of an area
-// record, so there is nothing for a value with no area to be supplied for.
+// Areas is every area the items name, ordered. An item decomposed with no area
+// declared names none, and those are left out: the item-size target is a field
+// of an area record, so there is nothing for a value with no area to be supplied
+// for.
 func (e *Evidence) Areas() []string {
 	seen := map[string]bool{}
 	for _, it := range e.items {
@@ -265,188 +335,4 @@ func (e *Evidence) GateRows() []string {
 		}
 	}
 	return sorted(seen)
-}
-
-// serviceHistory is one service's closed windows and rollbacks in the order they
-// happened, which is what the window limit is folded over. A window is placed at the time it
-// closed and a rollback at the time its record was written, because what each is
-// evidence about is the event and not the deploy that led to it.
-type serviceEvent struct {
-	at string
-	// noHarm is a window that closed leaving a release the factory can return to.
-	noHarm bool
-	// sweeping is a rollback that undid more than the release it failed.
-	sweeping bool
-}
-
-func (e *Evidence) serviceHistory(serviceID string) []serviceEvent {
-	var events []serviceEvent
-	for _, w := range e.windows {
-		if w.ServiceID == serviceID && w.Exit.Counts() {
-			events = append(events, serviceEvent{at: w.ClosedAt, noHarm: true})
-		}
-	}
-	for _, d := range e.rollbacks {
-		if d.ServiceID == serviceID && len(d.Undoing.SweptReleaseIDs) > 0 {
-			events = append(events, serviceEvent{at: d.At, sweeping: true})
-		}
-	}
-	sort.Slice(events, func(i, j int) bool { return events[i].at < events[j].at })
-	return events
-}
-
-// Traffic is what one service's windows say about the traffic it actually
-// receives: the units its release served per second, and the failure rate of the
-// baseline it was read against. Both come off the freshest closed window that
-// carries a read, because traffic changes and the newest reading is the honest
-// estimate of what the next window will get.
-//
-// It is what says whether a size the score is asking for is reachable at all —
-// which is arithmetic over volume and not a claim about harm, so it is evidence
-// the analysis window's harm-only restriction does not speak to.
-type Traffic struct {
-	// UnitsPerSecond is what the release under watch served, over the seconds its
-	// window was open.
-	UnitsPerSecond float64
-	// BaselineRate is the failure rate of the release it was read against, which is
-	// what the units a window needs are computed at.
-	BaselineRate float64
-}
-
-// traffic is [Traffic] for one service, and false where no closed window of it
-// carries a read with a baseline in it. A service whose windows have never had a
-// baseline has never had the passed exit available to them either, so there is
-// nothing for
-// reachability to constrain.
-func (e *Evidence) traffic(serviceID string) (Traffic, bool, error) {
-	for i := len(e.windows) - 1; i >= 0; i-- {
-		w := e.windows[i]
-		if w.ServiceID != serviceID || w.ClosedOn.Units <= 0 || w.ClosedOn.BaselineUnits <= 0 {
-			continue
-		}
-		opened, err := record.ParseTime(w.At)
-		if err != nil {
-			return Traffic{}, false, fmt.Errorf("score: reading when window %s opened: %w", w.ID, err)
-		}
-		closed, err := record.ParseTime(w.ClosedAt)
-		if err != nil {
-			return Traffic{}, false, fmt.Errorf("score: reading when window %s closed: %w", w.ID, err)
-		}
-		seconds := closed.Sub(opened).Seconds()
-		if seconds <= 0 {
-			// A window opened and closed inside one timestamp says nothing about a
-			// rate. It is not an error: the next one down will.
-			continue
-		}
-		return Traffic{
-			UnitsPerSecond: float64(w.ClosedOn.Units) / seconds,
-			BaselineRate:   float64(w.ClosedOn.BaselineFailures) / float64(w.ClosedOn.BaselineUnits),
-		}, true, nil
-	}
-	return Traffic{}, false, nil
-}
-
-// reachedStage is how many items have reported an attempt at one stage. It is the
-// evidence count the attempt limit's own rule needs: one item that got past a
-// stage first time is not grounds for supplying a limit the whole factory reads.
-func (e *Evidence) reachedStage(stage item.Stage) int {
-	n := 0
-	for _, s := range e.stages {
-		if s.Stage == stage {
-			n++
-		}
-	}
-	return n
-}
-
-// resolvedIn is how long each window of one service took to close on evidence —
-// passed or failed, the two exits that are a reading of the quantity rather than a
-// clock running out. It is what the cap is set above: a cap under the time a
-// window of this service actually needed closes unresolved a window that would
-// have resolved.
-func (e *Evidence) resolvedIn(serviceID string) ([]time.Duration, error) {
-	var took []time.Duration
-	for _, w := range e.windows {
-		if w.ServiceID != serviceID || (w.Exit != window.ExitPassed && w.Exit != window.ExitFailed) {
-			continue
-		}
-		opened, err := record.ParseTime(w.At)
-		if err != nil {
-			return nil, fmt.Errorf("score: reading when window %s opened: %w", w.ID, err)
-		}
-		closed, err := record.ParseTime(w.ClosedAt)
-		if err != nil {
-			return nil, fmt.Errorf("score: reading when window %s closed: %w", w.ID, err)
-		}
-		took = append(took, closed.Sub(opened))
-	}
-	return took, nil
-}
-
-// stalls is every item of one area whose attempts at a stage reached the limit
-// the score supplies for that stage and which has no release: work spent and
-// thrown away, which is what a decomposition too coarse shows as.
-//
-// It reads the limit the score itself supplies and not the limit in force, which
-// is package policy's read and would make this package a reader of what an owner
-// authored. The two agree on a factory where nobody authored one; where an owner
-// authored a different limit, the score is counting against its own default and
-// the reason each moved value carries says so.
-func (e *Evidence) stalls(areaID string, limit func(item.Stage) float64) []item.StageTotals {
-	inArea := map[string]bool{}
-	for _, it := range e.items {
-		// A superseded item is left out of both this and succeededAt. It was
-		// replaced by a re-decomposition rather than given up on, so what was spent on it says
-		// something about the decomposition that rejected the set and nothing about the size
-		// decomposition was aiming at.
-		if it.AreaID == areaID && it.Stage != item.StageSuperseded {
-			inArea[it.ID] = true
-		}
-	}
-	var stalled []item.StageTotals
-	for _, s := range e.stages {
-		if !inArea[s.ItemID] {
-			continue
-		}
-		if _, released := e.releaseOfItem[s.ItemID]; released {
-			continue
-		}
-		if float64(s.Attempts) >= limit(s.Stage) {
-			stalled = append(stalled, s)
-		}
-	}
-	return stalled
-}
-
-// succeededAt is the highest attempt at which one stage produced work that got
-// past it: the attempts recorded against a stage of an item that is no longer at
-// that stage. Attempts accumulate and are never reset, so the number on the row
-// of a stage the item has left is how many attempts that stage took.
-func (e *Evidence) succeededAt(stage item.Stage) int {
-	at := map[string]item.Stage{}
-	for _, it := range e.items {
-		at[it.ID] = it.Stage
-	}
-	highest := 0
-	for _, s := range e.stages {
-		// An item still at the stage has not got past it, and a superseded item
-		// never will: a re-decomposition replaced it, so its attempts are not a retry that
-		// worked.
-		if s.Stage != stage || at[s.ItemID] == stage || at[s.ItemID] == item.StageSuperseded {
-			continue
-		}
-		if s.Attempts > highest {
-			highest = s.Attempts
-		}
-	}
-	return highest
-}
-
-func sorted(seen map[string]bool) []string {
-	var out []string
-	for k := range seen {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

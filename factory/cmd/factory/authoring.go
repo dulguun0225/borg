@@ -9,21 +9,47 @@ import (
 
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// owner is the actor an authoring write is made as. Gate policy is authored by a
-// human and package policy refuses anything else, so this is a human by
-// construction; the key is derived from the name this pass gives it, and the
-// name itself is not on the actor — a later pass adds the People key-to-name
-// mapping, and until then a caller that wants the name to print keeps it
-// separately.
-func owner(name string) record.Actor {
-	return record.Actor{Kind: record.KindHuman, Key: "person:" + name, Basis: record.BasisClaimed}
+// humanNamed is the actor an authoring write is made as: the per-person key the
+// People mapping gives the name -human carries. Every record holds a key and a
+// human at a terminal types a name, so this is the one place in the command-line
+// interface the two meet, and it is the composition's rather than any package's
+// — package people owns the mapping and reads no other record, and every writer
+// below takes the actor already resolved.
+//
+// A name with no mapping gets one: a key minted here and written with the basis
+// claimed, which is what the key's basis says — a name typed at a terminal and
+// verified by nothing. The write is made as the new key itself, the human
+// declaring their own mapping, there being nobody else on a fresh install to
+// declare it for them.
+func humanNamed(ctx context.Context, pool *pgxpool.Pool, token lease.Token, name string) (record.Actor, error) {
+	if name == "" {
+		return record.Actor{}, errors.New("factory: -human names the human this is done as, and is empty")
+	}
+	key, found, err := people.KeyNamed(ctx, pool, name)
+	if err != nil {
+		return record.Actor{}, err
+	}
+	if !found {
+		key = record.NewID(personKeyPrefix)
+		actor := record.Actor{Kind: record.KindHuman, Key: key, Basis: record.BasisClaimed}
+		if _, err := people.WriteMapping(ctx, pool, token, actor, key, name, "", "", ""); err != nil {
+			return record.Actor{}, err
+		}
+	}
+	return record.Actor{Kind: record.KindHuman, Key: key, Basis: record.BasisClaimed}, nil
 }
+
+// personKeyPrefix is what a minted per-person key is prefixed with. The key is
+// opaque and the prefix is what makes one readable as a person's key in a record
+// that holds several kinds of id.
+const personKeyPrefix = "person"
 
 // withPool opens the database, applies the schema, acquires the lease, and runs
 // one command against the pool with the token every writer and every read event

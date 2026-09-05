@@ -15,7 +15,7 @@
 //
 // writer.go is [ResolvedEntry], [Draft], [Build], [Writer] and [NewWriter]
 // with [Writer.Create], the one write, and the reads [Get], [ForCommit] and
-// [Newest]; schema.go is [Table], [ResolvedTable], the two id prefixes, the
+// [Newest] and [Resolved]; schema.go is [Table], [ResolvedTable], the two id prefixes, the
 // two format versions, and [DDL]. The tests are db_test.go, every one of them
 // against the database.
 //
@@ -43,8 +43,9 @@
 // carries that field empty, which is that entry's own coverage and not an
 // error to fill in later. [Draft.ResolvedSetCoverage] is what the resolver
 // read, per ecosystem, on the build itself, and
-// [Draft.ResolvedSetCouldNotDerive] is the reason where resolution could not
-// be performed at all — a record and not an empty set, because "nothing
+// [Resolved] reads that table back, which is what the merge queue compares the
+// re-resolved set's digests against. [Draft.ResolvedSetCouldNotDerive] is the
+// reason where resolution could not be performed at all — a record and not an empty set, because "nothing
 // vulnerable was resolved" and "nothing resolved was visible" call for
 // opposite responses. [Draft.NoticeFile] is produced from the same set in the
 // same write.
@@ -82,6 +83,11 @@
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md;
 // what a build is called and the search's builds in
 // ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md;
+// the exposure list read from a diff and a build record in
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md;
+// the schema change a build declares and the double application the candidate
+// environment performs on it in
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
 // and where the criterion's run happens, in
 // ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md.
 package build

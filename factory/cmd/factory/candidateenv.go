@@ -20,14 +20,14 @@ import (
 	"github.com/dulguun0225/borg/factory/release"
 )
 
-// SubstrateWaitKind is what the wait row the substrate's ceiling writes says it
+// PlatformWaitKind is what the wait row the platform's ceiling writes says it
 // is, so a reader can tell it from every other kind of wait.
-const SubstrateWaitKind = "substrate_has_no_room"
+const PlatformWaitKind = "platform_has_no_room"
 
-// substrateWait is what that row says. It is a wait and not a decision: no gate
+// platformWait is what that row says. It is a wait and not a decision: no gate
 // fired, and the condition is not a record — the design's arrangement for a wait
 // the factory could not compute at a firing.
-type substrateWait struct {
+type platformWait struct {
 	Kind      string `json:"kind"`
 	ItemID    string `json:"item_id"`
 	Gate      string `json:"gate"`
@@ -73,25 +73,25 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		return err
 	}
 	if live >= d.candidateCeiling {
-		payload, err := json.Marshal(substrateWait{
-			Kind:      SubstrateWaitKind,
+		payload, err := json.Marshal(platformWait{
+			Kind:      PlatformWaitKind,
 			ItemID:    c.itemID,
-			Gate:      string(gate.DeployToCandidateEnvironment),
-			Condition: gate.HoldNoRoomForAnotherEnvironment,
+			Gate:      gate.DeployToCandidateEnvironment.String(),
+			Condition: gate.HoldNoRoomOnThePlatform,
 			Live:      live,
 			Ceiling:   d.candidateCeiling,
 		})
 		if err != nil {
-			return fmt.Errorf("factory: marshalling the substrate's wait for %s: %w", c.itemID, err)
+			return fmt.Errorf("factory: marshalling the platform's wait for %s: %w", c.itemID, err)
 		}
 		row, err := p.log.AppendWaitOpen(ctx, decisionlog.Entry{Actor: deployActor, Payload: string(payload), FormatVersion: "wait/1"})
 		if err != nil {
 			return err
 		}
-		c.factoryHold = gate.HoldNoRoomForAnotherEnvironment
+		c.factoryHold = gate.HoldNoRoomOnThePlatform
 		c.holdWaitRow = row.ID
 		fmt.Fprintf(d.out, "Item %s waits at %s: %s (%d live, ceiling %d); wait row %s\n",
-			c.itemID, gate.DeployToCandidateEnvironment, gate.HoldNoRoomForAnotherEnvironment, live, d.candidateCeiling, row.ID)
+			c.itemID, gate.DeployToCandidateEnvironment, gate.HoldNoRoomOnThePlatform, live, d.candidateCeiling, row.ID)
 		return nil
 	}
 
@@ -99,7 +99,11 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	// has been decided — the run that decides them is what this deploy is for — so
 	// the firing names how many there are and no outcome, and the coverage factor
 	// reads the count.
-	inForce, err := p.inForceFor(ctx, c.svc, c.itemID)
+	inForce, err := p.inForceFor(ctx, c.svc, []string{c.itemID})
+	if err != nil {
+		return err
+	}
+	reached, err := p.exposureOf(ctx, c.buildID)
 	if err != nil {
 		return err
 	}
@@ -112,6 +116,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(inForce),
 		Measurement:     c.measurement,
+		Exposure:        reached,
 	})
 	if err != nil {
 		return err
@@ -129,7 +134,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 			return err
 		}
 		fmt.Fprintf(d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there\n",
-			feedback, c.itemID, gate.ReturnsTo)
+			feedback, c.itemID, item.StageImplementation)
 		return nil
 	case gate.VerdictHold:
 		c.held = true
@@ -156,6 +161,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	}
 	c.environmentID = env.ID
 	c.composedFrom = composed
+	c.approvedComposition = composed
 	fmt.Fprintf(d.out, "Candidate environment %s composed for item %s at %s, from %s\n",
 		env.ID, c.itemID, c.environmentDir, describeComposition(composed))
 
@@ -177,8 +183,7 @@ func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buil
 	if err := buildInto(c.svc.Repository, c.environmentDir, buildID); err != nil {
 		return deploy.Deploy{}, err
 	}
-	return deploy.WithoutControl(ctx, p.deploys, p.d.targets.at(c.environmentDir), deployActor,
-		c.svc.ID, c.svc.Name, c.environmentID, deploy.OfBuild(buildID), p.d.credential)
+	return p.intoCandidate(ctx, c, buildID)
 }
 
 // decideCriteria runs the encodings on the candidate environment and records what
@@ -197,7 +202,7 @@ func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buil
 // the criterion id it names, and nothing here runs one of them alone.
 func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 	inForce []criterion.Criterion) ([]gate.CriterionResult, error) {
-	if err := p.checkEncodings(ctx, c.svc.Repository, c.svc.ID, c.itemID, inForce); err != nil {
+	if err := p.checkEncodings(ctx, c.svc.Repository, c.svc.ID, []string{c.itemID}, inForce); err != nil {
 		return nil, err
 	}
 
@@ -310,8 +315,8 @@ func (p *path) recordCriterionRun(ctx context.Context, buildID string, run int, 
 //
 // It is the Implementation gate's rejection and that gate is not built, so a
 // failure here stops the run rather than sending the item back.
-func (p *path) checkEncodings(ctx context.Context, repo, serviceID, itemID string, inForce []criterion.Criterion) error {
-	ids, err := p.itemsInBuild(ctx, serviceID, itemID)
+func (p *path) checkEncodings(ctx context.Context, repo, serviceID string, of []string, inForce []criterion.Criterion) error {
+	ids, err := p.itemsInBuild(ctx, serviceID, of)
 	if err != nil {
 		return err
 	}
@@ -356,7 +361,7 @@ func (p *path) compositionFor(ctx context.Context, it item.Item) ([]environment.
 		if err != nil {
 			return nil, err
 		}
-		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID)
+		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID, p.productionAddresses())
 		if err != nil {
 			return nil, err
 		}
@@ -386,7 +391,7 @@ func (p *path) dependencyHold(ctx context.Context, it item.Item) (string, error)
 		if err != nil {
 			return "", err
 		}
-		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID)
+		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID, p.productionAddresses())
 		if err != nil {
 			return "", err
 		}

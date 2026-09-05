@@ -3,6 +3,10 @@ package decisionlog
 import (
 	"context"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/dulguun0225/borg/factory/lease"
 )
 
 // AppendPageEvent appends a page that was delivered, which names neither
@@ -54,4 +58,34 @@ func (w *Writer) appendSimple(ctx context.Context, shape Shape, e Entry) (Row, e
 		return Row{}, err
 	}
 	return commitAppend(ctx, w.pool, w.token, shape, "", e, nil)
+}
+
+// AppendPolicyVersionInTx appends the same row inside a transaction the
+// caller opened. Its one caller is package policy, which writes the scope
+// record's field in the same transaction: the version is the trail's copy of
+// what the field then holds, and a stop between the two writes is what the
+// one transaction removes. It takes the fence and this package's advisory
+// lock inside tx, as [withAppendTx] does for an append of its own, so a
+// caller's transaction that already fenced fences again and the head is read
+// under the lock.
+func (w *Writer) AppendPolicyVersionInTx(ctx context.Context, tx pgx.Tx, e Entry) (Row, error) {
+	if err := expectShape(e, ShapePolicyVersion); err != nil {
+		return Row{}, err
+	}
+	if e.Closes != "" {
+		return Row{}, fmt.Errorf("%w: named %q", ErrClosesRefused, e.Closes)
+	}
+	if err := refuseVersionsAndClosingOnlyFields(string(ShapePolicyVersion), e); err != nil {
+		return Row{}, err
+	}
+	if err := e.Actor.Validate(); err != nil {
+		return Row{}, err
+	}
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Row{}, err
+	}
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey); err != nil {
+		return Row{}, fmt.Errorf("decisionlog: taking the append lock: %w", err)
+	}
+	return insertRowTx(ctx, tx, ShapePolicyVersion, "", e)
 }

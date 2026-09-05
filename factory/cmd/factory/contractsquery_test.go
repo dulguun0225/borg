@@ -36,7 +36,7 @@ func TestTheContractsQueryReadsTheWholeGraph(t *testing.T) {
 		"Status: string, always populated",
 		"production runs release 1, which publishes 1.0.0",
 		"last known-good release 1",
-		"read on demo.health.Status",
+		"read on demo.health.Health.Status",
 	} {
 		if !strings.Contains(printed.String(), want) {
 			t.Errorf("the graph does not say %q:\n%s", want, printed)

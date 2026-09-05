@@ -39,15 +39,15 @@ func evidenceFor(serviceID string, windows []window.Window, extra []serviceEvent
 	e := newEvidence()
 	e.windows = windows
 	for i, event := range extra {
-		if !event.sweeping {
+		if !event.undidMoreThanItsTarget {
 			continue
 		}
 		e.rollbacks = append(e.rollbacks, deploy.Deploy{
 			ID: fmt.Sprintf("dep_%d", i), ServiceID: serviceID, At: event.at,
 			Undoing: deploy.Undoing{
-				FailedReleaseID: fmt.Sprintf("rel_%s_failed_%d", serviceID, i),
-				SweptReleaseIDs: []string{fmt.Sprintf("rel_%s_swept_%d", serviceID, i)},
-				Source:          deploy.SourceHealthMonitorAtFailed,
+				FailedReleaseID:   fmt.Sprintf("rel_%s_failed_%d", serviceID, i),
+				SkippedReleaseIDs: []string{fmt.Sprintf("rel_%s_skipped_%d", serviceID, i)},
+				Source:            deploy.SourceHealthMonitorAtFailed,
 			},
 		})
 	}
@@ -55,22 +55,41 @@ func evidenceFor(serviceID string, windows []window.Window, extra []serviceEvent
 	return e
 }
 
+// undidMoreThanItsTarget is one rollback event at a time the fold reads after
+// the windows above it.
+func undidMoreThanItsTarget() []serviceEvent {
+	return []serviceEvent{{
+		at:                     record.FormatTime(time.Date(2026, 8, 20, 0, 0, 9, 0, time.UTC)),
+		undidMoreThanItsTarget: true,
+	}}
+}
+
 // withIncident raises an incident against one release, which is what makes a
-// window that closed without failing a release over it a miss.
+// window that closed over it a miss.
 func withIncident(e *Evidence, releaseID string) *Evidence {
 	e.incidents = append(e.incidents, incident.Incident{ID: "inc_a", ReleaseID: releaseID, ServiceID: "svc_a"})
 	e.index()
 	return e
 }
 
-// longWindow is one window that took a day and a half to close on evidence.
-func longWindow() *Evidence {
-	e := newEvidence()
-	opened := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
-	e.windows = []window.Window{{
-		ID: "win_a", ServiceID: "svc_a", ReleaseID: "rel_a", Exit: window.ExitPassed,
-		At: record.FormatTime(opened), ClosedAt: record.FormatTime(opened.Add(36 * time.Hour)),
-	}}
+// withFinestSize puts on every window of the evidence the finest size the
+// window reports this service's traffic reached, which is what the size in force
+// is held against.
+func withFinestSize(e *Evidence, reached float64) *Evidence {
+	for i := range e.windows {
+		e.windows[i].FinestSizeReached = map[gatepolicy.Quantity]float64{}
+		for _, quantity := range gatepolicy.Quantities {
+			e.windows[i].FinestSizeReached[quantity] = reached
+		}
+	}
+	e.index()
+	return e
+}
+
+// withMark marks the rollback of one release as not caused by the release,
+// which excludes it from every rule that learns.
+func withMark(e *Evidence, releaseID string) *Evidence {
+	e.marked[releaseID] = true
 	e.index()
 	return e
 }
@@ -79,8 +98,10 @@ func longWindow() *Evidence {
 // two things an auto-pass comes from.
 func autoPassed(row string, number float64, by, itemID string) Firing {
 	return Firing{
-		OpenEvent: OpenEvent{ItemID: itemID, Gate: row, Number: number, Threshold: 0.3,
-			HeldOut: by == AutoPassSample},
+		OpenEvent: OpenEvent{
+			ItemID: itemID, Gate: row, FactorSet: SetWithABuild, Number: number, Threshold: 0.3,
+			HeldOut: by == AutoPassSample, HeldOutRate: StartingHeldOutSampleRate,
+		},
 		CloseEvent: CloseEvent{Verdict: VerdictApproved, WhyItAutoPassed: by},
 	}
 }
@@ -88,14 +109,14 @@ func autoPassed(row string, number float64, by, itemID string) Firing {
 // humanApproved is one firing a human approved at a gate the number gated.
 func humanApproved(row string, number float64, itemID string) Firing {
 	return Firing{
-		OpenEvent:   OpenEvent{ItemID: itemID, Gate: row, Number: number, Threshold: 0.3},
+		OpenEvent:   OpenEvent{ItemID: itemID, Gate: row, FactorSet: SetWithABuild, Number: number, Threshold: 0.3},
 		CloseEvent:  CloseEvent{Verdict: VerdictApproved},
 		HumanClosed: true,
 	}
 }
 
 // firingEvidence is a graph where every named item shipped and its window closed
-// at the cap, so each turned out well unless a later call fails it.
+// passed, so each turned out well unless a later call fails it.
 func firingEvidence(t *testing.T, firings []Firing) *Evidence {
 	t.Helper()
 	e := newEvidence()
@@ -111,10 +132,22 @@ func firingEvidence(t *testing.T, firings []Firing) *Evidence {
 		})
 		e.windows = append(e.windows, window.Window{
 			ID: "win_" + f.OpenEvent.ItemID, ServiceID: "svc_a", ReleaseID: releaseID,
-			Exit:     window.ExitTimedOut,
+			Exit:     window.ExitPassed,
 			At:       record.FormatTime(time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)),
 			ClosedAt: record.FormatTime(time.Date(2026, 8, 20, 0, 0, 1, 0, time.UTC)),
 		})
+	}
+	e.index()
+	return e
+}
+
+// exitOf sets the exit of the window over one item's release, which is how a
+// test says what became of a held-out release.
+func exitOf(e *Evidence, itemID string, exit window.Exit) *Evidence {
+	for i := range e.windows {
+		if e.windows[i].ReleaseID == "rel_"+itemID {
+			e.windows[i].Exit = exit
+		}
 	}
 	e.index()
 	return e
@@ -157,20 +190,36 @@ func someEvidence(t *testing.T) *Evidence {
 // valueOf is what the pass supplies for one parameter on one subject.
 func valueOf(t *testing.T, e *Evidence, parameter gatepolicy.Parameter, subject string) float64 {
 	t.Helper()
-	values, err := LearnFrom(e)
+	learned, err := LearnFrom(e)
 	if err != nil {
 		t.Fatalf("LearnFrom: %v", err)
 	}
-	supplied, found := values.Value(parameter, subject)
+	supplied, found := learned.Supplied.Value(parameter, subject)
 	if !found {
 		t.Fatalf("the score supplies no %s", parameter)
 	}
 	return supplied.Value
 }
 
-func encode(t *testing.T, values SuppliedValues) string {
+// rowFor is the supplied row for one parameter and subject, or nil where the pass
+// moved nothing for it.
+func rowFor(t *testing.T, e *Evidence, parameter gatepolicy.Parameter, subject string) *Supplied {
 	t.Helper()
-	text, err := json.Marshal(values)
+	learned, err := LearnFrom(e)
+	if err != nil {
+		t.Fatalf("LearnFrom: %v", err)
+	}
+	for _, row := range learned.Supplied {
+		if row.Parameter == parameter && row.Subject == subject {
+			return &row
+		}
+	}
+	return nil
+}
+
+func encode(t *testing.T, learned Learned) string {
+	t.Helper()
+	text, err := json.Marshal(learned)
 	if err != nil {
 		t.Fatalf("encoding the table: %v", err)
 	}

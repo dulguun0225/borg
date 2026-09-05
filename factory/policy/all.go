@@ -7,11 +7,12 @@ import (
 )
 
 // All is every parameter as it is in force against these subjects, in the order
-// gate policy's own table lists the rows. It is what the crude interface prints,
-// and it is the one place an owner can see which of the thirteen are read by
-// nothing yet.
+// gate policy's own table lists the rows: the value, where it came from, the
+// safeguards that reached it, and what reads it. It is what the command-line
+// interface prints, and what says which parameters nothing reads yet rather than
+// leaving an owner to discover that what they authored changed nothing.
 func (r *Reader) All(ctx context.Context, s Subjects) ([]Effective, error) {
-	var all []Effective
+	all := make([]Effective, 0, len(gatepolicy.Definitions))
 	for _, d := range gatepolicy.Definitions {
 		authored, list, err := r.authored(ctx, d, s)
 		if err != nil {

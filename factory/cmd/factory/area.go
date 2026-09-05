@@ -54,7 +54,11 @@ func areaCommand(args []string) error {
 			}
 			at = area.InsideProject(prj.ID)
 		}
-		declared, err := area.NewWriter(pool, token).Declare(ctx, owner(*human), name, at, area.Hazard{})
+		actor, err := humanNamed(ctx, pool, token, *human)
+		if err != nil {
+			return err
+		}
+		declared, err := area.NewWriter(pool, token).Declare(ctx, actor, name, at, area.Hazard{})
 		if err != nil {
 			return err
 		}

@@ -30,10 +30,10 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("reading the contract: found %v, %v", found, err)
 	}
-	actor := owner(d.human)
+	actor := owner(t, ctx, d.pool, d.token, d.human)
 	placed, _, err := policy.NewFactory(d.pool, d.token).AddSafeguard(ctx, actor, gatepolicy.SafeguardPredicate,
-		safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, "Detail")},
-		safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead}})
+		safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, "Health.Detail")},
+		safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead}}, safeguard.Routing{})
 	if err != nil {
 		t.Fatalf("adding the safeguard: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	if blocked.autoRejectedBy != gate.AutoRejectedBySafeguardPredicate {
 		t.Fatalf("the removal was rejected by %q, want the safeguard's predicate", blocked.autoRejectedBy)
 	}
-	if !strings.Contains(blocked.checked.Why(), placed.ID) || !strings.Contains(blocked.checked.Why(), d.human) {
+	if !strings.Contains(blocked.checked.Why(), placed.ID) || !strings.Contains(blocked.checked.Why(), actor.Key) {
 		t.Errorf("the rejection names neither the safeguard nor its author: %s", blocked.checked.Why())
 	}
 	// The implementation stage stands at one attempt: an attempt is counted on
@@ -66,8 +66,17 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 		t.Errorf("the implementation stage stands at %d attempts, want 1", attempts)
 	}
 
-	if _, err := policy.NewFactory(d.pool, d.token).WithdrawSafeguard(ctx, actor, placed.ID); err != nil {
-		t.Fatalf("withdrawing the safeguard: %v", err)
+	// A safeguard leaves force at the gate row A safeguard's withdrawal, which is
+	// two writes: the withdrawal record, and the approval that row's close makes.
+	// The row is routed away from whoever wrote the withdrawal, so the approval is
+	// another human's.
+	written, _, err := policy.NewFactory(d.pool, d.token).WriteSafeguardWithdrawal(ctx, actor, placed.ID)
+	if err != nil {
+		t.Fatalf("writing the withdrawal: %v", err)
+	}
+	decider := owner(t, ctx, d.pool, d.token, "reviewer")
+	if _, err := policy.NewFactory(d.pool, d.token).ApproveSafeguardWithdrawal(ctx, decider, written.ID); err != nil {
+		t.Fatalf("approving the withdrawal: %v", err)
 	}
 	through := only(t, runOne(t, ctx, d, out, removeStatement, theService))
 	if !through.merged {

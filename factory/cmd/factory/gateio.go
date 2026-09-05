@@ -16,10 +16,14 @@ import (
 // row too; they are here for the end-to-end test to assert over without parsing a
 // payload.
 type fired struct {
-	opening       string
-	closing       string
-	humanDecided  bool
-	whyHuman      string
+	opening      string
+	closing      string
+	humanDecided bool
+	// marks is what put a human at the row, in the order gate.Marks lists them,
+	// and empty where none is. mismatch is what the drift detector found
+	// disagreeing, which puts a human there without being a mark.
+	marks         []gate.Mark
+	mismatch      string
 	number        float64
 	threshold     float64
 	thresholdFrom string
@@ -50,17 +54,17 @@ type fired struct {
 func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
 	a, applied := opened.Assessment, opened.Applied
 	fmt.Fprintf(out, "Gate %s fired; decision %s\n", opened.Gate, opened.Row.ID)
-	fmt.Fprintf(out, "  number %.3f against threshold %.3f (%s), likelihood %.3f, impact %.3f, exposure %.3f\n",
-		a.Number, applied.Threshold, applied.ThresholdFrom, a.Likelihood, a.Impact, a.Exposure)
-	fmt.Fprintf(out, "  score version %s (formula %s), policy version %s\n",
-		a.Version, a.FormulaVersion, applied.PolicyVersion)
+	fmt.Fprintf(out, "  number %.3f against threshold %.3f (%s), likelihood %.3f, impact %.3f discounted to %.3f\n",
+		a.Number, applied.Threshold, applied.ThresholdFrom, a.Likelihood, a.Impact, a.DiscountedImpact)
+	fmt.Fprintf(out, "  factor set %s, score version %s (formula %s), policy version %s\n",
+		a.FactorSet, a.Version, a.FormulaVersion, applied.PolicyVersion)
 	for _, f := range a.Vector {
-		if f.Unavailable != "" {
-			fmt.Fprintf(out, "  factor %s: unavailable — %s\n", f.Name, f.Unavailable)
+		if f.Resolved != "" {
+			fmt.Fprintf(out, "  factor %s: resolved rather than valued — %s\n", f.Name, f.Resolved)
 			continue
 		}
 		fmt.Fprintf(out, "  factor %s: %.2f (%s, weight %.2f) — %s\n",
-			f.Name, f.Level, f.Half, f.Weight, f.Reading)
+			f.Name, f.Level, f.Term, f.Weight, f.Reading)
 	}
 	if len(results) == 0 && opened.Gate == gate.DeployToCandidateEnvironment {
 		fmt.Fprintln(out, "  no criterion is decided yet: this deploy is what the run that decides them happens on")
@@ -77,8 +81,12 @@ func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
 	if opened.HeldOut {
 		fmt.Fprintf(out, "  held out: %s\n", opened.WhyHeldOut)
 	}
+	if opened.Mismatch != "" {
+		fmt.Fprintf(out, "  the drift detector found a record disagreeing with what runs: %s\n", opened.Mismatch)
+	}
 	if opened.HumanDecides {
-		fmt.Fprintf(out, "  a human decides: %s; the row waits on %s\n", opened.WhyHuman, gate.WaitsOn(opened.Gate))
+		fmt.Fprintf(out, "  a human decides: %s; the row waits on %s\n",
+			whyHumanDecides(opened), waitedOn(opened.WaitsOn))
 		return
 	}
 	if opened.HeldOut && a.Number >= applied.Threshold {
@@ -86,6 +94,41 @@ func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
 		return
 	}
 	fmt.Fprintln(out, "  no human decides: the number is under the threshold and no safeguard adds one")
+}
+
+// whyHumanDecides is what put a human at the row, in words: every mark the
+// firing carried, and the two conditions that put one there without being a
+// mark — a mismatch the drift detector found, and a derivation that could not
+// derive. A row with a human at it and nothing to say would read as a row
+// nobody has to decide.
+func whyHumanDecides(opened gate.Opened) string {
+	reasons := make([]string, 0, len(opened.Marks)+1)
+	for _, m := range opened.Marks {
+		reasons = append(reasons, string(m))
+	}
+	if opened.Mismatch != "" {
+		reasons = append(reasons, gate.HoldDriftMismatch)
+	}
+	if len(reasons) == 0 {
+		return "the firing read something it could not value"
+	}
+	return strings.Join(reasons, "; ")
+}
+
+// waitedOn is who the row waits on, as the open event says it: the duty, the
+// named human a record's routing gives, the holders the People declaration
+// recorded, and the owner where nobody holds it.
+func waitedOn(w gate.Waits) string {
+	switch {
+	case w.Human != "":
+		return w.Human
+	case len(w.Holders) > 0:
+		return fmt.Sprintf("duty %d, held by %s", w.Duty, strings.Join(w.Holders, ", "))
+	case w.Duty != 0:
+		return fmt.Sprintf("duty %d, which nobody holds, so it widens to the owner", w.Duty)
+	default:
+		return "the owner, this row naming no duty"
+	}
 }
 
 // settle closes one firing: the factory's own verdict where the firing put no
@@ -119,7 +162,15 @@ func (p *path) settle(ctx context.Context, opened gate.Opened) (gate.Verdict, st
 	if err != nil {
 		return "", "", decisionlog.Row{}, err
 	}
-	closing, err := p.gate.Decide(ctx, opened, p.human, verdict, feedback)
+	// An approve names the set of holds it goes through, each one, because a bare
+	// approve while a hold stands is what the gate refuses. The set is the one
+	// the firing found; the gate recomputes it at the close and refuses an
+	// approve that names a hold no longer standing or leaves out one that is.
+	given := gate.Given{Actor: p.human, Verdict: verdict, Reason: feedback}
+	if verdict == gate.VerdictApprove {
+		given.Holds = opened.Holds
+	}
+	closing, err := p.gate.Decide(ctx, opened, given)
 	if err != nil {
 		return "", "", decisionlog.Row{}, err
 	}
@@ -162,7 +213,8 @@ func recordFiring(opened gate.Opened, closing decisionlog.Row) fired {
 		opening:       opened.Row.ID,
 		closing:       closing.ID,
 		humanDecided:  opened.HumanDecides,
-		whyHuman:      opened.WhyHuman,
+		marks:         opened.Marks,
+		mismatch:      opened.Mismatch,
 		number:        opened.Assessment.Number,
 		threshold:     opened.Applied.Threshold,
 		thresholdFrom: string(opened.Applied.ThresholdFrom),

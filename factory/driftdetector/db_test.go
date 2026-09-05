@@ -84,6 +84,7 @@ func pass() driftdetector.Pass {
 		RunningBuild:      record.NewID("bl"),
 		RecordedReleaseID: record.NewID("rel"),
 		RecordedBuildID:   record.NewID("bl"),
+		Interval:          time.Minute,
 	}
 }
 
@@ -239,6 +240,7 @@ func TestAPassMissingSomethingEveryComparisonNamesIsIncomplete(t *testing.T) {
 		{"service", func(p *driftdetector.Pass) { p.ServiceID = "" }},
 		{"target", func(p *driftdetector.Pass) { p.Target = "" }},
 		{"why on an unreached target", func(p *driftdetector.Pass) { p.Reached = false; p.Why = "" }},
+		{"interval", func(p *driftdetector.Pass) { p.Interval = 0 }},
 	} {
 		p := pass()
 		c.mut(&p)

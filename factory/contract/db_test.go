@@ -105,12 +105,25 @@ func publish(t *testing.T, ctx context.Context, pool *pgxpool.Pool, number int64
 	return published
 }
 
+// form is one form of that kind. A store's elements are in store position and an
+// interface's in output position, which is what the two helpers together say: the
+// position is a fact about where the element sits and not something a test picks.
 func form(kind contract.Kind, elements ...contract.Element) contract.Form {
-	return contract.Form{Name: theInterface, Kind: kind, Elements: elements}
+	made := make([]contract.Element, 0, len(elements))
+	for _, e := range elements {
+		if kind == contract.KindStore {
+			e.Position = contract.PositionStore
+		}
+		made = append(made, e)
+	}
+	return contract.Form{Name: theInterface, Kind: kind, Elements: made}
 }
 
 func element(name, kind string, populated, deprecated bool) contract.Element {
-	return contract.Element{Name: name, Type: kind, Populated: populated, Deprecated: deprecated}
+	return contract.Element{
+		Name: name, Kind: contract.ElementField, Position: contract.PositionOutput,
+		Type: kind, Populated: populated, Deprecated: deprecated,
+	}
 }
 
 // TestTheFirstReleaseCreatesTheContractAndItsFirstVersion: a contract exists only
@@ -287,7 +300,8 @@ func TestOneReleasePublishesOneVersionOfAContract(t *testing.T) {
 }
 
 // TestAPublicationMissingSomethingIsRefused: every publication names a service, a
-// release with a number, an item, and a form that validates.
+// release with a number, and a form that validates. The item is not among them —
+// TestAVersionIsMintedForAReleaseNamingNoItem is that rule.
 func TestAPublicationMissingSomethingIsRefused(t *testing.T) {
 	ctx, pool := newStore(t)
 
@@ -304,7 +318,6 @@ func TestAPublicationMissingSomethingIsRefused(t *testing.T) {
 	for name, broken := range map[string]func(contract.Publication) contract.Publication{
 		"no service":      func(p contract.Publication) contract.Publication { p.ServiceID = ""; return p },
 		"no release":      func(p contract.Publication) contract.Publication { p.ReleaseID = ""; return p },
-		"no item":         func(p contract.Publication) contract.Publication { p.ItemID = ""; return p },
 		"no number":       func(p contract.Publication) contract.Publication { p.ReleaseNumber = 0; return p },
 		"no form name":    func(p contract.Publication) contract.Publication { p.Form.Name = ""; return p },
 		"an unknown kind": func(p contract.Publication) contract.Publication { p.Form.Kind = "queue"; return p },
@@ -378,5 +391,86 @@ func TestNothingIsWrittenWhereTheTransactionRollsBack(t *testing.T) {
 	}
 	if _, found, err := contract.ByName(ctx, pool, theService, theInterface); err != nil || found {
 		t.Fatalf("a rolled-back publication left a contract: found %v, %v", found, err)
+	}
+}
+
+// TestAVersionIsMintedForAReleaseNamingNoItem: the queue mints a release over an
+// accepted commit naming the build and no item, and writes the contract versions
+// its interfaces publish in the same write, as it does at a fast-forward. The
+// release is the key there and the item is what a version has where a gate decided
+// one.
+func TestAVersionIsMintedForAReleaseNamingNoItem(t *testing.T) {
+	ctx, pool := newStore(t)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	published, err := contract.Publish(ctx, tx, queue, contract.Publication{
+		ServiceID: theService, ReleaseID: "rel_accepted", ReleaseNumber: 1,
+		Form: form(contract.KindInterface, element("Status", "string", true, false)),
+	})
+	if err != nil {
+		t.Fatalf("publishing for a release naming no item: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if published.Version.ItemID != "" {
+		t.Errorf("the version names item %q, want none", published.Version.ItemID)
+	}
+	versions, err := contract.VersionsForRelease(ctx, pool, "rel_accepted")
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("VersionsForRelease = %d version(s), %v", len(versions), err)
+	}
+	if versions[0].ItemID != "" {
+		t.Errorf("the version reads back naming item %q", versions[0].ItemID)
+	}
+}
+
+// TestAnElementReadsBackWithEverythingTheDiffReads: the position, the kind, what
+// it accepts, and the two store constraints all survive the round trip, because a
+// diff run over a form read out of the store has to be the diff run over the form
+// that was derived.
+func TestAnElementReadsBackWithEverythingTheDiffReads(t *testing.T) {
+	ctx, pool := newStore(t)
+
+	published := publish(t, ctx, pool, 1, contract.Form{
+		Name: theInterface, Kind: contract.KindStore,
+		Elements: []contract.Element{{
+			Name: "Ledger.Status", Kind: contract.ElementField, Position: contract.PositionStore,
+			Type: "string", Required: true, Populated: true,
+			Domain: []string{"ok", "error"}, NotNull: true, Unique: true,
+		}, {
+			Name: "Ledger.Amount", Kind: contract.ElementField, Position: contract.PositionStore,
+			Type: "int64", Range: &contract.Range{Low: 0, High: 100},
+		}},
+	})
+	read, err := contract.FormOf(ctx, pool, published.Contract, published.Version.ID)
+	if err != nil {
+		t.Fatalf("FormOf: %v", err)
+	}
+	status, _ := read.Element("Ledger.Status")
+	if status.Kind != contract.ElementField || status.Position != contract.PositionStore {
+		t.Errorf("Ledger.Status reads back as a %q in position %q", status.Kind, status.Position)
+	}
+	if !status.Required || !status.NotNull || !status.Unique {
+		t.Errorf("Ledger.Status reads back as %+v, want required, not null and unique", status)
+	}
+	if len(status.Domain) != 2 || status.Domain[0] != "ok" {
+		t.Errorf("the domain reads back as %v", status.Domain)
+	}
+	amount, _ := read.Element("Ledger.Amount")
+	if amount.Range == nil || *amount.Range != (contract.Range{Low: 0, High: 100}) {
+		t.Errorf("the range reads back as %v", amount.Range)
+	}
+	if status.Range != nil {
+		t.Errorf("an element that accepts any number reads back with the range %v", status.Range)
+	}
+	// The form read back is the form that was written, which is what makes a
+	// diff against the store the same diff as one against the derivation.
+	if contract.Diff(read, read).Moved() {
+		t.Error("a form diffed against itself moved")
 	}
 }

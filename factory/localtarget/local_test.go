@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dulguun0225/borg/factory/localtarget"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
@@ -54,7 +55,7 @@ func newTarget(t *testing.T, services ...string) (*localtarget.Local, string) {
 	local := localtarget.New(dir)
 	t.Cleanup(func() {
 		for _, service := range services {
-			if err := local.Stop(context.Background(), service, credential); err != nil {
+			if err := local.Stop(context.Background(), deployer, service, credential); err != nil {
 				t.Errorf("stopping service %q in cleanup: %v", service, err)
 			}
 		}
@@ -64,16 +65,26 @@ func newTarget(t *testing.T, services ...string) (*localtarget.Local, string) {
 
 var credential = secretref.MustNew("target.local")
 
+// deployer is the principal every call here is made as. No agent reaches a
+// deploy target, so the one caller of this seam is the deployer, calling as
+// itself.
+var deployer = principal.OfComponent("deployer")
+
 func TestDeployRunsAndStopKills(t *testing.T) {
 	ctx := t.Context()
 	local, dir := newTarget(t, "checkout")
 	buildProgram(t, dir, "rel_one", sleeperSource)
 
-	err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one", Credential: credential})
+	placed, err := local.Deploy(ctx, deployer, targetseam.Deployment{
+		Service: "checkout", Build: "rel_one", Credential: credential,
+	})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	running, err := local.ReadRunning(ctx, "checkout", credential)
+	if placed.Replacement != targetseam.ReplacementDrained {
+		t.Errorf("Deploy onto an empty target reports %q, want a drain", placed.Replacement)
+	}
+	running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
@@ -81,10 +92,10 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 		t.Fatalf("ReadRunning names %q, want rel_one", running.Build)
 	}
 
-	if err := local.Stop(ctx, "checkout", credential); err != nil {
+	if err := local.Stop(ctx, deployer, "checkout", credential); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	running, err = local.ReadRunning(ctx, "checkout", credential)
+	running, err = local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
@@ -94,7 +105,7 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 
 	// Stopping a service with nothing running is not an error: what Stop
 	// promises already holds.
-	if err := local.Stop(ctx, "checkout", credential); err != nil {
+	if err := local.Stop(ctx, deployer, "checkout", credential); err != nil {
 		t.Errorf("Stop with nothing running: %v", err)
 	}
 }
@@ -105,14 +116,18 @@ func TestASecondDeployReplacesTheFirst(t *testing.T) {
 	buildProgram(t, dir, "rel_one", sleeperSource)
 	buildProgram(t, dir, "rel_two", sleeperSource)
 
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one", Credential: credential}); err != nil {
+	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
+		Service: "checkout", Build: "rel_one", Credential: credential,
+	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_two", Credential: credential}); err != nil {
+	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
+		Service: "checkout", Build: "rel_two", Credential: credential,
+	}); err != nil {
 		t.Fatalf("Deploy rel_two: %v", err)
 	}
 
-	running, err := local.ReadRunning(ctx, "checkout", credential)
+	running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
@@ -129,13 +144,15 @@ func TestADeadProcessReadsAsNothingRunning(t *testing.T) {
 	local, dir := newTarget(t, "checkout")
 	buildProgram(t, dir, "rel_dies", exiterSource)
 
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_dies", Credential: credential}); err != nil {
+	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
+		Service: "checkout", Build: "rel_dies", Credential: credential,
+	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		running, err := local.ReadRunning(ctx, "checkout", credential)
+		running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
 		if err != nil {
 			t.Fatalf("ReadRunning: %v", err)
 		}
@@ -162,7 +179,9 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 	outside := filepath.Dir(dir)
 	buildProgram(t, outside, "planted", sleeperSource)
 
-	if err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one", Credential: credential}); err != nil {
+	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
+		Service: "checkout", Build: "rel_one", Credential: credential,
+	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
 
@@ -172,7 +191,9 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 		"/bin/sh",
 		"",
 	} {
-		err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: build, Credential: credential})
+		_, err := local.Deploy(ctx, deployer, targetseam.Deployment{
+			Service: "checkout", Build: build, Credential: credential,
+		})
 		if build == "" {
 			// An empty build is the seam's own refusal, before this one.
 			if !errors.Is(err, targetseam.ErrIncomplete) {
@@ -185,7 +206,7 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 		}
 	}
 
-	running, err := local.ReadRunning(ctx, "checkout", credential)
+	running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
@@ -198,28 +219,36 @@ func TestTheSeamsChecksHold(t *testing.T) {
 	ctx := t.Context()
 	local, _ := newTarget(t, "checkout")
 
-	err := local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_one"})
+	_, err := local.Deploy(ctx, deployer, targetseam.Deployment{Service: "checkout", Build: "rel_one"})
 	if !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("Deploy with no credential = %v, want %v", err, targetseam.ErrIncomplete)
 	}
-	err = local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Credential: credential})
+	_, err = local.Deploy(ctx, deployer, targetseam.Deployment{Service: "checkout", Credential: credential})
 	if !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("Deploy with no build = %v, want %v", err, targetseam.ErrIncomplete)
 	}
-	if err := local.Stop(ctx, "", credential); !errors.Is(err, targetseam.ErrIncomplete) {
+	_, err = local.Deploy(ctx, principal.Principal{}, targetseam.Deployment{
+		Service: "checkout", Build: "rel_one", Credential: credential,
+	})
+	if !errors.Is(err, targetseam.ErrNoPrincipal) {
+		t.Errorf("Deploy with no principal = %v, want %v", err, targetseam.ErrNoPrincipal)
+	}
+	if err := local.Stop(ctx, deployer, "", credential); !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("Stop with no service = %v, want %v", err, targetseam.ErrIncomplete)
 	}
-	if _, err := local.ReadRunning(ctx, "checkout", secretref.Ref{}); !errors.Is(err, targetseam.ErrIncomplete) {
+	if _, err := local.ReadRunning(ctx, deployer, "checkout", secretref.Ref{}); !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("ReadRunning with no credential = %v, want %v", err, targetseam.ErrIncomplete)
 	}
 
 	// A build whose binary was never placed in dir fails at the start, and
 	// nothing runs for the service afterwards.
-	err = local.Deploy(ctx, targetseam.Deployment{Service: "checkout", Build: "rel_missing", Credential: credential})
+	_, err = local.Deploy(ctx, deployer, targetseam.Deployment{
+		Service: "checkout", Build: "rel_missing", Credential: credential,
+	})
 	if err == nil {
 		t.Error("Deploy of a build with no binary succeeded")
 	}
-	running, err := local.ReadRunning(ctx, "checkout", credential)
+	running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}

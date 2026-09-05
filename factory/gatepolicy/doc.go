@@ -30,7 +30,8 @@
 // receives and four over what it sends: [DecidablePredicate] refuses a kind
 // outside them with [ErrPredicateKindUnknown], [PredicateKind.Side],
 // [PredicateKind.TakesAnArgument] and [PredicateKind.DecidableAgainstAForm] say
-// what each kind is about and what it needs, and [AllowedPredicateKindNames] is
+// what each kind is about and what it needs — the two a form cannot answer being
+// the received domain and the received range — and [AllowedPredicateKindNames] is
 // the unauthored value of the list package policy resolves.
 //
 // Who may write what: nothing here writes. Every value this package names is

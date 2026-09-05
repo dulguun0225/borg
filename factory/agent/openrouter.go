@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
@@ -135,7 +136,10 @@ type chatResponse struct {
 func (o OpenRouter) Complete(ctx context.Context, system, user string) (Reply, error) {
 	// The value exists from here to the header write and in nothing a caller
 	// can reach afterwards.
-	credential, err := o.Resolver.Resolve(o.Credential)
+	//
+	// The principal recorded is this component's own, for the reason
+	// [Anthropic.Complete] states.
+	credential, err := o.Resolver.Resolve(principal.OfComponent("agent"), o.Credential)
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: resolving the model credential: %w", err)
 	}

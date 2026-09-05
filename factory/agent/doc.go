@@ -62,7 +62,8 @@
 //
 // [ImplementerSystemPrompt] carries, beside the four rules, the standing
 // instruction that the program appends one line per unit of work to the file
-// its environment names and exercises its own behaviour while it runs, and the
+// its environment names — the time the unit finished, a tab, and the outcome —
+// and exercises its own behaviour while it runs, and the
 // file-name conventions a contract is derived from — a published interface is
 // one exported struct type in a file named for it, an interface this service
 // reads is a mirror in a file named for its producer, and the unit goes in a
