@@ -156,7 +156,7 @@ func TestASecondWindowOverOneReleaseIsRefused(t *testing.T) {
 }
 
 // TestAWindowClosesOnceAtExactlyOneOfTheFourExits closes a window of its own at
-// each exit in turn, and checks Exit.Counts against what doc.go says it means:
+// each exit in turn, and checks Exit.Counts against the rule it encodes:
 // passed and timed out leave a release the factory can return to, failed and
 // skipped do not.
 func TestAWindowClosesOnceAtExactlyOneOfTheFourExits(t *testing.T) {

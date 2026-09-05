@@ -1,8 +1,8 @@
 // The database tests of this package are in consumercontract_test rather than in
 // consumer contract, because they open the pool through package postgres, which
 // imports this one to apply its DDL, and because the one writer of these rows is
-// the artifact store. deps.txt records the edges as "test consumercontract ->
-// postgres contract gatepolicy".
+// the artifact store. deps.txt states those edges on its test line for
+// consumercontract.
 //
 // None of these tests skips when the database is unreachable. The milestone is
 // demonstrated by them running, so an unreachable database fails the run.

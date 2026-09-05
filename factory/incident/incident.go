@@ -57,7 +57,8 @@ type Incident struct {
 	EnvironmentID string
 	ServiceID     string
 	// ReleaseID is the release running when the incident appeared, which is not
-	// always the release that caused it. doc.go says what that costs.
+	// always the release that caused it. What that costs is
+	// ../../end-goal/how-the-factory-works/08-operations/06-incidents.md.
 	ReleaseID string
 	DeployID  string
 	// Crossing is what crossed, in the words the health monitor reports it with: its

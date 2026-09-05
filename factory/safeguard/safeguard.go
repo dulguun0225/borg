@@ -14,9 +14,9 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// SubjectKind is what a safeguard is drawn on. doc.go says which of the
-// design's subjects have a record at this milestone and why the other three are
-// refused.
+// SubjectKind is what a safeguard is drawn on. [SubjectKinds] is the five this
+// package stores; the design's subjects are
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
 type SubjectKind string
 
 const (

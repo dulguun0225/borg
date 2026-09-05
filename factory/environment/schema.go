@@ -18,10 +18,12 @@ const ThresholdIDPrefix = "egt"
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
 //
-// The kind CHECK lists the two kinds this milestone writes; doc.go says which
-// third one is missing and what writes it. The name is unique, so production is
-// one record until a project record exists to have one each, and a candidate's
-// name is derived from its item so two candidates cannot collide on one.
+// The kind CHECK lists the two kinds this milestone writes; the third, one a
+// customer defines, is
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md.
+// The name is unique, so production is one record until a project record exists
+// to have one each, and a candidate's name is derived from its item so two
+// candidates cannot collide on one.
 //
 // Three columns are a candidate's and empty on a persistent kind, each with a
 // constraint saying so rather than a comment. The item is the candidate's own,

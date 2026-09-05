@@ -17,8 +17,8 @@ const IDPrefix = "art"
 // version chain a chain: two submissions that read the same prior version
 // would write the same next one, and the store refuses the second rather
 // than holding a lock. item_id is an id field and not a foreign key, checked
-// for being present and not for pointing at anything — doc.go says what that
-// costs.
+// for being present and not for pointing at anything; record's doc.go states
+// that rule and its cost once.
 //
 // author is required, and that is what makes a per-author prior computable:
 // the prior is kept per model version and per human and is computed from that

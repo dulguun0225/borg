@@ -1,35 +1,28 @@
-// Package factorysettings owns the factory-wide settings record: the parameters an
-// owner authors that no customer record's scope reaches.
+// Package factorysettings owns the factory-wide settings record: the attempt
+// limit per stage, the list of allowed predicate kinds, and the threshold the
+// role-prompt-or-skill gate row reads.
 //
-// Three things are on it, and each is here for the same reason — the mechanism
-// it limits is the factory's own and reaches every project at once. The attempt
-// limit is per stage and the stages are the factory's; the list of allowed
-// predicate kinds is one list the factory owns and an owner extends; and the
-// threshold the role-prompt-or-skill gate row reads is a field of it because
-// that row has no project and so no production environment to read. The record
-// exists before any project does and an owner may never open it: where a field
-// is unauthored the value in force is what the score supplies.
+// schema.go is the two tables. [Table] is the record and [LimitTable] holds one
+// row per stage an owner authored a limit for. There is one settings row, and
+// the store enforces that with a constant column and a unique constraint on it
+// rather than leaving it to whichever caller creates the record first.
 //
-// There is one row. The store enforces that with a constant column and a
-// unique constraint on it, rather than leaving it to whichever caller creates
-// the record first.
+// writer.go is [Settings], the record as it is stored; [Writer] and
+// [Writer.Ensure], which creates it with nothing authored and is idempotent on
+// that constraint; the three authoring calls [SetAttemptLimit],
+// [SetAllowedPredicateKinds] and [SetRolePromptOrSkillThreshold], each taking a
+// transaction; and the two reads, [Get] for the record and [AttemptLimit] for
+// one stage's limit as a [gatepolicy.Authored]. An unauthored field is null or
+// empty rather than zero, so what stands in its place is what the score
+// supplies.
 //
-// # What is not here
+// Who may write what: [Writer.Ensure] creates the record, as Factory. The three
+// authoring calls are called by package policy inside the transaction that
+// appends the policy version, so the field and the version commit together or
+// not at all.
 //
-// Report retention and decision-log retention are fields of this record in the
-// design and are not built: they are authored and factory-wide but are not gate
-// policy, and nothing at this milestone keeps or deletes a report or a log row,
-// so a field for either would be one nothing writes and nothing reads.
-//
-// Who may write what: [Writer.Ensure] creates the record, as Factory. The two
-// authoring calls — [SetAttemptLimit] and [SetAllowedPredicateKinds], with
-// [SetRolePromptOrSkillThreshold] beside them — take a transaction and are called by
-// package policy inside the one that appends the policy version, so the field
-// and the version commit together or not at all.
-//
-// What defines it:
-// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md,
-// which sets what shares this record and why the two that share it could not go
-// on production's environment record; the limit itself is
+// What defines it: what shares this record is
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md;
+// the attempt limit itself is
 // ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md.
 package factorysettings

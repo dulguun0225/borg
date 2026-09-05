@@ -26,10 +26,11 @@ const ResultIDPrefix = "crr"
 // record table carries.
 //
 // service_id, spec_artifact_id, and item_id are id fields and not foreign keys,
-// each checked for being present and not for pointing at anything — doc.go says
-// what that costs. escape_reason is required exactly on an escape, because a
-// sentence fitting no pattern is admitted only with a tagged reason, and a
-// reason on a matched sentence would let the tag stop meaning that.
+// each checked for being present and not for pointing at anything; record's
+// doc.go states that rule and its cost once. escape_reason is required exactly
+// on an escape, because a sentence fitting no pattern is admitted only with a
+// tagged reason, and a reason on a matched sentence would let the tag stop
+// meaning that.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,

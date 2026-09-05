@@ -14,7 +14,8 @@ import (
 )
 
 // Kind is what an environment is, fixed at creation. Two values are written at
-// this milestone; doc.go says which the third is and what writes it.
+// this milestone; the third, one a customer defines, is
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md.
 type Kind string
 
 const (
@@ -256,7 +257,7 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Environmen
 // CountLiveCandidates is how many candidate environments have not been torn
 // down. It is what the substrate's own ceiling is compared against, and that
 // ceiling is a number in the source of whatever composes the deploy agent
-// rather than a parameter an owner authors — doc.go says why.
+// rather than a parameter an owner authors.
 func CountLiveCandidates(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	var count int
 	err := pool.QueryRow(ctx, `select count(*) from `+Table+`

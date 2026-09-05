@@ -64,7 +64,7 @@ const (
 
 // Kind is what waits on a human. Each is one of the callers the design names,
 // and each carries what the page's condition answers for it — doc.go sets out the
-// three answers and why the condition rather than a list is the test.
+// three answers.
 type Kind string
 
 const (

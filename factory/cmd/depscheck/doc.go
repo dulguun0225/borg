@@ -7,6 +7,13 @@
 // module are checked: the standard library and pgx are ignored. Run it from
 // factory/.
 //
+// rules.go is [Rules] and [Package] with [ParseRules], which reads deps.txt,
+// and [Check], which decides one graph against the other; main.go is the entry
+// point, the "go list" call the actual graph is read from, and the filter that
+// keeps this module's imports and drops the rest. The tests are rules_test.go,
+// which parses and checks without running "go list", the repository's own
+// deps.txt among what it parses.
+//
 // Three things are an error: an import a package's line does not allow, a
 // package the file does not list, and a line naming a package that does not
 // exist. The last one is what keeps the file from describing a tree that has

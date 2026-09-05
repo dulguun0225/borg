@@ -6,8 +6,8 @@ import (
 	"slices"
 )
 
-// Row is one of the gate rows this milestone builds. doc.go says which of the
-// design's rows are not here and what each waits for.
+// Row is one of the four gate rows this milestone builds. The design's eight
+// rows are ../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md.
 type Row string
 
 const (

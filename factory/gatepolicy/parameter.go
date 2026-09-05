@@ -66,7 +66,8 @@ const (
 )
 
 // Direction is which way a safeguard on a parameter may move the value in force. All
-// three point toward more protection; doc.go says why that is the whole rule.
+// three point toward more protection, which is the whole rule in
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
 type Direction string
 
 const (

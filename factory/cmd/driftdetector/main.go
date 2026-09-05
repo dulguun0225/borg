@@ -203,8 +203,8 @@ func excusedBuilds(ctx context.Context, pool *pgxpool.Pool, serviceID string) (m
 		}
 		excused[rel.BuildID] = true
 		// The control the window's deploy record names would be added here. There are
-		// no columns for one, because this substrate starts none — package deploy's
-		// doc.go says so where the fields would be.
+		// no columns for one, because this substrate starts none, as package deploy's
+		// doc.go states.
 	}
 	return excused, nil
 }

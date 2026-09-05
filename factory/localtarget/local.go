@@ -23,7 +23,7 @@ import (
 // by side without either reading the other's.
 //
 // What is running is on disk and not in this value, which is what lets a second
-// process read it. doc.go says why that had to change.
+// process read it.
 type Local struct {
 	dir string
 }
