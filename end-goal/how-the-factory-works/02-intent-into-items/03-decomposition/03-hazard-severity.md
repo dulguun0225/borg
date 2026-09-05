@@ -32,12 +32,47 @@ vector a gate firing writes names the value in force, so the impact half of the
 [score](../../04-risk-score/README.md) has one input a human can argue with rather than a
 term nothing supplies.
 
+An area graded `irreversible` also names its **hazardous operation**: the call in the
+software that does what nothing afterwards corrects, the payout, the send, the erasure, the
+actuator call. Beside the name the owner authors a **bound**: the count of that operation
+the service may perform per period, the period authored with the count. The grade is not
+written without the two; the write at Factory refuses it. Both are authored outright with
+nothing supplied, for the reason the grade is: nothing the factory observes says which
+operation carries the harm or how much of it a period may hold. The bound is where the
+magnitude of the harm enters, in the operation's own unit. A second grade for magnitude,
+kept apart from recoverability the way MIL-STD-882 and ISO 26262 keep severity apart from
+controllability, is refused. What such a grade would move is how much of the operation a
+release may perform before it is stopped, which the bound already carries, and an ordinal
+the factory could not act on would sit beside a count it can. What the refusal costs is
+that two `irreversible` areas are treated alike everywhere but at the bound, so a duplicate
+email and a wrong dose differ only by what the owner authored there.
+
+Two things read the operation, and both are stated where they act. At
+[_Spec_](../../03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md) the bound
+is a criterion the factory derives, its provenance
+[hazard-derived](../../03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md)
+and naming the area: once the count of the operation in the current period has reached the
+bound, the service refuses the operation and emits a [failure
+record](../../08-operations/01-the-health-monitor.md) naming it. The count is kept in the
+service's own store, so every instance on every target reads one count. That is the
+protection at the point of the action, and it is what makes a release's exposure between
+deploy and the window's close a number the owner set rather than whatever the rollout share
+and the cap allowed. The software also emits a count of the operation per interval, which
+[_The health monitor_](../../08-operations/01-the-health-monitor.md) keeps beside the three
+quantities and the [window](../../08-operations/02-the-analysis-window.md) reads as a
+fourth. A release performing the operation at a rate its control does not is a crossing,
+and `passed` is not reached until that rate is ruled unchanged, which on an operation
+performed rarely is never inside the cap. What that costs is a criterion in every
+`irreversible` area's service, a series per named operation, and a window that runs to its
+cap on such a service, narrowing no prior and raising no window limit, which is the
+direction the grade asks for.
+
 What the field does not reach is the [rollback](../../06-releases/06-rollback.md), which
-restores code and no effect, and the [window](../../08-operations/02-the-analysis-window.md),
-which watches how often the software fails and how long it takes to answer and watches
-nothing else. Severity says what the window is not protecting, and says it where a human
-authors it rather than leaving it to be read off a number. What it costs: an owner who
-authors `irreversible` buys a human at Implementation on every item in that area, and the
-value goes stale the way a [_People_](../../11-screens/01-work-ops-factory-people.md)
-declaration does, nothing the factory observes saying that an area has started moving
-money.
+restores code and no effect, and a harm that moves no count: a wrong amount paid at the
+usual rate is inside the bound and flat against the control, and only the human at
+Implementation and the rollout schedule stand between it and production. Severity says what
+the window is not protecting, and says it where a human authors it rather than leaving it
+to be read off a number. What it costs: an owner who authors `irreversible` buys a human at
+Implementation on every item in that area, and the value goes stale the way a
+[_People_](../../11-screens/01-work-ops-factory-people.md) declaration does, nothing the
+factory observes saying that an area has started moving money.

@@ -231,3 +231,6 @@ with a control	statistics
 without a control	statistics
 work	ordinary
 writer	software architecture
+hazardous operation	safety engineering
+bound	ordinary
+hazard-derived	coined
