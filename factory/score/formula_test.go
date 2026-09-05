@@ -111,6 +111,53 @@ func TestSuppliedCoversTenOfElevenRows(t *testing.T) {
 	}
 }
 
+// TestExposureOnlyRaisesTheImpactAndTheNumber: exposure.reach is added to the
+// impact computed over the other groups rather than folded into their weighted
+// mean, because a mean cannot only ever raise — a zero level pulls a mean down
+// like any other factor would.
+func TestExposureOnlyRaisesTheImpactAndTheNumber(t *testing.T) {
+	base := []Factor{
+		{Term: TermImpact, Group: GroupChange, Level: 0.5, Weight: 0.5},
+		{Term: TermImpact, Group: GroupContext, Level: 0.5, Weight: 0.5},
+		{Term: TermLikelihood, Group: GroupChange, Level: 0.3, Weight: 1},
+		{Term: TermReversibility, Group: GroupChange, Level: 1, Weight: 1},
+	}
+	zeroExposure := append(append([]Factor{}, base...),
+		Factor{Term: TermImpact, Group: GroupExposure, Level: 0, Weight: 0.3})
+	someExposure := append(append([]Factor{}, base...),
+		Factor{Term: TermImpact, Group: GroupExposure, Level: 0.7, Weight: 0.3})
+
+	_, baseImpact, _, baseNumber := reduce(base)
+	_, zeroImpact, _, zeroNumber := reduce(zeroExposure)
+	_, someImpact, _, someNumber := reduce(someExposure)
+
+	if !near(zeroImpact, baseImpact) || !near(zeroNumber, baseNumber) {
+		t.Errorf("an exposure factor reading 0 moves the impact from %v to %v and the number from %v to %v, and it should read as nothing",
+			baseImpact, zeroImpact, baseNumber, zeroNumber)
+	}
+	if someImpact <= baseImpact || someNumber <= baseNumber {
+		t.Errorf("an exposure factor reading 0.7 does not raise the impact (%v against %v) or the number (%v against %v)",
+			someImpact, baseImpact, someNumber, baseNumber)
+	}
+}
+
+// TestExposureIsCappedAtOne: the number computed over the other groups plus
+// exposure's own contribution may exceed the scale, and the published formula
+// caps it there rather than letting it read above the top of every other
+// factor's range.
+func TestExposureIsCappedAtOne(t *testing.T) {
+	vector := []Factor{
+		{Term: TermImpact, Group: GroupChange, Level: 1, Weight: 1},
+		{Term: TermImpact, Group: GroupExposure, Level: 1, Weight: 1},
+		{Term: TermLikelihood, Group: GroupChange, Level: 1, Weight: 1},
+		{Term: TermReversibility, Group: GroupChange, Level: 0, Weight: 1},
+	}
+	_, impact, _, _ := reduce(vector)
+	if impact > 1 {
+		t.Errorf("impact reads %v, and exposure's contribution is capped at 1", impact)
+	}
+}
+
 // TestAResolvedFactorIsLeftOutOfTheMeansAndTheNumberIsRecorded: the formula
 // still runs on the factors that were computable, so calibration keeps the
 // reading it would otherwise lose on every resolved decision, and what decides

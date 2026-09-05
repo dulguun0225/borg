@@ -114,8 +114,8 @@ const StartingHeldOutSampleRate = 0.10
 // than where it stays. [Rules] is what moves each.
 var starting = []Supplied{
 	{
-		Parameter: gatepolicy.RiskThreshold, Value: 0.20,
-		Why: "calibrated so that a service's first release — no earlier release to return to, an author nobody has approved, an area with no history — is decided by a human, and the item after it is not",
+		Parameter: gatepolicy.RiskThreshold, Value: 0.30,
+		Why: "calibrated so that a service's first release — no earlier release to return to, an author nobody has approved, an area with no history — is decided by a human, and the item after it is not; measured on the fake-model run in cmd/factory's tests at 0.34 for a first release and 0.14 for the item after it, once the exposure factor is added to impact rather than folded into its mean",
 	},
 	{
 		Parameter: gatepolicy.ExposureBound, Value: 0.70,

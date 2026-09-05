@@ -11,7 +11,7 @@ package score
 // It moves when a line of [Formula] changes, and a version that changes it does
 // not decide a gate an authored threshold binds until the owner has confirmed or
 // re-authored that threshold against it, which is [InForceAt].
-const FormulaVersion = "authored-3"
+const FormulaVersion = "authored-4"
 
 // Formula is the published formula, in the words the score version stores and a
 // human disagreeing with a number reads. It states every breakpoint, and
@@ -50,7 +50,8 @@ const Formula = `Each factor resolves to a level between 0 and 1, where 1 is the
   fleet.reversibility    0.3 for every version: withdrawal is a second record and nothing was deployed
 
   likelihood       = sum(weight x level) / sum(weight) over the likelihood term, resolved factors left out
-  impact           = sum(weight x level) / sum(weight) over the impact term, resolved factors left out
+  impact           = sum(weight x level) / sum(weight) over the impact term less exposure.reach, resolved factors
+                      left out, plus exposure.reach's own weight x level, capped at 1
   discountedImpact = impact x (1 - 0.5 x (1 - change.reversibility))
   number           = discountedImpact x (0.4 + 0.6 x likelihood)
 
@@ -121,14 +122,28 @@ func (a Assessment) ResolvedFactors() []string {
 }
 
 // reduce applies the published formula to a vector under one set's weights: the
-// weighted mean of each term over the factors that were computable, impact
-// discounted by reversibility, and the last step. A resolved factor is left out
-// of both means and of the discount.
+// weighted mean of each term over the factors that were computable, exposure's
+// own contribution added to impact and the sum capped at 1, impact discounted
+// by reversibility, and the last step. A resolved factor is left out of every
+// mean, of the addition, and of the discount.
+//
+// Exposure is added rather than folded into the impact mean because a mean
+// cannot only ever raise: a zero level pulls a mean down like any other factor,
+// and the design states that exposure's absence is not evidence of safety. It is
+// added after the mean over the other impact factors instead, so a diff adding
+// none of it leaves that mean untouched and a diff adding some of it can only
+// raise the sum, which the cap then holds to the scale every other factor
+// shares.
 func reduce(vector []Factor) (likelihood, impact, discountedImpact, number float64) {
 	var likelihoodWeight, impactWeight float64
+	var exposureWeight, exposureLevel float64
 	reversibility := 1.0
 	for _, f := range vector {
 		if f.Resolved != "" {
+			continue
+		}
+		if f.Group == GroupExposure {
+			exposureWeight, exposureLevel = f.Weight, f.Level
 			continue
 		}
 		switch f.Term {
@@ -147,6 +162,10 @@ func reduce(vector []Factor) (likelihood, impact, discountedImpact, number float
 	}
 	if impactWeight > 0 {
 		impact /= impactWeight
+	}
+	impact += exposureWeight * exposureLevel
+	if impact > 1 {
+		impact = 1
 	}
 	discountedImpact = impact * (1 - reversibilityDiscount*(1-reversibility))
 	number = discountedImpact * (likelihoodFloor + (1-likelihoodFloor)*likelihood)
