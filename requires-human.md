@@ -2,17 +2,6 @@
 
 Findings the unattended loop could not take, moved here verbatim, each followed by the decision it needs.
 
-## how-the-factory-works/03-gates/
-
-### Nothing in the record graph is the unit a user experiences: no flow, and a screen has no record
-**Raised by:** Product design
-**Where:** `how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md` — The screen state machine; `records.md` — the "not records" list ("A screen is the chain of state machines superseding one another")
-**What is wrong or missing:** The largest user-facing unit the design holds is one screen, and even that is not a record — it is a chain of per-service state machines whose identity is "the id of the state machine that introduced it", and the file admits "nothing mechanical stops two items introducing two chains for what a human would call one screen". Above that there is nothing: the words flow, journey, and navigation appear nowhere in the document, and no record says which screens follow which, or what a person is trying to accomplish across them. An item names one service, a state machine is written per item at Spec, and a candidate environment is composed for one candidate — so a sequence of screens spanning two services is two items, two specs, two criterion sets, two runs, and no gate anywhere decides the whole. The design-system predicates (contrast, name, focus order, target size) are decided per declared state of one screen, which is the smallest scope a product-design defect ever lives in.
-**What turns on it:** The seam between two screens — the place a user is dropped, sent back, or left without a way forward — is invisible to every mechanical check, every gate, and every human confirmation, and reaches the factory only as an end-user report. The document's traceability claim reaches back from a release to an intent but never sideways to what a person was doing.
-**Migration:** Screen ids are opaque, stable, never reused, and minted per introducing state machine, with no fact anywhere joining two chains; a later screen or flow record has to be assigned by a human, per chain, per install, and the enumeration the screen predicates are decided over ("which are in force for a build") is computed off that per-service chain query.
-
-**Decision needed:** Whether the factory holds a record above one screen: a flow, a sequence of screens a person crosses to accomplish one thing, possibly spanning two services and so two items. The document holds no screen record on purpose, a screen being the chain of state machines a build can check, and it says the seam between two screens rests on a human noticing at Spec. Adding a flow means a new authored record with a writer, a human to author it per chain and per install, a gate or a predicate that decides over it, and a reader for it at decomposition, where an intent is cut into items per service. Refusing it leaves the seam between screens reachable only through an end-user report, which the document already states as the residue. This is a product choice about what the factory checks and who authors it, and only the owner can decide whether a flow is worth a record, a human, and a check.
-
 ## how-the-factory-works/05-environments/
 
 ### One store per service per environment is assumed but never stated, and the schema history cannot distinguish two
