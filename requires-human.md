@@ -2,16 +2,6 @@
 
 Findings the unattended loop could not take, moved here verbatim, each followed by the decision it needs.
 
-## how-the-factory-works/05-environments/
-
-### A release minted for a human-accepted commit names no item, and whether it mints producer contract versions is unstated
-**Raised by:** The read-through of the consistency pass, run after the review-findings loop
-**Where:** `how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md` — "Or a human accepts the commit at Work, a log row naming them as actor, and the queue builds it, re-verifies it as it re-verifies a candidate, the contract checks included, and mints its release in master's order naming the build and no item."
-**What is wrong or missing:** The identity the read-through confirms is item plus build as a candidate, the same build in production, an ordinal attached at merge, contracts versioned alongside it. For this release the first leg is detached and declared ("A release naming no item is one no gate decided"). The fourth is unanswered: `records.md` writes a contract version "at the fast-forward of the first release that publishes it", and an accepted commit is on master already, with no fast-forward.
-**What turns on it:** Whether a consumer that reaches an interface the accepted commit changed sees a contract version naming that release, or reads the version the last queue-merged release published.
-
-**Decision needed:** Whether the queue mints producer contract versions for a release it minted over an accepted commit, and if so at which event, since no fast-forward occurs.
-
 ## how-the-factory-works/07-contracts/
 
 ### The producer's per-field observables have no emission, no store, and no writer, and would break the cardinality bound the store is specified under
