@@ -2,17 +2,6 @@
 
 Findings the unattended loop could not take, moved here verbatim, each followed by the decision it needs.
 
-## what-the-factory-does/
-
-### The install is the only isolation boundary that exists, and the chained log makes the choice permanent
-**Raised by:** Product management
-**Where:** `what-the-factory-does/README.md` — _What the factory does_, the no-tenancy paragraph; and `how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md` — _Scope follows the mechanism, not the duty_.
-**What is wrong or missing:** "One customer per install" is decided and costed only across customers; below the install there is no boundary at all, and the document never asks whether the install is the right unit for a customer with two products, two regulatory regimes, or two business units. A project is "a grouping of work, not a separate place": the attempt limit, allowed predicate kinds, review sample rate, both retentions, the report channel's rates, the retention floor, seam-5 enforcement and the concurrent-environment cap are fields of one factory-wide settings record; a halt stops every service; every People row reads all four screens; and seam 5 states outright that the resolver answers a Spec-stage agent in one project naming another project's production deploy credential.
-**What turns on it:** A buyer choosing one install or several is choosing permanently between a shared policy, credential and read surface and a duplicated fleet, priors and calibration, and the document gives them nothing to choose on — the isolation sold to the regulated customer stops at the customer's edge. This is the assigned row's own subject, and the only cost the document states for the tenancy decision is the one that falls on the builder.
-**Migration:** One install is one chain — each row hashes its predecessor, rows are never migrated, the hash rule is fixed by the payload format version, and the score's supplied values exist nowhere but the rows carrying them — so an install can never be split nor two merged, and a customer who guesses the granularity wrong at install time cannot correct it later.
-
-**Decision needed:** Whether the project becomes an isolation boundary inside an install, or the document states that it is not one and what a customer with two regimes does about it. Making it one means per-project fields on the settings record, a halt scoped to a project, a People row scoped to a project, and a resolver that refuses a credential across projects, which is a second scope on nearly every mechanism gate policy gathers. Stating that it is not one means a customer with two regimes runs two installs and the document says so at the no-tenancy paragraph, beside what a second install duplicates. Either answer is a product choice the document does not imply, and the chain makes it one an install cannot revisit.
-
 ## how-the-factory-works/02-intent-into-items/
 
 ### Retiring a service, an environment, or a deploy target has no mechanism
