@@ -17,11 +17,33 @@
 # has carried since M0 — so each record package has a test line naming
 # postgres. decisionlog's also names secretref for the demonstration that a
 # resolved secret's value reaches no record, which is the one test that needs
-# a secret and a database at once. score's names gate and policy: the outcomes
-# it counts are the decisions a gate wrote, so its tests fire real gates rather
-# than writing those rows by hand, and a gate is fired with a policy.
+# a secret and a database at once. score's names criterion, gate, policy, and
+# the record packages its tests populate: the outcomes it counts are the
+# decisions a gate wrote and the windows the health monitor closed, so its tests
+# fire real gates rather than writing those rows by hand — a test that wrote
+# them would prove only that the score can read what the test writes — and a
+# gate is fired with a policy. Its rules are also tested without a database at
+# all, over outcomes the test assembles and indexes the way a read of the store
+# does, which is what keeps a rule about arithmetic testable as arithmetic.
+# notifier's and healthmonitor's name postgres
+# although neither owns a table: the notifier's page events are rows of the log
+# and the health monitor's answers are queries over the graph, so both need a
+# database and records to read. driftdetector's tests open its own store
+# through its own opener and never postgres, which is the independence checked
+# rather than asserted; cmd/driftdetector's test opens both and asserts the
+# factory's row counts are unchanged across a pass. mergequeue's names the
+# packages its tests write through, reaching the whole schema through
+# postgres.Apply and driving the queue over a fake repository; what a
+# re-verification does to a repository and to a candidate environment is the
+# crude interface's own demonstration. consumercontract's
+# names artifact, because the one writer of those rows is the store and a test
+# that inserted them directly would prove only that the columns accept what it
+# wrote. contractcheck's names most of the graph, because what it answers is a
+# query over releases, windows, deploys, contracts, consumer contracts, and
+# safeguards at once, and it holds fakes for the two seams — a checkout and a
+# run — that a package test has no repository and no process for.
 #
-# Five edges deserve their reason stated.
+# The edges whose reason the list does not make obvious have it stated here.
 #
 # artifact -> criterion and artifact -> consumercontract are the two imports between
 # record packages that both own tables: the artifact store is the one writer of
@@ -84,7 +106,15 @@
 #
 # cmd/factory imports nearly everything, because it is the crude interface the
 # four screens are deferred with — the one place the whole path is composed,
-# and the one place an owner can author a parameter or place a safeguard.
+# the one place an owner can author a parameter or place a safeguard, and the
+# deploy agent the merge queue and the health monitor reach a repository, a
+# candidate environment, and a rollback through.
+#
+# cmd/driftdetector imports what one pass reads: the production environment
+# record, the services, the current production deploy of each, the releases and
+# open windows an excused build is read from, the seam and the local target it
+# reads through, and its own store. Everything it touches of the factory's it
+# only selects from.
 #
 # Four more edges arrive with everything downstream of a deploy.
 #
@@ -102,10 +132,11 @@
 # the graph through: the window and the incident it writes, the intake it raises a
 # revert intent through, the notifier it reports a rollback on, the policy for the
 # window's four parameters, and release, item, and deploy for the records a
-# rollback's target and a settled incident are computed from. What it does not
-# import is a repository or a deploy target — a rollback is behind an interface its
-# caller implements, and so is the quantity it reads. That is the arrangement
-# mergequeue already has.
+# rollback's target and a settled incident are computed from. boundary is the one
+# import that is arithmetic rather than a record: the window's size and confidence
+# resolve to a boundary. What it does not import is a repository or a deploy
+# target — a rollback is behind an interface its caller implements, and so is the
+# quantity it reads. That is the arrangement mergequeue already has.
 #
 # notifier imports people because routing is a read of that declaration, and
 # decisionlog because a page event is a row of the log. It imports nothing that

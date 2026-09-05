@@ -7,3 +7,4 @@
 # The unattended loop's log, per README.
 /loop.log
 __pycache__
+factory/factory

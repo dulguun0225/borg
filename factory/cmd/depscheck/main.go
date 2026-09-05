@@ -106,7 +106,7 @@ func internal(module, self string, imports []string) []string {
 // relative to the module.
 //
 // The module's own path is ".", a package this module does not have and is not
-// expected to grow — every package here is a feature slice in a directory. The
+// expected to grow — every package here is one concept in a directory. The
 // case is handled anyway because the alternative is not an error but a silence:
 // a package this function called foreign is skipped rather than reported, so a
 // root package added later would have its imports checked by nothing.

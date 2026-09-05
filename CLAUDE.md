@@ -27,9 +27,8 @@ it, so the file shrank to nothing. What it decided is in `end-goal/` and in the 
 
 [`end-goal/terms.txt`](end-goal/terms.txt) is not a third: it lists every name the
 document uses and the field that name comes from or `coined`, so the consistency pass can
-fail on a new one. It holds no reasons and no decisions — same kind of thing as
-[`factory/deps.txt`](factory/deps.txt). A contested attribution is argued in the commit
-and settled in the file.
+fail on a new one. It holds no reasons and no decisions; a contested attribution is
+argued in the commit and settled in the file.
 
 `review-findings.md` is not a third either: it exists only between a run of the review pass
 and the end of that run's triage, holding what the run returned until triage moves each finding into the file that owns its subject, into
@@ -144,25 +143,51 @@ PostgreSQL, and PostgreSQL from the first record so the chained log is never mig
 `mise.toml` at the root pins the toolchain; `factory/docker-compose.yml` runs the dev
 database.
 
-Five rules, set because the code's readers are LLMs:
+The code's readers are LLMs, and the rules follow from three facts about one: it reads a
+file whole before it edits the file, its context is bounded, and it has only what the text
+says. So the rules bound what a task has to read and put everything it has to know in the
+text. They are what a change is held to, not a description of the code as it stands: a
+file that predates a rule is brought to it when next edited. Where the build checks a
+rule, the rule names the command; the rest are checked in review.
 
-- **Feature-sliced packages with hard boundaries.** One package owns one thing — its
-  schema, its writer, its doc — so a task touches a few files in one directory rather than
-  fifteen across five layers.
-- **Explicit over implicit.** No runtime reflection, no DI container, no string-keyed
-  dispatch, no codegen the source does not show. Everything a static reader needs is in
-  the text.
-- **Locality.** Small files, shallow indirection, low fan-out.
+- **One package per concept.** A package owns one record, component, or seam — its
+  schema, its writer, its tests, and its `doc.go` — so a task touches files in one
+  directory. The boundary is the compiler's and `deps.txt`'s, not a convention: an import
+  that is not a line in that file does not build.
+- **Packages of one kind share one shape.** Every record package has `doc.go`,
+  `schema.go`, `db_test.go`, and its writer, and a new package of a kind takes the file
+  names and exported names of the others, so a reader who has read one knows where to
+  look in the rest. A departure from the shape is stated in the package's `doc.go`.
+- **Explicit over implicit.** No reflection outside tests, no `init`, no dependency
+  injection container, no dispatch keyed by string, no generated code. Everything a static
+  reader needs is in the text.
+- **Locality.** A file is held to 500 lines, tests included, and one that would pass the
+  bound is split by subject. Every edit is preceded by a read of the whole file, so a
+  file's size is what each edit to it costs. A task's reads are one directory's files and
+  the `end-goal/` files its `doc.go` names.
 - **Machine-checked dependency direction.** `factory/deps.txt` is the allowed package
-  graph and `cmd/depscheck` fails the build on an edge not in it; the compiler already
-  refuses cycles.
-- **The map ships with the code.** `factory/README.md` names every package and the allowed
-  edges; each package's `doc.go` says what it owns, who may write what, and which
-  `end-goal/` section defines the concept it implements.
+  graph, one line per package, with the reason for every edge that needs one in the comment
+  above the list. `cmd/depscheck` fails the build on an edge not in it and on a package it
+  does not list; the compiler already refuses cycles. Fan-out is bounded by the same file:
+  every import is a line an author wrote, and only `postgres`, which applies every schema,
+  and `cmd/factory`, which composes the whole path, import most of the module.
+- **The map ships with the code, and is only a map.** `factory/README.md` names every
+  package and what it owns, points at `deps.txt` for the edges, and says how to run the
+  checks and the binaries. Each package's `doc.go` says what the package owns, who may
+  write what, and the path of the Markdown file that defines what it implements — an
+  `end-goal/` file for anything the design names. `cmd/tracecheck` fails the build on a
+  `doc.go` with no such reference and on a reference that points at nothing. Neither file
+  restates the design's reasoning: the document comes first, and a restatement is a second
+  copy able to disagree with it. Neither holds history: the commit is the history, and
+  `roadmap.md` holds the milestones.
 
 Duplicate a line rather than share a helper across packages: locality is paid for in
-repetition, and the repetition is the cheaper of the two. Expect more packages than a
-layered design would have.
+repetition, and the repetition is the cheaper of the two. Copies keep one name and one
+spelling, so a defect found in one is found in all by one search. Expect more packages
+than a layered design would have.
+
+Code coins no second name for a thing the design document names: where
+`end-goal/terms.txt` lists a name for the concept, the identifier is that name.
 
 ## The review pass
 
