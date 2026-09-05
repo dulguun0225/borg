@@ -73,7 +73,7 @@ func main() {
 // over the outcomes; approve is the emergency action at the production deploy row;
 // and the other six are duty 8, duty 9, the priority an owner reorders a queue
 // with, and the People declaration a page routes on — none of which has a screen
-// until the four of M7 are built.
+// yet.
 const subcommands = "run, walk <deploy-id>, watch <service>, learn, approve <item-id>, contracts, " +
 	"area <name>, author, safeguard, policy, priority <item-id>, people [<human>]"
 

@@ -1,0 +1,38 @@
+package decisionlog_test
+
+import (
+	"testing"
+
+	"github.com/dulguun0225/borg/factory/decisionlog"
+)
+
+// TestTheStoreRefusesATimestampThatIsNotTheLayout is what the record.Columns
+// timestamp is worth to a package that is not this one. This writer always
+// uses record.Now, so the constraint says nothing about it; what it says is
+// that the next package to compose record.Columns cannot quietly store a
+// second format. The chain would hash and verify whatever bytes were there,
+// so the store is the only thing that can refuse them.
+//
+// The accepting case needs no assertion here: every other database test in
+// this package writes record.Now through the writer, so the constraint
+// refusing what the writer produces would fail all of them.
+func TestTheStoreRefusesATimestampThatIsNotTheLayout(t *testing.T) {
+	ctx, pool, _ := newLog(t)
+	for _, at := range []string{
+		"",
+		"2026-08-17T01:30:00Z",
+		"2026-08-17T01:30:00.000Z",
+		"2026-08-17T01:30:00.000000000+00:00",
+		"2026-08-17T01:30:00.000000000Z ",
+		"not a time at all",
+	} {
+		row := aRow()
+		row.At = at
+		if got, want := refusedBy(t, insertAround(ctx, pool, row)), "at_is_time_layout"; got != want {
+			t.Errorf("the timestamp %q was refused by %q, want %q", at, got, want)
+		}
+	}
+	if err := decisionlog.Verify(ctx, pool); err != nil {
+		t.Fatalf("a refused row reached the log: %v", err)
+	}
+}
