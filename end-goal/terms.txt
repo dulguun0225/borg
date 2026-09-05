@@ -239,3 +239,4 @@ release key	public key infrastructure
 intended effect	ordinary
 retired	ordinary
 removal	ordinary
+departure	ordinary
