@@ -1,17 +1,17 @@
 # Actions at each gate
 
-What may be done at each of the eight rows, and nothing about what decides it.
+What may be done at each of the eight rows, and nothing about what decides it. Refer is on every row because it is about the human and not the event: a holder who cannot judge what they were shown passes the row to another holder, on the terms [_Where a gate is, and what decides it_](01-where-a-gate-is-and-what-decides-it.md) states.
 
 | Gate | Actions |
 |---|---|
-| Decomposition | Approve · Reject with feedback · Edit in place |
-| Spec | Approve · Reject with feedback · Edit in place |
-| Implementation plan | Approve · Reject with feedback · Edit in place |
-| Tasks | Approve · Reject with feedback · Edit in place |
-| Implementation | Approve · Reject with feedback |
-| Deploy to candidate environment | Approve · Hold · Reject with feedback |
-| Merge to master | Approve · Reject with feedback |
-| Deploy to production | Approve · Hold · Safeguard the strategy |
+| Decomposition | Approve · Reject with feedback · Edit in place · Refer |
+| Spec | Approve · Reject with feedback · Edit in place · Refer |
+| Implementation plan | Approve · Reject with feedback · Edit in place · Refer |
+| Tasks | Approve · Reject with feedback · Edit in place · Refer |
+| Implementation | Approve · Reject with feedback · Refer |
+| Deploy to candidate environment | Approve · Hold · Reject with feedback · Refer |
+| Merge to master | Approve · Reject with feedback · Refer |
+| Deploy to production | Approve · Hold · Safeguard the strategy · Refer |
 
 Those eight rows are the default path, not the whole set. There is a gate before every deploy, so a customer that defines more environments gets a row for each. It gets no more merge rows: one long-lived branch is the promotion path, so an extra environment is deployed into and never merged through.
 
