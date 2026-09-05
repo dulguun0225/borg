@@ -146,7 +146,7 @@ func implementerReply(named [][]string, failEvery int) (string, error) {
 			"",
 			`import "testing"`,
 			"",
-			fmt.Sprintf("func Test_%s(t *testing.T) {", id),
+			fmt.Sprintf("func Test_%s_candidate_environment(t *testing.T) {", id),
 			fmt.Sprintf("\tif %s() != %q {", function, response[1]),
 			fmt.Sprintf("\t\tt.Fatalf(%q, %s())", function+"() = %q, the criterion requires "+response[1], function),
 			"\t}",

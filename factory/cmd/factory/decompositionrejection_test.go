@@ -58,8 +58,11 @@ func TestADecompositionRejectionSupersedesTheSetAndCountsAReDecomposition(t *tes
 	if err != nil {
 		t.Fatalf("reading the intent: %v", err)
 	}
-	if in.ReDecompositions != 1 || in.Rounds != 0 {
-		t.Errorf("the intent stands at %d re-decompositions and %d rounds", in.ReDecompositions, in.Rounds)
+	// One interview round: [Intake.OpenRound] is called once per intent,
+	// whether or not the spec author asked its own question, because the
+	// confirming round every requester owes is part of that same round.
+	if in.ReDecompositions != 1 || in.Rounds != 1 {
+		t.Errorf("the intent stands at %d re-decompositions and %d rounds, want 1 and 1", in.ReDecompositions, in.Rounds)
 	}
 	if !strings.Contains(out.String(), "the re-decomposition itself is not built") {
 		t.Errorf("the run does not say what a rejected decomposition leaves:\n%s", out)

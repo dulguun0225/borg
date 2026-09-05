@@ -27,6 +27,7 @@ func policyCommand(args []string) error {
 	flags := flag.NewFlagSet("policy", flag.ContinueOnError)
 	serviceName := flags.String("service", "", "read the service-scoped parameters of this service")
 	areaName := flags.String("area", "", "read the area-scoped parameters of this area")
+	projectName := flags.String("project", defaultProjectName, "read the risk threshold of production's environment for this project")
 	gateRow := flags.String("gate", string(gate.MergeToMaster), "read the threshold of this gate row")
 	stage := flags.String("stage", string(item.StageImplementation), "read the attempt limit of this stage")
 	if err := flags.Parse(args); err != nil {
@@ -49,7 +50,11 @@ func policyCommand(args []string) error {
 			}
 			subjects.AreaID = ar.ID
 		}
-		production, found, err := environment.ByName(ctx, pool, environment.ProductionName)
+		prj, err := namedProject(ctx, pool, *projectName)
+		if err != nil {
+			return err
+		}
+		production, found, err := environment.Production(ctx, pool, prj.ID)
 		if err != nil {
 			return err
 		}

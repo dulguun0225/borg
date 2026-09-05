@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -66,7 +68,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		fmt.Fprintln(d.out, "  the factory set this hold over a record that already exists, so nothing is written and it is recomputed at every firing")
 		return nil
 	}
-	live, err := environment.CountLiveCandidates(ctx, d.pool)
+	live, err := environment.CountLiveCandidates(ctx, d.pool, p.production.ID)
 	if err != nil {
 		return err
 	}
@@ -123,7 +125,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	switch verdict {
 	case gate.VerdictReject:
 		c.rejected = true
-		if _, err := p.dispatch.ReworkRequest(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.dispatch.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there\n",
@@ -147,8 +149,8 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	if err := os.MkdirAll(c.environmentDir, 0o755); err != nil {
 		return fmt.Errorf("factory: making the candidate environment's directory: %w", err)
 	}
-	env, err := p.candidates.Compose(ctx, deployActor, c.itemID,
-		[]string{c.environmentDir}, d.credential, composed)
+	env, err := p.candidates.Compose(ctx, deployActor, c.itemID, p.projectID,
+		[]environment.Target{{Address: c.environmentDir}}, d.credential, environment.Composition{From: composed})
 	if err != nil {
 		return err
 	}
@@ -195,33 +197,107 @@ func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buil
 // the criterion id it names, and nothing here runs one of them alone.
 func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 	inForce []criterion.Criterion) ([]gate.CriterionResult, error) {
-	if err := p.checkEncodings(c.svc.Repository, inForce); err != nil {
+	if err := p.checkEncodings(ctx, c.svc.Repository, c.svc.ID, c.itemID, inForce); err != nil {
+		return nil, err
+	}
+
+	// The composition is copied onto each run's rows, which is what
+	// [criterion.Undecided] groups two runs by: two runs against compositions
+	// that differ are two answers to two questions and not a disagreement.
+	composition, err := json.Marshal(environment.Composition{From: c.composedFrom})
+	if err != nil {
+		return nil, fmt.Errorf("factory: marshalling the composition for the criterion run: %w", err)
+	}
+
+	// The run number continues from whatever this build already has, rather
+	// than restarting at 1: a re-verification that changed nothing reuses the
+	// build the implementation stage made, per doc.go, and a second decision
+	// over that same build is the deployer's next run on it and not its first.
+	nextRun, err := nextCriterionRun(ctx, p.d.pool, buildID)
+	if err != nil {
 		return nil, err
 	}
 
 	first, firstOutput := runEncodings(c.svc.Repository)
+	if err := p.recordCriterionRun(ctx, buildID, nextRun, string(composition), inForce, first); err != nil {
+		return nil, err
+	}
 	second, secondOutput := runEncodings(c.svc.Repository)
-	outcome := criterion.Decide(first, second)
-	switch outcome {
-	case criterion.OutcomePassed:
+	if err := p.recordCriterionRun(ctx, buildID, nextRun+1, string(composition), inForce, second); err != nil {
+		return nil, err
+	}
+	switch {
+	case first && second:
 		fmt.Fprintln(p.d.out, "The encodings ran twice on the candidate environment and passed both times")
-	case criterion.OutcomeFailed:
+	case !first && !second:
 		fmt.Fprintf(p.d.out, "The encodings ran twice on the candidate environment and failed both times:\n%s\n", firstOutput)
 	default:
 		fmt.Fprintf(p.d.out, "The encodings disagreed between two runs, so every criterion is undecided for build %s:\n%s\n%s\n",
 			buildID, firstOutput, secondOutput)
 	}
 
-	outcomes := make(map[string]criterion.Outcome, len(inForce))
-	results := make([]gate.CriterionResult, 0, len(inForce))
-	for _, cr := range inForce {
-		outcomes[cr.ID] = outcome
-		results = append(results, gate.CriterionResult{CriterionID: cr.ID, Outcome: outcome})
-	}
-	if err := criterion.RecordResults(ctx, p.d.pool, p.d.token, deployActor, buildID, outcomes); err != nil {
+	undecided, err := criterion.Undecided(ctx, p.d.pool, buildID)
+	if err != nil {
 		return nil, err
 	}
+	isUndecided := make(map[string]bool, len(undecided))
+	for _, id := range undecided {
+		isUndecided[id] = true
+	}
+	latest, err := criterion.Latest(ctx, p.d.pool, buildID)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]criterion.Outcome, len(latest))
+	for _, r := range latest {
+		byID[r.CriterionID] = r.Outcome
+	}
+	results := make([]gate.CriterionResult, 0, len(inForce))
+	for _, cr := range inForce {
+		outcome := byID[cr.ID]
+		if isUndecided[cr.ID] {
+			outcome = criterion.OutcomeUndecided
+		}
+		results = append(results, gate.CriterionResult{CriterionID: cr.ID, Outcome: outcome})
+	}
 	return results, nil
+}
+
+// nextCriterionRun is 1 for a build with no result recorded on the candidate
+// environment yet, and one past the highest run number already recorded
+// otherwise — [criterion.Run.Number] being "given by the deployer in the
+// order it performed them" and not reset by which call made it.
+func nextCriterionRun(ctx context.Context, pool *pgxpool.Pool, buildID string) (int, error) {
+	results, err := criterion.ResultsForBuild(ctx, pool, buildID)
+	if err != nil {
+		return 0, err
+	}
+	highest := 0
+	for _, r := range results {
+		if r.Run > highest {
+			highest = r.Run
+		}
+	}
+	return highest + 1, nil
+}
+
+// recordCriterionRun writes what one run of the encodings on the candidate
+// environment decided, one row per criterion in force, at the run number the
+// deployer assigns — 1, 2, and so on across a build's runs on that
+// environment.
+func (p *path) recordCriterionRun(ctx context.Context, buildID string, run int, composition string,
+	inForce []criterion.Criterion, passed bool) error {
+	outcome := criterion.OutcomeFailed
+	if passed {
+		outcome = criterion.OutcomePassed
+	}
+	outcomes := make(map[string]criterion.Outcome, len(inForce))
+	for _, cr := range inForce {
+		outcomes[cr.ID] = outcome
+	}
+	return criterion.RecordResults(ctx, p.d.pool, p.d.token, deployActor,
+		criterion.Run{BuildID: buildID, Number: run, Place: criterion.PlaceCandidateEnvironment, Composition: composition},
+		outcomes)
 }
 
 // checkEncodings rejects in both directions — a criterion in force with no
@@ -234,8 +310,20 @@ func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 //
 // It is the Implementation gate's rejection and that gate is not built, so a
 // failure here stops the run rather than sending the item back.
-func (p *path) checkEncodings(repo string, inForce []criterion.Criterion) error {
-	err := criterion.CheckEncodings(repo, inForce)
+func (p *path) checkEncodings(ctx context.Context, repo, serviceID, itemID string, inForce []criterion.Criterion) error {
+	ids, err := p.itemsInBuild(ctx, serviceID, itemID)
+	if err != nil {
+		return err
+	}
+	withdrawn, err := criterion.Withdrawn(ctx, p.d.pool, ids)
+	if err != nil {
+		return err
+	}
+	derived, err := criterion.Derive(repo)
+	if err != nil {
+		return err
+	}
+	err = criterion.CheckEncodings(derived, inForce, withdrawn)
 	if err == nil {
 		return nil
 	}
@@ -247,7 +335,11 @@ func (p *path) checkEncodings(repo string, inForce []criterion.Criterion) error 
 	if len(named) == 0 {
 		fmt.Fprintln(p.d.out, "The build names no criterion id in any _test.go file")
 	} else {
-		fmt.Fprintf(p.d.out, "The build names: %s\n", strings.Join(named, ", "))
+		ids := make([]string, len(named))
+		for n, e := range named {
+			ids[n] = e.CriterionID
+		}
+		fmt.Fprintf(p.d.out, "The build names: %s\n", strings.Join(ids, ", "))
 	}
 	return err
 }

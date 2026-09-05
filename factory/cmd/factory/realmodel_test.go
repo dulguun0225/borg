@@ -231,10 +231,15 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
 	for _, st := range stages {
-		t.Logf("stage %s: %d attempt(s), %d tokens", st.Stage, st.Attempts, st.SpendTokens)
-		if st.Attempts < 1 || st.SpendTokens <= 0 {
-			t.Errorf("stage %s reports %d attempts and %d tokens, a real call spends both",
-				st.Stage, st.Attempts, st.SpendTokens)
+		spend := spendOn(t, ctx, d, c.itemID, st.Stage)
+		t.Logf("stage %s: %d attempt(s), %d tokens", st.Stage, st.Attempts, spend)
+		if st.Attempts < 1 {
+			t.Errorf("stage %s reports %d attempts, want at least one", st.Stage, st.Attempts)
+		}
+	}
+	for _, authored := range []item.Stage{item.StageSpec, item.StageImplementation} {
+		if spendOn(t, ctx, d, c.itemID, authored) <= 0 {
+			t.Errorf("stage %s spent nothing, and a real call spends tokens", authored)
 		}
 	}
 

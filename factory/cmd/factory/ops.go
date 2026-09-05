@@ -270,6 +270,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 			token:            token,
 			targets:          newTargetSet(localTargetAt),
 			dir:              f.targets,
+			project:          defaultProjectName,
 			credential:       deployCredential(),
 			in:               strings.NewReader(""),
 			out:              os.Stdout,

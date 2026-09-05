@@ -27,7 +27,8 @@ func TestTheAttemptLimitIsReadThroughTheSameThreeReads(t *testing.T) {
 		t.Fatalf("AuthorAttemptLimit: %v", err)
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.AttemptLimit,
-		safeguard.Subject{Kind: safeguard.SubjectFactorySettings, ID: in.settings.ID}, safeguard.Bound{Number: 4}); err != nil {
+		safeguard.Subject{Kind: safeguard.SubjectStage, ID: "implementation", Key: "implementation"},
+		safeguard.Bound{Number: 4}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 	limit, err = in.reader.AttemptLimit(ctx, in.subjects("merge_to_master"))
@@ -48,14 +49,14 @@ func TestTheAttemptLimitIsReadThroughTheSameThreeReads(t *testing.T) {
 	if spec.Source != policy.FromSupplied {
 		t.Errorf("the spec stage's limit reads from %s, want the supplied value", spec.Source)
 	}
-	// The safeguard over the factory-wide settings record reaches this stage too, and
-	// clamps nothing: the supplied value is already under its ceiling, which is a
-	// safeguard being a bound rather than a precedence on a stage nobody authored.
+	// The safeguard is drawn on the implementation stage and reaches that stage
+	// alone: a safeguard on a stage reaches that stage and no other, the way a
+	// safeguard on a gate row reaches that row and no other.
 	if spec.Number != supplied || spec.Clamped {
 		t.Errorf("the spec stage's limit reads %v clamped %v, want the supplied %v untouched",
 			spec.Number, spec.Clamped, supplied)
 	}
-	if len(spec.Safeguards) != 1 {
-		t.Errorf("the safeguard over the record does not reach the spec stage: %v", spec.Safeguards)
+	if len(spec.Safeguards) != 0 {
+		t.Errorf("a safeguard on the implementation stage reached the spec stage: %v", spec.Safeguards)
 	}
 }

@@ -155,18 +155,18 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		},
 		exchanges: &fakeExchanges{observed: map[string][]consumercontract.Document{}},
 	}
-	installed, err := g.factory.Install(ctx, theOwner, []string{t.TempDir()}, secretref.MustNew("deploy.local"))
+	installed, err := g.factory.Install(ctx, theOwner, "acme", []string{t.TempDir()}, secretref.MustNew("deploy.local"), 8)
 	if err != nil {
 		t.Fatalf("installing the factory: %v", err)
 	}
 	g.production = installed.Production.ID
 
 	writer := service.NewWriter(pool, token)
-	g.producer, err = writer.Create(ctx, theActor, "producer", t.TempDir())
+	g.producer, err = writer.Create(ctx, theActor, "producer", t.TempDir(), installed.Project.ID)
 	if err != nil {
 		t.Fatalf("writing the producer: %v", err)
 	}
-	g.consumer, err = writer.Create(ctx, theActor, "consumer", t.TempDir())
+	g.consumer, err = writer.Create(ctx, theActor, "consumer", t.TempDir(), installed.Project.ID)
 	if err != nil {
 		t.Fatalf("writing the consumer: %v", err)
 	}
@@ -227,11 +227,13 @@ func ship(t *testing.T, ctx context.Context, g graph, svc service.Service,
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: record.NewID("in"), ServiceID: svc.ID, Branch: "item/" + record.NewID("in"),
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
-	bl, err := g.builds.Create(ctx, theActor, it.ID, record.NewID("commit"))
+	bl, err := g.builds.Create(ctx, theActor, build.Draft{
+		ItemID: it.ID, ServiceID: svc.ID, CommitHash: record.NewID("commit"), ArtifactDigest: record.NewID("digest"),
+	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
 	}
@@ -280,11 +282,13 @@ func candidateOf(t *testing.T, ctx context.Context, g graph, svc service.Service
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: record.NewID("in"), ServiceID: svc.ID, Branch: "item/" + record.NewID("in"),
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the candidate's item: %v", err)
 	}
-	bl, err := g.builds.Create(ctx, theActor, it.ID, record.NewID("commit"))
+	bl, err := g.builds.Create(ctx, theActor, build.Draft{
+		ItemID: it.ID, ServiceID: svc.ID, CommitHash: record.NewID("commit"), ArtifactDigest: record.NewID("digest"),
+	})
 	if err != nil {
 		t.Fatalf("writing the candidate's build: %v", err)
 	}

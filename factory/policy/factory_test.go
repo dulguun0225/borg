@@ -24,7 +24,7 @@ func TestGatePolicyIsAuthoredByAHuman(t *testing.T) {
 		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID}, safeguard.Bound{Number: 2}); !errors.Is(err, policy.ErrNotAnOwner) {
 		t.Errorf("a component placing a safeguard = %v, want ErrNotAnOwner", err)
 	}
-	if _, err := in.factory.Install(ctx, component, []string{"/srv"}, credential); !errors.Is(err, policy.ErrNotAnOwner) {
+	if _, err := in.factory.Install(ctx, component, "acme", []string{"/srv"}, credential, 8); !errors.Is(err, policy.ErrNotAnOwner) {
 		t.Errorf("a component installing = %v, want ErrNotAnOwner", err)
 	}
 	if _, err := in.factory.AuthorWindowLimit(ctx, record.Actor{}, in.service.ID, 2); !errors.Is(err, record.ErrKindUnknown) {

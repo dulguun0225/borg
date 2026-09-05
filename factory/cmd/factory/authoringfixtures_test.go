@@ -16,6 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -78,8 +79,8 @@ func testToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool) lease.Toke
 func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.Environment {
 	t.Helper()
 	installed, err := policy.NewFactory(pool, testToken(t, ctx, pool)).Install(ctx,
-		owner("owner"),
-		[]string{t.TempDir()}, secretref.MustNew("deploy.local"))
+		owner("owner"), defaultProjectName,
+		[]string{t.TempDir()}, secretref.MustNew("deploy.local"), theCeiling)
 	if err != nil {
 		t.Fatalf("installing: %v", err)
 	}
@@ -88,8 +89,15 @@ func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.
 
 func decomposeService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) service.Service {
 	t.Helper()
+	prj, found, err := project.ByName(ctx, pool, defaultProjectName)
+	if err != nil {
+		t.Fatalf("reading the project: %v", err)
+	}
+	if !found {
+		t.Fatalf("no project is named %q; call install(t, ctx, pool) first", defaultProjectName)
+	}
 	svc, err := service.NewWriter(pool, testToken(t, ctx, pool)).Create(ctx,
-		decompositionActor, name, "/repos/"+name)
+		decompositionActor, name, "/repos/"+name, prj.ID)
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}

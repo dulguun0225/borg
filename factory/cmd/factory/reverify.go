@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/build"
-	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 )
@@ -68,12 +68,12 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	// A rebuild is a new build, and a re-verification that changed nothing rebuilt
 	// nothing: where the commit is the one already built for this item, that build
 	// is the one the release will name.
-	bl, found, err := build.ForCommit(ctx, p.d.pool, it.ID, commit)
+	bl, found, err := build.ForCommit(ctx, p.d.pool, it.ID, c.svc.ID, commit)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
 	if !found {
-		bl, err = p.builds.Create(ctx, buildActor, it.ID, commit)
+		bl, err = p.createBuild(ctx, repo, it.ID, c.svc.ID, commit)
 		if err != nil {
 			return mergequeue.Verified{}, err
 		}
@@ -86,7 +86,7 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if err := p.candidates.Recompose(ctx, c.environmentID, composed); err != nil {
+	if err := p.candidates.Recompose(ctx, deployActor, c.environmentID, environment.Composition{From: composed}); err != nil {
 		return mergequeue.Verified{}, err
 	}
 	c.composedFrom = composed
@@ -106,7 +106,7 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if err := criterion.CheckEncodings(repo, inForce); err != nil {
+	if err := p.checkEncodings(ctx, repo, c.svc.ID, it.ID, inForce); err != nil {
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 			Why: "the criteria and the encodings do not match with master merged in: " + firstLines(err.Error())}, nil
 	}
@@ -124,7 +124,7 @@ func (p *path) Reverify(ctx context.Context, it item.Item) (mergequeue.Verified,
 	c.measurement = measure(repo, head != "")
 
 	for _, result := range results {
-		if result.Outcome.Blocks() {
+		if result.Outcome.Blocks(false) {
 			return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 				Why: fmt.Sprintf("criterion %s is %s against build %s", result.CriterionID, result.Outcome, bl.ID)}, nil
 		}

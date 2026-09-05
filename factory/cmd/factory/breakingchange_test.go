@@ -31,7 +31,7 @@ func TestABreakingChangeIsRejectedAtTheMergeRowNamingTheConsumer(t *testing.T) {
 	// Every criterion in force passed: the break is in no criterion's path, which
 	// is the shape of defect a criterion cannot see.
 	for _, result := range c.criteria {
-		if result.Outcome.Blocks() {
+		if result.Outcome.Blocks(false) {
 			t.Fatalf("criterion %s is %s, and this episode is about a change the criteria cannot see",
 				result.CriterionID, result.Outcome)
 		}

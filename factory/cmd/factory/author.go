@@ -12,29 +12,45 @@ import (
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
-// specStage is one item's spec version and the criteria it introduces, and then
-// the attempt reports and the advance.
+// specStage is one item's spec version and the criteria it introduces, and
+// then the advance through the stages between spec and implementation. It
+// makes no model call of its own on the item's first item — that call is the
+// interview's, recorded there against the intent — so the only agentrun this
+// writes is for an item after the first, whose spec author call already ran
+// in the caller's own loop and recorded itself.
 //
-// The reports come after the fact because the spec is authored before decomposition
-// writes the item, so the count the limit was applied to is in memory until here and
-// stored after — the same number either way, this being the item's only writer.
-// interviewSpend is charged to the first attempt, an intent having no spend field.
-func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refined,
-	stage *stageAttempts, interviewSpend int64) error {
+// [item.Dispatch.Advance] counts the item's own attempt at entering
+// implementation_plan, tasks and implementation in turn: this milestone's
+// crude interface authors nothing at the first two, so they are passed
+// through rather than skipped, the stage order admitting no other way there.
+func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refined) error {
 	d := p.d
 	// The author is the model version and not the role: the prior is kept per
 	// model, so two agents on one model share one.
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: d.modelName}
-	var drafts []artifact.Draft
-	if refined.Criterion != "" {
-		drafts = append(drafts, artifact.Draft{Sentence: refined.Criterion})
+	requirementID := ""
+	if len(c.requirementIDs) > 0 {
+		requirementID = c.requirementIDs[0]
 	}
-	specArt, introduced, err := p.store.SubmitSpec(ctx, p.specAuthorActor(), by,
-		c.itemID, c.svc.ID, refined.Spec, drafts)
+	var drafts []criterion.Draft
+	if refined.Criterion != "" {
+		reason := ""
+		if _, matched := criterion.Classify(refined.Criterion); !matched {
+			reason = "not classified by the command-line interface"
+		}
+		drafts = append(drafts, criterion.Draft{
+			Sentence:        refined.Criterion,
+			NoPatternReason: reason,
+			RequirementID:   requirementID,
+		})
+	}
+	specArt, introduced, _, err := p.store.SubmitSpec(ctx, p.specAuthorActor(), by,
+		c.itemID, c.svc.ID, refined.Spec, drafts, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -46,16 +62,12 @@ func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refine
 		fmt.Fprintf(d.out, "Spec %s submitted, introducing no criterion\n", specArt.ID)
 	}
 
-	for at, spend := range stage.spends {
-		if at == 0 {
-			spend += interviewSpend
-		}
-		if err := p.dispatch.ReportAttempt(ctx, dispatchActor, c.itemID, item.StageSpec, spend); err != nil {
+	for _, next := range []item.Stage{item.StageImplementationPlan, item.StageTasks, item.StageImplementation} {
+		if _, err := p.dispatch.Advance(ctx, dispatchActor, c.itemID, next); err != nil {
 			return err
 		}
 	}
-	_, err = p.dispatch.Advance(ctx, dispatchActor, c.itemID, item.StageImplementation)
-	return err
+	return nil
 }
 
 // implementationStage is one item's implementation version, the consumer
@@ -99,26 +111,37 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 		return err
 	}
 
-	// Each attempt is reported as it is made, the item being there to report it
-	// against, so an item the factory gave up on carries the count in the store
-	// and not only in what the run printed.
+	// The input manifest: what was handed to the implementer before the run,
+	// named by reference — context assembly is not built, so this stage writes
+	// it itself, as doc.go for package inputmanifest says its caller does until
+	// then.
+	manifestID, err := p.writeManifest(ctx, c.itemID, item.StageImplementation, "",
+		[]inputmanifest.Material{
+			{Class: "spec", Reference: c.itemID, Bytes: int64(len(spec))},
+			{Class: "repository_files", Reference: repo, Bytes: filesSize(current)},
+		})
+	if err != nil {
+		return err
+	}
+
 	implStage, err := limitFor(ctx, p.policy, item.StageImplementation, p.subjectsFor(c))
 	if err != nil {
 		return err
 	}
-	change, err := attempt(d.out, implStage, "implementer", func() (agent.Change, int64, error) {
+	change, callErr := attempt(d.out, implStage, "implementer", func() (agent.Change, int64, error) {
 		ch, err := agent.Implementer{Model: d.model}.Implement(ctx, agent.Implementing{
 			Criteria: rolePromptCriteria(inForce),
 			Spec:     spec,
 			Files:    current,
 		})
-		if reportErr := p.dispatch.ReportAttempt(ctx, dispatchActor, c.itemID, item.StageImplementation, ch.Tokens); reportErr != nil {
-			return ch, ch.Tokens, reportErr
-		}
 		return ch, ch.Tokens, err
 	})
-	if err != nil {
-		return gaveUp(c.itemID, err)
+	if recErr := p.recordAgentRun(ctx, "implementer", c.itemID, item.StageImplementation,
+		manifestID, implStage.spends, outcomeOf(callErr)); recErr != nil {
+		return recErr
+	}
+	if callErr != nil {
+		return gaveUp(c.itemID, callErr)
 	}
 	if err := writeFiles(repo, change.Files); err != nil {
 		return err
@@ -156,7 +179,7 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	// own environment, one step down — so what is checked here is only that the build
 	// compiles, which is what the Implementation gate would reject a build for and
 	// that gate is not built.
-	bl, err := p.builds.Create(ctx, buildActor, c.itemID, commit)
+	bl, err := p.createBuild(ctx, repo, c.itemID, c.svc.ID, commit)
 	if err != nil {
 		return err
 	}
@@ -286,6 +309,31 @@ func writeFiles(repo string, files []agent.File) error {
 		}
 	}
 	return nil
+}
+
+// writeManifest is [inputmanifest.Writer.Write] on this run's writer,
+// returning the id a run's agentrun record names. Context assembly is not
+// built, so the caller dispatching the agent writes it, as package
+// inputmanifest's doc.go says.
+func (p *path) writeManifest(ctx context.Context, itemID string, stage item.Stage, intentID string,
+	materials []inputmanifest.Material) (string, error) {
+	m, err := inputmanifest.NewWriter(p.d.pool, p.d.token).Write(ctx, dispatchActor, inputmanifest.New{
+		ItemID: itemID, Stage: string(stage), IntentID: intentID, Materials: materials,
+	})
+	if err != nil {
+		return "", err
+	}
+	return m.ID, nil
+}
+
+// filesSize is the total bytes of a set of files, for the material entry an
+// input manifest names by reference and by size.
+func filesSize(files []agent.File) int64 {
+	var total int64
+	for _, f := range files {
+		total += int64(len(f.Content))
+	}
+	return total
 }
 
 // rolePromptCriteria is the criteria in force as the two authoring roles are told

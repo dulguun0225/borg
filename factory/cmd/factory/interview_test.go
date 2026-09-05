@@ -23,11 +23,14 @@ func TestAnEmptyAnswerIsAskedAgain(t *testing.T) {
 		t.Errorf("the blank line was not asked again:\n%s", out)
 	}
 
+	// Two questions: the spec author's own, answered with the scripted line,
+	// and the confirming round's, which this crude interface answers itself —
+	// authorintent.go's own comment says why.
 	questions, err := intent.Questions(ctx, d.pool, only(t, res).intentID)
 	if err != nil {
 		t.Fatalf("reading the questions: %v", err)
 	}
-	if len(questions) != 1 || questions[0].Answer != theAnswer {
-		t.Errorf("the questions are %+v, want the one question answered %q", questions, theAnswer)
+	if len(questions) != 2 || questions[0].Answer != theAnswer {
+		t.Errorf("the questions are %+v, want the spec author's answered %q first", questions, theAnswer)
 	}
 }

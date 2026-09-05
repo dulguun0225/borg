@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
@@ -17,15 +18,21 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/halt"
 	"github.com/dulguun0225/borg/factory/incident"
+	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/screenstatemachine"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -83,10 +90,14 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"lease", lease.DDL},
 		{"decisionlog", decisionlog.DDL},
 		{"intent", intent.DDL},
+		{"project", project.DDL},
 		{"service", service.DDL},
 		{"item", item.DDL},
+		{"input_manifest", inputmanifest.DDL},
+		{"agent_run", agentrun.DDL},
 		{"criterion", criterion.DDL},
 		{"consumer_contract", consumercontract.DDL},
+		{"screen_state_machine", screenstatemachine.DDL},
 		{"artifact", artifact.DDL},
 		{"build", build.DDL},
 		{"release", release.DDL},
@@ -96,11 +107,14 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"environment", environment.DDL},
 		{"factorysettings", factorysettings.DDL},
 		{"safeguard", safeguard.DDL},
+		{"halt", halt.DDL},
+		{"legalhold", legalhold.DDL},
 		{"score", score.DDL},
 		{"policy", policy.DDL},
 		{"window", window.DDL},
 		{"incident", incident.DDL},
 		{"people", people.DDL},
+		{"last_check", lastcheck.DDL},
 	} {
 		for n, statement := range owner.ddl {
 			if _, err := pool.Exec(ctx, statement); err != nil {

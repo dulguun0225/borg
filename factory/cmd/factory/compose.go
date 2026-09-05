@@ -73,15 +73,17 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 	p.candidates = environment.NewCandidates(d.pool, d.token)
 
-	// The install. The factory-wide settings record and production's environment
-	// record are what an owner authors on, and they exist before a project does —
-	// so this ensures both as the owner and takes the policy version in force from
-	// it.
-	installed, err := policy.NewFactory(d.pool, d.token).Install(ctx, p.human, []string{d.dir}, d.credential)
+	// The install. The factory-wide settings record exists before any project
+	// does; the project and production's environment for it are created in the
+	// same event, an owner not choosing production because it exists
+	// everywhere. This ensures all three as the owner and takes the policy
+	// version in force from it.
+	installed, err := policy.NewFactory(d.pool, d.token).Install(ctx, p.human, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
 	if err != nil {
 		return nil, err
 	}
 	p.production = installed.Production
+	p.projectID = installed.Project.ID
 	p.scoreVersion = scoreVersion.ID
 
 	// Drift detection's store, read and never written. Where none is installed the
@@ -131,7 +133,8 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			return nil, err
 		}
 		if !found {
-			ar, err = area.NewWriter(d.pool, d.token).Declare(ctx, p.human, d.area, "")
+			ar, err = area.NewWriter(d.pool, d.token).Declare(ctx, p.human, d.area,
+				area.InsideProject(p.projectID), area.Hazard{})
 			if err != nil {
 				return nil, err
 			}
@@ -225,7 +228,21 @@ func (p *path) inForceFor(ctx context.Context, svc service.Service, itemID strin
 	if svc.ID == "" {
 		return nil, nil
 	}
-	merged, err := item.AtStage(ctx, p.d.pool, svc.ID, item.StageMerged)
+	ids, err := p.itemsInBuild(ctx, svc.ID, itemID)
+	if err != nil {
+		return nil, err
+	}
+	return criterion.InForce(ctx, p.d.pool, svc.ID, ids)
+}
+
+// itemsInBuild is a build's set of items: the ones merged into the repository
+// it was made from, plus itemID, the item whose branch it is — empty where
+// the caller wants what the service already promises rather than what a
+// build is decided against. It is what [path.inForceFor] and the encoding
+// check's withdrawn-criteria read both filter by, so the two agree on which
+// build they mean.
+func (p *path) itemsInBuild(ctx context.Context, serviceID, itemID string) ([]string, error) {
+	merged, err := item.AtStage(ctx, p.d.pool, serviceID, item.StageMerged)
 	if err != nil {
 		return nil, err
 	}
@@ -236,5 +253,5 @@ func (p *path) inForceFor(ctx context.Context, svc service.Service, itemID strin
 	if itemID != "" {
 		ids = append(ids, itemID)
 	}
-	return criterion.InForce(ctx, p.d.pool, svc.ID, ids)
+	return ids, nil
 }

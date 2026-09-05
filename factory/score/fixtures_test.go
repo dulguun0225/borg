@@ -128,7 +128,7 @@ func decomposeItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token 
 		ServiceID: serviceID,
 		AreaID:    areaID,
 		Branch:    branch,
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}

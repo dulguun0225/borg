@@ -49,11 +49,11 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 	if env.ItemID != c.itemID {
 		t.Errorf("the environment names item %s, want %s", env.ItemID, c.itemID)
 	}
-	if !slices.Equal(env.Targets, []string{c.environmentDir}) {
+	if !slices.Equal(env.Addresses(), []string{c.environmentDir}) {
 		t.Errorf("the environment's targets are %v, want the directory of its own %q", env.Targets, c.environmentDir)
 	}
-	if len(env.ComposedFrom) != 0 {
-		t.Errorf("the environment was composed from %+v, and decomposition declared no dependency", env.ComposedFrom)
+	if len(env.Composition.From) != 0 {
+		t.Errorf("the environment was composed from %+v, and decomposition declared no dependency", env.Composition.From)
 	}
 	if env.Live() {
 		t.Error("the environment is still live, and the item merged")
@@ -89,19 +89,23 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 	}
 
 	// The criteria were decided against the build, on that environment, by the
-	// deploy agent.
+	// deploy agent — twice at the candidate deploy row and twice more at the
+	// queue's re-verification, which reuses this same build because nothing
+	// changed to rebuild for, each of the two runs a row of its own in run order.
 	results, err := criterion.ResultsForBuild(ctx, d.pool, candidateDeploy.BuildID)
 	if err != nil {
 		t.Fatalf("reading what was decided over the build: %v", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("%d criteria were decided over the build, one was in force: %+v", len(results), results)
+	if len(results) != 4 {
+		t.Fatalf("%d criteria were decided over the build, want four runs of the one in force: %+v", len(results), results)
 	}
-	if results[0].Outcome != criterion.OutcomePassed {
-		t.Errorf("the criterion is %s over the build, want passed", results[0].Outcome)
-	}
-	if results[0].Actor.Key != "deploy" {
-		t.Errorf("the result was written by %q, want the deploy agent", results[0].Actor.Key)
+	for n, r := range results {
+		if r.Outcome != criterion.OutcomePassed {
+			t.Errorf("run %d is %s over the build, want passed", n+1, r.Outcome)
+		}
+		if r.Actor.Key != "deploy" {
+			t.Errorf("run %d was written by %q, want the deploy agent", n+1, r.Actor.Key)
+		}
 	}
 	if !strings.Contains(out.String(), "ran twice on the candidate environment") {
 		t.Errorf("the run does not report the encodings running twice:\n%s", out)
@@ -270,8 +274,9 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 		t.Errorf("the queue rejected it because %q, want the merge that conflicted", b.queueWhy)
 	}
 
-	// The item is back at Implementation with an attempt counted there — the
-	// rework booked against the thing that was wrong.
+	// The item is back at Implementation with one attempt still on it: an
+	// attempt is counted on entry to author, and Dispatch.ReturnTo — what the
+	// queue's rejection sends the item back with — counts nothing itself.
 	it, err := item.Get(ctx, d.pool, b.itemID)
 	if err != nil {
 		t.Fatalf("reading the rejected item: %v", err)
@@ -289,8 +294,8 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 			attempts = st.Attempts
 		}
 	}
-	if attempts != 2 {
-		t.Errorf("the implementation stage records %d attempts, want the authoring one and the queue's rejection", attempts)
+	if attempts != 1 {
+		t.Errorf("the implementation stage records %d attempts, want 1", attempts)
 	}
 
 	// Its environment is still its own: nothing waits on the environment a

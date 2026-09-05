@@ -18,7 +18,7 @@ func TestThePrioritySubcommandReordersAQueue(t *testing.T) {
 	svc := decomposeService(t, ctx, pool, "checkout")
 
 	it, err := item.NewDecomposition(pool, testToken(t, ctx, pool)).Create(ctx, decompositionActor,
-		item.New{IntentID: "in_a", ServiceID: svc.ID, Branch: "item/a"})
+		item.New{IntentID: "in_a", ServiceID: svc.ID, Branch: "item/a"}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}

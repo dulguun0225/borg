@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -37,26 +38,39 @@ type Factory struct {
 }
 
 // NewFactory returns the writer over pool, fencing every write with token.
-func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory { return &Factory{pool: pool, token: token} }
+func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory {
+	return &Factory{pool: pool, token: token}
+}
 
 // Installed is what [Factory.Install] found or created.
 type Installed struct {
 	Settings   factorysettings.Settings
+	Project    project.Project
 	Production environment.Environment
 	Version    Version
 }
 
-// Install is the two records that exist before any parameter is authored: the
-// factory-wide settings record, which exists before any project does, and production's
-// environment record, which an owner does not choose because production exists
-// everywhere. Each creation appends a policy version, so a factory that has been
-// installed has a version in force with nothing authored — which is what a gate
-// names when an owner has authored nothing at all.
+// Install is the records that exist before any parameter is authored: the
+// factory-wide settings record, which exists before any project does; the
+// project itself, an owner's widest grouping of work; and production's
+// environment for it, which an owner does not choose because production
+// exists everywhere and which is created in the same event as the project.
+// Each creation appends a policy version, so a factory that has been
+// installed has a version in force with nothing authored — which is what a
+// gate names when an owner has authored nothing at all.
 //
-// It is idempotent. Running it against a factory that has both records appends
-// no version and returns what is there, so the crude interface may call it at
-// every start.
-func (f *Factory) Install(ctx context.Context, actor record.Actor, targets []string, credential secretref.Ref) (Installed, error) {
+// The production environment's platform is "local", composed on demand,
+// through the credential given — the one implementation this milestone has —
+// and candidateCeiling is authored on it as
+// [environment.SetMaxConcurrentCandidateEnvironments], not as gate policy:
+// room is the platform's own infrastructure limit and no parameter of an
+// owner's, so it is authored without a policy version.
+//
+// It is idempotent. Running it against a factory that has every record
+// appends no version and returns what is there, so the crude interface may
+// call it at every start.
+func (f *Factory) Install(ctx context.Context, actor record.Actor, projectName string,
+	targets []string, credential secretref.Ref, candidateCeiling int) (Installed, error) {
 	if err := ownerOnly(actor); err != nil {
 		return Installed{}, err
 	}
@@ -69,13 +83,41 @@ func (f *Factory) Install(ctx context.Context, actor record.Actor, targets []str
 		return Installed{}, err
 	}
 
-	production, found, err := environment.ByName(ctx, f.pool, environment.ProductionName)
+	proj, found, err := project.ByName(ctx, f.pool, projectName)
 	if err != nil {
 		return Installed{}, err
 	}
 	if !found {
-		production, err = environment.NewWriter(f.pool, f.token).Create(ctx, actor,
-			environment.KindProduction, environment.ProductionName, targets, credential)
+		proj, err = project.NewWriter(f.pool, f.token).Create(ctx, actor, projectName)
+		if err != nil {
+			return Installed{}, err
+		}
+	}
+	if err := f.versionForCreation(ctx, actor, Subject{Kind: "project", ID: proj.ID}); err != nil {
+		return Installed{}, err
+	}
+
+	production, found, err := environment.Production(ctx, f.pool, proj.ID)
+	if err != nil {
+		return Installed{}, err
+	}
+	if !found {
+		envTargets := make([]environment.Target, len(targets))
+		for n, address := range targets {
+			envTargets[n] = environment.Target{Address: address}
+		}
+		production, err = environment.NewWriter(f.pool, f.token).Create(ctx, actor, environment.Spec{
+			Kind:       environment.KindProduction,
+			ProjectID:  proj.ID,
+			Name:       environment.ProductionName,
+			Targets:    envTargets,
+			Credential: credential,
+			Platform: environment.Platform{
+				Name:               "local",
+				Credential:         credential,
+				CanComposeOnDemand: true,
+			},
+		})
 		if err != nil {
 			return Installed{}, err
 		}
@@ -83,12 +125,36 @@ func (f *Factory) Install(ctx context.Context, actor record.Actor, targets []str
 	if err := f.versionForCreation(ctx, actor, Subject{Kind: "environment", ID: production.ID}); err != nil {
 		return Installed{}, err
 	}
+	if err := f.setCandidateCeiling(ctx, actor, production.ID, candidateCeiling); err != nil {
+		return Installed{}, err
+	}
 
 	version, err := InForce(ctx, f.pool)
 	if err != nil {
 		return Installed{}, err
 	}
-	return Installed{Settings: settings, Production: production, Version: version}, nil
+	return Installed{Settings: settings, Project: proj, Production: production, Version: version}, nil
+}
+
+// setCandidateCeiling authors the substrate's room for candidate environments
+// on production's record, in a transaction of its own and with no policy
+// version appended: the ceiling is not gate policy, doc.go says why.
+func (f *Factory) setCandidateCeiling(ctx context.Context, actor record.Actor, productionID string, ceiling int) error {
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("policy: beginning the candidate-environment ceiling on %s: %w", productionID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, f.token); err != nil {
+		return err
+	}
+	if err := environment.SetMaxConcurrentCandidateEnvironments(ctx, tx, f.token, actor, productionID, ceiling); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("policy: committing the candidate-environment ceiling on %s: %w", productionID, err)
+	}
+	return nil
 }
 
 // versionForCreation appends a created version for a record, and appends nothing
@@ -138,9 +204,17 @@ func (f *Factory) AuthorAttemptLimit(ctx context.Context, actor record.Actor, st
 	if err != nil {
 		return Version{}, err
 	}
+	// OfStage refuses a stage that is not retried; the interview's rounds and
+	// decomposition's re-decompositions are two more subjects of the same
+	// parameter that this method, taking an item.Stage, has no way to name —
+	// a caller wanting those authors factorysettings.SetAttemptLimit directly.
+	limitSubject, err := factorysettings.OfStage(stage)
+	if err != nil {
+		return Version{}, err
+	}
 	subject := Subject{Kind: "factory_settings", ID: settings.ID, Qualifier: string(stage)}
 	return f.author(ctx, actor, gatepolicy.AttemptLimit, subject, func(tx pgx.Tx) error {
-		return factorysettings.SetAttemptLimit(ctx, tx, actor, settings.ID, stage, limit)
+		return factorysettings.SetAttemptLimit(ctx, tx, actor, settings.ID, limitSubject, limit)
 	})
 }
 
@@ -170,9 +244,16 @@ func (f *Factory) AuthorItemSizeTarget(ctx context.Context, actor record.Actor, 
 // analysis window is built, which is stated once here and again in service's
 // parameters.go.
 
-// AuthorWindowSize authors the smallest regression a comparison must rule out.
-func (f *Factory) AuthorWindowSize(ctx context.Context, actor record.Actor, serviceID string, size float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.WindowSize, serviceID, size, service.SetWindowSize)
+// AuthorWindowSize authors the smallest regression a comparison must rule out on
+// one quantity. It is per quantity because a detectable change in an error rate
+// and one in a latency quantile are not one number, so the subject the version
+// records is the service and the quantity together.
+func (f *Factory) AuthorWindowSize(ctx context.Context, actor record.Actor, serviceID string,
+	quantity gatepolicy.Quantity, size float64) (Version, error) {
+	subject := Subject{Kind: "service", ID: serviceID, Qualifier: string(quantity)}
+	return f.author(ctx, actor, gatepolicy.WindowSize, subject, func(tx pgx.Tx) error {
+		return service.SetWindowSize(ctx, tx, f.token, actor, serviceID, quantity, size)
+	})
 }
 
 // AuthorWindowConfidence authors how sure that comparison must be.
@@ -220,7 +301,11 @@ func (f *Factory) AddSafeguard(ctx context.Context, actor record.Actor, paramete
 		return safeguard.Safeguard{}, Version{}, err
 	}
 
-	placed, err := safeguard.Insert(ctx, tx, f.token, actor, parameter, subject, bound)
+	// Routing is not yet a parameter of this method: nothing above it composes
+	// a duty or a named human to route to, so every safeguard this caller
+	// places routes to the duty the design names at that gate and to the
+	// owner everywhere else, which is [safeguard.Routing]'s zero value.
+	placed, err := safeguard.Insert(ctx, tx, f.token, actor, parameter, subject, bound, safeguard.Routing{})
 	if err != nil {
 		return safeguard.Safeguard{}, Version{}, err
 	}
@@ -255,9 +340,15 @@ func (f *Factory) WithdrawSafeguard(ctx context.Context, actor record.Actor, saf
 	if withdrawing.ID == "" {
 		return Version{}, fmt.Errorf("%w: %s", safeguard.ErrNotFound, safeguardID)
 	}
+	// safeguard.Withdraw inserts a withdrawal and approves it in the same
+	// call, standing in for the gate row [_A safeguard's
+	// withdrawal_](../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/10-a-safeguards-withdrawal.md)
+	// decides until that row exists: the row is not built, so this call is not
+	// the decision the design wants and this method's own name says so more
+	// than its behaviour does.
 	return f.write(ctx, actor, ActionWithdrawn, withdrawing.Parameter,
 		Subject{Kind: string(withdrawing.Subject.Kind), ID: withdrawing.Subject.ID}, safeguardID,
-		func(tx pgx.Tx) error { return safeguard.Withdraw(ctx, tx, f.token, safeguardID) })
+		func(tx pgx.Tx) error { return safeguard.Withdraw(ctx, tx, f.token, actor, safeguardID) })
 }
 
 func (f *Factory) author(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,

@@ -29,13 +29,19 @@
 // the deprecation list per marked element, and — with "-breaks <item-id>" —
 // what one candidate would break and whom.
 //
-// The other six are duty 8, duty 9, the priority an owner reorders a queue
+// The other eight are duty 8, duty 9, the priority an owner reorders a queue
 // with, and the People declaration a page routes on, none of which has a screen
-// yet. "area" declares a grouping; "author" writes one parameter on the record
-// its scope names; "safeguard" places a safeguard or withdraws one; "policy"
-// prints every parameter as it is in force, where its value came from, and what
-// reads it; "priority" writes the one field that orders a queue; "people"
-// declares who holds a duty.
+// yet. "area" declares a grouping, inside the project -project names unless
+// -inside names an area; "author" writes one parameter on the record its scope
+// names; "safeguard" places a safeguard or withdraws one; "halt" sets the one
+// authored record whose subject is the factory, or withdraws one; "legal-hold"
+// sets a legal hold, or withdraws one; "policy" prints every parameter as it is
+// in force, where its value came from, and what reads it; "priority" writes the
+// one field that orders a queue; "people" declares who holds a duty. -project,
+// on run/author/area/policy and safeguard's row-scoped subject, names the
+// project a subcommand works in and defaults to "default"; run creates it
+// where it does not exist, in the same event as production's environment for
+// it, and every other one of these reads it and refuses where it does not.
 //
 // Every subcommand but "run" reads the services out of the store rather than taking
 // a name and a repository: both are the service record's own fields, a flag naming
@@ -57,10 +63,11 @@
 //     the end-to-end test drives the same code the run subcommand does; and
 //     targetSet, one target per environment.
 //   - compose.go — compose, which builds the path from deps: the score
-//     version ensured first, then the collaborators, the install's two
-//     records, and the two versions in force; plus serviceOf, subjectsFor,
-//     deployOrder, and inForceFor, which the stages below read from the path
-//     it built.
+//     version ensured first, then the collaborators, the install's three
+//     records — the factory-wide settings record, the project, and
+//     production's environment for it — and the two versions in force; plus
+//     serviceOf, subjectsFor, deployOrder, itemsInBuild, and inForceFor, which
+//     the stages below read from the path it built.
 //
 // The path a run walks stage by stage:
 //
@@ -70,28 +77,39 @@
 //     dependency layers, plus layer, one dependency layer's own walk below
 //     decomposition.
 //   - decomposition.go — decomposeItems, one item per service an intent
-//     changes, and decompositionGate, the Decomposition row fired over the
-//     set where it yielded more than one.
+//     changes, decompositionGate, the Decomposition row fired over the set
+//     where it yielded more than one, and decompositionAttemptLimit, the limit
+//     its re-decompositions are read against.
 //   - authorintent.go — take, the intent a decomposition is authored from;
-//     authorIntent, intake through the item stages for one intent; and
-//     interview, the one round or none with the spec author.
+//     authorIntent, intake through the item stages for one intent; interview,
+//     the one round or none with the spec author plus the confirming round
+//     every requester owes; and defaultTier, the interview's own placeholder
+//     for a tier value gate policy does not yet author.
 //   - candidate.go — asked, shipped, decompositionSet, and candidate: the
 //     run's own data shapes for one intent, what it did, one decomposition,
-//     and one item's build in progress.
+//     and one item's build in progress. asked.resumeIntentID names an intent
+//     already waiting for the one caller that knows which, in place of the
+//     statement-keyed lookup package intent's rewrite no longer offers.
 //   - candidateenv.go — candidateEnvironment, the Deploy to candidate
 //     environment row and composing and deploying to it; substrateWait and
 //     SubstrateWaitKind, the wait a full substrate writes into the log; and
 //     decideCriteria, checkEncodings, compositionFor, dependencyHold,
-//     describeComposition.
+//     describeComposition, recordCriterionRun, and nextCriterionRun, which two
+//     runs of the encodings are recorded as on a build's criterion results.
 //   - author.go — specStage, implementationStage, and consumerContractStage,
-//     the three authoring stages against the model; and Publishes, Declares,
-//     repoOfItem, the deploy agent's side of contractcheck.
+//     the three authoring stages against the model; Publishes, Declares,
+//     repoOfItem, the deploy agent's side of contractcheck; and writeManifest
+//     and filesSize, the input manifest a dispatch writes before the agent
+//     runs.
 //   - repo.go — the git and filesystem operations a stage needs: masterHead,
-//     compiles, buildInto, runEncodings, repoFiles, copyFile.
+//     compiles, buildInto, runEncodings, repoFiles, copyFile; and createBuild,
+//     resolvedGoModules and readGoModule, the build record and its resolved
+//     set of Go modules.
 //   - measure.go — measure, the build's diff taken once at firing and handed
 //     to the score, and the numstat parsing beneath it.
 //   - attempt.go — stageAttempts and attempt, the per-stage attempt limit and
-//     spend a call to the model is wrapped in.
+//     spend a call to the model is wrapped in; and recordAgentRun and
+//     recordIntentRun, the agentrun record each call writes.
 //   - gateio.go — fired, and the gate mechanics every row shares: report,
 //     settle, reading a human's typed verdict, and recording what a firing
 //     closed as.
@@ -120,19 +138,27 @@
 //
 // The authoring subcommands:
 //
-//   - area.go — areaCommand, declaring an area.
+//   - area.go — areaCommand, declaring an area inside -project unless -inside
+//     names an area.
 //   - authoring.go — owner, the actor an authoring write is made as, and
 //     withPool, opening the database and applying the schema for the first
 //     command an owner reaches.
 //   - parameter.go — authorCommand, authoring one parameter on the record its
 //     scope names, and authored, printing what was authored.
-//   - safeguard.go — safeguardCommand, placing or withdrawing a safeguard,
-//     and safeguardSubject, resolving -subject to what it binds.
+//   - safeguard.go — safeguardCommand, placing or withdrawing a safeguard, and
+//     safeguardSubject, resolving -subject to what it binds — "gate_row:" is
+//     drawn on -service, keyed by the row, because package policy's own reader
+//     keys a row-scoped safeguard that way.
+//   - halt.go — haltCommand, setting the one authored record whose subject is
+//     the factory, or withdrawing one, writing directly through package halt's
+//     own writer, package policy not importing it yet.
+//   - legalhold.go — legalHoldCommand, setting a legal hold or withdrawing
+//     one, the same way, and legalHoldSubject, resolving -subject.
 //   - priority.go — priorityCommand, writing the one field that orders a
 //     queue.
-//   - namedsubject.go — namedService and namedArea, resolving a
-//     -service/-area flag to its record by name, shared by author, safeguard,
-//     and policy below.
+//   - namedsubject.go — namedService, namedProject and namedArea, resolving a
+//     -service/-project/-area flag to its record by name, shared by author,
+//     area, safeguard, and policy below.
 //
 // The reads and reporting:
 //

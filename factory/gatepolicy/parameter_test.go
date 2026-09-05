@@ -3,21 +3,21 @@ package gatepolicy
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
-// TestSevenRows is the count gate policy states about itself, held against a
-// list of eight parameters: one row carries two values and every other carries
-// one.
-func TestSevenRows(t *testing.T) {
+// TestElevenRows is the count gate policy states about itself, held against the
+// parameters: one row carries the window's size, confidence and power, and every
+// other row carries one parameter.
+func TestElevenRows(t *testing.T) {
 	rows := Rows()
-	if len(rows) != 7 {
-		t.Fatalf("Definitions name %d rows, and gate policy is seven: %v", len(rows), rows)
+	if len(rows) != 11 {
+		t.Fatalf("Definitions name %d rows, and gate policy is eleven: %v", len(rows), rows)
 	}
-	if len(Definitions) != 8 {
-		t.Fatalf("Definitions hold %d parameters, want eight over the seven rows", len(Definitions))
+	if len(Definitions) != 13 {
+		t.Fatalf("Definitions hold %d parameters, want thirteen over the eleven rows", len(Definitions))
 	}
-	shared := 0
 	for _, row := range rows {
 		n := 0
 		for _, d := range Definitions {
@@ -25,32 +25,63 @@ func TestSevenRows(t *testing.T) {
 				n++
 			}
 		}
-		if n == 2 {
-			shared++
-		} else if n != 1 {
-			t.Errorf("row %q carries %d parameters, want one or the two of the window's row", row, n)
+		switch {
+		case row == RowWindowSizeConfidencePower && n != 3:
+			t.Errorf("row %q carries %d parameters, want the size, the confidence and the power", row, n)
+		case row != RowWindowSizeConfidencePower && n != 1:
+			t.Errorf("row %q carries %d parameters, want one", row, n)
 		}
-	}
-	if shared != 1 {
-		t.Errorf("%d rows carry two parameters, want the window's size and confidence alone", shared)
 	}
 }
 
-// TestEveryParameterIsDefinedOnce: Define answers for each of the eight, no
-// name is listed twice, and a name outside them is refused rather than
-// resolving to a zero definition.
+// TestSevenCeilingsAndFiveFloors: twelve of the thirteen parameters are clamped
+// by a safeguard and the thirteenth adds a human, and which way each clamp points
+// is the design's own list rather than something read off the row.
+func TestSevenCeilingsAndFiveFloors(t *testing.T) {
+	ceilings := []Parameter{
+		WindowSize, WindowLimit, HeldOutSampleRate, AttemptLimit, ItemSizeTarget, ExposureBound, AdvisorySeverity,
+	}
+	floors := []Parameter{
+		WindowConfidence, WindowPower, WindowCap, ReviewSampleRate, AllowedPredicateKinds,
+	}
+	if len(ceilings) != 7 || len(floors) != 5 {
+		t.Fatalf("the test names %d ceilings and %d floors, want seven and five", len(ceilings), len(floors))
+	}
+	for _, d := range Definitions {
+		want := DirectionAddsAHuman
+		switch {
+		case slices.Contains(ceilings, d.Parameter):
+			want = DirectionCeiling
+		case slices.Contains(floors, d.Parameter):
+			want = DirectionFloor
+		case d.Parameter != RiskThreshold:
+			t.Errorf("%q is in neither list, so the count of seven and five no longer covers the parameters", d.Parameter)
+			continue
+		}
+		if d.Direction != want {
+			t.Errorf("a safeguard on %q is a %q, want %q", d.Parameter, d.Direction, want)
+		}
+	}
+}
+
+// TestEveryParameterIsDefinedOnce: Define answers for every parameter of the
+// three lists, no name is listed twice, and a name outside them is refused rather
+// than resolving to a zero definition.
 func TestEveryParameterIsDefinedOnce(t *testing.T) {
 	seen := map[Parameter]bool{}
-	for _, d := range Definitions {
+	for _, d := range slices.Concat(Definitions, NotAmongTheEleven, SafeguardOnly) {
 		if seen[d.Parameter] {
 			t.Errorf("%q is defined twice", d.Parameter)
 		}
 		seen[d.Parameter] = true
-		if d.Row == "" || d.Kind == "" || d.Direction == "" || d.Scope == "" {
+		if d.Kind == "" || d.Direction == "" || d.Scope == "" || d.Limits == "" {
 			t.Errorf("%q is missing part of its definition: %+v", d.Parameter, d)
 		}
+		if (d.Row != "") != slices.Contains(Definitions, d) {
+			t.Errorf("%q names row %q, and a row is what the eleven have and nothing else does", d.Parameter, d.Row)
+		}
 		got, err := Define(d.Parameter)
-		if err != nil || got != d {
+		if err != nil || got.Parameter != d.Parameter {
 			t.Errorf("Define(%q) = %+v, %v", d.Parameter, got, err)
 		}
 	}
@@ -59,9 +90,8 @@ func TestEveryParameterIsDefinedOnce(t *testing.T) {
 	}
 }
 
-// TestOnlyTheThresholdAddsAHuman: the risk threshold's safeguard adds a human
-// and carries no bound, and every other parameter's safeguard is a number or a
-// list that clamps.
+// TestOnlyTheThresholdAddsAHuman: the risk threshold's safeguard adds a human and
+// carries no bound, and every other parameter of the eleven rows is clamped.
 func TestOnlyTheThresholdAddsAHuman(t *testing.T) {
 	for _, d := range Definitions {
 		adds := d.Direction == DirectionAddsAHuman
@@ -71,19 +101,108 @@ func TestOnlyTheThresholdAddsAHuman(t *testing.T) {
 	}
 }
 
-// TestOnlyTheCatalogIsAList: a list-valued parameter is clamped by union, and
-// the allowed predicate kinds are the only one, so nothing else reaches ClampList.
-func TestOnlyTheCatalogIsAList(t *testing.T) {
-	for _, d := range Definitions {
+// TestOnlyTheListIsAList: a list-valued parameter is clamped by union, and the
+// allowed predicate kinds are the only one, so nothing else reaches ClampList.
+func TestOnlyTheListIsAList(t *testing.T) {
+	for _, d := range slices.Concat(Definitions, NotAmongTheEleven) {
 		if (d.Kind == KindList) != (d.Parameter == AllowedPredicateKinds) {
 			t.Errorf("%q is of kind %q", d.Parameter, d.Kind)
 		}
 	}
 }
 
+// TestTheItemSizeTargetIsCountedInRequirements: the unit is the count of the
+// intent's requirements an item answers, which decomposition sets, and not lines.
+func TestTheItemSizeTargetIsCountedInRequirements(t *testing.T) {
+	d, err := Define(ItemSizeTarget)
+	if err != nil {
+		t.Fatalf("Define: %v", err)
+	}
+	if want := "requirements"; !strings.Contains(d.Unit, want) {
+		t.Errorf("the item-size target's unit is %q, want the count of %s an item answers", d.Unit, want)
+	}
+	if strings.Contains(d.Unit, "lines") {
+		t.Errorf("the item-size target's unit is %q, and the design authors it in requirements", d.Unit)
+	}
+}
+
+// TestTheWindowsSizeAndPowerArePerQuantity: one value per quantity, because a
+// detectable change in an error rate and one in a latency quantile are not one
+// number, and no other parameter is keyed that way.
+func TestTheWindowsSizeAndPowerArePerQuantity(t *testing.T) {
+	for _, d := range slices.Concat(Definitions, NotAmongTheEleven, SafeguardOnly) {
+		perQuantity := d.Key == KeyQuantity
+		want := d.Parameter == WindowSize || d.Parameter == WindowPower
+		if perQuantity != want {
+			t.Errorf("%q is keyed %q", d.Parameter, d.Key)
+		}
+	}
+	if len(Quantities) != 4 {
+		t.Fatalf("the health monitor's quantities are %v, want the three every service emits and the fourth an irreversible area names", Quantities)
+	}
+	for _, q := range Quantities {
+		got, err := DecidableQuantity(string(q))
+		if err != nil || got != q {
+			t.Errorf("DecidableQuantity(%q) = %q, %v", q, got, err)
+		}
+	}
+	if _, err := DecidableQuantity("saturation"); !errors.Is(err, ErrQuantityUnknown) {
+		t.Errorf("a quantity the health monitor does not read = %v, want ErrQuantityUnknown", err)
+	}
+}
+
+// TestTheAttemptLimitIsOneParameterAndNotThree: the interview's rounds and
+// decomposition's re-decompositions are two more subjects of the attempt limit's
+// own key, and not two more parameters.
+func TestTheAttemptLimitIsOneParameterAndNotThree(t *testing.T) {
+	d, err := Define(AttemptLimit)
+	if err != nil {
+		t.Fatalf("Define: %v", err)
+	}
+	if d.Key != KeyStage {
+		t.Errorf("the attempt limit is keyed %q, want the stage", d.Key)
+	}
+	for _, other := range slices.Concat(Definitions, NotAmongTheEleven, SafeguardOnly) {
+		if other.Parameter != AttemptLimit && strings.Contains(string(other.Parameter), "attempt") {
+			t.Errorf("%q is a second attempt limit, and it is one parameter and not three", other.Parameter)
+		}
+	}
+}
+
+// TestARetentionParameterIsAuthoredAndNotAmongTheEleven: the retention values are
+// authored on the factory-wide settings record and are not gate policy's rows, so
+// they carry no row and are still resolvable — a safeguard binds them.
+func TestARetentionParameterIsAuthoredAndNotAmongTheEleven(t *testing.T) {
+	directions := map[Parameter]Direction{
+		DecisionLogRetention: DirectionFloor,
+		ReportRetention:      DirectionCeiling,
+		BackupRetention:      DirectionNone,
+		RetentionFloor:       DirectionNone,
+		RemediationPeriod:    DirectionCeiling,
+		ReportChannelRate:    DirectionCeiling,
+		HarmMarkPageCap:      DirectionCeiling,
+	}
+	if len(NotAmongTheEleven) != len(directions) {
+		t.Fatalf("NotAmongTheEleven holds %d parameters, the test names %d", len(NotAmongTheEleven), len(directions))
+	}
+	for _, d := range NotAmongTheEleven {
+		want, named := directions[d.Parameter]
+		if !named {
+			t.Errorf("%q is not one the test names", d.Parameter)
+			continue
+		}
+		if d.Direction != want {
+			t.Errorf("a safeguard on %q is a %q, want %q", d.Parameter, d.Direction, want)
+		}
+		if d.Row != "" {
+			t.Errorf("%q names row %q, and it is authored and not among the eleven", d.Parameter, d.Row)
+		}
+	}
+}
+
 // TestASafeguardNeverWidens is the rule stated as arithmetic: a ceiling over a
-// value already lower leaves it, a floor under a value already higher leaves
-// it, and neither moves a value the wrong way.
+// value already lower leaves it, a floor under a value already higher leaves it,
+// and neither moves a value the wrong way.
 func TestASafeguardNeverWidens(t *testing.T) {
 	cases := []struct {
 		direction Direction
@@ -96,6 +215,7 @@ func TestASafeguardNeverWidens(t *testing.T) {
 		{DirectionFloor, 0.9, 0.95, 0.95},  // the authored confidence is already higher
 		{DirectionFloor, 0.9, 0.5, 0.9},    // the safeguard raises the weaker value
 		{DirectionAddsAHuman, 0, 0.3, 0.3}, // a safeguard on the threshold moves no number
+		{DirectionNone, 7, 0.3, 0.3},       // nothing clamps a parameter no safeguard reaches
 	}
 	for _, c := range cases {
 		if got := Clamp(c.direction, c.bound, c.value); got != c.want {
@@ -105,19 +225,19 @@ func TestASafeguardNeverWidens(t *testing.T) {
 }
 
 // TestClampListIsTheUnion: a safeguard on a list may only extend the value in
-// force, and the answer does not depend on the order the safeguards were
-// applied in.
+// force, and the answer does not depend on the order the safeguards were applied
+// in.
 func TestClampListIsTheUnion(t *testing.T) {
-	got := ClampList([]string{"status", "field-present"}, []string{"field-present", "schema"})
-	want := []string{"field-present", "schema", "status"}
+	got := ClampList([]string{"read", "populated"}, []string{"populated", "unit"})
+	want := []string{"populated", "read", "unit"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ClampList = %v, want %v", got, want)
 	}
 	// The value in force is not edited in place: a caller holding the slice it
 	// passed in still holds what it passed.
-	value := []string{"schema"}
-	ClampList([]string{"status"}, value)
-	if !slices.Equal(value, []string{"schema"}) {
+	value := []string{"unit"}
+	ClampList([]string{"read"}, value)
+	if !slices.Equal(value, []string{"unit"}) {
 		t.Fatalf("ClampList edited its input: %v", value)
 	}
 }

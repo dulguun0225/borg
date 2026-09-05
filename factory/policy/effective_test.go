@@ -63,10 +63,11 @@ func TestTheValueInForceIsAReadOfThreeThings(t *testing.T) {
 	}
 }
 
-// TestEverySevenRowsResolveAndOneIsReadByNothing: an owner can author all of
-// them, and the read says which of them changes anything at this milestone rather
-// than leaving an owner to discover it.
-func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
+// TestEveryParameterResolvesAndFiveAreReadByNothing: an owner can author every
+// parameter this milestone gives a writer, and the read says which of the
+// thirteen changes anything at this milestone rather than leaving an owner to
+// discover it.
+func TestEveryParameterResolvesAndFiveAreReadByNothing(t *testing.T) {
 	ctx, in := newFactory(t)
 
 	authorings := []struct {
@@ -84,7 +85,7 @@ func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 			return in.factory.AuthorItemSizeTarget(ctx, owner, in.area.ID, 400)
 		}, 400},
 		{gatepolicy.WindowSize, func() (policy.Version, error) {
-			return in.factory.AuthorWindowSize(ctx, owner, in.service.ID, 0.01)
+			return in.factory.AuthorWindowSize(ctx, owner, in.service.ID, gatepolicy.QuantityErrorRate, 0.01)
 		}, 0.01},
 		{gatepolicy.WindowConfidence, func() (policy.Version, error) {
 			return in.factory.AuthorWindowConfidence(ctx, owner, in.service.ID, 0.98)
@@ -129,14 +130,20 @@ func TestEverySevenRowsResolveAndOneIsReadByNothing(t *testing.T) {
 			read++
 		}
 	}
-	// Seven of the eight are read by something now that contracts are built: the
-	// threshold, the limit, the window's four, and the list of allowed predicate
-	// kinds, whose reader is the derivation of a consumer contract. The
-	// one left is the item-size target, which nothing sizes an item against yet.
-	if read != 7 {
-		t.Errorf("%d parameters are read by something at this milestone, want all but the item-size target", read)
+	// Eight of the thirteen are read by something now that contracts are built:
+	// the threshold, the limit, the window's size, confidence, cap and limit, the
+	// held-out sample rate, and the list of allowed predicate kinds, whose reader
+	// is the derivation of a consumer contract. The five left are the exposure
+	// bound, the advisory severity, the item-size target, the window's power, and
+	// the review sample rate, none of which anything reads yet.
+	if read != 8 {
+		t.Errorf("%d parameters are read by something at this milestone, want eight", read)
 	}
-	for _, unread := range []gatepolicy.Parameter{gatepolicy.ItemSizeTarget} {
+	unreadWant := []gatepolicy.Parameter{
+		gatepolicy.ExposureBound, gatepolicy.AdvisorySeverity, gatepolicy.ItemSizeTarget,
+		gatepolicy.WindowPower, gatepolicy.ReviewSampleRate,
+	}
+	for _, unread := range unreadWant {
 		if e := effectiveOf(t, all, unread); e.ReadBy != "" {
 			t.Errorf("%s says it is read by %q, and nothing reads it yet", unread, e.ReadBy)
 		}

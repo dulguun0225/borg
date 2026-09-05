@@ -74,7 +74,8 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 	}
 
 	placed, version, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RiskThreshold,
-		safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: "deploy_to_production"}, safeguard.Bound{Number: 0})
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID, Key: "deploy_to_production"},
+		safeguard.Bound{Number: 0})
 	if err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
@@ -127,12 +128,13 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 func TestASafeguardOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	inner, err := area.NewWriter(in.pool, in.token).Declare(ctx, owner, "payments/refunds", in.area.ID)
+	inner, err := area.NewWriter(in.pool, in.token).Declare(ctx, owner, "payments/refunds", area.InsideArea(in.area.ID), area.Hazard{})
 	if err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RiskThreshold,
-		safeguard.Subject{Kind: safeguard.SubjectArea, ID: in.area.ID}, safeguard.Bound{Number: 0}); err != nil {
+		safeguard.Subject{Kind: safeguard.SubjectArea, ID: in.area.ID, Key: "merge_to_master"},
+		safeguard.Bound{Number: 0}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 

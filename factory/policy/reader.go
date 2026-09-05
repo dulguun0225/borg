@@ -41,4 +41,14 @@ type Subjects struct {
 	// safeguard drawn on any area in the chain reaches an item in the narrowest.
 	AreaID string
 	Stage  item.Stage
+	// Quantity is which quantity a per-quantity parameter is read for: the
+	// analysis window's size and its power are one value per quantity, and a
+	// read that names none finds nothing authored, because a value authored for
+	// one quantity is not a value for another.
+	Quantity string
+	// Duty is which of the owner's twelve duties a per-duty parameter is read
+	// for: the review sample rate is one value per duty, and a read that names
+	// none — the zero value, no duty being numbered zero — finds nothing
+	// authored.
+	Duty int
 }

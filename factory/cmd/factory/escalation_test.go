@@ -38,18 +38,31 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 
 	// A detector's intent the factory cannot fix: the same escalation, and a page,
 	// because the defect it describes is live.
-	// The statement is one this fake can author a spec for, because what makes this
-	// page is where the intent came from and not the words in it.
-	detected, err := intent.NewIntake(d.pool, d.token).TakeIn(ctx, healthmonitor.Actor, intent.SourceDetector, theSecondStatement)
+	//
+	// `p.take` no longer resumes an intent already waiting by matching its
+	// statement's text — package intent's rewrite drops that lookup,
+	// authorintent.go's own comment says why — so a run given this statement
+	// would take a fresh owner's intent in rather than working the detector's.
+	// What this test is about is the page's condition, read off the intent
+	// [path.escalated] is given, so it is exercised directly against the
+	// detector's intent rather than through a run this milestone cannot route
+	// there.
+	detected, err := intent.NewIntake(d.pool, d.token).TakeIn(ctx, healthmonitor.Actor, intent.Arrival{
+		Source: intent.SourceDetector, Statement: theSecondStatement,
+		Evidence: intent.Evidence{ServiceID: "svc_escalation_test"},
+	})
 	if err != nil {
 		t.Fatalf("taking in the detector's intent: %v", err)
 	}
 	if detected.Source != intent.SourceDetector {
 		t.Fatalf("the intent's source is %s", detected.Source)
 	}
-	d.in = strings.NewReader(theAnswer + "\n" + approvals)
-	if _, err := run(ctx, d, of(detected.Statement)); err == nil {
-		t.Fatalf("the run finished, and every implementer reply was refused:\n%s", out)
+	p, err := compose(ctx, d)
+	if err != nil {
+		t.Fatalf("composing the path: %v", err)
+	}
+	if err := p.escalated(ctx, detected.ID, "it_escalation_test", "every implementer reply was refused"); err != nil {
+		t.Fatalf("escalating: %v", err)
 	}
 
 	var paged int

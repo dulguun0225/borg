@@ -15,6 +15,14 @@ import (
 type asked struct {
 	statement string
 	services  []string
+	// resumeIntentID names an intent already waiting to work rather than
+	// taking a new one in, for the one caller that knows which: a named human
+	// at Ops asking for the revert a rollback already raised. Package intent's
+	// rewrite offers no statement-keyed lookup [path.take] could use in its
+	// place — its own doc comment says so — so this is how this interface
+	// gives it the id directly instead of matching the words. Empty for every
+	// ordinary statement, which [path.take] takes in fresh.
+	resumeIntentID string
 }
 
 // shipped is what the run did, which is the install's own records, one [decompositionSet]
@@ -78,6 +86,10 @@ type candidate struct {
 	// waitsOn is the items decomposition declared this one waiting on, which is how a
 	// consumer's item is ordered behind its producer's.
 	waitsOn []string
+	// requirementIDs is which of the intent's requirements this item answers,
+	// written by decomposition; the crude interface derives one per intent, so
+	// this is empty or one long today.
+	requirementIDs []string
 
 	// The candidate's own environment and what happened on it.
 	environmentID     string

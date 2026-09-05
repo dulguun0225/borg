@@ -13,30 +13,25 @@ import (
 	"github.com/dulguun0225/borg/factory/service"
 )
 
-// take is the intent this decomposition is authored from: the unrefined one already
-// waiting with exactly this statement, or one intake takes in for it.
-//
-// The first is how a revert and a removal reach the pipeline. The health monitor took a
-// revert's intent in at the rollback and the detector takes a removal's in at the
-// pass that finds the list empty, and this interface's run is given a statement
-// rather than an intent id — so a run given one of those statements works that
-// intent rather than taking in a second one saying the same thing.
-//
-// Matching on the statement is what an interface with no screen can do. What it
-// costs is a false match where an owner types a statement character for character
-// equal to one already waiting; the screen that replaces this shows an owner the
-// intents that are waiting and has them pick.
+// defaultTier is what this interface proposes at the confirming round. Gate
+// policy does not yet author a tier value and package intent defines no
+// default of its own, so this is the crude interface's own placeholder until
+// that parameter exists — a later dispatch's decision, not this one's.
+var defaultTier = intent.Tier{Value: 1, PolicyVersion: "unauthored"}
+
+// take is the intent a decomposition is authored from. Package intent's
+// rewrite dropped the statement-keyed lookup [take] used to read: a detector's
+// removal intent and a health monitor's revert intent are now found only by
+// evidence or by id, and this crude interface is handed a statement rather
+// than either — so an owner re-typing the exact words of an intent already
+// waiting takes a second one in rather than resuming the first, which this
+// milestone's decision leaves open.
 func (p *path) take(ctx context.Context, statement string) (intent.Intent, error) {
-	waiting, found, err := intent.Unrefined(ctx, p.d.pool, statement)
-	if err != nil {
-		return intent.Intent{}, err
-	}
-	if found {
-		fmt.Fprintf(p.d.out, "Intent %s is already waiting with this statement, taken in from %s by %s %s; this run works it\n",
-			waiting.ID, waiting.Source, waiting.Actor.Kind, waiting.Actor.Key)
-		return waiting, nil
-	}
-	return p.intake.TakeIn(ctx, p.human, intent.SourceOwner, statement)
+	return p.intake.TakeIn(ctx, p.human, intent.Arrival{
+		Source:    intent.SourceOwner,
+		Statement: statement,
+		ProjectID: p.projectID,
+	})
 }
 
 // authorIntent takes one intent in, refines it, decomposes every item it yields,
@@ -55,10 +50,16 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 		return nil, nil, fmt.Errorf("factory: the intent %q names no service to decompose an item on", one.statement)
 	}
 
-	// 1. Intake: the intent arrives from the owner, unrefined — unless one is
-	// already there for this statement, which is how a revert and a removal reach the
-	// pipeline.
-	in, err := p.take(ctx, one.statement)
+	// 1. Intake: the intent arrives from the owner, unrefined — or, where
+	// one.resumeIntentID names an intent already waiting, that one, read
+	// rather than taken in again.
+	var in intent.Intent
+	var err error
+	if one.resumeIntentID != "" {
+		in, err = intent.Get(ctx, d.pool, one.resumeIntentID)
+	} else {
+		in, err = p.take(ctx, one.statement)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -98,18 +99,15 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 	if err != nil {
 		return nil, nil, err
 	}
-	refined, interviewSpend, rounds, err := p.interview(ctx, in, first, promised, specStage)
+	refined, requirementIDs, rounds, err := p.interview(ctx, in, first, promised, specStage)
 	if err != nil {
 		return nil, nil, gaveUp("", err)
-	}
-	if err := p.intake.MarkRefined(ctx, intakeActor, in.ID); err != nil {
-		return nil, nil, err
 	}
 	fmt.Fprintf(d.out, "Intent %s refined after %d round(s)\n", in.ID, rounds)
 
 	// 3. Decomposition: one item per service the intent changes, each waiting on the one
 	// before it, and the service record written where the service does not exist yet.
-	candidates, err := p.decomposeItems(ctx, in, one.services)
+	candidates, err := p.decomposeItems(ctx, in, one.services, requirementIDs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -153,19 +151,19 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 				})
 				return r, r.Tokens, err
 			})
-			if err != nil {
-				return nil, nil, gaveUp(c.itemID, err)
+			callErr := err
+			if recErr := p.recordAgentRun(ctx, "spec_author", c.itemID, item.StageSpec, "", stage.spends, outcomeOf(callErr)); recErr != nil {
+				return nil, nil, recErr
+			}
+			if callErr != nil {
+				return nil, nil, gaveUp(c.itemID, callErr)
 			}
 			if authored.Question != "" {
 				return nil, nil, fmt.Errorf(
 					"factory: the spec author asked a question about item %s, and the interview is the intent's and is over", c.itemID)
 			}
 		}
-		spent := interviewSpend
-		if n > 0 {
-			spent = 0
-		}
-		if err := p.specStage(ctx, c, authored, stage, spent); err != nil {
+		if err := p.specStage(ctx, c, authored); err != nil {
 			return nil, nil, err
 		}
 		if err := p.implementationStage(ctx, c, authored.Spec, gaveUp); err != nil {
@@ -175,74 +173,138 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 	return set, candidates, nil
 }
 
-// interview is the intent's one round or none, and the spec the same call
-// produces. The spec author asks what it cannot author without and proceeds on the
-// answer; a second question is an error, which is the stopping rule enforced rather
-// than assumed.
+// outcomeOf is the word an agentrun record's outcome carries for one call: what
+// the caller reads off whether the call errored, since this package names no
+// vocabulary of its own for it.
+func outcomeOf(err error) string {
+	if err != nil {
+		return "gave up"
+	}
+	return "authored"
+}
+
+// interview is the intent's one round or none, the confirming round the
+// design gives every requester, and the spec the whole exchange produces.
+// The spec author asks what it cannot author without and proceeds on the
+// answer; a second question is an error, which is the stopping rule enforced
+// rather than assumed.
 //
-// It returns what the interview spent apart from the spec, because the design
-// counts a round against the same limit and keeps it on the intent, upstream of the
-// item's first stage — and an intent has no spend field, so the round's tokens are
-// charged to the item's first attempt where that is reported.
+// It returns the requirement ids [Intake.Confirm] wrote, which is what
+// decomposition answers each item with — one requirement per intent, this
+// milestone deriving no more than that from the spec author's own criterion
+// sentence.
 func (p *path) interview(ctx context.Context, in intent.Intent, serviceName string,
-	promised []criterion.Criterion, stage *stageAttempts) (agent.Refined, int64, int, error) {
+	promised []criterion.Criterion, stage *stageAttempts) (agent.Refined, []string, int, error) {
 	d := p.d
 	author := agent.SpecAuthor{Model: d.model}
+
+	rounds, err := p.intake.OpenRound(ctx, intakeActor, in.ID)
+	if err != nil {
+		return agent.Refined{}, nil, 0, err
+	}
+
+	before := len(stage.spends)
 	refined, err := attempt(d.out, stage, "spec author", func() (agent.Refined, int64, error) {
 		r, err := author.Refine(ctx, agent.Refining{
 			Statement: in.Statement, Service: serviceName, InForce: rolePromptCriteria(promised),
 		})
 		return r, r.Tokens, err
 	})
-	if err != nil {
-		return agent.Refined{}, 0, 0, err
+	if recErr := p.recordIntentRun(ctx, "spec_author", in.ID, stage.spends[before:], outcomeOf(err)); recErr != nil {
+		return agent.Refined{}, nil, 0, recErr
 	}
-	if refined.Question == "" {
-		return refined, 0, 0, nil
+	if err != nil {
+		return agent.Refined{}, nil, 0, err
 	}
 
-	var spend int64
-	for _, s := range stage.spends {
-		spend += s
-	}
-	stage.spends = nil
-	q, err := p.intake.Ask(ctx, p.specAuthorActor(), in.ID, refined.Question)
-	if err != nil {
-		return agent.Refined{}, 0, 0, err
-	}
-	fmt.Fprintf(d.out, "The spec author asks: %s\n", q.Question)
-	// An empty line is asked again rather than sent: the answer is write-once, and
-	// the interview's one round is what it is spent on, so a blank one would stamp
-	// the question answered and leave the spec author authoring on nothing. Input
-	// that ends instead of answering is readLine's error and stops the path.
-	answer := ""
-	for answer == "" {
-		answer, err = readLine(p.lines)
-		if err != nil {
-			return agent.Refined{}, 0, 0, err
-		}
-		if answer == "" {
-			fmt.Fprint(d.out, "An answer is what the interview's one round is spent on; type one: ")
-		}
-	}
-	q, err = p.intake.Answer(ctx, p.human, q.ID, answer)
-	if err != nil {
-		return agent.Refined{}, 0, 0, err
-	}
-	refined, err = attempt(d.out, stage, "spec author", func() (agent.Refined, int64, error) {
-		r, err := author.Refine(ctx, agent.Refining{
-			Statement: in.Statement, Service: serviceName,
-			Answered: []agent.QA{{Question: q.Question, Answer: q.Answer}},
-			InForce:  rolePromptCriteria(promised),
-		})
-		return r, r.Tokens, err
-	})
-	if err != nil {
-		return agent.Refined{}, 0, 0, err
-	}
 	if refined.Question != "" {
-		return agent.Refined{}, 0, 0,
-			errors.New("factory: the spec author asked a second question, and the interview is one round or none")
+		q, err := p.intake.Ask(ctx, intakeActor, in.ID, refined.Question)
+		if err != nil {
+			return agent.Refined{}, nil, 0, err
+		}
+		fmt.Fprintf(d.out, "The spec author asks: %s\n", q.Question)
+		// An empty line is asked again rather than sent: the answer is write-once, and
+		// the interview's one round is what it is spent on, so a blank one would stamp
+		// the question answered and leave the spec author authoring on nothing. Input
+		// that ends instead of answering is readLine's error and stops the path.
+		answer := ""
+		for answer == "" {
+			answer, err = readLine(p.lines)
+			if err != nil {
+				return agent.Refined{}, nil, 0, err
+			}
+			if answer == "" {
+				fmt.Fprint(d.out, "An answer is what the interview's one round is spent on; type one: ")
+			}
+		}
+		q, err = p.intake.Answer(ctx, p.human, q.ID, answer)
+		if err != nil {
+			return agent.Refined{}, nil, 0, err
+		}
+		before = len(stage.spends)
+		refined, err = attempt(d.out, stage, "spec author", func() (agent.Refined, int64, error) {
+			r, err := author.Refine(ctx, agent.Refining{
+				Statement: in.Statement, Service: serviceName,
+				Answered: []agent.QA{{Question: q.Question, Answer: q.Answer}},
+				InForce:  rolePromptCriteria(promised),
+			})
+			return r, r.Tokens, err
+		})
+		if recErr := p.recordIntentRun(ctx, "spec_author", in.ID, stage.spends[before:], outcomeOf(err)); recErr != nil {
+			return agent.Refined{}, nil, 0, recErr
+		}
+		if err != nil {
+			return agent.Refined{}, nil, 0, err
+		}
+		if refined.Question != "" {
+			return agent.Refined{}, nil, 0,
+				errors.New("factory: the spec author asked a second question, and the interview is one round or none")
+		}
 	}
-	return refined, spend, 1, nil
+
+	// The confirming round: the factory states, in the requester's own terms,
+	// what it has understood is wanted, and the requester's answer confirms
+	// that reading. An intent the factory raised itself has no requester and
+	// takes no such round — it enumerates its requirements from the evidence
+	// instead, which [Intake.Confirm] does on its own where it is given
+	// neither a question nor an answer. This interface has no screen for the
+	// round a requester does owe, so where there is one it states the one
+	// criterion the spec author produced and confirms it itself — a
+	// simplification this milestone's crude interface makes rather than
+	// prompting a second time for a round the design gives the requester, and
+	// an open point this dispatch leaves.
+	confirmation := intent.Confirmation{IntentID: in.ID}
+	if in.Source != intent.SourceDetector {
+		confirmQuestion := fmt.Sprintf("The factory understood: %s — confirm?", refined.Criterion)
+		cq, err := p.intake.Ask(ctx, intakeActor, in.ID, confirmQuestion)
+		if err != nil {
+			return agent.Refined{}, nil, 0, err
+		}
+		// Confirm answers the confirming question itself, inside the same call
+		// that writes the reading — answering it here first would leave nothing
+		// for Confirm to answer and it would refuse the write-once question a
+		// second time.
+		const confirmAnswer = "confirmed"
+		confirmation.QuestionID = cq.ID
+		confirmation.Answer = confirmAnswer
+		confirmation.IntendedEffect = in.Statement
+		confirmation.Tier = defaultTier
+	}
+
+	escapeReason := ""
+	if _, matched := criterion.Classify(refined.Criterion); !matched {
+		escapeReason = "not classified by the command-line interface"
+	}
+	confirmation.Requirements = []intent.NewRequirement{
+		{Statement: refined.Criterion, EscapeReason: escapeReason},
+	}
+	reading, err := p.intake.Confirm(ctx, intakeActor, confirmation)
+	if err != nil {
+		return agent.Refined{}, nil, 0, err
+	}
+	requirementIDs := make([]string, len(reading))
+	for n, r := range reading {
+		requirementIDs[n] = r.ID
+	}
+	return refined, requirementIDs, rounds, nil
 }

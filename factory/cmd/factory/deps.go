@@ -39,6 +39,13 @@ type deps struct {
 	token     lease.Token
 	model     agent.Model
 	modelName string // the provider's model id, which is the author a per-author prior is kept on
+	// modelCredentialName is the credential name the model was reached
+	// through — model.openrouter or model.anthropic — carried so that every
+	// agentrun record this run writes names the credential it was served on.
+	modelCredentialName string
+	// project is the name of the project this run installs and works in,
+	// resolved to the record by [policy.Factory.Install].
+	project string
 	// targets is one target per environment. There is one per environment and not
 	// one per install, because a candidate's environment is a place of its own.
 	targets *targetSet

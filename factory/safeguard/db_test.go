@@ -33,7 +33,8 @@ var owner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.Bas
 var (
 	onAService = safeguard.Subject{Kind: safeguard.SubjectService, ID: "svc_0000000000000000000000000000000a"}
 	onAnArea   = safeguard.Subject{Kind: safeguard.SubjectArea, ID: "ar_0000000000000000000000000000000a"}
-	onARow     = safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: "deploy_to_production"}
+	onARow     = safeguard.Subject{Kind: safeguard.SubjectService, ID: "svc_0000000000000000000000000000000a",
+		Key: "deploy_to_production"}
 )
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token) {
@@ -88,12 +89,18 @@ func inSchema(t *testing.T, base, schema string) string {
 func place(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, parameter gatepolicy.Parameter,
 	subject safeguard.Subject, bound safeguard.Bound) safeguard.Safeguard {
 	t.Helper()
+	return placeRouted(t, ctx, pool, token, parameter, subject, bound, safeguard.Routing{})
+}
+
+func placeRouted(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, parameter gatepolicy.Parameter,
+	subject safeguard.Subject, bound safeguard.Bound, routing safeguard.Routing) safeguard.Safeguard {
+	t.Helper()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	placed, err := safeguard.Insert(ctx, tx, token, owner, parameter, subject, bound)
+	placed, err := safeguard.Insert(ctx, tx, token, owner, parameter, subject, bound, routing)
 	if err != nil {
 		t.Fatalf("Insert(%s on %s): %v", parameter, subject, err)
 	}
@@ -124,7 +131,8 @@ func TestTheDirectionIsReadFromTheParameter(t *testing.T) {
 	if adds.Bound.Number != 0 || adds.Bound.List != nil || !adds.Bound.Predicate.IsZero() {
 		t.Errorf("a safeguard that adds a human carries a bound: %+v", adds)
 	}
-	list := place(t, ctx, pool, token, gatepolicy.AllowedPredicateKinds, onAService,
+	list := place(t, ctx, pool, token, gatepolicy.AllowedPredicateKinds,
+		safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: "fs_a"},
 		safeguard.Bound{List: []string{"status", "schema"}})
 	if !slices.Equal(list.Bound.List, []string{"status", "schema"}) {
 		t.Errorf("the allowed-kinds safeguard's bound reads back as %v", list.Bound.List)
@@ -143,6 +151,76 @@ func TestTheDirectionIsReadFromTheParameter(t *testing.T) {
 	}
 	if predicate.Bound.Number != 0 || predicate.Bound.List != nil {
 		t.Errorf("a safeguard's predicate carries a second shape of bound: %+v", predicate.Bound)
+	}
+}
+
+// TestTheRoutingFieldRoutesAHumanCheck: routing lets the person who authored a
+// check receive it, on the parameter whose direction adds a human, and it is
+// refused on one that only bounds a value.
+func TestTheRoutingFieldRoutesAHumanCheck(t *testing.T) {
+	ctx, pool, token := newTable(t)
+
+	routedToDuty := placeRouted(t, ctx, pool, token, gatepolicy.RiskThreshold, onARow, safeguard.Bound{},
+		safeguard.Routing{Duty: 7})
+	if routedToDuty.Routing.Duty != 7 || routedToDuty.Routing.HumanKey != "" {
+		t.Errorf("the routing reads back as %+v, want duty 7", routedToDuty.Routing)
+	}
+	routedToHuman := placeRouted(t, ctx, pool, token, gatepolicy.RiskThreshold, onARow, safeguard.Bound{},
+		safeguard.Routing{HumanKey: "p_compliance"})
+	if routedToHuman.Routing.HumanKey != "p_compliance" || routedToHuman.Routing.Duty != 0 {
+		t.Errorf("the routing reads back as %+v, want the named human", routedToHuman.Routing)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit, onAService,
+		safeguard.Bound{Number: 2}, safeguard.Routing{Duty: 3}); !errors.Is(err, safeguard.ErrRoutingRefused) {
+		t.Errorf("routing a safeguard that bounds a value = %v, want ErrRoutingRefused", err)
+	}
+	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.RiskThreshold, onARow,
+		safeguard.Bound{}, safeguard.Routing{Duty: 3, HumanKey: "p_x"}); !errors.Is(err, safeguard.ErrRoutingBothNamed) {
+		t.Errorf("routing to a duty and a human at once = %v, want ErrRoutingBothNamed", err)
+	}
+	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.RiskThreshold, onARow,
+		safeguard.Bound{}, safeguard.Routing{Duty: 13}); !errors.Is(err, safeguard.ErrRoutingDutyOutOfRange) {
+		t.Errorf("routing to duty 13 = %v, want ErrRoutingDutyOutOfRange", err)
+	}
+}
+
+// TestASubjectKeyIsRequiredWhereTheParameterHasOneAndRefusedWhereItDoesNot:
+// the design keeps a parameter's own key — the gate row, the stage, the duty —
+// out of the subject kinds themselves, so [safeguard.Insert] checks it against
+// the parameter's own [gatepolicy.Definition].
+func TestASubjectKeyIsRequiredWhereTheParameterHasOneAndRefusedWhereItDoesNot(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.RiskThreshold,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: "svc_a"}, safeguard.Bound{}, safeguard.Routing{},
+	); !errors.Is(err, safeguard.ErrSubjectKeyRequired) {
+		t.Errorf("a risk-threshold safeguard naming no gate row = %v, want ErrSubjectKeyRequired", err)
+	}
+	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: "svc_a", Key: "deploy_to_production"},
+		safeguard.Bound{Number: 2}, safeguard.Routing{},
+	); !errors.Is(err, safeguard.ErrSubjectKeyRefused) {
+		t.Errorf("a window-limit safeguard naming a key = %v, want ErrSubjectKeyRefused", err)
+	}
+	placed, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.AttemptLimit,
+		safeguard.Subject{Kind: safeguard.SubjectStage, ID: "spec", Key: "spec"}, safeguard.Bound{Number: 3}, safeguard.Routing{})
+	if err != nil {
+		t.Fatalf("a stage-keyed attempt-limit safeguard: %v", err)
+	}
+	if placed.Subject.Key != "spec" {
+		t.Errorf("the subject key reads back as %q, want %q", placed.Subject.Key, "spec")
 	}
 }
 
@@ -180,24 +258,28 @@ func TestABoundOfTheWrongShapeIsRefused(t *testing.T) {
 			safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateUnit}}, safeguard.ErrBoundRefused},
 	}
 	for _, c := range cases {
-		if _, err := safeguard.Insert(ctx, tx, token, owner, c.parameter, onAService, c.bound); !errors.Is(err, c.want) {
+		subject := onAService
+		if c.parameter == gatepolicy.RiskThreshold {
+			subject = onARow
+		}
+		if _, err := safeguard.Insert(ctx, tx, token, owner, c.parameter, subject, c.bound, safeguard.Routing{}); !errors.Is(err, c.want) {
 			t.Errorf("Insert with %s = %v, want %v", c.name, err, c.want)
 		}
 	}
 
 	two := safeguard.Bound{Number: 2}
-	if _, err := safeguard.Insert(ctx, tx, token, owner, "no_such_parameter", onAService, two); !errors.Is(err, gatepolicy.ErrUnknown) {
+	if _, err := safeguard.Insert(ctx, tx, token, owner, "no_such_parameter", onAService, two, safeguard.Routing{}); !errors.Is(err, gatepolicy.ErrUnknown) {
 		t.Errorf("a safeguard on a parameter that does not exist = %v, want ErrUnknown", err)
 	}
 	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit,
-		safeguard.Subject{Kind: "project", ID: "prj_a"}, two); !errors.Is(err, safeguard.ErrSubjectKindUnknown) {
-		t.Errorf("a safeguard on a project = %v, want ErrSubjectKindUnknown", err)
+		safeguard.Subject{Kind: "project_row", ID: "prj_a"}, two, safeguard.Routing{}); !errors.Is(err, safeguard.ErrSubjectKindUnknown) {
+		t.Errorf("a safeguard on an unknown kind = %v, want ErrSubjectKindUnknown", err)
 	}
 	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit,
-		safeguard.Subject{Kind: safeguard.SubjectService}, two); !errors.Is(err, safeguard.ErrSubjectIDEmpty) {
+		safeguard.Subject{Kind: safeguard.SubjectService}, two, safeguard.Routing{}); !errors.Is(err, safeguard.ErrSubjectIDEmpty) {
 		t.Errorf("a safeguard naming no subject = %v, want ErrSubjectIDEmpty", err)
 	}
-	if _, err := safeguard.Insert(ctx, tx, token, record.Actor{}, gatepolicy.WindowLimit, onAService, two); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := safeguard.Insert(ctx, tx, token, record.Actor{}, gatepolicy.WindowLimit, onAService, two, safeguard.Routing{}); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("a safeguard with no actor = %v, want ErrKindUnknown", err)
 	}
 }
@@ -208,16 +290,22 @@ func TestASubjectKindTheStoreDoesNotKnowIsRefusedTwice(t *testing.T) {
 	ctx, pool, _ := newTable(t)
 
 	if _, err := pool.Exec(ctx, `insert into `+safeguard.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind, subject_id, direction, bound, bound_list, withdrawn)
-		values ('sfg_x', $1, 'human', 'owner', 'claimed', $2, 'window_limit', 'project', 'prj_a', 'ceiling', 2, '', false)`,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind, subject_id, direction, bound, bound_list)
+		values ('sfg_x', $1, 'human', 'owner', 'claimed', $2, 'window_limit', 'project_row', 'prj_a', 'ceiling', 2, '')`,
 		safeguard.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted a subject kind written around the writer")
 	}
 	if _, err := pool.Exec(ctx, `insert into `+safeguard.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind, subject_id, direction, bound, bound_list, withdrawn)
-		values ('sfg_y', $1, 'human', 'owner', 'claimed', $2, 'window_limit', 'service', 'svc_a', 'ceiling', 2, 'status', false)`,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind, subject_id, direction, bound, bound_list)
+		values ('sfg_y', $1, 'human', 'owner', 'claimed', $2, 'window_limit', 'service', 'svc_a', 'ceiling', 2, 'status')`,
 		safeguard.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted a safeguard carrying both a number and a list")
+	}
+	if _, err := pool.Exec(ctx, `insert into `+safeguard.Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind, subject_id, direction, bound, bound_list, route_duty, route_human_key)
+		values ('sfg_z', $1, 'human', 'owner', 'claimed', $2, 'risk_threshold', 'service', 'svc_a', 'adds_a_human', null, '', 5, 'p_x')`,
+		safeguard.FormatVersion, record.Now()); err == nil {
+		t.Error("the store accepted a routing naming a duty and a human at once")
 	}
 }
 
@@ -242,71 +330,24 @@ func TestDDLListsEverySubjectKind(t *testing.T) {
 	}
 }
 
-// TestAWithdrawnSafeguardIsNotInForceAndIsStillReadable: withdrawing stops a
-// mechanism reading it, and the row stays so a safeguard that was in force when
-// a decision was taken is still readable beside it.
-func TestAWithdrawnSafeguardIsNotInForceAndIsStillReadable(t *testing.T) {
-	ctx, pool, token := newTable(t)
-
-	placed := place(t, ctx, pool, token, gatepolicy.WindowLimit, onAService, safeguard.Bound{Number: 2})
-	subjects := []safeguard.Subject{onAService, onAnArea, onARow}
-
-	inForce, err := safeguard.BySubjects(ctx, pool, gatepolicy.WindowLimit, subjects)
-	if err != nil {
-		t.Fatalf("BySubjects: %v", err)
-	}
-	if len(inForce) != 1 || inForce[0].ID != placed.ID {
-		t.Fatalf("the safeguard in force is %v, want the one placed", ids(inForce))
-	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	if err := safeguard.Withdraw(ctx, tx, token, placed.ID); err != nil {
-		t.Fatalf("Withdraw: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	inForce, err = safeguard.BySubjects(ctx, pool, gatepolicy.WindowLimit, subjects)
-	if err != nil {
-		t.Fatalf("BySubjects: %v", err)
-	}
-	if len(inForce) != 0 {
-		t.Errorf("a withdrawn safeguard is still in force: %v", ids(inForce))
-	}
-	all, err := safeguard.All(ctx, pool)
-	if err != nil {
-		t.Fatalf("All: %v", err)
-	}
-	if len(all) != 1 || !all[0].Withdrawn {
-		t.Errorf("the withdrawn safeguard reads back as %+v, want one row marked withdrawn", all)
-	}
-
-	withdrawAgain, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	defer func() { _ = withdrawAgain.Rollback(ctx) }()
-	if err := safeguard.Withdraw(ctx, withdrawAgain, token, "sfg_nothing"); !errors.Is(err, safeguard.ErrNotFound) {
-		t.Errorf("withdrawing a safeguard that does not exist = %v, want ErrNotFound", err)
-	}
-}
-
 // TestBySubjectsReadsEverySubjectAtOnce: a mechanism reads more than one subject
 // at a time — a gate firing reads the row, the service, and every area in the
 // item's chain — and a safeguard on a subject outside that list reaches nothing.
 func TestBySubjectsReadsEverySubjectAtOnce(t *testing.T) {
 	ctx, pool, token := newTable(t)
 
-	onService := place(t, ctx, pool, token, gatepolicy.AttemptLimit, onAService, safeguard.Bound{Number: 2})
-	onArea := place(t, ctx, pool, token, gatepolicy.AttemptLimit, onAnArea, safeguard.Bound{Number: 4})
+	onService := place(t, ctx, pool, token, gatepolicy.AttemptLimit,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: onAService.ID, Key: "spec"}, safeguard.Bound{Number: 2})
+	onArea := place(t, ctx, pool, token, gatepolicy.AttemptLimit,
+		safeguard.Subject{Kind: safeguard.SubjectArea, ID: onAnArea.ID, Key: "spec"}, safeguard.Bound{Number: 4})
 	elsewhere := place(t, ctx, pool, token, gatepolicy.AttemptLimit,
-		safeguard.Subject{Kind: safeguard.SubjectArea, ID: "ar_somewhere_else"}, safeguard.Bound{Number: 1})
+		safeguard.Subject{Kind: safeguard.SubjectArea, ID: "ar_somewhere_else", Key: "spec"}, safeguard.Bound{Number: 1})
+	differentStage := place(t, ctx, pool, token, gatepolicy.AttemptLimit,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: onAService.ID, Key: "tasks"}, safeguard.Bound{Number: 9})
 
-	read, err := safeguard.BySubjects(ctx, pool, gatepolicy.AttemptLimit, []safeguard.Subject{onAService, onAnArea})
+	askedService := safeguard.Subject{Kind: safeguard.SubjectService, ID: onAService.ID, Key: "spec"}
+	askedArea := safeguard.Subject{Kind: safeguard.SubjectArea, ID: onAnArea.ID, Key: "spec"}
+	read, err := safeguard.BySubjects(ctx, pool, gatepolicy.AttemptLimit, []safeguard.Subject{askedService, askedArea})
 	if err != nil {
 		t.Fatalf("BySubjects: %v", err)
 	}
@@ -319,6 +360,9 @@ func TestBySubjectsReadsEverySubjectAtOnce(t *testing.T) {
 	}
 	if slices.Contains(found, elsewhere.ID) {
 		t.Errorf("a safeguard on a subject nobody asked about is in force: %v", found)
+	}
+	if slices.Contains(found, differentStage.ID) {
+		t.Errorf("a safeguard keyed to a different stage is in force: %v", found)
 	}
 
 	// Another parameter's safeguards are not this parameter's.

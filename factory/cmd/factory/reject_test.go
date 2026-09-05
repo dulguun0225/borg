@@ -40,8 +40,11 @@ func TestARejectStopsThePath(t *testing.T) {
 		t.Errorf("%d releases exist, a reject mints none", releases)
 	}
 
-	// The item is at implementation with two attempts there: the authoring one,
-	// and the one the reject booked against the stage it was sent to.
+	// The item is at implementation with one attempt there: an attempt is
+	// counted when a stage is entered to author, and Dispatch.ReturnTo — what a
+	// reject sends the item back with — counts nothing itself. A second attempt
+	// is counted only when something re-enters the stage to author again, which
+	// no component built at this milestone does.
 	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item: %v", err)
@@ -54,12 +57,8 @@ func TestARejectStopsThePath(t *testing.T) {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
 	for _, st := range stages {
-		want := 1
-		if st.Stage == item.StageImplementation {
-			want = 2
-		}
-		if st.Attempts != want {
-			t.Errorf("stage %s attempts = %d, want %d", st.Stage, st.Attempts, want)
+		if st.Attempts != 1 {
+			t.Errorf("stage %s attempts = %d, want 1", st.Stage, st.Attempts)
 		}
 	}
 
@@ -128,7 +127,11 @@ func TestARejectThenASecondRunShips(t *testing.T) {
 	if len(inForce) != 1 || inForce[0].ItemID != second.itemID {
 		t.Fatalf("%d criteria are in force for the second item's build: %+v", len(inForce), inForce)
 	}
-	if err := criterion.CheckEncodings(theRepo(d), inForce); err != nil {
+	derived, err := criterion.Derive(theRepo(d))
+	if err != nil {
+		t.Fatalf("deriving the encodings: %v", err)
+	}
+	if err := criterion.CheckEncodings(derived, inForce, nil); err != nil {
 		t.Errorf("the second build does not satisfy the encoding check: %v", err)
 	}
 

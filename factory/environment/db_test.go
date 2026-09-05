@@ -3,6 +3,13 @@
 // imports this one to apply its DDL. deps.txt records the edge as
 // "test environment -> postgres".
 //
+// They are split by subject rather than kept in one file, which the 500-line
+// bound requires: this file is the fixture and the persistent kinds an owner
+// writes, target_test.go is a persistent environment's targets and its
+// withdrawal, candidate_test.go is the candidate kind the deployer composes,
+// cycle_test.go is the compose-and-reclaim cycle and what it costs, and
+// threshold_test.go is the gate threshold an owner authors.
+//
 // None of these tests skips when the database is unreachable. The milestone is
 // demonstrated by them running, so an unreachable database fails the run.
 package environment_test
@@ -31,6 +38,39 @@ import (
 var owner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
 
 var credential = secretref.MustNew("deploy.local")
+
+// theProject is the project every environment in these tests belongs to.
+// Production is one record per project, so the project is what makes two
+// production records two and not a collision.
+const theProject = "prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+// composingPlatform is a platform that can compose an environment on demand,
+// which is what a production environment's must be able to do.
+var composingPlatform = environment.Platform{
+	Name:               "local",
+	Credential:         secretref.MustNew("platform.local"),
+	CanComposeOnDemand: true,
+}
+
+// oneTarget is the target list a test that says nothing about targets uses.
+func oneTarget(address string) []environment.Target {
+	return []environment.Target{{Address: address}}
+}
+
+// productionSpec is production's record as an owner declares it.
+func productionSpec(targets ...environment.Target) environment.Spec {
+	if len(targets) == 0 {
+		targets = oneTarget("/srv/targets/one")
+	}
+	return environment.Spec{
+		Kind:       environment.KindProduction,
+		ProjectID:  theProject,
+		Name:       environment.ProductionName,
+		Targets:    targets,
+		Credential: credential,
+		Platform:   composingPlatform,
+	}
+}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *environment.Writer, lease.Token) {
 	t.Helper()
@@ -79,14 +119,18 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-// TestProductionIsCreatedWithItsTargetsAndItsCredential: an environment is a
-// record and not a name in code, and what it names is where a deploy into it is
-// performed and what it is performed with.
-func TestProductionIsCreatedWithItsTargetsAndItsCredential(t *testing.T) {
+// TestProductionIsCreatedWithItsTargetsItsCredentialAndItsPlatform: an
+// environment is a record and not a name in code, and what it names is where a
+// deploy into it is performed, what it is performed with, and what it is composed
+// on.
+func TestProductionIsCreatedWithItsTargetsItsCredentialAndItsPlatform(t *testing.T) {
 	ctx, pool, w, _ := newTable(t)
 
-	targets := []string{"/srv/targets/one", "/srv/targets/two"}
-	created, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, targets, credential)
+	targets := []environment.Target{
+		{Address: "/srv/targets/one", ServesAShare: true},
+		{Address: "/srv/targets/two"},
+	}
+	created, err := w.Create(ctx, owner, productionSpec(targets...))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -101,54 +145,139 @@ func TestProductionIsCreatedWithItsTargetsAndItsCredential(t *testing.T) {
 	if !slices.Equal(read.Targets, targets) {
 		t.Errorf("the targets read back as %v, want %v", read.Targets, targets)
 	}
+	if !slices.Equal(read.Addresses(), []string{"/srv/targets/one", "/srv/targets/two"}) {
+		t.Errorf("the addresses read back as %v, and the order is the one a rollout reaches them in", read.Addresses())
+	}
 	if read.Credential != credential {
 		t.Errorf("the credential reads back as %v, want the reference %v", read.Credential, credential)
 	}
+	if read.Platform != composingPlatform {
+		t.Errorf("the platform reads back as %+v, want %+v", read.Platform, composingPlatform)
+	}
+	// The score picks the row with a control only where every target of the set
+	// serves a share, there being no control where no share can be served.
+	if read.EveryTargetServesAShare() {
+		t.Error("an environment with a target that serves no share reads as serving a share throughout")
+	}
 
-	byName, found, err := environment.ByName(ctx, pool, environment.ProductionName)
-	if err != nil || !found || byName.ID != created.ID {
-		t.Fatalf("ByName = %+v, %v, %v", byName, found, err)
+	production, found, err := environment.Production(ctx, pool, theProject)
+	if err != nil || !found || production.ID != created.ID {
+		t.Fatalf("Production = %+v, %v, %v", production, found, err)
+	}
+	if _, found, err := environment.Production(ctx, pool, "prj_other"); err != nil || found {
+		t.Errorf("Production of a project with none = found %v, %v", found, err)
 	}
 }
 
-// TestTheKindIsTheSeamAndOnlyOneIsWritten: the kind is fixed at creation and two
-// writers never write a record of the other's kind. An owner writes the persistent
-// kinds, the deploy agent writes a candidate's, each refuses the other's, and a
-// kind neither builds is refused by the writer and by the store.
-func TestTheKindIsTheSeamAndOnlyOneIsWritten(t *testing.T) {
+// TestProductionIsOneRecordPerProject: production exists everywhere and every
+// project has one, so the name is unique within the project and a second
+// production record in one project is refused by the store.
+func TestProductionIsOneRecordPerProject(t *testing.T) {
 	ctx, pool, w, _ := newTable(t)
 
-	if _, err := w.Create(ctx, owner, environment.KindCandidate, "cand", []string{"/srv"}, credential); !errors.Is(err, environment.ErrNotAnOwnersKind) {
+	if _, err := w.Create(ctx, owner, productionSpec()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := w.Create(ctx, owner, productionSpec()); err == nil {
+		t.Error("a second production record in one project was accepted")
+	}
+
+	second := productionSpec()
+	second.ProjectID = "prj_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if _, err := w.Create(ctx, owner, second); err != nil {
+		t.Fatalf("production in a second project: %v", err)
+	}
+
+	// A customer's environment in the same project is another record and not a
+	// collision, the name being what tells the two apart.
+	customer := productionSpec()
+	customer.Kind = environment.KindCustomer
+	customer.Name = "staging"
+	customer.Platform.CanComposeOnDemand = false
+	if _, err := w.Create(ctx, owner, customer); err != nil {
+		t.Fatalf("a customer's environment: %v", err)
+	}
+	byName, found, err := environment.ByName(ctx, pool, theProject, "staging")
+	if err != nil || !found || byName.Kind != environment.KindCustomer {
+		t.Fatalf("ByName = %+v, %v, %v", byName, found, err)
+	}
+
+	// The store refuses a second production record written around the writer.
+	if _, err := pool.Exec(ctx, `insert into `+environment.Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
+		 targets, credential, platform_name, platform_credential, can_compose_on_demand,
+		 max_concurrent_candidate_environments, item_id, composed_from, seed_version, value_set_version,
+		 torn_down_at, torn_down_reason, withdrawn_at)
+		values ('env_p2', $1, 'human', 'owner', 'claimed', $2, 'production', $3, 'production-again',
+		 'noshare /srv', 'deploy.local', 'local', 'platform.local', true, 0, '', '', '', '', '', '', '')`,
+		environment.FormatVersion, record.Now(), theProject); err == nil {
+		t.Error("the store accepted a second production record in one project")
+	}
+}
+
+// TestTheKindIsTheSeamAndThereAreThree: the kind is fixed at creation and two
+// writers never write a record of the other's kind. An owner writes the two
+// persistent kinds, the deployer writes a candidate's, each refuses the other's,
+// and a kind that is not one of the three is refused by the writer and by the
+// store.
+func TestTheKindIsTheSeamAndThereAreThree(t *testing.T) {
+	ctx, pool, w, _ := newTable(t)
+
+	candidate := productionSpec()
+	candidate.Kind = environment.KindCandidate
+	candidate.Name = "cand"
+	if _, err := w.Create(ctx, owner, candidate); !errors.Is(err, environment.ErrNotAnOwnersKind) {
 		t.Errorf("an owner creating a candidate's environment = %v, want ErrNotAnOwnersKind", err)
 	}
-	if _, err := w.Create(ctx, owner, environment.Kind("staging"), "stg", []string{"/srv"}, credential); !errors.Is(err, environment.ErrKindUnknown) {
-		t.Errorf("Create of a kind this milestone does not write = %v, want ErrKindUnknown", err)
+	unknown := productionSpec()
+	unknown.Kind = environment.Kind("preview")
+	if _, err := w.Create(ctx, owner, unknown); !errors.Is(err, environment.ErrKindUnknown) {
+		t.Errorf("Create of a kind that is not one of the three = %v, want ErrKindUnknown", err)
 	}
-	if _, err := w.Create(ctx, owner, environment.KindProduction, "production", nil, credential); !errors.Is(err, environment.ErrTargetsEmpty) {
+	noTarget := productionSpec()
+	noTarget.Targets = nil
+	if _, err := w.Create(ctx, owner, noTarget); !errors.Is(err, environment.ErrTargetsEmpty) {
 		t.Errorf("Create with no target = %v, want ErrTargetsEmpty", err)
 	}
-	if _, err := w.Create(ctx, record.Actor{}, environment.KindProduction, "production", []string{"/srv"}, credential); !errors.Is(err, record.ErrKindUnknown) {
+	noProject := productionSpec()
+	noProject.ProjectID = ""
+	if _, err := w.Create(ctx, owner, noProject); !errors.Is(err, environment.ErrProjectIDEmpty) {
+		t.Errorf("Create naming no project = %v, want ErrProjectIDEmpty", err)
+	}
+	if _, err := w.Create(ctx, record.Actor{}, productionSpec()); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("Create with no actor = %v, want ErrKindUnknown", err)
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+environment.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
-		values ('env_x', $1, 'human', 'owner', 'claimed', $2, 'staging', 'stg', '/srv', 'deploy.local', '', '', '')`,
-		environment.FormatVersion, record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
+		 targets, credential, platform_name, platform_credential, can_compose_on_demand,
+		 max_concurrent_candidate_environments, item_id, composed_from, seed_version, value_set_version,
+		 torn_down_at, torn_down_reason, withdrawn_at)
+		values ('env_x', $1, 'human', 'owner', 'claimed', $2, 'preview', $3, 'pre',
+		 'noshare /srv', 'deploy.local', 'local', 'platform.local', true, 0, '', '', '', '', '', '', '')`,
+		environment.FormatVersion, record.Now(), theProject); err == nil {
 		t.Error("the store accepted a kind written around the writer")
 	}
 	// A candidate's record names its item and a persistent one names none, which
 	// the store enforces in both directions.
 	if _, err := pool.Exec(ctx, `insert into `+environment.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
-		values ('env_y', $1, 'component', 'deploy', '', $2, 'candidate', 'candidate/none', '/srv', 'deploy.local', '', '', '')`,
-		environment.FormatVersion, record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
+		 targets, credential, platform_name, platform_credential, can_compose_on_demand,
+		 max_concurrent_candidate_environments, item_id, composed_from, seed_version, value_set_version,
+		 torn_down_at, torn_down_reason, withdrawn_at)
+		values ('env_y', $1, 'component', 'deployer', '', $2, 'candidate', $3, 'candidate/none',
+		 'noshare /srv', 'deploy.local', '', '', false, 0, '', '', '', '', '', '', '')`,
+		environment.FormatVersion, record.Now(), theProject); err == nil {
 		t.Error("the store accepted a candidate's environment naming no item")
 	}
 	if _, err := pool.Exec(ctx, `insert into `+environment.Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
-		values ('env_z', $1, 'human', 'owner', 'claimed', $2, 'production', 'production-2', '/srv', 'deploy.local', 'it_a', '', '')`,
-		environment.FormatVersion, record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
+		 targets, credential, platform_name, platform_credential, can_compose_on_demand,
+		 max_concurrent_candidate_environments, item_id, composed_from, seed_version, value_set_version,
+		 torn_down_at, torn_down_reason, withdrawn_at)
+		values ('env_z', $1, 'human', 'owner', 'claimed', $2, 'customer', $3, 'staging',
+		 'noshare /srv', 'deploy.local', 'local', 'platform.local', false, 0, 'it_a', '', '', '', '', '', '')`,
+		environment.FormatVersion, record.Now(), theProject); err == nil {
 		t.Error("the store accepted a persistent environment naming an item")
 	}
 }
@@ -177,110 +306,96 @@ func TestDDLListsEveryKind(t *testing.T) {
 	}
 }
 
-// TestAThresholdExistsOnlyWhereAnOwnerAuthoredOne: an absent row is the score
-// supplying the value, and re-authoring is one row rather than two.
-func TestAThresholdExistsOnlyWhereAnOwnerAuthoredOne(t *testing.T) {
+// TestAProductionPlatformComposesAnEnvironmentOnDemand: an environment per
+// candidate is the shape the design admits and nothing else, so a production
+// environment declaring a platform that cannot compose one is refused where it is
+// declared. A customer's environment is not, nothing being composed on demand
+// there.
+func TestAProductionPlatformComposesAnEnvironmentOnDemand(t *testing.T) {
+	ctx, _, w, _ := newTable(t)
+
+	cannot := productionSpec()
+	cannot.Platform.CanComposeOnDemand = false
+	if _, err := w.Create(ctx, owner, cannot); !errors.Is(err, environment.ErrPlatformCannotComposeOnDemand) {
+		t.Errorf("production on a platform that cannot compose on demand = %v, want ErrPlatformCannotComposeOnDemand", err)
+	}
+
+	none := productionSpec()
+	none.Platform = environment.Platform{}
+	if _, err := w.Create(ctx, owner, none); !errors.Is(err, environment.ErrPlatformIncomplete) {
+		t.Errorf("production declaring no platform = %v, want ErrPlatformIncomplete", err)
+	}
+
+	customer := productionSpec()
+	customer.Kind = environment.KindCustomer
+	customer.Name = "staging"
+	customer.Platform.CanComposeOnDemand = false
+	if _, err := w.Create(ctx, owner, customer); err != nil {
+		t.Errorf("a customer's environment on a platform that composes nothing on demand = %v, want it accepted", err)
+	}
+}
+
+// TestTheCeilingIsAuthoredOnProductionsRecord: a maximum concurrent candidate
+// environments is a count authored outright on the production environment record
+// beside the platform it declares, one per platform, nothing supplied.
+func TestTheCeilingIsAuthoredOnProductionsRecord(t *testing.T) {
 	ctx, pool, w, token := newTable(t)
 
-	production, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, []string{"/srv"}, credential)
+	production, err := w.Create(ctx, owner, productionSpec())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	if production.MaxConcurrentCandidateEnvironments != 0 {
+		t.Errorf("an unauthored ceiling reads back as %d, want nothing authored", production.MaxConcurrentCandidateEnvironments)
+	}
 
-	authored, err := environment.GateThreshold(ctx, pool, production.ID, "merge_to_master")
+	customer := productionSpec()
+	customer.Kind = environment.KindCustomer
+	customer.Name = "staging"
+	customer.Platform.CanComposeOnDemand = false
+	other, err := w.Create(ctx, owner, customer)
 	if err != nil {
-		t.Fatalf("GateThreshold: %v", err)
-	}
-	if authored.Present {
-		t.Errorf("an unauthored threshold reads back as %+v", authored)
+		t.Fatalf("a customer's environment: %v", err)
 	}
 
-	for _, threshold := range []float64{0.4, 0.2} {
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("Begin: %v", err)
-		}
-		if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "merge_to_master", threshold); err != nil {
-			t.Fatalf("SetGateThreshold(%v): %v", threshold, err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("Commit: %v", err)
-		}
-	}
-
-	authored, err = environment.GateThreshold(ctx, pool, production.ID, "merge_to_master")
-	if err != nil {
-		t.Fatalf("GateThreshold: %v", err)
-	}
-	if !authored.Present || authored.Number != 0.2 {
-		t.Errorf("the re-authored threshold reads back as %+v, want 0.2 present", authored)
-	}
-
-	var rows int
-	if err := pool.QueryRow(ctx, `select count(*) from `+environment.ThresholdTable).Scan(&rows); err != nil {
-		t.Fatalf("counting the threshold rows: %v", err)
-	}
-	if rows != 1 {
-		t.Errorf("two authorings of one row left %d rows, want 1", rows)
-	}
-
-	// Another row on the same environment is another threshold, not the same one.
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "deploy_to_production", 0.5); err != nil {
-		t.Fatalf("SetGateThreshold on a second row: %v", err)
+	if err := environment.SetMaxConcurrentCandidateEnvironments(ctx, tx, token, owner, production.ID, 8); err != nil {
+		t.Fatalf("SetMaxConcurrentCandidateEnvironments: %v", err)
+	}
+	err = environment.SetMaxConcurrentCandidateEnvironments(ctx, tx, token, owner, other.ID, 8)
+	if !errors.Is(err, environment.ErrNotAProductionEnvironment) {
+		t.Errorf("authoring the ceiling on a customer's environment = %v, want ErrNotAProductionEnvironment", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	deployRow, err := environment.GateThreshold(ctx, pool, production.ID, "deploy_to_production")
+
+	read, err := environment.Get(ctx, pool, production.ID)
 	if err != nil {
-		t.Fatalf("GateThreshold: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if !deployRow.Present || deployRow.Number != 0.5 {
-		t.Errorf("the second row's threshold reads back as %+v, want 0.5 present", deployRow)
+	if read.MaxConcurrentCandidateEnvironments != 8 {
+		t.Errorf("the ceiling reads back as %d, want 8", read.MaxConcurrentCandidateEnvironments)
+	}
+
+	// The store refuses a ceiling on a kind that is not production's.
+	if _, err := pool.Exec(ctx, `update `+environment.Table+`
+		set max_concurrent_candidate_environments = 4 where id = $1`, other.ID); err == nil {
+		t.Error("the store accepted a ceiling on a customer's environment")
 	}
 }
 
-// TestAThresholdOffTheScaleIsRefusedTwice: the score's number is between nothing
-// and one, so a threshold outside that compares against nothing the score can
-// produce. The writer refuses it and so does the store.
-func TestAThresholdOffTheScaleIsRefusedTwice(t *testing.T) {
-	ctx, pool, w, token := newTable(t)
-
-	production, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, []string{"/srv"}, credential)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "merge_to_master", 1.5); !errors.Is(err, environment.ErrThresholdOutOfRange) {
-		t.Errorf("SetGateThreshold(1.5) = %v, want ErrThresholdOutOfRange", err)
-	}
-	if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "", 0.5); !errors.Is(err, environment.ErrGateRowEmpty) {
-		t.Errorf("SetGateThreshold naming no row = %v, want ErrGateRowEmpty", err)
-	}
-
-	if _, err := pool.Exec(ctx, `insert into `+environment.ThresholdTable+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, gate_row, threshold)
-		values ('egt_x', $1, 'human', 'owner', 'claimed', $2, $3, 'merge_to_master', 1.5)`,
-		environment.FormatVersionThreshold, record.Now(), production.ID); err == nil {
-		t.Error("the store accepted a threshold off the scale written around the writer")
-	}
-}
-
-// TestTheCredentialIsAReferenceAndNoValue: nothing that renders this record
+// TestTheCredentialsAreReferencesAndNoValues: nothing that renders this record
 // renders a secret, which is the seam the store carries from the first record.
-func TestTheCredentialIsAReferenceAndNoValue(t *testing.T) {
+// The platform's credential is the second one on the record and reads the same
+// way.
+func TestTheCredentialsAreReferencesAndNoValues(t *testing.T) {
 	ctx, pool, w, _ := newTable(t)
 
-	created, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, []string{"/srv"}, credential)
+	created, err := w.Create(ctx, owner, productionSpec())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -292,157 +407,10 @@ func TestTheCredentialIsAReferenceAndNoValue(t *testing.T) {
 	if !strings.Contains(stored, credential.Name()) {
 		t.Errorf("the row does not name the credential reference: %s", stored)
 	}
+	if !strings.Contains(stored, composingPlatform.Credential.Name()) {
+		t.Errorf("the row does not name the platform credential reference: %s", stored)
+	}
 	if strings.Contains(stored, "sk-") {
 		t.Errorf("the row holds something that reads like a secret value: %s", stored)
-	}
-}
-
-// deployAgent is the candidate kind's writer: the one component that reaches a
-// deploy target at all is the one that reaches environments.
-var deployAgent = record.Actor{Kind: record.KindComponent, Key: "deploy"}
-
-// TestACandidatesEnvironmentIsComposedRecomposedAndTornDown is the candidate
-// kind's whole life: composed at the approval of the gate that decides its deploy,
-// named for the item so two candidates of one service cannot collide, recomposed at
-// a re-verification, and torn down at the merge with the row kept — because the
-// deploy records naming it would otherwise point at nothing.
-func TestACandidatesEnvironmentIsComposedRecomposedAndTornDown(t *testing.T) {
-	ctx, pool, _, token := newTable(t)
-	candidates := environment.NewCandidates(pool, token)
-	const itemID = "it_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
-	composed := []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_one"}}
-	env, err := candidates.Compose(ctx, deployAgent, itemID, []string{"/srv/candidate"}, credential, composed)
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-	if env.Kind != environment.KindCandidate || env.Name != environment.NameForItem(itemID) {
-		t.Errorf("the environment is kind %s named %q, want a candidate's named %q",
-			env.Kind, env.Name, environment.NameForItem(itemID))
-	}
-	if !env.Live() {
-		t.Error("a freshly composed environment is not live")
-	}
-
-	read, found, err := environment.ForItem(ctx, pool, itemID)
-	if err != nil || !found {
-		t.Fatalf("ForItem = found %v, %v", found, err)
-	}
-	if read.ID != env.ID || !slices.Equal(read.ComposedFrom, composed) {
-		t.Errorf("ForItem = %+v, want %s composed from %+v", read, env.ID, composed)
-	}
-	if live, err := environment.CountLiveCandidates(ctx, pool); err != nil || live != 1 {
-		t.Fatalf("CountLiveCandidates = %d, %v", live, err)
-	}
-
-	// A second call for one item is refused: the environment is the item's and
-	// persists across a rebuild, so a rebuild recomposes rather than composing again.
-	if _, err := candidates.Compose(ctx, deployAgent, itemID, []string{"/srv/candidate"}, credential, nil); err == nil {
-		t.Error("a second Compose for one item was accepted, and the name is derived from the item")
-	}
-
-	// Recomposed: the dependencies' current releases have moved since, and what is
-	// stored is what was put there.
-	moved := []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_two"}}
-	if err := candidates.Recompose(ctx, env.ID, moved); err != nil {
-		t.Fatalf("Recompose: %v", err)
-	}
-	if read, _, err = environment.ForItem(ctx, pool, itemID); err != nil {
-		t.Fatalf("ForItem after Recompose: %v", err)
-	}
-	if !slices.Equal(read.ComposedFrom, moved) {
-		t.Errorf("the environment was recomposed from %+v, want %+v", read.ComposedFrom, moved)
-	}
-
-	if err := candidates.TearDown(ctx, env.ID); err != nil {
-		t.Fatalf("TearDown: %v", err)
-	}
-	if read, _, err = environment.ForItem(ctx, pool, itemID); err != nil {
-		t.Fatalf("ForItem after TearDown: %v", err)
-	}
-	if read.Live() {
-		t.Error("the environment reads as live after teardown")
-	}
-	if _, err := time.Parse(record.TimeLayout, read.TornDownAt); err != nil {
-		t.Errorf("the teardown time is %q: %v", read.TornDownAt, err)
-	}
-	if live, err := environment.CountLiveCandidates(ctx, pool); err != nil || live != 0 {
-		t.Errorf("CountLiveCandidates after teardown = %d, %v", live, err)
-	}
-
-	// Teardown does not run twice and nothing puts one back.
-	if err := candidates.TearDown(ctx, env.ID); !errors.Is(err, environment.ErrAlreadyTornDown) {
-		t.Errorf("TearDown again = %v, want ErrAlreadyTornDown", err)
-	}
-	if err := candidates.Recompose(ctx, env.ID, moved); !errors.Is(err, environment.ErrAlreadyTornDown) {
-		t.Errorf("Recompose after teardown = %v, want ErrAlreadyTornDown", err)
-	}
-}
-
-// TestTheCandidateWriterRefusesWhatIsNotACandidates: the two writers never write
-// or touch a record of the other's kind, and a composition entry names both halves.
-func TestTheCandidateWriterRefusesWhatIsNotACandidates(t *testing.T) {
-	ctx, pool, w, token := newTable(t)
-	candidates := environment.NewCandidates(pool, token)
-
-	production, err := w.Create(ctx, owner, environment.KindProduction,
-		environment.ProductionName, []string{"/srv"}, credential)
-	if err != nil {
-		t.Fatalf("creating production: %v", err)
-	}
-	if err := candidates.TearDown(ctx, production.ID); !errors.Is(err, environment.ErrNotACandidate) {
-		t.Errorf("tearing down production = %v, want ErrNotACandidate", err)
-	}
-	if err := candidates.Recompose(ctx, production.ID, nil); !errors.Is(err, environment.ErrNotACandidate) {
-		t.Errorf("recomposing production = %v, want ErrNotACandidate", err)
-	}
-	if err := candidates.TearDown(ctx, "env_missing"); !errors.Is(err, environment.ErrNotFound) {
-		t.Errorf("tearing down a missing environment = %v, want ErrNotFound", err)
-	}
-
-	if _, err := candidates.Compose(ctx, deployAgent, "", []string{"/srv"}, credential, nil); !errors.Is(err, environment.ErrItemIDEmpty) {
-		t.Errorf("Compose naming no item = %v, want ErrItemIDEmpty", err)
-	}
-	if _, err := candidates.Compose(ctx, deployAgent, "it_a", nil, credential, nil); !errors.Is(err, environment.ErrTargetsEmpty) {
-		t.Errorf("Compose with no target = %v, want ErrTargetsEmpty", err)
-	}
-	if _, err := candidates.Compose(ctx, record.Actor{}, "it_a", []string{"/srv"}, credential, nil); !errors.Is(err, record.ErrKindUnknown) {
-		t.Errorf("Compose with no actor = %v, want ErrKindUnknown", err)
-	}
-	if _, err := candidates.Compose(ctx, deployAgent, "it_a", []string{"/srv"}, credential,
-		[]environment.Composed{{ServiceID: "svc_dep"}}); err == nil {
-		t.Error("Compose accepted a composition entry naming a service and no release")
-	}
-
-	// ForItem on an item with no environment is not an error: every item has none
-	// until the candidate deploy gate approves.
-	if _, found, err := environment.ForItem(ctx, pool, "it_none"); err != nil || found {
-		t.Errorf("ForItem on an item with no environment = found %v, %v", found, err)
-	}
-}
-
-// TestACandidatesEnvironmentHoldsNothingAnOwnerAuthored: the record is created at
-// the gate that decides its deploy, so it cannot hold the threshold that decided
-// it. Authoring one on it is refused where it is authored rather than left to a
-// reader to notice a value nothing will ever compare against.
-func TestACandidatesEnvironmentHoldsNothingAnOwnerAuthored(t *testing.T) {
-	ctx, pool, _, token := newTable(t)
-	env, err := environment.NewCandidates(pool, token).Compose(ctx, deployAgent, "it_a",
-		[]string{"/srv/candidate"}, credential, nil)
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("beginning a transaction: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	err = environment.SetGateThreshold(ctx, tx, token, owner, env.ID, "merge_to_master", 0.4)
-	if !errors.Is(err, environment.ErrNotAnOwnersKind) {
-		t.Errorf("authoring a threshold on a candidate's environment = %v, want ErrNotAnOwnersKind", err)
-	}
-	if err := environment.SetGateThreshold(ctx, tx, token, owner, "env_missing", "merge_to_master", 0.4); !errors.Is(err, environment.ErrNotFound) {
-		t.Errorf("authoring a threshold on a missing environment = %v, want ErrNotFound", err)
 	}
 }

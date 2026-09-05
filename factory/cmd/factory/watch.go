@@ -415,7 +415,7 @@ func (p *path) Observed(ctx context.Context, c contractcheck.Candidate) ([]consu
 	if len(env.Targets) == 0 {
 		return nil, fmt.Errorf("factory: environment %s names no target to read an exchange from", c.EnvironmentID)
 	}
-	return readExchange(localtarget.ExchangeFile(env.Targets[0], c.BuildID))
+	return readExchange(localtarget.ExchangeFile(env.Targets[0].Address, c.BuildID))
 }
 
 // readExchange is the documents one file holds, one JSON object per line. A file

@@ -9,13 +9,15 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/item"
 )
 
 // TestARefusedReplyIsRetried is the limit doing its work: the implementer's
 // first reply is prose the protocol refuses, the second is a change, and the
-// take ships — with the item's implementation stage recording both attempts,
-// because the count the limit is compared against is the item's own.
+// take ships. The item's implementation stage records one attempt — an
+// attempt is counted once, on entry to author, and not once per model call —
+// and the agentrun records name both calls the retry made.
 func TestARefusedReplyIsRetried(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.model = &refusingModel{inner: &fakeModel{}, refusals: 1}
@@ -37,16 +39,32 @@ func TestARefusedReplyIsRetried(t *testing.T) {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
 	for _, st := range stages {
-		want := 1
-		if st.Stage == item.StageImplementation {
-			want = 2
+		if st.Attempts != 1 {
+			t.Errorf("stage %s attempts = %d, want 1", st.Stage, st.Attempts)
 		}
-		if st.Attempts != want {
-			t.Errorf("stage %s attempts = %d, want %d", st.Stage, st.Attempts, want)
+	}
+
+	runs, err := agentrun.ForItem(ctx, d.pool, c.itemID)
+	if err != nil {
+		t.Fatalf("reading the agent runs: %v", err)
+	}
+	var implementerCalls int
+	for _, r := range runs {
+		if r.Stage == string(item.StageImplementation) {
+			implementerCalls++
 		}
-		if st.SpendTokens <= 0 {
-			t.Errorf("stage %s spend = %d, a refused attempt spent tokens too", st.Stage, st.SpendTokens)
-		}
+	}
+	if implementerCalls != 2 {
+		t.Errorf("the implementer was called %d times, want the refused one and the one that succeeded", implementerCalls)
+	}
+	// The spec author's call is the interview's and is recorded against the
+	// intent, upstream of the item's first stage; the implementer's is the
+	// item's own.
+	if spendOnIntent(t, ctx, d, c.intentID) <= 0 {
+		t.Error("the intent's interview spent nothing")
+	}
+	if spendOn(t, ctx, d, c.itemID, item.StageImplementation) <= 0 {
+		t.Error("stage implementation spent nothing, and a refused attempt spent tokens too")
 	}
 }
 
@@ -76,15 +94,20 @@ func TestAStageOutOfAttemptsStops(t *testing.T) {
 		t.Errorf("the run reports %d candidates, a stage out of attempts finishes none", len(res.candidates))
 	}
 
-	// The item exists and carries the whole count, the stage having reported each
-	// attempt as it was made.
+	// The item exists at one attempt: an attempt is counted once, on entry to
+	// author, and not once per model call the retry made — the whole count of
+	// calls the limit spent is what the agentrun records carry.
+	var itemID string
 	var attempts int
-	if err := d.pool.QueryRow(ctx, `select attempts from `+item.StageTable+` where stage = $1`,
-		string(item.StageImplementation)).Scan(&attempts); err != nil {
+	if err := d.pool.QueryRow(ctx, `select item_id, attempts from `+item.StageTable+` where stage = $1`,
+		string(item.StageImplementation)).Scan(&itemID, &attempts); err != nil {
 		t.Fatalf("reading the implementation stage's attempts: %v", err)
 	}
-	if attempts != attemptLimit {
-		t.Errorf("the implementation stage records %d attempts, the limit spent %d", attempts, attemptLimit)
+	if attempts != 1 {
+		t.Errorf("the implementation stage records %d attempts, want 1", attempts)
+	}
+	if calls := spendCallsOn(t, ctx, d, itemID, item.StageImplementation); calls != attemptLimit {
+		t.Errorf("the agentrun records name %d implementer calls, the limit spent %d", calls, attemptLimit)
 	}
 }
 

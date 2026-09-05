@@ -112,10 +112,10 @@ func TestEveryFactorSitsInAGroupTheDesignNames(t *testing.T) {
 	}
 }
 
-// TestSuppliedCoversSixRowsAndNotTheCatalog: the score supplies a value for six
-// of gate policy's seven rows and none for the list of allowed predicate kinds,
+// TestSuppliedCoversTenRowsAndNotTheCatalog: the score supplies a value for ten
+// of gate policy's eleven rows and none for the list of allowed predicate kinds,
 // which no outcome teaches.
-func TestSuppliedCoversSixRowsAndNotTheCatalog(t *testing.T) {
+func TestSuppliedCoversTenRowsAndNotTheCatalog(t *testing.T) {
 	rows := map[string]bool{}
 	for _, d := range gatepolicy.Definitions {
 		value, supplied := Starting(d.Parameter)
@@ -134,8 +134,8 @@ func TestSuppliedCoversSixRowsAndNotTheCatalog(t *testing.T) {
 			t.Errorf("the supplied text does not name %s", d.Parameter)
 		}
 	}
-	if len(rows) != 6 {
-		t.Errorf("the score supplies values across %d rows, want six of the seven", len(rows))
+	if len(rows) != 10 {
+		t.Errorf("the score supplies values across %d rows, want ten of the eleven", len(rows))
 	}
 	// Every supplied value publishes its reason: a default nobody chose is still
 	// a decision, and it can stay invisible until it takes effect.

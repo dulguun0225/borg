@@ -30,7 +30,7 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 		parameter gatepolicy.Parameter
 		direction gatepolicy.Direction
 	}{
-		{[]string{"-parameter", "risk_threshold", "-subject", "gate_row:deploy_to_production"},
+		{[]string{"-parameter", "risk_threshold", "-subject", "gate_row:deploy_to_production", "-service", "checkout"},
 			gatepolicy.RiskThreshold, gatepolicy.DirectionAddsAHuman},
 		{[]string{"-parameter", "window_limit", "-subject", "service:checkout", "-bound", "2"},
 			gatepolicy.WindowLimit, gatepolicy.DirectionCeiling},
@@ -72,7 +72,7 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	}
 	onTheRecord := 0
 	for _, p := range safeguards {
-		if p.Subject.Kind == safeguard.SubjectFactorySettings {
+		if p.Subject.Kind == safeguard.SubjectPredicateKindsList {
 			onTheRecord++
 			if p.Subject.ID != fp.ID {
 				t.Errorf("the safeguard on the factory-wide settings record names %q, want %s", p.Subject.ID, fp.ID)
@@ -123,8 +123,8 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	}
 }
 
-// TestASafeguardRefusesWhatItCannotBind: a subject kind this milestone has no
-// record for, a subject that is not written kind:name, a bound of the wrong
+// TestASafeguardRefusesWhatItCannotBind: a subject naming a project nobody
+// declared, a subject that is not written kind:name, a bound of the wrong
 // shape, and a gate row that is not one of the rows built.
 func TestASafeguardRefusesWhatItCannotBind(t *testing.T) {
 	ctx, pool := newOwner(t)
@@ -135,7 +135,7 @@ func TestASafeguardRefusesWhatItCannotBind(t *testing.T) {
 		args []string
 	}{
 		{"nothing at all", nil},
-		{"a project", []string{"-parameter", "window_limit", "-subject", "project:payments", "-bound", "2"}},
+		{"a project nobody declared", []string{"-parameter", "window_limit", "-subject", "project:payments", "-bound", "2"}},
 		{"a subject with no kind", []string{"-parameter", "window_limit", "-subject", "checkout", "-bound", "2"}},
 		{"a gate row nobody built", []string{"-parameter", "risk_threshold", "-subject", "gate_row:deploy_to_staging"}},
 		{"a word where a bound belongs", []string{"-parameter", "window_limit", "-subject", "factory_settings:", "-bound", "two"}},

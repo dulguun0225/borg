@@ -33,7 +33,7 @@ func TestTheAllowedKindsAreTheOneListAndASafeguardMayOnlyExtendIt(t *testing.T) 
 		t.Fatalf("AuthorAllowedPredicateKinds: %v", err)
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.AllowedPredicateKinds,
-		safeguard.Subject{Kind: safeguard.SubjectFactorySettings, ID: in.settings.ID}, safeguard.Bound{List: []string{"schema", "status"}}); err != nil {
+		safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: in.settings.ID}, safeguard.Bound{List: []string{"schema", "status"}}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 

@@ -52,11 +52,15 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	}
 
 	// The revert and one more change, in one run. The revert is authored from the
-	// intent the health monitor already took in, it is not held, and it deploys
-	// ahead of the release the hold is holding — which is the one place the number
-	// does not order deploys.
+	// intent the health monitor already took in — named directly, package intent's
+	// rewrite offering no statement-keyed lookup [path.take] could resume it
+	// through otherwise — it is not held, and it deploys ahead of the release the
+	// hold is holding, which is the one place the number does not order deploys.
 	d.in = strings.NewReader(approvals)
-	res, err := run(ctx, d, of(theFourthStatement, rolled.revertStatement))
+	res, err := run(ctx, d, []asked{
+		{statement: theFourthStatement, services: []string{theService}},
+		{statement: rolled.revertStatement, services: []string{theService}, resumeIntentID: rolled.revertIntentID},
+	})
 	if err != nil {
 		t.Fatalf("the revert run stopped: %v\noutput so far:\n%s", err, out)
 	}
@@ -72,8 +76,8 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 		t.Fatalf("no candidate was authored from the revert intent %s; the run authored %d",
 			rolled.revertIntentID, len(res.candidates))
 	}
-	if !strings.Contains(out.String(), "is already waiting with this statement") {
-		t.Errorf("the run took in a second intent rather than working the one the rollback raised:\n%s", out)
+	if revert.intentID != rolled.revertIntentID {
+		t.Errorf("the revert candidate names intent %s, want the one the rollback raised, %s", revert.intentID, rolled.revertIntentID)
 	}
 	if revert.deployID == "" {
 		t.Fatalf("the revert did not deploy, and the hold does not hold its own revert:\n%s", out)

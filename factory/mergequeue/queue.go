@@ -257,7 +257,7 @@ func (q *Queue) one(ctx context.Context, it item.Item) (Outcome, error) {
 		return Outcome{}, err
 	}
 	if found {
-		if _, err := q.dispatch.Advance(ctx, Actor, it.ID, item.StageMerged); err != nil {
+		if _, err := q.dispatch.End(ctx, Actor, it.ID); err != nil {
 			return Outcome{}, err
 		}
 		return Outcome{ItemID: it.ID, Merged: true, Release: minted, BuildID: minted.BuildID}, nil
@@ -293,7 +293,7 @@ func (q *Queue) one(ctx context.Context, it item.Item) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
-	if _, err := q.dispatch.Advance(ctx, Actor, it.ID, item.StageMerged); err != nil {
+	if _, err := q.dispatch.End(ctx, Actor, it.ID); err != nil {
 		return Outcome{}, err
 	}
 	return Outcome{
@@ -330,7 +330,7 @@ func (q *Queue) reject(ctx context.Context, it item.Item, verified Verified) (Ou
 	if err != nil {
 		return Outcome{}, err
 	}
-	if _, err := q.dispatch.ReworkRequest(ctx, Actor, it.ID, item.StageImplementation); err != nil {
+	if _, err := q.dispatch.ReturnTo(ctx, Actor, it.ID, item.StageImplementation); err != nil {
 		return Outcome{}, err
 	}
 	return Outcome{

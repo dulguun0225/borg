@@ -8,7 +8,7 @@ import (
 
 // All is every parameter as it is in force against these subjects, in the order
 // gate policy's own table lists the rows. It is what the crude interface prints,
-// and it is the one place an owner can see that four of the eight are read by
+// and it is the one place an owner can see which of the thirteen are read by
 // nothing yet.
 func (r *Reader) All(ctx context.Context, s Subjects) ([]Effective, error) {
 	var all []Effective

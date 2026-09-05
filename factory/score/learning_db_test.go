@@ -15,6 +15,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/score"
@@ -45,7 +46,11 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	// A real service record, because what package policy reads in force is the
 	// authored value on that record and the supplied one where the field is empty —
 	// and a service nobody declared has no field to be empty.
-	svc, err := service.NewWriter(pool, token).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
+	prj, err := project.NewWriter(pool, token).Create(ctx, decompositionActor, "storefront")
+	if err != nil {
+		t.Fatalf("creating the project: %v", err)
+	}
+	svc, err := service.NewWriter(pool, token).Create(ctx, decompositionActor, "checkout", "/repos/checkout", prj.ID)
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}

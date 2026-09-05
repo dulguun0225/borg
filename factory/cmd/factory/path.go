@@ -60,6 +60,7 @@ type path struct {
 	human      record.Actor
 	lines      *bufio.Scanner
 	production environment.Environment
+	projectID  string
 	areaID     string
 
 	policy        *policy.Reader

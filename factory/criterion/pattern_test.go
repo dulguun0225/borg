@@ -16,7 +16,7 @@ func TestClassifyTheSixPatterns(t *testing.T) {
 		"While a deploy is running, the system shall refuse a second one.":                   criterion.PatternState,
 		"If the credential is unreachable, then the system shall append a wait.":             criterion.PatternUnwantedCondition,
 		"Where the service has a user interface, the system shall record its state machine.": criterion.PatternOptionalFeature,
-		"While the queue is full, when an item arrives, the system shall hold it outside.":   criterion.PatternStateWithEvent,
+		"While the queue is full, when an item arrives, the system shall hold it outside.":   criterion.PatternStateWithAnEventInsideIt,
 	}
 	for sentence, want := range sentences {
 		got, matched := criterion.Classify(sentence)
@@ -53,17 +53,17 @@ func TestClassifyRefusesASentenceFittingNoPattern(t *testing.T) {
 	}
 }
 
-// TestStateWithEventIsNotMisreadAsState is the ordering pattern.go states:
+// TestTheSixthPatternIsNotMisreadAsState is the ordering pattern.go states:
 // the state form is a prefix of the longer one, so the longer one is checked
 // first.
-func TestStateWithEventIsNotMisreadAsState(t *testing.T) {
+func TestTheSixthPatternIsNotMisreadAsState(t *testing.T) {
 	sentence := "While the window is open, when a page fires, the system shall escalate it."
 	got, matched := criterion.Classify(sentence)
 	if !matched {
 		t.Fatalf("Classify(%q) matched nothing", sentence)
 	}
-	if got != criterion.PatternStateWithEvent {
-		t.Errorf("Classify(%q) = %s, want %s", sentence, got, criterion.PatternStateWithEvent)
+	if got != criterion.PatternStateWithAnEventInsideIt {
+		t.Errorf("Classify(%q) = %s, want %s", sentence, got, criterion.PatternStateWithAnEventInsideIt)
 	}
 }
 

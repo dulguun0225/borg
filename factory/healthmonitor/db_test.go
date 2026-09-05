@@ -123,11 +123,13 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: theService, Branch: "item/" + intentID,
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
-	bl, err := g.builds.Create(ctx, theActor, it.ID, "commit-"+intentID)
+	bl, err := g.builds.Create(ctx, theActor, build.Draft{
+		ItemID: it.ID, ServiceID: theService, CommitHash: "commit-" + intentID, ArtifactDigest: "digest-" + intentID,
+	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
 	}
@@ -273,7 +275,7 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	// An item decomposed and not built: not shipped.
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: "in_working", ServiceID: theService, Branch: "item/working",
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
@@ -283,7 +285,9 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 
 	// Minted and never deployed: still not shipped. The number records that a change
 	// was accepted and not that it is live.
-	bl, err := g.builds.Create(ctx, theActor, it.ID, "commit-working")
+	bl, err := g.builds.Create(ctx, theActor, build.Draft{
+		ItemID: it.ID, ServiceID: theService, CommitHash: "commit-working", ArtifactDigest: "digest-working",
+	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
 	}
@@ -316,7 +320,7 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	// the work, and half a revert is not a revert.
 	second, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: "in_working", ServiceID: theService, Branch: "item/working-2",
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the second item: %v", err)
 	}

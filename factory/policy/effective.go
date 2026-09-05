@@ -85,7 +85,11 @@ func (r *Reader) authored(ctx context.Context, d gatepolicy.Definition, s Subjec
 		if err != nil {
 			return gatepolicy.Authored{}, nil, err
 		}
-		authored, err := factorysettings.AttemptLimit(ctx, r.pool, settings.ID, s.Stage)
+		subject, err := factorysettings.OfStage(s.Stage)
+		if err != nil {
+			return gatepolicy.Authored{}, nil, err
+		}
+		authored, err := factorysettings.AttemptLimit(ctx, r.pool, settings.ID, subject)
 		return authored, nil, err
 	case gatepolicy.AllowedPredicateKinds:
 		settings, err := factorysettings.Get(ctx, r.pool)
@@ -102,6 +106,28 @@ func (r *Reader) authored(ctx context.Context, d gatepolicy.Definition, s Subjec
 			return gatepolicy.Authored{}, nil, err
 		}
 		return a.ItemSizeTarget, nil, nil
+	case gatepolicy.AdvisorySeverity:
+		settings, err := factorysettings.Get(ctx, r.pool)
+		if err != nil {
+			return gatepolicy.Authored{}, nil, err
+		}
+		return settings.AdvisorySeverity, nil, nil
+	case gatepolicy.HeldOutSampleRate:
+		settings, err := factorysettings.Get(ctx, r.pool)
+		if err != nil {
+			return gatepolicy.Authored{}, nil, err
+		}
+		return settings.HeldOutSampleRate, nil, nil
+	case gatepolicy.ReviewSampleRate:
+		if s.Duty == 0 {
+			return gatepolicy.Authored{}, nil, nil
+		}
+		settings, err := factorysettings.Get(ctx, r.pool)
+		if err != nil {
+			return gatepolicy.Authored{}, nil, err
+		}
+		authored, err := factorysettings.ReviewSampleRate(ctx, r.pool, settings.ID, s.Duty)
+		return authored, nil, err
 	default:
 		if s.ServiceID == "" {
 			return gatepolicy.Authored{}, nil, nil
@@ -112,13 +138,17 @@ func (r *Reader) authored(ctx context.Context, d gatepolicy.Definition, s Subjec
 		}
 		switch d.Parameter {
 		case gatepolicy.WindowSize:
-			return svc.Parameters.WindowSize, nil, nil
+			return svc.Parameters.WindowSizeFor(gatepolicy.Quantity(s.Quantity)), nil, nil
 		case gatepolicy.WindowConfidence:
 			return svc.Parameters.WindowConfidence, nil, nil
+		case gatepolicy.WindowPower:
+			return svc.Parameters.WindowPowerFor(gatepolicy.Quantity(s.Quantity)), nil, nil
 		case gatepolicy.WindowCap:
 			return svc.Parameters.WindowCapSeconds, nil, nil
 		case gatepolicy.WindowLimit:
 			return svc.Parameters.WindowLimit, nil, nil
+		case gatepolicy.ExposureBound:
+			return svc.Parameters.ExposureBound, nil, nil
 		}
 		return gatepolicy.Authored{}, nil, fmt.Errorf("policy: nothing reads an authored %s", d.Parameter)
 	}
@@ -231,26 +261,46 @@ func factoryOwn(parameter gatepolicy.Parameter) []string {
 // and enumerating it here would be a second table able to disagree with gatepolicy's.
 func (r *Reader) safeguardsOn(ctx context.Context, parameter gatepolicy.Parameter, s Subjects) ([]safeguard.Safeguard, error) {
 	var subjects []safeguard.Subject
-	if s.GateRow != "" {
-		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: s.GateRow})
-	}
+	// The design keeps a gate row out of the safeguard subject kinds
+	// themselves: it is carried as the parameter's own key on the service
+	// subject rather than as a subject of its own, so a row-scoped safeguard
+	// needs a service to be keyed on.
 	if s.ServiceID != "" {
 		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectService, ID: s.ServiceID})
+		if s.GateRow != "" {
+			subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectService, ID: s.ServiceID, Key: s.GateRow})
+		}
+	}
+	// The attempt limit is per stage, one of the factory's own subjects the
+	// design lists directly, so a ceiling over it is drawn on the stage
+	// itself: the subject and the parameter's own key name the same thing.
+	if s.Stage != "" {
+		subjects = append(subjects,
+			safeguard.Subject{Kind: safeguard.SubjectStage, ID: string(s.Stage), Key: string(s.Stage)})
 	}
 	if s.AreaID != "" {
-		chain, err := area.Chain(ctx, r.pool, s.AreaID)
+		chain, _, err := area.Chain(ctx, r.pool, s.AreaID)
 		if err != nil {
 			return nil, err
 		}
 		for _, a := range chain {
 			subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectArea, ID: a.ID})
+			if s.GateRow != "" {
+				subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectArea, ID: a.ID, Key: s.GateRow})
+			}
 		}
 	}
-	settings, err := factorysettings.Get(ctx, r.pool)
-	if err != nil {
-		return nil, err
+	// The list of allowed predicate kinds is "this section's own list", the
+	// one subject the design names in its own right rather than as a
+	// narrowing of a service, a project or an area; every other factory-wide
+	// parameter is narrowed through the subjects above instead.
+	if parameter == gatepolicy.AllowedPredicateKinds {
+		settings, err := factorysettings.Get(ctx, r.pool)
+		if err != nil {
+			return nil, err
+		}
+		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: settings.ID})
 	}
-	subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectFactorySettings, ID: settings.ID})
 
 	return safeguard.BySubjects(ctx, r.pool, parameter, subjects)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -13,16 +14,17 @@ import (
 )
 
 // columns is every column of the item table, in the order [scanItem] reads
-// them. It is written once because four callers read an item — two here, the
-// advance, and the rework request — and a fifth column added to one of five select
-// lists is a bug the compiler cannot see.
+// them. It is written once because every read of an item goes through it — the
+// four here, and the row lock each write takes — and a column added to one of
+// several select lists is a bug the compiler cannot see.
 const columns = `id, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id, branch, stage,
-	waits_on, superseded_by, priority`
+	waits_on, requirements_answered, superseded_by, priority`
 
-// Two columns hold one id per line: the items this one waits on, and the items
-// that replaced it. An id is [record.NewID]'s alphabet, which holds no line
-// ending, so the separator needs no escaping — the arrangement package
-// environment's targets column already has.
+// Three columns hold one id per line: the items this one waits on, the
+// requirements it answers, and the items that replaced it. An id is
+// [record.NewID]'s alphabet, which holds no line ending, so the separator needs
+// no escaping — the arrangement package environment's targets column already
+// has.
 
 func joinIDs(ids []string) string { return strings.Join(ids, "\n") }
 
@@ -36,9 +38,9 @@ func splitIDs(stored string) []string {
 // scanItem reads one item row in [columns] order.
 func scanItem(row pgx.Row) (Item, error) {
 	var it Item
-	var kind, basis, stage, waitsOn, supersededBy string
+	var kind, basis, stage, waitsOn, requirementsAnswered, supersededBy string
 	err := row.Scan(&it.ID, &kind, &it.Actor.Key, &basis, &it.At, &it.IntentID, &it.ServiceID,
-		&it.AreaID, &it.Branch, &stage, &waitsOn, &supersededBy, &it.Priority)
+		&it.AreaID, &it.Branch, &stage, &waitsOn, &requirementsAnswered, &supersededBy, &it.Priority)
 	if err != nil {
 		return Item{}, err
 	}
@@ -46,6 +48,7 @@ func scanItem(row pgx.Row) (Item, error) {
 	it.Actor.Basis = record.Basis(basis)
 	it.Stage = Stage(stage)
 	it.WaitsOn = splitIDs(waitsOn)
+	it.RequirementsAnswered = splitIDs(requirementsAnswered)
 	it.SupersededBy = splitIDs(supersededBy)
 	return it, nil
 }
@@ -190,7 +193,7 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Item, error) {
 // reads every attempt at one stage across every item — the attempt limit being
 // per stage and not per item.
 func AllStages(ctx context.Context, pool *pgxpool.Pool) ([]StageTotals, error) {
-	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, spend_tokens
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, cleared_at_attempts
 		from `+StageTable+` order by at, stage`)
 	if err != nil {
 		return nil, fmt.Errorf("item: reading every stage: %w", err)
@@ -215,7 +218,7 @@ func AllStages(ctx context.Context, pool *pgxpool.Pool) ([]StageTotals, error) {
 // reported — the timestamp of the first report, with the stage name breaking
 // a tie. The id column orders nothing, being random bytes.
 func Stages(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]StageTotals, error) {
-	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, spend_tokens
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, cleared_at_attempts
 		from `+StageTable+` where item_id = $1 order by at, stage`, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("item: reading the stages of %s: %w", itemID, err)
@@ -242,11 +245,46 @@ func scanStage(row pgx.Row) (StageTotals, error) {
 	var s StageTotals
 	var kind, basis, stage string
 	if err := row.Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &s.ItemID,
-		&stage, &s.Attempts, &s.SpendTokens); err != nil {
+		&stage, &s.Attempts, &s.ClearedAtAttempts); err != nil {
 		return StageTotals{}, err
 	}
 	s.Actor.Kind = record.Kind(kind)
 	s.Actor.Basis = record.Basis(basis)
 	s.Stage = Stage(stage)
 	return s, nil
+}
+
+// PartlyDelivered reports whether an intent's items did not all ship: at least
+// one of them stopped without reaching production, and at least one sibling is
+// live. Nothing writes it down, so it is a reading and not a field — a human
+// taking over an escalated item can finish it, and the intent stops being
+// partly delivered with no event anywhere.
+//
+// An item stopped when it is dropped or escalated. A superseded item is not
+// stopped: an intent whose superseded items were replaced by a
+// re-decomposition is judged on the replacements. An item still moving is not
+// stopped either, which is why an intent whose items are all still moving is in
+// progress rather than partly delivered.
+//
+// Whether an item is live is not a fact this package holds — a production
+// deploy record naming the item's release, complete on every production target,
+// is — so live is the ids the caller read as live. Handing this an empty list
+// is an intent none of whose items shipped, which is stopped rather than partly
+// delivered, and the answer is false.
+func PartlyDelivered(ctx context.Context, pool *pgxpool.Pool, intentID string, live []string) (bool, error) {
+	items, err := ForIntent(ctx, pool, intentID)
+	if err != nil {
+		return false, err
+	}
+	stopped, shipped := false, false
+	for _, it := range items {
+		if slices.Contains(live, it.ID) {
+			shipped = true
+			continue
+		}
+		if it.Stage == StageDropped || it.Stage == StageEscalated {
+			stopped = true
+		}
+	}
+	return stopped && shipped, nil
 }

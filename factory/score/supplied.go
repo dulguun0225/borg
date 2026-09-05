@@ -97,7 +97,7 @@ func (v SuppliedValues) movedFor(p gatepolicy.Parameter) []Supplied {
 	return moved
 }
 
-// starting is the value the score supplies for six of gate policy's seven rows
+// starting is the value the score supplies for ten of gate policy's eleven rows
 // before any outcome has moved it. There is none for the list of allowed
 // predicate kinds, which no outcome teaches, so a factory with nothing authored
 // has an empty list and not a supplied one.
@@ -109,6 +109,14 @@ var starting = []Supplied{
 	{
 		Parameter: gatepolicy.RiskThreshold, Value: 0.30,
 		Why: "calibrated so that a service's first release — no earlier release to return to, an author nobody has approved, an area with no history — is decided by a human, and the item after it is not",
+	},
+	{
+		Parameter: gatepolicy.ExposureBound, Value: 0.70,
+		Why: "the exposure factor's value above which it stops being weighed and a human decides at Implementation instead, as a share of the factor's own scale; exposure only ever raises the number, so a low bound would put a human at nearly every diff that touches an outbound call or a credential",
+	},
+	{
+		Parameter: gatepolicy.AdvisorySeverity, Value: 7.0,
+		Why: "the bound at or above which a matching advisory rejects at Implementation and holds at Deploy to production, at the conventional boundary between a high and a medium severity on the advisory feed's own scale",
 	},
 	{
 		Parameter: gatepolicy.AttemptLimit, Value: 3,
@@ -127,12 +135,30 @@ var starting = []Supplied{
 		Why: "the confidence required of that comparison, at the convention a reader of a sequential test expects",
 	},
 	{
+		Parameter: gatepolicy.WindowPower, Value: 0.80,
+		Why: "how reliably a regression of the size in force is caught rather than reaching passed, at the convention a reader of a sequential test expects, one value for every quantity until an outcome moves one apart from the rest",
+	},
+	{
 		Parameter: gatepolicy.WindowCap, Value: 86400,
 		Why: "seconds — a day, after which a window that will never reach its volume ends unresolved rather than holding the next deploy indefinitely",
 	},
 	{
 		Parameter: gatepolicy.WindowLimit, Value: 1,
 		Why: "the serial factory: one window open per service, so a rollback undoes one release, which is the safe end of a parameter whose cost appears only at the first rollback",
+	},
+	{
+		// This is [SampleRate]'s own number and the two are not wired together:
+		// [HoldOut] reads the constant directly, because a sample that moved
+		// under a policy read of itself could not be reasoned about as a fixed
+		// rate. The starting value here is published so an owner reading the
+		// value in force sees the number [HoldOut] actually draws against
+		// rather than nothing.
+		Parameter: gatepolicy.HeldOutSampleRate, Value: SampleRate,
+		Why: "how often the score auto-passes a change it would have gated, to keep unbiased signal on the authors and areas it has stopped trusting; the constant the sample itself draws against, published here so it is not invisible to a reader of the value in force",
+	},
+	{
+		Parameter: gatepolicy.ReviewSampleRate, Value: 0.05,
+		Why: "how often a change the score would have auto-passed is put in front of a duty's human anyway, one value for every duty until an outcome moves one apart from the rest; low enough that it samples rather than replaces the gate it stands beside",
 	},
 }
 

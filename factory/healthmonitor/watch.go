@@ -271,7 +271,11 @@ func (h *HealthMonitor) recordCrossing(ctx context.Context, w Watching, rel rele
 	if revert {
 		statement = RevertStatement(w.Name, rel.Number)
 	}
-	raised, err := h.intake.TakeIn(ctx, Actor, intent.SourceDetector, statement)
+	raised, err := h.intake.TakeIn(ctx, Actor, intent.Arrival{
+		Source:    intent.SourceDetector,
+		Statement: statement,
+		Evidence:  intent.Evidence{ServiceID: w.ID, ReleaseID: rel.ID},
+	})
 	if err != nil {
 		return raisedCrossing{}, err
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -54,6 +55,9 @@ type installed struct {
 }
 
 // subjects is what a gate firing on this service in this area reads against.
+// Quantity names the error rate, the one quantity the health monitor reads at
+// this milestone, so a test reading the window's size or power through
+// [policy.Reader.All] finds what it authored against that quantity.
 func (i installed) subjects(row string) policy.Subjects {
 	return policy.Subjects{
 		GateRow:       row,
@@ -61,6 +65,7 @@ func (i installed) subjects(row string) policy.Subjects {
 		ServiceID:     i.service.ID,
 		AreaID:        i.area.ID,
 		Stage:         item.StageImplementation,
+		Quantity:      string(gatepolicy.QuantityErrorRate),
 	}
 }
 
@@ -99,15 +104,19 @@ func newFactory(t *testing.T) (context.Context, installed) {
 	}
 
 	factory := policy.NewFactory(pool, token)
-	install, err := factory.Install(ctx, owner, []string{"/srv/targets"}, credential)
+	install, err := factory.Install(ctx, owner, "acme", []string{"/srv/targets"}, credential, 8)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	svc, err := service.NewWriter(pool, token).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
+	prj, err := project.NewWriter(pool, token).Create(ctx, owner, "storefront")
+	if err != nil {
+		t.Fatalf("creating the project: %v", err)
+	}
+	svc, err := service.NewWriter(pool, token).Create(ctx, decompositionActor, "checkout", "/repos/checkout", prj.ID)
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
-	ar, err := area.NewWriter(pool, token).Declare(ctx, owner, "payments", "")
+	ar, err := area.NewWriter(pool, token).Declare(ctx, owner, "payments", area.InsideProject(prj.ID), area.Hazard{})
 	if err != nil {
 		t.Fatalf("declaring the area: %v", err)
 	}

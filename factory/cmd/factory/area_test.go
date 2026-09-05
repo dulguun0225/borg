@@ -14,6 +14,7 @@ import (
 // given as an id.
 func TestAnAreaIsDeclaredAndCanLieInsideAnother(t *testing.T) {
 	ctx, pool := newOwner(t)
+	install(t, ctx, pool)
 
 	if err := areaCommand([]string{"payments"}); err != nil {
 		t.Fatalf("area payments: %v", err)
@@ -26,7 +27,7 @@ func TestAnAreaIsDeclaredAndCanLieInsideAnother(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("ByName = %+v, %v, %v", inner, found, err)
 	}
-	chain, err := area.Chain(ctx, pool, inner.ID)
+	chain, _, err := area.Chain(ctx, pool, inner.ID)
 	if err != nil {
 		t.Fatalf("Chain: %v", err)
 	}

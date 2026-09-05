@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -188,6 +190,85 @@ func repoFiles(repo string) ([]agent.File, error) {
 		return nil, fmt.Errorf("factory: reading the repository's files: %w", err)
 	}
 	return files, nil
+}
+
+// createBuild writes the build record for one commit: the artifact digest —
+// sha256 of the commit hash, this substrate never producing a binary digest
+// of its own, the local target running the checked-out commit directly rather
+// than a built artifact of its own — and, for a Go module, its go.sum
+// resolved into entries with licence "unknown", this milestone having no
+// licence resolver. Criterion results of the build's own process are none:
+// nothing in this crude interface decides a criterion at that place yet.
+func (p *path) createBuild(ctx context.Context, repo, itemID, serviceID, commit string) (build.Build, error) {
+	sum := sha256.Sum256([]byte(commit))
+	draft := build.Draft{
+		ItemID:         itemID,
+		ServiceID:      serviceID,
+		CommitHash:     commit,
+		ArtifactDigest: "sha256:" + hex.EncodeToString(sum[:]),
+	}
+	resolved, coverage, couldNotDerive := resolvedGoModules(repo)
+	draft.Resolved = resolved
+	switch {
+	case couldNotDerive != "":
+		draft.ResolvedSetCouldNotDerive = couldNotDerive
+	case coverage != "":
+		draft.ResolvedSetCoverage = map[string]string{"go": coverage}
+	}
+	return p.builds.Create(ctx, buildActor, draft)
+}
+
+// resolvedGoModules reads go.sum in repo and returns one entry per module
+// version it names — the ecosystem, the source, the package, the version, the
+// digest go.sum itself carries, licence "unknown", and required_by the
+// module go.mod names. Where go.mod cannot be read, resolution could not be
+// performed at all and the reason is returned; where go.mod exists and go.sum
+// does not, the module has no third-party dependency and coverage is "go"
+// with no entries.
+func resolvedGoModules(repo string) (entries []build.ResolvedEntry, coverage, couldNotDerive string) {
+	module, err := readGoModule(repo)
+	if err != nil {
+		return nil, "", err.Error()
+	}
+	content, err := os.ReadFile(filepath.Join(repo, "go.sum"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, "go", ""
+	}
+	if err != nil {
+		return nil, "", err.Error()
+	}
+	seen := map[string]bool{}
+	for _, line := range lines(string(content)) {
+		fields := strings.Fields(line)
+		if len(fields) != 3 || strings.HasSuffix(fields[1], "/go.mod") {
+			continue
+		}
+		key := fields[0] + "@" + fields[1]
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		entries = append(entries, build.ResolvedEntry{
+			Ecosystem: "go", Source: "go.sum", Package: fields[0], Version: fields[1],
+			Digest: fields[2], Licence: "unknown", RequiredBy: module,
+		})
+	}
+	return entries, "go", ""
+}
+
+// readGoModule is the module path go.mod names, and an error where the file
+// cannot be read or names none.
+func readGoModule(repo string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	if err != nil {
+		return "", fmt.Errorf("factory: reading go.mod to resolve the build's dependencies: %w", err)
+	}
+	for _, line := range lines(string(content)) {
+		if after, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(after), nil
+		}
+	}
+	return "", errors.New("factory: go.mod names no module")
 }
 
 // copyFile copies a built binary from one environment's directory to another's,

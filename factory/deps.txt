@@ -51,6 +51,11 @@
 # transaction, and so are a consumer contract version and the predicates it introduces.
 # The alternative in each case is two writers of one table.
 #
+# service -> secretref is an import for a type. A service's repository credential
+# is held by name on the service record, one name on a host that cannot restrict
+# by branch and two where it can, and a second spelling of a secret's name here
+# would be a string a printer could render beside a value.
+#
 # consumercontract -> contract is the third and it is an import for a type. A
 # predicate is an assertion about one element of a contract, and deciding one
 # against a form is what the predicate means — so the vocabulary of a form belongs
@@ -95,7 +100,9 @@
 # value on — the environment, the service, the area, the factory-wide settings record,
 # and the safeguard — and calls the transaction-taking write each of them exposes,
 # appending the policy version inside the same transaction. It imports score
-# for the value the score supplies where an owner authored nothing.
+# for the value the score supplies where an owner authored nothing. It imports
+# project because Install creates the project and production's environment for
+# it in the same event, an owner's request naming the project by name alone.
 #
 # mergequeue imports gate because the shape of a decision's two payloads is
 # gate's: the queue's order is the time of the merge approval in the log, and a
@@ -131,12 +138,14 @@
 # healthmonitor is the health monitor and imports what it writes and what it reads
 # the graph through: the window and the incident it writes, the intake it raises a
 # revert intent through, the notifier it reports a rollback on, the policy for the
-# window's four parameters, and release, item, and deploy for the records a
-# rollback's target and a settled incident are computed from. boundary is the one
-# import that is arithmetic rather than a record: the window's size and confidence
-# resolve to a boundary. What it does not import is a repository or a deploy
-# target — a rollback is behind an interface its caller implements, and so is the
-# quantity it reads. That is the arrangement mergequeue already has.
+# window's parameters, and release, item, and deploy for the records a
+# rollback's target and a settled incident are computed from. gatepolicy is the
+# vocabulary the size and the power are keyed by — [gatepolicy.Quantity] — one of
+# which it reads today. boundary is the one import that is arithmetic rather than
+# a record: the window's size and confidence resolve to a boundary. What it does
+# not import is a repository or a deploy target — a rollback is behind an
+# interface its caller implements, and so is the quantity it reads. That is the
+# arrangement mergequeue already has.
 #
 # notifier imports people because routing is a read of that declaration, and
 # decisionlog because a page event is a row of the log. It imports nothing that
@@ -182,61 +191,75 @@ decisionlog -> record lease
 secretref
 targetseam -> secretref
 intent -> record lease
-service -> record gatepolicy lease
+project -> record lease
+service -> record gatepolicy lease secretref
 item -> record lease
+agentrun -> record lease
+inputmanifest -> record lease
+lastcheck -> record lease
 criterion -> lease record
 contract -> record
 consumercontract -> contract gatepolicy record
-artifact -> consumercontract criterion lease record
-build -> lease record
+screenstatemachine -> lease record
+artifact -> consumercontract criterion screenstatemachine lease record
+build -> criterion lease record
 release -> lease record
 deploy -> record secretref targetseam lease
 area -> record gatepolicy lease
 environment -> record gatepolicy secretref lease
 factorysettings -> record gatepolicy item lease
 safeguard -> record gatepolicy lease
+halt -> record lease
+legalhold -> record lease
 window -> boundary record lease
 incident -> record lease
 people -> record lease
 driftdetector -> record
 score -> record gatepolicy boundary artifact consumercontract contract decisionlog deploy incident item lease release window
-policy -> record gatepolicy area environment factorysettings item lease safeguard score secretref service
+policy -> record gatepolicy area environment factorysettings item lease project safeguard score secretref service
 gate -> criterion decisionlog lease policy record score
 mergequeue -> contract decisionlog gate item lease record release
 notifier -> decisionlog lease people record
-healthmonitor -> boundary deploy incident intent item notifier policy record release window
+healthmonitor -> boundary deploy gatepolicy incident intent item notifier policy record release window
 contractcheck -> consumercontract contract deploy gate intent policy record release service window
 agent -> secretref
 localtarget -> secretref targetseam
-postgres -> area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings incident intent item lease people policy release safeguard score service window
+postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease people policy project release safeguard score screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy healthmonitor incident intent item lease localtarget mergequeue notifier people policy postgres record release safeguard score secretref service targetseam window
+cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lease legalhold localtarget mergequeue notifier people policy postgres project record release safeguard score secretref service targetseam window
 cmd/driftdetector -> driftdetector deploy environment localtarget postgres release secretref service targetseam window
 
 test decisionlog -> secretref
 test intent -> postgres lease
+test project -> postgres lease
 test service -> postgres lease
 test item -> postgres lease
+test agentrun -> postgres lease
+test inputmanifest -> postgres lease
 test criterion -> postgres lease
 test contract -> postgres
 test consumercontract -> postgres artifact contract gatepolicy lease record
 test artifact -> postgres lease
 test build -> postgres lease
+test screenstatemachine -> postgres lease record
 test release -> postgres lease
 test deploy -> postgres lease
 test area -> postgres lease
 test environment -> postgres lease
+test lastcheck -> postgres lease
 test factorysettings -> postgres lease
 test safeguard -> postgres lease
+test halt -> postgres lease
+test legalhold -> postgres lease
 test window -> postgres lease
 test incident -> postgres lease
 test people -> postgres lease
 test notifier -> postgres decisionlog lease people record
 test healthmonitor -> postgres boundary build deploy item lease record release window
 test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lease policy record release safeguard secretref service window
-test score -> postgres artifact boundary consumercontract contract criterion deploy factorysettings gate policy release service window
-test policy -> postgres
+test score -> postgres artifact boundary consumercontract contract criterion deploy factorysettings gate policy project release service window
+test policy -> postgres project
 test gate -> postgres
 test mergequeue -> decisionlog gate item lease postgres record release
-test cmd/driftdetector -> build decisionlog lease record
+test cmd/driftdetector -> build decisionlog lease project record

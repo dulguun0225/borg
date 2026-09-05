@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -54,8 +55,8 @@ func withPool(command func(context.Context, *pgxpool.Pool, lease.Token) error) e
 	}
 	defer stopLease()
 	err = command(ctx, pool, token)
-	if errors.Is(err, policy.ErrNoVersion) || errors.Is(err, factorysettings.ErrNotFound) {
-		return fmt.Errorf("%w\nthe factory is not installed: the run's first take creates the factory-wide settings record and production's environment, and there is nothing to author on until it has", err)
+	if errors.Is(err, policy.ErrNoVersion) || errors.Is(err, factorysettings.ErrNotFound) || errors.Is(err, project.ErrNotFound) {
+		return fmt.Errorf("%w\nthe factory is not installed: the run's first take creates the factory-wide settings record, the project, and production's environment, and there is nothing to author on until it has", err)
 	}
 	return err
 }

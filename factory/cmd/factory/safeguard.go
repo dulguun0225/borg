@@ -19,23 +19,40 @@ import (
 	"github.com/dulguun0225/borg/factory/safeguard"
 )
 
+// -route-duty and -route-human are read and validated but not yet reached:
+// [policy.Factory.AddSafeguard] places every safeguard with [safeguard.Routing]'s
+// zero value, routing to the owner, because nothing above it composes a duty
+// or a named human to route to — package policy's own comment on the method
+// says so. A safeguard command naming either prints that it was not wired
+// rather than silently placing an unrouted safeguard.
+
 // safeguardCommand places a safeguard or withdraws one. The direction is not a
 // flag: it differs per parameter and points the same way in each, so an owner
 // chooses the subject and the bound and never which way the bound points.
 func safeguardCommand(args []string) error {
 	flags := flag.NewFlagSet("safeguard", flag.ContinueOnError)
 	name := flags.String("parameter", "", "the parameter to bind")
-	subject := flags.String("subject", "", "what the safeguard is drawn on, as kind:name — service:x, area:y, gate_row:merge_to_master, factory_settings:, contract_element:<service>/<contract>/<element>")
+	subject := flags.String("subject", "", "what the safeguard is drawn on, as kind:name — stage:x, service:x, project:x, area:x, gate_row:merge_to_master, contract_element:<service>/<contract>/<element>, design_system_component:x, factory_settings:, report_store:, drift_detector_last_check:")
+	serviceName := flags.String("service", "", "the service, for a safeguard on the risk threshold — a row-scoped safeguard is drawn on the service the row fires for")
 	bound := flags.String("bound", "", "the number the safeguard bounds by, a comma-separated list for the list of allowed predicate kinds, or kind[=argument] for a safeguard's predicate; a safeguard on the risk threshold takes none")
 	withdraw := flags.String("withdraw", "", "the id of a safeguard to withdraw instead of placing one")
 	human := flags.String("human", "owner", "the owner placing it")
+	routeDuty := flags.Int("route-duty", 0, "route this safeguard's rows to one of the owner's twelve duties (not yet wired to policy; see the comment above)")
+	routeHuman := flags.String("route-human", "", "route this safeguard's rows to a named human's per-person key (not yet wired to policy; see the comment above)")
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	routing := safeguard.Routing{Duty: *routeDuty, HumanKey: *routeHuman}
+	if err := routing.Validate(); err != nil {
 		return err
 	}
 
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		factory := policy.NewFactory(pool, token)
 		actor := owner(*human)
+		if routing.Duty != 0 || routing.HumanKey != "" {
+			fmt.Println("-route-duty and -route-human are not yet wired to policy.Factory.AddSafeguard; this safeguard routes to the owner")
+		}
 
 		if *withdraw != "" {
 			version, err := factory.WithdrawSafeguard(ctx, actor, *withdraw)
@@ -54,7 +71,7 @@ func safeguardCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		on, err := safeguardSubject(ctx, pool, *subject)
+		on, err := safeguardSubject(ctx, pool, *subject, *serviceName)
 		if err != nil {
 			return err
 		}
@@ -87,32 +104,73 @@ func safeguardCommand(args []string) error {
 	})
 }
 
-// safeguardSubject reads a subject written as kind:name and resolves the name to the
-// record's id where the kind names a record. The factory-wide settings record takes no
-// name, being the one there is.
-func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written string) (safeguard.Subject, error) {
+// safeguardSubject reads a subject written as kind:name and resolves the name
+// to the record's id where the kind names one. The nine kinds package
+// safeguard defines are the "reaching" subjects the design names; "gate_row"
+// is not a tenth kind but this command's own shorthand for the risk
+// threshold's subject — package policy's own [Reader] reads a row-scoped
+// safeguard drawn on the service the row fires for, keyed by the row (its
+// effective.go: "a row-scoped safeguard needs a service to be keyed on"), so a
+// safeguard on a gate row is drawn on -service with the row as
+// [safeguard.Subject.Key], and refuses where -service names none.
+func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceName string) (safeguard.Subject, error) {
 	kind, name, found := strings.Cut(written, ":")
 	if !found {
 		return safeguard.Subject{}, fmt.Errorf("factory safeguard: a subject is written kind:name, not %q", written)
 	}
+	if kind == "gate_row" {
+		if _, err := gate.Actions(gate.Row(name)); err != nil {
+			return safeguard.Subject{}, err
+		}
+		svc, err := namedService(ctx, pool, serviceName)
+		if err != nil {
+			return safeguard.Subject{}, err
+		}
+		return safeguard.Subject{Kind: safeguard.SubjectService, ID: svc.ID, Key: name}, nil
+	}
 	switch safeguard.SubjectKind(kind) {
+	case safeguard.SubjectStage:
+		// A stage names no record of its own; the design reaches the gate row
+		// that decides a role prompt version for it by the name alone.
+		if name == "" {
+			return safeguard.Subject{}, fmt.Errorf("factory safeguard: a stage subject names the stage, not %q", written)
+		}
+		return safeguard.Subject{Kind: safeguard.SubjectStage, ID: name}, nil
 	case safeguard.SubjectService:
 		svc, err := namedService(ctx, pool, name)
 		if err != nil {
 			return safeguard.Subject{}, err
 		}
 		return safeguard.Subject{Kind: safeguard.SubjectService, ID: svc.ID}, nil
+	case safeguard.SubjectProject:
+		prj, err := namedProject(ctx, pool, name)
+		if err != nil {
+			return safeguard.Subject{}, err
+		}
+		return safeguard.Subject{Kind: safeguard.SubjectProject, ID: prj.ID}, nil
 	case safeguard.SubjectArea:
 		ar, err := namedArea(ctx, pool, name)
 		if err != nil {
 			return safeguard.Subject{}, err
 		}
 		return safeguard.Subject{Kind: safeguard.SubjectArea, ID: ar.ID}, nil
-	case safeguard.SubjectGateRow:
-		if _, err := gate.Actions(gate.Row(name)); err != nil {
-			return safeguard.Subject{}, err
+	case safeguard.SubjectDesignSystemComponent:
+		// Nothing derives the design system's own components yet — package
+		// safeguard's doc.go says this kind's value is stored and read by
+		// nothing at this milestone — so the name is stored as given.
+		if name == "" {
+			return safeguard.Subject{}, fmt.Errorf("factory safeguard: a design-system-component subject names the component, not %q", written)
 		}
-		return safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: name}, nil
+		return safeguard.Subject{Kind: safeguard.SubjectDesignSystemComponent, ID: name}, nil
+	case safeguard.SubjectReportStore:
+		// The report store is not built and takes no name, the way the
+		// factory-wide settings record's own subject below does.
+		return safeguard.Subject{Kind: safeguard.SubjectReportStore}, nil
+	case safeguard.SubjectDriftDetectorLastCheck:
+		// The drift detector's store is outside this module and nothing
+		// derives a safeguard reading it yet; the name, where given, is a
+		// target address or a service id and is stored as given.
+		return safeguard.Subject{Kind: safeguard.SubjectDriftDetectorLastCheck, ID: name}, nil
 	case safeguard.SubjectContractElement:
 		// A contract element is named by its service, its contract, and the element —
 		// three names an owner has — and stored as the contract's id and the element,
@@ -138,7 +196,7 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written string) (
 				parts[0], parts[1])
 		}
 		return safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, parts[2])}, nil
-	case safeguard.SubjectFactorySettings:
+	case safeguard.SubjectPredicateKindsList:
 		// The record's own id, and not the word: there is one factory-wide settings
 		// record and it takes no name, but a mechanism reading safeguards on it reads
 		// them by that id, so a safeguard naming anything else applies to nothing.
@@ -146,7 +204,7 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written string) (
 		if err != nil {
 			return safeguard.Subject{}, err
 		}
-		return safeguard.Subject{Kind: safeguard.SubjectFactorySettings, ID: settings.ID}, nil
+		return safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: settings.ID}, nil
 	default:
 		return safeguard.Subject{}, fmt.Errorf("%w: %q", safeguard.ErrSubjectKindUnknown, kind)
 	}

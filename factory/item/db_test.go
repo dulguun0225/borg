@@ -92,6 +92,12 @@ func inSchema(t *testing.T, base, schema string) string {
 }
 
 var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+
+// oneProject is the project both the area and the service of a fixture item are
+// in. Create compares the two rather than storing either, so a test that gives
+// one value twice is an item whose area lies inside its service's project.
+const oneProject = "pr_00000000000000000000000000000000"
+
 var dispatchActor = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
 
 // oneItem is an item freshly decomposed, for the tests that need one to advance or
@@ -103,7 +109,7 @@ func oneItem(ctx context.Context, t *testing.T, decomposition *item.Decompositio
 		ServiceID: "svc_" + strings.Repeat("0", 32),
 		AreaID:    "ar_" + strings.Repeat("0", 32),
 		Branch:    "item/checkout-retry",
-	})
+	}, oneProject, oneProject, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

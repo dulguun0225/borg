@@ -306,7 +306,7 @@ func contractReply(s shape, named [][]string) (string, error) {
 			agent.File{Path: function + ".go", Content: fmt.Sprintf(
 				"package main\n\nfunc %s() string { return %q }\n", function, response[1])},
 			agent.File{Path: function + "_test.go", Content: fmt.Sprintf(
-				"package main\n\nimport \"testing\"\n\nfunc Test_%s(t *testing.T) {\n\tif %s() != %q {\n\t\tt.Fatal(%q)\n\t}\n}\n",
+				"package main\n\nimport \"testing\"\n\nfunc Test_%s_candidate_environment(t *testing.T) {\n\tif %s() != %q {\n\t\tt.Fatal(%q)\n\t}\n}\n",
 				id, function, response[1], function+" does not answer what the criterion requires")},
 		)
 	}

@@ -18,7 +18,8 @@ import (
 // rest of the factory is scoped against.
 func areaCommand(args []string) error {
 	flags := flag.NewFlagSet("area", flag.ContinueOnError)
-	inside := flags.String("inside", "", "the area this one lies inside, by name; empty at the outermost")
+	inside := flags.String("inside", "", "the area this one lies inside, by name; empty declares it inside -project directly")
+	projectName := flags.String("project", defaultProjectName, "the project this area lies inside, where -inside names no area")
 	human := flags.String("human", "owner", "the owner declaring it")
 
 	// The name is taken off the front before the flags are parsed, because
@@ -36,7 +37,7 @@ func areaCommand(args []string) error {
 	}
 
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		insideID := ""
+		at := area.Inside{}
 		if *inside != "" {
 			outer, found, err := area.ByName(ctx, pool, *inside)
 			if err != nil {
@@ -45,9 +46,15 @@ func areaCommand(args []string) error {
 			if !found {
 				return fmt.Errorf("factory area: no area is named %q, so %q cannot lie inside it", *inside, name)
 			}
-			insideID = outer.ID
+			at = area.InsideArea(outer.ID)
+		} else {
+			prj, err := namedProject(ctx, pool, *projectName)
+			if err != nil {
+				return err
+			}
+			at = area.InsideProject(prj.ID)
 		}
-		declared, err := area.NewWriter(pool, token).Declare(ctx, owner(*human), name, insideID)
+		declared, err := area.NewWriter(pool, token).Declare(ctx, owner(*human), name, at, area.Hazard{})
 		if err != nil {
 			return err
 		}

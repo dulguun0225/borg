@@ -4,9 +4,15 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/dulguun0225/borg/factory/area"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -23,8 +29,21 @@ import (
 // declared here, and both deploy gates hold on it. This interface declares a chain
 // rather than deducing a graph: the services are given in order, and each item waits
 // on the one before it.
-func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []string) ([]*candidate, error) {
+func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []string, requirementIDs []string) ([]*candidate, error) {
 	d := p.d
+
+	// The area's own project, read once: an item's area and its service agree
+	// by construction, which [item.Decomposition.Create] enforces by comparing
+	// the two. Where the run names no area there is nothing to compare.
+	areaProjectID := ""
+	if p.areaID != "" {
+		_, projectID, err := area.Chain(ctx, d.pool, p.areaID)
+		if err != nil {
+			return nil, err
+		}
+		areaProjectID = projectID
+	}
+
 	candidates := make([]*candidate, 0, len(services))
 	previous := ""
 	for n, name := range services {
@@ -37,7 +56,7 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			if err != nil {
 				return nil, err
 			}
-			svc, err = service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor, name, repo)
+			svc, err = service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor, name, repo, p.projectID)
 			if err != nil {
 				return nil, err
 			}
@@ -58,21 +77,23 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			branch = "item/" + in.ID + "/" + name
 		}
 		it, err := p.decomposition.Create(ctx, decompositionActor, item.New{
-			IntentID:  in.ID,
-			ServiceID: svc.ID,
-			AreaID:    p.areaID,
-			Branch:    branch,
-			WaitsOn:   waitsOn,
-		})
+			IntentID:             in.ID,
+			ServiceID:            svc.ID,
+			AreaID:               p.areaID,
+			Branch:               branch,
+			WaitsOn:              waitsOn,
+			RequirementsAnswered: requirementIDs,
+		}, areaProjectID, svc.ProjectID, nil)
 		if err != nil {
 			return nil, err
 		}
 		c := &candidate{
-			intentID: in.ID,
-			itemID:   it.ID,
-			svc:      svc,
-			branch:   branch,
-			waitsOn:  waitsOn,
+			intentID:       in.ID,
+			itemID:         it.ID,
+			svc:            svc,
+			branch:         branch,
+			waitsOn:        waitsOn,
+			requirementIDs: it.RequirementsAnswered,
 		}
 		candidates = append(candidates, c)
 		previous = it.ID
@@ -128,7 +149,11 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 		return true, nil
 	}
 
-	reDecompositions, err := p.intake.CountReDecomposition(ctx, decompositionActor, in.ID)
+	// Marking the intent re-decomposing is what stops every unmerged item of it
+	// while this Decomposition firing is open, and it is what advances the
+	// count the attempt limit is compared against — decomposition's own budget,
+	// a field beside the interview's rounds and never the same one.
+	reDecompositions, err := p.intake.MarkReDecomposing(ctx, decompositionActor, in.ID)
 	if err != nil {
 		return false, err
 	}
@@ -145,5 +170,44 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	fmt.Fprintf(p.d.out, "Rejected: %s\n", feedback)
 	fmt.Fprintf(p.d.out, "  every item of the set is superseded and re-decomposition %d is counted on intent %s\n", reDecompositions, in.ID)
 	fmt.Fprintln(p.d.out, "  the re-decomposition itself is not built: this interface is told what to decompose, so a bad decomposition is stopped here and not repaired")
+
+	limit, err := decompositionAttemptLimit(ctx, p.d.pool)
+	if err != nil {
+		return false, err
+	}
+	if reDecompositions > limit {
+		if _, err := p.intake.Escalate(ctx, decompositionActor, in.ID, limit); err != nil {
+			return false, err
+		}
+		fmt.Fprintf(p.d.out, "  re-decomposition %d exceeds the limit of %d; intent %s is escalated\n", reDecompositions, limit, in.ID)
+		return false, nil
+	}
+	// Nothing here re-decomposes, so the Decomposition firing that stopped
+	// unmerged items closes with nothing having replaced them.
+	if err := p.intake.ClearReDecomposing(ctx, decompositionActor, in.ID); err != nil {
+		return false, err
+	}
 	return false, nil
+}
+
+// decompositionAttemptLimit is the attempt limit in force for decomposition's
+// re-decompositions. Package policy's reader answers an item's stage alone —
+// [factorysettings.OfStage] refuses "decomposition", which is the intent's and
+// not an item's — so this reads the authored value directly and falls back to
+// what the score supplies where an owner authored none, which is the number
+// [policy.Reader] would resolve to with no safeguard clamping it.
+func decompositionAttemptLimit(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	settings, err := factorysettings.Get(ctx, pool)
+	if err != nil {
+		return 0, err
+	}
+	authored, err := factorysettings.AttemptLimit(ctx, pool, settings.ID, factorysettings.SubjectDecomposition)
+	if err != nil {
+		return 0, err
+	}
+	if authored.Present {
+		return int(authored.Number), nil
+	}
+	starting, _ := score.Starting(gatepolicy.AttemptLimit)
+	return int(starting.Value), nil
 }

@@ -110,14 +110,6 @@ func passCommand(args []string) error {
 // test drives the same code with a target of its own.
 func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref,
 	targetAt func(dir string) targetseam.Target) error {
-	production, found, err := environment.ByName(ctx, s.factory, environment.ProductionName)
-	if err != nil {
-		return err
-	}
-	if !found {
-		fmt.Fprintln(out, "The factory has no production environment record; there is nothing to check")
-		return nil
-	}
 	services, err := service.All(ctx, s.factory)
 	if err != nil {
 		return err
@@ -128,7 +120,20 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 	}
 
 	writer := driftdetector.NewWriter(s.own)
+	checkedAny := false
 	for _, svc := range services {
+		// Production is one record per project, and a service names its
+		// project, so it is read here rather than once for the whole pass —
+		// the arrangement that reads right whether every service is in one
+		// project or several.
+		production, found, err := environment.Production(ctx, s.factory, svc.ProjectID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		checkedAny = true
 		recorded, err := recordedFor(ctx, s.factory, svc.ID, production.ID)
 		if err != nil {
 			return err
@@ -140,11 +145,11 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 		for _, target := range production.Targets {
 			p := driftdetector.Pass{
 				ServiceID:         svc.ID,
-				Target:            target,
+				Target:            target.Address,
 				RecordedReleaseID: recorded.ReleaseID,
 				RecordedBuildID:   recorded.BuildID,
 			}
-			running, err := targetAt(target).ReadRunning(ctx, svc.Name, credential)
+			running, err := targetAt(target.Address).ReadRunning(ctx, svc.Name, credential)
 			if err != nil {
 				// Failing to reach a target is not a mismatch: a network blip would
 				// otherwise hold every production deploy, which is why the last check
@@ -162,6 +167,9 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 			}
 			report(out, svc.Name, p, written)
 		}
+	}
+	if !checkedAny {
+		fmt.Fprintln(out, "The factory has no production environment record; there is nothing to check")
 	}
 	return nil
 }

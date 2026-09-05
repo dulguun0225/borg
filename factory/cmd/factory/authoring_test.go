@@ -77,7 +77,11 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
-				authored, err := factorysettings.AttemptLimit(ctx, pool, fp.ID, item.StageImplementation)
+				subject, err := factorysettings.OfStage(item.StageImplementation)
+				if err != nil {
+					t.Fatalf("OfStage: %v", err)
+				}
+				authored, err := factorysettings.AttemptLimit(ctx, pool, fp.ID, subject)
 				if err != nil {
 					t.Fatalf("AttemptLimit: %v", err)
 				}
@@ -151,13 +155,14 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 	}
 
 	// Every authoring write appended a policy version, so the sequence is as long
-	// as the writes plus the two the install made.
+	// as the writes plus the three the install made — the factory-wide settings
+	// record, the project, and production's environment for it.
 	versions, err := policy.All(ctx, pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	if len(versions) != 9 {
-		t.Errorf("%d policy versions exist, want two creations and seven authorings", len(versions))
+	if len(versions) != 10 {
+		t.Errorf("%d policy versions exist, want three creations and seven authorings", len(versions))
 	}
 }
 
@@ -187,12 +192,12 @@ func TestAuthoringRefusesWhatItCannotResolve(t *testing.T) {
 	}
 
 	// Nothing was authored, so nothing moved the policy version past the
-	// install's two creations.
+	// install's three creations.
 	versions, err := policy.All(ctx, pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	if len(versions) != 2 {
-		t.Errorf("%d policy versions exist after refused writes, want the install's two", len(versions))
+	if len(versions) != 3 {
+		t.Errorf("%d policy versions exist after refused writes, want the install's three", len(versions))
 	}
 }

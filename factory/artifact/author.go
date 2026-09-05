@@ -11,24 +11,6 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// By is who authored a version: which of the store's three callers it came
-// through, and the identity a per-author prior is kept on. The two are
-// separate facts and both are stored — the authorship says whether an agent, a
-// human at the stage, or a human at a gate wrote it, and the author says which
-// one, so a prior can be computed from that author's own work.
-//
-// It is a struct and not two arguments so that a caller cannot pass the
-// authorship where the author belongs, both being strings.
-type By struct {
-	Authorship Authorship
-	// Author is the model version for a version an agent wrote, and the
-	// person's name for one a human wrote. It is kept per model version and
-	// not per family: a new version accumulates a prior of its own, and keeping
-	// the old name for a new version would read the old version's outcomes as
-	// the new one's.
-	Author string
-}
-
 // NewestOfKind is the newest version of one kind on one item, and false where
 // the item has none. It is what the score follows to the author of the change
 // under decision: the build was made from the newest implementation version, so
@@ -38,8 +20,9 @@ func NewestOfKind(ctx context.Context, pool *pgxpool.Pool, itemID string, kind K
 	var storedKind, authorship, actorKind, actorBasis string
 	err := pool.QueryRow(ctx, selectArtifact+`
 		where item_id = $1 and kind = $2 order by version desc limit 1`, itemID, string(kind)).
-		Scan(&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID, &storedKind,
-			&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content)
+		Scan(&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID, &a.Role, &a.Subject, &storedKind,
+			&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content, &a.ContentDigest,
+			&a.ShippedBundleIdentity, &a.InputManifestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Artifact{}, false, nil
 	} else if err != nil {

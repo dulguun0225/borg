@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -90,15 +91,21 @@ func inSchema(t *testing.T, base, schema string) string {
 
 var dispatch = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
 
+// draftOf is one draft naming itemID, serviceID and commit, with an artifact
+// digest every draft this file writes needs and does not otherwise care about.
+func draftOf(itemID, serviceID, commit string) build.Draft {
+	return build.Draft{ItemID: itemID, ServiceID: serviceID, CommitHash: commit, ArtifactDigest: "sha256:" + commit}
+}
+
 func TestCreateWritesTheRecordOnce(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
-	itemID := record.NewID("it")
-	created, err := w.Create(ctx, dispatch, itemID, "0badc0de0badc0de0badc0de0badc0de0badc0de")
+	itemID, serviceID := record.NewID("it"), record.NewID("svc")
+	created, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "0badc0de0badc0de0badc0de0badc0de0badc0de"))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if created.ItemID != itemID || created.CommitHash != "0badc0de0badc0de0badc0de0badc0de0badc0de" {
+	if created.ItemID != itemID || created.ServiceID != serviceID || created.CommitHash != "0badc0de0badc0de0badc0de0badc0de0badc0de" {
 		t.Errorf("Create returned %+v, which does not name what it was given", created)
 	}
 	if _, err := time.Parse(record.TimeLayout, created.At); err != nil {
@@ -109,25 +116,25 @@ func TestCreateWritesTheRecordOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if read != created {
+	if !reflect.DeepEqual(read, created) {
 		t.Errorf("Get = %+v, want the record Create returned, %+v", read, created)
 	}
 }
 
 func TestASecondBuildOfOneCommitIsRefused(t *testing.T) {
 	ctx, _, w := newTable(t)
-	itemID := record.NewID("it")
+	itemID, serviceID := record.NewID("it"), record.NewID("svc")
 
-	if _, err := w.Create(ctx, dispatch, itemID, "aaaa"); err != nil {
+	if _, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "aaaa")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := w.Create(ctx, dispatch, itemID, "aaaa"); err == nil {
+	if _, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "aaaa")); err == nil {
 		t.Error("a second record of the same item and commit was accepted")
 	}
-	if _, err := w.Create(ctx, dispatch, itemID, "bbbb"); err != nil {
+	if _, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "bbbb")); err != nil {
 		t.Errorf("a second commit of the same item was refused: %v", err)
 	}
-	if _, err := w.Create(ctx, dispatch, record.NewID("it"), "aaaa"); err != nil {
+	if _, err := w.Create(ctx, dispatch, draftOf(record.NewID("it"), serviceID, "aaaa")); err != nil {
 		t.Errorf("the same commit for another item was refused: %v", err)
 	}
 }
@@ -135,41 +142,42 @@ func TestASecondBuildOfOneCommitIsRefused(t *testing.T) {
 func TestAnEmptyCommitHashIsRefusedTwice(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
-	if _, err := w.Create(ctx, dispatch, record.NewID("it"), ""); !errors.Is(err, build.ErrCommitHashEmpty) {
+	if _, err := w.Create(ctx, dispatch, draftOf(record.NewID("it"), record.NewID("svc"), "")); !errors.Is(err, build.ErrCommitHashEmpty) {
 		t.Errorf("Create = %v, want %v", err, build.ErrCommitHashEmpty)
 	}
 
 	// Around the writer, the CHECK constraint is what refuses it.
-	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash)
-		values ($1, $2, 'component', 'dispatch', '', $3, $4, '')`,
-		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"))
+	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity)
+		values ($1, $2, 'component', 'dispatch', '', $3, $4, $5, '', 'sha256:x', '', '', '', '', '')`,
+		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"), record.NewID("svc"))
 	if err == nil {
 		t.Error("the store accepted a build with no commit hash")
 	}
 }
 
-// TestAnEmptyItemIDIsRefusedTwice is this package's link column. An empty link
-// names nothing, so it is refused by the writer and by the store, the way
-// every other required field is; record's doc.go states what a link is checked
-// for.
-func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
+// TestAnEmptyServiceIDIsRefusedTwice is this package's required link column.
+// item_id may be empty — a search build names a service and no item — but
+// service_id is required on every build, refused by the writer and by the
+// store, the way every other required field is; record's doc.go states what a
+// link is checked for.
+func TestAnEmptyServiceIDIsRefusedTwice(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
-	if _, err := w.Create(ctx, dispatch, "", "aaaa"); !errors.Is(err, build.ErrItemIDEmpty) {
-		t.Errorf("Create = %v, want %v", err, build.ErrItemIDEmpty)
+	if _, err := w.Create(ctx, dispatch, draftOf(record.NewID("it"), "", "aaaa")); !errors.Is(err, build.ErrServiceIDEmpty) {
+		t.Errorf("Create = %v, want %v", err, build.ErrServiceIDEmpty)
 	}
 
-	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash)
-		values ($1, $2, 'component', 'dispatch', '', $3, '', 'aaaa')`,
-		record.NewID(build.IDPrefix), build.FormatVersion, record.Now())
-	if err == nil || !strings.Contains(err.Error(), "item_id_present") {
-		t.Errorf("inserting a build naming no item = %v, want a violation of item_id_present", err)
+	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity)
+		values ($1, $2, 'component', 'dispatch', '', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', '')`,
+		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"))
+	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
+		t.Errorf("inserting a build naming no service = %v, want a violation of service_id_present", err)
 	}
 }
 
 func TestABadActorIsRefused(t *testing.T) {
 	ctx, _, w := newTable(t)
-	if _, err := w.Create(ctx, record.Actor{}, record.NewID("it"), "aaaa"); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := w.Create(ctx, record.Actor{}, draftOf(record.NewID("it"), record.NewID("svc"), "aaaa")); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("Create = %v, want %v", err, record.ErrKindUnknown)
 	}
 }
@@ -187,27 +195,27 @@ func TestGetOfNothingIsNotFound(t *testing.T) {
 // constraint and left without the record that is there.
 func TestForCommitAnswersWhichBuildIsAlreadyThere(t *testing.T) {
 	ctx, pool, w := newTable(t)
-	const itemID, commit = "it_a", "8bd35e6a5b0f1ee5f0f2f6f39c5d0f0f6a2b1c3d"
+	const itemID, serviceID, commit = "it_a", "svc_a", "8bd35e6a5b0f1ee5f0f2f6f39c5d0f0f6a2b1c3d"
 
-	if _, found, err := build.ForCommit(ctx, pool, itemID, commit); err != nil || found {
+	if _, found, err := build.ForCommit(ctx, pool, itemID, serviceID, commit); err != nil || found {
 		t.Fatalf("ForCommit before anything was built = found %v, %v", found, err)
 	}
 
-	made, err := w.Create(ctx, dispatch, itemID, commit)
+	made, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, commit))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	found, ok, err := build.ForCommit(ctx, pool, itemID, commit)
+	found, ok, err := build.ForCommit(ctx, pool, itemID, serviceID, commit)
 	if err != nil || !ok {
 		t.Fatalf("ForCommit = ok %v, %v", ok, err)
 	}
-	if found != made {
+	if !reflect.DeepEqual(found, made) {
 		t.Errorf("ForCommit = %+v, want the build that was made, %+v", found, made)
 	}
 
 	// Another item at the same commit is another build, the record being one per
 	// commit built for an item.
-	if _, ok, err := build.ForCommit(ctx, pool, "it_b", commit); err != nil || ok {
+	if _, ok, err := build.ForCommit(ctx, pool, "it_b", serviceID, commit); err != nil || ok {
 		t.Errorf("ForCommit for another item = ok %v, %v", ok, err)
 	}
 }

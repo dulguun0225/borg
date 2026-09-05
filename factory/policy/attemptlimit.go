@@ -15,7 +15,11 @@ func (r *Reader) AttemptLimit(ctx context.Context, s Subjects) (Effective, error
 	if err != nil {
 		return Effective{}, err
 	}
-	authored, err := factorysettings.AttemptLimit(ctx, r.pool, settings.ID, s.Stage)
+	subject, err := factorysettings.OfStage(s.Stage)
+	if err != nil {
+		return Effective{}, err
+	}
+	authored, err := factorysettings.AttemptLimit(ctx, r.pool, settings.ID, subject)
 	if err != nil {
 		return Effective{}, err
 	}

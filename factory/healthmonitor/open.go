@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/boundary"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/window"
@@ -70,6 +71,10 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 	if err != nil {
 		return window.Window{}, false, err
 	}
+	// The size and the power are authored per quantity; the health monitor reads
+	// only the error rate for now, a second quantity waiting on the health
+	// monitor observing more than one.
+	size := parameters.Size[gatepolicy.QuantityErrorRate]
 	version, err := policy.InForce(ctx, h.pool)
 	if err != nil {
 		return window.Window{}, false, err
@@ -81,7 +86,7 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 		ServiceID:       w.ID,
 		PassedAvailable: below && !heldOut,
 		HeldOut:         heldOut,
-		Size:            parameters.Size.Number,
+		Size:            size.Number,
 		Confidence:      parameters.Confidence.Number,
 		CapSeconds:      parameters.CapSeconds.Number,
 		Formula:         boundary.Formula,

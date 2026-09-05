@@ -49,8 +49,10 @@ func TestOneChangeShips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the questions: %v", err)
 	}
-	if len(questions) != 1 {
-		t.Fatalf("the intent has %d questions, one was asked", len(questions))
+	// Two questions: the spec author's own, answered with the scripted line,
+	// and the confirming round's, which this crude interface answers itself.
+	if len(questions) != 2 {
+		t.Fatalf("the intent has %d questions, want the spec author's and the confirming round's", len(questions))
 	}
 	if !questions[0].Answered() || questions[0].Answer != theAnswer {
 		t.Errorf("the question's answer = %q answered=%t, the human answered %q",
@@ -69,8 +71,8 @@ func TestOneChangeShips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
-	if len(stages) != 2 {
-		t.Fatalf("the item has %d stage rows, spec and implementation reported one each: %+v", len(stages), stages)
+	if len(stages) != 4 {
+		t.Fatalf("the item has %d stage rows, spec, implementation_plan, tasks and implementation each report one: %+v", len(stages), stages)
 	}
 	reported := map[item.Stage]bool{}
 	for _, st := range stages {
@@ -78,12 +80,20 @@ func TestOneChangeShips(t *testing.T) {
 		if st.Attempts != 1 {
 			t.Errorf("stage %s attempts = %d, each stage ran once", st.Stage, st.Attempts)
 		}
-		if st.SpendTokens <= 0 {
-			t.Errorf("stage %s spend = %d, each stage spent tokens", st.Stage, st.SpendTokens)
-		}
 	}
-	if !reported[item.StageSpec] || !reported[item.StageImplementation] {
-		t.Errorf("the reported stages are %v, spec and implementation were expected", stages)
+	// The spec author's call is the interview's and is recorded against the
+	// intent, upstream of the item's first stage; the implementer's is the
+	// item's own.
+	if spendOnIntent(t, ctx, d, c.intentID) <= 0 {
+		t.Error("the intent's interview spent no tokens, and the spec author was called there")
+	}
+	if spendOn(t, ctx, d, c.itemID, item.StageImplementation) <= 0 {
+		t.Error("stage implementation spent no tokens, and the model was called there")
+	}
+	for _, stage := range []item.Stage{item.StageSpec, item.StageImplementationPlan, item.StageTasks, item.StageImplementation} {
+		if !reported[stage] {
+			t.Errorf("the reported stages are %v, %s among the four between spec and implementation was expected", stages, stage)
+		}
 	}
 
 	// The release is number 1, and it names the build the re-verification made

@@ -93,18 +93,57 @@ func inSchema(t *testing.T, base, schema string) string {
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 var intake = record.Actor{Kind: record.KindComponent, Key: "intake"}
 
-func TestTakeInStartsUnrefined(t *testing.T) {
-	ctx, pool, in := newIntake(t)
-
-	taken, err := in.TakeIn(ctx, owner, intent.SourceOwner, "checkout should retry a failed charge once")
+// requested is an owner's intent, taken in and ready to be interviewed.
+func requested(t *testing.T, ctx context.Context, in *intent.Intake, statement string) intent.Intent {
+	t.Helper()
+	taken, err := in.TakeIn(ctx, owner, intent.Arrival{Source: intent.SourceOwner, Statement: statement})
 	if err != nil {
 		t.Fatalf("TakeIn: %v", err)
 	}
-	if taken.State != intent.StateUnrefined || taken.Rounds != 0 {
-		t.Errorf("a new intent is %s with %d rounds, want unrefined with 0", taken.State, taken.Rounds)
+	return taken
+}
+
+// crossing is one detector's evidence, used wherever a test needs an intent
+// the factory raised itself.
+var crossing = intent.Evidence{ServiceID: "sv_checkout", ReleaseID: "rl_9"}
+
+// raised is a detector's intent on the evidence given.
+func raised(t *testing.T, ctx context.Context, in *intent.Intake, evidence intent.Evidence, statement string) intent.Intent {
+	t.Helper()
+	taken, err := in.TakeIn(ctx, intake, intent.Arrival{
+		Source: intent.SourceDetector, Statement: statement, Evidence: evidence,
+		Tier: intent.Tier{Value: 1, PolicyVersion: "pv_1"},
+	})
+	if err != nil {
+		t.Fatalf("TakeIn a detector's intent: %v", err)
+	}
+	return taken
+}
+
+func TestTakeInStartsUnrefined(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+
+	taken, err := in.TakeIn(ctx, owner, intent.Arrival{
+		Source:       intent.SourceOwner,
+		Statement:    "checkout should retry a failed charge once",
+		ProjectID:    "pr_shop",
+		ConstraintID: "cn_pci",
+	})
+	if err != nil {
+		t.Fatalf("TakeIn: %v", err)
+	}
+	if taken.State != intent.StateUnrefined || taken.Rounds != 0 || taken.ReDecompositions != 0 {
+		t.Errorf("a new intent is %s with %d rounds and %d re-decompositions, want unrefined with 0 and 0",
+			taken.State, taken.Rounds, taken.ReDecompositions)
 	}
 	if taken.Source != intent.SourceOwner {
 		t.Errorf("the intent's source is %s, want owner", taken.Source)
+	}
+	if taken.ProjectID != "pr_shop" || taken.ConstraintID != "cn_pci" {
+		t.Errorf("the intent names project %q and constraint %q, want pr_shop and cn_pci", taken.ProjectID, taken.ConstraintID)
+	}
+	if taken.Tier.Written() || taken.IntendedEffect != "" || taken.Outcome != "" {
+		t.Errorf("nothing is judged on the way in, and this arrived judged: %+v", taken)
 	}
 	if _, err := time.Parse(record.TimeLayout, taken.At); err != nil {
 		t.Errorf("the intent's timestamp %q: %v", taken.At, err)
@@ -126,199 +165,172 @@ func TestTakeInStartsUnrefined(t *testing.T) {
 func TestTakeInRefusals(t *testing.T) {
 	ctx, _, in := newIntake(t)
 
-	if _, err := in.TakeIn(ctx, owner, intent.Source("weather"), "anything"); !errors.Is(err, intent.ErrSourceUnknown) {
-		t.Errorf("TakeIn with source weather = %v, want ErrSourceUnknown", err)
-	}
-	if _, err := in.TakeIn(ctx, owner, intent.SourceOwner, ""); !errors.Is(err, intent.ErrStatementEmpty) {
-		t.Errorf("TakeIn with no statement = %v, want ErrStatementEmpty", err)
-	}
-	if _, err := in.TakeIn(ctx, record.Actor{}, intent.SourceOwner, "anything"); !errors.Is(err, record.ErrKindUnknown) {
-		t.Errorf("TakeIn with no actor = %v, want record.ErrKindUnknown", err)
-	}
-}
-
-func TestAskStartsARound(t *testing.T) {
-	ctx, pool, in := newIntake(t)
-	taken, err := in.TakeIn(ctx, owner, intent.SourceOwner, "checkout should retry")
-	if err != nil {
-		t.Fatalf("TakeIn: %v", err)
-	}
-
-	first, err := in.Ask(ctx, intake, taken.ID, "Retry against which payment provider?")
-	if err != nil {
-		t.Fatalf("Ask: %v", err)
-	}
-	if first.Round != 1 {
-		t.Errorf("the first question is round %d, want 1", first.Round)
-	}
-	if first.Answered() || first.Answer != "" || first.AnsweredAt != "" {
-		t.Errorf("a new question reads as answered: %+v", first)
-	}
-
-	second, err := in.Ask(ctx, intake, taken.ID, "Once per charge or once per session?")
-	if err != nil {
-		t.Fatalf("Ask again: %v", err)
-	}
-	if second.Round != 2 {
-		t.Errorf("the second question is round %d, want 2", second.Round)
-	}
-
-	read, err := intent.Get(ctx, pool, taken.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if read.Rounds != 2 {
-		t.Errorf("the intent counts %d rounds, want 2", read.Rounds)
-	}
-
-	questions, err := intent.Questions(ctx, pool, taken.ID)
-	if err != nil {
-		t.Fatalf("Questions: %v", err)
-	}
-	if len(questions) != 2 || questions[0].ID != first.ID || questions[1].ID != second.ID {
-		t.Errorf("Questions = %+v, want the two asked in round order", questions)
-	}
-
-	if _, err := in.Ask(ctx, intake, "in_missing", "anything?"); !errors.Is(err, intent.ErrIntentNotFound) {
-		t.Errorf("Ask on a missing intent = %v, want ErrIntentNotFound", err)
-	}
-	if _, err := in.Ask(ctx, intake, taken.ID, ""); !errors.Is(err, intent.ErrQuestionEmpty) {
-		t.Errorf("Ask with no question = %v, want ErrQuestionEmpty", err)
-	}
-	// An empty link names nothing, and the writer refuses it the way it
-	// refuses every other required field. record's doc.go states what a link
-	// is checked for.
-	if _, err := in.Ask(ctx, intake, "", "anything?"); !errors.Is(err, intent.ErrIntentIDEmpty) {
-		t.Errorf("Ask naming no intent = %v, want ErrIntentIDEmpty", err)
+	for _, refused := range []struct {
+		name    string
+		actor   record.Actor
+		arrival intent.Arrival
+		want    error
+	}{
+		{"a source outside the three", owner,
+			intent.Arrival{Source: "weather", Statement: "anything"}, intent.ErrSourceUnknown},
+		{"no statement", owner,
+			intent.Arrival{Source: intent.SourceOwner}, intent.ErrStatementEmpty},
+		{"no actor", record.Actor{},
+			intent.Arrival{Source: intent.SourceOwner, Statement: "anything"}, record.ErrKindUnknown},
+		{"a detector's intent with no evidence", intake,
+			intent.Arrival{Source: intent.SourceDetector, Statement: "anything"}, intent.ErrEvidenceEmpty},
+		{"evidence on a request", owner,
+			intent.Arrival{Source: intent.SourceOwner, Statement: "anything", Evidence: crossing},
+			intent.ErrEvidenceOnARequest},
+		{"a tier with no policy version", intake,
+			intent.Arrival{Source: intent.SourceDetector, Statement: "anything", Evidence: crossing,
+				Tier: intent.Tier{Value: 2}}, intent.ErrTierIncomplete},
+		{"a tier on a request", owner,
+			intent.Arrival{Source: intent.SourceOwner, Statement: "anything",
+				Tier: intent.Tier{Value: 2, PolicyVersion: "pv_1"}}, intent.ErrRequesterOwed},
+	} {
+		if _, err := in.TakeIn(ctx, refused.actor, refused.arrival); !errors.Is(err, refused.want) {
+			t.Errorf("TakeIn with %s = %v, want %v", refused.name, err, refused.want)
+		}
 	}
 }
 
-func TestAnswerIsWriteOnce(t *testing.T) {
+// TestADetectorAttachesOnTheEvidence is the key the design gives these raises.
+// A detector raises an intent for a condition and not for an observation, so
+// before raising one it looks for an intent on the same evidence that has not
+// finished. A statement is not the key: two raises whose text differs are one
+// condition where the evidence is the same.
+func TestADetectorAttachesOnTheEvidence(t *testing.T) {
 	ctx, pool, in := newIntake(t)
-	taken, err := in.TakeIn(ctx, owner, intent.SourceOwner, "checkout should retry")
+
+	first := raised(t, ctx, in, crossing, "Revert release 9 of checkout: its window closed failed.")
+
+	found, ok, err := intent.OnEvidence(ctx, pool, crossing)
 	if err != nil {
-		t.Fatalf("TakeIn: %v", err)
+		t.Fatalf("OnEvidence: %v", err)
 	}
-	asked, err := in.Ask(ctx, intake, taken.ID, "Retry against which payment provider?")
-	if err != nil {
-		t.Fatalf("Ask: %v", err)
+	if !ok || found.ID != first.ID {
+		t.Fatalf("OnEvidence = %+v, %v, want the intent already raised on it", found, ok)
 	}
 
-	answered, err := in.Answer(ctx, owner, asked.ID, "The primary one only.")
-	if err != nil {
-		t.Fatalf("Answer: %v", err)
+	// Another release of the same service is other evidence and other work.
+	elsewhere := intent.Evidence{ServiceID: "sv_checkout", ReleaseID: "rl_10"}
+	if _, ok, err := intent.OnEvidence(ctx, pool, elsewhere); err != nil || ok {
+		t.Errorf("OnEvidence on another release = %v, %v, want nothing", ok, err)
 	}
-	if answered.Answer != "The primary one only." || !answered.Answered() {
-		t.Errorf("the answer was not written: %+v", answered)
-	}
-	if _, err := time.Parse(record.TimeLayout, answered.AnsweredAt); err != nil {
-		t.Errorf("answered_at %q: %v", answered.AnsweredAt, err)
-	}
-	// The row keeps the actor and the time of the ask.
-	if answered.Actor != asked.Actor || answered.At != asked.At {
-		t.Errorf("the answer rewrote the ask's actor or time: %+v", answered)
+	if _, ok, err := intent.OnEvidence(ctx, pool, intent.Evidence{}); err != nil || ok {
+		t.Errorf("OnEvidence on no evidence at all = %v, %v, want nothing", ok, err)
 	}
 
-	questions, err := intent.Questions(ctx, pool, taken.ID)
-	if err != nil {
-		t.Fatalf("Questions: %v", err)
-	}
-	if len(questions) != 1 || questions[0] != answered {
-		t.Errorf("Questions = %+v, want the answered question, %+v", questions, answered)
+	// An intent still open past its interview is still the intent on that
+	// evidence: matching on the statement stopped working at decomposition,
+	// and this does not.
+	confirmEnumerated(t, ctx, in, first.ID)
+	found, ok, err = intent.OnEvidence(ctx, pool, crossing)
+	if err != nil || !ok || found.ID != first.ID {
+		t.Errorf("OnEvidence on a refined intent = %+v, %v, %v, want the same intent", found, ok, err)
 	}
 
-	if _, err := in.Answer(ctx, owner, asked.ID, "No, both."); !errors.Is(err, intent.ErrAlreadyAnswered) {
-		t.Errorf("Answer on an answered question = %v, want ErrAlreadyAnswered", err)
+	// Finished is delivered or dropped, and nothing attaches to one.
+	if err := in.Delivered(ctx, intake, intent.Delivery{IntentID: first.ID}); err != nil {
+		t.Fatalf("Delivered: %v", err)
 	}
-	if _, err := in.Answer(ctx, owner, "q_missing", "anything"); !errors.Is(err, intent.ErrQuestionNotFound) {
-		t.Errorf("Answer on a missing question = %v, want ErrQuestionNotFound", err)
+	if _, ok, err := intent.OnEvidence(ctx, pool, crossing); err != nil || ok {
+		t.Errorf("OnEvidence on a delivered intent = %v, %v, want nothing", ok, err)
 	}
 }
 
-// TestAnEmptyAnswerIsRefused is the one write-once field a human types. An
-// empty answer would stamp the question answered with nothing in it, and the
-// retry after it is ErrAlreadyAnswered forever, so it is refused before it is
-// written.
-func TestAnEmptyAnswerIsRefused(t *testing.T) {
+// TestTheEvidenceKeyIsTheContractAndTheElement is deprecation's raise: two
+// marked elements of one contract are two removals, so the element is part of
+// the key and one raise does not stand for the other.
+func TestTheEvidenceKeyIsTheContractAndTheElement(t *testing.T) {
 	ctx, pool, in := newIntake(t)
-	taken, err := in.TakeIn(ctx, owner, intent.SourceOwner, "checkout should retry")
-	if err != nil {
-		t.Fatalf("TakeIn: %v", err)
-	}
-	asked, err := in.Ask(ctx, intake, taken.ID, "Retry against which payment provider?")
-	if err != nil {
-		t.Fatalf("Ask: %v", err)
-	}
 
-	if _, err := in.Answer(ctx, owner, asked.ID, ""); !errors.Is(err, intent.ErrAnswerEmpty) {
-		t.Errorf("Answer with no answer = %v, want ErrAnswerEmpty", err)
+	first := intent.Evidence{ContractID: "ct_orders", Element: "legacy_total"}
+	second := intent.Evidence{ContractID: "ct_orders", Element: "legacy_currency"}
+	raised(t, ctx, in, first, "Remove legacy_total from the orders contract.")
+
+	if _, ok, err := intent.OnEvidence(ctx, pool, second); err != nil || ok {
+		t.Errorf("OnEvidence on the second element = %v, %v, want nothing", ok, err)
 	}
-	// The refusal left the question unanswered, so the round is not spent.
-	read, err := intent.Questions(ctx, pool, taken.ID)
-	if err != nil {
-		t.Fatalf("Questions: %v", err)
-	}
-	if len(read) != 1 || read[0].Answered() {
-		t.Errorf("Questions = %+v, want the one question still unanswered", read)
-	}
-	if _, err := in.Answer(ctx, owner, asked.ID, "The primary one only."); err != nil {
-		t.Errorf("Answer after the refusal: %v, want the question still answerable", err)
+	raised(t, ctx, in, second, "Remove legacy_currency from the orders contract.")
+	for _, evidence := range []intent.Evidence{first, second} {
+		if _, ok, err := intent.OnEvidence(ctx, pool, evidence); err != nil || !ok {
+			t.Errorf("OnEvidence on %+v = %v, %v, want the raise for that element", evidence, ok, err)
+		}
 	}
 }
 
-func TestMarkRefinedIsOneTransition(t *testing.T) {
+// TestTheDeadlineIsWrittenWhenTheTriggerOccurs: the deadline is the trigger's
+// own time plus the constraint's period, and the trigger is later than the
+// arrival for the two triggers that are records and for a human's mark.
+func TestTheDeadlineIsWrittenWhenTheTriggerOccurs(t *testing.T) {
 	ctx, pool, in := newIntake(t)
-	taken, err := in.TakeIn(ctx, owner, intent.SourceOwner, "checkout should retry")
-	if err != nil {
-		t.Fatalf("TakeIn: %v", err)
-	}
+	taken := requested(t, ctx, in, "erase a customer's data on request")
 
-	if err := in.MarkRefined(ctx, intake, taken.ID); err != nil {
-		t.Fatalf("MarkRefined: %v", err)
+	if taken.Deadline != "" {
+		t.Errorf("an intent arrives with a deadline of %q", taken.Deadline)
+	}
+	deadline := record.FormatTime(time.Now().Add(72 * time.Hour))
+	if err := in.SetDeadline(ctx, owner, taken.ID, deadline); err != nil {
+		t.Fatalf("SetDeadline: %v", err)
 	}
 	read, err := intent.Get(ctx, pool, taken.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if read.State != intent.StateRefined {
-		t.Errorf("the intent is %s, want refined", read.State)
+	if read.Deadline != deadline {
+		t.Errorf("the deadline is %q, want %q", read.Deadline, deadline)
 	}
-
-	if err := in.MarkRefined(ctx, intake, taken.ID); !errors.Is(err, intent.ErrNotUnrefined) {
-		t.Errorf("MarkRefined on a refined intent = %v, want ErrNotUnrefined", err)
-	}
-	if err := in.MarkRefined(ctx, intake, "in_missing"); !errors.Is(err, intent.ErrIntentNotFound) {
-		t.Errorf("MarkRefined on a missing intent = %v, want ErrIntentNotFound", err)
+	if err := in.SetDeadline(ctx, owner, taken.ID, "in three days"); err == nil {
+		t.Error("SetDeadline with a deadline outside the layout was accepted")
 	}
 }
 
-// TestTheStoreRefusesAroundTheWriter inserts and updates by raw SQL, so what
-// it exercises is the CHECK constraints and not the writer's own refusals.
+// TestTheStoreRefusesAroundTheWriter inserts by raw SQL, so what it exercises
+// is the CHECK constraints and not the writer's own refusals.
 func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 	ctx, pool, in := newIntake(t)
-	taken, err := in.TakeIn(ctx, owner, intent.SourceOwner, "checkout should retry")
-	if err != nil {
-		t.Fatalf("TakeIn: %v", err)
-	}
+	taken := requested(t, ctx, in, "checkout should retry")
 
-	insertIntent := `insert into intent (id, format_version, actor_kind, actor_key, actor_key_basis, at, source, statement, state, rounds, re_decompositions)
-		values ($1, '` + intent.FormatVersion + `', 'human', 'person:owner', 'claimed', $2, $3, $4, $5, $6, 0)`
+	insertIntent := `insert into intent (id, format_version, actor_kind, actor_key, actor_key_basis, at,
+		source, statement, state, rounds, re_decompositions, tier, tier_policy_version, project_id,
+		intended_effect, evidence, deadline, constraint_id, sent_back_by, outcome)
+		values ($1, '` + intent.FormatVersion + `', 'human', 'person:owner', 'claimed', $2,
+		$3, $4, $5, $6, 0, $7, $8, '', $9, $10, $11, '', $12, $13)`
 	for _, refused := range []struct {
-		name       string
-		source     string
-		statement  string
-		state      string
-		rounds     int
-		constraint string
+		name                                    string
+		source, statement, state                string
+		rounds, tier                            int
+		tierVersion, effect, evidence, deadline string
+		sentBackBy, outcome                     string
+		constraint                              string
 	}{
-		{"a source outside the three", "weather", "anything", "unrefined", 0, "source_known"},
-		{"an empty statement", "owner", "", "unrefined", 0, "statement_present"},
-		{"a state outside the three", "owner", "anything", "done", 0, "state_known"},
-		{"negative rounds", "owner", "anything", "unrefined", -1, "rounds_not_negative"},
+		{"a source outside the three", "weather", "anything", "unrefined", 0, 0, "", "", "", "", "", "", "source_known"},
+		{"an empty statement", "owner", "", "unrefined", 0, 0, "", "", "", "", "", "", "statement_present"},
+		{"a state outside the six", "owner", "anything", "done", 0, 0, "", "", "", "", "", "", "state_known"},
+		{"negative rounds", "owner", "anything", "unrefined", -1, 0, "", "", "", "", "", "", "rounds_not_negative"},
+		{"a negative tier", "owner", "anything", "unrefined", 0, -1, "pv_1", "", "", "", "", "", "tier_not_negative"},
+		{"a tier with no policy version", "owner", "anything", "unrefined", 0, 2, "", "", "", "", "", "",
+			"tier_and_its_policy_version_together"},
+		{"a detector's intent with no evidence", "detector", "anything", "unrefined", 0, 0, "", "", "", "", "", "",
+			"evidence_on_the_factorys_own"},
+		{"evidence on a request", "owner", "anything", "unrefined", 0, 0, "", "", `{"service_id":"sv_1"}`, "", "", "",
+			"evidence_on_the_factorys_own"},
+		{"an intended effect on the factory's own", "detector", "anything", "unrefined", 0, 0, "", "who it is for",
+			`{"service_id":"sv_1"}`, "", "", "", "intended_effect_not_on_the_factorys_own"},
+		{"an outcome on the factory's own", "detector", "anything", "unrefined", 0, 0, "", "",
+			`{"service_id":"sv_1"}`, "", "", "the effect was had", "outcome_not_on_the_factorys_own"},
+		{"a deadline outside the layout", "owner", "anything", "unrefined", 0, 0, "", "", "", "tomorrow", "", "",
+			"deadline_is_time_layout"},
+		{"a cause outside the four", "owner", "anything", "unrefined", 0, 0, "", "", "", "", "somebody", "",
+			"sent_back_by_known"},
 	} {
 		_, err := pool.Exec(ctx, insertIntent,
 			record.NewID(intent.IDPrefix), record.Now(),
-			refused.source, refused.statement, refused.state, refused.rounds)
+			refused.source, refused.statement, refused.state, refused.rounds,
+			refused.tier, refused.tierVersion, refused.effect, refused.evidence, refused.deadline,
+			refused.sentBackBy, refused.outcome)
 		if err == nil || !strings.Contains(err.Error(), refused.constraint) {
 			t.Errorf("inserting %s = %v, want a violation of %s", refused.name, err, refused.constraint)
 		}
@@ -348,59 +360,11 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		}
 	}
 
-	// An empty link, at this package's one link column: the store refuses it
-	// around the writer too.
+	// An empty link, at one of this package's link columns: the store refuses
+	// it around the writer too.
 	if _, err := pool.Exec(ctx, insertQuestion,
 		record.NewID(intent.QuestionIDPrefix), record.Now(), "", 1, "anything?", "", "",
 	); err == nil || !strings.Contains(err.Error(), "intent_id_present") {
 		t.Errorf("inserting a question naming no intent = %v, want a violation of intent_id_present", err)
-	}
-}
-
-// TestTheReDecompositionCountIsAFieldOfItsOwnBesideTheRounds: both are counted against the same
-// attempt limit and both live on the intent, and they are two fields because they are
-// two stretches of work — an owner answering an escalated interview clears one alone.
-func TestTheReDecompositionCountIsAFieldOfItsOwnBesideTheRounds(t *testing.T) {
-	ctx, pool, intake := newIntake(t)
-
-	in, err := intake.TakeIn(ctx, owner, intent.SourceOwner, "a request that is decomposed wrong twice")
-	if err != nil {
-		t.Fatalf("TakeIn: %v", err)
-	}
-	if in.ReDecompositions != 0 {
-		t.Fatalf("an intent arrives with %d re-decompositions", in.ReDecompositions)
-	}
-
-	// One round of the interview, which must not move the re-decomposition count.
-	if _, err := intake.Ask(ctx, owner, in.ID, "which service?"); err != nil {
-		t.Fatalf("Ask: %v", err)
-	}
-	read, err := intent.Get(ctx, pool, in.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if read.Rounds != 1 || read.ReDecompositions != 0 {
-		t.Fatalf("after one round the intent stands at %d rounds and %d re-decompositions", read.Rounds, read.ReDecompositions)
-	}
-
-	for want := 1; want <= 2; want++ {
-		reached, err := intake.CountReDecomposition(ctx, owner, in.ID)
-		if err != nil {
-			t.Fatalf("CountReDecomposition: %v", err)
-		}
-		if reached != want {
-			t.Fatalf("the re-decomposition count reached %d, want %d", reached, want)
-		}
-	}
-	read, err = intent.Get(ctx, pool, in.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if read.Rounds != 1 || read.ReDecompositions != 2 {
-		t.Fatalf("the intent stands at %d rounds and %d re-decompositions, and one field would have spent the other's budget",
-			read.Rounds, read.ReDecompositions)
-	}
-	if _, err := intake.CountReDecomposition(ctx, owner, "in_nothing"); !errors.Is(err, intent.ErrIntentNotFound) {
-		t.Errorf("counting a re-decomposition on an intent that does not exist = %v", err)
 	}
 }

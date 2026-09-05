@@ -39,6 +39,19 @@ const (
 // nothing.
 const providers = "openrouter, anthropic"
 
+// defaultProjectName is what -project defaults to on every subcommand that
+// takes it: an install with one project needs never name it.
+const defaultProjectName = "default"
+
+// modelCredentialNameFor is the credential name [newModel] resolved the
+// model through, carried onto every agentrun record this run writes.
+func modelCredentialNameFor(provider string) string {
+	if provider == "anthropic" {
+		return anthropicCredentialName
+	}
+	return openRouterCredentialName
+}
+
 // newModel is the one place a provider name becomes a model. The switch is
 // exhaustive and its default is an error, so a name this interface does not
 // implement is refused at the flag rather than reaching a request.
@@ -130,7 +143,7 @@ func main() {
 // with, and the People declaration a page routes on — none of which has a screen
 // yet.
 const subcommands = "run, walk <deploy-id>, watch <service>, learn, approve <item-id>, contracts, " +
-	"area <name>, author, safeguard, policy, priority <item-id>, people [<human>]"
+	"area <name>, author, safeguard, halt, legal-hold, policy, priority <item-id>, people [<human>]"
 
 func dispatch(args []string) error {
 	if len(args) == 0 {
@@ -155,6 +168,10 @@ func dispatch(args []string) error {
 		return authorCommand(args[1:])
 	case "safeguard":
 		return safeguardCommand(args[1:])
+	case "halt":
+		return haltCommand(args[1:])
+	case "legal-hold":
+		return legalHoldCommand(args[1:])
 	case "policy":
 		return policyCommand(args[1:])
 	case "priority":
@@ -310,6 +327,7 @@ func runCommand(args []string) error {
 	flags.Var(&services, "service", "a service as name=path, the path being its git repository (created when absent); given once per service, and at least once")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
 	human := flags.String("human", "owner", "the deciding human's name, and the owner every authoring write is made as")
+	projectName := flags.String("project", defaultProjectName, "the project this run installs and works in, created where it does not exist")
 	areaName := flags.String("area", "", "the area the item is in, declared where it does not exist; without one the score reads no context factor and a human decides every gate of the item")
 	var raw stringList
 	flags.Var(&raw, "intent", "an intent's statement, given once per decomposition; `svcA,svcB: statement` decomposes one item per service named, each waiting on the one before it")
@@ -386,7 +404,8 @@ func runCommand(args []string) error {
 		token: token,
 		// The model's id is the author every version this run writes names, the
 		// per-author prior being kept per model version.
-		modelName: *model,
+		modelName:           *model,
+		modelCredentialName: modelCredentialNameFor(*provider),
 		// Paced around the provider client, so every call a stage makes —
 		// including a retry after a refused reply, which would otherwise follow
 		// the refusal with nothing in between — waits out the interval.
@@ -395,6 +414,7 @@ func runCommand(args []string) error {
 		// each candidate environment's is a directory of its own under it.
 		targets: newTargetSet(localTargetAt),
 		dir:     *targets,
+		project: *projectName,
 
 		credential:       deployCredential(),
 		in:               in,

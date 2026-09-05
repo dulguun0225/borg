@@ -21,6 +21,7 @@ import (
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // twoRunsOnOneService walks the path twice on one service and returns what each
@@ -87,7 +88,11 @@ func TestASecondChangeShips(t *testing.T) {
 
 	// The second build encodes both, which is the check the second run had to
 	// pass and is asserted here over the tree that build was made from.
-	if err := criterion.CheckEncodings(theRepo(d), inForce); err != nil {
+	derived, err := criterion.Derive(theRepo(d))
+	if err != nil {
+		t.Fatalf("deriving the encodings: %v", err)
+	}
+	if err := criterion.CheckEncodings(derived, inForce, nil); err != nil {
 		t.Errorf("the second build does not satisfy the encoding check: %v", err)
 	}
 	encoded, err := criterion.Encodings(theRepo(d))
@@ -193,9 +198,17 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	ctx, d, _, _ := twoRunsOnOneService(t, approvals, "")
 
+	// The risk threshold's subject is a row-scoped safeguard drawn on the
+	// service the row fires for — package policy's own [Reader] reads it that
+	// way, effective.go's safeguardsOn keying a row-scoped safeguard on the
+	// service subject with the row as its key.
+	svc, found, err := service.ByName(ctx, d.pool, theService)
+	if err != nil || !found {
+		t.Fatalf("reading the service: found %v, %v", found, err)
+	}
 	placed, version, err := policy.NewFactory(d.pool, d.token).AddSafeguard(ctx,
 		owner(d.human), gatepolicy.RiskThreshold,
-		safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: string(gate.DeployToProduction)}, safeguard.Bound{Number: 0})
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: svc.ID, Key: string(gate.DeployToProduction)}, safeguard.Bound{Number: 0})
 	if err != nil {
 		t.Fatalf("placing the safeguard: %v", err)
 	}

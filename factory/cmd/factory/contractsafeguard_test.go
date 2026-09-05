@@ -48,9 +48,10 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	if !strings.Contains(blocked.checked.Why(), placed.ID) || !strings.Contains(blocked.checked.Why(), d.human) {
 		t.Errorf("the rejection names neither the safeguard nor its author: %s", blocked.checked.Why())
 	}
-	// An attempt was counted at the stage the item went back to, which is what a
-	// blocked removal costs: a full pass of the pipeline on work the factory raised
-	// itself.
+	// The implementation stage stands at one attempt: an attempt is counted on
+	// entry to author, and Dispatch.ReturnTo — what the mechanical rejection
+	// sends the item back with — counts nothing itself, nothing here re-entering
+	// the stage to author it again.
 	stages, err := item.Stages(ctx, d.pool, blocked.itemID)
 	if err != nil {
 		t.Fatalf("reading the item's stages: %v", err)
@@ -61,8 +62,8 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 			attempts = s.Attempts
 		}
 	}
-	if attempts < 2 {
-		t.Errorf("the implementation stage stands at %d attempts, and the rejection counts one there", attempts)
+	if attempts != 1 {
+		t.Errorf("the implementation stage stands at %d attempts, want 1", attempts)
 	}
 
 	if _, err := policy.NewFactory(d.pool, d.token).WithdrawSafeguard(ctx, actor, placed.ID); err != nil {

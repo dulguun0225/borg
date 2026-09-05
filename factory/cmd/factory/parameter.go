@@ -29,8 +29,10 @@ func authorCommand(args []string) error {
 	value := flags.String("value", "", "the number to author, or a comma-separated list for the list of allowed predicate kinds")
 	serviceName := flags.String("service", "", "the service, for a parameter that is a field of one")
 	areaName := flags.String("area", "", "the area, for a parameter that is a field of one")
+	projectName := flags.String("project", defaultProjectName, "the project, for the risk threshold, read on production's environment for it")
 	gateRow := flags.String("gate", string(gate.MergeToMaster), "the gate row a threshold applies at, or role_prompt_or_skill for the factory's own row")
 	stage := flags.String("stage", string(item.StageImplementation), "the stage an attempt limit applies to")
+	quantity := flags.String("quantity", string(gatepolicy.QuantityErrorRate), "the quantity the window size applies to")
 	human := flags.String("human", "owner", "the owner authoring it")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -67,7 +69,11 @@ func authorCommand(args []string) error {
 				version, err = factory.AuthorRolePromptOrSkillThreshold(ctx, actor, number)
 				break
 			}
-			production, found, err2 := environment.ByName(ctx, pool, environment.ProductionName)
+			prj, err2 := namedProject(ctx, pool, *projectName)
+			if err2 != nil {
+				return err2
+			}
+			production, found, err2 := environment.Production(ctx, pool, prj.ID)
 			if err2 != nil {
 				return err2
 			}
@@ -90,7 +96,7 @@ func authorCommand(args []string) error {
 			}
 			switch parameter {
 			case gatepolicy.WindowSize:
-				version, err = factory.AuthorWindowSize(ctx, actor, svc.ID, number)
+				version, err = factory.AuthorWindowSize(ctx, actor, svc.ID, gatepolicy.Quantity(*quantity), number)
 			case gatepolicy.WindowConfidence:
 				version, err = factory.AuthorWindowConfidence(ctx, actor, svc.ID, number)
 			case gatepolicy.WindowCap:

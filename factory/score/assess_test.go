@@ -244,7 +244,7 @@ func TestAnItemWithNoAreaCannotBeScoredOnContext(t *testing.T) {
 		IntentID:  "in_a",
 		ServiceID: serviceID,
 		Branch:    "item/no-area",
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestAnItemWithNoImplementationHasNoAuthorToHoldAPriorOn(t *testing.T) {
 
 	it, err := item.NewDecomposition(pool, token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_a", ServiceID: serviceID, AreaID: areaID, Branch: "item/unbuilt",
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}

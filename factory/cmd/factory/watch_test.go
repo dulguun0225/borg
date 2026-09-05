@@ -48,7 +48,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 		t.Fatalf("the bad change did not ship, and the window is what was meant to catch it:\n%s", out)
 	}
 	for _, result := range bad.criteria {
-		if result.Outcome.Blocks() {
+		if result.Outcome.Blocks(false) {
 			t.Errorf("criterion %s is %s, and a change the criteria catch is not what a window is for",
 				result.CriterionID, result.Outcome)
 		}

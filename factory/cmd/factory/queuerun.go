@@ -116,7 +116,7 @@ func (p *path) candidateFor(ctx context.Context, itemID string) (*candidate, err
 	}
 	if found && len(env.Targets) > 0 {
 		c.environmentID = env.ID
-		c.environmentDir = env.Targets[0]
+		c.environmentDir = env.Targets[0].Address
 		c.tornDown = !env.Live()
 	}
 	p.byItem[itemID] = c
@@ -134,7 +134,7 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 	if err := p.d.targets.at(c.environmentDir).Stop(ctx, c.svc.Name, p.d.credential); err != nil {
 		return err
 	}
-	if err := p.candidates.TearDown(ctx, c.environmentID); err != nil {
+	if err := p.candidates.TearDown(ctx, deployActor, c.environmentID, environment.ReasonMerged, environment.Rate{}); err != nil {
 		return err
 	}
 	c.tornDown = true

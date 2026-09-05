@@ -60,7 +60,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		}
 		c.mergeGate = recordFiring(opened, closing)
 		c.autoRejected, c.autoRejectedBy = true, check
-		if _, err := p.dispatch.ReworkRequest(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.dispatch.ReturnTo(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, checked.Why())
@@ -76,7 +76,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	c.mergeGate = recordFiring(opened, closing)
 	if verdict == gate.VerdictReject {
 		c.rejected = true
-		if _, err := p.dispatch.ReworkRequest(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.dispatch.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there, and keeps its environment\n",

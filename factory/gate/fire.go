@@ -275,7 +275,7 @@ func complete(f Firing) error {
 func blocked(criteria []CriterionResult) int {
 	n := 0
 	for _, c := range criteria {
-		if c.Outcome.Blocks() {
+		if c.Outcome.Blocks(false) {
 			n++
 		}
 	}

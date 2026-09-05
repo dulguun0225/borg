@@ -3,7 +3,7 @@ package criterion
 import "strings"
 
 // Pattern is which of the six EARS sentence forms a criterion's sentence
-// fits, or the escape for a sentence fitting none.
+// fits, or [PatternNoPattern] for a sentence fitting none.
 type Pattern string
 
 const (
@@ -19,13 +19,13 @@ const (
 	// PatternOptionalFeature is `Where <feature is included>, the system
 	// shall <response>`.
 	PatternOptionalFeature Pattern = "optional_feature"
-	// PatternStateWithEvent is `While <state>, when <trigger>, the system
-	// shall <response>`.
-	PatternStateWithEvent Pattern = "state_with_event"
-	// PatternEscape is a sentence fitting no pattern, admitted with a tagged
-	// reason and counted — because a form everything can escape is not a
-	// form. [Classify] never returns it; [Insert] assigns it.
-	PatternEscape Pattern = "escape"
+	// PatternStateWithAnEventInsideIt is `While <state>, when <trigger>, the
+	// system shall <response>`, the sixth pattern.
+	PatternStateWithAnEventInsideIt Pattern = "state_with_an_event_inside_it"
+	// PatternNoPattern is a sentence fitting no pattern, admitted with a
+	// tagged reason and counted — because a form everything can escape is not
+	// a form. [Classify] never returns it; [Insert] assigns it.
+	PatternNoPattern Pattern = "no_pattern"
 )
 
 // Patterns is every pattern a criterion may have. The CHECK constraint in
@@ -33,19 +33,19 @@ const (
 // lists stop agreeing.
 var Patterns = []Pattern{
 	PatternAlwaysTrue, PatternEvent, PatternState,
-	PatternUnwantedCondition, PatternOptionalFeature, PatternStateWithEvent,
-	PatternEscape,
+	PatternUnwantedCondition, PatternOptionalFeature, PatternStateWithAnEventInsideIt,
+	PatternNoPattern,
 }
 
 // Classify is which of the six patterns the sentence fits, or false for a
 // sentence fitting none. It is deterministic string matching on the
 // keywords, case-insensitive, so what a sentence classifies as is decided by
 // its text and by nothing that reads it. A false is not a refusal: the
-// caller admits the sentence only with a tagged reason, as [PatternEscape].
+// caller admits the sentence only with a tagged reason, as [PatternNoPattern].
 //
-// A sentence beginning `While ` is checked as state-with-event before state,
-// because the state form is a prefix of the longer one and checking them the
-// other way round would never return it.
+// A sentence beginning `While ` is checked as the state with an event inside
+// it before state, because the state form is a prefix of the longer one and
+// checking them the other way round would never return it.
 func Classify(sentence string) (Pattern, bool) {
 	s := strings.ToLower(sentence)
 	const shall = ", the system shall "
@@ -57,7 +57,7 @@ func Classify(sentence string) (Pattern, bool) {
 	case strings.HasPrefix(s, "while "):
 		when := strings.Index(s, ", when ")
 		if when >= 0 && strings.Contains(s[when:], shall) {
-			return PatternStateWithEvent, true
+			return PatternStateWithAnEventInsideIt, true
 		}
 		if strings.Contains(s, shall) {
 			return PatternState, true

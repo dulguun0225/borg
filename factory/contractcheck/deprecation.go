@@ -57,17 +57,11 @@ func (m Marked) Consumers() []string {
 	return services
 }
 
-// RemovalStatement is the statement the removal intent carries. It is derived
-// from the contract and the element and from nothing else, so two passes over one
-// marked element produce one statement and the second finds the first's intent
-// already waiting — which is how the detector is deduplicated without a record
-// saying it has fired.
-//
-// It names the service and the contract by name rather than by id, because a
-// statement is what a human reads and what the spec author is given. What that
-// costs is what every statement-as-handle costs here: an owner who types this
-// sentence character for character gets the detector's intent rather than one of
-// their own.
+// RemovalStatement is the statement the removal intent carries. What
+// deduplicates two passes over one marked element is the evidence intake keys
+// the intent on — the contract and the element — and not this statement, so
+// what it names is chosen for the human reading it and the spec author it is
+// given to, and nothing here has to stay identical between two passes.
 func RemovalStatement(serviceName, contractName, element string) string {
 	return fmt.Sprintf("Remove the deprecated element %s from contract %s of service %s.",
 		element, contractName, serviceName)
@@ -139,8 +133,8 @@ func (c *Check) Deprecated(ctx context.Context) ([]Marked, error) {
 type Raised struct {
 	Marked Marked
 	Intent intent.Intent
-	// New is false where an unrefined intent with the same statement was already
-	// there, which is what stops a second pass raising a second intent for one
+	// New is false where an intent on the same evidence was already there and not
+	// finished, which is what stops a second pass raising a second intent for one
 	// element.
 	New bool
 }
@@ -149,13 +143,14 @@ type Raised struct {
 // removal intent in for each whose derived consumer contracts are gone. Nobody
 // has to remember step three of a migration.
 //
-// It is deduplicated by the statement rather than by a record saying the detector
-// has fired. An unrefined intent with the same statement is that intent, and a
-// pass that finds one takes nothing in — which is the handle a revert already
-// reaches the pipeline by, and costs what that costs. Once the intent has been decomposed,
-// it is no longer unrefined and this pass would raise a second one; what stops
-// that is the element leaving the newest form when the removal ships, which is the
-// same event that makes the removal unnecessary.
+// It is deduplicated by the evidence — the contract and the element — rather
+// than by a record saying the detector has fired. An intent on the same evidence
+// that has not finished is that intent, and a pass that finds one takes nothing
+// in, whatever state the interview or the decomposition has moved it to since —
+// which is the handle a revert already reaches the pipeline by, and costs what
+// that costs. What stops a removal being raised forever is the element leaving
+// the newest form when the removal ships, which is the same event that makes the
+// removal unnecessary and closes the intent it was raised on.
 //
 // A factory composed with no intake raises nothing and is not an error: what it
 // loses is the detector, which is the one thing in this component that writes.
@@ -173,7 +168,8 @@ func (c *Check) RaiseRemovals(ctx context.Context) ([]Raised, error) {
 			continue
 		}
 		statement := RemovalStatement(m.ServiceName, m.Contract.Name, m.Element.Name)
-		waiting, found, err := intent.Unrefined(ctx, c.pool, statement)
+		evidence := intent.Evidence{ContractID: m.Contract.ID, Element: m.Element.Name}
+		waiting, found, err := intent.OnEvidence(ctx, c.pool, evidence)
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +177,11 @@ func (c *Check) RaiseRemovals(ctx context.Context) ([]Raised, error) {
 			raised = append(raised, Raised{Marked: m, Intent: waiting})
 			continue
 		}
-		taken, err := c.intake.TakeIn(ctx, Actor, intent.SourceDetector, statement)
+		taken, err := c.intake.TakeIn(ctx, Actor, intent.Arrival{
+			Source:    intent.SourceDetector,
+			Statement: statement,
+			Evidence:  evidence,
+		})
 		if err != nil {
 			return nil, err
 		}

@@ -2,12 +2,14 @@ package build
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -16,20 +18,77 @@ var (
 	// ErrCommitHashEmpty is returned by [Writer.Create] for a build naming no
 	// commit.
 	ErrCommitHashEmpty = errors.New("build: the commit hash is empty")
-	// ErrItemIDEmpty is returned by [Writer.Create] for a build naming no
-	// item. record's doc.go states what a link is checked for.
-	ErrItemIDEmpty = errors.New("build: the item id is empty")
+	// ErrServiceIDEmpty is returned by [Writer.Create] for a build naming no
+	// service. record's doc.go states what a link is checked for.
+	ErrServiceIDEmpty = errors.New("build: the service id is empty")
+	// ErrArtifactDigestEmpty is returned by [Writer.Create] for a build
+	// naming no artifact digest.
+	ErrArtifactDigestEmpty = errors.New("build: the artifact digest is empty")
 	// ErrNotFound is returned where the named build does not exist.
 	ErrNotFound = errors.New("build: no build has that id")
 )
 
+// ResolvedEntry is one package a build resolved: the ecosystem, the source it
+// was resolved from, the package and version, the digest of the content
+// resolved, the declared licence, and what required it. Digest, Licence and
+// RequiredBy are empty where the resolver could not produce them, which is
+// that entry's own coverage and not an error.
+type ResolvedEntry struct {
+	Ecosystem  string
+	Source     string
+	Package    string
+	Version    string
+	Digest     string
+	Licence    string
+	RequiredBy string
+}
+
+// Draft is one build as a caller of [Writer.Create] hands it in.
+type Draft struct {
+	// ItemID is empty on a search build, which names a service and no item.
+	ItemID     string
+	ServiceID  string
+	CommitHash string
+	// ArtifactDigest is the digest of the artifact the build runner
+	// produced.
+	ArtifactDigest string
+	Resolved       []ResolvedEntry
+	// ResolvedSetCoverage is what the resolver read, keyed by ecosystem, and
+	// is ignored where ResolvedSetCouldNotDerive is set.
+	ResolvedSetCoverage map[string]string
+	// ResolvedSetCouldNotDerive is the reason where resolution could not be
+	// performed at all, and empty otherwise.
+	ResolvedSetCouldNotDerive string
+	// NoticeFile is the notice text produced from the resolved set in this
+	// same write, or "could not derive" where the set is.
+	NoticeFile string
+	// DesignSystemConstraintID is empty on a build in a project with no user
+	// interface.
+	DesignSystemConstraintID string
+	// ShippedBundleIdentity names the release of the product that made this
+	// build, present on a search build and empty otherwise.
+	ShippedBundleIdentity string
+	// Results is what the build's own process decided: every criterion whose
+	// encoding declares the build, decided as the build runner performed it.
+	// [Writer.Create] records these as run 0 through [criterion.InsertResults],
+	// inside the same transaction as the build row.
+	Results map[string]criterion.Outcome
+}
+
 // Build is one build record as it is stored.
 type Build struct {
-	ID         string
-	Actor      record.Actor
-	At         string
-	ItemID     string
-	CommitHash string
+	ID                        string
+	Actor                     record.Actor
+	At                        string
+	ItemID                    string
+	ServiceID                 string
+	CommitHash                string
+	ArtifactDigest            string
+	ResolvedSetCoverage       map[string]string
+	ResolvedSetCouldNotDerive string
+	NoticeFile                string
+	DesignSystemConstraintID  string
+	ShippedBundleIdentity     string
 }
 
 // Writer is the one writer of build records.
@@ -43,27 +102,56 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 	return &Writer{pool: pool, token: token}
 }
 
-// Create writes the build record, once. The record is never written again —
-// there is no update method — and building the same commit for the same item
-// a second time is refused by the store's unique constraint rather than
-// given a second record.
-func (w *Writer) Create(ctx context.Context, actor record.Actor, itemID, commitHash string) (Build, error) {
+const insertBuild = `insert into ` + Table + `
+	(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash,
+	artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file,
+	design_system_constraint_id, shipped_bundle_identity)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+
+const insertResolvedEntry = `insert into ` + ResolvedTable + `
+	(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, ecosystem, source, package,
+	version, digest, licence, required_by)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`
+
+// Create writes the build record, its resolved entries, and — through
+// [criterion.InsertResults] — what the build's own process decided, all in
+// one transaction. The record is never written again — there is no update
+// method — and a rebuild of the same commit for the same item and service is
+// refused by the store's unique constraint rather than given a second record:
+// a rebuild is a new build, and the caller asks [ForCommit] first if it wants
+// to know which record is already there.
+func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (Build, error) {
 	if err := actor.Validate(); err != nil {
 		return Build{}, err
 	}
-	if itemID == "" {
-		return Build{}, ErrItemIDEmpty
+	if draft.ServiceID == "" {
+		return Build{}, ErrServiceIDEmpty
 	}
-	if commitHash == "" {
+	if draft.CommitHash == "" {
 		return Build{}, ErrCommitHashEmpty
+	}
+	if draft.ArtifactDigest == "" {
+		return Build{}, ErrArtifactDigestEmpty
+	}
+
+	coverage, err := json.Marshal(draft.ResolvedSetCoverage)
+	if err != nil {
+		return Build{}, fmt.Errorf("build: encoding the resolved set coverage: %w", err)
 	}
 
 	b := Build{
-		ID:         record.NewID(IDPrefix),
-		Actor:      actor,
-		At:         record.Now(),
-		ItemID:     itemID,
-		CommitHash: commitHash,
+		ID:                        record.NewID(IDPrefix),
+		Actor:                     actor,
+		At:                        record.Now(),
+		ItemID:                    draft.ItemID,
+		ServiceID:                 draft.ServiceID,
+		CommitHash:                draft.CommitHash,
+		ArtifactDigest:            draft.ArtifactDigest,
+		ResolvedSetCoverage:       draft.ResolvedSetCoverage,
+		ResolvedSetCouldNotDerive: draft.ResolvedSetCouldNotDerive,
+		NoticeFile:                draft.NoticeFile,
+		DesignSystemConstraintID:  draft.DesignSystemConstraintID,
+		ShippedBundleIdentity:     draft.ShippedBundleIdentity,
 	}
 
 	tx, err := w.pool.Begin(ctx)
@@ -75,21 +163,41 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, itemID, commitH
 		return Build{}, err
 	}
 
-	_, err = tx.Exec(ctx, `insert into `+Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash)
-		values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		b.ID, FormatVersion, string(b.Actor.Kind), b.Actor.Key, string(b.Actor.Basis), b.At, b.ItemID, b.CommitHash,
-	)
-	if err != nil {
+	if _, err := tx.Exec(ctx, insertBuild,
+		b.ID, FormatVersion, string(b.Actor.Kind), b.Actor.Key, string(b.Actor.Basis), b.At,
+		b.ItemID, b.ServiceID, b.CommitHash, b.ArtifactDigest, string(coverage),
+		b.ResolvedSetCouldNotDerive, b.NoticeFile, b.DesignSystemConstraintID, b.ShippedBundleIdentity,
+	); err != nil {
 		return Build{}, fmt.Errorf("build: creating %s: %w", b.ID, err)
 	}
+
+	for _, entry := range draft.Resolved {
+		if _, err := tx.Exec(ctx, insertResolvedEntry,
+			record.NewID(ResolvedIDPrefix), FormatVersionResolved,
+			string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
+			b.ID, entry.Ecosystem, entry.Source, entry.Package, entry.Version,
+			entry.Digest, entry.Licence, entry.RequiredBy,
+		); err != nil {
+			return Build{}, fmt.Errorf("build: recording what %s resolved: %w", b.ID, err)
+		}
+	}
+
+	if len(draft.Results) > 0 {
+		run := criterion.Run{BuildID: b.ID, Number: 0, Place: criterion.PlaceBuild}
+		if err := criterion.InsertResults(ctx, tx, actor, run, draft.Results); err != nil {
+			return Build{}, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return Build{}, fmt.Errorf("build: committing %s: %w", b.ID, err)
 	}
 	return b, nil
 }
 
-const selectBuild = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash
+const selectBuild = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash,
+	artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file,
+	design_system_constraint_id, shipped_bundle_identity
 	from ` + Table
 
 // Get is one build by id. It takes the pool and not a [Writer], because
@@ -105,12 +213,13 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Build, error) {
 }
 
 // ForCommit is the build of one item at one commit, and false where there is
-// none. It is what a caller asks before writing one: a rebuild is a new build, so
-// a re-verification that produced the commit already built produced no build, and
-// [Writer.Create] would be refused by the unique constraint rather than answer
-// which record is already there.
-func ForCommit(ctx context.Context, pool *pgxpool.Pool, itemID, commitHash string) (Build, bool, error) {
-	b, err := scan(pool.QueryRow(ctx, selectBuild+` where item_id = $1 and commit_hash = $2`, itemID, commitHash))
+// none. It is what a caller asks before writing one: a rebuild is a new
+// build, so a re-verification that produced the commit already built
+// produced no build, and [Writer.Create] would be refused by the unique
+// constraint rather than answer which record is already there.
+func ForCommit(ctx context.Context, pool *pgxpool.Pool, itemID, serviceID, commitHash string) (Build, bool, error) {
+	b, err := scan(pool.QueryRow(ctx, selectBuild+` where item_id = $1 and service_id = $2 and commit_hash = $3`,
+		itemID, serviceID, commitHash))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Build{}, false, nil
 	} else if err != nil {
@@ -119,14 +228,26 @@ func ForCommit(ctx context.Context, pool *pgxpool.Pool, itemID, commitHash strin
 	return b, true, nil
 }
 
-func scan(row pgx.Row) (Build, error) {
+// scanner is what [pgx.Row] and [pgx.Rows] share, so one scan reads either.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scan(row scanner) (Build, error) {
 	var b Build
-	var kind, basis string
-	if err := row.Scan(&b.ID, &kind, &b.Actor.Key, &basis, &b.At, &b.ItemID, &b.CommitHash); err != nil {
+	var kind, basis, coverage string
+	if err := row.Scan(&b.ID, &kind, &b.Actor.Key, &basis, &b.At, &b.ItemID, &b.ServiceID, &b.CommitHash,
+		&b.ArtifactDigest, &coverage, &b.ResolvedSetCouldNotDerive, &b.NoticeFile,
+		&b.DesignSystemConstraintID, &b.ShippedBundleIdentity); err != nil {
 		return Build{}, err
 	}
 	b.Actor.Kind = record.Kind(kind)
 	b.Actor.Basis = record.Basis(basis)
+	if coverage != "" {
+		if err := json.Unmarshal([]byte(coverage), &b.ResolvedSetCoverage); err != nil {
+			return Build{}, fmt.Errorf("build: decoding the resolved set coverage of %s: %w", b.ID, err)
+		}
+	}
 	return b, nil
 }
 

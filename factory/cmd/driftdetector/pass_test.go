@@ -35,6 +35,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -150,12 +151,22 @@ func inSchema(t *testing.T, base, schema string) string {
 func setUp(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, dir string) (environment.Environment, service.Service, secretref.Ref) {
 	t.Helper()
 	credential := secretref.MustNew("deploy.local")
-	env, err := environment.NewWriter(pool, token).Create(ctx, testActor,
-		environment.KindProduction, environment.ProductionName, []string{dir}, credential)
+	prj, err := project.NewWriter(pool, token).Create(ctx, testActor, "default")
+	if err != nil {
+		t.Fatalf("creating the project: %v", err)
+	}
+	env, err := environment.NewWriter(pool, token).Create(ctx, testActor, environment.Spec{
+		Kind:       environment.KindProduction,
+		ProjectID:  prj.ID,
+		Name:       environment.ProductionName,
+		Targets:    []environment.Target{{Address: dir}},
+		Credential: credential,
+		Platform:   environment.Platform{Name: "local", Credential: credential, CanComposeOnDemand: true},
+	})
 	if err != nil {
 		t.Fatalf("creating the production environment: %v", err)
 	}
-	svc, err := service.NewWriter(pool, token).Create(ctx, testActor, testServiceName, "github.com/example/demo")
+	svc, err := service.NewWriter(pool, token).Create(ctx, testActor, testServiceName, "github.com/example/demo", prj.ID)
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
@@ -180,7 +191,12 @@ func shipRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token le
 func startRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, svc service.Service, env environment.Environment, commitHash string) deploy.Deploy {
 	t.Helper()
 	itemID := record.NewID("it")
-	b, err := build.NewWriter(pool, token).Create(ctx, testActor, itemID, commitHash)
+	b, err := build.NewWriter(pool, token).Create(ctx, testActor, build.Draft{
+		ItemID:         itemID,
+		ServiceID:      svc.ID,
+		CommitHash:     commitHash,
+		ArtifactDigest: "sha256:" + commitHash,
+	})
 	if err != nil {
 		t.Fatalf("creating the build: %v", err)
 	}
@@ -303,8 +319,15 @@ func TestATargetThatErrorsOnReadRunningWritesAnUnreachedLastCheckAndRaisesNoMism
 }
 
 func TestNoProductionEnvironmentIsNothingToCheckAndWritesNothing(t *testing.T) {
-	ctx, s, _ := newStores(t)
+	ctx, s, token := newStores(t)
 	credential := secretref.MustNew("deploy.local")
+	prj, err := project.NewWriter(s.factory, token).Create(ctx, testActor, "default")
+	if err != nil {
+		t.Fatalf("creating the project: %v", err)
+	}
+	if _, err := service.NewWriter(s.factory, token).Create(ctx, testActor, testServiceName, "github.com/example/demo", prj.ID); err != nil {
+		t.Fatalf("creating the service: %v", err)
+	}
 	calls := 0
 	targetAt := func(dir string) targetseam.Target { calls++; return localtarget.New(dir) }
 
@@ -328,8 +351,18 @@ func TestNoServicesIsNothingToCheckAndWritesNothing(t *testing.T) {
 	ctx, s, token := newStores(t)
 	dir := t.TempDir()
 	credential := secretref.MustNew("deploy.local")
-	if _, err := environment.NewWriter(s.factory, token).Create(ctx, testActor,
-		environment.KindProduction, environment.ProductionName, []string{dir}, credential); err != nil {
+	prj, err := project.NewWriter(s.factory, token).Create(ctx, testActor, "default")
+	if err != nil {
+		t.Fatalf("creating the project: %v", err)
+	}
+	if _, err := environment.NewWriter(s.factory, token).Create(ctx, testActor, environment.Spec{
+		Kind:       environment.KindProduction,
+		ProjectID:  prj.ID,
+		Name:       environment.ProductionName,
+		Targets:    []environment.Target{{Address: dir}},
+		Credential: credential,
+		Platform:   environment.Platform{Name: "local", Credential: credential, CanComposeOnDemand: true},
+	}); err != nil {
 		t.Fatalf("creating the production environment: %v", err)
 	}
 	calls := 0

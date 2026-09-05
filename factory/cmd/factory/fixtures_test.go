@@ -18,9 +18,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/policy"
@@ -158,21 +160,23 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 
 	out := &bytes.Buffer{}
 	d := deps{
-		pool:             pool,
-		token:            token,
-		model:            &fakeModel{},
-		modelName:        theModel,
-		targets:          targets,
-		dir:              t.TempDir(),
-		credential:       credential,
-		in:               strings.NewReader(input),
-		out:              out,
-		human:            "owner",
-		services:         known,
-		area:             theArea,
-		candidateCeiling: theCeiling,
-		watchFor:         theWatchFor,
-		watchEvery:       theWatchEvery,
+		pool:                pool,
+		token:               token,
+		model:               &fakeModel{},
+		modelName:           theModel,
+		modelCredentialName: "model.fake",
+		targets:             targets,
+		dir:                 t.TempDir(),
+		credential:          credential,
+		in:                  strings.NewReader(input),
+		out:                 out,
+		human:               "owner",
+		services:            known,
+		area:                theArea,
+		project:             defaultProjectName,
+		candidateCeiling:    theCeiling,
+		watchFor:            theWatchFor,
+		watchEvery:          theWatchEvery,
 		// No draw selects: the sample is one firing in ten and a test that ran on
 		// the runtime's own generator would pass or fail by chance, an item held out
 		// being an item with no human at the row a test asserted one at. The test
@@ -212,7 +216,8 @@ const (
 func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 	t.Helper()
 	installOwner := owner(d.human)
-	if _, err := policy.NewFactory(d.pool, d.token).Install(ctx, installOwner, []string{d.dir}, d.credential); err != nil {
+	installed, err := policy.NewFactory(d.pool, d.token).Install(ctx, installOwner, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
+	if err != nil {
 		t.Fatalf("installing the factory: %v", err)
 	}
 	factory := policy.NewFactory(d.pool, d.token)
@@ -222,7 +227,7 @@ func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 			t.Fatalf("reading the service: %v", err)
 		}
 		if !found {
-			svc, err = service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor, named.name, named.repo)
+			svc, err = service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor, named.name, named.repo, installed.Project.ID)
 			if err != nil {
 				t.Fatalf("writing the service: %v", err)
 			}
@@ -232,7 +237,7 @@ func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 			write func() (policy.Version, error)
 		}{
 			{"the size", func() (policy.Version, error) {
-				return factory.AuthorWindowSize(ctx, installOwner, svc.ID, theWindowSize)
+				return factory.AuthorWindowSize(ctx, installOwner, svc.ID, gatepolicy.QuantityErrorRate, theWindowSize)
 			}},
 			{"the confidence", func() (policy.Version, error) {
 				return factory.AuthorWindowConfidence(ctx, installOwner, svc.ID, theWindowConfidence)
@@ -372,6 +377,59 @@ func theServiceRecord(t *testing.T, ctx context.Context, p *path) service.Servic
 		t.Fatalf("no service is named %q", p.d.services[0].name)
 	}
 	return svc
+}
+
+// spendOn is what the agentrun records say one item's stage cost, summed over
+// the units recorded under kind "total" — package agentrun's own read, spend
+// no longer being a field of the item.
+func spendOn(t *testing.T, ctx context.Context, d deps, itemID string, stage item.Stage) int64 {
+	t.Helper()
+	runs, err := agentrun.ForItem(ctx, d.pool, itemID)
+	if err != nil {
+		t.Fatalf("reading the agent runs of %s: %v", itemID, err)
+	}
+	var total int64
+	for _, r := range runs {
+		if r.Stage != string(stage) {
+			continue
+		}
+		total += r.UnitsByKind["total"]
+	}
+	return total
+}
+
+// spendCallsOn is how many agentrun records name one item's stage — the number
+// of model calls made there, refused ones included, which is what a retry's
+// own count is now read from rather than from the item's per-stage attempts.
+func spendCallsOn(t *testing.T, ctx context.Context, d deps, itemID string, stage item.Stage) int {
+	t.Helper()
+	runs, err := agentrun.ForItem(ctx, d.pool, itemID)
+	if err != nil {
+		t.Fatalf("reading the agent runs of %s: %v", itemID, err)
+	}
+	var calls int
+	for _, r := range runs {
+		if r.Stage == string(stage) {
+			calls++
+		}
+	}
+	return calls
+}
+
+// spendOnIntent is [spendOn] scoped to the intent rather than to an item: the
+// interview's own model calls are recorded there, since they happen before
+// the first item exists.
+func spendOnIntent(t *testing.T, ctx context.Context, d deps, intentID string) int64 {
+	t.Helper()
+	runs, err := agentrun.ForIntent(ctx, d.pool, intentID)
+	if err != nil {
+		t.Fatalf("reading the agent runs of %s: %v", intentID, err)
+	}
+	var total int64
+	for _, r := range runs {
+		total += r.UnitsByKind["total"]
+	}
+	return total
 }
 
 // authorOne is one intent decomposed into one item on the install's one service, for a

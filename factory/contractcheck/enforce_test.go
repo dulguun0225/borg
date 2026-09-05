@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/gate"
@@ -179,11 +180,13 @@ func TestTheTwoBaselinesAreDifferent(t *testing.T) {
 	ship(t, ctx, g, g.producer, []contract.Form{full}, nil, window.ExitTimedOut)
 	merged, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: record.NewID("in"), ServiceID: g.producer.ID, Branch: "item/merged",
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the merged item: %v", err)
 	}
-	bl, err := g.builds.Create(ctx, theActor, merged.ID, record.NewID("commit"))
+	bl, err := g.builds.Create(ctx, theActor, build.Draft{
+		ItemID: merged.ID, ServiceID: g.producer.ID, CommitHash: record.NewID("commit"), ArtifactDigest: record.NewID("digest"),
+	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
 	}

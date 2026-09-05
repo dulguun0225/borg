@@ -43,7 +43,7 @@
 // it. Every other write it makes is a call into the package that owns the
 // record, inside its own transaction.
 //
-// What defines it: the seven rows, the scope of each, the score supplying what
+// What defines it: the eleven rows, the scope of each, the score supplying what
 // an owner does not, a safeguard being a bound, and Factory as the writer are
 // ../../end-goal/how-the-factory-works/09-gate-policy/README.md. The policy version on
 // every decision is ../../end-goal/what-the-factory-does/02-traceability.md.

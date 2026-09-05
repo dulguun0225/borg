@@ -7,11 +7,12 @@ import (
 )
 
 // PredicateKind is what a consumer contract asserts about one element of a
-// contract it reads. The five here are the ones this factory can decide, and they are
-// the sentences [AllowedPredicateKinds]'s own definition lists, with "the field is
-// read at all" and "it arrives populated" told apart — one is derived from the
-// consumer reading the element and the other from what the consumer says about it, so
-// a consumer contract can hold either without the other.
+// contract it reads or one it sends. The nine here are the ones this factory can
+// decide, and they are the sentences [AllowedPredicateKinds]'s own definition
+// lists, with "the field is read at all" and "it arrives populated" told apart —
+// one is derived from the consumer reading the element and the other from what
+// the consumer says about it, so a consumer contract can hold either without the
+// other.
 //
 // They are vocabulary and not a table, which is why they are here: package
 // consumer contract derives one, package policy resolves the list they are the
@@ -35,6 +36,29 @@ const (
 	// PredicateRange is that the element's values stay inside these two
 	// numbers.
 	PredicateRange PredicateKind = "range"
+	// PredicateCalled is that the operation is called at all.
+	PredicateCalled PredicateKind = "called"
+	// PredicateSent is that this request element is sent or left out. The
+	// argument is which of the two.
+	PredicateSent PredicateKind = "sent"
+	// PredicateSentDomain is that the values sent stay inside this set of names.
+	PredicateSentDomain PredicateKind = "sent_domain"
+	// PredicateSentRange is that the values sent stay inside these two numbers.
+	PredicateSentRange PredicateKind = "sent_range"
+)
+
+// Side is whether a predicate is about what the consumer receives or about what
+// it sends. Both are derived from the same build, and they are told apart because
+// compatibility runs the other way for an input: an element a producer adds to a
+// response breaks nobody, and a required element it adds to a request breaks
+// every caller that does not send it.
+type Side string
+
+const (
+	// SideReceived is a predicate over what the consumer receives.
+	SideReceived Side = "received"
+	// SideSent is a predicate over what the consumer sends.
+	SideSent Side = "sent"
 )
 
 // PredicateKinds is the list of allowed predicate kinds the factory owns: every
@@ -44,6 +68,7 @@ const (
 // floor rather than the whole list.
 var PredicateKinds = []PredicateKind{
 	PredicateRead, PredicatePopulated, PredicateUnit, PredicateDomain, PredicateRange,
+	PredicateCalled, PredicateSent, PredicateSentDomain, PredicateSentRange,
 }
 
 // AllowedPredicateKindNames is [PredicateKinds] as the list a printer and a
@@ -77,13 +102,23 @@ func DecidablePredicate(name string) (PredicateKind, error) {
 	return kind, nil
 }
 
+// Side is which side of the exchange the kind asserts about.
+func (k PredicateKind) Side() Side {
+	switch k {
+	case PredicateCalled, PredicateSent, PredicateSentDomain, PredicateSentRange:
+		return SideSent
+	default:
+		return SideReceived
+	}
+}
+
 // TakesAnArgument is whether the kind's assertion needs something beside the
 // element it is about: the unit, the names of the domain, the two ends of the
-// range. Read and populated need none, and one carrying an argument would be an
-// assertion nothing reads.
+// range, and which of sent or left out is asserted. Read, populated and called
+// need none, and one carrying an argument would be an assertion nothing reads.
 func (k PredicateKind) TakesAnArgument() bool {
 	switch k {
-	case PredicateUnit, PredicateDomain, PredicateRange:
+	case PredicateUnit, PredicateDomain, PredicateRange, PredicateSent, PredicateSentDomain, PredicateSentRange:
 		return true
 	default:
 		return false
@@ -91,16 +126,18 @@ func (k PredicateKind) TakesAnArgument() bool {
 }
 
 // DecidableAgainstAForm is whether the kind can be decided against a contract's
-// form alone, with no run to observe. Three of the five can: whether the form has
-// the element, whether the form says it is always populated, and whether its name
-// carries the unit. A domain and a range are about values and need one observed
-// exchange, so they are decided on the producer's side alone — which costs one
-// kind of assumption being caught one gate later than the other four.
+// form alone, with no run to observe. Five of the nine can: whether the form has
+// the element, whether the form says it is always populated, whether its name
+// carries the unit, whether the form has the operation, and whether the request
+// element the consumer sends or leaves out is one the form accepts or requires. A
+// domain and a range are about values, on either side, and need one observed
+// exchange — which costs one kind of assumption being caught one gate later than
+// the rest.
 func (k PredicateKind) DecidableAgainstAForm() bool {
 	switch k {
-	case PredicateRead, PredicatePopulated, PredicateUnit:
-		return true
-	default:
+	case PredicateDomain, PredicateRange, PredicateSentDomain, PredicateSentRange:
 		return false
+	default:
+		return true
 	}
 }

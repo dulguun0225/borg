@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/policy"
 )
@@ -86,4 +87,53 @@ func attempt[T any](out io.Writer, a *stageAttempts, role string, call func() (T
 	}
 	return zero, fmt.Errorf("%w: the %s used all %d without a reply the protocol accepts, and the factory is stuck on this item: %w",
 		ErrOutOfAttempts, role, a.limit, last)
+}
+
+// recordAgentRun writes one agentrun record per model call the caller made —
+// spends being one entry per call an [attempt] loop made, refused or not —
+// scoped to the item and stage a dispatch was for. Spend is agent.Reply's own
+// sum of input and output tokens together, recorded under the kind "total"
+// because Reply does not split them.
+func (p *path) recordAgentRun(ctx context.Context, role, itemID string, stage item.Stage, inputManifestID string, spends []int64, outcome string) error {
+	for _, spend := range spends {
+		units := map[string]int64{}
+		if spend > 0 {
+			units["total"] = spend
+		}
+		if _, err := agentrun.NewWriter(p.d.pool, p.d.token).Record(ctx, dispatchActor, agentrun.New{
+			Role:            role,
+			ModelVersion:    p.d.modelName,
+			CredentialName:  p.d.modelCredentialName,
+			ItemID:          itemID,
+			Stage:           string(stage),
+			InputManifestID: inputManifestID,
+			UnitsByKind:     units,
+			Outcome:         outcome,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordIntentRun is [path.recordAgentRun] for a call the interview made
+// before any item existed, scoped to the intent rather than to an item.
+func (p *path) recordIntentRun(ctx context.Context, role, intentID string, spends []int64, outcome string) error {
+	for _, spend := range spends {
+		units := map[string]int64{}
+		if spend > 0 {
+			units["total"] = spend
+		}
+		if _, err := agentrun.NewWriter(p.d.pool, p.d.token).Record(ctx, dispatchActor, agentrun.New{
+			Role:           role,
+			ModelVersion:   p.d.modelName,
+			CredentialName: p.d.modelCredentialName,
+			IntentID:       intentID,
+			UnitsByKind:    units,
+			Outcome:        outcome,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

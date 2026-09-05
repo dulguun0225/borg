@@ -127,12 +127,14 @@ func queued(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.T
 		IntentID:  fmt.Sprintf("in_%032d", n),
 		ServiceID: serviceID,
 		Branch:    fmt.Sprintf("item/%d", n),
-	})
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing item %d: %v", n, err)
 	}
 	dispatch := item.NewDispatch(pool, token)
-	for _, stage := range []item.Stage{item.StageImplementation, item.StageQueued} {
+	for _, stage := range []item.Stage{
+		item.StageImplementationPlan, item.StageTasks, item.StageImplementation, item.StageQueued,
+	} {
 		if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, stage); err != nil {
 			t.Fatalf("advancing item %d to %s: %v", n, stage, err)
 		}
@@ -205,12 +207,21 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 	if it.Stage != item.StageImplementation {
 		t.Errorf("the rejected item is at %s, want implementation", it.Stage)
 	}
+	// One attempt at each of the four stages between spec and implementation:
+	// [queued] advances through implementation_plan and tasks, each counting an
+	// attempt on entry, and the rejection itself counts nothing —
+	// Dispatch.ReturnTo, what it sends the item back with, counts nothing.
 	stages, err := item.Stages(ctx, pool, fails.ID)
 	if err != nil {
 		t.Fatalf("reading the rejected item's stages: %v", err)
 	}
-	if len(stages) != 1 || stages[0].Stage != item.StageImplementation || stages[0].Attempts != 1 {
-		t.Errorf("the rejected item's stage rows are %+v, want one attempt at implementation", stages)
+	if len(stages) != 4 {
+		t.Fatalf("the rejected item's stage rows are %+v, want one per stage between spec and implementation", stages)
+	}
+	for _, st := range stages {
+		if st.Attempts != 1 {
+			t.Errorf("stage %s attempts = %d, want 1", st.Stage, st.Attempts)
+		}
 	}
 
 	// Only one release exists: the rejection mints none, which is what makes a

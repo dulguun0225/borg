@@ -7,6 +7,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
@@ -70,7 +71,10 @@ func (h *HealthMonitor) AfterWindow(ctx context.Context, w Watching) (Reading, b
 		if err != nil {
 			return reading, true, err
 		}
-		b = boundary.Boundary{Size: parameters.Size.Number, Confidence: parameters.Confidence.Number}
+		// The size and the power are authored per quantity; the health monitor
+		// reads only the error rate for now, a second quantity waiting on the
+		// health monitor observing more than one.
+		b = boundary.Boundary{Size: parameters.Size[gatepolicy.QuantityErrorRate].Number, Confidence: parameters.Confidence.Number}
 	}
 	reading.Boundary, err = b.Evaluate(observed)
 	if err != nil {
@@ -163,8 +167,11 @@ func (h *HealthMonitor) crossingStopped(ctx context.Context, w Watching, i incid
 	if err != nil {
 		return false, err
 	}
+	// The size and the power are authored per quantity; the health monitor reads
+	// only the error rate for now, a second quantity waiting on the health
+	// monitor observing more than one.
 	reading, err := boundary.Boundary{
-		Size: parameters.Size.Number, Confidence: parameters.Confidence.Number,
+		Size: parameters.Size[gatepolicy.QuantityErrorRate].Number, Confidence: parameters.Confidence.Number,
 	}.Evaluate(observed)
 	if err != nil {
 		return false, err
