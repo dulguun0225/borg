@@ -33,7 +33,7 @@ func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refine
 	if refined.Criterion != "" {
 		drafts = append(drafts, artifact.Draft{Sentence: refined.Criterion})
 	}
-	specArt, introduced, err := p.store.SubmitSpec(ctx, specAuthorActor, by,
+	specArt, introduced, err := p.store.SubmitSpec(ctx, p.specAuthorActor(), by,
 		c.itemID, c.svc.ID, refined.Spec, drafts)
 	if err != nil {
 		return err
@@ -136,7 +136,7 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	}
 	c.commit = commit
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: d.modelName}
-	implArt, err := p.store.SubmitImplementation(ctx, implementerActor, by, c.itemID, commit)
+	implArt, err := p.store.SubmitImplementation(ctx, p.implementerActor(), by, c.itemID, commit)
 	if err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func (p *path) consumerContractStage(ctx context.Context, c *candidate) error {
 			drafts[n].Interface, drafts[n].Element, drafts[n].Kind))
 	}
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: p.d.modelName}
-	art, written, err := p.store.SubmitConsumerContract(ctx, implementerActor, by, c.itemID, c.svc.ID,
+	art, written, err := p.store.SubmitConsumerContract(ctx, p.implementerActor(), by, c.itemID, c.svc.ID,
 		fmt.Sprintf("%d predicate(s) derived from the build of item %s", len(drafts), c.itemID), drafts)
 	if err != nil {
 		return err

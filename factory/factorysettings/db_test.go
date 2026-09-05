@@ -22,11 +22,12 @@ import (
 
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
+var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *factorysettings.Writer) {
 	t.Helper()
@@ -56,7 +57,11 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *factorysettings.Wr
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
-	return ctx, pool, factorysettings.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, factorysettings.NewWriter(pool, token)
 }
 
 func inSchema(t *testing.T, base, schema string) string {
@@ -97,8 +102,8 @@ func TestThereIsOneRecordAndEnsureIsIdempotent(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+factorysettings.Table+`
-		(id, actor_kind, actor_name, at, only_row, allowed_predicate_kinds, role_prompt_or_skill_threshold)
-		values ('fs_second', 'human', 'owner', $1, true, '', null)`, record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, only_row, allowed_predicate_kinds, role_prompt_or_skill_threshold)
+		values ('fs_second', '`+factorysettings.FormatVersion+`', 'human', 'person:owner', 'claimed', $1, true, '', null)`, record.Now()); err == nil {
 		t.Error("the store accepted a second factory-wide settings record")
 	}
 }

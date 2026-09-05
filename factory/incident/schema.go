@@ -8,6 +8,10 @@ const Table = "incident"
 // IDPrefix is what [record.NewID] is called with for an incident.
 const IDPrefix = "inc"
 
+// FormatVersion is written into every incident record's format_version
+// column.
+const FormatVersion = "incident/1"
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
 //

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
@@ -51,7 +52,7 @@ func peopleCommand(args []string) error {
 		return errors.New("factory people: at most one argument, the human the holding is about, and then any flags")
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		if holder == "" {
 			return printPeople(ctx, pool)
 		}
@@ -60,7 +61,7 @@ func peopleCommand(args []string) error {
 			holding = people.OfObligation(people.Obligation(*obligation))
 		}
 
-		writer := people.NewWriter(pool)
+		writer := people.NewWriter(pool, token)
 		if *withdraw {
 			standing, err := people.ByHolding(ctx, pool, holder, holding)
 			if err != nil {
@@ -79,7 +80,7 @@ func peopleCommand(args []string) error {
 			return err
 		}
 		fmt.Printf("%s holds %s, declared as %s by %s %s\n",
-			declared.Human, holding, declared.ID, declared.Actor.Kind, declared.Actor.Name)
+			declared.Human, holding, declared.ID, declared.Actor.Kind, *human)
 		fmt.Println("A page about a row belonging to this holding reaches every human who holds it at once, and widens once to the owner")
 		return nil
 	})
@@ -245,7 +246,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 	if _, err := secretsResolver(f.secrets); err != nil {
 		return err
 	}
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		driftStore, shut, err := openDriftDetector(ctx)
 		if err != nil {
 			return err
@@ -266,6 +267,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 
 		p, err := compose(ctx, deps{
 			pool:             pool,
+			token:            token,
 			targets:          newTargetSet(localTargetAt),
 			dir:              f.targets,
 			credential:       deployCredential(),

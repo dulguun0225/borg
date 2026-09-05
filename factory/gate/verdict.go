@@ -137,15 +137,24 @@ func (g *Gate) AutoReject(ctx context.Context, opened Opened, check, found strin
 	})
 }
 
+// close appends the close event. The verdict and the reason go onto the entry's
+// own columns — Verdict from the payload's own [score.CloseEvent.Verdict] and
+// Reason from Feedback, which every caller already sets to the reject's
+// feedback or the hold's note — so decisionlog's own refusal of a reject or a
+// hold with no reason applies here without a second field to keep in step with
+// the payload's.
 func (g *Gate) close(ctx context.Context, opened Opened, actor record.Actor, closing ClosingPayload) (decisionlog.Row, error) {
 	payload, err := json.Marshal(closing)
 	if err != nil {
 		return decisionlog.Row{}, fmt.Errorf("gate: marshalling the closing payload: %w", err)
 	}
 	return g.log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor:   actor,
-		Payload: string(payload),
-		Closes:  opened.Row.ID,
+		Actor:         actor,
+		Payload:       string(payload),
+		FormatVersion: decisionFormatVersion,
+		Closes:        opened.Row.ID,
+		Verdict:       closing.CloseEvent.Verdict,
+		Reason:        closing.Feedback,
 	})
 }
 

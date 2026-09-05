@@ -13,6 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -31,11 +32,12 @@ var ErrNotAnOwner = errors.New("policy: gate policy is authored by a human")
 // transaction. At the milestone that builds the four screens, Factory the
 // screen is what calls this; until then the crude interface does.
 type Factory struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewFactory returns the writer over pool.
-func NewFactory(pool *pgxpool.Pool) *Factory { return &Factory{pool: pool} }
+// NewFactory returns the writer over pool, fencing every write with token.
+func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory { return &Factory{pool: pool, token: token} }
 
 // Installed is what [Factory.Install] found or created.
 type Installed struct {
@@ -59,7 +61,7 @@ func (f *Factory) Install(ctx context.Context, actor record.Actor, targets []str
 		return Installed{}, err
 	}
 
-	settings, err := factorysettings.NewWriter(f.pool).Ensure(ctx, actor)
+	settings, err := factorysettings.NewWriter(f.pool, f.token).Ensure(ctx, actor)
 	if err != nil {
 		return Installed{}, err
 	}
@@ -72,7 +74,7 @@ func (f *Factory) Install(ctx context.Context, actor record.Actor, targets []str
 		return Installed{}, err
 	}
 	if !found {
-		production, err = environment.NewWriter(f.pool).Create(ctx, actor,
+		production, err = environment.NewWriter(f.pool, f.token).Create(ctx, actor,
 			environment.KindProduction, environment.ProductionName, targets, credential)
 		if err != nil {
 			return Installed{}, err
@@ -111,7 +113,7 @@ func (f *Factory) versionForCreation(ctx context.Context, actor record.Actor, su
 func (f *Factory) AuthorGateThreshold(ctx context.Context, actor record.Actor, environmentID, gateRow string, threshold float64) (Version, error) {
 	subject := Subject{Kind: "environment", ID: environmentID, Qualifier: gateRow}
 	return f.author(ctx, actor, gatepolicy.RiskThreshold, subject, func(tx pgx.Tx) error {
-		return environment.SetGateThreshold(ctx, tx, actor, environmentID, gateRow, threshold)
+		return environment.SetGateThreshold(ctx, tx, f.token, actor, environmentID, gateRow, threshold)
 	})
 }
 
@@ -214,7 +216,11 @@ func (f *Factory) AddSafeguard(ctx context.Context, actor record.Actor, paramete
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	placed, err := safeguard.Insert(ctx, tx, actor, parameter, subject, bound)
+	if err := lease.Fence(ctx, tx, f.token); err != nil {
+		return safeguard.Safeguard{}, Version{}, err
+	}
+
+	placed, err := safeguard.Insert(ctx, tx, f.token, actor, parameter, subject, bound)
 	if err != nil {
 		return safeguard.Safeguard{}, Version{}, err
 	}
@@ -251,7 +257,7 @@ func (f *Factory) WithdrawSafeguard(ctx context.Context, actor record.Actor, saf
 	}
 	return f.write(ctx, actor, ActionWithdrawn, withdrawing.Parameter,
 		Subject{Kind: string(withdrawing.Subject.Kind), ID: withdrawing.Subject.ID}, safeguardID,
-		func(tx pgx.Tx) error { return safeguard.Withdraw(ctx, tx, safeguardID) })
+		func(tx pgx.Tx) error { return safeguard.Withdraw(ctx, tx, f.token, safeguardID) })
 }
 
 func (f *Factory) author(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,
@@ -273,6 +279,10 @@ func (f *Factory) write(ctx context.Context, actor record.Actor, action Action,
 		return Version{}, fmt.Errorf("policy: beginning the write of %s: %w", subject, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lease.Fence(ctx, tx, f.token); err != nil {
+		return Version{}, err
+	}
 
 	// The lock covers the write and the append together. What it serialises is
 	// reading the version in force and appending the one that supersedes it: two
@@ -302,7 +312,7 @@ func ownerOnly(actor record.Actor) error {
 		return err
 	}
 	if actor.Kind != record.KindHuman {
-		return fmt.Errorf("%w: %s %q", ErrNotAnOwner, actor.Kind, actor.Name)
+		return fmt.Errorf("%w: %s %q", ErrNotAnOwner, actor.Kind, actor.Key)
 	}
 	return nil
 }

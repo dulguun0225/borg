@@ -315,7 +315,7 @@ func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 // either — its close event's actor is the gate component, so the human test
 // leaves it out.
 func (s *Score) humanVerdicts(ctx context.Context, wanted func(OpenEvent) bool) (approved, rejected int, err error) {
-	closed, err := decisionlog.ClosedDecisions(ctx, s.pool)
+	closed, err := decisionlog.NewReader(s.pool, s.token).ClosedDecisions(ctx, component)
 	if err != nil {
 		return 0, 0, err
 	}

@@ -13,6 +13,10 @@ const Table = "policy_version"
 // IDPrefix is what [record.NewID] is called with for a policy version.
 const IDPrefix = "pv"
 
+// FormatVersion is what every row of [Table] carries in its format_version
+// column.
+const FormatVersion = "policy_version/1"
+
 // DDL is this package's schema. [record.Columns] and [record.Constraints] are
 // composed rather than restated.
 //

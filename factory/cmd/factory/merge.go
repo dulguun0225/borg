@@ -65,7 +65,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		}
 		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, checked.Why())
 		fmt.Fprintf(p.d.out, "  close event %s written as %s; item %s goes back to %s with an attempt counted there\n",
-			closing.ID, closing.Actor.Name, c.itemID, gate.ReturnsTo)
+			closing.ID, closing.Actor.Key, c.itemID, gate.ReturnsTo)
 		return nil
 	}
 
@@ -147,7 +147,7 @@ func reportContracts(out io.Writer, checked contractcheck.Checked) {
 			}
 			for _, s := range blocking.Safeguards {
 				fmt.Fprintf(out, "    %s is still asserted by safeguard %s, placed by %s %s\n",
-					blocking.Element, s.SafeguardID, s.Actor.Kind, s.Actor.Name)
+					blocking.Element, s.SafeguardID, s.Actor.Kind, s.Actor.Key)
 			}
 		}
 	}

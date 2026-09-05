@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -37,11 +38,12 @@ var (
 // Dispatch is the item's one writer after decomposition. Every stage reports its
 // transition and its spend here rather than writing the item itself.
 type Dispatch struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewDispatch returns the writer over pool.
-func NewDispatch(pool *pgxpool.Pool) *Dispatch { return &Dispatch{pool: pool} }
+// NewDispatch returns the writer over pool, fencing every write with token.
+func NewDispatch(pool *pgxpool.Pool, token lease.Token) *Dispatch { return &Dispatch{pool: pool, token: token} }
 
 // Advance moves the item to stage, which must be the next stage in
 // [StageOrder]. The item row is locked while its current stage is read, so
@@ -59,6 +61,9 @@ func (d *Dispatch) Advance(ctx context.Context, actor record.Actor, itemID strin
 		return Item{}, fmt.Errorf("item: beginning the advance of %s: %w", itemID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, d.token); err != nil {
+		return Item{}, err
+	}
 
 	it, err := scanItem(tx.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1 for update`, itemID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -112,7 +117,21 @@ func (d *Dispatch) ReportAttempt(ctx context.Context, actor record.Actor, itemID
 		return fmt.Errorf("%w: %d", ErrSpendNegative, spendTokens)
 	}
 
-	return reportAttempt(ctx, d.pool, actor, itemID, stage, spendTokens)
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("item: beginning the attempt report of %s: %w", itemID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, d.token); err != nil {
+		return err
+	}
+	if err := reportAttempt(ctx, tx, actor, itemID, stage, spendTokens); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("item: committing the attempt report of %s: %w", itemID, err)
+	}
+	return nil
 }
 
 // executor is the two things an attempt report is written through: the pool for
@@ -128,12 +147,12 @@ type executor interface {
 // counter.
 func reportAttempt(ctx context.Context, q executor, actor record.Actor, itemID string, stage Stage, spendTokens int64) error {
 	_, err := q.Exec(ctx, `insert into `+StageTable+`
-		(id, actor_kind, actor_name, at, item_id, stage, attempts, spend_tokens)
-		values ($1, $2, $3, $4, $5, $6, 1, $7)
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, spend_tokens)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
 		on conflict (item_id, stage) do update set
 			attempts = `+StageTable+`.attempts + 1,
 			spend_tokens = `+StageTable+`.spend_tokens + excluded.spend_tokens`,
-		record.NewID(StageIDPrefix), string(actor.Kind), actor.Name, record.Now(),
+		record.NewID(StageIDPrefix), FormatVersionStage, string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
 		itemID, string(stage), spendTokens,
 	)
 	if err != nil {
@@ -170,6 +189,9 @@ func (d *Dispatch) ReworkRequest(ctx context.Context, actor record.Actor, itemID
 		return Item{}, fmt.Errorf("item: beginning the rework request of %s: %w", itemID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, d.token); err != nil {
+		return Item{}, err
+	}
 
 	it, err := scanItem(tx.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1 for update`, itemID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -210,8 +232,20 @@ func (d *Dispatch) SetPriority(ctx context.Context, actor record.Actor, itemID s
 	if itemID == "" {
 		return Item{}, ErrItemIDEmpty
 	}
-	if _, err := d.pool.Exec(ctx, `update `+Table+` set priority = $1 where id = $2`, priority, itemID); err != nil {
+
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return Item{}, fmt.Errorf("item: beginning the priority of %s: %w", itemID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, d.token); err != nil {
+		return Item{}, err
+	}
+	if _, err := tx.Exec(ctx, `update `+Table+` set priority = $1 where id = $2`, priority, itemID); err != nil {
 		return Item{}, fmt.Errorf("item: setting the priority of %s: %w", itemID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Item{}, fmt.Errorf("item: committing the priority of %s: %w", itemID, err)
 	}
 	it, err := Get(ctx, d.pool, itemID)
 	if err != nil {

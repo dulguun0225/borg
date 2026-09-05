@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -31,7 +32,7 @@ func learnCommand(args []string) error {
 		return err
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		inForce, found, err := score.Newest(ctx, pool)
 		if err != nil {
 			return err
@@ -42,13 +43,13 @@ func learnCommand(args []string) error {
 			fmt.Println("No score version has been appended yet")
 		}
 
-		learned, err := score.Learn(ctx, pool)
+		learned, err := score.Learn(ctx, pool, token)
 		if err != nil {
 			return err
 		}
 		printSupplied(os.Stdout, learned, inForce)
 
-		if err := printHeldOut(ctx, os.Stdout, pool); err != nil {
+		if err := printHeldOut(ctx, os.Stdout, pool, token); err != nil {
 			return err
 		}
 
@@ -56,7 +57,7 @@ func learnCommand(args []string) error {
 			fmt.Println("\nNothing was appended: -dry reads the outcomes and writes nothing.")
 			return nil
 		}
-		appended, err := score.NewWriter(pool).Ensure(ctx, scoreActor)
+		appended, err := score.NewWriter(pool, token).Ensure(ctx, scoreActor)
 		if err != nil {
 			return err
 		}
@@ -124,8 +125,8 @@ func heldRow(learned score.SuppliedValues, s score.Supplied) bool {
 // printHeldOut prints the items the score has selected into its sample, which is
 // the one thing the learning does that changes what the factory decides rather
 // than what it supplies.
-func printHeldOut(ctx context.Context, out io.Writer, pool *pgxpool.Pool) error {
-	items, err := score.HeldOutItems(ctx, pool)
+func printHeldOut(ctx context.Context, out io.Writer, pool *pgxpool.Pool, token lease.Token) error {
+	items, err := score.HeldOutItems(ctx, pool, token)
 	if err != nil {
 		return err
 	}

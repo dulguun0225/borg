@@ -16,7 +16,7 @@ import (
 func TestGatePolicyIsAuthoredByAHuman(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	component := record.Actor{Kind: record.KindComponent, Name: "score"}
+	component := record.Actor{Kind: record.KindComponent, Key: "score"}
 	if _, err := in.factory.AuthorWindowLimit(ctx, component, in.service.ID, 2); !errors.Is(err, policy.ErrNotAnOwner) {
 		t.Errorf("a component authoring the window limit = %v, want ErrNotAnOwner", err)
 	}

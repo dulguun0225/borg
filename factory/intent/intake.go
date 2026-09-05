@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -49,11 +50,12 @@ var (
 // are three callers of this one entrance, which is why every method takes the
 // actor rather than the writer holding one.
 type Intake struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewIntake returns the writer over pool.
-func NewIntake(pool *pgxpool.Pool) *Intake { return &Intake{pool: pool} }
+// NewIntake returns the writer over pool, fencing every write with token.
+func NewIntake(pool *pgxpool.Pool, token lease.Token) *Intake { return &Intake{pool: pool, token: token} }
 
 // TakeIn writes an intent as it arrives: unrefined, zero rounds, and judged
 // by nothing on the way in, because judging it is what the interview is for.
@@ -77,14 +79,27 @@ func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, source Source, 
 		State:     StateUnrefined,
 		Rounds:    0,
 	}
-	_, err := i.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, 0)`,
-		in.ID, string(in.Actor.Kind), in.Actor.Name, in.At,
+
+	tx, err := i.pool.Begin(ctx)
+	if err != nil {
+		return Intent{}, fmt.Errorf("intent: beginning the take-in of %s: %w", in.ID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, i.token); err != nil {
+		return Intent{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, source, statement, state, rounds, re_decompositions)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)`,
+		in.ID, FormatVersion, string(in.Actor.Kind), in.Actor.Key, string(in.Actor.Basis), in.At,
 		string(in.Source), in.Statement, string(in.State), in.Rounds,
 	)
 	if err != nil {
 		return Intent{}, fmt.Errorf("intent: taking in %s: %w", in.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Intent{}, fmt.Errorf("intent: committing the take-in of %s: %w", in.ID, err)
 	}
 	return in, nil
 }
@@ -116,6 +131,9 @@ func (i *Intake) CountReDecomposition(ctx context.Context, actor record.Actor, i
 		return 0, fmt.Errorf("intent: beginning the re-decomposition count of %s: %w", intentID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, i.token); err != nil {
+		return 0, err
+	}
 
 	var reDecompositions int
 	err = tx.QueryRow(ctx, `select re_decompositions from `+Table+` where id = $1 for update`, intentID).Scan(&reDecompositions)
@@ -153,6 +171,9 @@ func (i *Intake) Ask(ctx context.Context, actor record.Actor, intentID, question
 		return Question{}, fmt.Errorf("intent: beginning the ask: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, i.token); err != nil {
+		return Question{}, err
+	}
 
 	var rounds int
 	err = tx.QueryRow(ctx, `select rounds from `+Table+` where id = $1 for update`, intentID).Scan(&rounds)
@@ -171,9 +192,9 @@ func (i *Intake) Ask(ctx context.Context, actor record.Actor, intentID, question
 		Question: question,
 	}
 	if _, err := tx.Exec(ctx, `insert into `+QuestionTable+`
-		(id, actor_kind, actor_name, at, intent_id, round, question, answer, answered_at)
-		values ($1, $2, $3, $4, $5, $6, $7, '', '')`,
-		q.ID, string(q.Actor.Kind), q.Actor.Name, q.At, q.IntentID, q.Round, q.Question,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id, round, question, answer, answered_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, '', '')`,
+		q.ID, FormatVersionQuestion, string(q.Actor.Kind), q.Actor.Key, string(q.Actor.Basis), q.At, q.IntentID, q.Round, q.Question,
 	); err != nil {
 		return Question{}, fmt.Errorf("intent: writing question %s: %w", q.ID, err)
 	}
@@ -208,18 +229,22 @@ func (i *Intake) Answer(ctx context.Context, actor record.Actor, questionID, ans
 		return Question{}, fmt.Errorf("intent: beginning the answer: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, i.token); err != nil {
+		return Question{}, err
+	}
 
 	var q Question
-	var kind string
-	err = tx.QueryRow(ctx, `select id, actor_kind, actor_name, at, intent_id, round, question, answer, answered_at
+	var kind, basis string
+	err = tx.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, intent_id, round, question, answer, answered_at
 		from `+QuestionTable+` where id = $1 for update`, questionID).
-		Scan(&q.ID, &kind, &q.Actor.Name, &q.At, &q.IntentID, &q.Round, &q.Question, &q.Answer, &q.AnsweredAt)
+		Scan(&q.ID, &kind, &q.Actor.Key, &basis, &q.At, &q.IntentID, &q.Round, &q.Question, &q.Answer, &q.AnsweredAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Question{}, fmt.Errorf("%w: %s", ErrQuestionNotFound, questionID)
 	} else if err != nil {
 		return Question{}, fmt.Errorf("intent: reading question %s: %w", questionID, err)
 	}
 	q.Actor.Kind = record.Kind(kind)
+	q.Actor.Basis = record.Basis(basis)
 
 	if q.Answered() {
 		return Question{}, fmt.Errorf("%w: %s", ErrAlreadyAnswered, questionID)
@@ -252,6 +277,9 @@ func (i *Intake) MarkRefined(ctx context.Context, actor record.Actor, intentID s
 		return fmt.Errorf("intent: beginning the refinement of %s: %w", intentID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, i.token); err != nil {
+		return err
+	}
 
 	var state string
 	err = tx.QueryRow(ctx, `select state from `+Table+` where id = $1 for update`, intentID).Scan(&state)

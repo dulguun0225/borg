@@ -1,14 +1,17 @@
 // Package mergequeue is the merge queue: the one inbound path to master. It is
 // a component and owns no table.
 //
-// queue.go is the whole of it. [Queue] and [New] compose it; [Queue.Members] is
-// the membership — the items whose stage says Merge to master approved them and
+// queue.go is the whole of it. [Queue] and [New] compose it, [New] taking the
+// fencing token every write and every read of the log goes through; [Queue.Members]
+// is the membership — the items whose stage says Merge to master approved them and
 // whose fast-forward has not happened, which is [item.StageQueued] — ordered by
-// the item's priority and then the time of that approval in the decision log.
+// the item's priority and then the time of that approval, read through
+// [gate.ApprovalTimes] with the queue's token and [Actor] as the reading
+// principal.
 // [Queue.Run] re-verifies each member against the master it will actually merge
 // into and returns one [Outcome] per member; a rejection on the candidate's own
-// merits is a [RejectionPayload] of [RejectionKind] appended to the log as
-// [Actor].
+// merits is a [RejectionPayload] of [RejectionKind], appended to the log as
+// [Actor] through [decisionlog.Writer.AppendQueueRejection].
 //
 // Everything that touches the repository, the candidate's environment, and the
 // criteria is behind [Repository], implemented by whatever composes the deploy

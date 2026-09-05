@@ -28,19 +28,27 @@ import (
 	"github.com/dulguun0225/borg/factory/service"
 )
 
-// The component actors of the path, named per the M1 convention. The two
-// authoring agents are components too — an agent is a part of the factory,
-// in a role.
+// The component actors of the path, named per the M1 convention.
 var (
-	scoreActor         = record.Actor{Kind: record.KindComponent, Name: "score"}
-	intakeActor        = record.Actor{Kind: record.KindComponent, Name: "intake"}
-	specAuthorActor    = record.Actor{Kind: record.KindComponent, Name: "agent.spec_author"}
-	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
-	dispatchActor      = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
-	implementerActor   = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
-	buildActor         = record.Actor{Kind: record.KindComponent, Name: "build"}
-	deployActor        = record.Actor{Kind: record.KindComponent, Name: "deploy"}
+	scoreActor         = record.Actor{Kind: record.KindComponent, Key: "score"}
+	intakeActor        = record.Actor{Kind: record.KindComponent, Key: "intake"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+	buildActor         = record.Actor{Kind: record.KindComponent, Key: "build"}
+	deployActor        = record.Actor{Kind: record.KindComponent, Key: "deploy"}
 )
+
+// specAuthorActor and implementerActor are the two authoring roles, each an
+// agent rather than a component: a model in a role the factory dispatches to
+// a stage, keyed by the model version this run was given. Both name the same
+// model, this interface running one model per run.
+func (p *path) specAuthorActor() record.Actor {
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+}
+
+func (p *path) implementerActor() record.Actor {
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+}
 
 // path is one run's collaborators, composed once. It is also the deploy agent: it
 // implements [mergequeue.Repository] and [contractcheck.Checkout], because
@@ -196,7 +204,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 			deployed = live.ID
 		}
 	}
-	return s, walk(ctx, d.pool, d.out, deployed)
+	return s, walk(ctx, d.pool, d.out, d.token, p.human, deployed)
 }
 
 // itemOfDeploy is the item a deploy's release was cut from, and empty where the

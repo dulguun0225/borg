@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/record"
 )
 
 // TestThePrioritySubcommandReordersAQueue is duty 9's other write on an item: an
@@ -18,7 +17,7 @@ func TestThePrioritySubcommandReordersAQueue(t *testing.T) {
 	install(t, ctx, pool)
 	svc := decomposeService(t, ctx, pool, "checkout")
 
-	it, err := item.NewDecomposition(pool).Create(ctx, record.Actor{Kind: record.KindComponent, Name: "decomposition"},
+	it, err := item.NewDecomposition(pool, testToken(t, ctx, pool)).Create(ctx, decompositionActor,
 		item.New{IntentID: "in_a", ServiceID: svc.ID, Branch: "item/a"})
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)

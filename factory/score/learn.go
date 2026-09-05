@@ -9,14 +9,15 @@ import (
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 )
 
 // Learn is the table the score supplies, computed from every outcome in the
 // store: the starting value of each parameter, and a row for each subject an
 // outcome has moved it for. It reads records and writes none — what writes is
 // [Writer.Ensure], which appends the version this table is a field of.
-func Learn(ctx context.Context, pool *pgxpool.Pool) (SuppliedValues, error) {
-	e, err := ReadEvidence(ctx, pool)
+func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (SuppliedValues, error) {
+	e, err := ReadEvidence(ctx, pool, token)
 	if err != nil {
 		return nil, err
 	}

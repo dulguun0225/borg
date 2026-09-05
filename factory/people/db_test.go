@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -26,7 +27,7 @@ import (
 
 // owner is the one writer of declarations, the way doc.go names it: a human,
 // and never a component.
-var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
+var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *people.Writer) {
 	t.Helper()
@@ -57,7 +58,11 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *people.Writer) {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
-	return ctx, pool, people.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, people.NewWriter(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -117,7 +122,7 @@ func TestDeclaringADutyAndAnObligationReadBackAsHolding(t *testing.T) {
 
 func TestAComponentActorIsRefused(t *testing.T) {
 	ctx, pool, w := newTable(t)
-	component := record.Actor{Kind: record.KindComponent, Name: "dispatch"}
+	component := record.Actor{Kind: record.KindComponent, Key: "dispatch"}
 
 	if _, err := w.Declare(ctx, component, "alice", people.OfDuty(1)); !errors.Is(err, people.ErrNotAnOwner) {
 		t.Errorf("Declare by a component = %v, want ErrNotAnOwner", err)
@@ -125,9 +130,9 @@ func TestAComponentActorIsRefused(t *testing.T) {
 
 	// Around the writer, the CHECK constraint refuses the same thing.
 	_, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at)
-		values ($1, 'component', 'dispatch', $2, 'alice', 1, '', '')`,
-		record.NewID(people.IDPrefix), record.Now())
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
+		values ($1, $2, 'component', 'dispatch', '', $3, 'alice', 1, '', '')`,
+		record.NewID(people.IDPrefix), people.FormatVersion, record.Now())
 	if err == nil {
 		t.Error("the store accepted a declaration written by a component")
 	}
@@ -274,24 +279,24 @@ func TestDDLHoldsEveryDuty(t *testing.T) {
 
 	for _, duty := range people.Duties {
 		_, err := pool.Exec(ctx, `insert into `+people.Table+`
-			(id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at)
-			values ($1, 'human', 'owner', $2, $3, $4, '', '')`,
-			record.NewID(people.IDPrefix), record.Now(), "human_for_duty", int(duty))
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
+			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, $5, '', '')`,
+			record.NewID(people.IDPrefix), people.FormatVersion, record.Now(), "human_for_duty", int(duty))
 		if err != nil {
 			t.Errorf("inserting duty %d, one of people.Duties, was refused: %v", duty, err)
 		}
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at)
-		values ($1, 'human', 'owner', $2, 'nobody', 0, '', '')`,
-		record.NewID(people.IDPrefix), record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'nobody', 0, '', '')`,
+		record.NewID(people.IDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted duty 0 with no obligation")
 	}
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at)
-		values ($1, 'human', 'owner', $2, 'nobody', 13, '', '')`,
-		record.NewID(people.IDPrefix), record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'nobody', 13, '', '')`,
+		record.NewID(people.IDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted duty 13, which is outside the twelve")
 	}
 }
@@ -304,18 +309,18 @@ func TestDDLListsEveryObligation(t *testing.T) {
 
 	for _, obligation := range people.Obligations {
 		_, err := pool.Exec(ctx, `insert into `+people.Table+`
-			(id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at)
-			values ($1, 'human', 'owner', $2, $3, 0, $4, '')`,
-			record.NewID(people.IDPrefix), record.Now(), "human_for_obligation", string(obligation))
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
+			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, 0, $5, '')`,
+			record.NewID(people.IDPrefix), people.FormatVersion, record.Now(), "human_for_obligation", string(obligation))
 		if err != nil {
 			t.Errorf("inserting obligation %q, one of people.Obligations, was refused: %v", obligation, err)
 		}
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
-		(id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at)
-		values ($1, 'human', 'owner', $2, 'nobody', 0, 'catering', '')`,
-		record.NewID(people.IDPrefix), record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'nobody', 0, 'catering', '')`,
+		record.NewID(people.IDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted an obligation outside people.Obligations")
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
@@ -32,7 +33,7 @@ func policyCommand(args []string) error {
 		return err
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, _ lease.Token) error {
 		subjects := policy.Subjects{GateRow: *gateRow, Stage: item.Stage(*stage)}
 		if *serviceName != "" {
 			svc, err := namedService(ctx, pool, *serviceName)
@@ -61,7 +62,7 @@ func policyCommand(args []string) error {
 			return err
 		}
 		fmt.Printf("Policy version %s in force: %s %s on %s by %s\n",
-			version.ID, version.Action, version.Parameter, version.Subject, version.Actor.Name)
+			version.ID, version.Action, version.Parameter, version.Subject, version.Actor.Key)
 
 		// The newest score version and not an ensured one: this command prints what
 		// is in force and authors nothing, and an ensure here would have a read

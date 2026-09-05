@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -26,11 +27,14 @@ var (
 // method, because decomposition writes an item once and never again — every later
 // write is [Dispatch]'s.
 type Decomposition struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewDecomposition returns the writer over pool.
-func NewDecomposition(pool *pgxpool.Pool) *Decomposition { return &Decomposition{pool: pool} }
+// NewDecomposition returns the writer over pool, fencing every write with token.
+func NewDecomposition(pool *pgxpool.Pool, token lease.Token) *Decomposition {
+	return &Decomposition{pool: pool, token: token}
+}
 
 // New is what decomposition knows about an item when it creates one. It is a struct
 // and not four arguments because all four are strings and three of them are
@@ -85,15 +89,28 @@ func (c *Decomposition) Create(ctx context.Context, actor record.Actor, n New) (
 		Stage:     StageSpec,
 		WaitsOn:   n.WaitsOn,
 	}
-	_, err := c.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage,
+
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return Item{}, fmt.Errorf("item: beginning the decomposition of %s: %w", it.ID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, c.token); err != nil {
+		return Item{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id, branch, stage,
 		waits_on, superseded_by, priority)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '', 0)`,
-		it.ID, string(it.Actor.Kind), it.Actor.Name, it.At,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '', 0)`,
+		it.ID, FormatVersion, string(it.Actor.Kind), it.Actor.Key, string(it.Actor.Basis), it.At,
 		it.IntentID, it.ServiceID, it.AreaID, it.Branch, string(it.Stage), joinIDs(it.WaitsOn),
 	)
 	if err != nil {
 		return Item{}, fmt.Errorf("item: decomposing %s: %w", it.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Item{}, fmt.Errorf("item: committing the decomposition of %s: %w", it.ID, err)
 	}
 	return it, nil
 }
@@ -137,6 +154,9 @@ func (c *Decomposition) Supersede(ctx context.Context, actor record.Actor, itemI
 		return Item{}, fmt.Errorf("item: beginning the supersede of %s: %w", itemID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, c.token); err != nil {
+		return Item{}, err
+	}
 
 	it, err := scanItem(tx.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1 for update`, itemID))
 	if errors.Is(err, pgx.ErrNoRows) {

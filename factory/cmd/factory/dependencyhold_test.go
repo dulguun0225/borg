@@ -32,7 +32,7 @@ func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 
 	// An item waiting on the one that shipped: its dependency is live, so nothing
 	// holds.
-	live, err := item.NewDecomposition(d.pool).Create(ctx, decompositionActor, item.New{
+	live, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_dependent", ServiceID: res.serviceID, Branch: "item/dependent-live",
 		WaitsOn: []string{shippedItem},
 	})
@@ -49,13 +49,13 @@ func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 
 	// An item waiting on one that has not shipped: the hold fires, and it names
 	// the condition rather than a verdict.
-	unshipped, err := item.NewDecomposition(d.pool).Create(ctx, decompositionActor, item.New{
+	unshipped, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_dependent2", ServiceID: res.serviceID, Branch: "item/dependent-waiting",
 	})
 	if err != nil {
 		t.Fatalf("decomposing the item nothing shipped: %v", err)
 	}
-	waiting, err := item.NewDecomposition(d.pool).Create(ctx, decompositionActor, item.New{
+	waiting, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_dependent3", ServiceID: res.serviceID, Branch: "item/dependent-held",
 		WaitsOn: []string{unshipped.ID},
 	})
@@ -73,10 +73,7 @@ func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 	// Nothing was written for it: a hold over a record that already exists is
 	// recomputed at every firing, and a record for it would be a decision where
 	// nothing is decided.
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := readLog(t, ctx, d)
 	for _, row := range rows {
 		if row.Shape == decisionlog.ShapeWait {
 			t.Errorf("the log holds a wait row %s, and the dependency hold writes nothing", row.ID)

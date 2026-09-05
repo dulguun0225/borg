@@ -100,7 +100,7 @@ func TestASecondChangeShips(t *testing.T) {
 
 	// The walk from the second deploy reaches the second intent and no other.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, second.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), second.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theSecondStatement) {
@@ -109,7 +109,7 @@ func TestASecondChangeShips(t *testing.T) {
 	if strings.Contains(walked.String(), theStatement) {
 		t.Errorf("the walk from %s reaches the first intent's statement:\n%s", second.deployID, walked.String())
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after two changes: %v", err)
 	}
 }
@@ -161,12 +161,9 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 	// says what auto-passed it, and every open event of an auto-pass waits on
 	// nobody — which is how a reader of the log tells a decision nobody was asked
 	// to make from a pending one.
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := decisionRows(readLog(t, ctx, d))
 	if len(rows) != 12 {
-		t.Fatalf("the log holds %d rows, two runs of three decisions are twelve", len(rows))
+		t.Fatalf("the log holds %d decision rows, two runs of three decisions are twelve", len(rows))
 	}
 	for _, row := range rows[6:] {
 		if row.Part == decisionlog.PartOpen {
@@ -183,7 +180,7 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 			t.Errorf("the closing says %+v, want an approve auto-passed by the threshold", payload)
 		}
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after two runs: %v", err)
 	}
 }
@@ -196,8 +193,8 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	ctx, d, _, _ := twoRunsOnOneService(t, approvals, "")
 
-	placed, version, err := policy.NewFactory(d.pool).AddSafeguard(ctx,
-		record.Actor{Kind: record.KindHuman, Name: d.human}, gatepolicy.RiskThreshold,
+	placed, version, err := policy.NewFactory(d.pool, d.token).AddSafeguard(ctx,
+		owner(d.human), gatepolicy.RiskThreshold,
 		safeguard.Subject{Kind: safeguard.SubjectGateRow, ID: string(gate.DeployToProduction)}, safeguard.Bound{Number: 0})
 	if err != nil {
 		t.Fatalf("placing the safeguard: %v", err)
@@ -270,10 +267,7 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 
 	// The hold is the verdict of that firing's decision, with the human as its
 	// actor.
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := decisionRows(readLog(t, ctx, d))
 	closing := rows[len(rows)-1]
 	if closing.Actor.Kind != record.KindHuman {
 		t.Errorf("the hold was written by %+v, want the human who set it", closing.Actor)
@@ -285,15 +279,15 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	if payload.ReturnsTo != "" {
 		t.Errorf("the hold sends the item to %q, and a hold sends nothing back", payload.ReturnsTo)
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after a hold: %v", err)
 	}
 
 	// Withdrawing the safeguard leaves the row the score's again, which is what a
 	// safeguard being a bound rather than a precedence means at this row: nothing
 	// else moved.
-	if _, err := policy.NewFactory(d.pool).WithdrawSafeguard(ctx,
-		record.Actor{Kind: record.KindHuman, Name: d.human}, placed.ID); err != nil {
+	if _, err := policy.NewFactory(d.pool, d.token).WithdrawSafeguard(ctx,
+		owner(d.human), placed.ID); err != nil {
 		t.Fatalf("withdrawing the safeguard: %v", err)
 	}
 	applied, err := policy.NewReader(d.pool, score.Version{}).AtGate(ctx, policy.Subjects{

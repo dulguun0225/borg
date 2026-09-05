@@ -15,6 +15,14 @@ const IDPrefix = "fs"
 // LimitIDPrefix is what [record.NewID] is called with for an attempt-limit row.
 const LimitIDPrefix = "fsl"
 
+// FormatVersion is what this package writes into format_version on every
+// insert into [Table].
+const FormatVersion = "factory_settings/1"
+
+// FormatVersionLimit is what this package writes into format_version on every
+// insert into [LimitTable].
+const FormatVersionLimit = "factory_settings_attempt_limit/1"
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
 //

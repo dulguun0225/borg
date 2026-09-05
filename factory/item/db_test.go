@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -59,12 +60,21 @@ func newWriters(t *testing.T) (context.Context, *pgxpool.Pool, *item.Decompositi
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range item.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying item statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, item.NewDecomposition(pool), item.NewDispatch(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, item.NewDecomposition(pool, token), item.NewDispatch(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -81,8 +91,8 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
-var dispatchActor = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
+var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+var dispatchActor = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
 
 // oneItem is an item freshly decomposed, for the tests that need one to advance or
 // report against.

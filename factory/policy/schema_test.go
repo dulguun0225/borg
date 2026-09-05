@@ -37,8 +37,8 @@ func TestTheSequenceCannotFork(t *testing.T) {
 
 	// A second version naming the same predecessor is refused by the store.
 	_, err = in.pool.Exec(ctx, `insert into `+policy.Table+`
-		(id, actor_kind, actor_name, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
-		values ($1, 'human', 'owner', $2, 'created', '', 'factory_settings', 'fs_x', '', '', $3)`,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
+		values ($1, 'policy_version/1', 'human', 'person:owner', 'claimed', $2, 'created', '', 'factory_settings', 'fs_x', '', '', $3)`,
 		record.NewID(policy.IDPrefix), record.Now(), inForce.Supersedes)
 	if err == nil {
 		t.Error("the store accepted two versions naming one predecessor, and the sequence would fork")
@@ -47,8 +47,8 @@ func TestTheSequenceCannotFork(t *testing.T) {
 	// And a second version naming none is refused for the same reason: a sequence
 	// has one beginning.
 	_, err = in.pool.Exec(ctx, `insert into `+policy.Table+`
-		(id, actor_kind, actor_name, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
-		values ($1, 'human', 'owner', $2, 'created', '', 'factory_settings', 'fs_y', '', '', '')`,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
+		values ($1, 'policy_version/1', 'human', 'person:owner', 'claimed', $2, 'created', '', 'factory_settings', 'fs_y', '', '', '')`,
 		record.NewID(policy.IDPrefix), record.Now())
 	if err == nil {
 		t.Error("the store accepted a second version superseding nothing, and the sequence would have two beginnings")

@@ -17,7 +17,8 @@ import (
 // this package writes record.Now through the writer, so the constraint
 // refusing what the writer produces would fail all of them.
 func TestTheStoreRefusesATimestampThatIsNotTheLayout(t *testing.T) {
-	ctx, pool, _ := newLog(t)
+	ctx, pool, _, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
 	for _, at := range []string{
 		"",
 		"2026-08-17T01:30:00Z",
@@ -32,7 +33,32 @@ func TestTheStoreRefusesATimestampThatIsNotTheLayout(t *testing.T) {
 			t.Errorf("the timestamp %q was refused by %q, want %q", at, got, want)
 		}
 	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := reader.Verify(ctx, owner); err != nil {
+		t.Fatalf("a refused row reached the log: %v", err)
+	}
+}
+
+// TestOpenedInWorkAtMustBeEmptyOrTheLayout is the same constraint over the
+// close event's own column: empty is allowed, and anything else has to be
+// record.TimeLayout.
+func TestOpenedInWorkAtMustBeEmptyOrTheLayout(t *testing.T) {
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
+
+	opening, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
+		Actor: gate, Payload: "x", FormatVersion: "decision/1", PolicyVersion: "policy-1", ScoreVersion: "score-1",
+	})
+	if err != nil {
+		t.Fatalf("AppendDecisionOpen: %v", err)
+	}
+	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
+		Actor: owner, FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
+		OpenedInWorkAt: "not a time at all",
+	}); err == nil {
+		t.Fatal("a malformed OpenedInWorkAt was accepted")
+	}
+
+	if err := reader.Verify(ctx, owner); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }

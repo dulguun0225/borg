@@ -15,7 +15,7 @@ import (
 // not a reason to be handed the thing that opens and closes them. That is the
 // arrangement every record package in the factory has.
 
-const selectWindow = `select id, actor_kind, actor_name, at, deploy_id, release_id, service_id,
+const selectWindow = `select id, actor_kind, actor_key, actor_key_basis, at, deploy_id, release_id, service_id,
 	passed_available, held_out, size, confidence, cap_seconds, formula, policy_version, score_version,
 	exit, closed_at, closed_on_units, closed_on_failures,
 	closed_on_baseline_units, closed_on_baseline_failures
@@ -23,8 +23,8 @@ const selectWindow = `select id, actor_kind, actor_name, at, deploy_id, release_
 
 func scan(row pgx.Row) (Window, error) {
 	var w Window
-	var kind, exit string
-	err := row.Scan(&w.ID, &kind, &w.Actor.Name, &w.At, &w.DeployID, &w.ReleaseID, &w.ServiceID,
+	var kind, basis, exit string
+	err := row.Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At, &w.DeployID, &w.ReleaseID, &w.ServiceID,
 		&w.PassedAvailable, &w.HeldOut, &w.Size, &w.Confidence, &w.CapSeconds, &w.Formula,
 		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt,
 		&w.ClosedOn.Units, &w.ClosedOn.Failures,
@@ -33,6 +33,7 @@ func scan(row pgx.Row) (Window, error) {
 		return Window{}, err
 	}
 	w.Actor.Kind = record.Kind(kind)
+	w.Actor.Basis = record.Basis(basis)
 	w.Exit = Exit(exit)
 	return w, nil
 }

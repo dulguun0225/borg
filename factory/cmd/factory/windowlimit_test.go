@@ -63,10 +63,7 @@ func TestTheWindowLimitHoldsTheNextProductionDeploy(t *testing.T) {
 
 	// Nothing was written for the hold: it is computed from records that already exist,
 	// so a record for it would be a decision where nothing is decided.
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := readLog(t, ctx, d)
 	for _, row := range rows {
 		if row.Shape == decisionlog.ShapeWait {
 			t.Errorf("the log holds a wait row %s, and the window limit's hold writes nothing", row.ID)
@@ -185,7 +182,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 			t.Errorf("the deploy of release %s is %s, and one rollback undid both", undone.releaseID, dep.Status)
 		}
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after a rollback that swept: %v", err)
 	}
 }

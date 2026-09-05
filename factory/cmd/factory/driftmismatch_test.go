@@ -32,7 +32,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// so the page a mismatch fires reaches whoever the declaration says installed
 	// it.
 	installer := "sre"
-	if _, err := people.NewWriter(d.pool).Declare(ctx, owner(d.human), installer,
+	if _, err := people.NewWriter(d.pool, d.token).Declare(ctx, owner(d.human), installer,
 		people.OfObligation(people.ObligationDriftDetector)); err != nil {
 		t.Fatalf("declaring who installed the drift detector: %v", err)
 	}
@@ -72,10 +72,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if !strings.Contains(c.deployGate.whyHuman, gate.WhyMismatch) {
 		t.Errorf("the row says a human decided because %q, want the mismatch among the reasons", c.deployGate.whyHuman)
 	}
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := readLog(t, ctx, d)
 	var opening decisionlog.Row
 	for _, row := range rows {
 		if row.ID == c.deployGate.opening {
@@ -90,7 +87,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 
 	// The page: reached, to whoever installed the drift detector, because a mismatch
 	// belongs to no duty of the twelve.
-	events, err := notifier.EventsFor(ctx, d.pool, raised.Raised)
+	events, err := p(ctx, t, d).notifier.EventsFor(ctx, raised.Raised)
 	if err != nil {
 		t.Fatalf("reading the page events: %v", err)
 	}
@@ -112,7 +109,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 			t.Fatalf("a pass stopped: %v", err)
 		}
 	}
-	events, err = notifier.EventsFor(ctx, d.pool, raised.Raised)
+	events, err = path.notifier.EventsFor(ctx, raised.Raised)
 	if err != nil {
 		t.Fatalf("reading the page events: %v", err)
 	}
@@ -138,7 +135,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass after the clearing stopped: %v", err)
 	}
-	events, err = notifier.EventsFor(ctx, d.pool, raised.Raised)
+	events, err = path.notifier.EventsFor(ctx, raised.Raised)
 	if err != nil {
 		t.Fatalf("reading the page events: %v", err)
 	}
@@ -152,7 +149,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if err != nil || stillHeld {
 		t.Errorf("Mismatch = %v %q, %v; a cleared one holds nothing", stillHeld, why, err)
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify over a log holding page events beside the decisions: %v", err)
 	}
 }

@@ -127,7 +127,7 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 func TestASafeguardOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	inner, err := area.NewWriter(in.pool).Declare(ctx, owner, "payments/refunds", in.area.ID)
+	inner, err := area.NewWriter(in.pool, in.token).Declare(ctx, owner, "payments/refunds", in.area.ID)
 	if err != nil {
 		t.Fatalf("Declare: %v", err)
 	}

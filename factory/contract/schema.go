@@ -32,6 +32,18 @@ const ElementIDPrefix = "cone"
 // and nowhere else.
 const kinds = `('interface', 'store')`
 
+// FormatVersion is what this package writes into format_version on every
+// insert into [Table].
+const FormatVersion = "contract/1"
+
+// FormatVersionVersion is what this package writes into format_version on
+// every insert into [VersionTable].
+const FormatVersionVersion = "contract_version/1"
+
+// FormatVersionElement is what this package writes into format_version on
+// every insert into [ElementTable].
+const FormatVersionElement = "contract_element/1"
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated, so
 // the actor field and its constraints are the same ones every record table

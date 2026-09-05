@@ -20,7 +20,7 @@ import (
 // and the log reads back as two chained rows with the chain verifying clean.
 func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -37,16 +37,18 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 		t.Fatalf("Decide: %v", err)
 	}
 
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
 		t.Fatalf("Verify after fire and decide: %v", err)
 	}
 
-	rows, err := decisionlog.Read(ctx, pool)
+	// Verify and Read each append a read event of their own, so the log holds the
+	// opening, the closing, and the two read events by the time this Read answers.
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("the log holds %d rows, want 2", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("the log holds %d rows, want 4", len(rows))
 	}
 	opening := rows[0]
 	if opening.ID != opened.Row.ID || rows[1].ID != closing.ID {
@@ -61,8 +63,8 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 	if rows[1].PrevHash != opening.Hash {
 		t.Errorf("the closing names predecessor %q, want the opening's hash %q", rows[1].PrevHash, opening.Hash)
 	}
-	if opening.Actor.Kind != record.KindComponent || opening.Actor.Name != "gate.merge_to_master" {
-		t.Errorf("the opening's actor is %s %q, want component gate.merge_to_master", opening.Actor.Kind, opening.Actor.Name)
+	if opening.Actor.Kind != record.KindComponent || opening.Actor.Key != "gate.merge_to_master" {
+		t.Errorf("the opening's actor is %s %q, want component gate.merge_to_master", opening.Actor.Kind, opening.Actor.Key)
 	}
 	if rows[1].Actor != owner {
 		t.Errorf("the closing's actor is %+v, want the deciding human %+v", rows[1].Actor, owner)
@@ -87,19 +89,20 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 // decision readable against the policy it was taken under rather than today's.
 func TestTheOpeningPayloadNamesTheValuesApplied(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	rows, err := decisionlog.Read(ctx, pool)
+	// This Read's own read event is the second row it returns.
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("the log holds %d rows, want 1", len(rows))
+	if len(rows) != 2 {
+		t.Fatalf("the log holds %d rows, want 2", len(rows))
 	}
 
 	var payload gate.OpeningPayload
@@ -165,7 +168,7 @@ func TestTheOpeningPayloadNamesTheValuesApplied(t *testing.T) {
 // coverage factor reads.
 func TestAFailedCriterionReachesTheScoreAsACount(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	firing := mergeFiring
 	firing.Criteria = []gate.CriterionResult{
@@ -187,7 +190,7 @@ func TestAFailedCriterionReachesTheScoreAsACount(t *testing.T) {
 // nothing.
 func TestAnUndecidedCriterionReachesTheScoreLikeAFailure(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	firing := mergeFiring
 	firing.Criteria = []gate.CriterionResult{
@@ -207,7 +210,7 @@ func TestAnUndecidedCriterionReachesTheScoreLikeAFailure(t *testing.T) {
 // coverage factor reads the count and the payload carries no result.
 func TestTheCandidateDeployRowNamesNoOutcome(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.2)}, &fakePolicy{applied: applied(0.5)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	firing := mergeFiring
 	firing.Row = gate.DeployToCandidateEnvironment
@@ -222,12 +225,14 @@ func TestTheCandidateDeployRowNamesNoOutcome(t *testing.T) {
 		t.Errorf("the score was told %d in force and %d failed, want 2 and 0",
 			s.asked.CriteriaInForce, s.asked.CriteriaFailed)
 	}
-	rows, err := decisionlog.Read(ctx, pool)
+	// Read appends its own read event after the opening, so the opening is still
+	// the first row and not the last.
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
 	var payload gate.OpeningPayload
-	if err := json.Unmarshal([]byte(rows[len(rows)-1].Payload), &payload); err != nil {
+	if err := json.Unmarshal([]byte(rows[0].Payload), &payload); err != nil {
 		t.Fatalf("unmarshalling the opening payload: %v", err)
 	}
 	if len(payload.Criteria) != 0 {
@@ -247,7 +252,7 @@ func TestAnUnavailableFactorGatesTheChange(t *testing.T) {
 	assessment.Vector[0].Unavailable = "the diff against master could not be taken"
 	assessment.Vector[0].Level = 1
 	s, p := &fakeScore{assessment: assessment}, &fakePolicy{applied: applied(1)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -257,7 +262,7 @@ func TestAnUnavailableFactorGatesTheChange(t *testing.T) {
 		t.Fatal("a vector with an unavailable factor auto-passed against a threshold of 1")
 	}
 
-	rows, err := decisionlog.Read(ctx, pool)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -280,7 +285,7 @@ func TestAnUnavailableFactorGatesTheChange(t *testing.T) {
 // artifact under decision and the deploy row names none.
 func TestAnIncompleteFiringIsRefused(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	for _, c := range []struct {
 		name   string
@@ -301,11 +306,12 @@ func TestAnIncompleteFiringIsRefused(t *testing.T) {
 		t.Errorf("Fire of a row this milestone does not build = %v, want ErrRowUnknown", err)
 	}
 
-	rows, err := decisionlog.Read(ctx, pool)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 0 {
-		t.Fatalf("the log holds %d rows after refused firings, want none", len(rows))
+	// Read's own read event is the one row a log with every firing refused holds.
+	if len(rows) != 1 {
+		t.Fatalf("the log holds %d rows after refused firings, want the one Read appended", len(rows))
 	}
 }

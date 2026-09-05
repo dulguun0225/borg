@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -58,12 +59,21 @@ func newIntake(t *testing.T) (context.Context, *pgxpool.Pool, *intent.Intake) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range intent.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying intent statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, intent.NewIntake(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, intent.NewIntake(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -80,8 +90,8 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
-var intake = record.Actor{Kind: record.KindComponent, Name: "intake"}
+var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+var intake = record.Actor{Kind: record.KindComponent, Key: "intake"}
 
 func TestTakeInStartsUnrefined(t *testing.T) {
 	ctx, pool, in := newIntake(t)
@@ -291,8 +301,8 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		t.Fatalf("TakeIn: %v", err)
 	}
 
-	insertIntent := `insert into intent (id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions)
-		values ($1, 'human', 'owner', $2, $3, $4, $5, $6, 0)`
+	insertIntent := `insert into intent (id, format_version, actor_kind, actor_key, actor_key_basis, at, source, statement, state, rounds, re_decompositions)
+		values ($1, '` + intent.FormatVersion + `', 'human', 'person:owner', 'claimed', $2, $3, $4, $5, $6, 0)`
 	for _, refused := range []struct {
 		name       string
 		source     string
@@ -314,8 +324,8 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		}
 	}
 
-	insertQuestion := `insert into intent_question (id, actor_kind, actor_name, at, intent_id, round, question, answer, answered_at)
-		values ($1, 'human', 'owner', $2, $3, $4, $5, $6, $7)`
+	insertQuestion := `insert into intent_question (id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id, round, question, answer, answered_at)
+		values ($1, '` + intent.FormatVersionQuestion + `', 'human', 'person:owner', 'claimed', $2, $3, $4, $5, $6, $7)`
 	for _, refused := range []struct {
 		name       string
 		round      int

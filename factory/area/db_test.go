@@ -19,11 +19,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/area"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
+var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *area.Writer) {
 	t.Helper()
@@ -53,7 +54,11 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *area.Writer) {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
-	return ctx, pool, area.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, area.NewWriter(pool, token)
 }
 
 func inSchema(t *testing.T, base, schema string) string {

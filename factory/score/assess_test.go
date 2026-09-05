@@ -22,12 +22,12 @@ import (
 // file in the tree touched — and after a human has approved that one, the item
 // after it reads under it.
 func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
-	ctx, pool, s := newScore(t)
+	ctx, pool, token, s := newScore(t)
 	supplied, _ := score.Starting(gatepolicy.RiskThreshold)
 	threshold := supplied.Value
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: threshold}, gate.NoDriftDetector{})
+	g := gate.New(decisionlog.NewWriter(pool, token), s, fakePolicy{threshold: threshold}, gate.NoDriftDetector{})
 
-	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
+	first, firstImplementation := decomposeItem(t, ctx, pool, token, "item/one")
 	opened, err := g.Fire(ctx, firing(first, firstImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 2, FilesInTree: 2}))
 	if err != nil {
@@ -59,11 +59,11 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 	if _, err := g.Decide(ctx, opened, owner, gate.VerdictApprove, ""); err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
-	if _, err := release.NewWriter(pool).Mint(ctx, mergeActor, serviceID, "bl_0000000000000000000000000000000a", first.ID); err != nil {
+	if _, err := release.NewWriter(pool, token).Mint(ctx, mergeActor, serviceID, "bl_0000000000000000000000000000000a", first.ID); err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
 
-	second, secondImplementation := decomposeItem(t, ctx, pool, "item/two")
+	second, secondImplementation := decomposeItem(t, ctx, pool, token, "item/two")
 	openedAgain, err := g.Fire(ctx, firing(second, secondImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 2, FilesInTree: 4}))
 	if err != nil {
@@ -92,7 +92,7 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 
 	// The auto-pass is not evidence about the author: it is the factory agreeing
 	// with itself, so a third item's prior reads what the second's did.
-	third, thirdImplementation := decomposeItem(t, ctx, pool, "item/three")
+	third, thirdImplementation := decomposeItem(t, ctx, pool, token, "item/three")
 	openedThird, err := g.Fire(ctx, firing(third, thirdImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 2, FilesInTree: 4}))
 	if err != nil {
@@ -106,10 +106,10 @@ func TestAFirstItemIsDecidedByAHumanAndTheNextIsNot(t *testing.T) {
 // TestAHoldTeachesTheScoreNothing: a hold is not a reject and not an approval —
 // it leaves the event queued with the change still good — so no factor moves.
 func TestAHoldTeachesTheScoreNothing(t *testing.T) {
-	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
+	ctx, pool, token, s := newScore(t)
+	g := gate.New(decisionlog.NewWriter(pool, token), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
 
-	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
+	first, firstImplementation := decomposeItem(t, ctx, pool, token, "item/one")
 	deployRow := firing(first, firstImplementation, score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4})
 	deployRow.Row = gate.DeployToProduction
 	deployRow.ArtifactID = ""
@@ -121,7 +121,7 @@ func TestAHoldTeachesTheScoreNothing(t *testing.T) {
 		t.Fatalf("Decide(hold): %v", err)
 	}
 
-	second, secondImplementation := decomposeItem(t, ctx, pool, "item/two")
+	second, secondImplementation := decomposeItem(t, ctx, pool, token, "item/two")
 	openedAgain, err := g.Fire(ctx, firing(second, secondImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
@@ -138,10 +138,10 @@ func TestAHoldTeachesTheScoreNothing(t *testing.T) {
 // TestARejectCountsAgainstTheAuthor: the score learns from a reject, which is
 // what separates it from a hold.
 func TestARejectCountsAgainstTheAuthor(t *testing.T) {
-	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
+	ctx, pool, token, s := newScore(t)
+	g := gate.New(decisionlog.NewWriter(pool, token), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
 
-	first, firstImplementation := decomposeItem(t, ctx, pool, "item/one")
+	first, firstImplementation := decomposeItem(t, ctx, pool, token, "item/one")
 	opened, err := g.Fire(ctx, firing(first, firstImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
@@ -151,7 +151,7 @@ func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 		t.Fatalf("Decide(reject): %v", err)
 	}
 
-	second, secondImplementation := decomposeItem(t, ctx, pool, "item/two")
+	second, secondImplementation := decomposeItem(t, ctx, pool, token, "item/two")
 	openedAgain, err := g.Fire(ctx, firing(second, secondImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
@@ -168,7 +168,7 @@ func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 	if _, err := g.Decide(ctx, openedAgain, owner, gate.VerdictApprove, ""); err != nil {
 		t.Fatalf("Decide(approve): %v", err)
 	}
-	third, thirdImplementation := decomposeItem(t, ctx, pool, "item/three")
+	third, thirdImplementation := decomposeItem(t, ctx, pool, token, "item/three")
 	openedThird, err := g.Fire(ctx, firing(third, thirdImplementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 4}))
 	if err != nil {
@@ -184,9 +184,9 @@ func TestARejectCountsAgainstTheAuthor(t *testing.T) {
 // and the two factors it feeds carry that reason. The formula then reduces the
 // whole vector to the top of the scale.
 func TestAMeasurementThatCouldNotBeTakenGatesTheChange(t *testing.T) {
-	ctx, pool, s := newScore(t)
+	ctx, pool, token, s := newScore(t)
 
-	it, _ := decomposeItem(t, ctx, pool, "item/one")
+	it, _ := decomposeItem(t, ctx, pool, token, "item/one")
 	const reason = "the diff against master could not be taken: the commit is not in the repository"
 	assessment, err := s.Assess(ctx, score.Change{
 		ItemID:          it.ID,
@@ -238,9 +238,9 @@ func TestAMeasurementThatCouldNotBeTakenGatesTheChange(t *testing.T) {
 // TestAnItemWithNoAreaCannotBeScoredOnContext: an item may name no area, and the
 // two factors that read one then say so rather than reading as low risk.
 func TestAnItemWithNoAreaCannotBeScoredOnContext(t *testing.T) {
-	ctx, pool, s := newScore(t)
+	ctx, pool, token, s := newScore(t)
 
-	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
+	it, err := item.NewDecomposition(pool, token).Create(ctx, decompositionActor, item.New{
 		IntentID:  "in_a",
 		ServiceID: serviceID,
 		Branch:    "item/no-area",
@@ -248,7 +248,7 @@ func TestAnItemWithNoAreaCannotBeScoredOnContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
-	if _, err = artifact.NewStore(pool).SubmitImplementation(ctx, implementerActor,
+	if _, err = artifact.NewStore(pool, token).SubmitImplementation(ctx, implementerActor,
 		artifact.By{Authorship: artifact.AuthorshipAgent, Author: modelVersion}, it.ID, "a commit"); err != nil {
 		t.Fatalf("submitting the implementation: %v", err)
 	}
@@ -273,9 +273,9 @@ func TestAnItemWithNoAreaCannotBeScoredOnContext(t *testing.T) {
 // from that author's own work, so an item with no implementation version leaves
 // the factor unavailable rather than reading as an author with no history.
 func TestAnItemWithNoImplementationHasNoAuthorToHoldAPriorOn(t *testing.T) {
-	ctx, pool, s := newScore(t)
+	ctx, pool, token, s := newScore(t)
 
-	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
+	it, err := item.NewDecomposition(pool, token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_a", ServiceID: serviceID, AreaID: areaID, Branch: "item/unbuilt",
 	})
 	if err != nil {
@@ -298,9 +298,9 @@ func TestAnItemWithNoImplementationHasNoAuthorToHoldAPriorOn(t *testing.T) {
 // failing build; a number that read low on one would be the score disagreeing
 // with a run.
 func TestAFailedCriterionIsTheTopOfItsScale(t *testing.T) {
-	ctx, pool, s := newScore(t)
+	ctx, pool, token, s := newScore(t)
 
-	it, _ := decomposeItem(t, ctx, pool, "item/one")
+	it, _ := decomposeItem(t, ctx, pool, token, "item/one")
 	assessment, err := s.Assess(ctx, score.Change{
 		ItemID: it.ID, ServiceID: serviceID, AreaID: areaID,
 		Measurement:     score.Measurement{LinesChanged: 5, FilesChanged: 1, FilesInTree: 10},
@@ -317,7 +317,7 @@ func TestAFailedCriterionIsTheTopOfItsScale(t *testing.T) {
 // TestAChangeNamingNoItemIsACallersDefect: every firing has an item and a
 // service, so a blank is not a factor to mark unavailable.
 func TestAChangeNamingNoItemIsACallersDefect(t *testing.T) {
-	ctx, _, s := newScore(t)
+	ctx, _, _, s := newScore(t)
 
 	if _, err := s.Assess(ctx, score.Change{ServiceID: serviceID}); err == nil {
 		t.Error("Assess over a change naming no item was accepted")

@@ -26,6 +26,7 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -35,9 +36,10 @@ import (
 const serviceID = "svc_00000000000000000000000000000000"
 
 var (
-	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
-	dispatchActor      = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
-	owner              = record.Actor{Kind: record.KindHuman, Name: "owner"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+	owner              = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
+	testActor          = record.Actor{Kind: record.KindComponent, Key: "test"}
 )
 
 // fakeRepository answers a re-verification from a script keyed by item, and
@@ -65,7 +67,7 @@ func (r *fakeRepository) FastForward(_ context.Context, _ item.Item, commit stri
 
 // newQueue gives a test a schema of its own with the whole factory schema applied,
 // a queue over it, and the fake repository the queue reaches through.
-func newQueue(t *testing.T, repo *fakeRepository) (context.Context, *pgxpool.Pool, *mergequeue.Queue) {
+func newQueue(t *testing.T, repo *fakeRepository) (context.Context, *pgxpool.Pool, lease.Token, *mergequeue.Queue) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -94,9 +96,13 @@ func newQueue(t *testing.T, repo *fakeRepository) (context.Context, *pgxpool.Poo
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
 
-	q := mergequeue.New(pool, decisionlog.NewWriter(pool), release.NewWriter(pool), item.NewDispatch(pool), repo)
-	return ctx, pool, q
+	q := mergequeue.New(pool, token, decisionlog.NewWriter(pool, token), release.NewWriter(pool, token), item.NewDispatch(pool, token), repo)
+	return ctx, pool, token, q
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -115,9 +121,9 @@ func inSchema(t *testing.T, base, schema string) string {
 
 // queued decomposes an item and advances it to the stage the queue's membership is: the
 // Merge to master gate approved it and its fast-forward has not happened.
-func queued(ctx context.Context, t *testing.T, pool *pgxpool.Pool, n int) item.Item {
+func queued(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, n int) item.Item {
 	t.Helper()
-	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
+	it, err := item.NewDecomposition(pool, token).Create(ctx, decompositionActor, item.New{
 		IntentID:  fmt.Sprintf("in_%032d", n),
 		ServiceID: serviceID,
 		Branch:    fmt.Sprintf("item/%d", n),
@@ -125,7 +131,7 @@ func queued(ctx context.Context, t *testing.T, pool *pgxpool.Pool, n int) item.I
 	if err != nil {
 		t.Fatalf("decomposing item %d: %v", n, err)
 	}
-	dispatch := item.NewDispatch(pool)
+	dispatch := item.NewDispatch(pool, token)
 	for _, stage := range []item.Stage{item.StageImplementation, item.StageQueued} {
 		if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, stage); err != nil {
 			t.Fatalf("advancing item %d to %s: %v", n, stage, err)
@@ -134,17 +140,28 @@ func queued(ctx context.Context, t *testing.T, pool *pgxpool.Pool, n int) item.I
 	return it
 }
 
+// readLog is every row in the log, read as [testActor] through a reader of the
+// test's own.
+func readLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) []decisionlog.Row {
+	t.Helper()
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, testActor)
+	if err != nil {
+		t.Fatalf("reading the log: %v", err)
+	}
+	return rows
+}
+
 // TestRunMintsOnAPassAndRejectsOnAFailure is the queue's two outcomes over one
 // service: a candidate that passes its re-verification fast-forwards, is minted a
 // release naming the build that re-verification produced, and advances to merged;
 // one that fails goes back to Implementation with an attempt counted there and a
-// wait row saying why.
+// rejection row saying why.
 func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 	repo := &fakeRepository{verified: map[string]mergequeue.Verified{}}
-	ctx, pool, q := newQueue(t, repo)
+	ctx, pool, token, q := newQueue(t, repo)
 
-	passes := queued(ctx, t, pool, 1)
-	fails := queued(ctx, t, pool, 2)
+	passes := queued(ctx, t, pool, token, 1)
+	fails := queued(ctx, t, pool, token, 2)
 	repo.verified[passes.ID] = mergequeue.Verified{Commit: "commit-one", BuildID: "bl_one", Passed: true}
 	repo.verified[fails.ID] = mergequeue.Verified{Commit: "commit-two", BuildID: "bl_two",
 		Why: "criterion cr_a is failed against build bl_two"}
@@ -179,7 +196,7 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 		t.Fatalf("the second outcome is %+v, want %s rejected", rejected, fails.ID)
 	}
 	if rejected.WaitRow == "" || rejected.Why == "" {
-		t.Errorf("the rejection reports wait row %q and reason %q", rejected.WaitRow, rejected.Why)
+		t.Errorf("the rejection reports row %q and reason %q", rejected.WaitRow, rejected.Why)
 	}
 	it, err := item.Get(ctx, pool, fails.ID)
 	if err != nil {
@@ -206,20 +223,26 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 		t.Errorf("%d releases exist, one candidate passed", releases)
 	}
 
-	// The rejection is a wait row the log wrote with the queue as caller and actor:
-	// no gate fired, the Merge to master gate's own having closed as an approval.
-	rows, err := decisionlog.Read(ctx, pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
+	// The rejection is its own shape the log wrote with the queue as caller and
+	// actor: no gate fired, the Merge to master gate's own having closed as an
+	// approval. Members' own read of the approval times, and this test's own
+	// read, both append a read event beside it.
+	rows := readLog(t, ctx, pool, token)
+	var rejection decisionlog.Row
+	found := false
+	for _, row := range rows {
+		if row.Shape == decisionlog.ShapeQueueRejection {
+			rejection, found = row, true
+		}
 	}
-	if len(rows) != 1 {
-		t.Fatalf("the log holds %d rows, one candidate was rejected and nothing else writes here", len(rows))
+	if !found {
+		t.Fatalf("the log holds %+v, want a queue rejection among them", rows)
 	}
-	if rows[0].Shape != decisionlog.ShapeWait || rows[0].Actor != mergequeue.Actor {
-		t.Errorf("the row is shape %s by %+v, want a wait by the queue", rows[0].Shape, rows[0].Actor)
+	if rejection.Actor != mergequeue.Actor {
+		t.Errorf("the row was written as %+v, want the queue", rejection.Actor)
 	}
 	var payload mergequeue.RejectionPayload
-	if err := json.Unmarshal([]byte(rows[0].Payload), &payload); err != nil {
+	if err := json.Unmarshal([]byte(rejection.Payload), &payload); err != nil {
 		t.Fatalf("reading the rejection payload: %v", err)
 	}
 	if payload.Kind != mergequeue.RejectionKind || payload.ItemID != fails.ID {
@@ -228,7 +251,7 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 	if payload.ReturnsTo != gate.ReturnsTo || !payload.CountsAnAttempt {
 		t.Errorf("the payload returns the item to %q and counts an attempt %v", payload.ReturnsTo, payload.CountsAnAttempt)
 	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, testActor); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
 }
@@ -238,11 +261,11 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 // Reordering changes when a candidate re-verifies and never what it has to pass.
 func TestTheOrderIsThePriorityThenTheApproval(t *testing.T) {
 	repo := &fakeRepository{verified: map[string]mergequeue.Verified{}}
-	ctx, pool, q := newQueue(t, repo)
+	ctx, pool, token, q := newQueue(t, repo)
 
-	first := queued(ctx, t, pool, 1)
-	second := queued(ctx, t, pool, 2)
-	third := queued(ctx, t, pool, 3)
+	first := queued(ctx, t, pool, token, 1)
+	second := queued(ctx, t, pool, token, 2)
+	third := queued(ctx, t, pool, token, 3)
 
 	// The queue with nothing else to go on takes them in the order they were decomposed,
 	// no approval being in the log yet.
@@ -255,7 +278,7 @@ func TestTheOrderIsThePriorityThenTheApproval(t *testing.T) {
 	}
 
 	// An owner pushes the last one to the front.
-	if _, err := item.NewDispatch(pool).SetPriority(ctx, owner, third.ID, 5); err != nil {
+	if _, err := item.NewDispatch(pool, token).SetPriority(ctx, owner, third.ID, 5); err != nil {
 		t.Fatalf("SetPriority: %v", err)
 	}
 	if members, err = q.Members(ctx, serviceID); err != nil {
@@ -297,7 +320,7 @@ func TestTheOrderIsThePriorityThenTheApproval(t *testing.T) {
 // outcomes and no error.
 func TestAnEmptyQueueAndAnUnnamedServiceAreRefusedOrEmpty(t *testing.T) {
 	repo := &fakeRepository{verified: map[string]mergequeue.Verified{}}
-	ctx, _, q := newQueue(t, repo)
+	ctx, _, _, q := newQueue(t, repo)
 
 	if _, err := q.Run(ctx, ""); !errors.Is(err, mergequeue.ErrServiceIDEmpty) {
 		t.Errorf("Run naming no service = %v, want ErrServiceIDEmpty", err)
@@ -317,8 +340,8 @@ func TestAnEmptyQueueAndAnUnnamedServiceAreRefusedOrEmpty(t *testing.T) {
 func TestAReverificationErrorStopsTheRun(t *testing.T) {
 	unreachable := errors.New("the repository is unreadable")
 	repo := &fakeRepository{verified: map[string]mergequeue.Verified{}, err: unreachable}
-	ctx, pool, q := newQueue(t, repo)
-	it := queued(ctx, t, pool, 1)
+	ctx, pool, token, q := newQueue(t, repo)
+	it := queued(ctx, t, pool, token, 1)
 
 	if _, err := q.Run(ctx, serviceID); !errors.Is(err, unreachable) {
 		t.Fatalf("Run = %v, want the repository's error", err)
@@ -330,12 +353,14 @@ func TestAReverificationErrorStopsTheRun(t *testing.T) {
 	if read.Stage != item.StageQueued {
 		t.Errorf("the item is at %s, and an infrastructure failure leaves it in the queue", read.Stage)
 	}
-	rows, err := decisionlog.Read(ctx, pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
-	if len(rows) != 0 {
-		t.Errorf("the log holds %d rows, and nothing about the candidate was decided", len(rows))
+	// Nothing about the candidate was decided: every row still standing is a read
+	// event, Members' own read of the approval times among them.
+	rows := readLog(t, ctx, pool, token)
+	for _, row := range rows {
+		if row.Shape != decisionlog.ShapeReadEvent {
+			t.Errorf("the log holds %+v, and nothing about the candidate was decided", rows)
+			break
+		}
 	}
 }
 
@@ -371,11 +396,11 @@ func ids(items []item.Item) []string {
 // would refuse it. It is finished instead.
 func TestAMemberThatAlreadyHasAReleaseIsFinishedNotReverified(t *testing.T) {
 	repo := &fakeRepository{verified: map[string]mergequeue.Verified{}}
-	ctx, pool, q := newQueue(t, repo)
-	it := queued(ctx, t, pool, 1)
+	ctx, pool, token, q := newQueue(t, repo)
+	it := queued(ctx, t, pool, token, 1)
 
 	// The state a failed advance leaves: a release for an item still at queued.
-	minted, err := release.NewWriter(pool).Mint(ctx, mergequeue.Actor, serviceID, "bl_one", it.ID)
+	minted, err := release.NewWriter(pool, token).Mint(ctx, mergequeue.Actor, serviceID, "bl_one", it.ID)
 	if err != nil {
 		t.Fatalf("minting the release the advance did not follow: %v", err)
 	}

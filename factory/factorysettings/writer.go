@@ -12,6 +12,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -54,11 +55,12 @@ type Settings struct {
 
 // Writer creates the record, as Factory.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{pool: pool, token: token} }
 
 // Ensure returns the factory-wide settings record, creating it with nothing authored
 // where it does not exist. It is idempotent: the insert does nothing on the
@@ -67,14 +69,27 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Settings, erro
 	if err := actor.Validate(); err != nil {
 		return Settings{}, err
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, only_row, allowed_predicate_kinds, role_prompt_or_skill_threshold)
-		values ($1, $2, $3, $4, true, '', null)
+
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Settings{}, fmt.Errorf("factorysettings: beginning the ensure: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Settings{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, only_row, allowed_predicate_kinds, role_prompt_or_skill_threshold)
+		values ($1, $2, $3, $4, $5, $6, true, '', null)
 		on conflict (only_row) do nothing`,
-		record.NewID(IDPrefix), string(actor.Kind), actor.Name, record.Now(),
+		record.NewID(IDPrefix), FormatVersion, string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
 	)
 	if err != nil {
 		return Settings{}, fmt.Errorf("factorysettings: creating the record: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Settings{}, fmt.Errorf("factorysettings: committing the ensure: %w", err)
 	}
 	return Get(ctx, w.pool)
 }
@@ -93,10 +108,10 @@ func SetAttemptLimit(ctx context.Context, tx pgx.Tx, actor record.Actor, setting
 		return fmt.Errorf("%w: %d", ErrLimitNotPositive, limit)
 	}
 	_, err := tx.Exec(ctx, `insert into `+LimitTable+`
-		(id, actor_kind, actor_name, at, factory_settings_id, stage, attempt_limit)
-		values ($1, $2, $3, $4, $5, $6, $7)
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, factory_settings_id, stage, attempt_limit)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		on conflict (factory_settings_id, stage) do update set attempt_limit = excluded.attempt_limit`,
-		record.NewID(LimitIDPrefix), string(actor.Kind), actor.Name, record.Now(),
+		record.NewID(LimitIDPrefix), FormatVersionLimit, string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
 		settingsID, string(stage), limit,
 	)
 	if err != nil {
@@ -139,17 +154,18 @@ func update(ctx context.Context, tx pgx.Tx, settingsID, assignment string, value
 // because reading it is not a reason to be handed the thing that creates it.
 func Get(ctx context.Context, pool *pgxpool.Pool) (Settings, error) {
 	var p Settings
-	var kind, allowed string
+	var kind, basis, allowed string
 	var threshold *float64
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, allowed_predicate_kinds, role_prompt_or_skill_threshold
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, allowed_predicate_kinds, role_prompt_or_skill_threshold
 		from `+Table+` where only_row`).
-		Scan(&p.ID, &kind, &p.Actor.Name, &p.At, &allowed, &threshold)
+		Scan(&p.ID, &kind, &p.Actor.Key, &basis, &p.At, &allowed, &threshold)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Settings{}, ErrNotFound
 	} else if err != nil {
 		return Settings{}, fmt.Errorf("factorysettings: reading the record: %w", err)
 	}
 	p.Actor.Kind = record.Kind(kind)
+	p.Actor.Basis = record.Basis(basis)
 	if allowed != "" {
 		p.AllowedPredicateKinds = strings.Split(allowed, "\n")
 	}

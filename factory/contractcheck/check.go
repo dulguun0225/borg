@@ -166,7 +166,7 @@ func (c Checked) Why() string {
 				said = append(said, fmt.Sprintf(
 					"%s.%s is %s and safeguard %s, placed by %s %s, still asserts %s on it",
 					broken.Contract.Name, blocking.Element, changeTo(broken.Change, blocking.Element),
-					s.SafeguardID, s.Actor.Kind, s.Actor.Name, s.Kind))
+					s.SafeguardID, s.Actor.Kind, s.Actor.Key, s.Kind))
 			}
 			if blocking.Past != "" {
 				said = append(said, fmt.Sprintf(

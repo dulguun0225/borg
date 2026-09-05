@@ -15,6 +15,13 @@ const IDPrefix = "env"
 // ThresholdIDPrefix is what [record.NewID] is called with for a threshold row.
 const ThresholdIDPrefix = "egt"
 
+// FormatVersion is written into every environment record's format_version
+// column. FormatVersionThreshold is written into every threshold row's.
+const (
+	FormatVersion          = "environment/1"
+	FormatVersionThreshold = "environment_gate_threshold/1"
+)
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
 //

@@ -19,8 +19,8 @@ import (
 // latest.
 func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
-	human := record.Actor{Kind: record.KindHuman, Name: "owner"}
+	ctx, pool, token, g := newGate(t, s, p)
+	human := owner
 
 	fire := func(row gate.Row, itemID string, verdict gate.Verdict, feedback string) string {
 		t.Helper()
@@ -51,16 +51,17 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 
 	// A row in a shape this package cannot read is skipped rather than returned as
 	// an error, the way every other reader of this log treats one.
-	if _, err := decisionlog.NewWriter(pool).AppendDecisionOpen(ctx, decisionlog.Entry{
-		Actor:         record.Actor{Kind: record.KindComponent, Name: "gate.some_other_gate"},
+	if _, err := decisionlog.NewWriter(pool, token).AppendDecisionOpen(ctx, decisionlog.Entry{
+		Actor:         record.Actor{Kind: record.KindComponent, Key: "gate.some_other_gate"},
 		Payload:       "a payload this package has no shape for",
+		FormatVersion: "decision/1",
 		PolicyVersion: testPolicyVersion,
 		ScoreVersion:  testScoreVersion,
 	}); err != nil {
 		t.Fatalf("appending the unreadable open event: %v", err)
 	}
 
-	times, err := gate.ApprovalTimes(ctx, pool, gate.MergeToMaster)
+	times, err := gate.ApprovalTimes(ctx, pool, token, owner, gate.MergeToMaster)
 	if err != nil {
 		t.Fatalf("ApprovalTimes: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 		t.Errorf("ApprovalTimes names %s, which was rejected at that row", rejectedItem)
 	}
 
-	if _, err := gate.ApprovalTimes(ctx, pool, gate.Row("some_other_row")); !errors.Is(err, gate.ErrRowUnknown) {
+	if _, err := gate.ApprovalTimes(ctx, pool, token, owner, gate.Row("some_other_row")); !errors.Is(err, gate.ErrRowUnknown) {
 		t.Errorf("ApprovalTimes at a row this package does not fire = %v, want ErrRowUnknown", err)
 	}
 }

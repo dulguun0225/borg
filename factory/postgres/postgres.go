@@ -20,6 +20,7 @@ import (
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/release"
@@ -79,6 +80,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		name string
 		ddl  []string
 	}{
+		{"lease", lease.DDL},
 		{"decisionlog", decisionlog.DDL},
 		{"intent", intent.DDL},
 		{"service", service.DDL},

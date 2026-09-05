@@ -26,10 +26,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	if _, err := run(ctx, d, of(theStatement)); err == nil {
 		t.Fatalf("the run finished, and every implementer reply was refused:\n%s", out)
 	}
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := readLog(t, ctx, d)
 	for _, row := range rows {
 		if row.Shape == decisionlog.ShapePageEvent {
 			t.Errorf("an escalation on an owner's feature fired page event %s, and nothing live is worse for it", row.ID)
@@ -43,7 +40,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	// because the defect it describes is live.
 	// The statement is one this fake can author a spec for, because what makes this
 	// page is where the intent came from and not the words in it.
-	detected, err := intent.NewIntake(d.pool).TakeIn(ctx, healthmonitor.Actor, intent.SourceDetector, theSecondStatement)
+	detected, err := intent.NewIntake(d.pool, d.token).TakeIn(ctx, healthmonitor.Actor, intent.SourceDetector, theSecondStatement)
 	if err != nil {
 		t.Fatalf("taking in the detector's intent: %v", err)
 	}
@@ -56,10 +53,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	}
 
 	var paged int
-	rows, err = decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows = readLog(t, ctx, d)
 	for _, row := range rows {
 		if row.Shape != decisionlog.ShapePageEvent {
 			continue
@@ -82,7 +76,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	if paged != 1 {
 		t.Errorf("%d page events were written, want the one on the detector's item", paged)
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
 }

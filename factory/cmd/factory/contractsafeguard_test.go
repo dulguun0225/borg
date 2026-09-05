@@ -11,7 +11,6 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/policy"
-	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -31,8 +30,8 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("reading the contract: found %v, %v", found, err)
 	}
-	owner := record.Actor{Kind: record.KindHuman, Name: d.human}
-	placed, _, err := policy.NewFactory(d.pool).AddSafeguard(ctx, owner, gatepolicy.SafeguardPredicate,
+	actor := owner(d.human)
+	placed, _, err := policy.NewFactory(d.pool, d.token).AddSafeguard(ctx, actor, gatepolicy.SafeguardPredicate,
 		safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, "Detail")},
 		safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead}})
 	if err != nil {
@@ -66,7 +65,7 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 		t.Errorf("the implementation stage stands at %d attempts, and the rejection counts one there", attempts)
 	}
 
-	if _, err := policy.NewFactory(d.pool).WithdrawSafeguard(ctx, owner, placed.ID); err != nil {
+	if _, err := policy.NewFactory(d.pool, d.token).WithdrawSafeguard(ctx, actor, placed.ID); err != nil {
 		t.Fatalf("withdrawing the safeguard: %v", err)
 	}
 	through := only(t, runOne(t, ctx, d, out, removeStatement, theService))

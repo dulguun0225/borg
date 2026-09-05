@@ -165,6 +165,17 @@
 // observing a run is, and [healthmonitor.Rollbacker] because reaching a deploy target
 // is.
 //
+// Every subcommand acquires the lease before it touches the store, whether it
+// writes or only reads: a read still appends a read event, which is itself a
+// write of the log, so the one-process rule holds for the crude interface's
+// twelve subcommands and not only for "run". acquireLease in main.go takes it
+// under this process's own instance — the machine's hostname and this
+// process's id — starts a goroutine renewing it every third of its ttl for
+// the life of the process, and returns
+// the token every writer the composition constructs and every [decisionlog.Reader]
+// carries. A held lease is a start failure, printed on stderr naming the
+// holder, with a non-zero exit.
+//
 // What defines it: the crude interface in place of the four screens is
 // ../../../roadmap.md#m1--one-change-ships; more than one service and the
 // contract queries are ../../../roadmap.md#m5--contracts-bind-services.

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -41,11 +42,14 @@ var (
 
 // Writer is the one writer of deploy records.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Start writes the deploy record: status started, strategy without a control —
 // the only strategy a target that moves a process rather than traffic can
@@ -110,17 +114,30 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, serviceID, envir
 		Status:        StatusStarted,
 		Undoing:       undoing,
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, service_id, environment_id, release_id, build_id, strategy, status,
+
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Deploy{}, fmt.Errorf("deploy: beginning the start of %s: %w", d.ID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Deploy{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, release_id, build_id, strategy, status,
 		 failed_release_id, swept_release_ids, source, revert_intent_id)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-		d.ID, string(d.Actor.Kind), d.Actor.Name, d.At, d.ServiceID, d.EnvironmentID,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		d.ID, FormatVersion, string(d.Actor.Kind), d.Actor.Key, string(d.Actor.Basis), d.At, d.ServiceID, d.EnvironmentID,
 		d.ReleaseID, d.BuildID, string(d.Strategy), string(d.Status),
 		d.Undoing.FailedReleaseID, joinReleases(d.Undoing.SweptReleaseIDs),
 		d.Undoing.Source, d.Undoing.RevertIntentID,
 	)
 	if err != nil {
 		return Deploy{}, fmt.Errorf("deploy: starting %s: %w", d.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Deploy{}, fmt.Errorf("deploy: committing the start of %s: %w", d.ID, err)
 	}
 	return d, nil
 }
@@ -143,6 +160,9 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 		return fmt.Errorf("deploy: beginning the completion of %s: %w", id, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return err
+	}
 
 	var status string
 	err = tx.QueryRow(ctx, `select status from `+Table+` where id = $1 for update`, id).Scan(&status)
@@ -182,6 +202,9 @@ func (w *Writer) Undo(ctx context.Context, id string) error {
 		return fmt.Errorf("deploy: beginning the rollback of %s: %w", id, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return err
+	}
 
 	var status string
 	err = tx.QueryRow(ctx, `select status from `+Table+` where id = $1 for update`, id).Scan(&status)
@@ -217,20 +240,21 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 	return d, nil
 }
 
-const selectDeploy = `select id, actor_kind, actor_name, at, service_id, environment_id,
+const selectDeploy = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id,
 	release_id, build_id, strategy, status,
 	failed_release_id, swept_release_ids, source, revert_intent_id
 	from ` + Table
 
 func scan(row pgx.Row) (Deploy, error) {
 	var d Deploy
-	var kind, strategy, status, swept string
-	if err := row.Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.ServiceID, &d.EnvironmentID,
+	var kind, basis, strategy, status, swept string
+	if err := row.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.ServiceID, &d.EnvironmentID,
 		&d.ReleaseID, &d.BuildID, &strategy, &status,
 		&d.Undoing.FailedReleaseID, &swept, &d.Undoing.Source, &d.Undoing.RevertIntentID); err != nil {
 		return Deploy{}, err
 	}
 	d.Actor.Kind = record.Kind(kind)
+	d.Actor.Basis = record.Basis(basis)
 	d.Strategy = Strategy(strategy)
 	d.Status = Status(status)
 	d.Undoing.SweptReleaseIDs = splitReleases(swept)

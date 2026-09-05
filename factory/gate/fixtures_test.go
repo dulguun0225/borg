@@ -21,6 +21,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -100,7 +101,7 @@ func applied(threshold float64) policy.Applied {
 // newGate gives a test a schema of its own, the log's DDL applied inside it, and
 // a gate over a writer, a score, and a policy. The schema is dropped when the
 // test ends, so a rerun on a database a previous run left dirty starts clean.
-func newGate(t *testing.T, s gate.Score, p *fakePolicy) (context.Context, *pgxpool.Pool, *gate.Gate) {
+func newGate(t *testing.T, s gate.Score, p *fakePolicy) (context.Context, *pgxpool.Pool, lease.Token, *gate.Gate) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -127,12 +128,21 @@ func newGate(t *testing.T, s gate.Score, p *fakePolicy) (context.Context, *pgxpo
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range decisionlog.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying decisionlog statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, gate.New(decisionlog.NewWriter(pool), s, p, gate.NoDriftDetector{})
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return ctx, pool, token, gate.New(decisionlog.NewWriter(pool, token), s, p, gate.NoDriftDetector{})
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -149,7 +159,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
+var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 // mergeFiring is one Merge to master firing, complete: the item, the build, the
 // artifact version under decision, the records the score and the policy are read

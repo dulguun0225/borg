@@ -66,10 +66,10 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, of Of, drafts []
 			return nil, err
 		}
 		if _, err := tx.Exec(ctx, `insert into `+Table+`
-			(id, actor_kind, actor_name, at, item_id, service_id, artifact_id,
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, artifact_id,
 			producer_service, producer_service_id, interface_name, element, kind, argument)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-			p.ID, string(p.Actor.Kind), p.Actor.Name, p.At, p.ItemID, p.ServiceID, p.ArtifactID,
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			p.ID, FormatVersion, string(p.Actor.Kind), p.Actor.Key, string(p.Actor.Basis), p.At, p.ItemID, p.ServiceID, p.ArtifactID,
 			p.ProducerService, p.ProducerServiceID, p.Interface, p.Element, string(p.Kind), p.Argument,
 		); err != nil {
 			return nil, fmt.Errorf("consumercontract: writing %s of item %s: %w", p.Describe(), of.ItemID, err)

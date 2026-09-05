@@ -13,6 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
@@ -38,20 +39,20 @@ func (alwaysDraw) Fraction() float64 { return 0 }
 // the movement readable as a version naming the one it superseded and every
 // decision after it naming the new one.
 func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
-	ctx, pool, s := newScore(t)
+	ctx, pool, token, s := newScore(t)
 	start, _ := score.Starting(gatepolicy.WindowLimit)
 
 	// A real service record, because what package policy reads in force is the
 	// authored value on that record and the supplied one where the field is empty —
 	// and a service nobody declared has no field to be empty.
-	svc, err := service.NewWriter(pool).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
+	svc, err := service.NewWriter(pool, token).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
 	// The factory-wide settings record too: every read of what is in force asks which
 	// safeguards are placed, and a safeguard may name that record, so a factory nobody
 	// installed has no record for the question to be asked against.
-	if _, err := factorysettings.NewWriter(pool).Ensure(ctx, owner); err != nil {
+	if _, err := factorysettings.NewWriter(pool, token).Ensure(ctx, owner); err != nil {
 		t.Fatalf("ensuring the factory-wide settings record: %v", err)
 	}
 
@@ -62,8 +63,8 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 
 	// Two windows closed at the cap move nothing: the rise is per three, and a
 	// service that rose on two would be one taking throughput it has not earned.
-	closeWindows(t, ctx, pool, svc.ID, 2)
-	twoClosed, err := score.Learn(ctx, pool)
+	closeWindows(t, ctx, pool, token, svc.ID, 2)
+	twoClosed, err := score.Learn(ctx, pool, token)
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
@@ -72,8 +73,8 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	}
 
 	// The third moves it, and the row says what moved it.
-	closeWindows(t, ctx, pool, svc.ID, 1)
-	learned, err := score.Learn(ctx, pool)
+	closeWindows(t, ctx, pool, token, svc.ID, 1)
+	learned, err := score.Learn(ctx, pool, token)
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 	// The version moves by the ordinary path, and the one it superseded still says
 	// what it said: a decision taken before the movement is readable against the
 	// value it was decided under.
-	moved, err := score.NewWriter(pool).Ensure(ctx, scoreActor)
+	moved, err := score.NewWriter(pool, token).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -112,7 +113,7 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 
 	// A second ensure over the same store appends nothing: the rules are a function
 	// of the graph, so a pass that runs twice moves nothing twice.
-	again, err := score.NewWriter(pool).Ensure(ctx, scoreActor)
+	again, err := score.NewWriter(pool, token).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure again: %v", err)
 	}
@@ -139,12 +140,12 @@ func TestASuppliedValueMovesBecauseOutcomesMovedIt(t *testing.T) {
 // a window that failed it lower the threshold that row supplies below the
 // number it passed.
 func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T) {
-	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoDriftDetector{})
+	ctx, pool, token, s := newScore(t)
+	g := gate.New(decisionlog.NewWriter(pool, token), s, fakePolicy{threshold: 0.9}, gate.NoDriftDetector{})
 
 	// A threshold of nine tenths auto-passes anything, which is the state the
 	// calibration is evidence against.
-	it, implementation := decomposeItem(t, ctx, pool, "item/passed")
+	it, implementation := decomposeItem(t, ctx, pool, token, "item/passed")
 	opened, err := g.Fire(ctx, firing(it, implementation,
 		score.Measurement{LinesChanged: 20, FilesChanged: 1, FilesInTree: 10}))
 	if err != nil {
@@ -158,11 +159,11 @@ func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T
 	}
 
 	// It ships, and its window fails it.
-	rel := mint(t, ctx, pool, serviceID, it.ID, 1)
-	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitFailed, false)
-	rollBack(t, ctx, pool, rel.ID)
+	rel := mint(t, ctx, pool, token, serviceID, it.ID, 1)
+	openWindow(t, ctx, pool, token, serviceID, rel.ID, window.ExitFailed, false)
+	rollBack(t, ctx, pool, token, rel.ID)
 
-	learned, err := score.Learn(ctx, pool)
+	learned, err := score.Learn(ctx, pool, token)
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
@@ -182,15 +183,15 @@ func TestTheThresholdFallsWhereTheScorePassedSomethingThatWentWrong(t *testing.T
 // TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks: the one mechanism in
 // the design that takes a human off a row, and the two fields it is recorded in.
 func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
-	ctx, pool, _ := newScore(t)
+	ctx, pool, token, _ := newScore(t)
 	version, found, err := score.Newest(ctx, pool)
 	if err != nil || !found {
 		t.Fatalf("Newest: %v", err)
 	}
-	s := score.New(pool, version, alwaysDraw{})
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
+	s := score.New(pool, version, alwaysDraw{}, token)
+	g := gate.New(decisionlog.NewWriter(pool, token), s, fakePolicy{threshold: 0.1}, gate.NoDriftDetector{})
 
-	it, implementation := decomposeItem(t, ctx, pool, "item/sampled")
+	it, implementation := decomposeItem(t, ctx, pool, token, "item/sampled")
 	opened, err := g.Fire(ctx, firing(it, implementation,
 		score.Measurement{LinesChanged: 900, FilesChanged: 10, FilesInTree: 10}))
 	if err != nil {
@@ -221,7 +222,7 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 	// The selection is the item's and not the firing's: a second row on the same
 	// item is held out whatever its number reads, and where the number would have
 	// passed anyway the close event says the threshold.
-	held, err := score.HeldOut(ctx, pool, it.ID)
+	held, err := score.HeldOut(ctx, pool, token, it.ID)
 	if err != nil || !held {
 		t.Fatalf("HeldOut = %v, %v; the selection is written on the decisions", held, err)
 	}
@@ -237,9 +238,9 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 	// A safeguard is never passed. The sample is asked with the safeguard's
 	// answer, so a gate a safeguard holds always-on keeps its human however the
 	// draw falls.
-	safeguarded := gate.New(decisionlog.NewWriter(pool), s,
+	safeguarded := gate.New(decisionlog.NewWriter(pool, token), s,
 		fakePolicy{threshold: 0.1, bySafeguard: true}, gate.NoDriftDetector{})
-	other, otherImplementation := decomposeItem(t, ctx, pool, "item/safeguarded")
+	other, otherImplementation := decomposeItem(t, ctx, pool, token, "item/safeguarded")
 	opened, err = safeguarded.Fire(ctx, firing(other, otherImplementation,
 		score.Measurement{LinesChanged: 900, FilesChanged: 10, FilesInTree: 10}))
 	if err != nil {
@@ -257,9 +258,9 @@ func TestTheSampleRemovesTheNumbersHumanAndTheSelectionSticks(t *testing.T) {
 // on that author's work, so it keeps moving on a factory that has stopped putting
 // humans at gates. Until the windows were built it could only move on a verdict.
 func TestAWindowClosingWithoutHarmNarrowsThePrior(t *testing.T) {
-	ctx, pool, s := newScore(t)
+	ctx, pool, token, s := newScore(t)
 
-	first, _ := decomposeItem(t, ctx, pool, "item/one")
+	first, _ := decomposeItem(t, ctx, pool, token, "item/one")
 	wide, err := s.Assess(ctx, score.Change{ItemID: first.ID, ServiceID: serviceID, AreaID: areaID})
 	if err != nil {
 		t.Fatalf("Assess: %v", err)
@@ -268,10 +269,10 @@ func TestAWindowClosingWithoutHarmNarrowsThePrior(t *testing.T) {
 
 	// The first item ships and its window closes at the cap, which counts: a
 	// release that was never failed is one the factory can return to.
-	rel := mint(t, ctx, pool, serviceID, first.ID, 1)
-	openWindow(t, ctx, pool, serviceID, rel.ID, window.ExitTimedOut, false)
+	rel := mint(t, ctx, pool, token, serviceID, first.ID, 1)
+	openWindow(t, ctx, pool, token, serviceID, rel.ID, window.ExitTimedOut, false)
 
-	second, _ := decomposeItem(t, ctx, pool, "item/two")
+	second, _ := decomposeItem(t, ctx, pool, token, "item/two")
 	narrowed, err := s.Assess(ctx, score.Change{ItemID: second.ID, ServiceID: serviceID, AreaID: areaID})
 	if err != nil {
 		t.Fatalf("Assess again: %v", err)
@@ -283,10 +284,10 @@ func TestAWindowClosingWithoutHarmNarrowsThePrior(t *testing.T) {
 
 	// A window that failed a release widens it again, and the reading says
 	// which of the outcomes it counted.
-	third, _ := decomposeItem(t, ctx, pool, "item/three")
-	failed := mint(t, ctx, pool, serviceID, third.ID, 2)
-	openWindow(t, ctx, pool, serviceID, failed.ID, window.ExitFailed, false)
-	fourth, _ := decomposeItem(t, ctx, pool, "item/four")
+	third, _ := decomposeItem(t, ctx, pool, token, "item/three")
+	failed := mint(t, ctx, pool, token, serviceID, third.ID, 2)
+	openWindow(t, ctx, pool, token, serviceID, failed.ID, window.ExitFailed, false)
+	fourth, _ := decomposeItem(t, ctx, pool, token, "item/four")
 	widened, err := s.Assess(ctx, score.Change{ItemID: fourth.ID, ServiceID: serviceID, AreaID: areaID})
 	if err != nil {
 		t.Fatalf("Assess a fourth time: %v", err)
@@ -307,7 +308,7 @@ func TestAWindowClosingWithoutHarmNarrowsThePrior(t *testing.T) {
 
 // closeWindows opens and closes n windows of the test's service, each over a
 // release of its own, at the cap.
-func closeWindows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID string, n int) {
+func closeWindows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, svcID string, n int) {
 	t.Helper()
 	existing, err := window.All(ctx, pool, svcID)
 	if err != nil {
@@ -315,17 +316,17 @@ func closeWindows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID s
 	}
 	for i := range n {
 		number := int64(len(existing) + i + 1)
-		it, _ := decomposeItem(t, ctx, pool, "item/window")
-		rel := mint(t, ctx, pool, svcID, it.ID, number)
-		openWindow(t, ctx, pool, svcID, rel.ID, window.ExitTimedOut, false)
+		it, _ := decomposeItem(t, ctx, pool, token, "item/window")
+		rel := mint(t, ctx, pool, token, svcID, it.ID, number)
+		openWindow(t, ctx, pool, token, svcID, rel.ID, window.ExitTimedOut, false)
 	}
 }
 
 // mint is one release of the test's service, minted by the writer that owns the
 // number.
-func mint(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, itemID string, number int64) release.Release {
+func mint(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, svcID, itemID string, number int64) release.Release {
 	t.Helper()
-	rel, err := release.NewWriter(pool).Mint(ctx, mergeActor, svcID,
+	rel, err := release.NewWriter(pool, token).Mint(ctx, mergeActor, svcID,
 		"bl_0000000000000000000000000000000a", itemID)
 	if err != nil {
 		t.Fatalf("minting a release: %v", err)
@@ -338,10 +339,10 @@ func mint(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, itemID s
 
 // openWindow opens a window over a deploy of one release and closes it at one
 // exit, which is the outcome every rule here is folded over.
-func openWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, releaseID string, exit window.Exit, heldOut bool) window.Window {
+func openWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, svcID, releaseID string, exit window.Exit, heldOut bool) window.Window {
 	t.Helper()
-	writer := window.NewWriter(pool)
-	opened, err := writer.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "health_monitor"}, window.OpenEvent{
+	writer := window.NewWriter(pool, token)
+	opened, err := writer.Open(ctx, record.Actor{Kind: record.KindComponent, Key: "health_monitor"}, window.OpenEvent{
 		DeployID:        record.NewID("dep"),
 		ReleaseID:       releaseID,
 		ServiceID:       svcID,
@@ -366,10 +367,10 @@ func openWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svcID, re
 
 // rollBack is the rollback record that fails one release, written by the
 // writer that owns a deploy.
-func rollBack(t *testing.T, ctx context.Context, pool *pgxpool.Pool, failed string) {
+func rollBack(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, failed string) {
 	t.Helper()
-	w := deploy.NewWriter(pool)
-	dep, err := w.StartUndoing(ctx, record.Actor{Kind: record.KindComponent, Name: "agent.deployer"},
+	w := deploy.NewWriter(pool, token)
+	dep, err := w.StartUndoing(ctx, record.Actor{Kind: record.KindComponent, Key: "agent.deployer"},
 		serviceID, environmentID, deploy.OfRelease(failed, "bl_0000000000000000000000000000000a"),
 		deploy.Undoing{
 			FailedReleaseID: failed,

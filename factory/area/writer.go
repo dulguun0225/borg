@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -44,11 +45,12 @@ type Area struct {
 
 // Writer is the table's one writer: an owner declaring an area at Factory.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{pool: pool, token: token} }
 
 // Declare writes an area, inside the area named by inside where that is not
 // empty. A name already taken is refused by the store's unique constraint
@@ -69,13 +71,26 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, name, inside s
 		Name:   name,
 		Inside: inside,
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, name, inside, item_size_target)
-		values ($1, $2, $3, $4, $5, $6, null)`,
-		a.ID, string(a.Actor.Kind), a.Actor.Name, a.At, a.Name, a.Inside,
+
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Area{}, fmt.Errorf("area: beginning the declaration of %q: %w", name, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Area{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name, inside, item_size_target)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, null)`,
+		a.ID, FormatVersion, string(a.Actor.Kind), a.Actor.Key, string(a.Actor.Basis), a.At, a.Name, a.Inside,
 	)
 	if err != nil {
 		return Area{}, fmt.Errorf("area: declaring %q: %w", name, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Area{}, fmt.Errorf("area: committing the declaration of %q: %w", name, err)
 	}
 	return a, nil
 }
@@ -99,7 +114,7 @@ func SetItemSizeTarget(ctx context.Context, tx pgx.Tx, areaID string, target flo
 	return nil
 }
 
-const selectArea = `select id, actor_kind, actor_name, at, name, inside, item_size_target
+const selectArea = `select id, actor_kind, actor_key, actor_key_basis, at, name, inside, item_size_target
 	from ` + Table
 
 // Get is one area by id. It takes the pool and not a [Writer], because reading
@@ -146,15 +161,16 @@ func Chain(ctx context.Context, pool *pgxpool.Pool, areaID string) ([]Area, erro
 
 func scan(row pgx.Row, named string) (Area, error) {
 	var a Area
-	var kind string
+	var kind, basis string
 	var target *float64
-	err := row.Scan(&a.ID, &kind, &a.Actor.Name, &a.At, &a.Name, &a.Inside, &target)
+	err := row.Scan(&a.ID, &kind, &a.Actor.Key, &basis, &a.At, &a.Name, &a.Inside, &target)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Area{}, fmt.Errorf("%w: %s", ErrNotFound, named)
 	} else if err != nil {
 		return Area{}, fmt.Errorf("area: reading %s: %w", named, err)
 	}
 	a.Actor.Kind = record.Kind(kind)
+	a.Actor.Basis = record.Basis(basis)
 	if target != nil {
 		a.ItemSizeTarget = gatepolicy.Authored{Number: *target, Present: true}
 	}

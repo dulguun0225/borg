@@ -87,9 +87,9 @@ func appendVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, action Ac
 		Supersedes:  supersedes,
 	}
 	_, err = tx.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		v.ID, string(v.Actor.Kind), v.Actor.Name, v.At, string(v.Action),
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, action, parameter, subject_kind, subject_id, qualifier, safeguard_id, supersedes)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		v.ID, FormatVersion, string(v.Actor.Kind), v.Actor.Key, string(v.Actor.Basis), v.At, string(v.Action),
 		string(v.Parameter), v.Subject.Kind, v.Subject.ID, v.Subject.Qualifier,
 		v.SafeguardID, v.Supersedes,
 	)
@@ -99,7 +99,7 @@ func appendVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, action Ac
 	return v, nil
 }
 
-const selectVersion = `select id, actor_kind, actor_name, at, action, parameter,
+const selectVersion = `select id, actor_kind, actor_key, actor_key_basis, at, action, parameter,
 	subject_kind, subject_id, qualifier, safeguard_id, supersedes
 	from ` + Table
 
@@ -141,8 +141,8 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Version, error) {
 
 func scanVersion(row pgx.Row, named string) (Version, error) {
 	var v Version
-	var kind, action, parameter string
-	err := row.Scan(&v.ID, &kind, &v.Actor.Name, &v.At, &action, &parameter,
+	var kind, basis, action, parameter string
+	err := row.Scan(&v.ID, &kind, &v.Actor.Key, &basis, &v.At, &action, &parameter,
 		&v.Subject.Kind, &v.Subject.ID, &v.Subject.Qualifier, &v.SafeguardID, &v.Supersedes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Version{}, fmt.Errorf("%w: %s", ErrNoVersion, named)
@@ -150,6 +150,7 @@ func scanVersion(row pgx.Row, named string) (Version, error) {
 		return Version{}, fmt.Errorf("policy: reading the version %s: %w", named, err)
 	}
 	v.Actor.Kind = record.Kind(kind)
+	v.Actor.Basis = record.Basis(basis)
 	v.Action = Action(action)
 	v.Parameter = gatepolicy.Parameter(parameter)
 	return v, nil
@@ -157,13 +158,14 @@ func scanVersion(row pgx.Row, named string) (Version, error) {
 
 func scanRow(rows pgx.Rows) (Version, error) {
 	var v Version
-	var kind, action, parameter string
-	err := rows.Scan(&v.ID, &kind, &v.Actor.Name, &v.At, &action, &parameter,
+	var kind, basis, action, parameter string
+	err := rows.Scan(&v.ID, &kind, &v.Actor.Key, &basis, &v.At, &action, &parameter,
 		&v.Subject.Kind, &v.Subject.ID, &v.Subject.Qualifier, &v.SafeguardID, &v.Supersedes)
 	if err != nil {
 		return Version{}, fmt.Errorf("policy: reading a version: %w", err)
 	}
 	v.Actor.Kind = record.Kind(kind)
+	v.Actor.Basis = record.Basis(basis)
 	v.Action = Action(action)
 	v.Parameter = gatepolicy.Parameter(parameter)
 	return v, nil

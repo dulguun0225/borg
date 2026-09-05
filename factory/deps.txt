@@ -167,69 +167,76 @@
 # applier rather than reaching for package postgres, and postgres does not name
 # it. What it shares with the factory is the column conventions, which are about
 # who wrote a row and not about which store it is in.
+#
+# Every package that writes to the factory's own store imports lease, to call
+# Fence inside its own write transaction before the write it guards —
+# ../../end-goal/one-process.md is what that guards against. The edge is added
+# to each package's line as it is wired to call it, so a package's line naming
+# lease and one not yet naming it may sit side by side for a time.
 
 record
 gatepolicy
 boundary
-decisionlog -> record
+lease -> record
+decisionlog -> record lease
 secretref
 targetseam -> secretref
-intent -> record
-service -> record gatepolicy
-item -> record
-criterion -> record
+intent -> record lease
+service -> record gatepolicy lease
+item -> record lease
+criterion -> lease record
 contract -> record
 consumercontract -> contract gatepolicy record
-artifact -> consumercontract criterion record
-build -> record
-release -> record
-deploy -> record secretref targetseam
-area -> record gatepolicy
-environment -> record gatepolicy secretref
-factorysettings -> record gatepolicy item
-safeguard -> record gatepolicy
-window -> boundary record
-incident -> record
-people -> record
+artifact -> consumercontract criterion lease record
+build -> lease record
+release -> lease record
+deploy -> record secretref targetseam lease
+area -> record gatepolicy lease
+environment -> record gatepolicy secretref lease
+factorysettings -> record gatepolicy item lease
+safeguard -> record gatepolicy lease
+window -> boundary record lease
+incident -> record lease
+people -> record lease
 driftdetector -> record
-score -> record gatepolicy boundary artifact consumercontract contract decisionlog deploy incident item release window
-policy -> record gatepolicy area environment factorysettings item safeguard score secretref service
-gate -> criterion decisionlog policy record score
-mergequeue -> contract decisionlog gate item record release
-notifier -> decisionlog people record
+score -> record gatepolicy boundary artifact consumercontract contract decisionlog deploy incident item lease release window
+policy -> record gatepolicy area environment factorysettings item lease safeguard score secretref service
+gate -> criterion decisionlog lease policy record score
+mergequeue -> contract decisionlog gate item lease record release
+notifier -> decisionlog lease people record
 healthmonitor -> boundary deploy incident intent item notifier policy record release window
 contractcheck -> consumercontract contract deploy gate intent policy record release service window
 agent -> secretref
 localtarget -> secretref targetseam
-postgres -> area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings incident intent item people policy release safeguard score service window
+postgres -> area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings incident intent item lease people policy release safeguard score service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy healthmonitor incident intent item localtarget mergequeue notifier people policy postgres record release safeguard score secretref service targetseam window
+cmd/factory -> agent area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment factorysettings gate gatepolicy healthmonitor incident intent item lease localtarget mergequeue notifier people policy postgres record release safeguard score secretref service targetseam window
 cmd/driftdetector -> driftdetector deploy environment localtarget postgres release secretref service targetseam window
 
-test decisionlog -> postgres secretref
-test intent -> postgres
-test service -> postgres
-test item -> postgres
-test criterion -> postgres
+test decisionlog -> secretref
+test intent -> postgres lease
+test service -> postgres lease
+test item -> postgres lease
+test criterion -> postgres lease
 test contract -> postgres
-test consumercontract -> postgres artifact contract gatepolicy record
-test artifact -> postgres
-test build -> postgres
-test release -> postgres
-test deploy -> postgres
-test area -> postgres
-test environment -> postgres
-test factorysettings -> postgres
-test safeguard -> postgres
-test window -> postgres
-test incident -> postgres
-test people -> postgres
-test notifier -> postgres decisionlog people record
-test healthmonitor -> postgres boundary build deploy item record release window
-test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item policy record release safeguard secretref service window
+test consumercontract -> postgres artifact contract gatepolicy lease record
+test artifact -> postgres lease
+test build -> postgres lease
+test release -> postgres lease
+test deploy -> postgres lease
+test area -> postgres lease
+test environment -> postgres lease
+test factorysettings -> postgres lease
+test safeguard -> postgres lease
+test window -> postgres lease
+test incident -> postgres lease
+test people -> postgres lease
+test notifier -> postgres decisionlog lease people record
+test healthmonitor -> postgres boundary build deploy item lease record release window
+test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lease policy record release safeguard secretref service window
 test score -> postgres artifact boundary consumercontract contract criterion deploy factorysettings gate policy release service window
 test policy -> postgres
 test gate -> postgres
-test mergequeue -> decisionlog gate item postgres record release
-test cmd/driftdetector -> build decisionlog record
+test mergequeue -> decisionlog gate item lease postgres record release
+test cmd/driftdetector -> build decisionlog lease record

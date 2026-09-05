@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -126,11 +127,14 @@ func (h Holding) String() string {
 
 // Writer is the one writer of declarations: the owner, at People.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Declare writes that human holds this duty or this obligation. Declaring the
 // same pair twice is one row: the insert conflicts on the human and the holding
@@ -143,7 +147,7 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, human string, 
 		return Declaration{}, err
 	}
 	if actor.Kind != record.KindHuman {
-		return Declaration{}, fmt.Errorf("%w: %s %q", ErrNotAnOwner, actor.Kind, actor.Name)
+		return Declaration{}, fmt.Errorf("%w: %s %q", ErrNotAnOwner, actor.Kind, actor.Key)
 	}
 	if human == "" {
 		return Declaration{}, ErrHumanEmpty
@@ -160,14 +164,25 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, human string, 
 		Duty:       holding.Duty,
 		Obligation: holding.Obligation,
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at)
-		values ($1, $2, $3, $4, $5, $6, $7, '')
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Declaration{}, fmt.Errorf("people: beginning: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Declaration{}, err
+	}
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, '')
 		on conflict (human, duty, obligation) do update set withdrawn_at = ''`,
-		d.ID, string(d.Actor.Kind), d.Actor.Name, d.At, d.Human, int(d.Duty), string(d.Obligation),
+		d.ID, FormatVersion, string(d.Actor.Kind), d.Actor.Key, string(d.Actor.Basis), d.At, d.Human, int(d.Duty), string(d.Obligation),
 	)
 	if err != nil {
 		return Declaration{}, fmt.Errorf("people: declaring that %s holds %s: %w", human, holding, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Declaration{}, fmt.Errorf("people: committing: %w", err)
 	}
 	// The row that stands may be the one this call inserted or the one a previous
 	// call did, and the conflict target does not say which. Reading it back is what
@@ -177,31 +192,39 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, human string, 
 
 // Withdraw marks the holding ended and keeps the row.
 func (w *Writer) Withdraw(ctx context.Context, id string) (Declaration, error) {
-	tag, err := w.pool.Exec(ctx, `update `+Table+`
-		set withdrawn_at = $1 where id = $2 and withdrawn_at = ''`, record.Now(), id)
+	tx, err := w.pool.Begin(ctx)
 	if err != nil {
+		return Declaration{}, fmt.Errorf("people: beginning: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Declaration{}, err
+	}
+	if _, err := tx.Exec(ctx, `update `+Table+`
+		set withdrawn_at = $1 where id = $2 and withdrawn_at = ''`, record.Now(), id); err != nil {
 		return Declaration{}, fmt.Errorf("people: withdrawing %s: %w", id, err)
 	}
-	if tag.RowsAffected() == 0 {
-		// Either it does not exist or it was withdrawn already. The second is not an
-		// error: what Withdraw promises is that the holding does not stand after it
-		// returns, and that already holds.
-		return Get(ctx, w.pool, id)
+	if err := tx.Commit(ctx); err != nil {
+		return Declaration{}, fmt.Errorf("people: committing: %w", err)
 	}
+	// Either it did not exist, it was withdrawn already, or this call just
+	// withdrew it. All three read back the same way: what Withdraw promises
+	// is that the holding does not stand after it returns.
 	return Get(ctx, w.pool, id)
 }
 
-const selectDeclaration = `select id, actor_kind, actor_name, at, human, duty, obligation, withdrawn_at
+const selectDeclaration = `select id, actor_kind, actor_key, actor_key_basis, at, human, duty, obligation, withdrawn_at
 	from ` + Table
 
 func scan(row pgx.Row) (Declaration, error) {
 	var d Declaration
-	var kind, obligation string
+	var kind, basis, obligation string
 	var duty int
-	if err := row.Scan(&d.ID, &kind, &d.Actor.Name, &d.At, &d.Human, &duty, &obligation, &d.WithdrawnAt); err != nil {
+	if err := row.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.Human, &duty, &obligation, &d.WithdrawnAt); err != nil {
 		return Declaration{}, err
 	}
 	d.Actor.Kind = record.Kind(kind)
+	d.Actor.Basis = record.Basis(basis)
 	d.Duty = Duty(duty)
 	d.Obligation = Obligation(obligation)
 	return d, nil

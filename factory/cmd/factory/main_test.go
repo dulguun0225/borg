@@ -138,7 +138,7 @@ func TestOneChangeShips(t *testing.T) {
 	// The walk alone — the walk subcommand's code — reaches the intent's
 	// statement from the deploy id, and reports the chain clean.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, c.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), c.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {
@@ -150,12 +150,11 @@ func TestOneChangeShips(t *testing.T) {
 
 	// The log: three decisions, six rows — the candidate deploy row, the merge
 	// row, and the production deploy row, each opened by its gate component.
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	// Reading the log itself appends read events, filtered out here: they are
+	// not decisions.
+	rows := decisionRows(readLog(t, ctx, d))
 	if len(rows) != 6 {
-		t.Fatalf("the log holds %d rows, three decisions are six:\n%s", len(rows), out)
+		t.Fatalf("the log holds %d decision rows, three decisions are six:\n%s", len(rows), out)
 	}
 	for n, want := range []struct {
 		part  decisionlog.Part
@@ -172,8 +171,8 @@ func TestOneChangeShips(t *testing.T) {
 		if row.Shape != decisionlog.ShapeDecision || row.Part != want.part {
 			t.Errorf("row %d is shape %s part %s, want a %s decision row", n+1, row.Shape, row.Part, want.part)
 		}
-		if want.actor != "" && row.Actor.Name != want.actor {
-			t.Errorf("row %d's actor is %q, want %q", n+1, row.Actor.Name, want.actor)
+		if want.actor != "" && row.Actor.Key != want.actor {
+			t.Errorf("row %d's actor is %q, want %q", n+1, row.Actor.Key, want.actor)
 		}
 	}
 	if rows[1].Closes != rows[0].ID || rows[3].Closes != rows[2].ID || rows[5].Closes != rows[4].ID {
@@ -247,7 +246,7 @@ func TestOneChangeShips(t *testing.T) {
 		}
 	}
 
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
 }

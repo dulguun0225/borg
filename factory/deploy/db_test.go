@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -59,12 +60,21 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *deploy.Writer) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying the lease schema statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range deploy.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, deploy.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return ctx, pool, deploy.NewWriter(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -81,7 +91,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var deployer = record.Actor{Kind: record.KindComponent, Name: "deploy"}
+var deployer = record.Actor{Kind: record.KindComponent, Key: "deploy"}
 
 // productionID stands for production's environment record. The deploy record
 // names an environment by the record's id from M2 on, and there are no foreign
@@ -289,9 +299,9 @@ func TestTheStoreRefusesWhatTheWriterRefuses(t *testing.T) {
 	}
 
 	insert := func(environment, strategy, status string) error {
-		_, err := pool.Exec(ctx, `insert into deploy (id, actor_kind, actor_name, at, service_id, environment_id, release_id, build_id, strategy, status)
-			values ($1, 'component', 'deploy', $2, $3, $4, $5, $6, $7, $8)`,
-			record.NewID(deploy.IDPrefix), record.Now(), record.NewID("svc"), environment,
+		_, err := pool.Exec(ctx, `insert into deploy (id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, release_id, build_id, strategy, status)
+			values ($1, $2, 'component', 'deploy', '', $3, $4, $5, $6, $7, $8, $9)`,
+			record.NewID(deploy.IDPrefix), deploy.FormatVersion, record.Now(), record.NewID("svc"), environment,
 			record.NewID("rel"), record.NewID("bld"), strategy, status)
 		return err
 	}
@@ -320,9 +330,9 @@ func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 		t.Errorf("Start naming nothing deployed = %v, want %v", err, deploy.ErrBuildIDEmpty)
 	}
 
-	_, err := pool.Exec(ctx, `insert into deploy (id, actor_kind, actor_name, at, service_id, environment_id, release_id, build_id, strategy, status)
-		values ($1, 'component', 'deploy', $2, '', 'production', $3, $4, 'without_control', 'started')`,
-		record.NewID(deploy.IDPrefix), record.Now(), record.NewID("rel"), record.NewID("bld"))
+	_, err := pool.Exec(ctx, `insert into deploy (id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, release_id, build_id, strategy, status)
+		values ($1, $2, 'component', 'deploy', '', $3, '', 'production', $4, $5, 'without_control', 'started')`,
+		record.NewID(deploy.IDPrefix), deploy.FormatVersion, record.Now(), record.NewID("rel"), record.NewID("bld"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a deploy naming no service = %v, want a violation of service_id_present", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -51,11 +52,12 @@ func (v Version) Value(p gatepolicy.Parameter, subject string) (Supplied, bool) 
 // is append-only, which is what makes a decision naming a version a decision
 // readable against what that version said.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{pool: pool, token: token} }
 
 // Ensure is the version in force: the newest stored version where it still says
 // what this source publishes and what the outcomes in the store supply, and a
@@ -80,7 +82,7 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 		return Version{}, err
 	}
 
-	supplied, err := Learn(ctx, w.pool)
+	supplied, err := Learn(ctx, w.pool, w.token)
 	if err != nil {
 		return Version{}, err
 	}
@@ -95,6 +97,9 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Version{}, err
+	}
 	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey()); err != nil {
 		return Version{}, fmt.Errorf("score: taking the version lock: %w", err)
 	}
@@ -120,9 +125,9 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 		Supersedes:     newest.ID,
 	}
 	if _, err := tx.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, formula_version, formula, factor_set, rules, supplied, supersedes)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		v.ID, string(v.Actor.Kind), v.Actor.Name, v.At,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, formula_version, formula, factor_set, rules, supplied, supersedes)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		v.ID, FormatVersion, string(v.Actor.Kind), v.Actor.Key, string(v.Actor.Basis), v.At,
 		v.FormulaVersion, v.Formula, v.FactorSet, v.Rules, string(stored), v.Supersedes,
 	); err != nil {
 		return Version{}, fmt.Errorf("score: appending a version of %s: %w", FormulaVersion, err)
@@ -133,7 +138,7 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 	return v, nil
 }
 
-const selectVersion = `select id, actor_kind, actor_name, at, formula_version, formula,
+const selectVersion = `select id, actor_kind, actor_key, actor_key_basis, at, formula_version, formula,
 	factor_set, rules, supplied, supersedes
 	from ` + Table
 
@@ -188,8 +193,8 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Version, error) {
 // differently read as one.
 func scanVersion(row pgx.Row, named string) (Version, string, error) {
 	var v Version
-	var kind, supplied string
-	err := row.Scan(&v.ID, &kind, &v.Actor.Name, &v.At, &v.FormulaVersion,
+	var kind, basis, supplied string
+	err := row.Scan(&v.ID, &kind, &v.Actor.Key, &basis, &v.At, &v.FormulaVersion,
 		&v.Formula, &v.FactorSet, &v.Rules, &supplied, &v.Supersedes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Version{}, "", fmt.Errorf("%w: %s", ErrNoVersion, named)
@@ -197,6 +202,7 @@ func scanVersion(row pgx.Row, named string) (Version, string, error) {
 		return Version{}, "", fmt.Errorf("score: reading %s version: %w", named, err)
 	}
 	v.Actor.Kind = record.Kind(kind)
+	v.Actor.Basis = record.Basis(basis)
 	if err := json.Unmarshal([]byte(supplied), &v.Supplied); err != nil {
 		return Version{}, "", fmt.Errorf("score: reading the supplied values of %s: %w", v.ID, err)
 	}

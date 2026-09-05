@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
@@ -47,11 +48,14 @@ func NameForItem(itemID string) string { return "candidate/" + itemID }
 // at the approval of Deploy to candidate environment and tears it down when the
 // item merges, is dropped, or is superseded by a re-decomposition.
 type Candidates struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewCandidates returns the writer over pool.
-func NewCandidates(pool *pgxpool.Pool) *Candidates { return &Candidates{pool: pool} }
+// NewCandidates returns the writer over pool, fencing every write with token.
+func NewCandidates(pool *pgxpool.Pool, token lease.Token) *Candidates {
+	return &Candidates{pool: pool, token: token}
+}
 
 // Compose creates the environment for one item, naming the targets a deploy into
 // it is performed against, the credential it is performed with, and what it was
@@ -90,7 +94,7 @@ func (c *Candidates) Compose(ctx context.Context, actor record.Actor, itemID str
 		ItemID:       itemID,
 		ComposedFrom: composedFrom,
 	}
-	if err := insert(ctx, c.pool, e); err != nil {
+	if err := insert(ctx, c.pool, c.token, e); err != nil {
 		return Environment{}, err
 	}
 	return e, nil
@@ -131,6 +135,9 @@ func (c *Candidates) update(ctx context.Context, id, statement string, value, do
 		return fmt.Errorf("environment: beginning %s %s: %w", doing, id, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, c.token); err != nil {
+		return err
+	}
 
 	var kind, tornDown string
 	err = tx.QueryRow(ctx, `select kind, torn_down_at from `+Table+` where id = $1 for update`, id).

@@ -25,6 +25,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -60,6 +61,11 @@ func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *artifact.Store) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range criterion.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying criterion statement %d: %v", n+1, err)
@@ -70,7 +76,11 @@ func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *artifact.Store) {
 			t.Fatalf("applying artifact statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, artifact.NewStore(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, artifact.NewStore(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -87,8 +97,8 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var specAuthor = record.Actor{Kind: record.KindComponent, Name: "agent.spec_author"}
-var implementer = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
+var specAuthor = record.Actor{Kind: record.KindComponent, Key: "agent.spec_author"}
+var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implementer"}
 
 // modelVersion is the author both roles write as here, which is the point of the
 // field: the prior is kept per model version, so two agents in two roles on one
@@ -246,9 +256,9 @@ func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 	}
 
 	_, err = pool.Exec(ctx, `insert into artifact
-		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
-		values ($1, 'component', 'agent.implementer', $2, 'it_a', 'implementation', 1, '', 'reviewer', 'claude-opus-5', 'a commit')`,
-		record.NewID(artifact.IDPrefix), record.Now())
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, kind, version, supersedes, authorship, author, content)
+		values ($1, $2, 'component', 'agent.implementer', '', $3, 'it_a', 'implementation', 1, '', 'reviewer', 'claude-opus-5', 'a commit')`,
+		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil {
 		t.Fatal("the store accepted an authorship outside the three")
 	}
@@ -268,9 +278,9 @@ func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 	}
 
 	_, err := pool.Exec(ctx, `insert into artifact
-		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
-		values ($1, 'component', 'agent.implementer', $2, '', 'implementation', 1, '', 'agent', 'claude-opus-5', 'a commit')`,
-		record.NewID(artifact.IDPrefix), record.Now())
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, kind, version, supersedes, authorship, author, content)
+		values ($1, $2, 'component', 'agent.implementer', '', $3, '', 'implementation', 1, '', 'agent', 'claude-opus-5', 'a commit')`,
+		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "item_id_present") {
 		t.Errorf("inserting a version naming no item = %v, want a violation of item_id_present", err)
 	}
@@ -292,9 +302,9 @@ func TestAVersionWithNoAuthorIsRefusedTwice(t *testing.T) {
 	}
 
 	_, err := pool.Exec(ctx, `insert into artifact
-		(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
-		values ($1, 'component', 'agent.implementer', $2, 'it_a', 'implementation', 1, '', 'agent', '', 'a commit')`,
-		record.NewID(artifact.IDPrefix), record.Now())
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, kind, version, supersedes, authorship, author, content)
+		values ($1, $2, 'component', 'agent.implementer', '', $3, 'it_a', 'implementation', 1, '', 'agent', '', 'a commit')`,
+		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "author_present") {
 		t.Errorf("inserting a version naming no author = %v, want a violation of author_present", err)
 	}

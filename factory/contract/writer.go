@@ -77,9 +77,9 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 			Kind:      form.Kind,
 		}
 		if _, err := tx.Exec(ctx, `insert into `+Table+`
-			(id, actor_kind, actor_name, at, service_id, name, kind)
-			values ($1, $2, $3, $4, $5, $6, $7)`,
-			c.ID, string(c.Actor.Kind), c.Actor.Name, c.At, c.ServiceID, c.Name, string(c.Kind),
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, name, kind)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			c.ID, FormatVersion, string(c.Actor.Kind), c.Actor.Key, string(c.Actor.Basis), c.At, c.ServiceID, c.Name, string(c.Kind),
 		); err != nil {
 			return Published{}, fmt.Errorf("contract: creating %s of %s: %w", form.Name, p.ServiceID, err)
 		}
@@ -129,10 +129,10 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 		Semver:        next,
 	}
 	if _, err := tx.Exec(ctx, `insert into `+VersionTable+`
-		(id, actor_kind, actor_name, at, contract_id, service_id, release_id, release_number,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, contract_id, service_id, release_id, release_number,
 		item_id, major, minor, patch)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		v.ID, string(v.Actor.Kind), v.Actor.Name, v.At, v.ContractID, v.ServiceID,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		v.ID, FormatVersionVersion, string(v.Actor.Kind), v.Actor.Key, string(v.Actor.Basis), v.At, v.ContractID, v.ServiceID,
 		v.ReleaseID, v.ReleaseNumber, v.ItemID, v.Semver.Major, v.Semver.Minor, v.Semver.Patch,
 	); err != nil {
 		return Published{}, fmt.Errorf("contract: minting %s of %s at release %d: %w",
@@ -140,10 +140,10 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 	}
 	for _, e := range form.Elements {
 		if _, err := tx.Exec(ctx, `insert into `+ElementTable+`
-			(id, actor_kind, actor_name, at, contract_version_id, contract_id, name,
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, contract_version_id, contract_id, name,
 			element_type, populated, deprecated)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			record.NewID(ElementIDPrefix), string(actor.Kind), actor.Name, v.At,
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			record.NewID(ElementIDPrefix), FormatVersionElement, string(actor.Kind), actor.Key, string(actor.Basis), v.At,
 			v.ID, c.ID, e.Name, e.Type, e.Populated, e.Deprecated,
 		); err != nil {
 			return Published{}, fmt.Errorf("contract: writing element %s of %s %s: %w",

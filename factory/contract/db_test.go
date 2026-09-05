@@ -27,7 +27,7 @@ import (
 
 // queue is the one writer of contracts and their versions, the way doc.go names
 // it: the merge queue, writing inside the transaction that mints the release.
-var queue = record.Actor{Kind: record.KindComponent, Name: "merge_queue"}
+var queue = record.Actor{Kind: record.KindComponent, Key: "merge_queue"}
 
 func newStore(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()

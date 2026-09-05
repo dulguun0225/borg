@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -30,7 +31,7 @@ import (
 // newSet gives a test a schema of its own with the criterion DDL applied
 // inside it. The schema is dropped when the test ends, so a rerun on a
 // database a previous run left dirty starts clean.
-func newSet(t *testing.T) (context.Context, *pgxpool.Pool) {
+func newSet(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -57,12 +58,21 @@ func newSet(t *testing.T) (context.Context, *pgxpool.Pool) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range criterion.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying criterion statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, token
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -79,7 +89,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var store = record.Actor{Kind: record.KindComponent, Name: "artifact.store"}
+var store = record.Actor{Kind: record.KindComponent, Key: "artifact.store"}
 
 // inTx runs f inside a transaction and commits it, failing the test on any
 // error. Insert takes a transaction because the artifact store calls it
@@ -103,7 +113,7 @@ func inTx(ctx context.Context, t *testing.T, pool *pgxpool.Pool, f func(pgx.Tx) 
 // first half: a sentence fitting no pattern is admitted only with a tagged
 // reason.
 func TestInsertRefusesAnUnmatchedSentenceWithNoReason(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, _ := newSet(t)
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("beginning a transaction: %v", err)
@@ -119,7 +129,7 @@ func TestInsertRefusesAnUnmatchedSentenceWithNoReason(t *testing.T) {
 // TestInsertRefusesAMatchedSentenceCarryingAReason is the second half: only
 // an escape carries a reason.
 func TestInsertRefusesAMatchedSentenceCarryingAReason(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, _ := newSet(t)
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("beginning a transaction: %v", err)
@@ -136,7 +146,7 @@ func TestInsertRefusesAMatchedSentenceCarryingAReason(t *testing.T) {
 // TestInsertWritesAndInForceReadsBack is a matched sentence and an escape
 // written, and the in-force query returning both whole.
 func TestInsertWritesAndInForceReadsBack(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, _ := newSet(t)
 
 	var matched, escaped criterion.Criterion
 	inTx(ctx, t, pool, func(tx pgx.Tx) error {
@@ -192,12 +202,12 @@ func TestInsertWritesAndInForceReadsBack(t *testing.T) {
 // constraint doing what Insert already refused: a row written around the
 // writer with a reason on a matched pattern is refused by the store.
 func TestTheStoreRefusesAReasonMismatchInsertedAroundTheWriter(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, _ := newSet(t)
 
 	_, err := pool.Exec(ctx, `insert into criterion
-		(id, actor_kind, actor_name, at, service_id, spec_artifact_id, sentence, pattern, escape_reason)
-		values ($1, 'component', 'artifact.store', $2, 'svc_a', 'art_a', 'The system shall hold.', 'always_true', 'a reason it must not carry')`,
-		record.NewID(criterion.IDPrefix), record.Now())
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, sentence, pattern, escape_reason)
+		values ($1, $2, 'component', 'artifact.store', '', $3, 'svc_a', 'art_a', 'The system shall hold.', 'always_true', 'a reason it must not carry')`,
+		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now())
 	if err == nil {
 		t.Fatal("the store accepted a reason on a matched pattern")
 	}
@@ -208,7 +218,7 @@ func TestTheStoreRefusesAReasonMismatchInsertedAroundTheWriter(t *testing.T) {
 // the store, the way every other required field is; record's doc.go states
 // what a link is checked for.
 func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, _ := newSet(t)
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("beginning a transaction: %v", err)
@@ -227,9 +237,9 @@ func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 	}
 
 	_, err = pool.Exec(ctx, `insert into criterion
-		(id, actor_kind, actor_name, at, service_id, spec_artifact_id, item_id, sentence, pattern, escape_reason)
-		values ($1, 'component', 'artifact.store', $2, '', 'art_a', 'it_a', 'The system shall hold.', 'always_true', '')`,
-		record.NewID(criterion.IDPrefix), record.Now())
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id, sentence, pattern, escape_reason)
+		values ($1, $2, 'component', 'artifact.store', '', $3, '', 'art_a', 'it_a', 'The system shall hold.', 'always_true', '')`,
+		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a criterion naming no service = %v, want a violation of service_id_present", err)
 	}
@@ -238,17 +248,17 @@ func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 // deployAgent is who writes what a run on a candidate environment produced: the
 // one component that reaches a deploy target is the one that reports what it
 // observed there.
-var deployAgent = record.Actor{Kind: record.KindComponent, Name: "deploy"}
+var deployAgent = record.Actor{Kind: record.KindComponent, Key: "deploy"}
 
 // TestRecordResultsWritesWhatTheRunProduced: the identity of a result is the build
 // plus the criterion id, so recording the same pair again is one row updated and
 // not a second, and a re-verification's new build is a new pair.
 func TestRecordResultsWritesWhatTheRunProduced(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, token := newSet(t)
 	const build, other = "bl_a", "bl_b"
 	first, second := "cr_"+strings.Repeat("a", 32), "cr_"+strings.Repeat("b", 32)
 
-	if err := criterion.RecordResults(ctx, pool, deployAgent, build, map[string]criterion.Outcome{
+	if err := criterion.RecordResults(ctx, pool, token, deployAgent, build, map[string]criterion.Outcome{
 		first:  criterion.OutcomePassed,
 		second: criterion.OutcomeUndecided,
 	}); err != nil {
@@ -282,7 +292,7 @@ func TestRecordResultsWritesWhatTheRunProduced(t *testing.T) {
 	// The same pair again is one row: a recomposed environment can produce a
 	// different outcome over the same build, and what is stored is what was
 	// observed last.
-	if err := criterion.RecordResults(ctx, pool, deployAgent, build,
+	if err := criterion.RecordResults(ctx, pool, token, deployAgent, build,
 		map[string]criterion.Outcome{first: criterion.OutcomeFailed}); err != nil {
 		t.Fatalf("RecordResults again: %v", err)
 	}
@@ -296,7 +306,7 @@ func TestRecordResultsWritesWhatTheRunProduced(t *testing.T) {
 
 	// Another build is another pair, which is what makes a re-verification's
 	// results its own.
-	if err := criterion.RecordResults(ctx, pool, deployAgent, other,
+	if err := criterion.RecordResults(ctx, pool, token, deployAgent, other,
 		map[string]criterion.Outcome{first: criterion.OutcomePassed}); err != nil {
 		t.Fatalf("RecordResults over another build: %v", err)
 	}
@@ -308,34 +318,34 @@ func TestRecordResultsWritesWhatTheRunProduced(t *testing.T) {
 // TestRecordResultsRefusesWhatTheStoreAlsoRefuses: the writer refuses an outcome
 // outside the three and a half-named pair, and the store refuses each around it.
 func TestRecordResultsRefusesWhatTheStoreAlsoRefuses(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, token := newSet(t)
 	const id = "cr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-	if err := criterion.RecordResults(ctx, pool, deployAgent, "", map[string]criterion.Outcome{
+	if err := criterion.RecordResults(ctx, pool, token, deployAgent, "", map[string]criterion.Outcome{
 		id: criterion.OutcomePassed,
 	}); !errors.Is(err, criterion.ErrBuildIDEmpty) {
 		t.Errorf("RecordResults naming no build = %v, want ErrBuildIDEmpty", err)
 	}
-	if err := criterion.RecordResults(ctx, pool, deployAgent, "bl_a", map[string]criterion.Outcome{
+	if err := criterion.RecordResults(ctx, pool, token, deployAgent, "bl_a", map[string]criterion.Outcome{
 		"": criterion.OutcomePassed,
 	}); !errors.Is(err, criterion.ErrCriterionIDEmpty) {
 		t.Errorf("RecordResults naming no criterion = %v, want ErrCriterionIDEmpty", err)
 	}
-	if err := criterion.RecordResults(ctx, pool, deployAgent, "bl_a", map[string]criterion.Outcome{
+	if err := criterion.RecordResults(ctx, pool, token, deployAgent, "bl_a", map[string]criterion.Outcome{
 		id: criterion.Outcome("flaky"),
 	}); !errors.Is(err, criterion.ErrOutcomeUnknown) {
 		t.Errorf("RecordResults with an outcome outside the three = %v, want ErrOutcomeUnknown", err)
 	}
-	if err := criterion.RecordResults(ctx, pool, record.Actor{}, "bl_a", map[string]criterion.Outcome{
+	if err := criterion.RecordResults(ctx, pool, token, record.Actor{}, "bl_a", map[string]criterion.Outcome{
 		id: criterion.OutcomePassed,
 	}); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("RecordResults with no actor = %v, want ErrKindUnknown", err)
 	}
 
 	_, err := pool.Exec(ctx, `insert into `+criterion.ResultTable+`
-		(id, actor_kind, actor_name, at, build_id, criterion_id, outcome)
-		values ($1, 'component', 'deploy', $2, 'bl_a', $3, 'flaky')`,
-		record.NewID(criterion.ResultIDPrefix), record.Now(), id)
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, criterion_id, outcome)
+		values ($1, $2, 'component', 'deploy', '', $3, 'bl_a', $4, 'flaky')`,
+		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id)
 	if err == nil || !strings.Contains(err.Error(), "outcome_known") {
 		t.Errorf("inserting an unknown outcome = %v, want a violation of outcome_known", err)
 	}
@@ -346,7 +356,7 @@ func TestRecordResultsRefusesWhatTheStoreAlsoRefuses(t *testing.T) {
 // could not keep. Holding it in force would reject every candidate decomposed in parallel
 // with the one that introduced it.
 func TestInForceIsPerBuild(t *testing.T) {
-	ctx, pool := newSet(t)
+	ctx, pool, _ := newSet(t)
 	var mine, theirs criterion.Criterion
 	inTx(ctx, t, pool, func(tx pgx.Tx) error {
 		var err error

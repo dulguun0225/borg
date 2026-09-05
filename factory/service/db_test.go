@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/service"
@@ -59,12 +60,21 @@ func newWriter(t *testing.T) (context.Context, *pgxpool.Pool, *service.Writer) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range service.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying service statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, service.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, service.NewWriter(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -81,7 +91,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var decomposition = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
+var decomposition = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
 
 func TestCreateAndGet(t *testing.T) {
 	ctx, pool, w := newWriter(t)
@@ -170,8 +180,8 @@ func TestCreateRefusals(t *testing.T) {
 func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 	ctx, pool, _ := newWriter(t)
 
-	insert := `insert into service (id, actor_kind, actor_name, at, name, repository)
-		values ($1, 'component', 'decomposition', $2, $3, $4)`
+	insert := `insert into service (id, format_version, actor_kind, actor_key, actor_key_basis, at, name, repository)
+		values ($1, '` + service.FormatVersion + `', 'component', 'decomposition', '', $2, $3, $4)`
 	for _, refused := range []struct {
 		name       string
 		serviceN   string

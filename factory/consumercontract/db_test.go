@@ -23,13 +23,14 @@ import (
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
 // implementer is the actor a consumer contract version is written as: the stage
 // that derived it from the build.
-var implementer = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
+var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implementer"}
 
 // by is who authored the version, which for a derived consumer contract is the
 // model the implementation stage ran on.
@@ -63,7 +64,11 @@ func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *artifact.Store) {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
-	return ctx, pool, artifact.NewStore(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, artifact.NewStore(pool, token)
 }
 
 func inSchema(t *testing.T, base, schema string) string {
@@ -268,9 +273,9 @@ func TestAgainstProducerAndConsumerServicesEverReadTheGraph(t *testing.T) {
 func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 	ctx, pool, _ := newStore(t)
 
-	insert := `insert into ` + consumercontract.Table + ` (id, actor_kind, actor_name, at, item_id, service_id,
+	insert := `insert into ` + consumercontract.Table + ` (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id,
 		artifact_id, producer_service, producer_service_id, interface_name, element, kind, argument)
-		values ($1, 'component', 'agent.implementer', $2, $3, $4, $5, $6, '', $7, $8, $9, '')`
+		values ($1, $2, 'component', 'agent.implementer', '', $3, $4, $5, $6, $7, '', $8, $9, $10, '')`
 	for _, refused := range []struct {
 		name                                                              string
 		item, service, artifactID, producer, interfaceName, element, kind string
@@ -284,7 +289,7 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		{"no element", "it_a", "svc_a", "art_a", "producer", "health", "", "read", "element_present"},
 		{"no kind", "it_a", "svc_a", "art_a", "producer", "health", "Status", "", "kind_present"},
 	} {
-		_, err := pool.Exec(ctx, insert, record.NewID(consumercontract.IDPrefix), record.Now(),
+		_, err := pool.Exec(ctx, insert, record.NewID(consumercontract.IDPrefix), consumercontract.FormatVersion, record.Now(),
 			refused.item, refused.service, refused.artifactID, refused.producer,
 			refused.interfaceName, refused.element, refused.kind)
 		if err == nil || !strings.Contains(err.Error(), refused.constraint) {

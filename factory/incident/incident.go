@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -93,11 +94,14 @@ type Raising struct {
 
 // Writer is the one writer of incident records: the health monitor.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Raise writes the incident, open with no observations on it. A second open
 // incident on one service and one release is refused by the partial unique index
@@ -108,7 +112,7 @@ func (w *Writer) Raise(ctx context.Context, actor record.Actor, r Raising) (Inci
 		return Incident{}, err
 	}
 	if actor.Kind != record.KindComponent {
-		return Incident{}, fmt.Errorf("%w: %s %q", ErrNotAComponent, actor.Kind, actor.Name)
+		return Incident{}, fmt.Errorf("%w: %s %q", ErrNotAComponent, actor.Kind, actor.Key)
 	}
 	for _, required := range []struct{ what, value string }{
 		{"environment", r.EnvironmentID}, {"service", r.ServiceID},
@@ -131,16 +135,28 @@ func (w *Writer) Raise(ctx context.Context, actor record.Actor, r Raising) (Inci
 		IntentID:      r.IntentID,
 		Status:        StatusOpen,
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, environment_id, service_id, release_id, deploy_id,
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Incident{}, fmt.Errorf("incident: beginning the raising of %s: %w", i.ID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Incident{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 		 crossing, intent_id, observations, status, resolved_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, '')`,
-		i.ID, string(i.Actor.Kind), i.Actor.Name, i.At,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, $13, '')`,
+		i.ID, FormatVersion, string(i.Actor.Kind), i.Actor.Key, string(i.Actor.Basis), i.At,
 		i.EnvironmentID, i.ServiceID, i.ReleaseID, i.DeployID,
 		i.Crossing, i.IntentID, string(i.Status),
 	)
 	if err != nil {
 		return Incident{}, fmt.Errorf("incident: raising %s on release %s: %w", i.ID, r.ReleaseID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Incident{}, fmt.Errorf("incident: committing the raising of %s: %w", i.ID, err)
 	}
 	return i, nil
 }
@@ -149,7 +165,16 @@ func (w *Writer) Raise(ctx context.Context, actor record.Actor, r Raising) (Inci
 // and nothing else. It is what the health monitor does instead of raising a second
 // intent, and it is one statement so two concurrent observations both land.
 func (w *Writer) Observe(ctx context.Context, id string) (Incident, error) {
-	tag, err := w.pool.Exec(ctx, `update `+Table+`
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Incident{}, fmt.Errorf("incident: beginning the observation of %s: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Incident{}, err
+	}
+
+	tag, err := tx.Exec(ctx, `update `+Table+`
 		set observations = observations + 1 where id = $1 and status = $2`,
 		id, string(StatusOpen))
 	if err != nil {
@@ -157,6 +182,9 @@ func (w *Writer) Observe(ctx context.Context, id string) (Incident, error) {
 	}
 	if tag.RowsAffected() == 0 {
 		return Incident{}, notOpen(ctx, w.pool, id)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Incident{}, fmt.Errorf("incident: committing the observation of %s: %w", id, err)
 	}
 	return Get(ctx, w.pool, id)
 }
@@ -167,7 +195,16 @@ func (w *Writer) Observe(ctx context.Context, id string) (Incident, error) {
 // package does not read. What it enforces is that an incident resolves once, and
 // from open.
 func (w *Writer) Resolve(ctx context.Context, id string) (Incident, error) {
-	tag, err := w.pool.Exec(ctx, `update `+Table+`
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Incident{}, fmt.Errorf("incident: beginning the resolution of %s: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Incident{}, err
+	}
+
+	tag, err := tx.Exec(ctx, `update `+Table+`
 		set status = $1, resolved_at = $2 where id = $3 and status = $4`,
 		string(StatusResolved), record.Now(), id, string(StatusOpen))
 	if err != nil {
@@ -175,6 +212,9 @@ func (w *Writer) Resolve(ctx context.Context, id string) (Incident, error) {
 	}
 	if tag.RowsAffected() == 0 {
 		return Incident{}, notOpen(ctx, w.pool, id)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Incident{}, fmt.Errorf("incident: committing the resolution of %s: %w", id, err)
 	}
 	return Get(ctx, w.pool, id)
 }
@@ -190,19 +230,20 @@ func notOpen(ctx context.Context, pool *pgxpool.Pool, id string) error {
 	return fmt.Errorf("%w: %s is %s", ErrNotOpen, id, i.Status)
 }
 
-const selectIncident = `select id, actor_kind, actor_name, at, environment_id, service_id,
+const selectIncident = `select id, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id,
 	release_id, deploy_id, crossing, intent_id, observations, status, resolved_at
 	from ` + Table
 
 func scan(row pgx.Row) (Incident, error) {
 	var i Incident
-	var kind, status string
-	err := row.Scan(&i.ID, &kind, &i.Actor.Name, &i.At, &i.EnvironmentID, &i.ServiceID,
+	var kind, basis, status string
+	err := row.Scan(&i.ID, &kind, &i.Actor.Key, &basis, &i.At, &i.EnvironmentID, &i.ServiceID,
 		&i.ReleaseID, &i.DeployID, &i.Crossing, &i.IntentID, &i.Observations, &status, &i.ResolvedAt)
 	if err != nil {
 		return Incident{}, err
 	}
 	i.Actor.Kind = record.Kind(kind)
+	i.Actor.Basis = record.Basis(basis)
 	i.Status = Status(status)
 	return i, nil
 }

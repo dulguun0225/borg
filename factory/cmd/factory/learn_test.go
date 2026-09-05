@@ -87,7 +87,7 @@ func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
 
 	// And the selection is readable off the decisions, which is where the design
 	// puts it rather than in a set of its own.
-	held, err := score.HeldOutItems(ctx, d.pool)
+	held, err := score.HeldOutItems(ctx, d.pool, d.token)
 	if err != nil {
 		t.Fatalf("HeldOutItems: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	if err != nil || !found {
 		t.Fatalf("Newest = found %v, %v", found, err)
 	}
-	learned, err := score.Learn(ctx, d.pool)
+	learned, err := score.Learn(ctx, d.pool, d.token)
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
@@ -176,11 +176,11 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	// between them append one version. It is asserted here and not against the
 	// version the run composed, because the run shipped an item after composing —
 	// so the graph moved under it and a version of its own is the right answer.
-	first, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
+	first, err := score.NewWriter(d.pool, d.token).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	still, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
+	still, err := score.NewWriter(d.pool, d.token).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure again: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestAFactoryThatHasSampledNothingSaysSo(t *testing.T) {
 	}
 
 	printed := &bytes.Buffer{}
-	if err := printHeldOut(ctx, printed, d.pool); err != nil {
+	if err := printHeldOut(ctx, printed, d.pool, d.token); err != nil {
 		t.Fatalf("printHeldOut: %v", err)
 	}
 	if !strings.Contains(printed.String(), "can fall and cannot rise") {

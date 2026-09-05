@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
@@ -59,12 +60,21 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *release.Writer) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range release.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, release.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, release.NewWriter(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -81,7 +91,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var merge = record.Actor{Kind: record.KindComponent, Name: "gate.merge_to_master"}
+var merge = record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master"}
 
 func TestTheNumberIsAnOrdinalPerService(t *testing.T) {
 	ctx, pool, w := newTable(t)
@@ -165,16 +175,16 @@ func TestTheStoreRefusesWhatASkippedLockWouldProduce(t *testing.T) {
 		t.Fatalf("Mint: %v", err)
 	}
 
-	_, err = pool.Exec(ctx, `insert into release (id, actor_kind, actor_name, at, service_id, number, build_id, item_id)
-		values ($1, 'component', 'gate.merge_to_master', $2, $3, $4, $5, $6)`,
-		record.NewID(release.IDPrefix), record.Now(), serviceID, minted.Number, record.NewID("bl"), record.NewID("it"))
+	_, err = pool.Exec(ctx, `insert into release (id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, number, build_id, item_id)
+		values ($1, $2, 'component', 'gate.merge_to_master', '', $3, $4, $5, $6, $7)`,
+		record.NewID(release.IDPrefix), release.FormatVersion, record.Now(), serviceID, minted.Number, record.NewID("bl"), record.NewID("it"))
 	if err == nil {
 		t.Error("the store seated a second release at a taken number")
 	}
 
-	_, err = pool.Exec(ctx, `insert into release (id, actor_kind, actor_name, at, service_id, number, build_id, item_id)
-		values ($1, 'component', 'gate.merge_to_master', $2, $3, 0, $4, $5)`,
-		record.NewID(release.IDPrefix), record.Now(), serviceID, record.NewID("bl"), record.NewID("it"))
+	_, err = pool.Exec(ctx, `insert into release (id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, number, build_id, item_id)
+		values ($1, $2, 'component', 'gate.merge_to_master', '', $3, $4, 0, $5, $6)`,
+		record.NewID(release.IDPrefix), release.FormatVersion, record.Now(), serviceID, record.NewID("bl"), record.NewID("it"))
 	if err == nil {
 		t.Error("the store accepted number 0, and the ordinal starts at 1")
 	}
@@ -197,9 +207,9 @@ func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 		t.Errorf("Mint naming no item = %v, want %v", err, release.ErrItemIDEmpty)
 	}
 
-	_, err := pool.Exec(ctx, `insert into release (id, actor_kind, actor_name, at, service_id, number, build_id, item_id)
-		values ($1, 'component', 'gate.merge_to_master', $2, '', 1, $3, $4)`,
-		record.NewID(release.IDPrefix), record.Now(), record.NewID("bl"), record.NewID("it"))
+	_, err := pool.Exec(ctx, `insert into release (id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, number, build_id, item_id)
+		values ($1, $2, 'component', 'gate.merge_to_master', '', $3, '', 1, $4, $5)`,
+		record.NewID(release.IDPrefix), release.FormatVersion, record.Now(), record.NewID("bl"), record.NewID("it"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a release naming no service = %v, want a violation of service_id_present", err)
 	}

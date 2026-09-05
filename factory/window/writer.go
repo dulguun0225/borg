@@ -10,17 +10,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/boundary"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
 // Writer is the one writer of analysis windows: the health monitor. It opens a window
 // when a production deploy record is written and closes it once.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Open writes the window. A second window over one deploy, or a second over one
 // release, is refused by the unique constraints rather than by this method: the
@@ -50,17 +54,29 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o OpenEvent) (Win
 		PolicyVersion:   o.PolicyVersion,
 		ScoreVersion:    o.ScoreVersion,
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, deploy_id, release_id, service_id, passed_available, held_out,
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Window{}, fmt.Errorf("window: beginning the open of %s: %w", win.ID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Window{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, deploy_id, release_id, service_id, passed_available, held_out,
 		 size, confidence, cap_seconds, formula, policy_version, score_version, exit, closed_at,
 		 closed_on_units, closed_on_failures, closed_on_baseline_units, closed_on_baseline_failures)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, '', '', 0, 0, 0, 0)`,
-		win.ID, string(win.Actor.Kind), win.Actor.Name, win.At,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, '', '', 0, 0, 0, 0)`,
+		win.ID, FormatVersion, string(win.Actor.Kind), win.Actor.Key, string(win.Actor.Basis), win.At,
 		win.DeployID, win.ReleaseID, win.ServiceID, win.PassedAvailable, win.HeldOut,
 		win.Size, win.Confidence, win.CapSeconds, win.Formula, win.PolicyVersion, win.ScoreVersion,
 	)
 	if err != nil {
 		return Window{}, fmt.Errorf("window: opening %s over deploy %s: %w", win.ID, o.DeployID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Window{}, fmt.Errorf("window: committing the open of %s: %w", win.ID, err)
 	}
 	return win, nil
 }
@@ -93,6 +109,9 @@ func (w *Writer) Close(ctx context.Context, id string, exit Exit, on boundary.Ob
 		return Window{}, fmt.Errorf("window: beginning the close of %s: %w", id, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Window{}, err
+	}
 
 	win, err := scan(tx.QueryRow(ctx, selectWindow+` where id = $1 for update`, id))
 	if errors.Is(err, pgx.ErrNoRows) {

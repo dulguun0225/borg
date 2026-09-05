@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/targetseam"
@@ -31,7 +32,11 @@ type serviceRepo struct {
 // drives the same code the run subcommand does — a fake model, scripted
 // input, temp directories — with nothing swapped anywhere but here.
 type deps struct {
-	pool      *pgxpool.Pool
+	pool *pgxpool.Pool
+	// token is the fencing token this process holds the lease with, per
+	// ../../../end-goal/one-process.md: every writer the composition constructs, and
+	// every reader that appends a read event, carries it.
+	token     lease.Token
 	model     agent.Model
 	modelName string // the provider's model id, which is the author a per-author prior is kept on
 	// targets is one target per environment. There is one per environment and not

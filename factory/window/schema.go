@@ -8,6 +8,10 @@ const Table = "analysis_window"
 // IDPrefix is what [record.NewID] is called with for a analysis window.
 const IDPrefix = "win"
 
+// FormatVersion is written into every analysis window record's format_version
+// column.
+const FormatVersion = "analysis_window/1"
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated,
 // so the actor field and its constraints are the same ones every record table

@@ -13,6 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/window"
@@ -77,12 +78,13 @@ type Evidence struct {
 	rejected        map[string]bool
 }
 
-// ReadEvidence reads every outcome the score learns from. It reads and writes
-// nothing.
-func ReadEvidence(ctx context.Context, pool *pgxpool.Pool) (*Evidence, error) {
+// ReadEvidence reads every outcome the score learns from. It reads the log
+// through token, appending one read event as the score's own component actor,
+// and writes nothing else.
+func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (*Evidence, error) {
 	e := newEvidence()
 
-	closed, err := decisionlog.ClosedDecisions(ctx, pool)
+	closed, err := decisionlog.NewReader(pool, token).ClosedDecisions(ctx, component)
 	if err != nil {
 		return nil, err
 	}

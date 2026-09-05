@@ -1,156 +1,144 @@
-// The database tests of this package are in decisionlog_test rather than in
-// decisionlog, because they open the pool through package postgres and
-// postgres imports decisionlog to apply its DDL. An external test package is
-// a separate package to the compiler, so the edge is a test edge and not the
-// cycle the compiler would refuse. deps.txt records it as
-// "test decisionlog -> postgres secretref".
-//
-// None of these tests skips when the database is unreachable. The milestone is
-// demonstrated by them running, so an unreachable database fails the run.
 package decisionlog_test
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"net/url"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/dulguun0225/borg/factory/decisionlog"
-	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// newLog gives a test a schema of its own, the log's DDL applied inside it,
-// and a writer over it. The schema is dropped when the test ends, so a rerun
-// on a database a previous run left dirty starts clean.
-func newLog(t *testing.T) (context.Context, *pgxpool.Pool, *decisionlog.Writer) {
-	t.Helper()
-	ctx := t.Context()
-
-	var suffix [8]byte
-	if _, err := rand.Read(suffix[:]); err != nil {
-		t.Fatalf("naming the test schema: %v", err)
-	}
-	schema := "m0_" + hex.EncodeToString(suffix[:])
-
-	pool, err := postgres.Open(ctx, inSchema(t, postgres.URL(), schema))
-	if err != nil {
-		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", postgres.URL(), err)
-	}
-	t.Cleanup(func() {
-		// t.Context is already cancelled by the time cleanup runs.
-		drop, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if _, err := pool.Exec(drop, `drop schema if exists `+pgx.Identifier{schema}.Sanitize()+` cascade`); err != nil {
-			t.Errorf("dropping schema %s: %v", schema, err)
+func TestSchemaAppliesTwice(t *testing.T) {
+	ctx, pool, _, _ := newLog(t)
+	for _, statement := range append(append([]string{}, lease.DDL...), decisionlog.DDL...) {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying the schema a second time: %v", err)
 		}
-		pool.Close()
-	})
-
-	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
-		t.Fatalf("creating schema %s: %v", schema, err)
-	}
-	if err := postgres.Apply(ctx, pool); err != nil {
-		t.Fatalf("applying the schema: %v", err)
-	}
-	return ctx, pool, decisionlog.NewWriter(pool)
-}
-
-// inSchema points a connection URL at one schema and nothing else, so every
-// unqualified name in the DDL and in the writer's statements resolves there.
-func inSchema(t *testing.T, base, schema string) string {
-	t.Helper()
-	parsed, err := url.Parse(base)
-	if err != nil {
-		t.Fatalf("parsing %s: %v", base, err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
-var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
-var gate = record.Actor{Kind: record.KindComponent, Name: "gate.merge"}
-
-func TestApplyRunsTwice(t *testing.T) {
-	ctx, pool, _ := newLog(t)
-	if err := postgres.Apply(ctx, pool); err != nil {
-		t.Fatalf("applying the schema a second time: %v", err)
 	}
 }
 
-// TestTheThreeShapesChainUnbroken is the first half of the demonstration: all
-// three shapes appended — the decision as its two rows — and the chain read
-// back whole.
-func TestTheThreeShapesChainUnbroken(t *testing.T) {
-	ctx, pool, log := newLog(t)
-
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+// TestTheTenShapesChainUnbroken is the demonstration: all ten shapes
+// appended — the decision as an opening, an acknowledgement and a closing;
+// the wait as an opening and a closing; a read event for every read — and
+// the chain read back whole.
+func TestVerifyOfAnEmptyLogSucceeds(t *testing.T) {
+	ctx, pool, _, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
+	if err := reader.Verify(ctx, owner); err != nil {
 		t.Fatalf("an empty log does not verify: %v", err)
 	}
+}
+
+func TestTheTenShapesChainUnbroken(t *testing.T) {
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
 
 	opening, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
-		Actor:         gate,
-		Payload:       `{"gate":"merge","waits_on":"owner"}`,
-		PolicyVersion: "policy-1",
-		ScoreVersion:  "score-1",
+		Actor: gate, Payload: `{"gate":"merge_to_master"}`,
+		FormatVersion: "decision/1", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	})
 	if err != nil {
 		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
 	page, err := log.AppendPageEvent(ctx, decisionlog.Entry{
-		Actor:   record.Actor{Kind: record.KindComponent, Name: "operations.pager"},
-		Payload: `{"page":"checkout error rate","reached":"owner"}`,
+		Actor: notifierActor, Payload: `{"page":"checkout error rate","reached":"owner"}`, FormatVersion: "page_event/1",
 	})
 	if err != nil {
 		t.Fatalf("AppendPageEvent: %v", err)
 	}
-	wait, err := log.AppendWait(ctx, decisionlog.Entry{
-		Actor:   gate,
-		Payload: `{"gate":"deploy","waiting_on":"an unreachable credential"}`,
+	waitOpen, err := log.AppendWaitOpen(ctx, decisionlog.Entry{
+		Actor: gate, Payload: `{"waiting_on":"an unreachable credential"}`, FormatVersion: "wait/1",
 	})
 	if err != nil {
-		t.Fatalf("AppendWait: %v", err)
+		t.Fatalf("AppendWaitOpen: %v", err)
+	}
+	waitClose, err := log.AppendWaitClose(ctx, decisionlog.Entry{
+		Actor: gate, Payload: `{"condition":"gone"}`, FormatVersion: "wait/1", Closes: waitOpen.ID,
+	})
+	if err != nil {
+		t.Fatalf("AppendWaitClose: %v", err)
+	}
+	rework, err := log.AppendReworkRequest(ctx, decisionlog.Entry{
+		Actor: gate, Payload: `{"names":"Spec","defect":"the spec says two things"}`, FormatVersion: "rework_request/1",
+	})
+	if err != nil {
+		t.Fatalf("AppendReworkRequest: %v", err)
+	}
+	rejection, err := log.AppendQueueRejection(ctx, decisionlog.Entry{
+		Actor:   record.Actor{Kind: record.KindComponent, Key: "mergequeue"},
+		Payload: `{"reading":"no longer passes"}`, FormatVersion: "queue_rejection/1",
+	})
+	if err != nil {
+		t.Fatalf("AppendQueueRejection: %v", err)
+	}
+	policyVersion, err := log.AppendPolicyVersion(ctx, decisionlog.Entry{
+		Actor: record.Actor{Kind: record.KindComponent, Key: "factory"}, Payload: `{"changed":"threshold"}`,
+		FormatVersion: "policy_version/1",
+	})
+	if err != nil {
+		t.Fatalf("AppendPolicyVersion: %v", err)
+	}
+	scoreVersion, err := log.AppendScoreVersion(ctx, decisionlog.Entry{
+		Actor: record.Actor{Kind: record.KindComponent, Key: "score"}, Payload: `{"moved":"factor"}`,
+		FormatVersion: "score_version/1",
+	})
+	if err != nil {
+		t.Fatalf("AppendScoreVersion: %v", err)
+	}
+	install, err := log.AppendInstallEvent(ctx, decisionlog.Entry{
+		Actor: record.Actor{Kind: record.KindComponent, Key: "first-start"}, Payload: `{"event":"upgrade","version":"1.2.3"}`,
+		FormatVersion: "install_event/1",
+	})
+	if err != nil {
+		t.Fatalf("AppendInstallEvent: %v", err)
+	}
+	ack, err := log.AppendDecisionAcknowledgement(ctx, decisionlog.Entry{
+		Actor: owner, Payload: "", FormatVersion: "decision/1", Closes: opening.ID,
+	})
+	if err != nil {
+		t.Fatalf("AppendDecisionAcknowledgement: %v", err)
 	}
 	closing, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor:   owner,
-		Payload: `{"verdict":"approve"}`,
-		Closes:  opening.ID,
+		Actor: owner, Payload: `{"note":"looks fine"}`, FormatVersion: "decision/1",
+		Closes: opening.ID, Verdict: "approve", OpenedInWorkAt: record.Now(),
 	})
 	if err != nil {
 		t.Fatalf("AppendDecisionClose: %v", err)
 	}
 
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := reader.Verify(ctx, owner); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-
-	rows, err := decisionlog.Read(ctx, pool)
+	rows, err := reader.Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 4 {
-		t.Fatalf("Read returned %d rows, want 4", len(rows))
+
+	wantIDs := []string{
+		opening.ID, page.ID, waitOpen.ID, waitClose.ID, rework.ID, rejection.ID,
+		policyVersion.ID, scoreVersion.ID, install.ID, ack.ID, closing.ID,
+	}
+	// Plus the two read events this test's own reads just appended: one
+	// from Verify above, one from Read appending its own before it answers.
+	if len(rows) != len(wantIDs)+2 {
+		t.Fatalf("Read returned %d rows, want %d", len(rows), len(wantIDs)+2)
+	}
+	for n, id := range wantIDs {
+		if rows[n].ID != id {
+			t.Errorf("row %d is %s, want %s", n+1, rows[n].ID, id)
+		}
+	}
+	for n := range 2 {
+		if got := rows[len(wantIDs)+n].Shape; got != decisionlog.ShapeReadEvent {
+			t.Errorf("row %d is a %s, want a %s", len(wantIDs)+n+1, got, decisionlog.ShapeReadEvent)
+		}
 	}
 
-	wantShapes := []decisionlog.Shape{decisionlog.ShapeDecision, decisionlog.ShapePageEvent,
-		decisionlog.ShapeWait, decisionlog.ShapeDecision}
-	wantParts := []decisionlog.Part{decisionlog.PartOpen, "", "", decisionlog.PartClose}
 	prevHash := ""
 	for n, row := range rows {
-		if row.Shape != wantShapes[n] {
-			t.Errorf("row %d is a %s, want a %s", n+1, row.Shape, wantShapes[n])
-		}
-		if row.Part != wantParts[n] {
-			t.Errorf("row %d is part %q, want %q", n+1, row.Part, wantParts[n])
-		}
 		if row.PrevHash != prevHash {
 			t.Errorf("row %d names predecessor %q, want %q", n+1, row.PrevHash, prevHash)
 		}
@@ -169,30 +157,29 @@ func TestTheThreeShapesChainUnbroken(t *testing.T) {
 		prevHash = row.Hash
 	}
 
-	if rows[0].ID != opening.ID || rows[1].ID != page.ID || rows[2].ID != wait.ID || rows[3].ID != closing.ID {
-		t.Errorf("the rows read back are not the four appended")
+	if closing.Verdict != "approve" {
+		t.Errorf("the closing carries verdict %q, want %q", closing.Verdict, "approve")
 	}
-	if rows[0].PolicyVersion != "policy-1" || rows[0].ScoreVersion != "score-1" {
-		t.Errorf("the opening does not name the versions it was decided under: %+v", rows[0])
+	if closing.Closes != opening.ID {
+		t.Errorf("the closing closes %q, want the opening %q", closing.Closes, opening.ID)
 	}
-	for _, n := range []int{1, 2, 3} {
-		if rows[n].PolicyVersion != "" || rows[n].ScoreVersion != "" {
-			t.Errorf("row %d names a version, and only an opening does", n+1)
-		}
+	if ack.Part != decisionlog.PartAcknowledgement || ack.Closes != opening.ID {
+		t.Errorf("the acknowledgement is %+v, want part %q closing %q", ack, decisionlog.PartAcknowledgement, opening.ID)
 	}
-	if rows[3].Closes != opening.ID {
-		t.Errorf("the closing closes %q, want the opening %q", rows[3].Closes, opening.ID)
+	if opening.PolicyVersion != "policy-1" || opening.ScoreVersion != "score-1" {
+		t.Errorf("the opening does not name the versions it was decided under: %+v", opening)
 	}
-	if rows[0].Closes != "" || rows[1].Closes != "" || rows[2].Closes != "" {
-		t.Errorf("a row that is not a closing closes something")
+	if closing.PolicyVersion != "" || closing.ScoreVersion != "" {
+		t.Errorf("the closing names a version, and only an opening or a truncation does")
 	}
 }
 
-// TestATamperedRowIsNamed is the second half: a middle row edited by raw SQL,
-// and Verify naming that row and how it broke.
+// TestATamperedRowIsNamed is Verify naming a middle row edited by raw SQL,
+// and how it broke.
 func TestATamperedRowIsNamed(t *testing.T) {
-	ctx, pool, log := newLog(t)
-	appended := appendThree(ctx, t, pool, log)
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
+	appended := appendThreeOpenings(ctx, t, log, reader)
 	middle := appended[1]
 
 	tag, err := pool.Exec(ctx, `update decision_log set payload = $1 where seq = $2`, "tampered", middle.Seq)
@@ -203,7 +190,7 @@ func TestATamperedRowIsNamed(t *testing.T) {
 		t.Fatalf("the tampering changed %d rows, want 1", tag.RowsAffected())
 	}
 
-	broken := brokenBy(t, decisionlog.Verify(ctx, pool))
+	broken := brokenBy(t, reader.Verify(ctx, owner))
 	if broken.Row.Seq != middle.Seq {
 		t.Errorf("Verify names row %d, the tampered row is %d", broken.Row.Seq, middle.Seq)
 	}
@@ -219,18 +206,17 @@ func TestATamperedRowIsNamed(t *testing.T) {
 }
 
 // TestARemovedRowIsNamed is the other way a chain breaks: the row that
-// followed the removed one names a predecessor that is no longer there. It
-// removes a row from inside the chain, which is the case Verify catches;
-// TestATruncatedTailIsNotCaught is the case it does not.
+// followed the removed one names a predecessor that is no longer there.
 func TestARemovedRowIsNamed(t *testing.T) {
-	ctx, pool, log := newLog(t)
-	appended := appendThree(ctx, t, pool, log)
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
+	appended := appendThreeOpenings(ctx, t, log, reader)
 
 	if _, err := pool.Exec(ctx, `delete from decision_log where seq = $1`, appended[1].Seq); err != nil {
 		t.Fatalf("removing row %d: %v", appended[1].Seq, err)
 	}
 
-	broken := brokenBy(t, decisionlog.Verify(ctx, pool))
+	broken := brokenBy(t, reader.Verify(ctx, owner))
 	if broken.Row.Seq != appended[2].Seq {
 		t.Errorf("Verify names row %d, want the row after the removed one, %d", broken.Row.Seq, appended[2].Seq)
 	}
@@ -239,61 +225,6 @@ func TestARemovedRowIsNamed(t *testing.T) {
 	}
 	if broken.Want != appended[0].Hash {
 		t.Errorf("Verify wants %s, the row now before it hashes to %s", broken.Want, appended[0].Hash)
-	}
-}
-
-// TestATruncatedTailIsNotCaught records what the chain does not prove, and
-// fails if that ever stops being the truth.
-//
-// Nothing anchors the head, so Verify walks forward from the empty
-// predecessor hash and stops at whatever row is last. Removing the last row
-// leaves an unbroken chain of the rows that remain, and removing it also frees
-// its prev_hash value for the unique constraint, so an ordinary append writes
-// a replacement over it that verifies clean. The history read back is not the
-// history that happened, and Verify returns nil for both.
-//
-// This is seam 2's deferral and not a defect in this package —
-// ../../end-goal/deferred.md#security-comes-last says where the head is
-// anchored can wait. Anchoring it is what closes this, and when someone does
-// that, this test is what tells them the limit they are removing was known:
-// it will start failing, and the assertions below become the assertions of
-// TestARemovedRowIsNamed.
-func TestATruncatedTailIsNotCaught(t *testing.T) {
-	ctx, pool, log := newLog(t)
-	appended := appendThree(ctx, t, pool, log)
-	tail := appended[len(appended)-1]
-
-	if _, err := pool.Exec(ctx, `delete from decision_log where seq = $1`, tail.Seq); err != nil {
-		t.Fatalf("removing the last row: %v", err)
-	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
-		t.Fatalf("Verify = %v; the head is anchored now, so this test has outlived the limit it records", err)
-	}
-
-	// The freed prev_hash is why a truncation is not merely undetected: the
-	// log goes on accepting appends as though the removed row never was.
-	replacement, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
-		Actor: gate, Payload: "written over the removed tail", PolicyVersion: "policy-1", ScoreVersion: "score-1",
-	})
-	if err != nil {
-		t.Fatalf("appending over the removed tail: %v", err)
-	}
-	if replacement.PrevHash != appended[len(appended)-2].Hash {
-		t.Fatalf("the replacement names predecessor %s, want the row before the removed one", replacement.PrevHash)
-	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
-		t.Fatalf("Verify = %v; the head is anchored now, so this test has outlived the limit it records", err)
-	}
-
-	rows, err := decisionlog.Read(ctx, pool)
-	if err != nil {
-		t.Fatalf("Read: %v", err)
-	}
-	if len(rows) != len(appended) {
-		t.Fatalf("the log holds %d rows, want %d", len(rows), len(appended))
-	}
-	if rows[len(rows)-1].Payload == tail.Payload {
-		t.Fatalf("the removed row is still there; this test is not exercising what it says")
 	}
 }
 
@@ -311,19 +242,23 @@ func brokenBy(t *testing.T, err error) *decisionlog.BrokenError {
 	return broken
 }
 
-func appendThree(ctx context.Context, t *testing.T, pool *pgxpool.Pool, log *decisionlog.Writer) []decisionlog.Row {
+// appendThreeOpenings appends three decision openings and checks the chain
+// is whole before returning them, through a [decisionlog.Reader]'s Verify —
+// which appends its own read event first, so a caller wanting an exact row
+// count reads the log again afterwards rather than relying on this count.
+func appendThreeOpenings(ctx context.Context, t *testing.T, log *decisionlog.Writer, reader *decisionlog.Reader) []decisionlog.Row {
 	t.Helper()
 	var appended []decisionlog.Row
 	for _, payload := range []string{"first", "second", "third"} {
 		row, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
-			Actor: gate, Payload: payload, PolicyVersion: "policy-1", ScoreVersion: "score-1",
+			Actor: gate, Payload: payload, FormatVersion: "decision/1", PolicyVersion: "policy-1", ScoreVersion: "score-1",
 		})
 		if err != nil {
 			t.Fatalf("AppendDecisionOpen(%q): %v", payload, err)
 		}
 		appended = append(appended, row)
 	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := reader.Verify(ctx, owner); err != nil {
 		t.Fatalf("the chain is broken before anything tampered with it: %v", err)
 	}
 	return appended

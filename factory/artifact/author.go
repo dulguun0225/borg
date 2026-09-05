@@ -35,10 +35,10 @@ type By struct {
 // its author is the author the prior is read on.
 func NewestOfKind(ctx context.Context, pool *pgxpool.Pool, itemID string, kind Kind) (Artifact, bool, error) {
 	var a Artifact
-	var storedKind, authorship, actorKind string
+	var storedKind, authorship, actorKind, actorBasis string
 	err := pool.QueryRow(ctx, selectArtifact+`
 		where item_id = $1 and kind = $2 order by version desc limit 1`, itemID, string(kind)).
-		Scan(&a.ID, &actorKind, &a.Actor.Name, &a.At, &a.ItemID, &storedKind,
+		Scan(&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID, &storedKind,
 			&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Artifact{}, false, nil
@@ -46,6 +46,7 @@ func NewestOfKind(ctx context.Context, pool *pgxpool.Pool, itemID string, kind K
 		return Artifact{}, false, fmt.Errorf("artifact: reading the newest %s version of %s: %w", kind, itemID, err)
 	}
 	a.Actor.Kind = record.Kind(actorKind)
+	a.Actor.Basis = record.Basis(actorBasis)
 	a.Kind = Kind(storedKind)
 	a.Authorship = Authorship(authorship)
 	return a, true, nil

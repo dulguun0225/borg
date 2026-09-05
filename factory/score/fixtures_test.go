@@ -18,6 +18,7 @@ import (
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -25,11 +26,11 @@ import (
 )
 
 var (
-	owner              = record.Actor{Kind: record.KindHuman, Name: "owner"}
-	scoreActor         = record.Actor{Kind: record.KindComponent, Name: "score"}
-	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
-	implementerActor   = record.Actor{Kind: record.KindComponent, Name: "agent.implementer"}
-	mergeActor         = record.Actor{Kind: record.KindComponent, Name: "merge"}
+	owner              = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+	scoreActor         = record.Actor{Kind: record.KindComponent, Key: "score"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+	implementerActor   = record.Actor{Kind: record.KindAgent, Key: "agent.implementer"}
+	mergeActor         = record.Actor{Kind: record.KindComponent, Key: "merge"}
 )
 
 // modelVersion is the author every artifact here is written by, which is the
@@ -65,7 +66,7 @@ func (f fakePolicy) AtGate(context.Context, policy.Subjects) (policy.Applied, er
 	}, nil
 }
 
-func newScore(t *testing.T) (context.Context, *pgxpool.Pool, *score.Score) {
+func newScore(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token, *score.Score) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -94,11 +95,16 @@ func newScore(t *testing.T) (context.Context, *pgxpool.Pool, *score.Score) {
 		t.Fatalf("applying the schema: %v", err)
 	}
 
-	version, err := score.NewWriter(pool).Ensure(ctx, scoreActor)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+
+	version, err := score.NewWriter(pool, token).Ensure(ctx, scoreActor)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	return ctx, pool, score.New(pool, version, score.NeverDraw{})
+	return ctx, pool, token, score.New(pool, version, score.NeverDraw{}, token)
 }
 
 func inSchema(t *testing.T, base, schema string) string {
@@ -115,9 +121,9 @@ func inSchema(t *testing.T, base, schema string) string {
 
 // decomposeItem writes one item in the area and an implementation version on it by
 // modelVersion, which is the pair the score follows to an author.
-func decomposeItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, branch string) (item.Item, artifact.Artifact) {
+func decomposeItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, branch string) (item.Item, artifact.Artifact) {
 	t.Helper()
-	it, err := item.NewDecomposition(pool).Create(ctx, decompositionActor, item.New{
+	it, err := item.NewDecomposition(pool, token).Create(ctx, decompositionActor, item.New{
 		IntentID:  "in_0000000000000000000000000000000a",
 		ServiceID: serviceID,
 		AreaID:    areaID,
@@ -126,7 +132,7 @@ func decomposeItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, branch
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
-	implementation, err := artifact.NewStore(pool).SubmitImplementation(ctx, implementerActor,
+	implementation, err := artifact.NewStore(pool, token).SubmitImplementation(ctx, implementerActor,
 		artifact.By{Authorship: artifact.AuthorshipAgent, Author: modelVersion}, it.ID, "a commit")
 	if err != nil {
 		t.Fatalf("submitting the implementation: %v", err)

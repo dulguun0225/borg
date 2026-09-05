@@ -13,6 +13,10 @@ const Table = "release"
 // IDPrefix is what [record.NewID] is called with for a release.
 const IDPrefix = "rel"
 
+// FormatVersion is what this package writes into format_version on every
+// insert into [Table].
+const FormatVersion = "release/1"
+
 // lockName is what [AdvisoryLockKey] hashes, the service id appended. It
 // names this package so that no other part of the factory derives the same
 // key from a name of its own — the same arrangement decisionlog's one lock

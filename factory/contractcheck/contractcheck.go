@@ -16,7 +16,7 @@ import (
 
 // Actor is who this component's one write is made as: the removal intent the
 // detector takes in through intake. Every other operation here reads.
-var Actor = record.Actor{Kind: record.KindComponent, Name: "contract_check"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "contract_check"}
 
 // Candidate is the candidate one check is about: the item, the service it
 // changes, that service's name for the words a rejection is read in, the build,

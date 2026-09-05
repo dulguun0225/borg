@@ -32,6 +32,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -44,21 +45,25 @@ import (
 
 // testActor is who these tests write the factory's records as, a component
 // like any other actor here — nothing in these tests is a human's act.
-var testActor = record.Actor{Kind: record.KindComponent, Name: "test"}
+var testActor = record.Actor{Kind: record.KindComponent, Key: "test"}
 
 // testServiceName is the one service these tests write.
 const testServiceName = "demo"
 
-// newStores gives a test the two pools [pass] reads and writes.
-func newStores(t *testing.T) (context.Context, stores) {
+// newStores gives a test the two pools [pass] reads and writes, and the
+// fencing token every writer these tests construct on the factory's pool
+// carries.
+func newStores(t *testing.T) (context.Context, stores, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
-	return ctx, stores{factory: newFactoryStore(t, ctx), own: newDriftDetectorStore(t, ctx)}
+	factory, token := newFactoryStore(t, ctx)
+	return ctx, stores{factory: factory, own: newDriftDetectorStore(t, ctx)}, token
 }
 
 // newFactoryStore is a schema of its own with the whole factory schema
-// applied, the way cmd/factory/main_test.go's newPath opens one.
-func newFactoryStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
+// applied, the way cmd/factory/main_test.go's newPath opens one, with a lease
+// acquired the same way that test's fixtures acquire one.
+func newFactoryStore(t *testing.T, ctx context.Context) (*pgxpool.Pool, lease.Token) {
 	t.Helper()
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
@@ -85,7 +90,11 @@ func newFactoryStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the factory's schema: %v", err)
 	}
-	return pool
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return pool, token
 }
 
 // newDriftDetectorStore is the drift detector's own store for one test: a schema of
@@ -138,15 +147,15 @@ func inSchema(t *testing.T, base, schema string) string {
 // setUp gives a test a production environment naming dir as its one target
 // and a service, both written the way an owner and decomposition would write them,
 // and the credential every operation on the target requires.
-func setUp(ctx context.Context, t *testing.T, pool *pgxpool.Pool, dir string) (environment.Environment, service.Service, secretref.Ref) {
+func setUp(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, dir string) (environment.Environment, service.Service, secretref.Ref) {
 	t.Helper()
 	credential := secretref.MustNew("deploy.local")
-	env, err := environment.NewWriter(pool).Create(ctx, testActor,
+	env, err := environment.NewWriter(pool, token).Create(ctx, testActor,
 		environment.KindProduction, environment.ProductionName, []string{dir}, credential)
 	if err != nil {
 		t.Fatalf("creating the production environment: %v", err)
 	}
-	svc, err := service.NewWriter(pool).Create(ctx, testActor, testServiceName, "github.com/example/demo")
+	svc, err := service.NewWriter(pool, token).Create(ctx, testActor, testServiceName, "github.com/example/demo")
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
@@ -156,10 +165,10 @@ func setUp(ctx context.Context, t *testing.T, pool *pgxpool.Pool, dir string) (e
 // shipRelease writes a build, mints a release of it, and completes a deploy of
 // that release into env — so [deploy.Current] names it, the way a production
 // deploy the factory performed would.
-func shipRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, svc service.Service, env environment.Environment, commitHash string) deploy.Deploy {
+func shipRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, svc service.Service, env environment.Environment, commitHash string) deploy.Deploy {
 	t.Helper()
-	d := startRelease(ctx, t, pool, svc, env, commitHash)
-	if err := deploy.NewWriter(pool).Complete(ctx, d.ID); err != nil {
+	d := startRelease(ctx, t, pool, token, svc, env, commitHash)
+	if err := deploy.NewWriter(pool, token).Complete(ctx, d.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
 	return d
@@ -168,18 +177,18 @@ func shipRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, svc serv
 // startRelease writes a build, mints a release of it, and starts — but does
 // not complete — a deploy of that release into env: what [deploy.Current]
 // does not yet name, and what a test opens a analysis window over.
-func startRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, svc service.Service, env environment.Environment, commitHash string) deploy.Deploy {
+func startRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, svc service.Service, env environment.Environment, commitHash string) deploy.Deploy {
 	t.Helper()
 	itemID := record.NewID("it")
-	b, err := build.NewWriter(pool).Create(ctx, testActor, itemID, commitHash)
+	b, err := build.NewWriter(pool, token).Create(ctx, testActor, itemID, commitHash)
 	if err != nil {
 		t.Fatalf("creating the build: %v", err)
 	}
-	rel, err := release.NewWriter(pool).Mint(ctx, testActor, svc.ID, b.ID, itemID)
+	rel, err := release.NewWriter(pool, token).Mint(ctx, testActor, svc.ID, b.ID, itemID)
 	if err != nil {
 		t.Fatalf("minting the release: %v", err)
 	}
-	d, err := deploy.NewWriter(pool).Start(ctx, testActor, svc.ID, env.ID, deploy.OfRelease(rel.ID, b.ID))
+	d, err := deploy.NewWriter(pool, token).Start(ctx, testActor, svc.ID, env.ID, deploy.OfRelease(rel.ID, b.ID))
 	if err != nil {
 		t.Fatalf("starting the deploy: %v", err)
 	}
@@ -209,10 +218,10 @@ func (e erroringTarget) ReadRunning(context.Context, string, secretref.Ref) (tar
 }
 
 func TestAPassWhereTheTargetAgreesRaisesNoMismatch(t *testing.T) {
-	ctx, s := newStores(t)
+	ctx, s, token := newStores(t)
 	dir := t.TempDir()
-	env, svc, credential := setUp(ctx, t, s.factory, dir)
-	current := shipRelease(ctx, t, s.factory, svc, env, "c1")
+	env, svc, credential := setUp(ctx, t, s.factory, token, dir)
+	current := shipRelease(ctx, t, s.factory, token, svc, env, "c1")
 	recordRunning(t, dir, testServiceName, current.BuildID)
 
 	out := &strings.Builder{}
@@ -238,10 +247,10 @@ func TestAPassWhereTheTargetAgreesRaisesNoMismatch(t *testing.T) {
 // the production deploy gate holds on: raised by the pass, and named in the
 // report a human at the drift detector reads.
 func TestAPassWhereTheTargetDisagreesRaisesAMismatchTheReportNames(t *testing.T) {
-	ctx, s := newStores(t)
+	ctx, s, token := newStores(t)
 	dir := t.TempDir()
-	env, svc, credential := setUp(ctx, t, s.factory, dir)
-	current := shipRelease(ctx, t, s.factory, svc, env, "c1")
+	env, svc, credential := setUp(ctx, t, s.factory, token, dir)
+	current := shipRelease(ctx, t, s.factory, token, svc, env, "c1")
 	recordRunning(t, dir, testServiceName, "bl_somebodyelses")
 
 	out := &strings.Builder{}
@@ -265,10 +274,10 @@ func TestAPassWhereTheTargetDisagreesRaisesAMismatchTheReportNames(t *testing.T)
 }
 
 func TestATargetThatErrorsOnReadRunningWritesAnUnreachedLastCheckAndRaisesNoMismatch(t *testing.T) {
-	ctx, s := newStores(t)
+	ctx, s, token := newStores(t)
 	dir := t.TempDir()
-	env, svc, credential := setUp(ctx, t, s.factory, dir)
-	shipRelease(ctx, t, s.factory, svc, env, "c1")
+	env, svc, credential := setUp(ctx, t, s.factory, token, dir)
+	shipRelease(ctx, t, s.factory, token, svc, env, "c1")
 
 	failure := errors.New("dial tcp: connection refused")
 	targetAt := func(string) targetseam.Target { return erroringTarget{err: failure} }
@@ -294,7 +303,7 @@ func TestATargetThatErrorsOnReadRunningWritesAnUnreachedLastCheckAndRaisesNoMism
 }
 
 func TestNoProductionEnvironmentIsNothingToCheckAndWritesNothing(t *testing.T) {
-	ctx, s := newStores(t)
+	ctx, s, _ := newStores(t)
 	credential := secretref.MustNew("deploy.local")
 	calls := 0
 	targetAt := func(dir string) targetseam.Target { calls++; return localtarget.New(dir) }
@@ -316,10 +325,10 @@ func TestNoProductionEnvironmentIsNothingToCheckAndWritesNothing(t *testing.T) {
 }
 
 func TestNoServicesIsNothingToCheckAndWritesNothing(t *testing.T) {
-	ctx, s := newStores(t)
+	ctx, s, token := newStores(t)
 	dir := t.TempDir()
 	credential := secretref.MustNew("deploy.local")
-	if _, err := environment.NewWriter(s.factory).Create(ctx, testActor,
+	if _, err := environment.NewWriter(s.factory, token).Create(ctx, testActor,
 		environment.KindProduction, environment.ProductionName, []string{dir}, credential); err != nil {
 		t.Fatalf("creating the production environment: %v", err)
 	}
@@ -368,10 +377,10 @@ func countFactoryRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool) fac
 // evidence about the software, so a pass that raises a mismatch still leaves
 // the factory's own tables exactly as they were.
 func TestThePassWritesNothingIntoTheFactorysStore(t *testing.T) {
-	ctx, s := newStores(t)
+	ctx, s, token := newStores(t)
 	dir := t.TempDir()
-	env, svc, credential := setUp(ctx, t, s.factory, dir)
-	shipRelease(ctx, t, s.factory, svc, env, "c1")
+	env, svc, credential := setUp(ctx, t, s.factory, token, dir)
+	shipRelease(ctx, t, s.factory, token, svc, env, "c1")
 	recordRunning(t, dir, testServiceName, "bl_somebodyelses")
 
 	before := countFactoryRows(ctx, t, s.factory)
@@ -389,13 +398,13 @@ func TestThePassWritesNothingIntoTheFactorysStore(t *testing.T) {
 // [excusedBuilds] reads: a build the release under watch names is a mismatch
 // only where no open window accounts for it.
 func TestAnOpenWindowExcusesABuildRunningBesideTheCurrentRelease(t *testing.T) {
-	ctx, s := newStores(t)
+	ctx, s, token := newStores(t)
 	dir := t.TempDir()
-	env, svc, credential := setUp(ctx, t, s.factory, dir)
-	shipRelease(ctx, t, s.factory, svc, env, "c1")
-	rolling := startRelease(ctx, t, s.factory, svc, env, "c2")
+	env, svc, credential := setUp(ctx, t, s.factory, token, dir)
+	shipRelease(ctx, t, s.factory, token, svc, env, "c1")
+	rolling := startRelease(ctx, t, s.factory, token, svc, env, "c2")
 
-	if _, err := window.NewWriter(s.factory).Open(ctx, testActor, window.OpenEvent{
+	if _, err := window.NewWriter(s.factory, token).Open(ctx, testActor, window.OpenEvent{
 		DeployID:        rolling.ID,
 		ReleaseID:       rolling.ReleaseID,
 		ServiceID:       svc.ID,

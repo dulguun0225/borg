@@ -262,7 +262,7 @@ func (p *path) driftDetectorPages(ctx context.Context, svc service.Service) erro
 			Holding: people.OfObligation(people.ObligationDriftDetector),
 			Worse:   true,
 		}
-		events, err := notifier.EventsFor(ctx, p.d.pool, m.ID)
+		events, err := p.notifier.EventsFor(ctx, m.ID)
 		if err != nil {
 			return err
 		}

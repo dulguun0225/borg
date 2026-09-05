@@ -13,17 +13,20 @@
 // caller implements, because what mail is on a self-hosted install is the
 // owner's arrangement and not the factory's.
 //
-// notifier.go is [Notifier] and [New], composed with the log, a [Deliverer], and
-// the owner's name — the owner is composed in rather than read from the [people]
-// declaration, because the design gives the owner no record. All three channels
-// route the same way, on that declaration by the duty the wait belongs to or by
-// the named human where it belongs to none, so routing is implemented once
-// rather than beside each thing that waits. [Notifier.Notify] writes one reached
-// row per holder of the duty, [Notifier.Widen] writes one widened row to the
+// notifier.go is [Notifier] and [New], composed with the log, a fencing token, a
+// [Deliverer], and the owner's name — the owner is composed in rather than read
+// from the [people] declaration, because the design gives the owner no record.
+// [New] also builds the [decisionlog.Reader] the notifier reads back through,
+// fenced with the same token. All three channels route the same way, on that
+// declaration by the duty the wait belongs to or by the named human where it
+// belongs to none, so routing is implemented once rather than beside each thing
+// that waits. [Notifier.Notify] writes one reached row per holder of the duty,
+// under [PageEventFormatVersion], [Notifier.Widen] writes one widened row to the
 // owner and refuses a second with [ErrAlreadyWidened], and [Notifier.Answered]
 // is called by whatever ends the wait, at the same write it ends it with.
-// [Payload] of [PageEventKind] is a page event's shape and [EventsFor] reads
-// them back. Mail and chat write nothing.
+// [Payload] of [PageEventKind] is a page event's shape and [Notifier.EventsFor]
+// reads them back, appending a read event naming [Actor] as the principal. Mail
+// and chat write nothing.
 //
 // Who may write what: this package owns no table. It appends page events into the
 // decision log through [decisionlog.Writer] and reads the [people] declaration, and

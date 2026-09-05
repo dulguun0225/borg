@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -56,12 +57,21 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *build.Writer) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("applying lease statement %d: %v", n+1, err)
+		}
+	}
 	for n, statement := range build.DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("applying statement %d: %v", n+1, err)
 		}
 	}
-	return ctx, pool, build.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	return ctx, pool, build.NewWriter(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -78,7 +88,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var dispatch = record.Actor{Kind: record.KindComponent, Name: "dispatch"}
+var dispatch = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
 
 func TestCreateWritesTheRecordOnce(t *testing.T) {
 	ctx, pool, w := newTable(t)
@@ -130,9 +140,9 @@ func TestAnEmptyCommitHashIsRefusedTwice(t *testing.T) {
 	}
 
 	// Around the writer, the CHECK constraint is what refuses it.
-	_, err := pool.Exec(ctx, `insert into build (id, actor_kind, actor_name, at, item_id, commit_hash)
-		values ($1, 'component', 'dispatch', $2, $3, '')`,
-		record.NewID(build.IDPrefix), record.Now(), record.NewID("it"))
+	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash)
+		values ($1, $2, 'component', 'dispatch', '', $3, $4, '')`,
+		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"))
 	if err == nil {
 		t.Error("the store accepted a build with no commit hash")
 	}
@@ -149,9 +159,9 @@ func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 		t.Errorf("Create = %v, want %v", err, build.ErrItemIDEmpty)
 	}
 
-	_, err := pool.Exec(ctx, `insert into build (id, actor_kind, actor_name, at, item_id, commit_hash)
-		values ($1, 'component', 'dispatch', $2, '', 'aaaa')`,
-		record.NewID(build.IDPrefix), record.Now())
+	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash)
+		values ($1, $2, 'component', 'dispatch', '', $3, '', 'aaaa')`,
+		record.NewID(build.IDPrefix), build.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "item_id_present") {
 		t.Errorf("inserting a build naming no item = %v, want a violation of item_id_present", err)
 	}

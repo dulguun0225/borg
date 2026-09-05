@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -86,7 +87,10 @@ type Result struct {
 // again over the same pair, because the second run is part of how one outcome is
 // reached and a recomposed environment can produce a different one — so the
 // insert conflicts on the pair and updates.
-func RecordResults(ctx context.Context, pool *pgxpool.Pool, actor record.Actor, buildID string, results map[string]Outcome) error {
+//
+// Every row is written inside one transaction, fenced once at the top, so a
+// caller whose lease has lapsed writes none of them rather than some.
+func RecordResults(ctx context.Context, pool *pgxpool.Pool, token lease.Token, actor record.Actor, buildID string, results map[string]Outcome) error {
 	if err := actor.Validate(); err != nil {
 		return err
 	}
@@ -100,16 +104,31 @@ func RecordResults(ctx context.Context, pool *pgxpool.Pool, actor record.Actor, 
 		if !contains(Outcomes, outcome) {
 			return fmt.Errorf("%w: %q", ErrOutcomeUnknown, outcome)
 		}
-		_, err := pool.Exec(ctx, `insert into `+ResultTable+`
-			(id, actor_kind, actor_name, at, build_id, criterion_id, outcome)
-			values ($1, $2, $3, $4, $5, $6, $7)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("criterion: beginning the recording over build %s: %w", buildID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
+
+	for criterionID, outcome := range results {
+		_, err := tx.Exec(ctx, `insert into `+ResultTable+`
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, criterion_id, outcome)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			on conflict (build_id, criterion_id) do update set outcome = excluded.outcome`,
-			record.NewID(ResultIDPrefix), string(actor.Kind), actor.Name, record.Now(),
+			record.NewID(ResultIDPrefix), FormatVersionResult, string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
 			buildID, criterionID, string(outcome),
 		)
 		if err != nil {
 			return fmt.Errorf("criterion: recording %s over build %s: %w", criterionID, buildID, err)
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("criterion: committing the recording over build %s: %w", buildID, err)
 	}
 	return nil
 }
@@ -118,7 +137,7 @@ func RecordResults(ctx context.Context, pool *pgxpool.Pool, actor record.Actor, 
 // rows were written. It takes the pool and not a writer, because reading what a
 // run produced is not a reason to be handed the thing that records it.
 func ResultsForBuild(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]Result, error) {
-	rows, err := pool.Query(ctx, `select id, actor_kind, actor_name, at, build_id, criterion_id, outcome
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, build_id, criterion_id, outcome
 		from `+ResultTable+` where build_id = $1 order by at, criterion_id`, buildID)
 	if err != nil {
 		return nil, fmt.Errorf("criterion: reading what was decided over build %s: %w", buildID, err)
@@ -128,11 +147,12 @@ func ResultsForBuild(ctx context.Context, pool *pgxpool.Pool, buildID string) ([
 	var read []Result
 	for rows.Next() {
 		var r Result
-		var kind, outcome string
-		if err := rows.Scan(&r.ID, &kind, &r.Actor.Name, &r.At, &r.BuildID, &r.CriterionID, &outcome); err != nil {
+		var kind, basis, outcome string
+		if err := rows.Scan(&r.ID, &kind, &r.Actor.Key, &basis, &r.At, &r.BuildID, &r.CriterionID, &outcome); err != nil {
 			return nil, fmt.Errorf("criterion: reading a result of build %s: %w", buildID, err)
 		}
 		r.Actor.Kind = record.Kind(kind)
+		r.Actor.Basis = record.Basis(basis)
 		r.Outcome = Outcome(outcome)
 		read = append(read, r)
 	}

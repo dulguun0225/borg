@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/lease"
 )
 
 // SampleRate is the share of firings the score would have gated that it holds
@@ -105,7 +106,7 @@ func (s *Score) HoldOut(ctx context.Context, itemID string, wouldGate, bySafegua
 	if itemID == "" || bySafeguard {
 		return Selection{}, nil
 	}
-	selected, err := heldOutBefore(ctx, s.pool, itemID)
+	selected, err := heldOutBefore(ctx, s.pool, s.token, itemID)
 	if err != nil {
 		return Selection{}, err
 	}
@@ -129,8 +130,8 @@ func (s *Score) HoldOut(ctx context.Context, itemID string, wouldGate, bySafegua
 // Open events are read whether or not their decision has closed: an item selected
 // at a firing that has not been decided yet is still selected, and the next row to
 // fire has to know.
-func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool, error) {
-	rows, err := decisionlog.Read(ctx, pool)
+func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, token lease.Token, itemID string) (bool, error) {
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
 	if err != nil {
 		return false, err
 	}
@@ -152,8 +153,8 @@ func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool
 // HeldOutItems is every item any decision says the score selected, in the order
 // the selections were made. It is what the crude interface prints and what a
 // reader asking which items reached production with a human removed follows.
-func HeldOutItems(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
-	rows, err := decisionlog.Read(ctx, pool)
+func HeldOutItems(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]string, error) {
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
 	if err != nil {
 		return nil, err
 	}
@@ -179,9 +180,9 @@ func HeldOutItems(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
 // what the health monitor asks before it opens a window: a held-out release runs to
 // the cap rather than stopping where the boundary would allow, so the exit it may
 // take is a fact of the open and is copied onto the record there.
-func HeldOut(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool, error) {
+func HeldOut(ctx context.Context, pool *pgxpool.Pool, token lease.Token, itemID string) (bool, error) {
 	if itemID == "" {
 		return false, fmt.Errorf("%w: the sample selects an item, and none is named", ErrChangeIncomplete)
 	}
-	return heldOutBefore(ctx, pool, itemID)
+	return heldOutBefore(ctx, pool, token, itemID)
 }

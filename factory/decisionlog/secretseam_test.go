@@ -13,7 +13,8 @@ import (
 // resolved and used, the record names the reference, and the bytes in the
 // table are searched for the value rather than the Go values being trusted.
 func TestAResolvedSecretReachesNoRecord(t *testing.T) {
-	ctx, pool, log := newLog(t)
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
 
 	const value = "sk-the-value-nothing-else-may-see"
 	path := filepath.Join(t.TempDir(), "secrets")
@@ -34,27 +35,27 @@ func TestAResolvedSecretReachesNoRecord(t *testing.T) {
 		t.Fatalf("Resolve = %q, want the value", resolved)
 	}
 
-	// What a component writes about a deploy: the reference, which is what it
-	// has, because the value it resolved is used at the moment it connects and
-	// goes into nothing that is stored.
+	// What a component writes about a deploy: the reference, which is what
+	// it has, because the value it resolved is used at the moment it
+	// connects and goes into nothing that is stored.
 	if _, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         gate,
-		Payload:       `{"gate":"deploy","credential":"` + credential.Name() + `","waits_on":"owner"}`,
+		Payload:       `{"gate":"deploy","credential":"` + credential.Name() + `"}`,
+		FormatVersion: "decision/1",
 		PolicyVersion: "policy-1",
 		ScoreVersion:  "score-1",
 	}); err != nil {
 		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
 	if _, err := log.AppendPageEvent(ctx, decisionlog.Entry{
-		Actor:   owner,
-		Payload: "the deploy used " + credential.String(),
+		Actor: owner, Payload: "the deploy used " + credential.String(), FormatVersion: "page_event/1",
 	}); err != nil {
 		t.Fatalf("AppendPageEvent: %v", err)
 	}
 
-	// Every column of every row, as the database holds it. Casting the row to
-	// text is what makes this a claim about the stored bytes and not about
-	// the columns the test remembered to name.
+	// Every column of every row, as the database holds it. Casting the row
+	// to text is what makes this a claim about the stored bytes and not
+	// about the columns the test remembered to name.
 	var holding int
 	if err := pool.QueryRow(ctx,
 		`select count(*) from decision_log r where strpos(r::text, $1) > 0`, value,
@@ -75,7 +76,7 @@ func TestAResolvedSecretReachesNoRecord(t *testing.T) {
 		t.Fatalf("%d rows name the reference, want 2 — the search found nothing to trust", naming)
 	}
 
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := reader.Verify(ctx, owner); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }

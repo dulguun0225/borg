@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
@@ -96,11 +97,14 @@ func (e Environment) Live() bool { return e.TornDownAt == "" }
 
 // Writer is the persistent kinds' one writer: an owner at Factory.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Create writes a persistent environment of kind, with the targets a deploy
 // into it is performed against and the credential it is performed with. The
@@ -133,23 +137,35 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, kind Kind, name
 		Targets:    targets,
 		Credential: credential,
 	}
-	if err := insert(ctx, w.pool, e); err != nil {
+	if err := insert(ctx, w.pool, w.token, e); err != nil {
 		return Environment{}, err
 	}
 	return e, nil
 }
 
 // insert writes one environment row, whichever of the two writers composed it.
-func insert(ctx context.Context, pool *pgxpool.Pool, e Environment) error {
-	_, err := pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		e.ID, string(e.Actor.Kind), e.Actor.Name, e.At,
+func insert(ctx context.Context, pool *pgxpool.Pool, token lease.Token, e Environment) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("environment: beginning the creation of %q: %w", e.Name, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		e.ID, FormatVersion, string(e.Actor.Kind), e.Actor.Key, string(e.Actor.Basis), e.At,
 		string(e.Kind), e.Name, joinTargets(e.Targets), e.Credential.Name(),
 		e.ItemID, joinComposed(e.ComposedFrom), e.TornDownAt,
 	)
 	if err != nil {
 		return fmt.Errorf("environment: creating %q: %w", e.Name, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("environment: committing the creation of %q: %w", e.Name, err)
 	}
 	return nil
 }
@@ -163,7 +179,14 @@ func insert(ctx context.Context, pool *pgxpool.Pool, e Environment) error {
 // row and updates the threshold, leaving the row's actor and time at the first
 // authoring. What that costs is that who last moved a threshold is not on the
 // row; what says it is the policy version the write appended.
-func SetGateThreshold(ctx context.Context, tx pgx.Tx, actor record.Actor, environmentID, gateRow string, threshold float64) error {
+//
+// token fences this write the way every write transaction in the module does:
+// tx is begun by the caller — the policy version's own transaction — so this
+// is where the fence is called rather than at a BeginTx of this package's own.
+func SetGateThreshold(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, environmentID, gateRow string, threshold float64) error {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
 	if err := actor.Validate(); err != nil {
 		return err
 	}
@@ -188,10 +211,10 @@ func SetGateThreshold(ctx context.Context, tx pgx.Tx, actor record.Actor, enviro
 		return fmt.Errorf("%w: %s is a candidate's", ErrNotAnOwnersKind, environmentID)
 	}
 	_, err = tx.Exec(ctx, `insert into `+ThresholdTable+`
-		(id, actor_kind, actor_name, at, environment_id, gate_row, threshold)
-		values ($1, $2, $3, $4, $5, $6, $7)
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, gate_row, threshold)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		on conflict (environment_id, gate_row) do update set threshold = excluded.threshold`,
-		record.NewID(ThresholdIDPrefix), string(actor.Kind), actor.Name, record.Now(),
+		record.NewID(ThresholdIDPrefix), FormatVersionThreshold, string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
 		environmentID, gateRow, threshold,
 	)
 	if err != nil {
@@ -215,7 +238,7 @@ func GateThreshold(ctx context.Context, pool *pgxpool.Pool, environmentID, gateR
 	return gatepolicy.Authored{Number: threshold, Present: true}, nil
 }
 
-const selectEnvironment = `select id, actor_kind, actor_name, at, kind, name, targets, credential,
+const selectEnvironment = `select id, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential,
 	item_id, composed_from, torn_down_at
 	from ` + Table
 
@@ -270,8 +293,8 @@ func CountLiveCandidates(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 
 func scan(row pgx.Row, named string) (Environment, error) {
 	var e Environment
-	var kind, actorKind, targets, credential, composed string
-	err := row.Scan(&e.ID, &actorKind, &e.Actor.Name, &e.At, &kind, &e.Name, &targets, &credential,
+	var kind, actorKind, actorBasis, targets, credential, composed string
+	err := row.Scan(&e.ID, &actorKind, &e.Actor.Key, &actorBasis, &e.At, &kind, &e.Name, &targets, &credential,
 		&e.ItemID, &composed, &e.TornDownAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Environment{}, fmt.Errorf("%w: %s", ErrNotFound, named)
@@ -279,6 +302,7 @@ func scan(row pgx.Row, named string) (Environment, error) {
 		return Environment{}, fmt.Errorf("environment: reading %s: %w", named, err)
 	}
 	e.Actor.Kind = record.Kind(actorKind)
+	e.Actor.Basis = record.Basis(actorBasis)
 	e.Kind = Kind(kind)
 	e.Targets = splitTargets(targets)
 	ref, err := secretref.New(credential)

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -35,11 +36,12 @@ type Service struct {
 
 // Writer is the table's one writer, held by decomposition.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer { return &Writer{pool: pool, token: token} }
 
 // Create writes a service. A name already taken is refused by the store's
 // unique constraint, and the error carries that refusal rather than this
@@ -63,19 +65,32 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 		Name:       name,
 		Repository: repository,
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, name, repository,
+
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Service{}, fmt.Errorf("service: beginning the creation of %q: %w", name, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Service{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name, repository,
 		window_size, window_confidence, window_cap_seconds, window_limit)
-		values ($1, $2, $3, $4, $5, $6, null, null, null, null)`,
-		s.ID, string(s.Actor.Kind), s.Actor.Name, s.At, s.Name, s.Repository,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, null, null, null, null)`,
+		s.ID, FormatVersion, string(s.Actor.Kind), s.Actor.Key, string(s.Actor.Basis), s.At, s.Name, s.Repository,
 	)
 	if err != nil {
 		return Service{}, fmt.Errorf("service: creating %q: %w", name, err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return Service{}, fmt.Errorf("service: committing the creation of %q: %w", name, err)
+	}
 	return s, nil
 }
 
-const selectService = `select id, actor_kind, actor_name, at, name, repository,
+const selectService = `select id, actor_kind, actor_key, actor_key_basis, at, name, repository,
 	window_size, window_confidence, window_cap_seconds, window_limit
 	from ` + Table
 
@@ -141,9 +156,9 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Service, error) {
 // value rather than a zero.
 func scan(row pgx.Row, named string) (Service, error) {
 	var s Service
-	var kind string
+	var kind, basis string
 	var size, confidence, cap, limit *float64
-	err := row.Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.Name, &s.Repository,
+	err := row.Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &s.Name, &s.Repository,
 		&size, &confidence, &cap, &limit)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Service{}, fmt.Errorf("%w: %s", ErrNotFound, named)
@@ -151,6 +166,7 @@ func scan(row pgx.Row, named string) (Service, error) {
 		return Service{}, fmt.Errorf("service: reading %s: %w", named, err)
 	}
 	s.Actor.Kind = record.Kind(kind)
+	s.Actor.Basis = record.Basis(basis)
 	s.Parameters = Parameters{
 		WindowSize:       authored(size),
 		WindowConfidence: authored(confidence),

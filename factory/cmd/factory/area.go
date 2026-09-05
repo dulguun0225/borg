@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/area"
+	"github.com/dulguun0225/borg/factory/lease"
 )
 
 // areaCommand declares an area, which is what a safeguard or an item-size target
@@ -34,7 +35,7 @@ func areaCommand(args []string) error {
 		return errors.New("factory area: one argument, the area's name, and then any flags")
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		insideID := ""
 		if *inside != "" {
 			outer, found, err := area.ByName(ctx, pool, *inside)
@@ -46,7 +47,7 @@ func areaCommand(args []string) error {
 			}
 			insideID = outer.ID
 		}
-		declared, err := area.NewWriter(pool).Declare(ctx, owner(*human), name, insideID)
+		declared, err := area.NewWriter(pool, token).Declare(ctx, owner(*human), name, insideID)
 		if err != nil {
 			return err
 		}

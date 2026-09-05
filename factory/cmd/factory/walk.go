@@ -15,6 +15,8 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
 
@@ -25,7 +27,7 @@ import (
 // the item's gates left in the log — what each was decided over and under, the
 // number against the threshold applied, the verdict and its actor — and whether
 // the chain verifies clean, which is what M2's demonstration is read from.
-func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, deployID string) error {
+func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, token lease.Token, principal record.Actor, deployID string) error {
 	dep, err := deploy.Get(ctx, pool, deployID)
 	if err != nil {
 		return err
@@ -63,7 +65,8 @@ func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, deployID strin
 	// rows M2 builds fire on one item, so this is a list and not one decision —
 	// and reading them in order is reading what the factory decided about this
 	// change and who decided it.
-	rows, err := decisionlog.Read(ctx, pool)
+	reader := decisionlog.NewReader(pool, token)
+	rows, err := reader.Read(ctx, principal)
 	if err != nil {
 		return err
 	}
@@ -100,7 +103,7 @@ func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, deployID strin
 		return fmt.Errorf("factory: no open event in the log names item %s", it.ID)
 	}
 
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := reader.Verify(ctx, principal); err != nil {
 		return err
 	}
 	fmt.Fprintln(out, "decisionlog.Verify: the chain is clean")
@@ -148,7 +151,7 @@ func printDecision(ctx context.Context, pool *pgxpool.Pool, out io.Writer,
 		fmt.Fprintf(out, "  factor %s was unavailable\n", name)
 	}
 	fmt.Fprintf(out, "  close event %s carries verdict %s, decided by %s %s\n",
-		closing.ID, verdict.Verdict, closing.Actor.Kind, closing.Actor.Name)
+		closing.ID, verdict.Verdict, closing.Actor.Kind, closing.Actor.Key)
 	if verdict.WhyItAutoPassed != "" {
 		fmt.Fprintf(out, "  why it auto-passed: %s\n", verdict.WhyItAutoPassed)
 	}

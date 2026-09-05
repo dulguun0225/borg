@@ -32,15 +32,16 @@ var (
 	_ Querier = (pgx.Tx)(nil)
 )
 
-const selectContract = `select id, actor_kind, actor_name, at, service_id, name, kind from ` + Table
+const selectContract = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, name, kind from ` + Table
 
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
-	var kind, contractKind string
-	if err := row.Scan(&c.ID, &kind, &c.Actor.Name, &c.At, &c.ServiceID, &c.Name, &contractKind); err != nil {
+	var kind, basis, contractKind string
+	if err := row.Scan(&c.ID, &kind, &c.Actor.Key, &basis, &c.At, &c.ServiceID, &c.Name, &contractKind); err != nil {
 		return Contract{}, err
 	}
 	c.Actor.Kind = record.Kind(kind)
+	c.Actor.Basis = record.Basis(basis)
 	c.Kind = Kind(contractKind)
 	return c, nil
 }
@@ -112,19 +113,20 @@ func listContracts(ctx context.Context, q Querier, statement string, args ...any
 	return read, nil
 }
 
-const selectVersion = `select id, actor_kind, actor_name, at, contract_id, service_id,
+const selectVersion = `select id, actor_kind, actor_key, actor_key_basis, at, contract_id, service_id,
 	release_id, release_number, item_id, major, minor, patch
 	from ` + VersionTable
 
 func scanVersion(row pgx.Row) (Version, error) {
 	var v Version
-	var kind string
-	err := row.Scan(&v.ID, &kind, &v.Actor.Name, &v.At, &v.ContractID, &v.ServiceID,
+	var kind, basis string
+	err := row.Scan(&v.ID, &kind, &v.Actor.Key, &basis, &v.At, &v.ContractID, &v.ServiceID,
 		&v.ReleaseID, &v.ReleaseNumber, &v.ItemID, &v.Semver.Major, &v.Semver.Minor, &v.Semver.Patch)
 	if err != nil {
 		return Version{}, err
 	}
 	v.Actor.Kind = record.Kind(kind)
+	v.Actor.Basis = record.Basis(basis)
 	return v, nil
 }
 

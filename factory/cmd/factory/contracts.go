@@ -186,7 +186,7 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 			m.Contract.Name, m.Element.Name, m.ServiceName, m.Version.Semver, state)
 		for _, s := range m.Safeguards {
 			fmt.Fprintf(p.d.out, "  safeguard %s, placed by %s %s, asserts %s on it: the removal item exists and is rejected at its Merge to master gate\n",
-				s.SafeguardID, s.Actor.Kind, s.Actor.Name, s.Kind)
+				s.SafeguardID, s.Actor.Kind, s.Actor.Key, s.Kind)
 		}
 	}
 	return nil

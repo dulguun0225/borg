@@ -173,7 +173,7 @@ func TestReworkRequestMovesUpAndCountsTheAttempt(t *testing.T) {
 
 // workActor is who reorders a queue: an owner at Work, writing the priority
 // through dispatch rather than beside it.
-var workActor = record.Actor{Kind: record.KindHuman, Name: "owner"}
+var workActor = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 // TestSetPriorityAndAtStage is the settable order: an owner writes a priority
 // through dispatch, and the query the merge queue's membership is read with returns

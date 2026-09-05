@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/criterion"
-	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
@@ -80,12 +79,9 @@ func TestARejectStopsThePath(t *testing.T) {
 	}
 
 	// The close event carries the feedback.
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := decisionRows(readLog(t, ctx, d))
 	if len(rows) != 4 {
-		t.Fatalf("the log holds %d rows, and a reject at the merge row is two decisions: the production row never fires", len(rows))
+		t.Fatalf("the log holds %d decision rows, and a reject at the merge row is two decisions: the production row never fires", len(rows))
 	}
 	payload := closingPayload(t, rows[3])
 	if payload.Verdict != string(gate.VerdictReject) {

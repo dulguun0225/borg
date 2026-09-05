@@ -124,7 +124,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate) error {
 	// Whether the score held this item out is read off the decisions on it rather
 	// than carried down from the firing, because a window is opened at the deploy
 	// and the selection may have been made at any row above it.
-	heldOut, err := score.HeldOut(ctx, d.pool, c.itemID)
+	heldOut, err := score.HeldOut(ctx, d.pool, d.token, c.itemID)
 	if err != nil {
 		return err
 	}

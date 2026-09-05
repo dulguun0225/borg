@@ -16,6 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -23,7 +24,7 @@ import (
 // Actor is who the queue's writes are made as. The rejection row names it as the
 // caller and as the actor, the design's arrangement for something that happened
 // where no gate fired.
-var Actor = record.Actor{Kind: record.KindComponent, Name: "merge_queue"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "merge_queue"}
 
 // lockName is what [AdvisoryLockKey] hashes, the service id appended. It names
 // this package so that no other part of the factory derives the same key from a
@@ -107,14 +108,16 @@ type Outcome struct {
 	Published []contract.Published
 }
 
-// RejectionKind is what a rejection row says it is, so a reader can tell the
-// queue's wait rows from every other kind.
+// RejectionKind is what a rejection row's payload says it is, so a reader can
+// tell the queue's rejection rows from every other kind of payload sharing the
+// log's queue_rejection shape.
 const RejectionKind = "merge_queue_rejection"
 
 // RejectionPayload is what the queue writes into the log when a candidate fails
-// its own re-verification. It is a wait and not a decision: no gate fired — the
-// Merge to master gate's own having closed as an approval — so there is no firing to open a
-// row at and no factor vector computed for it.
+// its own re-verification, through [decisionlog.Writer.AppendQueueRejection]. It
+// is its own shape and neither a wait nor a decision: no gate fired — the Merge
+// to master gate's own having closed as an approval — so there is no firing to
+// open a row at and no factor vector computed for it.
 //
 // It says that an attempt was counted, which is the one thing about this row that
 // a reader cannot see from the row: the count is on the item's per-stage row, and
@@ -134,6 +137,7 @@ type RejectionPayload struct {
 // Queue is the merge queue over one factory.
 type Queue struct {
 	pool     *pgxpool.Pool
+	token    lease.Token
 	log      *decisionlog.Writer
 	releases *release.Writer
 	dispatch *item.Dispatch
@@ -141,10 +145,12 @@ type Queue struct {
 }
 
 // New returns the queue over pool, writing through the log and the release
-// writer, and reaching the repository through repo.
-func New(pool *pgxpool.Pool, log *decisionlog.Writer, releases *release.Writer,
+// writer, reading the approval times gate row's own decisions closed at through
+// token and [Actor] as the reading principal, and reaching the repository
+// through repo.
+func New(pool *pgxpool.Pool, token lease.Token, log *decisionlog.Writer, releases *release.Writer,
 	dispatch *item.Dispatch, repo Repository) *Queue {
-	return &Queue{pool: pool, log: log, releases: releases, dispatch: dispatch, repo: repo}
+	return &Queue{pool: pool, token: token, log: log, releases: releases, dispatch: dispatch, repo: repo}
 }
 
 // Members is the queue's membership for one service, in the queue's order: the
@@ -167,7 +173,7 @@ func (q *Queue) Members(ctx context.Context, serviceID string) ([]item.Item, err
 	if len(members) == 0 {
 		return nil, nil
 	}
-	approved, err := gate.ApprovalTimes(ctx, q.pool, gate.MergeToMaster)
+	approved, err := gate.ApprovalTimes(ctx, q.pool, q.token, Actor, gate.MergeToMaster)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +324,9 @@ func (q *Queue) reject(ctx context.Context, it item.Item, verified Verified) (Ou
 	if err != nil {
 		return Outcome{}, fmt.Errorf("mergequeue: marshalling the rejection of %s: %w", it.ID, err)
 	}
-	row, err := q.log.AppendWait(ctx, decisionlog.Entry{Actor: Actor, Payload: string(payload)})
+	row, err := q.log.AppendQueueRejection(ctx, decisionlog.Entry{
+		Actor: Actor, Payload: string(payload), FormatVersion: "queue_rejection/1",
+	})
 	if err != nil {
 		return Outcome{}, err
 	}

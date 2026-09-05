@@ -8,13 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -174,20 +172,20 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	if !strings.Contains(out.String(), "mail to owner") || !strings.Contains(out.String(), "chat to owner") {
 		t.Errorf("the rollback was not reported on mail and chat:\n%s", out)
 	}
-	if events, err := notifier.EventsFor(ctx, d.pool, raised.ID); err != nil || len(events) != 0 {
+	if events, err := p(ctx, t, d).notifier.EventsFor(ctx, raised.ID); err != nil || len(events) != 0 {
 		t.Errorf("the rollback fired %d page event(s), %v; the factory does not page to inform", len(events), err)
 	}
 
 	// And the whole episode is readable as links: the walk from what is live now
 	// reaches the intent behind the release that is serving.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, current.ID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), current.ID); err != nil {
 		t.Fatalf("the walk from the rollback stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {
 		t.Errorf("the walk from the rollback does not reach the restored release's statement:\n%s", walked.String())
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after a rollback: %v", err)
 	}
 }

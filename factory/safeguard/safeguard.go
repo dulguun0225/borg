@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -124,22 +125,32 @@ type Safeguard struct {
 
 // Writer is the table's one writer: Factory.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Insert writes one safeguard inside tx. Its one caller is package policy,
 // which calls it inside the transaction that appends the policy version, so the
 // safeguard and the version commit together or not at all.
 //
+// token fences this write the way every write transaction in the module does:
+// tx is begun by the caller — the policy version's own transaction — so this
+// is where the fence is called rather than at a BeginTx of this package's own.
+//
 // The direction is not an argument: it is read from the parameter's definition,
 // because the direction differs per parameter and points the same way in each,
 // so an owner placing a safeguard chooses the subject and the bound and never
 // which way the bound points.
-func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, parameter gatepolicy.Parameter,
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, parameter gatepolicy.Parameter,
 	subject Subject, bound Bound) (Safeguard, error) {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return Safeguard{}, err
+	}
 	if err := actor.Validate(); err != nil {
 		return Safeguard{}, err
 	}
@@ -172,10 +183,10 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, parameter gatepo
 		storedBound = &p.Bound.Number
 	}
 	_, err = tx.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, parameter, subject_kind, subject_id, direction,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind, subject_id, direction,
 		bound, bound_list, predicate_kind, predicate_argument, withdrawn)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false)`,
-		p.ID, string(p.Actor.Kind), p.Actor.Name, p.At, string(p.Parameter),
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, false)`,
+		p.ID, FormatVersion, string(p.Actor.Kind), p.Actor.Key, string(p.Actor.Basis), p.At, string(p.Parameter),
 		string(p.Subject.Kind), p.Subject.ID, string(p.Direction), storedBound,
 		strings.Join(bound.List, "\n"), string(bound.Predicate.Kind), bound.Predicate.Argument,
 	)
@@ -229,7 +240,12 @@ func checkBound(d gatepolicy.Definition, bound Bound) error {
 // Withdraw marks one safeguard withdrawn inside tx, which is what stops a
 // mechanism reading it. The row stays, so a safeguard that was in force when a
 // decision was taken is still readable beside it.
-func Withdraw(ctx context.Context, tx pgx.Tx, id string) error {
+//
+// token fences this write the same way [Insert]'s does.
+func Withdraw(ctx context.Context, tx pgx.Tx, token lease.Token, id string) error {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `update `+Table+` set withdrawn = true where id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("safeguard: withdrawing %s: %w", id, err)
@@ -240,7 +256,7 @@ func Withdraw(ctx context.Context, tx pgx.Tx, id string) error {
 	return nil
 }
 
-const selectSafeguards = `select id, actor_kind, actor_name, at, parameter, subject_kind,
+const selectSafeguards = `select id, actor_kind, actor_key, actor_key_basis, at, parameter, subject_kind,
 	subject_id, direction, bound, bound_list, predicate_kind, predicate_argument, withdrawn
 	from ` + Table
 
@@ -312,15 +328,16 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Safeguard, error) {
 
 func scan(rows pgx.Rows) (Safeguard, error) {
 	var p Safeguard
-	var kind, parameter, subjectKind, direction, boundList, predicateKind string
+	var kind, basis, parameter, subjectKind, direction, boundList, predicateKind string
 	var bound *float64
-	err := rows.Scan(&p.ID, &kind, &p.Actor.Name, &p.At, &parameter, &subjectKind,
+	err := rows.Scan(&p.ID, &kind, &p.Actor.Key, &basis, &p.At, &parameter, &subjectKind,
 		&p.Subject.ID, &direction, &bound, &boundList, &predicateKind, &p.Bound.Predicate.Argument,
 		&p.Withdrawn)
 	if err != nil {
 		return Safeguard{}, fmt.Errorf("safeguard: reading a safeguard: %w", err)
 	}
 	p.Actor.Kind = record.Kind(kind)
+	p.Actor.Basis = record.Basis(basis)
 	p.Parameter = gatepolicy.Parameter(parameter)
 	p.Subject.Kind = SubjectKind(subjectKind)
 	p.Direction = gatepolicy.Direction(direction)

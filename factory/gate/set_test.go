@@ -42,7 +42,7 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 	// applies the higher of the numbers, because approving the set approves every
 	// item in it.
 	s, p := &varyingScore{by: map[string]float64{"it_a": 0.2, "it_b": 0.7}}, &fakePolicy{applied: applied(0.5)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.FireSet(ctx, gate.SetFiring{
 		IntentID:      "in_0000000000000000000000000000000a",
@@ -102,7 +102,7 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
 		t.Fatalf("the chain does not verify after a set decision: %v", err)
 	}
 	if closing.Closes != opened.Row.ID {
@@ -114,7 +114,7 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 // sending an item anywhere, so the field its close event would carry stays unwritten.
 func TestARejectAtDecompositionNamesNoStage(t *testing.T) {
 	s, p := &varyingScore{by: map[string]float64{"it_a": 0.7, "it_b": 0.7}}, &fakePolicy{applied: applied(0.5)}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	opened, err := g.FireSet(ctx, gate.SetFiring{
 		IntentID:      "in_0000000000000000000000000000000a",
@@ -143,7 +143,7 @@ func TestARejectAtDecompositionNamesNoStage(t *testing.T) {
 // than one item, and a firing of one is not an error of shape but of occasion.
 func TestASetFiringMissingSomethingIsRefused(t *testing.T) {
 	s, p := &varyingScore{by: map[string]float64{}}, &fakePolicy{applied: applied(0.5)}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	two := []gate.SetMember{{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b"}}
 	for name, firing := range map[string]gate.SetFiring{

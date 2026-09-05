@@ -12,7 +12,7 @@ import (
 // Actor is who a page event is written as. The notifier delivers the wait; who
 // created it is on the wait's own record, and the page event says which wait it is
 // about rather than repeating that record's actor.
-var Actor = record.Actor{Kind: record.KindComponent, Name: "notifier"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "notifier"}
 
 // Channel is one of the three the notifier delivers on.
 type Channel string

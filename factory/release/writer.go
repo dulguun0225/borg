@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -38,11 +39,14 @@ type Release struct {
 
 // Writer is the one writer of release records.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Mint is [Writer.MintWith] with nothing written beside the release.
 func (w *Writer) Mint(ctx context.Context, actor record.Actor, serviceID, buildID, itemID string) (Release, error) {
@@ -96,6 +100,9 @@ func (w *Writer) MintWith(ctx context.Context, actor record.Actor, serviceID, bu
 		return Release{}, fmt.Errorf("release: beginning the mint: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Release{}, err
+	}
 
 	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey(serviceID)); err != nil {
 		return Release{}, fmt.Errorf("release: taking the mint lock for %s: %w", serviceID, err)
@@ -118,9 +125,9 @@ func (w *Writer) MintWith(ctx context.Context, actor record.Actor, serviceID, bu
 		ItemID:    itemID,
 	}
 	if _, err := tx.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, service_id, number, build_id, item_id)
-		values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		r.ID, string(r.Actor.Kind), r.Actor.Name, r.At, r.ServiceID, r.Number, r.BuildID, r.ItemID,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, number, build_id, item_id)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		r.ID, FormatVersion, string(r.Actor.Kind), r.Actor.Key, string(r.Actor.Basis), r.At, r.ServiceID, r.Number, r.BuildID, r.ItemID,
 	); err != nil {
 		return Release{}, fmt.Errorf("release: minting number %d of %s: %w", r.Number, serviceID, err)
 	}
@@ -137,7 +144,7 @@ func (w *Writer) MintWith(ctx context.Context, actor record.Actor, serviceID, bu
 	return r, nil
 }
 
-const selectRelease = `select id, actor_kind, actor_name, at, service_id, number, build_id, item_id
+const selectRelease = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, number, build_id, item_id
 	from ` + Table
 
 // Get is one release by id. It takes the pool and not a [Writer], because
@@ -154,10 +161,11 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Release, error) {
 
 func scan(row pgx.Row) (Release, error) {
 	var r Release
-	var kind string
-	if err := row.Scan(&r.ID, &kind, &r.Actor.Name, &r.At, &r.ServiceID, &r.Number, &r.BuildID, &r.ItemID); err != nil {
+	var kind, basis string
+	if err := row.Scan(&r.ID, &kind, &r.Actor.Key, &basis, &r.At, &r.ServiceID, &r.Number, &r.BuildID, &r.ItemID); err != nil {
 		return Release{}, err
 	}
 	r.Actor.Kind = record.Kind(kind)
+	r.Actor.Basis = record.Basis(basis)
 	return r, nil
 }

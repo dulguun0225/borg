@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
-	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -60,12 +60,25 @@ func newOwner(t *testing.T) (context.Context, *pgxpool.Pool) {
 	return ctx, pool
 }
 
+// testToken acquires the lease as the instance a subcommand called later in the
+// same process acquires it as, so a fixture's own write and a subcommand's
+// withPool re-acquiring afterward are the same instance reacquiring rather than
+// two instances disagreeing over who holds it.
+func testToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool) lease.Token {
+	t.Helper()
+	token, err := lease.Acquire(ctx, pool, defaultInstance(), time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return token
+}
+
 // install is what the run's first take does, which everything an owner authors on
 // depends on.
 func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.Environment {
 	t.Helper()
-	installed, err := policy.NewFactory(pool).Install(ctx,
-		record.Actor{Kind: record.KindHuman, Name: "owner"},
+	installed, err := policy.NewFactory(pool, testToken(t, ctx, pool)).Install(ctx,
+		owner("owner"),
 		[]string{t.TempDir()}, secretref.MustNew("deploy.local"))
 	if err != nil {
 		t.Fatalf("installing: %v", err)
@@ -75,8 +88,8 @@ func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.
 
 func decomposeService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) service.Service {
 	t.Helper()
-	svc, err := service.NewWriter(pool).Create(ctx,
-		record.Actor{Kind: record.KindComponent, Name: "decomposition"}, name, "/repos/"+name)
+	svc, err := service.NewWriter(pool, testToken(t, ctx, pool)).Create(ctx,
+		decompositionActor, name, "/repos/"+name)
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}

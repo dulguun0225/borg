@@ -7,7 +7,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/record"
 )
+
+// component is the actor every read this package makes of the decision log is
+// attributed to: the score reading its own evidence, and not any human or any
+// other component.
+var component = record.Actor{Kind: record.KindComponent, Key: "score"}
 
 // ErrChangeIncomplete is returned by [Score.Assess] for a change naming no item
 // or no service. Every firing has both, so a blank is a caller's defect and not
@@ -106,17 +114,19 @@ type Score struct {
 	pool    *pgxpool.Pool
 	version Version
 	draw    Draw
+	token   lease.Token
 }
 
 // New returns the score over pool, computing under version and drawing its
-// held-out sample from draw. A nil draw is [RandomDraw]: a factory composed
-// without one still holds a sample out, because a factory that quietly stopped
-// sampling would be one whose threshold could only ever fall.
-func New(pool *pgxpool.Pool, version Version, draw Draw) *Score {
+// held-out sample from draw, with token fencing every read it makes of the
+// decision log. A nil draw is [RandomDraw]: a factory composed without one
+// still holds a sample out, because a factory that quietly stopped sampling
+// would be one whose threshold could only ever fall.
+func New(pool *pgxpool.Pool, version Version, draw Draw, token lease.Token) *Score {
 	if draw == nil {
 		draw = RandomDraw{}
 	}
-	return &Score{pool: pool, version: version, draw: draw}
+	return &Score{pool: pool, version: version, draw: draw, token: token}
 }
 
 // Version is the score version every assessment this score produces names.

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -83,7 +82,7 @@ func TestARunThatStoppedLeavesAnItemTheNextQueueFinishes(t *testing.T) {
 	if releases != items {
 		t.Errorf("%d releases across %d items, and one item is one release", releases, items)
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
 }

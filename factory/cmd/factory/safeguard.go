@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/safeguard"
 )
@@ -32,8 +33,8 @@ func safeguardCommand(args []string) error {
 		return err
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
-		factory := policy.NewFactory(pool)
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
+		factory := policy.NewFactory(pool, token)
 		actor := owner(*human)
 
 		if *withdraw != "" {

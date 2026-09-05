@@ -33,7 +33,7 @@ func (p *path) take(ctx context.Context, statement string) (intent.Intent, error
 	}
 	if found {
 		fmt.Fprintf(p.d.out, "Intent %s is already waiting with this statement, taken in from %s by %s %s; this run works it\n",
-			waiting.ID, waiting.Source, waiting.Actor.Kind, waiting.Actor.Name)
+			waiting.ID, waiting.Source, waiting.Actor.Kind, waiting.Actor.Key)
 		return waiting, nil
 	}
 	return p.intake.TakeIn(ctx, p.human, intent.SourceOwner, statement)
@@ -206,7 +206,7 @@ func (p *path) interview(ctx context.Context, in intent.Intent, serviceName stri
 		spend += s
 	}
 	stage.spends = nil
-	q, err := p.intake.Ask(ctx, specAuthorActor, in.ID, refined.Question)
+	q, err := p.intake.Ask(ctx, p.specAuthorActor(), in.ID, refined.Question)
 	if err != nil {
 		return agent.Refined{}, 0, 0, err
 	}

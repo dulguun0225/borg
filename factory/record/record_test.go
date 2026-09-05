@@ -14,12 +14,20 @@ func TestActorValidate(t *testing.T) {
 		actor Actor
 		want  error
 	}{
-		{"human", Actor{Kind: KindHuman, Name: "owner"}, nil},
-		{"component", Actor{Kind: KindComponent, Name: "gate.merge"}, nil},
+		{"human claimed", Actor{Kind: KindHuman, Key: "p_abc123", Basis: BasisClaimed}, nil},
+		{"human verified", Actor{Kind: KindHuman, Key: "p_abc123", Basis: BasisVerified}, nil},
+		{"component", Actor{Kind: KindComponent, Key: "gate.merge"}, nil},
+		{"agent", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8"}, nil},
 		{"empty actor", Actor{}, ErrKindUnknown},
-		{"empty kind", Actor{Name: "owner"}, ErrKindUnknown},
-		{"unknown kind", Actor{Kind: "robot", Name: "owner"}, ErrKindUnknown},
-		{"empty name", Actor{Kind: KindHuman}, ErrNameEmpty},
+		{"empty kind", Actor{Key: "owner"}, ErrKindUnknown},
+		{"unknown kind", Actor{Kind: "robot", Key: "owner"}, ErrKindUnknown},
+		{"empty key human", Actor{Kind: KindHuman, Basis: BasisClaimed}, ErrKeyEmpty},
+		{"empty key component", Actor{Kind: KindComponent}, ErrKeyEmpty},
+		{"empty key agent", Actor{Kind: KindAgent}, ErrKeyEmpty},
+		{"human no basis", Actor{Kind: KindHuman, Key: "p_abc123"}, ErrBasisEmpty},
+		{"human unknown basis", Actor{Kind: KindHuman, Key: "p_abc123", Basis: "guessed"}, ErrBasisUnknown},
+		{"component with basis", Actor{Kind: KindComponent, Key: "gate.merge", Basis: BasisClaimed}, ErrBasisNotEmpty},
+		{"agent with basis", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8", Basis: BasisVerified}, ErrBasisNotEmpty},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -39,7 +47,7 @@ func TestActorValidate(t *testing.T) {
 
 // TestConstraintsListEveryKind is what keeps the CHECK constraint and [Kinds]
 // from disagreeing. The constraint is written as SQL text rather than built
-// from the slice, so this is the check that they still name the same two.
+// from the slice, so this is the check that they still name the same three.
 func TestConstraintsListEveryKind(t *testing.T) {
 	const open = "actor_kind in ("
 	i := strings.Index(Constraints, open)
@@ -58,6 +66,31 @@ func TestConstraintsListEveryKind(t *testing.T) {
 	for n, k := range Kinds {
 		if got, want := strings.TrimSpace(listed[n]), "'"+string(k)+"'"; got != want {
 			t.Errorf("the constraint lists %s where Kinds has %s", got, want)
+		}
+	}
+}
+
+// TestConstraintsListEveryBasis is what keeps the CHECK constraint and
+// [Bases] from disagreeing, the way TestConstraintsListEveryKind does for
+// [Kinds].
+func TestConstraintsListEveryBasis(t *testing.T) {
+	const open = "actor_key_basis in ("
+	i := strings.Index(Constraints, open)
+	if i < 0 {
+		t.Fatalf("Constraints has no %q list", open)
+	}
+	rest := Constraints[i+len(open):]
+	j := strings.Index(rest, ")")
+	if j < 0 {
+		t.Fatalf("the %q list is not closed", open)
+	}
+	listed := strings.Split(rest[:j], ",")
+	if len(listed) != len(Bases) {
+		t.Fatalf("the constraint lists %d bases, Bases has %d", len(listed), len(Bases))
+	}
+	for n, b := range Bases {
+		if got, want := strings.TrimSpace(listed[n]), "'"+string(b)+"'"; got != want {
+			t.Errorf("the constraint lists %s where Bases has %s", got, want)
 		}
 	}
 }

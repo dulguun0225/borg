@@ -12,7 +12,8 @@ import (
 // validates, and the store refuses what a writer that did not validate would
 // have written.
 func TestEveryRecordCarriesAnActor(t *testing.T) {
-	ctx, pool, log := newLog(t)
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
 
 	t.Run("the writer refuses", func(t *testing.T) {
 		cases := map[string]struct {
@@ -20,17 +21,21 @@ func TestEveryRecordCarriesAnActor(t *testing.T) {
 			want  error
 		}{
 			"no actor at all": {record.Actor{}, record.ErrKindUnknown},
-			"no kind":         {record.Actor{Name: "owner"}, record.ErrKindUnknown},
-			"unknown kind":    {record.Actor{Kind: "robot", Name: "owner"}, record.ErrKindUnknown},
-			"no name":         {record.Actor{Kind: record.KindHuman}, record.ErrNameEmpty},
+			"no kind":         {record.Actor{Key: "gate.merge_to_master"}, record.ErrKindUnknown},
+			"unknown kind":    {record.Actor{Kind: "robot", Key: "owner"}, record.ErrKindUnknown},
+			"no key":          {record.Actor{Kind: record.KindHuman, Basis: record.BasisClaimed}, record.ErrKeyEmpty},
+			"human no basis":  {record.Actor{Kind: record.KindHuman, Key: "person:abc"}, record.ErrBasisEmpty},
+			"component+basis": {record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master", Basis: record.BasisClaimed}, record.ErrBasisNotEmpty},
 		}
 		for name, c := range cases {
-			entry := decisionlog.Entry{Actor: c.actor, Payload: "x", PolicyVersion: "p", ScoreVersion: "s"}
+			entry := decisionlog.Entry{
+				Actor: c.actor, Payload: "x", FormatVersion: "decision/1", PolicyVersion: "p", ScoreVersion: "s",
+			}
 			if _, err := log.AppendDecisionOpen(ctx, entry); !errors.Is(err, c.want) {
 				t.Errorf("an opening with %s: %v, want %v", name, err, c.want)
 			}
-			entry.PolicyVersion, entry.ScoreVersion = "", ""
-			if _, err := log.AppendWait(ctx, entry); !errors.Is(err, c.want) {
+			entry.PolicyVersion, entry.ScoreVersion, entry.FormatVersion = "", "", "wait/1"
+			if _, err := log.AppendWaitOpen(ctx, entry); !errors.Is(err, c.want) {
 				t.Errorf("a wait with %s: %v, want %v", name, err, c.want)
 			}
 		}
@@ -38,25 +43,34 @@ func TestEveryRecordCarriesAnActor(t *testing.T) {
 
 	t.Run("the store refuses", func(t *testing.T) {
 		unknown := aRow()
-		unknown.Actor = record.Actor{Kind: "robot", Name: "owner"}
+		unknown.Actor = record.Actor{Kind: "robot", Key: "owner"}
 		if got, want := refusedBy(t, insertAround(ctx, pool, unknown)), "actor_kind_known"; got != want {
 			t.Errorf("an unknown actor kind was refused by %q, want %q", got, want)
 		}
 
 		empty := aRow()
-		empty.Actor = record.Actor{Kind: record.KindHuman}
-		if got, want := refusedBy(t, insertAround(ctx, pool, empty)), "actor_name_present"; got != want {
-			t.Errorf("an empty actor name was refused by %q, want %q", got, want)
+		empty.Actor = record.Actor{Kind: record.KindHuman, Basis: record.BasisClaimed}
+		if got, want := refusedBy(t, insertAround(ctx, pool, empty)), "actor_key_present"; got != want {
+			t.Errorf("an empty actor key was refused by %q, want %q", got, want)
 		}
 
+		// An actor with neither kind nor key violates actor_kind_known and
+		// actor_key_present at once; the store reports actor_key_present for
+		// this row.
 		none := aRow()
 		none.Actor = record.Actor{}
-		if got, want := refusedBy(t, insertAround(ctx, pool, none)), "actor_kind_known"; got != want {
+		if got, want := refusedBy(t, insertAround(ctx, pool, none)), "actor_key_present"; got != want {
 			t.Errorf("no actor at all was refused by %q, want %q", got, want)
+		}
+
+		noBasis := aRow()
+		noBasis.Actor = record.Actor{Kind: record.KindHuman, Key: "person:abc"}
+		if got, want := refusedBy(t, insertAround(ctx, pool, noBasis)), "actor_key_basis_matches_kind"; got != want {
+			t.Errorf("a human with no basis was refused by %q, want %q", got, want)
 		}
 	})
 
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := reader.Verify(ctx, owner); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }

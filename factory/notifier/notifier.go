@@ -9,12 +9,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/people"
 )
 
 // PageEventKind is what a page event's payload says it is, so a reader can tell
 // one from every other shape in the log without knowing this package's fields.
 const PageEventKind = "page_event"
+
+// PageEventFormatVersion is the format version every page event this package
+// appends carries, which is what tells [decisionlog.Writer] it is a page event
+// and not one of the log's other nine shapes.
+const PageEventFormatVersion = "page_event/1"
 
 // Payload is what a page event says. It names the wait, which human was reached,
 // which of the three events it is, and whose wait it was — everything the design
@@ -35,20 +41,25 @@ type Payload struct {
 type Notifier struct {
 	pool      *pgxpool.Pool
 	log       *decisionlog.Writer
+	reader    *decisionlog.Reader
 	deliverer Deliverer
 	owner     string
 }
 
 // New returns the notifier over pool, appending page events through log,
+// reading the log back through a [decisionlog.Reader] fenced with token,
 // delivering through deliverer, and widening to owner.
-func New(pool *pgxpool.Pool, log *decisionlog.Writer, deliverer Deliverer, owner string) (*Notifier, error) {
+func New(pool *pgxpool.Pool, log *decisionlog.Writer, token lease.Token, deliverer Deliverer, owner string) (*Notifier, error) {
 	if owner == "" {
 		return nil, errors.New("notifier: the owner is who a page widens to, and this one names none")
 	}
 	if deliverer == nil {
 		return nil, errors.New("notifier: a notifier with no channel to deliver on delivers nothing")
 	}
-	return &Notifier{pool: pool, log: log, deliverer: deliverer, owner: owner}, nil
+	return &Notifier{
+		pool: pool, log: log, reader: decisionlog.NewReader(pool, token),
+		deliverer: deliverer, owner: owner,
+	}, nil
 }
 
 // Notify delivers one wait: mail and chat to whoever the routing reaches, and —
@@ -103,7 +114,7 @@ func (n *Notifier) Widen(ctx context.Context, w Wait) (decisionlog.Row, error) {
 	if _, err := prepare(w); err != nil {
 		return decisionlog.Row{}, err
 	}
-	events, err := EventsFor(ctx, n.pool, w.Row)
+	events, err := n.EventsFor(ctx, w.Row)
 	if err != nil {
 		return decisionlog.Row{}, err
 	}
@@ -129,7 +140,7 @@ func (n *Notifier) Answered(ctx context.Context, w Wait, by string) (decisionlog
 	if by == "" {
 		by = n.owner
 	}
-	events, err := EventsFor(ctx, n.pool, w.Row)
+	events, err := n.EventsFor(ctx, w.Row)
 	if err != nil {
 		return decisionlog.Row{}, err
 	}
@@ -194,7 +205,9 @@ func (n *Notifier) deliver(ctx context.Context, d Delivery) (decisionlog.Row, er
 	if err != nil {
 		return decisionlog.Row{}, fmt.Errorf("notifier: marshalling the page event about %s: %w", d.Wait.Row, err)
 	}
-	return n.log.AppendPageEvent(ctx, decisionlog.Entry{Actor: Actor, Payload: string(payload)})
+	return n.log.AppendPageEvent(ctx, decisionlog.Entry{
+		Actor: Actor, Payload: string(payload), FormatVersion: PageEventFormatVersion,
+	})
 }
 
 // EventsFor is the page events on one wait, in the order they were appended,
@@ -207,8 +220,11 @@ func (n *Notifier) deliver(ctx context.Context, d Delivery) (decisionlog.Row, er
 // one some other component wrote. It reads the whole log, which is what a page
 // having no record of its own costs, and what would remove it is an index on a log
 // this package does not own.
-func EventsFor(ctx context.Context, pool *pgxpool.Pool, row string) ([]Payload, error) {
-	rows, err := decisionlog.Read(ctx, pool)
+//
+// It reads through the notifier's own [decisionlog.Reader], which appends a read
+// event naming [Actor] as the principal before it answers.
+func (n *Notifier) EventsFor(ctx context.Context, row string) ([]Payload, error) {
+	rows, err := n.reader.Read(ctx, Actor)
 	if err != nil {
 		return nil, err
 	}

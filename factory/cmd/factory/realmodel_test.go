@@ -294,7 +294,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 
 	// The walk reaches the statement from the deploy, over a clean chain.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, c.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, owner(d.human), c.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), realModelStatement) {

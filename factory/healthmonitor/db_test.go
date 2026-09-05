@@ -29,6 +29,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
@@ -43,7 +44,7 @@ const (
 	theEnvironment = "env_production"
 )
 
-var theActor = record.Actor{Kind: record.KindComponent, Name: "test"}
+var theActor = record.Actor{Kind: record.KindComponent, Key: "test"}
 
 // graph is the records one test writes and the writers it writes them through.
 type graph struct {
@@ -84,14 +85,18 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
 
 	return ctx, graph{
 		pool:     pool,
-		builds:   build.NewWriter(pool),
-		releases: release.NewWriter(pool),
-		deploys:  deploy.NewWriter(pool),
-		windows:  window.NewWriter(pool),
-		items:    item.NewDecomposition(pool),
+		builds:   build.NewWriter(pool, token),
+		releases: release.NewWriter(pool, token),
+		deploys:  deploy.NewWriter(pool, token),
+		windows:  window.NewWriter(pool, token),
+		items:    item.NewDecomposition(pool, token),
 	}
 }
 

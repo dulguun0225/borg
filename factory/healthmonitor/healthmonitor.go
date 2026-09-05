@@ -18,7 +18,7 @@ import (
 
 // Actor is who the health monitor's writes are made as: the analysis window it opens and
 // closes, the incident it raises, and the revert intent it takes in through intake.
-var Actor = record.Actor{Kind: record.KindComponent, Name: "health_monitor"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "health_monitor"}
 
 // Watching is the service one call is about: the record's id, the name — which the
 // revert intent's statement is written with, a statement naming an id being one no

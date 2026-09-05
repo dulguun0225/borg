@@ -18,8 +18,8 @@ import (
 // twice on unchanged source appends nothing, and the version in force is the one
 // every decision names.
 func TestTheVersionIsAppendedOnlyWhenWhatItPublishesChanges(t *testing.T) {
-	ctx, pool, s := newScore(t)
-	w := score.NewWriter(pool)
+	ctx, pool, token, s := newScore(t)
+	w := score.NewWriter(pool, token)
 
 	again, err := w.Ensure(ctx, scoreActor)
 	if err != nil {
@@ -58,8 +58,8 @@ func TestTheVersionIsAppendedOnlyWhenWhatItPublishesChanges(t *testing.T) {
 	// A version whose supplied values differ is a version of its own, and it
 	// names the one it replaced.
 	if _, err := pool.Exec(ctx, `insert into `+score.Table+`
-		(id, actor_kind, actor_name, at, formula_version, formula, factor_set, rules, supplied, supersedes)
-		values ('scv_next', 'component', 'score', $1, $2, $3, $4, $5,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, formula_version, formula, factor_set, rules, supplied, supersedes)
+		values ('scv_next', 'score_version/1', 'component', 'score', '', $1, $2, $3, $4, $5,
 			'[{"parameter":"risk_threshold","value":0.9,"why":"a hand-written row this test appended"}]', $6)`,
 		record.Now(), version.FormulaVersion, version.Formula, version.FactorSet, version.Rules, version.ID); err != nil {
 		t.Fatalf("appending a second version: %v", err)
@@ -110,8 +110,8 @@ func TestAdvisoryLockKeyIsDerivedFromTheName(t *testing.T) {
 // schema can enforce — two versions saying the same thing are legitimate where
 // they are not adjacent.
 func TestEnsuringAtOnceAppendsOneVersion(t *testing.T) {
-	ctx, pool, s := newScore(t)
-	w := score.NewWriter(pool)
+	ctx, pool, token, s := newScore(t)
+	w := score.NewWriter(pool, token)
 
 	const ensures = 8
 	done := make(chan error, ensures)
@@ -147,10 +147,10 @@ func TestEnsuringAtOnceAppendsOneVersion(t *testing.T) {
 // in the design, so a decision that did not name it could not be read back
 // against what the score published when it was taken.
 func TestEveryDecisionNamesTheVersionInForce(t *testing.T) {
-	ctx, pool, s := newScore(t)
-	g := gate.New(decisionlog.NewWriter(pool), s, fakePolicy{threshold: 0.9}, gate.NoDriftDetector{})
+	ctx, pool, token, s := newScore(t)
+	g := gate.New(decisionlog.NewWriter(pool, token), s, fakePolicy{threshold: 0.9}, gate.NoDriftDetector{})
 
-	it, implementation := decomposeItem(t, ctx, pool, "item/one")
+	it, implementation := decomposeItem(t, ctx, pool, token, "item/one")
 	opened, err := g.Fire(ctx, firing(it, implementation,
 		score.Measurement{LinesChanged: 5, FilesChanged: 1, FilesInTree: 10}))
 	if err != nil {

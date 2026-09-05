@@ -14,6 +14,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/driftdetector"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -58,6 +59,60 @@ func newModel(provider, modelName string, resolver *secretref.Resolver) (agent.M
 	default:
 		return nil, fmt.Errorf("factory run: -provider %q is not one of %s", provider, providers)
 	}
+}
+
+// leaseTTL is how long an acquired lease stands before it lapses, and
+// leaseRenewEvery is how often the renewal goroutine renews it — a third of the
+// ttl, so a delay of a couple of renewals still lands before the lease would
+// lapse. Both are this interface's own choice: the design names the lease and
+// the fencing token and leaves the numbers to whoever runs the process.
+const (
+	leaseTTL        = 30 * time.Second
+	leaseRenewEvery = leaseTTL / 3
+)
+
+// defaultInstance is this process's own identity for the lease: the machine's
+// hostname and this process's id, which tells one instance from another without
+// any configuration.
+func defaultInstance() string {
+	host, err := os.Hostname()
+	if err != nil {
+		host = "unknown-host"
+	}
+	return fmt.Sprintf("%s:%d", host, os.Getpid())
+}
+
+// acquireLease takes the lease for this process, per
+// ../../../end-goal/one-process.md: every subcommand reaches the store while it
+// runs, whether it writes or only reads — a read appends a read event, which is
+// itself a write of the log — so every subcommand acquires it before doing
+// anything else against the store. A held lease is a start failure.
+//
+// It returns the token every writer and every reader below this point carries,
+// and a stop function, deferred by every caller, that ends the goroutine
+// renewing the lease every leaseRenewEvery for the life of the process.
+func acquireLease(ctx context.Context, pool *pgxpool.Pool) (lease.Token, func(), error) {
+	token, err := lease.Acquire(ctx, pool, defaultInstance(), leaseTTL)
+	if err != nil {
+		if errors.Is(err, lease.ErrHeld) {
+			return 0, nil, fmt.Errorf("another instance holds the lease: %w", err)
+		}
+		return 0, nil, err
+	}
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(leaseRenewEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				_ = lease.Renew(ctx, pool, token, leaseTTL)
+			}
+		}
+	}()
+	return token, func() { close(stop) }, nil
 }
 
 func main() {
@@ -300,6 +355,11 @@ func runCommand(args []string) error {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		return err
 	}
+	token, stopLease, err := acquireLease(ctx, pool)
+	if err != nil {
+		return err
+	}
+	defer stopLease()
 	driftStore, shut, err := openDriftDetector(ctx)
 	if err != nil {
 		return err
@@ -322,7 +382,8 @@ func runCommand(args []string) error {
 	}
 
 	_, err = run(ctx, deps{
-		pool: pool,
+		pool:  pool,
+		token: token,
 		// The model's id is the author every version this run writes names, the
 		// per-author prior being kept per model version.
 		modelName: *model,
@@ -351,8 +412,17 @@ func runCommand(args []string) error {
 
 // walkCommand runs the link walk alone, against an existing database.
 func walkCommand(args []string) error {
-	if len(args) != 1 {
-		return errors.New("factory walk: one argument, the deploy id")
+	flags := flag.NewFlagSet("walk", flag.ContinueOnError)
+	human := flags.String("human", "owner", "the human this command reads the log as")
+	id := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		id, args = args[0], args[1:]
+	}
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if id == "" || flags.NArg() != 0 {
+		return errors.New("factory walk: one argument, the deploy id, and then any flags")
 	}
 	ctx := context.Background()
 	pool, err := postgres.Open(ctx, postgres.URL())
@@ -360,7 +430,12 @@ func walkCommand(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	return walk(ctx, pool, os.Stdout, args[0])
+	token, stopLease, err := acquireLease(ctx, pool)
+	if err != nil {
+		return err
+	}
+	defer stopLease()
+	return walk(ctx, pool, os.Stdout, token, owner(*human), id)
 }
 
 // stringList is a repeated flag whose values are read later, because reading one

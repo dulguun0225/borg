@@ -9,12 +9,13 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// TestConcurrentAppendsChainInOrder is the one-writer rule under load. Without
-// the advisory lock two transactions read the same head and write two rows
-// naming the same predecessor, which is the fork the unique constraint on
-// prev_hash refuses and Verify would otherwise find.
+// TestConcurrentAppendsChainInOrder is the one-writer rule under load.
+// Without the advisory lock two transactions read the same head and write
+// two rows naming the same predecessor, which is the fork the unique
+// constraint on prev_hash refuses and Verify would otherwise find.
 func TestConcurrentAppendsChainInOrder(t *testing.T) {
-	ctx, pool, log := newLog(t)
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
 
 	const appenders, each = 8, 6
 	var wg sync.WaitGroup
@@ -24,11 +25,19 @@ func TestConcurrentAppendsChainInOrder(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for n := range each {
-				_, err := log.AppendWait(ctx, decisionlog.Entry{
-					Actor:   record.Actor{Kind: record.KindComponent, Name: "appender"},
-					Payload: strings.Repeat("x", a) + "-" + strings.Repeat("y", n),
+				opened, err := log.AppendWaitOpen(ctx, decisionlog.Entry{
+					Actor:         record.Actor{Kind: record.KindComponent, Key: "appender"},
+					Payload:       strings.Repeat("x", a) + "-" + strings.Repeat("y", n),
+					FormatVersion: "wait/1",
 				})
 				if err != nil {
+					failures <- err
+					continue
+				}
+				if _, err := log.AppendWaitClose(ctx, decisionlog.Entry{
+					Actor:   record.Actor{Kind: record.KindComponent, Key: "appender"},
+					Payload: "gone", FormatVersion: "wait/1", Closes: opened.ID,
+				}); err != nil {
 					failures <- err
 				}
 			}
@@ -37,17 +46,19 @@ func TestConcurrentAppendsChainInOrder(t *testing.T) {
 	wg.Wait()
 	close(failures)
 	for err := range failures {
-		t.Errorf("AppendWait: %v", err)
+		t.Errorf("appending a wait: %v", err)
 	}
 
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := reader.Verify(ctx, owner); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	rows, err := decisionlog.Read(ctx, pool)
+	rows, err := reader.Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != appenders*each {
-		t.Fatalf("the log holds %d rows, want %d", len(rows), appenders*each)
+	// Two rows per wait, plus the two read events this test's own Verify and
+	// Read just appended.
+	if want := appenders*each*2 + 2; len(rows) != want {
+		t.Fatalf("the log holds %d rows, want %d", len(rows), want)
 	}
 }

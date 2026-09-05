@@ -14,6 +14,14 @@ const IDPrefix = "it"
 // StageIDPrefix is what [record.NewID] is called with for a per-stage row.
 const StageIDPrefix = "its"
 
+// FormatVersion is what this package writes into format_version on every
+// insert into [Table].
+const FormatVersion = "item/1"
+
+// FormatVersionStage is what this package writes into format_version on every
+// insert into [StageTable].
+const FormatVersionStage = "item_stage/1"
+
 // stages is the stage CHECK's value list, written once because both tables
 // carry it: a per-stage row cannot name a stage an item cannot be at.
 const stages = `('spec', 'implementation', 'queued', 'merged', 'superseded')`

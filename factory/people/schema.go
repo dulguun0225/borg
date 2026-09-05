@@ -8,6 +8,9 @@ const Table = "people_declaration"
 // IDPrefix is what [record.NewID] is called with for a declaration.
 const IDPrefix = "ppl"
 
+// FormatVersion is written into format_version on every insert.
+const FormatVersion = "people_declaration/1"
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
 //

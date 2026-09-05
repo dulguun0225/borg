@@ -22,6 +22,7 @@ import (
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -31,8 +32,8 @@ import (
 )
 
 var (
-	owner              = record.Actor{Kind: record.KindHuman, Name: "owner"}
-	decompositionActor = record.Actor{Kind: record.KindComponent, Name: "decomposition"}
+	owner              = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
 )
 
 var credential = secretref.MustNew("deploy.local")
@@ -43,6 +44,7 @@ var credential = secretref.MustNew("deploy.local")
 // area by an owner.
 type installed struct {
 	pool     *pgxpool.Pool
+	token    lease.Token
 	factory  *policy.Factory
 	reader   *policy.Reader
 	settings factorysettings.Settings
@@ -91,23 +93,28 @@ func newFactory(t *testing.T) (context.Context, installed) {
 		t.Fatalf("applying the schema: %v", err)
 	}
 
-	factory := policy.NewFactory(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+
+	factory := policy.NewFactory(pool, token)
 	install, err := factory.Install(ctx, owner, []string{"/srv/targets"}, credential)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	svc, err := service.NewWriter(pool).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
+	svc, err := service.NewWriter(pool, token).Create(ctx, decompositionActor, "checkout", "/repos/checkout")
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)
 	}
-	ar, err := area.NewWriter(pool).Declare(ctx, owner, "payments", "")
+	ar, err := area.NewWriter(pool, token).Declare(ctx, owner, "payments", "")
 	if err != nil {
 		t.Fatalf("declaring the area: %v", err)
 	}
 	return ctx, installed{
 		// The reader is composed with the version in force, which is what a run
 		// does: the supplied half of every value is a field of that version.
-		pool: pool, factory: factory, reader: policy.NewReader(pool, scoreVersion(t, ctx, pool)),
+		pool: pool, token: token, factory: factory, reader: policy.NewReader(pool, scoreVersion(t, ctx, pool, token)),
 		settings: install.Settings, prod: install.Production, service: svc, area: ar,
 	}
 }
@@ -150,9 +157,9 @@ func startingValue(t *testing.T, parameter gatepolicy.Parameter) float64 {
 // composed with it rather than reading the newest at each answer: a supplied value
 // moves as outcomes arrive, and a reader that re-read it could give one gate
 // firing a threshold from a version its own decision row does not name.
-func scoreVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool) score.Version {
+func scoreVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) score.Version {
 	t.Helper()
-	version, err := score.NewWriter(pool).Ensure(ctx, record.Actor{Kind: record.KindComponent, Name: "score"})
+	version, err := score.NewWriter(pool, token).Ensure(ctx, record.Actor{Kind: record.KindComponent, Key: "score"})
 	if err != nil {
 		t.Fatalf("ensuring the score version: %v", err)
 	}

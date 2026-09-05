@@ -82,7 +82,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		if err != nil {
 			return fmt.Errorf("factory: marshalling the substrate's wait for %s: %w", c.itemID, err)
 		}
-		row, err := p.log.AppendWait(ctx, decisionlog.Entry{Actor: deployActor, Payload: string(payload)})
+		row, err := p.log.AppendWaitOpen(ctx, decisionlog.Entry{Actor: deployActor, Payload: string(payload), FormatVersion: "wait/1"})
 		if err != nil {
 			return err
 		}
@@ -218,7 +218,7 @@ func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 		outcomes[cr.ID] = outcome
 		results = append(results, gate.CriterionResult{CriterionID: cr.ID, Outcome: outcome})
 	}
-	if err := criterion.RecordResults(ctx, p.d.pool, deployActor, buildID, outcomes); err != nil {
+	if err := criterion.RecordResults(ctx, p.d.pool, p.d.token, deployActor, buildID, outcomes); err != nil {
 		return nil, err
 	}
 	return results, nil

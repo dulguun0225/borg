@@ -16,7 +16,7 @@ import (
 // them. It is written once because four callers read an item — two here, the
 // advance, and the rework request — and a fifth column added to one of five select
 // lists is a bug the compiler cannot see.
-const columns = `id, actor_kind, actor_name, at, intent_id, service_id, area_id, branch, stage,
+const columns = `id, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id, branch, stage,
 	waits_on, superseded_by, priority`
 
 // Two columns hold one id per line: the items this one waits on, and the items
@@ -36,13 +36,14 @@ func splitIDs(stored string) []string {
 // scanItem reads one item row in [columns] order.
 func scanItem(row pgx.Row) (Item, error) {
 	var it Item
-	var kind, stage, waitsOn, supersededBy string
-	err := row.Scan(&it.ID, &kind, &it.Actor.Name, &it.At, &it.IntentID, &it.ServiceID,
+	var kind, basis, stage, waitsOn, supersededBy string
+	err := row.Scan(&it.ID, &kind, &it.Actor.Key, &basis, &it.At, &it.IntentID, &it.ServiceID,
 		&it.AreaID, &it.Branch, &stage, &waitsOn, &supersededBy, &it.Priority)
 	if err != nil {
 		return Item{}, err
 	}
 	it.Actor.Kind = record.Kind(kind)
+	it.Actor.Basis = record.Basis(basis)
 	it.Stage = Stage(stage)
 	it.WaitsOn = splitIDs(waitsOn)
 	it.SupersededBy = splitIDs(supersededBy)
@@ -189,7 +190,7 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Item, error) {
 // reads every attempt at one stage across every item — the attempt limit being
 // per stage and not per item.
 func AllStages(ctx context.Context, pool *pgxpool.Pool) ([]StageTotals, error) {
-	rows, err := pool.Query(ctx, `select id, actor_kind, actor_name, at, item_id, stage, attempts, spend_tokens
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, spend_tokens
 		from `+StageTable+` order by at, stage`)
 	if err != nil {
 		return nil, fmt.Errorf("item: reading every stage: %w", err)
@@ -214,7 +215,7 @@ func AllStages(ctx context.Context, pool *pgxpool.Pool) ([]StageTotals, error) {
 // reported — the timestamp of the first report, with the stage name breaking
 // a tie. The id column orders nothing, being random bytes.
 func Stages(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]StageTotals, error) {
-	rows, err := pool.Query(ctx, `select id, actor_kind, actor_name, at, item_id, stage, attempts, spend_tokens
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, spend_tokens
 		from `+StageTable+` where item_id = $1 order by at, stage`, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("item: reading the stages of %s: %w", itemID, err)
@@ -239,12 +240,13 @@ func Stages(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]StageTota
 // column order is written once.
 func scanStage(row pgx.Row) (StageTotals, error) {
 	var s StageTotals
-	var kind, stage string
-	if err := row.Scan(&s.ID, &kind, &s.Actor.Name, &s.At, &s.ItemID,
+	var kind, basis, stage string
+	if err := row.Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &s.ItemID,
 		&stage, &s.Attempts, &s.SpendTokens); err != nil {
 		return StageTotals{}, err
 	}
 	s.Actor.Kind = record.Kind(kind)
+	s.Actor.Basis = record.Basis(basis)
 	s.Stage = Stage(stage)
 	return s, nil
 }

@@ -21,10 +21,10 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
-	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
@@ -123,6 +123,10 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
 
 	secrets := filepath.Join(t.TempDir(), "secrets")
 	if err := os.WriteFile(secrets, []byte("deploy.local=unused\n"), 0o600); err != nil {
@@ -155,6 +159,7 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	out := &bytes.Buffer{}
 	d := deps{
 		pool:             pool,
+		token:            token,
 		model:            &fakeModel{},
 		modelName:        theModel,
 		targets:          targets,
@@ -206,18 +211,18 @@ const (
 // work changes may exist already, and decomposition writes a service's identity once.
 func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 	t.Helper()
-	owner := record.Actor{Kind: record.KindHuman, Name: d.human}
-	if _, err := policy.NewFactory(d.pool).Install(ctx, owner, []string{d.dir}, d.credential); err != nil {
+	installOwner := owner(d.human)
+	if _, err := policy.NewFactory(d.pool, d.token).Install(ctx, installOwner, []string{d.dir}, d.credential); err != nil {
 		t.Fatalf("installing the factory: %v", err)
 	}
-	factory := policy.NewFactory(d.pool)
+	factory := policy.NewFactory(d.pool, d.token)
 	for _, named := range d.services {
 		svc, found, err := service.ByName(ctx, d.pool, named.name)
 		if err != nil {
 			t.Fatalf("reading the service: %v", err)
 		}
 		if !found {
-			svc, err = service.NewWriter(d.pool).Create(ctx, decompositionActor, named.name, named.repo)
+			svc, err = service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor, named.name, named.repo)
 			if err != nil {
 				t.Fatalf("writing the service: %v", err)
 			}
@@ -227,15 +232,17 @@ func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 			write func() (policy.Version, error)
 		}{
 			{"the size", func() (policy.Version, error) {
-				return factory.AuthorWindowSize(ctx, owner, svc.ID, theWindowSize)
+				return factory.AuthorWindowSize(ctx, installOwner, svc.ID, theWindowSize)
 			}},
 			{"the confidence", func() (policy.Version, error) {
-				return factory.AuthorWindowConfidence(ctx, owner, svc.ID, theWindowConfidence)
+				return factory.AuthorWindowConfidence(ctx, installOwner, svc.ID, theWindowConfidence)
 			}},
 			{"the cap", func() (policy.Version, error) {
-				return factory.AuthorWindowCap(ctx, owner, svc.ID, theWindowCap)
+				return factory.AuthorWindowCap(ctx, installOwner, svc.ID, theWindowCap)
 			}},
-			{"window limit", func() (policy.Version, error) { return factory.AuthorWindowLimit(ctx, owner, svc.ID, limit) }},
+			{"window limit", func() (policy.Version, error) {
+				return factory.AuthorWindowLimit(ctx, installOwner, svc.ID, limit)
+			}},
 		} {
 			if _, err := authoring.write(); err != nil {
 				t.Fatalf("authoring %s of the analysis window on %s: %v", authoring.what, named.name, err)
@@ -256,6 +263,41 @@ func inSchema(t *testing.T, base, schema string) string {
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
+}
+
+// readLog is the whole log, read as the human the deps compose with — which is
+// what every test that used to call decisionlog.Read directly now goes
+// through, the reader being what carries the fencing token and appends a read
+// event before it answers.
+func readLog(t *testing.T, ctx context.Context, d deps) []decisionlog.Row {
+	t.Helper()
+	rows, err := decisionlog.NewReader(d.pool, d.token).Read(ctx, owner(d.human))
+	if err != nil {
+		t.Fatalf("reading the log: %v", err)
+	}
+	return rows
+}
+
+// verifyLog is the chain walk, as the human the deps compose with.
+func verifyLog(t *testing.T, ctx context.Context, d deps) error {
+	t.Helper()
+	return decisionlog.NewReader(d.pool, d.token).Verify(ctx, owner(d.human))
+}
+
+// decisionRows is rows filtered to the decision shape, in log order. Every
+// [Reader] method appends a read event of its own before it answers, so a test
+// counting decisions filters rather than counting the whole log — the count of
+// read events an assertion would otherwise have to keep in step with turns on
+// how many components happen to read the log along the way, which is not what
+// these tests are about.
+func decisionRows(rows []decisionlog.Row) []decisionlog.Row {
+	var decisions []decisionlog.Row
+	for _, row := range rows {
+		if row.Shape == decisionlog.ShapeDecision {
+			decisions = append(decisions, row)
+		}
+	}
+	return decisions
 }
 
 // only is the one candidate of a single-intent run, which is what most of these

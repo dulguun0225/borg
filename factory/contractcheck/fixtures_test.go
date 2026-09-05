@@ -33,6 +33,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -44,8 +45,8 @@ import (
 )
 
 var (
-	theActor = record.Actor{Kind: record.KindComponent, Name: "test"}
-	theOwner = record.Actor{Kind: record.KindHuman, Name: "owner"}
+	theActor = record.Actor{Kind: record.KindComponent, Key: "test"}
+	theOwner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
 	theBy    = artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
 )
 
@@ -134,16 +135,20 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
 
 	g := graph{
 		pool:     pool,
-		builds:   build.NewWriter(pool),
-		releases: release.NewWriter(pool),
-		deploys:  deploy.NewWriter(pool),
-		windows:  window.NewWriter(pool),
-		items:    item.NewDecomposition(pool),
-		store:    artifact.NewStore(pool),
-		factory:  policy.NewFactory(pool),
+		builds:   build.NewWriter(pool, token),
+		releases: release.NewWriter(pool, token),
+		deploys:  deploy.NewWriter(pool, token),
+		windows:  window.NewWriter(pool, token),
+		items:    item.NewDecomposition(pool, token),
+		store:    artifact.NewStore(pool, token),
+		factory:  policy.NewFactory(pool, token),
 		checkout: &fakeCheckout{
 			publishes: map[string][]contract.Form{},
 			declares:  map[string][]consumercontract.Draft{},
@@ -156,7 +161,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	}
 	g.production = installed.Production.ID
 
-	writer := service.NewWriter(pool)
+	writer := service.NewWriter(pool, token)
 	g.producer, err = writer.Create(ctx, theActor, "producer", t.TempDir())
 	if err != nil {
 		t.Fatalf("writing the producer: %v", err)
@@ -166,7 +171,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		t.Fatalf("writing the consumer: %v", err)
 	}
 
-	g.check, err = contractcheck.New(pool, policy.NewReader(pool, score.Version{}), intent.NewIntake(pool), g.checkout, g.exchanges)
+	g.check, err = contractcheck.New(pool, policy.NewReader(pool, score.Version{}), intent.NewIntake(pool, token), g.checkout, g.exchanges)
 	if err != nil {
 		t.Fatalf("composing the check: %v", err)
 	}
@@ -251,7 +256,7 @@ func ship(t *testing.T, ctx context.Context, g graph, svc service.Service,
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
-	w, err := g.windows.Open(ctx, record.Actor{Kind: record.KindComponent, Name: "health_monitor"}, window.OpenEvent{
+	w, err := g.windows.Open(ctx, record.Actor{Kind: record.KindComponent, Key: "health_monitor"}, window.OpenEvent{
 		DeployID: dep.ID, ReleaseID: rel.ID, ServiceID: svc.ID, PassedAvailable: true,
 		Size: 0.1, Confidence: 0.95, CapSeconds: 1, Formula: "test",
 		PolicyVersion: "pv_1", ScoreVersion: "sv_1",

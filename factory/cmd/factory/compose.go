@@ -50,34 +50,34 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// decision's own row does not name. This is also where the score learns — the
 	// ensure computes the supplied table from every outcome in the store and appends
 	// a version where it has moved.
-	scoreVersion, err := score.NewWriter(d.pool).Ensure(ctx, scoreActor)
+	scoreVersion, err := score.NewWriter(d.pool, d.token).Ensure(ctx, scoreActor)
 	if err != nil {
 		return nil, err
 	}
 
 	p := &path{
 		d:             d,
-		human:         record.Actor{Kind: record.KindHuman, Name: d.human},
+		human:         record.Actor{Kind: record.KindHuman, Key: "person:" + d.human, Basis: record.BasisClaimed},
 		lines:         bufio.NewScanner(d.in),
 		policy:        policy.NewReader(d.pool, scoreVersion),
-		log:           decisionlog.NewWriter(d.pool),
-		store:         artifact.NewStore(d.pool),
-		intake:        intent.NewIntake(d.pool),
-		decomposition: item.NewDecomposition(d.pool),
-		dispatch:      item.NewDispatch(d.pool),
-		builds:        build.NewWriter(d.pool),
-		deploys:       deploy.NewWriter(d.pool),
+		log:           decisionlog.NewWriter(d.pool, d.token),
+		store:         artifact.NewStore(d.pool, d.token),
+		intake:        intent.NewIntake(d.pool, d.token),
+		decomposition: item.NewDecomposition(d.pool, d.token),
+		dispatch:      item.NewDispatch(d.pool, d.token),
+		builds:        build.NewWriter(d.pool, d.token),
+		deploys:       deploy.NewWriter(d.pool, d.token),
 		byItem:        map[string]*candidate{},
 		authored:      map[string]bool{},
 		serviceByID:   map[string]service.Service{},
 	}
-	p.candidates = environment.NewCandidates(d.pool)
+	p.candidates = environment.NewCandidates(d.pool, d.token)
 
 	// The install. The factory-wide settings record and production's environment
 	// record are what an owner authors on, and they exist before a project does —
 	// so this ensures both as the owner and takes the policy version in force from
 	// it.
-	installed, err := policy.NewFactory(d.pool).Install(ctx, p.human, []string{d.dir}, d.credential)
+	installed, err := policy.NewFactory(d.pool, d.token).Install(ctx, p.human, []string{d.dir}, d.credential)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +95,8 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	} else {
 		fmt.Fprintln(d.out, "No drift detector is installed, so every check this factory makes reads a record it wrote itself")
 	}
-	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion, d.draw), p.policy, mismatches)
-	p.queue = mergequeue.New(d.pool, p.log, release.NewWriter(d.pool), p.dispatch, p)
+	p.gate = gate.New(p.log, score.New(d.pool, scoreVersion, d.draw, d.token), p.policy, mismatches)
+	p.queue = mergequeue.New(d.pool, d.token, p.log, release.NewWriter(d.pool, d.token), p.dispatch, p)
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
 
@@ -104,11 +104,11 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// name because a page widens to the owner and the design gives the owner no record;
 	// the health monitor is composed with this same value as its rollbacker, the deploy
 	// agent being what reaches a target.
-	p.notifier, err = notifier.New(d.pool, p.log, terminal{out: d.out}, d.human)
+	p.notifier, err = notifier.New(d.pool, p.log, d.token, terminal{out: d.out}, d.human)
 	if err != nil {
 		return nil, err
 	}
-	p.healthMonitor, err = healthmonitor.New(d.pool, window.NewWriter(d.pool), incident.NewWriter(d.pool),
+	p.healthMonitor, err = healthmonitor.New(d.pool, window.NewWriter(d.pool, d.token), incident.NewWriter(d.pool, d.token),
 		p.intake, p.policy, p.notifier, signalFiles{dir: d.dir}, p)
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			return nil, err
 		}
 		if !found {
-			ar, err = area.NewWriter(d.pool).Declare(ctx, p.human, d.area, "")
+			ar, err = area.NewWriter(d.pool, d.token).Declare(ctx, p.human, d.area, "")
 			if err != nil {
 				return nil, err
 			}

@@ -29,6 +29,10 @@
 // caller's, because the order is the release's number and this package does not
 // read release records.
 //
+// db_test.go is the tests against the database for [Writer.Open] and
+// [Writer.Close]; read_test.go is the tests for the reads, split out because
+// the two together passed 500 lines.
+//
 // Who may write what: [Writer] is the health monitor and there is no other. It
 // inserts a window and closes it; nothing updates any other field and nothing
 // deletes. deploy_id, release_id, and service_id are id fields and not foreign

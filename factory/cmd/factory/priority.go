@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/lease"
 )
 
 // priorityCommand writes the priority an owner reorders a queue with. It is the
@@ -39,13 +39,13 @@ func priorityCommand(args []string) error {
 		return errors.New("factory priority: one argument, the item's id, and then any flags")
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool) error {
-		owner := record.Actor{Kind: record.KindHuman, Name: *human}
-		it, err := item.NewDispatch(pool).SetPriority(ctx, owner, id, *priority)
+	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
+		actor := owner(*human)
+		it, err := item.NewDispatch(pool, token).SetPriority(ctx, actor, id, *priority)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Item %s has priority %d, set by %s %s\n", it.ID, it.Priority, owner.Kind, owner.Name)
+		fmt.Printf("Item %s has priority %d, set by %s %s\n", it.ID, it.Priority, actor.Kind, *human)
 		fmt.Printf("It is at stage %s; the priority orders every queue it waits in as an item and no deploy\n", it.Stage)
 		return nil
 	})

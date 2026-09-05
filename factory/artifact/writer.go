@@ -11,6 +11,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -101,11 +102,12 @@ type Draft struct {
 // contract version introduces. Its three callers are the ones [Authorships]
 // names; nothing else inserts into any of the three tables.
 type Store struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewStore returns the store over pool.
-func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+// NewStore returns the store over pool, fencing every write with token.
+func NewStore(pool *pgxpool.Pool, token lease.Token) *Store { return &Store{pool: pool, token: token} }
 
 // SubmitSpec writes a spec version and every criterion it introduces, in one
 // transaction: the artifact row first — version prior max + 1 for the item,
@@ -127,6 +129,9 @@ func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, by By, itemI
 		return Artifact{}, nil, fmt.Errorf("artifact: beginning the submission: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, s.token); err != nil {
+		return Artifact{}, nil, err
+	}
 
 	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindSpec, content)
 	if err != nil {
@@ -161,6 +166,9 @@ func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, by
 		return Artifact{}, fmt.Errorf("artifact: beginning the submission: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, s.token); err != nil {
+		return Artifact{}, err
+	}
 
 	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindImplementation, content)
 	if err != nil {
@@ -196,6 +204,9 @@ func (s *Store) SubmitConsumerContract(ctx context.Context, actor record.Actor, 
 		return Artifact{}, nil, fmt.Errorf("artifact: beginning the submission: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, s.token); err != nil {
+		return Artifact{}, nil, err
+	}
 
 	submitted, err := insertVersion(ctx, tx, actor, by, itemID, KindConsumerContract, content)
 	if err != nil {
@@ -230,8 +241,8 @@ func refuse(actor record.Actor, by By, itemID string) error {
 }
 
 const insertArtifact = `insert into ` + Table + `
-	(id, actor_kind, actor_name, at, item_id, kind, version, supersedes, authorship, author, content)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, kind, version, supersedes, authorship, author, content)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 
 // insertVersion is every submission: read the prior version for the item and
 // kind, write the next one naming it. Two transactions reading the same
@@ -259,7 +270,7 @@ func insertVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, by By, it
 		Content:    content,
 	}
 	if _, err := tx.Exec(ctx, insertArtifact,
-		a.ID, string(a.Actor.Kind), a.Actor.Name, a.At,
+		a.ID, FormatVersion, string(a.Actor.Kind), a.Actor.Key, string(a.Actor.Basis), a.At,
 		a.ItemID, string(a.Kind), a.Version, a.Supersedes,
 		string(a.Authorship), a.Author, a.Content,
 	); err != nil {
@@ -268,7 +279,7 @@ func insertVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, by By, it
 	return a, nil
 }
 
-const selectArtifact = `select id, actor_kind, actor_name, at, item_id, kind,
+const selectArtifact = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, kind,
 	version, supersedes, authorship, author, content
 	from ` + Table
 
@@ -277,14 +288,15 @@ const selectArtifact = `select id, actor_kind, actor_name, at, item_id, kind,
 // that writes them.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Artifact, error) {
 	var a Artifact
-	var kind, authorship, actorKind string
+	var kind, authorship, actorKind, actorBasis string
 	err := pool.QueryRow(ctx, selectArtifact+` where id = $1`, id).Scan(
-		&a.ID, &actorKind, &a.Actor.Name, &a.At, &a.ItemID, &kind,
+		&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID, &kind,
 		&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content)
 	if err != nil {
 		return Artifact{}, fmt.Errorf("artifact: reading %s: %w", id, err)
 	}
 	a.Actor.Kind = record.Kind(actorKind)
+	a.Actor.Basis = record.Basis(actorBasis)
 	a.Kind = Kind(kind)
 	a.Authorship = Authorship(authorship)
 	return a, nil

@@ -15,16 +15,17 @@ import (
 // reading an intent is not a reason to be handed the thing that writes them.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Intent, error) {
 	var in Intent
-	var kind, source, state string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions
+	var kind, basis, source, state string
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, source, statement, state, rounds, re_decompositions
 		from `+Table+` where id = $1`, id).
-		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.ReDecompositions)
+		Scan(&in.ID, &kind, &in.Actor.Key, &basis, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.ReDecompositions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Intent{}, fmt.Errorf("%w: %s", ErrIntentNotFound, id)
 	} else if err != nil {
 		return Intent{}, fmt.Errorf("intent: reading %s: %w", id, err)
 	}
 	in.Actor.Kind = record.Kind(kind)
+	in.Actor.Basis = record.Basis(basis)
 	in.Source = Source(source)
 	in.State = State(state)
 	return in, nil
@@ -45,17 +46,18 @@ func Unrefined(ctx context.Context, pool *pgxpool.Pool, statement string) (Inten
 		return Intent{}, false, nil
 	}
 	var in Intent
-	var kind, source, state string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_name, at, source, statement, state, rounds, re_decompositions
+	var kind, basis, source, state string
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, source, statement, state, rounds, re_decompositions
 		from `+Table+` where statement = $1 and state = $2 order by at, id limit 1`,
 		statement, string(StateUnrefined)).
-		Scan(&in.ID, &kind, &in.Actor.Name, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.ReDecompositions)
+		Scan(&in.ID, &kind, &in.Actor.Key, &basis, &in.At, &source, &in.Statement, &state, &in.Rounds, &in.ReDecompositions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Intent{}, false, nil
 	} else if err != nil {
 		return Intent{}, false, fmt.Errorf("intent: reading the unrefined intent for a statement: %w", err)
 	}
 	in.Actor.Kind = record.Kind(kind)
+	in.Actor.Basis = record.Basis(basis)
 	in.Source = Source(source)
 	in.State = State(state)
 	return in, true, nil
@@ -65,7 +67,7 @@ func Unrefined(ctx context.Context, pool *pgxpool.Pool, statement string) (Inten
 // The order is the round and not the timestamp, because the round is what the
 // interview counts.
 func Questions(ctx context.Context, pool *pgxpool.Pool, intentID string) ([]Question, error) {
-	rows, err := pool.Query(ctx, `select id, actor_kind, actor_name, at, intent_id, round, question, answer, answered_at
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, intent_id, round, question, answer, answered_at
 		from `+QuestionTable+` where intent_id = $1 order by round`, intentID)
 	if err != nil {
 		return nil, fmt.Errorf("intent: reading the questions of %s: %w", intentID, err)
@@ -75,12 +77,13 @@ func Questions(ctx context.Context, pool *pgxpool.Pool, intentID string) ([]Ques
 	var read []Question
 	for rows.Next() {
 		var q Question
-		var kind string
-		if err := rows.Scan(&q.ID, &kind, &q.Actor.Name, &q.At, &q.IntentID,
+		var kind, basis string
+		if err := rows.Scan(&q.ID, &kind, &q.Actor.Key, &basis, &q.At, &q.IntentID,
 			&q.Round, &q.Question, &q.Answer, &q.AnsweredAt); err != nil {
 			return nil, fmt.Errorf("intent: reading a question of %s: %w", intentID, err)
 		}
 		q.Actor.Kind = record.Kind(kind)
+		q.Actor.Basis = record.Basis(basis)
 		read = append(read, q)
 	}
 	if err := rows.Err(); err != nil {

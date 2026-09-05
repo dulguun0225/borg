@@ -18,7 +18,7 @@ import (
 // a human, and the factory gives the verdict itself.
 func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.1)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -31,8 +31,8 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AutoPass: %v", err)
 	}
-	if closing.Actor.Kind != record.KindComponent || closing.Actor.Name != "gate.merge_to_master" {
-		t.Errorf("the closing's actor is %s %q, want the gate component", closing.Actor.Kind, closing.Actor.Name)
+	if closing.Actor.Kind != record.KindComponent || closing.Actor.Key != "gate.merge_to_master" {
+		t.Errorf("the closing's actor is %s %q, want the gate component", closing.Actor.Kind, closing.Actor.Key)
 	}
 
 	var payload gate.ClosingPayload
@@ -45,7 +45,7 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 
 	// The open event of an auto-pass waits on nobody, which is what tells a
 	// reader of the log that nothing was ever pending here.
-	rows, err := decisionlog.Read(ctx, pool)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 	if opening.WaitsOn != "" {
 		t.Errorf("an auto-passed firing waits on %q, want nothing", opening.WaitsOn)
 	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
 		t.Fatalf("Verify after an auto-pass: %v", err)
 	}
 }
@@ -69,7 +69,7 @@ func TestASafeguardAddsAHumanWhateverTheNumberReads(t *testing.T) {
 	safeguarded.HumanBySafeguard = true
 	safeguarded.Safeguards = []string{"sfg_00000000000000000000000000000001"}
 	s, p := &fakeScore{assessment: assessed(0.05)}, &fakePolicy{applied: safeguarded}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, deployFiring())
 	if err != nil {
@@ -92,7 +92,7 @@ func TestBothReasonsAreToldApart(t *testing.T) {
 	safeguarded := applied(0.3)
 	safeguarded.HumanBySafeguard = true
 	s, p := &fakeScore{assessment: assessed(0.9)}, &fakePolicy{applied: safeguarded}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestBothReasonsAreToldApart(t *testing.T) {
 // and nowhere after it, and hold is offered by the deploy row alone.
 func TestEachRowOffersItsOwnActions(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	merged, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -134,7 +134,7 @@ func TestEachRowOffersItsOwnActions(t *testing.T) {
 // change is still good and the event is queued.
 func TestAHoldCloses(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, deployFiring())
 	if err != nil {
@@ -161,7 +161,7 @@ func TestAHoldCloses(t *testing.T) {
 	if payload.WhyItAutoPassed != "" {
 		t.Errorf("the hold says it was auto-passed by %q", payload.WhyItAutoPassed)
 	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
 		t.Fatalf("Verify after a hold: %v", err)
 	}
 }
@@ -171,7 +171,7 @@ func TestAHoldCloses(t *testing.T) {
 // between.
 func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, g := newGate(t, s, p)
+	ctx, _, _, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -199,7 +199,7 @@ func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 // a reject carrying none is refused and no close event is appended.
 func TestARejectWithoutFeedbackIsRefused(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -209,12 +209,14 @@ func TestARejectWithoutFeedbackIsRefused(t *testing.T) {
 		t.Fatalf("Decide(reject, no feedback) = %v, want ErrFeedbackMissing", err)
 	}
 
-	rows, err := decisionlog.Read(ctx, pool)
+	// Read appends its own read event, so the opening and that event are the two
+	// rows a refused reject leaves.
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("the log holds %d rows after the refused reject, want the opening alone", len(rows))
+	if len(rows) != 2 {
+		t.Fatalf("the log holds %d rows after the refused reject, want the opening and the read event", len(rows))
 	}
 }
 
@@ -224,7 +226,7 @@ func TestARejectWithoutFeedbackIsRefused(t *testing.T) {
 func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 	// A number over the threshold, so the firing puts a human at the row.
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, pool, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
@@ -242,8 +244,8 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AutoReject: %v", err)
 	}
-	if closing.Actor.Kind != record.KindComponent || closing.Actor.Name != "gate.merge_to_master" {
-		t.Errorf("the close event was written as %s %s, want the gate component", closing.Actor.Kind, closing.Actor.Name)
+	if closing.Actor.Kind != record.KindComponent || closing.Actor.Key != "gate.merge_to_master" {
+		t.Errorf("the close event was written as %s %s, want the gate component", closing.Actor.Kind, closing.Actor.Key)
 	}
 	var payload gate.ClosingPayload
 	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
@@ -255,7 +257,7 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 	if payload.Feedback == "" || payload.ReturnsTo != gate.ReturnsTo {
 		t.Errorf("a mechanical reject carries feedback %q and returns to %q", payload.Feedback, payload.ReturnsTo)
 	}
-	if err := decisionlog.Verify(ctx, pool); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
 		t.Fatalf("the chain does not verify after a mechanical reject: %v", err)
 	}
 
@@ -303,7 +305,7 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 	// Over the threshold and held out: no human, and the close event says the
 	// sample passed it.
 	s := &fakeScore{assessment: assessed(0.6), selection: score.Selection{HeldOut: true, Why: score.SelectedHere}}
-	ctx, _, g := newGate(t, s, &fakePolicy{applied: applied(0.3)})
+	ctx, _, _, g := newGate(t, s, &fakePolicy{applied: applied(0.3)})
 	opened, err := g.Fire(ctx, mergeFiring)
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
@@ -335,7 +337,7 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 	safeguarded := &fakeScore{assessment: assessed(0.1), selection: score.Selection{HeldOut: true}}
 	safeguardedApplied := applied(0.3)
 	safeguardedApplied.HumanBySafeguard = true
-	ctx, _, g = newGate(t, safeguarded, &fakePolicy{applied: safeguardedApplied})
+	ctx, _, _, g = newGate(t, safeguarded, &fakePolicy{applied: safeguardedApplied})
 	opened, err = g.Fire(ctx, mergeFiring)
 	if err != nil {
 		t.Fatalf("Fire over a row a safeguard reached: %v", err)
@@ -351,7 +353,7 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 	// item's — and the close event says the threshold, because the score would have
 	// passed this one anyway and it is evidence about no gate.
 	under := &fakeScore{assessment: assessed(0.1), selection: score.Selection{HeldOut: true, Why: score.SelectedEarlier}}
-	ctx, _, g = newGate(t, under, &fakePolicy{applied: applied(0.3)})
+	ctx, _, _, g = newGate(t, under, &fakePolicy{applied: applied(0.3)})
 	opened, err = g.Fire(ctx, mergeFiring)
 	if err != nil {
 		t.Fatalf("Fire under the threshold: %v", err)

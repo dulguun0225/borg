@@ -23,6 +23,14 @@ const (
 	LastCheckIDPrefix = "chk"
 )
 
+// FormatVersionMismatch and FormatVersionLastCheck are written into
+// format_version on every insert into [MismatchTable] and [LastCheckTable]
+// respectively.
+const (
+	FormatVersionMismatch  = "drift_mismatch/1"
+	FormatVersionLastCheck = "drift_last_check/1"
+)
+
 // DefaultURL is the drift detector's own store as the demonstration runs it: the
 // development database with a schema of its own. A second schema on one PostgreSQL
 // is where this store's independence is weakest and it is stated rather than hidden —

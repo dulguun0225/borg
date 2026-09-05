@@ -355,20 +355,20 @@ func TestDDLRefusesAMismatchClearedWithoutAHumanAndALastCheckUnreachedWithNoWhy(
 	ctx, pool, _ := newTable(t)
 
 	_, err := pool.Exec(ctx, `insert into `+driftdetector.MismatchTable+`
-		(id, actor_kind, actor_name, at, service_id, target, running_build,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, running_build,
 		 recorded_release_id, recorded_build_id, later_agreements, cleared_at, cleared_by)
-		values ($1, 'component', 'driftdetector', $2, $3, $4, $5, $6, $7, 0, $8, '')`,
-		record.NewID(driftdetector.MismatchIDPrefix), record.Now(), record.NewID("svc"), record.NewID("tgt"),
+		values ($1, $2, 'component', 'driftdetector', '', $3, $4, $5, $6, $7, $8, 0, $9, '')`,
+		record.NewID(driftdetector.MismatchIDPrefix), driftdetector.FormatVersionMismatch, record.Now(), record.NewID("svc"), record.NewID("tgt"),
 		record.NewID("bl"), record.NewID("rel"), record.NewID("bl"), record.Now())
 	if err == nil {
 		t.Error("the store accepted a mismatch cleared with a time and no human")
 	}
 
 	_, err = pool.Exec(ctx, `insert into `+driftdetector.LastCheckTable+`
-		(id, actor_kind, actor_name, at, service_id, target, reached, why,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, reached, why,
 		 running_build, recorded_release_id, recorded_build_id, agreed)
-		values ($1, 'component', 'driftdetector', $2, $3, $4, false, '', $5, $6, $7, false)`,
-		record.NewID(driftdetector.LastCheckIDPrefix), record.Now(), record.NewID("svc"), record.NewID("tgt"),
+		values ($1, $2, 'component', 'driftdetector', '', $3, $4, $5, false, '', $6, $7, $8, false)`,
+		record.NewID(driftdetector.LastCheckIDPrefix), driftdetector.FormatVersionLastCheck, record.Now(), record.NewID("svc"), record.NewID("tgt"),
 		record.NewID("bl"), record.NewID("rel"), record.NewID("bl"))
 	if err == nil {
 		t.Error("the store accepted a last check unreached with no reason")

@@ -20,13 +20,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/incident"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
 // healthMonitor is the one writer of incidents, the way doc.go names it. A human
 // is never one; TestAHumanActorIsRefused is the mirror of that.
-var healthMonitor = record.Actor{Kind: record.KindComponent, Name: "health_monitor"}
+var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health_monitor"}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *incident.Writer) {
 	t.Helper()
@@ -57,7 +58,11 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *incident.Writer) {
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
-	return ctx, pool, incident.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return ctx, pool, incident.NewWriter(pool, token)
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -119,7 +124,7 @@ func TestRaiseWritesTheIncidentOpenWithNoObservations(t *testing.T) {
 
 func TestAHumanActorIsRefused(t *testing.T) {
 	ctx, pool, w := newTable(t)
-	human := record.Actor{Kind: record.KindHuman, Name: "owner"}
+	human := record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
 
 	if _, err := w.Raise(ctx, human, raising()); !errors.Is(err, incident.ErrNotAComponent) {
 		t.Errorf("Raise by a human = %v, want ErrNotAComponent", err)
@@ -128,10 +133,10 @@ func TestAHumanActorIsRefused(t *testing.T) {
 	// Around the writer, the CHECK constraint refuses the same thing.
 	r := raising()
 	_, err := pool.Exec(ctx, `insert into `+incident.Table+`
-		(id, actor_kind, actor_name, at, environment_id, service_id, release_id, deploy_id,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 		 crossing, intent_id, observations, status, resolved_at)
-		values ($1, 'human', 'owner', $2, $3, $4, $5, $6, $7, '', 0, 'open', '')`,
-		record.NewID(incident.IDPrefix), record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID, r.Crossing)
+		values ($1, $2, 'human', 'owner', 'claimed', $3, $4, $5, $6, $7, $8, '', 0, 'open', '')`,
+		record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID, r.Crossing)
 	if err == nil {
 		t.Error("the store accepted an incident written by a human")
 	}
@@ -243,10 +248,10 @@ func TestDDLListsEveryStatus(t *testing.T) {
 			resolvedAt = record.Now()
 		}
 		_, err := pool.Exec(ctx, `insert into `+incident.Table+`
-			(id, actor_kind, actor_name, at, environment_id, service_id, release_id, deploy_id,
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 			 crossing, intent_id, observations, status, resolved_at)
-			values ($1, 'component', 'health_monitor', $2, $3, $4, $5, $6, $7, '', 0, $8, $9)`,
-			record.NewID(incident.IDPrefix), record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
+			values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, '', 0, $9, $10)`,
+			record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
 			r.Crossing, string(status), resolvedAt)
 		if err != nil {
 			t.Errorf("inserting status %q, one of incident.Statuses, was refused: %v", status, err)
@@ -255,10 +260,10 @@ func TestDDLListsEveryStatus(t *testing.T) {
 
 	r := raising()
 	_, err := pool.Exec(ctx, `insert into `+incident.Table+`
-		(id, actor_kind, actor_name, at, environment_id, service_id, release_id, deploy_id,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 		 crossing, intent_id, observations, status, resolved_at)
-		values ($1, 'component', 'health_monitor', $2, $3, $4, $5, $6, $7, '', 0, 'flaky', '')`,
-		record.NewID(incident.IDPrefix), record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID, r.Crossing)
+		values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, '', 0, 'flaky', '')`,
+		record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID, r.Crossing)
 	if err == nil {
 		t.Error("the store accepted a status outside incident.Statuses")
 	}

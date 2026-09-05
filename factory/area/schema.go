@@ -8,6 +8,10 @@ const Table = "area"
 // IDPrefix is what [record.NewID] is called with for an area.
 const IDPrefix = "ar"
 
+// FormatVersion is what this package writes into format_version on every
+// insert into [Table].
+const FormatVersion = "area/1"
+
 // DDL is this package's schema. [record.Columns] and [record.Constraints] are
 // composed rather than restated, so the actor field and its constraints are
 // the same ones every record table carries.

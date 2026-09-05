@@ -13,7 +13,7 @@ import (
 // Actor is who the drift detector's rows are written as. It is a component
 // like any other: what makes this store independent is that no factory
 // component may write it, not that its rows have no author.
-var Actor = record.Actor{Kind: record.KindComponent, Name: "driftdetector"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "driftdetector"}
 
 var (
 	// ErrPassIncomplete is returned by [Writer.Record] for a pass missing something
@@ -185,16 +185,16 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 		Agreed:            agreed,
 	}
 	_, err := w.pool.Exec(ctx, `insert into `+LastCheckTable+`
-		(id, actor_kind, actor_name, at, service_id, target, reached, why,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, reached, why,
 		 running_build, recorded_release_id, recorded_build_id, agreed)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		on conflict (service_id, target) do update set
 			at = excluded.at, reached = excluded.reached, why = excluded.why,
 			running_build = excluded.running_build,
 			recorded_release_id = excluded.recorded_release_id,
 			recorded_build_id = excluded.recorded_build_id,
 			agreed = excluded.agreed`,
-		c.ID, string(c.Actor.Kind), c.Actor.Name, c.At, c.ServiceID, c.Target,
+		c.ID, FormatVersionLastCheck, string(c.Actor.Kind), c.Actor.Key, string(c.Actor.Basis), c.At, c.ServiceID, c.Target,
 		c.Reached, c.Why, c.RunningBuild, c.RecordedReleaseID, c.RecordedBuildID, c.Agreed,
 	)
 	if err != nil {
@@ -229,10 +229,10 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 			RecordedBuildID:   p.RecordedBuildID,
 		}
 		_, err := w.pool.Exec(ctx, `insert into `+MismatchTable+`
-			(id, actor_kind, actor_name, at, service_id, target, running_build,
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, running_build,
 			 recorded_release_id, recorded_build_id, later_agreements, cleared_at, cleared_by)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, '', '')`,
-			m.ID, string(m.Actor.Kind), m.Actor.Name, m.At, m.ServiceID, m.Target,
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, '', '')`,
+			m.ID, FormatVersionMismatch, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At, m.ServiceID, m.Target,
 			m.RunningBuild, m.RecordedReleaseID, m.RecordedBuildID,
 		)
 		if err != nil {

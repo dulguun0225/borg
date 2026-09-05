@@ -194,6 +194,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 	row, err := g.log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         component(Decomposition),
 		Payload:       string(payload),
+		FormatVersion: decisionFormatVersion,
 		PolicyVersion: policyApplied.PolicyVersion,
 		ScoreVersion:  applied.Version,
 	})

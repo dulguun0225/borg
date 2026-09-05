@@ -22,16 +22,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
-var owner = record.Actor{Kind: record.KindHuman, Name: "owner"}
+var owner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
 
 var credential = secretref.MustNew("deploy.local")
 
-func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *environment.Writer) {
+func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *environment.Writer, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -59,7 +60,11 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *environment.Writer
 	if err := postgres.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
-	return ctx, pool, environment.NewWriter(pool)
+	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return ctx, pool, environment.NewWriter(pool, token), token
 }
 
 func inSchema(t *testing.T, base, schema string) string {
@@ -78,7 +83,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // record and not a name in code, and what it names is where a deploy into it is
 // performed and what it is performed with.
 func TestProductionIsCreatedWithItsTargetsAndItsCredential(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 
 	targets := []string{"/srv/targets/one", "/srv/targets/two"}
 	created, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, targets, credential)
@@ -111,7 +116,7 @@ func TestProductionIsCreatedWithItsTargetsAndItsCredential(t *testing.T) {
 // kinds, the deploy agent writes a candidate's, each refuses the other's, and a
 // kind neither builds is refused by the writer and by the store.
 func TestTheKindIsTheSeamAndOnlyOneIsWritten(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 
 	if _, err := w.Create(ctx, owner, environment.KindCandidate, "cand", []string{"/srv"}, credential); !errors.Is(err, environment.ErrNotAnOwnersKind) {
 		t.Errorf("an owner creating a candidate's environment = %v, want ErrNotAnOwnersKind", err)
@@ -127,23 +132,23 @@ func TestTheKindIsTheSeamAndOnlyOneIsWritten(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+environment.Table+`
-		(id, actor_kind, actor_name, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
-		values ('env_x', 'human', 'owner', $1, 'staging', 'stg', '/srv', 'deploy.local', '', '', '')`,
-		record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
+		values ('env_x', $1, 'human', 'owner', 'claimed', $2, 'staging', 'stg', '/srv', 'deploy.local', '', '', '')`,
+		environment.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted a kind written around the writer")
 	}
 	// A candidate's record names its item and a persistent one names none, which
 	// the store enforces in both directions.
 	if _, err := pool.Exec(ctx, `insert into `+environment.Table+`
-		(id, actor_kind, actor_name, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
-		values ('env_y', 'component', 'deploy', $1, 'candidate', 'candidate/none', '/srv', 'deploy.local', '', '', '')`,
-		record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
+		values ('env_y', $1, 'component', 'deploy', '', $2, 'candidate', 'candidate/none', '/srv', 'deploy.local', '', '', '')`,
+		environment.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted a candidate's environment naming no item")
 	}
 	if _, err := pool.Exec(ctx, `insert into `+environment.Table+`
-		(id, actor_kind, actor_name, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
-		values ('env_z', 'human', 'owner', $1, 'production', 'production-2', '/srv', 'deploy.local', 'it_a', '', '')`,
-		record.Now()); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, name, targets, credential, item_id, composed_from, torn_down_at)
+		values ('env_z', $1, 'human', 'owner', 'claimed', $2, 'production', 'production-2', '/srv', 'deploy.local', 'it_a', '', '')`,
+		environment.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted a persistent environment naming an item")
 	}
 }
@@ -175,7 +180,7 @@ func TestDDLListsEveryKind(t *testing.T) {
 // TestAThresholdExistsOnlyWhereAnOwnerAuthoredOne: an absent row is the score
 // supplying the value, and re-authoring is one row rather than two.
 func TestAThresholdExistsOnlyWhereAnOwnerAuthoredOne(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, token := newTable(t)
 
 	production, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, []string{"/srv"}, credential)
 	if err != nil {
@@ -195,7 +200,7 @@ func TestAThresholdExistsOnlyWhereAnOwnerAuthoredOne(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
-		if err := environment.SetGateThreshold(ctx, tx, owner, production.ID, "merge_to_master", threshold); err != nil {
+		if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "merge_to_master", threshold); err != nil {
 			t.Fatalf("SetGateThreshold(%v): %v", threshold, err)
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -224,7 +229,7 @@ func TestAThresholdExistsOnlyWhereAnOwnerAuthoredOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if err := environment.SetGateThreshold(ctx, tx, owner, production.ID, "deploy_to_production", 0.5); err != nil {
+	if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "deploy_to_production", 0.5); err != nil {
 		t.Fatalf("SetGateThreshold on a second row: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -243,7 +248,7 @@ func TestAThresholdExistsOnlyWhereAnOwnerAuthoredOne(t *testing.T) {
 // and one, so a threshold outside that compares against nothing the score can
 // produce. The writer refuses it and so does the store.
 func TestAThresholdOffTheScaleIsRefusedTwice(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, token := newTable(t)
 
 	production, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, []string{"/srv"}, credential)
 	if err != nil {
@@ -255,17 +260,17 @@ func TestAThresholdOffTheScaleIsRefusedTwice(t *testing.T) {
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := environment.SetGateThreshold(ctx, tx, owner, production.ID, "merge_to_master", 1.5); !errors.Is(err, environment.ErrThresholdOutOfRange) {
+	if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "merge_to_master", 1.5); !errors.Is(err, environment.ErrThresholdOutOfRange) {
 		t.Errorf("SetGateThreshold(1.5) = %v, want ErrThresholdOutOfRange", err)
 	}
-	if err := environment.SetGateThreshold(ctx, tx, owner, production.ID, "", 0.5); !errors.Is(err, environment.ErrGateRowEmpty) {
+	if err := environment.SetGateThreshold(ctx, tx, token, owner, production.ID, "", 0.5); !errors.Is(err, environment.ErrGateRowEmpty) {
 		t.Errorf("SetGateThreshold naming no row = %v, want ErrGateRowEmpty", err)
 	}
 
 	if _, err := pool.Exec(ctx, `insert into `+environment.ThresholdTable+`
-		(id, actor_kind, actor_name, at, environment_id, gate_row, threshold)
-		values ('egt_x', 'human', 'owner', $1, $2, 'merge_to_master', 1.5)`,
-		record.Now(), production.ID); err == nil {
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, gate_row, threshold)
+		values ('egt_x', $1, 'human', 'owner', 'claimed', $2, $3, 'merge_to_master', 1.5)`,
+		environment.FormatVersionThreshold, record.Now(), production.ID); err == nil {
 		t.Error("the store accepted a threshold off the scale written around the writer")
 	}
 }
@@ -273,7 +278,7 @@ func TestAThresholdOffTheScaleIsRefusedTwice(t *testing.T) {
 // TestTheCredentialIsAReferenceAndNoValue: nothing that renders this record
 // renders a secret, which is the seam the store carries from the first record.
 func TestTheCredentialIsAReferenceAndNoValue(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 
 	created, err := w.Create(ctx, owner, environment.KindProduction, environment.ProductionName, []string{"/srv"}, credential)
 	if err != nil {
@@ -294,7 +299,7 @@ func TestTheCredentialIsAReferenceAndNoValue(t *testing.T) {
 
 // deployAgent is the candidate kind's writer: the one component that reaches a
 // deploy target at all is the one that reaches environments.
-var deployAgent = record.Actor{Kind: record.KindComponent, Name: "deploy"}
+var deployAgent = record.Actor{Kind: record.KindComponent, Key: "deploy"}
 
 // TestACandidatesEnvironmentIsComposedRecomposedAndTornDown is the candidate
 // kind's whole life: composed at the approval of the gate that decides its deploy,
@@ -302,8 +307,8 @@ var deployAgent = record.Actor{Kind: record.KindComponent, Name: "deploy"}
 // a re-verification, and torn down at the merge with the row kept — because the
 // deploy records naming it would otherwise point at nothing.
 func TestACandidatesEnvironmentIsComposedRecomposedAndTornDown(t *testing.T) {
-	ctx, pool, _ := newTable(t)
-	candidates := environment.NewCandidates(pool)
+	ctx, pool, _, token := newTable(t)
+	candidates := environment.NewCandidates(pool, token)
 	const itemID = "it_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 	composed := []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_one"}}
@@ -377,8 +382,8 @@ func TestACandidatesEnvironmentIsComposedRecomposedAndTornDown(t *testing.T) {
 // TestTheCandidateWriterRefusesWhatIsNotACandidates: the two writers never write
 // or touch a record of the other's kind, and a composition entry names both halves.
 func TestTheCandidateWriterRefusesWhatIsNotACandidates(t *testing.T) {
-	ctx, pool, w := newTable(t)
-	candidates := environment.NewCandidates(pool)
+	ctx, pool, w, token := newTable(t)
+	candidates := environment.NewCandidates(pool, token)
 
 	production, err := w.Create(ctx, owner, environment.KindProduction,
 		environment.ProductionName, []string{"/srv"}, credential)
@@ -421,8 +426,8 @@ func TestTheCandidateWriterRefusesWhatIsNotACandidates(t *testing.T) {
 // it. Authoring one on it is refused where it is authored rather than left to a
 // reader to notice a value nothing will ever compare against.
 func TestACandidatesEnvironmentHoldsNothingAnOwnerAuthored(t *testing.T) {
-	ctx, pool, _ := newTable(t)
-	env, err := environment.NewCandidates(pool).Compose(ctx, deployAgent, "it_a",
+	ctx, pool, _, token := newTable(t)
+	env, err := environment.NewCandidates(pool, token).Compose(ctx, deployAgent, "it_a",
 		[]string{"/srv/candidate"}, credential, nil)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -433,11 +438,11 @@ func TestACandidatesEnvironmentHoldsNothingAnOwnerAuthored(t *testing.T) {
 		t.Fatalf("beginning a transaction: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	err = environment.SetGateThreshold(ctx, tx, owner, env.ID, "merge_to_master", 0.4)
+	err = environment.SetGateThreshold(ctx, tx, token, owner, env.ID, "merge_to_master", 0.4)
 	if !errors.Is(err, environment.ErrNotAnOwnersKind) {
 		t.Errorf("authoring a threshold on a candidate's environment = %v, want ErrNotAnOwnersKind", err)
 	}
-	if err := environment.SetGateThreshold(ctx, tx, owner, "env_missing", "merge_to_master", 0.4); !errors.Is(err, environment.ErrNotFound) {
+	if err := environment.SetGateThreshold(ctx, tx, token, owner, "env_missing", "merge_to_master", 0.4); !errors.Is(err, environment.ErrNotFound) {
 		t.Errorf("authoring a threshold on a missing environment = %v, want ErrNotFound", err)
 	}
 }

@@ -17,19 +17,20 @@ import (
 // contract is not a reason to be handed the thing that writes one. That is the
 // arrangement every record package in the factory has.
 
-const selectPredicate = `select id, actor_kind, actor_name, at, item_id, service_id, artifact_id,
+const selectPredicate = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, artifact_id,
 	producer_service, producer_service_id, interface_name, element, kind, argument
 	from ` + Table
 
 func scan(row pgx.Row) (Predicate, error) {
 	var p Predicate
-	var kind, predicateKind string
-	err := row.Scan(&p.ID, &kind, &p.Actor.Name, &p.At, &p.ItemID, &p.ServiceID, &p.ArtifactID,
+	var kind, basis, predicateKind string
+	err := row.Scan(&p.ID, &kind, &p.Actor.Key, &basis, &p.At, &p.ItemID, &p.ServiceID, &p.ArtifactID,
 		&p.ProducerService, &p.ProducerServiceID, &p.Interface, &p.Element, &predicateKind, &p.Argument)
 	if err != nil {
 		return Predicate{}, err
 	}
 	p.Actor.Kind = record.Kind(kind)
+	p.Actor.Basis = record.Basis(basis)
 	p.Kind = gatepolicy.PredicateKind(predicateKind)
 	return p, nil
 }
@@ -69,7 +70,7 @@ func ForItems(ctx context.Context, pool *pgxpool.Pool, itemIDs []string) ([]Pred
 	if len(itemIDs) == 0 {
 		return nil, nil
 	}
-	return list(ctx, pool, `select d.id, d.actor_kind, d.actor_name, d.at, d.item_id, d.service_id,
+	return list(ctx, pool, `select d.id, d.actor_kind, d.actor_key, d.actor_key_basis, d.at, d.item_id, d.service_id,
 		d.artifact_id, d.producer_service, d.producer_service_id, d.interface_name, d.element,
 		d.kind, d.argument
 		from `+Table+` d

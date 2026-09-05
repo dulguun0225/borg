@@ -124,7 +124,7 @@ func (p *path) settle(ctx context.Context, opened gate.Opened) (gate.Verdict, st
 		return "", "", decisionlog.Row{}, err
 	}
 	fmt.Fprintf(p.d.out, "The verdict is %s; close event %s written as %s %s\n",
-		verdict, closing.ID, closing.Actor.Kind, closing.Actor.Name)
+		verdict, closing.ID, closing.Actor.Kind, p.d.human)
 	return verdict, feedback, closing, nil
 }
 

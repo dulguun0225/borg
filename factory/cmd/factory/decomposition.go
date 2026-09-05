@@ -37,7 +37,7 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			if err != nil {
 				return nil, err
 			}
-			svc, err = service.NewWriter(d.pool).Create(ctx, decompositionActor, name, repo)
+			svc, err = service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor, name, repo)
 			if err != nil {
 				return nil, err
 			}

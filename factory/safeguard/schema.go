@@ -8,6 +8,10 @@ const Table = "safeguard"
 // IDPrefix is what [record.NewID] is called with for a safeguard.
 const IDPrefix = "sfg"
 
+// FormatVersion is written into every safeguard record's format_version
+// column.
+const FormatVersion = "safeguard/1"
+
 // DDL is this package's schema. [record.Columns] and [record.Constraints] are
 // composed rather than restated.
 //

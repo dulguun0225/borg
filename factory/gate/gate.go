@@ -83,6 +83,12 @@ type NoDriftDetector struct{}
 // Mismatch is never one.
 func (NoDriftDetector) Mismatch(context.Context, string) (bool, string, error) { return false, "", nil }
 
+// decisionFormatVersion is the format version every row of a decision — the
+// open event and the close event, over one item's build or over a set — is
+// appended with. It names [decisionlog.ShapeDecision] through
+// [decisionlog.Formats].
+const decisionFormatVersion = "decision/1"
+
 // Gate is the gate component: it appends a decision's two rows through the log's
 // writer, asking the score and the policy before the first.
 type Gate struct {
@@ -112,7 +118,7 @@ func New(log *decisionlog.Writer, s Score, p Policy, r DriftDetector) *Gate {
 // the same actor the close event does. A caller composing the name itself would be
 // a second place the convention lives.
 func Component(row Row) record.Actor {
-	return record.Actor{Kind: record.KindComponent, Name: "gate." + string(row)}
+	return record.Actor{Kind: record.KindComponent, Key: "gate." + string(row)}
 }
 
 // component is [Component], for this package's own calls.

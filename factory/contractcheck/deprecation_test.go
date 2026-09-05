@@ -120,7 +120,7 @@ func TestASafeguardsPredicateBlocksTheRemovalAndIsToldApartFromAConsumerContract
 	if checked.Check() != gate.AutoRejectedBySafeguardPredicate {
 		t.Errorf("the check that rejected is %q, want the safeguard's predicate", checked.Check())
 	}
-	if !contains(checked.Why(), placed.ID) || !contains(checked.Why(), theOwner.Name) {
+	if !contains(checked.Why(), placed.ID) || !contains(checked.Why(), theOwner.Key) {
 		t.Errorf("the rejection names neither the safeguard nor its author: %s", checked.Why())
 	}
 

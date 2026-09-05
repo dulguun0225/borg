@@ -23,9 +23,9 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 		t.Fatalf("ReportAttempt: %v", err)
 	}
 
-	insertItem := `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id,
+	insertItem := `insert into item (id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id,
 		branch, stage, waits_on, superseded_by, priority)
-		values ($1, 'component', 'decomposition', $2, 'in_x', 'svc_x', 'ar_x', $3, $4, '', '', 0)`
+		values ($1, '` + item.FormatVersion + `', 'component', 'decomposition', '', $2, 'in_x', 'svc_x', 'ar_x', $3, $4, '', '', 0)`
 	for _, refused := range []struct {
 		name       string
 		branch     string
@@ -43,16 +43,16 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 
 	// An empty link, at the column representing this package's three: the
 	// store refuses it around the writer too.
-	if _, err := pool.Exec(ctx, `insert into item (id, actor_kind, actor_name, at, intent_id, service_id, area_id,
+	if _, err := pool.Exec(ctx, `insert into item (id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id,
 		branch, stage, waits_on, superseded_by, priority)
-		values ($1, 'component', 'decomposition', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec', '', '', 0)`,
+		values ($1, '`+item.FormatVersion+`', 'component', 'decomposition', '', $2, '', 'svc_x', 'ar_x', 'item/x', 'spec', '', '', 0)`,
 		record.NewID(item.IDPrefix), record.Now(),
 	); err == nil || !strings.Contains(err.Error(), "intent_id_present") {
 		t.Errorf("inserting an item naming no intent = %v, want a violation of intent_id_present", err)
 	}
 
-	insertStage := `insert into item_stage (id, actor_kind, actor_name, at, item_id, stage, attempts, spend_tokens)
-		values ($1, 'component', 'dispatch', $2, $3, $4, $5, $6)`
+	insertStage := `insert into item_stage (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, spend_tokens)
+		values ($1, '` + item.FormatVersionStage + `', 'component', 'dispatch', '', $2, $3, $4, $5, $6)`
 	for _, refused := range []struct {
 		name       string
 		stage      string

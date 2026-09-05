@@ -79,19 +79,20 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Mismatch, error) {
 	return m, nil
 }
 
-const selectMismatch = `select id, actor_kind, actor_name, at, service_id, target, running_build,
+const selectMismatch = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, target, running_build,
 	recorded_release_id, recorded_build_id, later_agreements, cleared_at, cleared_by
 	from ` + MismatchTable
 
 func scanMismatch(row pgx.Row) (Mismatch, error) {
 	var m Mismatch
-	var kind string
-	err := row.Scan(&m.ID, &kind, &m.Actor.Name, &m.At, &m.ServiceID, &m.Target, &m.RunningBuild,
+	var kind, basis string
+	err := row.Scan(&m.ID, &kind, &m.Actor.Key, &basis, &m.At, &m.ServiceID, &m.Target, &m.RunningBuild,
 		&m.RecordedReleaseID, &m.RecordedBuildID, &m.LaterAgreements, &m.ClearedAt, &m.ClearedBy)
 	if err != nil {
 		return Mismatch{}, err
 	}
 	m.Actor.Kind = record.Kind(kind)
+	m.Actor.Basis = record.Basis(basis)
 	return m, nil
 }
 
@@ -141,7 +142,7 @@ func unclearedOn(ctx context.Context, pool *pgxpool.Pool, serviceID, target stri
 // it catches, so this is read rather than the absence of mismatches being taken
 // as health.
 func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]LastCheck, error) {
-	statement := `select id, actor_kind, actor_name, at, service_id, target, reached, why,
+	statement := `select id, actor_kind, actor_key, actor_key_basis, at, service_id, target, reached, why,
 		running_build, recorded_release_id, recorded_build_id, agreed
 		from ` + LastCheckTable
 	args := []any{}
@@ -160,12 +161,13 @@ func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]La
 	var read []LastCheck
 	for rows.Next() {
 		var c LastCheck
-		var kind string
-		if err := rows.Scan(&c.ID, &kind, &c.Actor.Name, &c.At, &c.ServiceID, &c.Target,
+		var kind, basis string
+		if err := rows.Scan(&c.ID, &kind, &c.Actor.Key, &basis, &c.At, &c.ServiceID, &c.Target,
 			&c.Reached, &c.Why, &c.RunningBuild, &c.RecordedReleaseID, &c.RecordedBuildID, &c.Agreed); err != nil {
 			return nil, fmt.Errorf("driftdetector: reading a last check: %w", err)
 		}
 		c.Actor.Kind = record.Kind(kind)
+		c.Actor.Basis = record.Basis(basis)
 		read = append(read, c)
 	}
 	if err := rows.Err(); err != nil {

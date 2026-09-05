@@ -8,6 +8,10 @@ const Table = "artifact"
 // IDPrefix is what [record.NewID] is called with for a row of this table.
 const IDPrefix = "art"
 
+// FormatVersion is what this package writes into format_version on every
+// insert into [Table].
+const FormatVersion = "artifact/1"
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than
 // restated, so the actor field and its constraints are the same ones every

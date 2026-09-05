@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -33,11 +34,14 @@ type Build struct {
 
 // Writer is the one writer of build records.
 type Writer struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
 }
 
-// NewWriter returns the writer over pool.
-func NewWriter(pool *pgxpool.Pool) *Writer { return &Writer{pool: pool} }
+// NewWriter returns the writer over pool, fencing every write with token.
+func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
+	return &Writer{pool: pool, token: token}
+}
 
 // Create writes the build record, once. The record is never written again —
 // there is no update method — and building the same commit for the same item
@@ -61,18 +65,31 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, itemID, commitH
 		ItemID:     itemID,
 		CommitHash: commitHash,
 	}
-	_, err := w.pool.Exec(ctx, `insert into `+Table+`
-		(id, actor_kind, actor_name, at, item_id, commit_hash)
-		values ($1, $2, $3, $4, $5, $6)`,
-		b.ID, string(b.Actor.Kind), b.Actor.Name, b.At, b.ItemID, b.CommitHash,
+
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Build{}, fmt.Errorf("build: beginning the creation of %s: %w", b.ID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Build{}, err
+	}
+
+	_, err = tx.Exec(ctx, `insert into `+Table+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash)
+		values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		b.ID, FormatVersion, string(b.Actor.Kind), b.Actor.Key, string(b.Actor.Basis), b.At, b.ItemID, b.CommitHash,
 	)
 	if err != nil {
 		return Build{}, fmt.Errorf("build: creating %s: %w", b.ID, err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return Build{}, fmt.Errorf("build: committing %s: %w", b.ID, err)
+	}
 	return b, nil
 }
 
-const selectBuild = `select id, actor_kind, actor_name, at, item_id, commit_hash
+const selectBuild = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, commit_hash
 	from ` + Table
 
 // Get is one build by id. It takes the pool and not a [Writer], because
@@ -104,11 +121,12 @@ func ForCommit(ctx context.Context, pool *pgxpool.Pool, itemID, commitHash strin
 
 func scan(row pgx.Row) (Build, error) {
 	var b Build
-	var kind string
-	if err := row.Scan(&b.ID, &kind, &b.Actor.Name, &b.At, &b.ItemID, &b.CommitHash); err != nil {
+	var kind, basis string
+	if err := row.Scan(&b.ID, &kind, &b.Actor.Key, &basis, &b.At, &b.ItemID, &b.CommitHash); err != nil {
 		return Build{}, err
 	}
 	b.Actor.Kind = record.Kind(kind)
+	b.Actor.Basis = record.Basis(basis)
 	return b, nil
 }
 

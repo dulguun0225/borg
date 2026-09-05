@@ -50,8 +50,8 @@ type Criterion struct {
 }
 
 const insertCriterion = `insert into ` + Table + `
-	(id, actor_kind, actor_name, at, service_id, spec_artifact_id, item_id, sentence, pattern, escape_reason)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+	(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id, sentence, pattern, escape_reason)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
 
 // Insert writes one criterion inside tx. Its one caller is the artifact
 // store, which calls it inside the transaction that submits the spec version
@@ -100,7 +100,7 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID, specA
 		EscapeReason:   escapeReason,
 	}
 	if _, err := tx.Exec(ctx, insertCriterion,
-		c.ID, string(c.Actor.Kind), c.Actor.Name, c.At,
+		c.ID, FormatVersion, string(c.Actor.Kind), c.Actor.Key, string(c.Actor.Basis), c.At,
 		c.ServiceID, c.SpecArtifactID, c.ItemID, c.Sentence, string(c.Pattern), c.EscapeReason,
 	); err != nil {
 		return Criterion{}, fmt.Errorf("criterion: writing %s: %w", c.ID, err)
@@ -108,7 +108,7 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID, specA
 	return c, nil
 }
 
-const selectInForce = `select id, actor_kind, actor_name, at, service_id, spec_artifact_id, item_id,
+const selectInForce = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id,
 	sentence, pattern, escape_reason
 	from ` + Table + ` where service_id = $1 and item_id = any($2) order by at`
 
@@ -144,12 +144,13 @@ func InForce(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs 
 	var inForce []Criterion
 	for rows.Next() {
 		var c Criterion
-		var kind, pattern string
-		if err := rows.Scan(&c.ID, &kind, &c.Actor.Name, &c.At,
+		var kind, basis, pattern string
+		if err := rows.Scan(&c.ID, &kind, &c.Actor.Key, &basis, &c.At,
 			&c.ServiceID, &c.SpecArtifactID, &c.ItemID, &c.Sentence, &pattern, &c.EscapeReason); err != nil {
 			return nil, fmt.Errorf("criterion: reading a row: %w", err)
 		}
 		c.Actor.Kind = record.Kind(kind)
+		c.Actor.Basis = record.Basis(basis)
 		c.Pattern = Pattern(pattern)
 		inForce = append(inForce, c)
 	}

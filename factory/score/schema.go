@@ -13,6 +13,10 @@ const Table = "score_version"
 // IDPrefix is what [record.NewID] is called with for a score version.
 const IDPrefix = "scv"
 
+// FormatVersion is what every row of [Table] carries in its format_version
+// column.
+const FormatVersion = "score_version/1"
+
 // lockName is what [AdvisoryLockKey] hashes. It names this package so that no
 // other part of the factory derives the same key from a name of its own — the
 // arrangement decisionlog's one lock and release's per-service ones both use.

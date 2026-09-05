@@ -16,7 +16,6 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
-	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
 
@@ -101,8 +100,8 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 	if results[0].Outcome != criterion.OutcomePassed {
 		t.Errorf("the criterion is %s over the build, want passed", results[0].Outcome)
 	}
-	if results[0].Actor.Name != "deploy" {
-		t.Errorf("the result was written by %q, want the deploy agent", results[0].Actor.Name)
+	if results[0].Actor.Key != "deploy" {
+		t.Errorf("the result was written by %q, want the deploy agent", results[0].Actor.Key)
 	}
 	if !strings.Contains(out.String(), "ran twice on the candidate environment") {
 		t.Errorf("the run does not report the encodings running twice:\n%s", out)
@@ -231,7 +230,7 @@ func TestTwoCandidatesProceedAtOnce(t *testing.T) {
 		t.Errorf("production runs %q, the last deploy put build %s there", running.Build, b.reverifiedBuildID)
 	}
 
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after two candidates at once: %v", err)
 	}
 }
@@ -305,15 +304,13 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 		t.Error("the rejected candidate's environment was torn down, and it stays the item's")
 	}
 
-	// The rejection is a wait row the log wrote with the queue as caller and
-	// actor: no gate fired, the Merge to master gate's own having closed as an approval.
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	// The rejection is a queue_rejection row the log wrote with the queue as
+	// caller and actor: no gate fired, the Merge to master gate's own having
+	// closed as an approval.
+	rows := readLog(t, ctx, d)
 	var waits int
 	for _, row := range rows {
-		if row.Shape != decisionlog.ShapeWait {
+		if row.Shape != decisionlog.ShapeQueueRejection {
 			continue
 		}
 		waits++
@@ -339,7 +336,7 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 	if waits != 1 {
 		t.Errorf("the log holds %d wait rows, one candidate was rejected", waits)
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after a queue rejection: %v", err)
 	}
 }
@@ -379,8 +376,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	}
 
 	// The second-approved candidate is pushed to the front.
-	owner := record.Actor{Kind: record.KindHuman, Name: d.human}
-	if _, err := item.NewDispatch(d.pool).SetPriority(ctx, owner, candidates[1].itemID, 5); err != nil {
+	if _, err := item.NewDispatch(d.pool, d.token).SetPriority(ctx, owner(d.human), candidates[1].itemID, 5); err != nil {
 		t.Fatalf("setting the priority: %v", err)
 	}
 	members, err := p.queue.Members(ctx, theServiceRecord(t, ctx, p).ID)
@@ -433,10 +429,7 @@ func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
 		t.Errorf("the held candidate minted release %q and deployed %q", b.releaseID, b.deployID)
 	}
 
-	rows, err := decisionlog.Read(ctx, d.pool)
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
+	rows := readLog(t, ctx, d)
 	var waits int
 	for _, row := range rows {
 		if row.Shape != decisionlog.ShapeWait {
@@ -446,8 +439,8 @@ func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
 		if row.ID != b.holdWaitRow {
 			t.Errorf("the wait row is %s, the run reported %s", row.ID, b.holdWaitRow)
 		}
-		if row.Actor.Name != "deploy" {
-			t.Errorf("the wait row's actor is %q, want the deploy agent that met the condition", row.Actor.Name)
+		if row.Actor.Key != "deploy" {
+			t.Errorf("the wait row's actor is %q, want the deploy agent that met the condition", row.Actor.Key)
 		}
 		var payload substrateWait
 		if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
@@ -463,7 +456,7 @@ func TestTheSubstrateWithNoRoomWaits(t *testing.T) {
 	if waits != 1 {
 		t.Errorf("the log holds %d wait rows, one candidate met the ceiling", waits)
 	}
-	if err := decisionlog.Verify(ctx, d.pool); err != nil {
+	if err := verifyLog(t, ctx, d); err != nil {
 		t.Errorf("the chain does not verify after a wait: %v", err)
 	}
 }

@@ -20,6 +20,14 @@ const IDPrefix = "cr"
 // [Encodings], which finds a criterion id by its shape, never reads one of these.
 const ResultIDPrefix = "crr"
 
+// FormatVersion is what this package writes into format_version on every
+// insert into [Table].
+const FormatVersion = "criterion/1"
+
+// FormatVersionResult is what this package writes into format_version on
+// every insert into [ResultTable].
+const FormatVersionResult = "criterion_result/1"
+
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than
 // restated, so the actor field and its constraints are the same ones every

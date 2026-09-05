@@ -223,6 +223,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 	row, err := g.log.AppendDecisionOpen(ctx, decisionlog.Entry{
 		Actor:         component(f.Row),
 		Payload:       string(payload),
+		FormatVersion: decisionFormatVersion,
 		PolicyVersion: applied.PolicyVersion,
 		ScoreVersion:  assessment.Version,
 	})
