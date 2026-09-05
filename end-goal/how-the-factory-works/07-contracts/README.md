@@ -8,7 +8,7 @@ What binds one service to another and to its own past, and what stops a change b
 | [No single item may break a contract](02-no-single-item-may-break-a-contract.md) | Why a breaking change ships as four items, not one |
 | [What a contract promises](03-what-a-contract-promises.md) | What backward and forward compatibility each promise, and to whom |
 | [Enforcement](04-enforcement.md) | How the factory diffs a candidate's contract against production, mechanically |
-| [What a diff cannot see](05-what-a-diff-cannot-see.md) | What a schema diff misses, and the three layers that catch it |
+| [What a diff cannot see](05-what-a-diff-cannot-see.md) | What a schema diff misses, the two layers that catch it, and the one refused |
 | [What a consumer declares](06-what-a-consumer-declares.md) | What a consumer contract is, and how it is derived rather than written |
 | [Who owns a contract](07-who-owns-a-contract.md) | Who may change a contract, and what a consumer owns instead |
 | [Deprecation](08-deprecation.md) | How marking, the brownout, and removal retire an old form |
