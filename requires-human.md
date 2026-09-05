@@ -2,17 +2,6 @@
 
 Findings the unattended loop could not take, moved here verbatim, each followed by the decision it needs.
 
-## deferred.md
-
-### The product's release channel has no revocation, no expiry, and no downgrade check, and one key signs everything an agent is told
-**Raised by:** Security engineering
-**Where:** `deferred.md` — _The product's release channel_
-**What is wrong or missing:** The channel verifies a digest and a signature before first start, and rotates the key only by a signed release naming its successor. Nothing revokes a key, nothing expires a release, and nothing requires the release being installed to be newer than the one running — so a signed release replayed after a key compromise, or an install frozen on an old release by withholding upgrades, verifies clean. The same single key covers the whole shipped bundle the section itself enumerates: role prompts, skills, evaluation sets, starting priors, the allowed predicate kinds, and design systems. The document names the trust-on-first-use gap and stops there.
-**What turns on it:** One compromise of the builder's key rewrites what every agent in every install is told, and the shipped-bundle identity attests to the substitution rather than exposing it. The freeze case is worse than the replay case because it is silent: an install held on a release with a known defect looks identical to one that is current, and the factory's own store-schema check only refuses a downgrade that happens to cross a schema change.
-**Migration:** Installs already hold the key and the verification code they were handed; any revocation, expiry, or monotonic-version rule added later is delivered by the channel it is meant to protect, so it binds only installs that have already taken the upgrade an attacker with the key can prevent.
-
-**Decision needed:** Three choices, each a product trade-off the document does not imply. Expiry: a release that refuses to start past a date detects a frozen install, and it also stops an install the builder cannot reach, which is the regulated customer the tenancy decision was made for; the owner decides whether an install may run indefinitely without the channel. Revocation: a key revoked by a release the same key signs is no revocation, so a real one needs a root the channel does not carry, a second key or an out-of-band root the customer holds; the owner decides whether the trust-on-first-use gap the section names is accepted or closed at that cost. Key separation: one key over the whole shipped bundle or one per kind of content, which decides how many keys a builder keeps and rotates. The downgrade check alone is derivable and the loop can take it once the owner says the rest: a first start refuses a release whose version is not later than the one on the last install event.
-
 ## what-the-factory-does/
 
 ### The install is the only isolation boundary that exists, and the chained log makes the choice permanent
