@@ -162,12 +162,8 @@ func (n *Notifier) SweepDriftDetectorStale(ctx context.Context, driftPool *pgxpo
 	}
 	// A fixed row can stale, answer, and stale again — unlike a mismatch,
 	// which mints a new id each time — so only the events since the last
-	// answer describe the episode this call is deciding about.
-	for i, e := range events {
-		if Event(e.Event) == EventAnswered {
-			events = events[i+1:]
-		}
-	}
+	// answer describe the page this call is deciding about.
+	events = sinceLastAnswer(events)
 	var reachedIt, widened, acknowledged, answered bool
 	for _, e := range events {
 		switch Event(e.Event) {

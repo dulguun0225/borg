@@ -57,14 +57,16 @@ func OnEvidence(ctx context.Context, pool *pgxpool.Pool, evidence Evidence) (Int
 	return in, true, nil
 }
 
-// Waiting is the oldest unrefined intent in this project whose statement is
-// these words exactly, and false where there is none. It is what lets a human
-// at a terminal work an intent a detector or the health monitor already
-// raised by typing its statement, rather than taking a second one in that says
-// the same thing; an intent past unrefined is being worked and is not resumed.
+// Waiting is the oldest unrefined intent whose statement is these words
+// exactly, in this project or in none yet, and false where there is none. It
+// is what lets a human at a terminal work an intent a detector or the health
+// monitor already raised by typing its statement, rather than taking a second
+// one in that says the same thing; an intent past unrefined is being worked and
+// is not resumed. A detector's intent names no project until it is worked,
+// which is why one in no project matches.
 func Waiting(ctx context.Context, pool *pgxpool.Pool, projectID, statement string) (Intent, bool, error) {
 	in, err := scanIntent(pool.QueryRow(ctx, `select `+intentColumns+` from `+Table+`
-		where project_id = $1 and statement = $2 and state = $3 order by at, id limit 1`,
+		where (project_id = $1 or project_id = '') and statement = $2 and state = $3 order by at, id limit 1`,
 		projectID, statement, string(StateUnrefined)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Intent{}, false, nil

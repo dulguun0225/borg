@@ -219,6 +219,18 @@ func TestAPageWidensExactlyOnceToTheOwner(t *testing.T) {
 	if notifier.Event(last.Event) != notifier.EventAnswered || last.Reached != "hk_sre" {
 		t.Errorf("the last event is %+v, want answered by the human who ended it", last)
 	}
+
+	// A second page on the same row, after the answer, widens like the first:
+	// once per page and not once per row, which is what a fixed row needs.
+	if _, err := n.Notify(ctx, waiting); err != nil {
+		t.Fatalf("Notify, second page: %v", err)
+	}
+	if _, err := n.Widen(ctx, waiting); err != nil {
+		t.Fatalf("Widen on the second page = %v, want the widening", err)
+	}
+	if _, err := n.Widen(ctx, waiting); !errors.Is(err, notifier.ErrAlreadyWidened) {
+		t.Errorf("a second Widen on the second page = %v, want %v", err, notifier.ErrAlreadyWidened)
+	}
 	verifyLog(t, ctx, pool, token)
 }
 

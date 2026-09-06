@@ -174,6 +174,10 @@ func (n *Notifier) Widen(ctx context.Context, w Wait) (decisionlog.Row, error) {
 	if err != nil {
 		return decisionlog.Row{}, err
 	}
+	// Once per page, and a page is the events since the row was last
+	// answered: a fixed row — the drift detector's own last check — can stale,
+	// answer, and stale again, and the second page widens like the first.
+	events = sinceLastAnswer(events)
 	if err := reached(events, w.Row); err != nil {
 		return decisionlog.Row{}, err
 	}
@@ -186,6 +190,19 @@ func (n *Notifier) Widen(ctx context.Context, w Wait) (decisionlog.Row, error) {
 		}
 	}
 	return n.deliver(ctx, Delivery{Channel: ChannelPage, To: n.owner, Wait: w, Event: EventWidened})
+}
+
+// sinceLastAnswer is the events of the page now open on a row: everything
+// after the last answered event, and everything where nothing was ever
+// answered. A row that mints a new id per page never has an answer to cut at,
+// and a fixed row is one page after another.
+func sinceLastAnswer(events []Payload) []Payload {
+	for i := len(events) - 1; i >= 0; i-- {
+		if Event(events[i].Event) == EventAnswered {
+			return events[i+1:]
+		}
+	}
+	return events
 }
 
 // Acknowledge is a human saying they have the row: it stops only the
