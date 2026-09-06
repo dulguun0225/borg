@@ -97,9 +97,9 @@ func TestTheBandsArePublishedPerSetAndPerServiceWithTheirCounts(t *testing.T) {
 // on, and it takes the treatment an unavailable factor takes.
 func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 	var firings []Firing
-	for i := range 8 {
+	for i := range 16 {
 		level := 0.1
-		if i >= 4 {
+		if i >= 8 {
 			level = 0.9
 		}
 		firings = append(firings, Firing{
@@ -108,7 +108,7 @@ func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 				Vector: []Factor{{Name: changeSize.name, Term: TermLikelihood, Level: level}},
 			},
 			CloseEvent: CloseEvent{Verdict: VerdictApproved, WhyItAutoPassed: AutoPassThreshold},
-			At:         fmt.Sprintf("2026-08-20T0%d:00:00Z", i),
+			At:         fmt.Sprintf("2026-08-20T%02d:00:00Z", i),
 		})
 	}
 	e := newEvidence()
@@ -124,16 +124,33 @@ func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 		t.Error("a version carrying the drift does not report the factor drifted")
 	}
 
-	// The same eight decisions over two items are two readings and not eight:
-	// every row over one item weighs one vector, so the pass reads nothing.
-	twoItems := newEvidence()
+	// The same sixteen decisions over four items are four readings and not
+	// sixteen: every row over one item weighs one vector, so the pass reads
+	// nothing.
+	fourItems := newEvidence()
 	for i, f := range firings {
 		f.OpenEvent.ItemID = fmt.Sprintf("it_%d", i/4)
-		twoItems.firings = append(twoItems.firings, f)
+		fourItems.firings = append(fourItems.firings, f)
 	}
-	twoItems.index()
-	if found := twoItems.drift(); len(found) != 0 {
-		t.Errorf("the pass found %+v drifted over two items, and eight decisions of two items are two readings", found)
+	fourItems.index()
+	if found := fourItems.drift(); len(found) != 0 {
+		t.Errorf("the pass found %+v drifted over four items, and sixteen decisions of four items are four readings", found)
+	}
+
+	// Two items read at an extreme among sixteen move the mean and not the
+	// median, and a factor is drifted on a level that moved and stayed.
+	outliers := newEvidence()
+	for i, f := range firings {
+		level := 0.4
+		if i < 2 {
+			level = 1.0
+		}
+		f.OpenEvent.Vector = []Factor{{Name: changeSize.name, Term: TermLikelihood, Level: level}}
+		outliers.firings = append(outliers.firings, f)
+	}
+	outliers.index()
+	if found := outliers.drift(); len(found) != 0 {
+		t.Errorf("the pass found %+v drifted on two items read at an extreme, and a shift is one that stayed", found)
 	}
 
 	// A factor that held still is not drifted, and the prior is exempt from this

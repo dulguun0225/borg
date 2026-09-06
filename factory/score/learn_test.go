@@ -40,7 +40,7 @@ func TestRulesStateEveryBound(t *testing.T) {
 		{"the window limit's ceiling", "5"},
 		{"how many windows raise the window limit", "3"},
 		{"the drift bound", "0.25"},
-		{"how many decisions a drift reading needs", "8"},
+		{"how many items a drift reading needs", "16"},
 		{"how many held-out decisions a fit needs", "10"},
 	} {
 		if !strings.Contains(Rules, bound.value) {

@@ -17,12 +17,18 @@ const (
 	// halves are too few to say anything. The unit is the item and not the
 	// decision: every row over one item weighs the one vector its build was
 	// read into, so the four decisions of one item are one reading of each
-	// factor and not four, and eight decisions can be two items.
-	driftReadings = 8
-	// driftBound is how far the newer half's mean level may sit from the older
-	// half's before the factor is found drifted. A factor whose distribution has
-	// moved that far is measuring something other than what the formula was
-	// calibrated on.
+	// factor and not four, and eight decisions can be two items. Sixteen,
+	// because the reading is of a level that moved and stayed moved: a
+	// service's first items read every change factor at its extreme — no
+	// release to return to, every file touched — and eight items is a half of
+	// four in which one such item is a quarter of the reading.
+	driftReadings = 16
+	// driftBound is how far the newer half's median level may sit from the
+	// older half's before the factor is found drifted. A factor whose
+	// distribution has moved that far is measuring something other than what
+	// the formula was calibrated on. The median and not the mean, for the same
+	// reason as the floor: a persistent shift moves the median, and one or two
+	// items read at an extreme do not.
 	driftBound = 0.25
 	// priorDriftReadings is how many held-out decisions of each kind — windows
 	// that failed and windows that passed — the prior's own reading needs before
@@ -93,13 +99,13 @@ func (e *Evidence) factorDrift() []Drift {
 			continue
 		}
 		half := len(read) / 2
-		was, now := mean(read[:half]), mean(read[half:])
+		was, now := median(read[:half]), median(read[half:])
 		if math.Abs(now-was) < driftBound {
 			continue
 		}
 		found = append(found, Drift{
 			Factor: name,
-			Why: fmt.Sprintf("over %d items naming it the mean level moved from %.2f to %.2f, past the bound of %.2f",
+			Why: fmt.Sprintf("over %d items naming it the median level moved from %.2f to %.2f, past the bound of %.2f",
 				len(read), was, now, driftBound),
 		})
 	}
@@ -180,6 +186,22 @@ func priorLevel(vector []Factor) (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// median is the middle level of values, the mean of the two middle levels
+// where there is an even number; it is what the factor reading compares, the
+// mean being what the prior's reading compares.
+func median(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := append([]float64{}, values...)
+	sort.Float64s(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 0 {
+		return (sorted[mid-1] + sorted[mid]) / 2
+	}
+	return sorted[mid]
 }
 
 func mean(values []float64) float64 {

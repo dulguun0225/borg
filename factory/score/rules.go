@@ -134,7 +134,8 @@ else, and a factory whose sample never selects has a threshold that can fall and
 Calibration reads two more things and publishes both on the version. Each factor's distribution over the
 decisions that named it is read against its own history, the older half against the newer, one reading per
 item because every row over one item weighs the one vector its build was read into, and a factor whose
-mean level has moved by more than 0.25 over at least 8 items is found drifted. The per-author
+median level has moved by more than 0.25 over at least 16 items is found drifted — the median, and sixteen,
+because a service's first items read every change factor at its extreme and a shift is one that stayed. The per-author
 prior is exempt from that reading, its distribution moving being what it working looks like, and gets one
 of its own: the prior each held-out decision was taken on, against what that release's window then closed.
 A prior that no longer separates the held-out releases whose windows failed from the ones whose windows
