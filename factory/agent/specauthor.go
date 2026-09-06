@@ -281,6 +281,9 @@ func (s SpecAuthor) Refine(ctx context.Context, as principal.Principal, of Refin
 		return Refined{}, err
 	}
 	refined, err := parseRefined(reply.Text)
+	if err == nil {
+		err = namesARequirement(refined, of.Requirements)
+	}
 	if err != nil {
 		// The refused reply's spend goes back with the error: the units were
 		// spent whether or not the reply was usable, and the component
@@ -290,6 +293,25 @@ func (s SpecAuthor) Refine(ctx context.Context, as principal.Principal, of Refin
 	}
 	refined.Units = reply.Units
 	return refined, nil
+}
+
+// namesARequirement is the one check the parser cannot make on its own: where
+// the user message listed the item's requirements, a criterion naming none is
+// outside the protocol and refused, so the stage tries again inside its
+// attempt limit rather than the writer refusing the empty id and stopping the
+// run. A criterion naming a requirement that is not this item's is not refused
+// here — it is written, and the Spec row rejects it as one naming a
+// requirement assigned elsewhere, which is the design's own answer to it.
+func namesARequirement(refined Refined, requirements []Requirement) error {
+	if len(requirements) == 0 || refined.Question != "" {
+		return nil
+	}
+	for _, c := range refined.Criteria {
+		if c.RequirementID == "" {
+			return fmt.Errorf("%w: the item has requirements and the criterion %q names none", ErrReply, c.Sentence)
+		}
+	}
+	return nil
 }
 
 // writeReturned puts a reject or a rework request into a role's user message,

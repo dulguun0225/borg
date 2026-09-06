@@ -193,6 +193,24 @@ func TestRefineRefusesAReplyOutsideTheProtocol(t *testing.T) {
 	}
 }
 
+// TestRefineRefusesACriterionNamingNoRequirement: once the item has
+// requirements, every criterion names the one it answers, and one that names
+// none is refused so the stage retries — the writer would refuse the empty id
+// and stop the run. With no requirements listed, the id-less form is the
+// interview's own and is accepted.
+func TestRefineRefusesACriterionNamingNoRequirement(t *testing.T) {
+	text := "SPEC:\ntext\nCRITERION rq_a: The system shall answer.\nCRITERION: The system shall test through httptest."
+	listed := Refining{Statement: "s", Requirements: []Requirement{{ID: "rq_a", Statement: "answer"}}}
+	_, err := SpecAuthor{Model: &fakeModel{text: text}, Prompt: ShippedSpecAuthorPrompt}.Refine(context.Background(), as(), listed)
+	if !errors.Is(err, ErrReply) {
+		t.Fatalf("Refine with requirements listed = %v, want ErrReply", err)
+	}
+	refined, err := SpecAuthor{Model: &fakeModel{text: text}, Prompt: ShippedSpecAuthorPrompt}.Refine(context.Background(), as(), Refining{Statement: "s"})
+	if err != nil || len(refined.Criteria) != 2 {
+		t.Fatalf("Refine with none listed = %v, %d criteria; want two accepted", err, len(refined.Criteria))
+	}
+}
+
 // TestRefineParsesTheProvenanceOfACriterion: a criterion's constraint-derived
 // and hazard-derived provenance is read at introduction, so the reply names
 // which constraints a criterion was drafted under and which area's hazardous
