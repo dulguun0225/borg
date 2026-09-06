@@ -114,6 +114,8 @@ var (
 		"where the intent this item answers came from", (*Score).intentSource}
 	contextConsumers = definition{"context.consumers", GroupContext, TermImpact,
 		"sibling services declaring they consume what this one publishes", (*Score).consumers}
+	contextProtectionWithdrawn = definition{"context.protection_withdrawn", GroupContext, TermImpact,
+		"whether the version under decision withdraws a criterion whose provenance names an authority, or admits a transition a human-confirmed screen state machine forbade", (*Score).protectionWithdrawn}
 	fleetShare = definition{"fleet.share_working_from_it", GroupChange, TermImpact,
 		"the share of the factory working from the version in force this one replaces", (*Score).fleetShare}
 	fleetDeparture = definition{"fleet.departure", GroupChange, TermLikelihood,

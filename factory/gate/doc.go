@@ -17,8 +17,9 @@
 // an approve takes: [ErrApproveNamesAHoldNotStanding], [ErrApproveLeavesAHoldOut]
 // and [ErrApproveThroughAHalt]. mark.go is [Mark] with [Marks], what put a
 // human at a row. merge.go is the Merge to master row's own vocabulary:
-// [MechanicalChecks] and [Derivations]. strategy.go is [Strategy], [Schedule],
-// [Pick] with [Pick.Validate], and [ControlBound]. waits.go is [Waits],
+// [MechanicalChecks] and [Derivations]. strategy.go is [Strategy], [Schedule]
+// and [Pick] with [Pick.Validate], the shape the pick is stored in; the score
+// picks it. waits.go is [Waits],
 // [RoutedTo], and the three duties the design names for a row.
 //
 // gate.go is [Gate], [Composition] and [New], the [Score], [Policy],

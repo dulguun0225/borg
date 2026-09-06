@@ -80,6 +80,11 @@ type Version struct {
 	Weights map[FactorSet]Weights
 	// FactorSets is the published text of every set and what it weighs.
 	FactorSets string
+	// ControlBound is the impact discounted by reversibility at or above which
+	// the score picks the rollout strategy that keeps a control. It is a field of
+	// the version because the version names every value the score supplies, and
+	// the strategy is one of the three things one number decides.
+	ControlBound float64
 	// Rules is the published rules by which each supplied value moves, which is
 	// what an owner disagreeing with a moved value argues with.
 	Rules           string
@@ -116,6 +121,7 @@ type versionPayload struct {
 	Formula               string                `json:"formula"`
 	Weights               map[FactorSet]Weights `json:"weights"`
 	FactorSets            string                `json:"factor_sets"`
+	ControlBound          float64               `json:"control_bound"`
 	Rules                 string                `json:"rules"`
 	LearningVersion       string                `json:"learning_version"`
 	Supplied              SuppliedValues        `json:"supplied"`
@@ -146,6 +152,17 @@ func (v Version) WeightsOf(set FactorSet) Weights {
 		return w
 	}
 	return ShippedWeights(set)
+}
+
+// ControlBoundOrShipped is the bound this version names, falling back to
+// [ShippedControlBound] for a version appended before the bound was a field of
+// one — a version holding no bound is not a factory that picks a control for
+// every release.
+func (v Version) ControlBoundOrShipped() float64 {
+	if v.ControlBound <= 0 {
+		return ShippedControlBound
+	}
+	return v.ControlBound
 }
 
 // Drifted reports whether calibration found this factor drifted under this
@@ -212,6 +229,7 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 			FormulaVersion:  FormulaVersion,
 			Formula:         Formula,
 			Weights:         newestWeights(newest, found),
+			ControlBound:    ShippedControlBound,
 			Rules:           Rules,
 			LearningVersion: LearningVersion,
 			Supplied:        learned.Supplied,
@@ -221,7 +239,8 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 		}
 		next.FactorSets = FactorSetsText(next.Weights)
 		next.Branch = BranchSupplied
-		if found && (newest.FormulaVersion != FormulaVersion || newest.FactorSets != next.FactorSets) {
+		if found && (newest.FormulaVersion != FormulaVersion || newest.FactorSets != next.FactorSets ||
+			newest.ControlBoundOrShipped() != next.ControlBound) {
 			next.Branch = BranchFormula
 		}
 		return next, !found || differs(newest, next)
@@ -246,6 +265,7 @@ func (w *Writer) Recalibrate(ctx context.Context, actor record.Actor) (Version, 
 		next.Rules = Rules
 		next.LearningVersion = LearningVersion
 		next.Weights = fitted
+		next.ControlBound = ShippedControlBound
 		next.FactorSets = FactorSetsText(fitted)
 		next.Branch = BranchRecalibration
 		if !found {
@@ -267,6 +287,7 @@ func (w *Writer) EnterShipped(ctx context.Context, actor record.Actor, shippedBu
 			FormulaVersion:        FormulaVersion,
 			Formula:               Formula,
 			Weights:               ShippedWeightsBySet(),
+			ControlBound:          ShippedControlBound,
 			Rules:                 Rules,
 			LearningVersion:       LearningVersion,
 			Supplied:              StartingValues(),
@@ -294,7 +315,8 @@ func newestWeights(newest Version, found bool) map[FactorSet]Weights {
 func differs(newest, next Version) bool {
 	if newest.FormulaVersion != next.FormulaVersion || newest.Formula != next.Formula ||
 		newest.FactorSets != next.FactorSets || newest.Rules != next.Rules ||
-		newest.LearningVersion != next.LearningVersion {
+		newest.LearningVersion != next.LearningVersion ||
+		newest.ControlBoundOrShipped() != next.ControlBound {
 		return true
 	}
 	return !sameJSON(newest.Supplied, next.Supplied) || !sameJSON(newest.Bands, next.Bands) ||
@@ -347,7 +369,8 @@ func (w *Writer) append(ctx context.Context, actor record.Actor,
 
 	payload, err := json.Marshal(versionPayload{
 		FormulaVersion: next.FormulaVersion, Formula: next.Formula, Weights: next.Weights,
-		FactorSets: next.FactorSets, Rules: next.Rules, LearningVersion: next.LearningVersion,
+		FactorSets: next.FactorSets, ControlBound: next.ControlBound,
+		Rules: next.Rules, LearningVersion: next.LearningVersion,
 		Supplied: next.Supplied, Bands: next.Bands, Drift: next.Drift, FalseAlarms: next.FalseAlarms,
 		Branch: next.Branch, ShippedBundleIdentity: next.ShippedBundleIdentity, Supersedes: next.Supersedes,
 	})
@@ -392,7 +415,8 @@ func versionsIn(rows []decisionlog.Row) ([]Version, error) {
 		read = append(read, Version{
 			ID: row.ID, Actor: row.Actor, At: row.At,
 			FormulaVersion: payload.FormulaVersion, Formula: payload.Formula, Weights: payload.Weights,
-			FactorSets: payload.FactorSets, Rules: payload.Rules, LearningVersion: payload.LearningVersion,
+			FactorSets: payload.FactorSets, ControlBound: payload.ControlBound,
+			Rules: payload.Rules, LearningVersion: payload.LearningVersion,
 			Supplied: payload.Supplied, Bands: payload.Bands, Drift: payload.Drift,
 			FalseAlarms: payload.FalseAlarms, Branch: payload.Branch,
 			ShippedBundleIdentity: payload.ShippedBundleIdentity, Supersedes: payload.Supersedes,

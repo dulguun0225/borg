@@ -121,10 +121,16 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 
 	p.gate = gate.New(gate.Composition{
-		Pool:                     d.pool,
-		Token:                    d.token,
-		Log:                      p.log,
-		Score:                    score.New(d.pool, scoreVersion, d.draw, marks, d.token),
+		Pool:  d.pool,
+		Token: d.token,
+		Log:   p.log,
+		Score: score.New(score.Composition{
+			Pool: d.pool, Version: scoreVersion, Draw: d.draw, Marks: marks,
+			Authorship: authorship{pool: d.pool}, Token: d.token,
+			// Withdrawals is not composed: what one spec version withdraws and
+			// which transitions two screen state machines declare are queries no
+			// package answers yet, so the score reads no withdrawal here.
+		}),
 		Policy:                   p.policy,
 		Holds:                    p,
 		DriftDetector:            mismatches,

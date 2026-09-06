@@ -56,7 +56,12 @@ var (
 // hold a fake where the real score would read the whole graph; package score is
 // the implementation.
 type Score interface {
-	Assess(ctx context.Context, c score.Change) (score.Assessment, error)
+	// AssessUnder is the vector, the two halves and the number under one score
+	// version. The version is a parameter because a version that redefined the
+	// number does not decide a gate an authored threshold binds until its owner
+	// has confirmed it, so the firing computes under the version in force at its
+	// own scope and not always the newest.
+	AssessUnder(ctx context.Context, version score.Version, c score.Change) (score.Assessment, error)
 	// HoldOut is whether the score holds this item out of the gate the firing
 	// would otherwise put a human at. It is asked after the policy has answered,
 	// because the question is about a gate the score itself would have gated and

@@ -157,11 +157,20 @@
 //     set of Go modules, the exposure list its runner derived, and whether its
 //     checkout declares a schema change.
 //   - measure.go — measure, the build's diff taken once at firing and handed
-//     to the score, and the numstat parsing beneath it; reaches and
-//     declaresSchemaChange, the two readings the build runner makes of its own
-//     checkout — the exposure list package exposure derives, and whether the
+//     to the score, and the numstat parsing beneath it; destroysStoredData with
+//     DestructiveStatements, the reading the reversibility factor resolves on,
+//     which is a convention per toolchain the design names without describing —
+//     a git that will not answer leaves it unavailable, which resolves that
+//     factor; reaches, packagesOf, path.currentReleaseResolved and
+//     declaresSchemaChange, the readings the build runner makes of its own
+//     checkout — the exposure list package exposure derives from this build's
+//     resolved set against the current release's build's, and whether the
 //     checkout ships a schema change — and factorExposure and path.exposureOf,
 //     which read that list off the build record and hand it to the score.
+//   - authorship.go — authorship, the join package score reads what an agent
+//     authoring a version worked from through: the artifact version names the
+//     input manifest and the agent run of that manifest names the effort and the
+//     versions of the role prompt and the skills.
 //   - gateio.go — fired, and the gate mechanics every row shares: report,
 //     settle — which offers refer, acknowledge and Edit in place beside the
 //     row's own verdicts — editInPlace, reading a human's typed verdict, and

@@ -52,7 +52,13 @@ type Measurement struct {
 	// DestroysStoredData is whether the diff destroys stored data, which
 	// resolves the reversibility factor at Implementation rather than valuing it.
 	DestroysStoredData bool
-	Unavailable        string
+	// DestroysStoredDataUnavailable is why nothing could say whether the diff
+	// destroys stored data, and is empty where something did. The reading is per
+	// toolchain the way the exposure list is, so a toolchain with no derivation
+	// behind it resolves the reversibility factor rather than reading the diff as
+	// destroying nothing.
+	DestroysStoredDataUnavailable string
+	Unavailable                   string
 }
 
 // FromProposedSet reports whether this measurement is the set decomposition
@@ -136,8 +142,23 @@ type Change struct {
 	// severity, a diff that destroys stored data, and an exposure over the bound.
 	AtImplementation bool
 	// AtSpec is whether this firing is the Spec row, where an intent grouped
-	// from reports resolves the source value.
+	// from reports resolves the source value and a withdrawal that removes a
+	// protection resolves the withdrawal value.
 	AtSpec bool
+	// AtDeployToProduction is whether this firing is the deploy to production
+	// row. An irreversible hazard severity resolves there where no control can
+	// run: there is then no schedule to pick and every deploy goes without one,
+	// so the decision is a human's whatever the formula returns.
+	AtDeployToProduction bool
+	// ReplacesReleaseID is the release this deploy replaces, and is empty on a
+	// service's first release, which has no build to keep serving beside it and
+	// so no control whatever the score prefers.
+	ReplacesReleaseID string
+	// EveryTargetServesAShare is whether every target of the environment this
+	// deploy reaches is behind a platform that decides what fraction of arriving
+	// traffic reaches each of two builds. Where one does not, the row with a
+	// control is unavailable and every deploy there goes without one.
+	EveryTargetServesAShare bool
 	// ExposureBound is the bound in force on this service, which the caller read
 	// through package policy: the score supplies a value for that row and may
 	// not read what an owner authored.
@@ -182,6 +203,14 @@ type OpenEvent struct {
 	// that says so.
 	AuthorKey   string `json:"author_key,omitempty"`
 	AuthorBasis string `json:"author_basis,omitempty"`
+	// Authored is what an agent that authored the version under decision worked
+	// from: the input manifest, the effort its entry ran at, and the versions of
+	// the role prompt and the skills. It is empty where a human authored, and
+	// where nothing read the run. They are the facts the per-author prior
+	// deliberately averages over, put where a human arguing with the number can
+	// see them and a query can group decisions by them without any of it moving
+	// the prior.
+	Authored Authored `json:"authored,omitzero"`
 }
 
 // CloseEvent is the part of a decision's close event this package reads back: the
@@ -215,36 +244,83 @@ const (
 // version — the one in force when the process started, which every decision it
 // produces names.
 type Score struct {
-	pool    *pgxpool.Pool
-	version Version
-	draw    Draw
-	marks   Marks
-	token   lease.Token
+	pool        *pgxpool.Pool
+	version     Version
+	draw        Draw
+	marks       Marks
+	authorship  Authorship
+	withdrawals Withdrawals
+	token       lease.Token
 }
 
-// New returns the score over pool, computing under version, drawing its
-// held-out sample from draw and reading the rollbacks a human marked through
-// marks, with token fencing every read it makes of the decision log. A nil draw
-// is [RandomDraw]: a factory composed without one still holds a sample out,
-// because a factory that quietly stopped sampling would be one whose threshold
-// could only ever fall. A nil marks is [NoMarks].
-func New(pool *pgxpool.Pool, version Version, draw Draw, marks Marks, token lease.Token) *Score {
-	if draw == nil {
-		draw = RandomDraw{}
+// Composition is what [New] is handed. It is a struct and not a list of
+// arguments because five of the seven are interfaces of one shape — something
+// the score reads and does not own — and a caller passing one where another
+// belongs would compile.
+type Composition struct {
+	Pool    *pgxpool.Pool
+	Version Version
+	// Draw is where the held-out sample's randomness comes from. A nil draw is
+	// [RandomDraw]: a factory composed without one still holds a sample out,
+	// because a factory that quietly stopped sampling would be one whose
+	// threshold could only ever fall.
+	Draw Draw
+	// Marks is the rollbacks a named human at Ops marked. A nil marks is
+	// [NoMarks].
+	Marks Marks
+	// Authorship is what an agent authoring a version worked from. A nil one is
+	// [NoAuthorship].
+	Authorship Authorship
+	// Withdrawals is what a spec version under decision removes. A nil one is
+	// [NoWithdrawals].
+	Withdrawals Withdrawals
+	Token       lease.Token
+}
+
+// New returns the score over the composition, computing every vector under the
+// version it names and fencing every read it makes of the decision log with its
+// token.
+func New(c Composition) *Score {
+	if c.Draw == nil {
+		c.Draw = RandomDraw{}
 	}
-	if marks == nil {
-		marks = NoMarks{}
+	if c.Marks == nil {
+		c.Marks = NoMarks{}
 	}
-	return &Score{pool: pool, version: version, draw: draw, marks: marks, token: token}
+	if c.Authorship == nil {
+		c.Authorship = NoAuthorship{}
+	}
+	if c.Withdrawals == nil {
+		c.Withdrawals = NoWithdrawals{}
+	}
+	return &Score{
+		pool: c.Pool, version: c.Version, draw: c.Draw, marks: c.Marks,
+		authorship: c.Authorship, withdrawals: c.Withdrawals, token: c.Token,
+	}
 }
 
 // Version is the score version every assessment this score produces names.
 func (s *Score) Version() Version { return s.version }
 
-// Assess is the score's answer for one change: the factors of its set read, the
-// published formula applied over the ones that were computable, and every
-// resolution recorded. It reads records and never writes one.
+// Assess is the score's answer for one change under the version this score was
+// composed with, which is the newest one. A gate an authored threshold binds is
+// decided under the version in force at its own scope instead, and asks through
+// [Score.AssessUnder].
 func (s *Score) Assess(ctx context.Context, c Change) (Assessment, error) {
+	return s.AssessUnder(ctx, s.version, c)
+}
+
+// AssessUnder is the score's answer for one change under one version: the
+// factors of its set read, the published formula that version names applied over
+// the ones that were computable under the weights that version gives them, and
+// every resolution recorded. It reads records and never writes one.
+//
+// The version is a parameter because a version that redefined the number does
+// not decide a gate an authored threshold binds until its owner has confirmed
+// it, so the version a firing computes under is the one in force at that gate's
+// scope and not always the newest. What resolves that is [InForceAt], and the
+// caller that read it hands the answer here.
+func (s *Score) AssessUnder(ctx context.Context, version Version, c Change) (Assessment, error) {
 	if c.ItemID == "" || c.ServiceID == "" {
 		return Assessment{}, fmt.Errorf("%w: item %q, service %q", ErrChangeIncomplete, c.ItemID, c.ServiceID)
 	}
@@ -252,7 +328,7 @@ func (s *Score) Assess(ctx context.Context, c Change) (Assessment, error) {
 	if definitions == nil {
 		return Assessment{}, fmt.Errorf("%w: %q", ErrFactorSetUnknown, c.FactorSet)
 	}
-	weights := s.version.WeightsOf(c.FactorSet)
+	weights := version.WeightsOf(c.FactorSet)
 
 	vector := make([]Factor, 0, len(definitions))
 	var resolutions []Resolution
@@ -271,19 +347,26 @@ func (s *Score) Assess(ctx context.Context, c Change) (Assessment, error) {
 			resolve(&f, &resolutions, CauseUnavailable, r.unavailable)
 		case r.resolved != "":
 			resolve(&f, &resolutions, r.cause, r.resolved)
-		case s.version.Drifted(d.name):
+		case version.Drifted(d.name):
 			resolve(&f, &resolutions, CauseDrifted,
 				"calibration found this factor drifted, so it is resolved until a recalibration is in force at this gate")
 		}
 		vector = append(vector, f)
 	}
 
+	authored, err := s.authorship.OfArtifact(ctx, c.ArtifactID)
+	if err != nil {
+		return Assessment{}, fmt.Errorf("score: reading what authored %s: %w", c.ArtifactID, err)
+	}
+
 	a := Assessment{
-		Version:        s.version.ID,
-		FormulaVersion: s.version.FormulaVersion,
+		Version:        version.ID,
+		FormulaVersion: version.FormulaVersion,
 		FactorSet:      c.FactorSet,
 		Vector:         vector,
 		Resolved:       resolutions,
+		Authored:       authored,
+		ControlBound:   version.ControlBoundOrShipped(),
 	}
 	a.Likelihood, a.Impact, a.DiscountedImpact, a.Number = reduce(vector)
 	return a, nil

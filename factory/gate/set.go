@@ -133,6 +133,20 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 
 	span := servicesSpanned(f)
 
+	// The policy is read against the row and production's environment, which is
+	// what every row reads its threshold from. It is not read against a service:
+	// one decomposition changes several, and a threshold per service would make
+	// one row read two. It is read before the members are assessed because it is
+	// what answers which score version decides this row.
+	policyApplied, err := g.policy.AtGate(ctx, component(Decomposition), subjectsFor(Decomposition, f))
+	if err != nil {
+		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", Decomposition, err)
+	}
+	inForce, err := g.scoreVersion(ctx, policyApplied)
+	if err != nil {
+		return Opened{}, err
+	}
+
 	var applied score.Assessment
 	from := ""
 	members := make([]SetMemberPayload, 0, len(f.Members))
@@ -145,7 +159,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 			return Opened{}, fmt.Errorf("%w: member %s answers %d requirement(s), and the change group here is computed from the set proposed",
 				ErrSetIncomplete, m.ItemID, m.Requirements)
 		}
-		assessment, err := g.score.Assess(ctx, score.Change{
+		assessment, err := g.score.AssessUnder(ctx, inForce, score.Change{
 			ItemID:    m.ItemID,
 			ServiceID: m.ServiceID,
 			AreaID:    m.AreaID,
@@ -165,15 +179,6 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 			ItemID: m.ItemID, ServiceID: m.ServiceID, AreaID: m.AreaID,
 			Requirements: m.Requirements, WaitsOn: m.WaitsOn,
 		})
-	}
-
-	// The policy is read against the row and production's environment, which is
-	// what every row reads its threshold from. It is not read against a service:
-	// one decomposition changes several, and a threshold per service would make
-	// one row read two.
-	policyApplied, err := g.policy.AtGate(ctx, component(Decomposition), subjectsFor(Decomposition, f))
-	if err != nil {
-		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", Decomposition, err)
 	}
 
 	overThreshold := applied.Number >= policyApplied.Threshold

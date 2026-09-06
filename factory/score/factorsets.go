@@ -48,12 +48,14 @@ func definitionsOf(set FactorSet) []definition {
 			changeSize, changeAreaChurn, changeReach, changeReversibility,
 			authorPrior, exposureReach,
 			contextHazardSeverity, contextIntentSource, contextConsumers,
+			contextProtectionWithdrawn,
 		}
 	case SetAboveABuild:
 		return []definition{
 			changeSize, changeAreaChurn, changeReach, changeReversibility,
 			authorPrior,
 			contextHazardSeverity, contextIntentSource, contextConsumers,
+			contextProtectionWithdrawn,
 		}
 	case SetRolePromptOrSkill:
 		return []definition{
@@ -95,20 +97,28 @@ func (w Weights) Text() string {
 // held-out decisions are too few to fit keeps. They are the authored formula's,
 // calibrated against a factory that has just been installed, and they sum to one
 // within each term of each set.
+//
+// context.protection_withdrawn is shipped at nothing, and that is the one weight
+// here the design does not decide: the factor exists to resolve rather than to
+// be weighed, its only other reading is that the version withdraws nothing, and
+// the design names no weight for it. A recalibration fits one from the held-out
+// decisions like every other, and until then the factor moves no number.
 var shipped = map[FactorSet]Weights{
 	SetWithABuild: {
 		"change.size": 0.25, "change.area_churn": 0.20, "author.prior": 0.35,
 		"context.intent_source": 0.20,
 		"change.reach":          0.35, "exposure.reach": 0.30,
 		"context.hazard_severity": 0.20, "context.consumers": 0.15,
-		"change.reversibility": 1.00,
+		"context.protection_withdrawn": 0.00,
+		"change.reversibility":         1.00,
 	},
 	SetAboveABuild: {
 		"change.size": 0.30, "change.area_churn": 0.20, "author.prior": 0.30,
 		"context.intent_source":   0.20,
 		"change.reach":            0.50,
 		"context.hazard_severity": 0.30, "context.consumers": 0.20,
-		"change.reversibility": 1.00,
+		"context.protection_withdrawn": 0.00,
+		"change.reversibility":         1.00,
 	},
 	SetRolePromptOrSkill: {
 		"fleet.departure": 0.40, "author.prior": 0.40, "context.intent_source": 0.20,
