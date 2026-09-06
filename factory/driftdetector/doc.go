@@ -46,7 +46,8 @@
 // detector's process and written back here as [Writer.RaiseStaleComponent]: a
 // component past the interval it promised holds what that component reaches —
 // the health monitor's a service's production deploys, the deployer's an
-// environment's, one row per service in it — and one uncleared row stands per
+// environment's, one row per service in it, and a component reaching no deploy
+// nothing at all, its row naming no service — and one uncleared row stands per
 // component, service and target.
 //
 // The fourth comparison (the instances a rollback would need against the count

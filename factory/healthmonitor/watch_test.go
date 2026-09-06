@@ -122,13 +122,36 @@ func (d *fakeDeployer) DeploySearch(_ context.Context, s healthmonitor.SearchDep
 	return "dep_search", nil
 }
 
-// fakePager keeps the waits it was handed. Nothing is delivered: what this
-// package decides is which wait fires and what it carries.
-type fakePager struct{ waits []notifier.Wait }
+// fakePager keeps the waits it was handed and the page events they left, so a
+// pass that reads a standing condition sees the sequence its own earlier call
+// wrote. Nothing is delivered: what this package decides is which wait fires,
+// what it carries, and whether another event is owed on that row.
+type fakePager struct {
+	waits  []notifier.Wait
+	events map[string][]notifier.Payload
+}
 
 func (p *fakePager) Notify(_ context.Context, w notifier.Wait) ([]decisionlog.Row, error) {
 	p.waits = append(p.waits, w)
+	p.append(w.Row, notifier.EventReached)
 	return nil, nil
+}
+
+func (p *fakePager) Widen(_ context.Context, w notifier.Wait) (decisionlog.Row, error) {
+	p.waits = append(p.waits, w)
+	p.append(w.Row, notifier.EventWidened)
+	return decisionlog.Row{}, nil
+}
+
+func (p *fakePager) EventsFor(_ context.Context, row string) ([]notifier.Payload, error) {
+	return p.events[row], nil
+}
+
+func (p *fakePager) append(row string, event notifier.Event) {
+	if p.events == nil {
+		p.events = map[string][]notifier.Payload{}
+	}
+	p.events[row] = append(p.events[row], notifier.Payload{Row: row, Event: string(event)})
 }
 
 // TestTheFailedExitRollsBackRaisesTheIncidentAndClosesLast is the order the

@@ -111,13 +111,9 @@ func staleCheck(ctx context.Context, s stores, out io.Writer) error {
 	return nil
 }
 
-// raiseStale writes the mismatch one stale last check calls for, over the
-// services its component's stopping holds. The health monitor keeps one record
-// per service, so its subject is the service. The deployer keeps one per target
-// of a persistent environment, so its subject is a target and what it holds is
-// every service in the environment that names that target. A component whose
-// record is per neither holds every service the factory has, which is the
-// widest reading of "what the stopped component reaches" and the safe one.
+// raiseStale writes the mismatch one stale last check calls for, over what its
+// component's stopping holds — one mismatch per service held, and one holding
+// nothing where the component reaches no deploy.
 func raiseStale(ctx context.Context, s stores, writer *driftdetector.Writer,
 	c lastcheck.LastCheck, out io.Writer) error {
 	why := fmt.Sprintf("%s's own last check is stale: it named an interval of %s and owes a further pass",
@@ -129,24 +125,45 @@ func raiseStale(ctx context.Context, s stores, writer *driftdetector.Writer,
 		if err != nil {
 			return err
 		}
-		if raised != "" {
-			fmt.Fprintf(out, "STALE COMPONENT %s — %s, holding %s's production deploys\n",
-				raised, why, held.serviceID)
+		if raised == "" {
+			continue
 		}
+		if held.serviceID == "" {
+			fmt.Fprintf(out, "STALE COMPONENT %s — %s, holding nothing: the page is the whole of it\n",
+				raised, why)
+			continue
+		}
+		fmt.Fprintf(out, "STALE COMPONENT %s — %s, holding %s's production deploys\n",
+			raised, why, held.serviceID)
 	}
 	return nil
 }
 
 // held is one service a stopped component's mismatch holds, and the target where
-// the record that stopped is kept per target.
+// the record that stopped is kept per target. A held naming no service is the
+// mismatch that holds nothing.
 type held struct {
 	serviceID string
 	target    string
 }
 
+// holdsWhat is what a stopped component's mismatch holds, read off which thing
+// that component keeps a last check per. The health monitor keeps one per
+// service, so its subject is the service and it holds that service's production
+// deploys. The deployer keeps one per target of a persistent environment, so it
+// holds every service in that environment which runs on that target.
+//
+// The three that remain — the pass over the constraints in force, the pass over
+// the advisory feed, and dispatch's pass over a fleet proposal — reach no
+// deploy, so the mismatch each makes holds nothing and the page is the whole of
+// it. Holding every service on one of them would stop production deploys across
+// the install for a raise that stopped.
 func holdsWhat(ctx context.Context, s stores, c lastcheck.LastCheck) []held {
-	if c.Component == lastcheck.ComponentHealthMonitor && c.Subject != "" {
+	if c.Component == lastcheck.ComponentHealthMonitor {
 		return []held{{serviceID: c.Subject}}
+	}
+	if c.Component != lastcheck.ComponentDeployer {
+		return []held{{}}
 	}
 	services, err := service.All(ctx, s.factory)
 	if err != nil {
@@ -155,10 +172,6 @@ func holdsWhat(ctx context.Context, s stores, c lastcheck.LastCheck) []held {
 	var holding []held
 	for _, svc := range services {
 		if svc.Retired() {
-			continue
-		}
-		if c.Component != lastcheck.ComponentDeployer || c.Subject == "" {
-			holding = append(holding, held{serviceID: svc.ID})
 			continue
 		}
 		production, found, err := environment.Production(ctx, s.factory, svc.ProjectID)

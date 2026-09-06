@@ -236,13 +236,18 @@
 //     tearing down what it merged; candidateFor, tearDown.
 //   - productiondeploy.go — productionDeploy, the Deploy to production row
 //     and its five factory holds; fireProduction, putOnProduction,
-//     factoryHolds, windowHold, rollbackHold, outstandingRevert and
+//     recordTargetChecks, the deployer's own last check per target of the
+//     deploy record; factoryHolds, windowHold, rollbackHold, objectiveHold
+//     with passesTheBudgetHold, outstandingRevert and
 //     revertWhileRollbackHolds, the one item the rollback's hold does not
 //     reach.
 //
 // The watch and its operations:
 //
-//   - watch.go — the loop: watchTo, watchPass, reportWatched and reportAfter,
+//   - watch.go — the loop: watchTo, watchPass — the windows read, the reading
+//     after one closes, the incidents that settled, the page an open incident
+//     with no open window fires, the deferred-hours pass and the drift sweep —
+//     reportWatched and reportAfter,
 //     driftDetectorPages, escalated, approveThrough; terminal, where a delivery
 //     goes; and Observed, readExchange, raiseRemovals for contractcheck.
 //   - emission.go — signalFiles, [healthmonitor.Emission] over the file each
@@ -260,8 +265,9 @@
 // What a human does to something already running:
 //
 //   - undo.go — rollbackCommand with rollBackNow and revertIntent, which is
-//     duty 10 in its two forms, and markRollbackCommand, the mark that a
-//     rollback was not caused by the release.
+//     duty 10 in its two forms, and markRollbackCommand with markRollback, the
+//     mark that a rollback was not caused by the release, the revert item it
+//     ends and the hold it lifts.
 //   - ending.go — dropCommand, acceptCommitCommand, mitigateCommand and
 //     truncateCommand: an item or an intent ended for good, a commit the queue
 //     did not make accepted, the deployer acting on a human's instruction, and

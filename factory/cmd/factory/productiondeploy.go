@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
@@ -145,7 +147,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	// fields on the service record. The last check is what says the deployer
 	// reached that target and when, which is what a drift-detection exemption
 	// standing on a rollout that is not advancing is refused against.
-	if err := p.recordTargetChecks(ctx, c.svc, dep); err != nil {
+	if err := p.recordTargetChecks(ctx, dep); err != nil {
 		return err
 	}
 	if err := p.adopt(ctx, c.svc, dep); err != nil {
@@ -197,22 +199,36 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	return nil
 }
 
-// recordTargetChecks is the deployer's own last check over each target the
-// deploy reached, written after the deploy completed. There is one per target of
-// a persistent environment the service runs on — the deploy reached that set and
-// no other — and the interval it promises the next pass within is
-// how often this interface deploys — which is once per run, so the interval is
-// the watch's own, the longest thing a run does after a deploy.
+// recordTargetChecks is the deployer's own last check over each target this
+// deploy record names, written after the deploy has been performed. Whether a
+// further pass is owed is read off that target's own row: a target the rollout
+// has reached is one it is finished with, so this pass is the last one owed
+// there and the record says so; a target it has not reached is one the rollout
+// still owes a pass, and the interval it promises that pass within is the
+// watch's own, the longest thing a run does after a deploy.
 //
-// What it costs is that the interval is the run's and not a period the deployer
-// keeps: this interface deploys when a run reaches the row rather than on a pass
-// of its own, so a target whose check is older than the interval means the run
-// ended and not that the deployer stopped.
-func (p *path) recordTargetChecks(ctx context.Context, svc service.Service, dep deploy.Deploy) error {
-	for _, target := range serviceTargets(p.production, svc) {
-		payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q}`, dep.ID, dep.BuildID)
+// The two directions are what makes the record readable. A record past its
+// interval with a further pass owed is always something that stopped, so a
+// rollout the deployer has finished with that promised a further pass it will
+// never make would raise a stale-component mismatch after every run, holding
+// every service on that target and paging. A rollout that stopped part way still
+// leaves the targets it never reached owing one, which is what the drift
+// detector's rollout exemption is bounded by.
+//
+// It is the deploy record's targets and not the service's whole set, because
+// this is a record of a pass the deployer made: a target the deploy did not
+// reach at all is one it made no pass over.
+func (p *path) recordTargetChecks(ctx context.Context, dep deploy.Deploy) error {
+	targets, err := deploy.Targets(ctx, p.d.pool, dep.ID)
+	if err != nil {
+		return err
+	}
+	for _, target := range targets {
+		furtherPassOwed := target.Completion == deploy.CompletionNotReached
+		payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q,"completion":%q}`,
+			dep.ID, dep.BuildID, target.Completion)
 		if err := deploy.RecordTargetCheck(ctx, p.checks, deployActor,
-			target.Address, atLeastASecond(p.d.watchFor), false, payload); err != nil {
+			target.Address, atLeastASecond(p.d.watchFor), !furtherPassOwed, payload); err != nil {
 			return err
 		}
 	}
@@ -223,12 +239,14 @@ func (p *path) recordTargetChecks(ctx context.Context, svc service.Service, dep 
 // lifts itself, in the order it is worth reporting them: a declared dependency that
 // is not live still, the service already holding as many analysis windows open as the
 // window limit
-// allows, and a rollback whose revert has not shipped. It returns the words the first
+// allows, a rollback whose revert has not shipped, and the service's error budget
+// exhausted. It returns the words the first
 // one found is reported with, and nothing where none holds.
 //
-// None of the three is written anywhere. Each is computed from records that already
+// None of the four is written anywhere. Each is computed from records that already
 // exist — the deploy records of the dependencies' services, the open windows, the
-// newest rollback — and the design gives such a hold no row: a record for it would be
+// newest rollback, the emission the objective is read over — and the design gives such
+// a hold no row: a record for it would be
 // a decision where nothing is decided, and re-testing would append one every time the
 // gate re-fired. What that costs is that how long the factory has been holding is
 // answerable for the platform's ceiling alone, which is the one wait at a deploy row
@@ -241,7 +259,89 @@ func (p *path) factoryHolds(ctx context.Context, svc service.Service, it item.It
 	if held, err := p.windowHold(ctx, svc); err != nil || held != "" {
 		return held, err
 	}
-	return p.rollbackHold(ctx, svc, it)
+	if held, err := p.rollbackHold(ctx, svc, it); err != nil || held != "" {
+		return held, err
+	}
+	return p.objectiveHold(ctx, svc, it)
+}
+
+// objectiveHold is the two things a service level objective does, read from one
+// budget: the hold an exhausted budget sets on that service's production
+// deploys, and the intent the objective raises. The hold lifts itself when the
+// period rolls forward far enough to restore the budget, nothing is decided and
+// no page fires — the shape the hold a dependency that is not current sets
+// already has. A budget the store does not cover is uncomputed and holds the way
+// an exhausted one does, a budget taken as intact over records that are not
+// there being an absent input read as evidence.
+//
+// The raise is on the same reading because the two are one mechanism: the fix
+// for whatever exhausted the budget is itself a production deploy, and the item
+// that passes the hold on a service that crossed nothing is the one this raise
+// takes in. A budget read as exhausted with nothing raised on it would be a hold
+// no item could lift.
+//
+// Where an owner authored no objective there is no budget, nothing is held and
+// nothing is raised: that reading and the window are the whole of what protects
+// the service.
+func (p *path) objectiveHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
+	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
+	budget, err := p.healthMonitor.ErrorBudget(ctx, w)
+	if err != nil {
+		return "", err
+	}
+	if _, err := p.healthMonitor.RaiseObjectiveIntent(ctx, w, budget); err != nil {
+		return "", err
+	}
+	if !budget.Holds() {
+		return "", nil
+	}
+	passes, err := p.passesTheBudgetHold(ctx, svc, it)
+	if err != nil || passes {
+		return "", err
+	}
+	if !budget.Covered {
+		return fmt.Sprintf("%s — the store does not cover the objective's period of %.0f seconds, so the budget is uncomputed and holds the way a spent one does",
+			gate.HoldErrorBudgetExhausted, budget.PeriodSeconds), nil
+	}
+	return fmt.Sprintf("%s — %.0f%% of the allowance is left over a period of %.0f seconds",
+		gate.HoldErrorBudgetExhausted, budget.Remaining*100, budget.PeriodSeconds), nil
+}
+
+// passesTheBudgetHold is the two items the design lets past it: a revert, which
+// passes the hold a rollback leaves for the same reason, and an item whose intent
+// a detector raised on that service — the health monitor's at a crossing, or the
+// objective's own. Without the second the hold would stand hardest exactly where
+// production is worst, no item on a service that crossed nothing being able to
+// lift it.
+//
+// A request an owner raised on that service does not pass; the route is the
+// objective's intent, which exists whenever the budget is exhausted.
+func (p *path) passesTheBudgetHold(ctx context.Context, svc service.Service, it item.Item) (bool, error) {
+	if it.IntentID == "" {
+		return false, nil
+	}
+	_, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
+	if err != nil {
+		return false, err
+	}
+	if outstanding && it.IntentID == revertIntentID {
+		return true, nil
+	}
+	raised, err := intent.Get(ctx, p.d.pool, it.IntentID)
+	if err != nil {
+		return false, err
+	}
+	if raised.Source != intent.SourceDetector || raised.Evidence == "" {
+		return false, nil
+	}
+	// The evidence is stored as the key package intent composes, and the service
+	// it names is what says the detector raised this on this service and not on
+	// another.
+	var evidence intent.Evidence
+	if err := json.Unmarshal([]byte(raised.Evidence), &evidence); err != nil {
+		return false, fmt.Errorf("factory: reading the evidence on intent %s: %w", raised.ID, err)
+	}
+	return evidence.ServiceID == svc.ID, nil
 }
 
 // windowHold is the window limit: an open window blocks nothing until the service
@@ -280,19 +380,28 @@ func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.It
 
 // outstandingRevert is the rollback this service is waiting for the revert of,
 // the intent of that revert, and whether anything is outstanding at all: no
-// rollback, no incident still open behind it, or a revert already shipped is
-// nothing outstanding.
+// rollback, no incident still open behind it, a revert already shipped, or a
+// mark against the rollback is nothing outstanding.
+//
+// The mark is read first because it is what ends the wait before the revert
+// ships: a named human at Ops saying the rollback was not caused by the release
+// leaves no defect on master for the hold to keep off production, so the next
+// release from master carries the change and is measured again.
+//
+// The walk from the rollback to the revert's intent is
+// [healthmonitor.RevertOfRollback] and not a copy of it here, so the hold and
+// the mark's own command read one predicate.
 func (p *path) outstandingRevert(ctx context.Context, svc service.Service) (deploy.Deploy, string, bool, error) {
 	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, svc.ID, p.production.ID)
 	if err != nil || !found {
 		return deploy.Deploy{}, "", false, err
 	}
-	revertIntentID, err := revertIntentOf(ctx, p, svc, rollback)
-	if err != nil || revertIntentID == "" {
+	marked, err := healthmonitor.MarkStands(ctx, p.d.pool, rollback.ID)
+	if err != nil || marked {
 		return deploy.Deploy{}, "", false, err
 	}
-	shipped, err := healthmonitor.Shipped(ctx, p.d.pool, p.production.ID, revertIntentID)
-	if err != nil || shipped {
+	revertIntentID, _, outstanding, err := healthmonitor.RevertOfRollback(ctx, p.d.pool, p.production.ID, rollback)
+	if err != nil || !outstanding {
 		return deploy.Deploy{}, "", false, err
 	}
 	return rollback, revertIntentID, true, nil

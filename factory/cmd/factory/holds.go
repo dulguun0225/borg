@@ -22,13 +22,13 @@ import (
 // record for it would be a decision where nothing is decided, and re-testing
 // would append one every time the gate re-fired.
 //
-// Seven of the fourteen holds this answers, and seven it does not. The halt is
+// Eight of the fourteen holds this answers, and six it does not. The halt is
 // package gate's own read; the drift mismatch is a firing's own read of that
-// store; and the five left — a contract migration not shipped, an error budget
-// exhausted, the maximum concurrent kept fleets, an advisory match, and the
-// maximum concurrent candidate environments authored on the production
-// environment record — each read a record or a field that is not built, so this
-// reports none of them and a deploy they should have held goes to a verdict.
+// store; and the four left — a contract migration not shipped, the maximum
+// concurrent kept fleets, an advisory match, and the maximum concurrent
+// candidate environments authored on the production environment record — each
+// read a record or a field that is not built, so this reports none of them and a
+// deploy they should have held goes to a verdict.
 func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) {
 	if !s.Row.Deploys() || s.ItemID == "" {
 		return nil, nil
@@ -86,6 +86,17 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 		}
 		if awaiting != "" {
 			standing = append(standing, gate.HoldRollbackAwaitingRevert)
+		}
+		// The error budget, read at the firing the way every hold here is, and
+		// raising the objective's own intent on the same reading. The two items
+		// that pass it are [path.passesTheBudgetHold]'s, so an item that passes
+		// is not reported as held here either.
+		spent, err := p.objectiveHold(ctx, svc, it)
+		if err != nil {
+			return nil, err
+		}
+		if spent != "" {
+			standing = append(standing, gate.HoldErrorBudgetExhausted)
 		}
 		// The change freeze is read at the moment of the firing, which is what
 		// makes the hold lift itself: the next firing reads a moment outside

@@ -28,16 +28,16 @@
 // together, and each subcommand's own flags. pass.go is the first
 // comparison: [pass] itself, [runsOn] — which of a production environment's
 // targets one service runs on, which is the set this pass reads and no other
-// for that service — [recordedFor] — the recorded release, read the
-// way [deploy.Current] already reads a service's current release rather
-// than with the per-target fallback 08-drift-detection.md states, an open
-// point the report names — [excusedBuilds], which is the rollout exemption
-// per target, bounded by the window's own cap, by the targets the deploy
-// record marks complete, and by [deployerLastCheckStale], and [report].
+// for that service — [recordedFor], the release the deploy record marks for
+// one target, read per target and not once for the service — [excusedBuilds],
+// which is the rollout exemption per target, bounded by the window's own cap,
+// by the targets the deploy record marks complete, and by
+// [deployerLastCheckStale], and [report].
 // checks.go is the second and third comparisons: [chainCheck], [staleCheck]
-// with [raiseStale] and [holdsWhat], which is which services a stopped
-// component's mismatch holds. The tests are pass_test.go, which opens both
-// stores and exercises pass directly.
+// with [raiseStale] and [holdsWhat], which is what a stopped component's
+// mismatch holds. The tests are pass_test.go, which opens both stores and
+// exercises pass directly; pertarget_test.go, the first comparison read per
+// target; and checks_test.go, the third comparison's own.
 //
 // What it reaches a target through is the same seam an agent does, and the read
 // operation is the one that changes nothing. It calls as itself, a component,

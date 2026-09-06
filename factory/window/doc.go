@@ -56,9 +56,10 @@
 // The reads are [Get], [ForRelease], [ForDeploy], and [AllOpen]; [CountOpen],
 // what the window limit is compared against, the limit itself being package
 // policy's read; [ClosedPassedOrTimedOut] and [LastKnownGood], which is what a
-// rollback's target and the last known-good release are computed from — the
-// caller descending past a release whose deploy stopped before its build took
-// traffic, which is the deploy record's fact and not this one's; [All]; and
+// rollback's target and the last known-good release are computed from — over
+// the windows that measured something, the caller descending past a release
+// whose deploy stopped before its build took traffic, which is the deploy
+// record's fact and not this one's; [All]; and
 // [ClosedAtTheVersionInForce], every closed window of every service written
 // under [boundary.Version], which is what the score learns from — an exit under
 // another construction is not evidence in the same currency, and

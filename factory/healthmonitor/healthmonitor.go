@@ -233,6 +233,15 @@ type Builder interface {
 // everything the notifier is composed with.
 type Pager interface {
 	Notify(ctx context.Context, w notifier.Wait) ([]decisionlog.Row, error)
+	// Widen is the one widening, to the owner and once, which a pass drives:
+	// nothing in the notifier decides that a page is unanswered.
+	Widen(ctx context.Context, w notifier.Wait) (decisionlog.Row, error)
+	// EventsFor is the page events already on one row. A page is the sequence
+	// of events on that row, so a pass that reads a standing condition rather
+	// than an event has to read them before it writes another: without it
+	// [HealthMonitor.PageOpenIncidents] would page again on every pass it made
+	// while the crossing went on.
+	EventsFor(ctx context.Context, row string) ([]notifier.Payload, error)
 }
 
 // Mismatches is the drift detector's own store, read through an interface

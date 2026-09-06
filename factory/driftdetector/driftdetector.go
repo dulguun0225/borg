@@ -335,6 +335,11 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 // mismatch names that service and no target; the deployer's is per target of an
 // environment and holds that environment's production deploys, which is one
 // mismatch per service in it, each naming the target as well.
+//
+// ServiceID is empty where the stopped component reaches no deploy — a stopped
+// raise holds nothing, and the page is the whole of it. Such a mismatch is in
+// no service's [Uncleared] answer, so it holds nothing at any gate, and the
+// notifier pages about it the way it pages about a chain mismatch.
 type StaleComponent struct {
 	Component string
 	ServiceID string
@@ -350,10 +355,12 @@ type StaleComponent struct {
 //
 // One uncleared mismatch stands per component, service and target: a later pass
 // finding the same component still stale raises nothing, the way a target that
-// still disagrees records an agreement rather than a second row.
+// still disagrees records an agreement rather than a second row. A component
+// that holds nothing names no service, and its one row is keyed the same way on
+// the empty one.
 func (w *Writer) RaiseStaleComponent(ctx context.Context, s StaleComponent) (string, error) {
-	if s.Component == "" || s.ServiceID == "" || s.Why == "" {
-		return "", fmt.Errorf("%w: a stale component names the component, the service it holds, and what was found",
+	if s.Component == "" || s.Why == "" {
+		return "", fmt.Errorf("%w: a stale component names the component and what was found",
 			ErrPassIncomplete)
 	}
 	var standing string

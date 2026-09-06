@@ -195,6 +195,10 @@ func (h *HealthMonitor) opening(ctx context.Context, w Watching, svc service.Ser
 // target losing its network takes the release's instances and its control
 // together.
 //
+// What the deploy record then names of them is one control target and one
+// control release for the whole deploy, with the instance count per target's own
+// row; doc.go states that, and it is why the teardown reads the counts.
+//
 // Nothing is started where the strategy kept no control — there the comparison
 // falls back to the release below on the target — or where the factory is
 // composed with no deployer.

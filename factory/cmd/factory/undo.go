@@ -11,7 +11,9 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
@@ -145,6 +147,15 @@ func (p *path) revertIntent(ctx context.Context, svc service.Service, reason str
 //
 // The mark points at the rollback's own deploy record, which is where every
 // field of the rollback is.
+//
+// It does two further things where the revert has not shipped: it ends the
+// revert item — dropped, with Ops as the caller — and it lifts the hold the
+// rollback set, which the production deploy row lifts by reading the mark. There
+// is no defect on master for the hold to keep off production, so the next
+// release from master carries the change, opens a window of its own and is
+// measured again; until one comes the service stays on the release the rollback
+// returned to. After the revert has shipped the change is gone from master and
+// the mark corrects the evidence only.
 func markRollbackCommand(args []string) error {
 	flags := flag.NewFlagSet("mark-rollback", flag.ContinueOnError)
 	human := flags.String("human", "owner", "the named human at Ops writing the mark")
@@ -169,28 +180,59 @@ func markRollbackCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		dep, err := deploy.Get(ctx, pool, deployID)
-		if err != nil {
-			return err
-		}
-		if dep.Undoing.FailedReleaseID == "" {
-			return fmt.Errorf("factory mark-rollback: deploy %s undid no release, so it is no rollback to mark", deployID)
-		}
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-		mark, err := window.WriteMark(ctx, tx, token, actor, deployID, dep.ServiceID, *reason)
-		if err != nil {
-			return err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return err
-		}
-		fmt.Printf("Mark %s written: rollback %s was not caused by release %s — %s\n",
-			mark.ID, deployID, dep.Undoing.FailedReleaseID, *reason)
-		fmt.Println("The score and its learning pass exclude that release from here on")
-		return nil
+		return markRollback(ctx, pool, token, actor, deployID, *reason)
 	})
+}
+
+// markRollback writes the mark and does what the mark does to the work in
+// flight. It is its own function because two callers make the act: the
+// subcommand above, and a test driving the mark without the process's own lease.
+func markRollback(ctx context.Context, pool *pgxpool.Pool, token lease.Token,
+	actor record.Actor, deployID, reason string) error {
+	dep, err := deploy.Get(ctx, pool, deployID)
+	if err != nil {
+		return err
+	}
+	if dep.Undoing.FailedReleaseID == "" {
+		return fmt.Errorf("factory mark-rollback: deploy %s undid no release, so it is no rollback to mark", deployID)
+	}
+	// What the mark ends is read before it is written, so the items it drops are
+	// the ones outstanding at the moment the human marked it.
+	revertIntentID, standing, outstanding, err := healthmonitor.RevertOfRollback(
+		ctx, pool, dep.EnvironmentID, dep)
+	if err != nil {
+		return err
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	mark, err := window.WriteMark(ctx, tx, token, actor, deployID, dep.ServiceID, reason)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	fmt.Printf("Mark %s written: rollback %s was not caused by release %s — %s\n",
+		mark.ID, deployID, dep.Undoing.FailedReleaseID, reason)
+	fmt.Println("The score and its learning pass exclude that release from here on")
+	if !outstanding {
+		return nil
+	}
+	// The drop is its own transaction, package item's write being one: the mark
+	// is written first, so a drop that fails leaves the hold lifted and the item
+	// standing rather than the item ended and the hold in force.
+	items := item.NewDispatch(pool, token)
+	for _, id := range standing {
+		dropped, err := items.Drop(ctx, actor, id)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Revert item %s is dropped: the mark says there is no defect on master to revert\n", dropped.ID)
+	}
+	fmt.Printf("The hold rollback %s set is lifted: intent %s needed no revert, and the next release from master is measured again\n",
+		deployID, revertIntentID)
+	return nil
 }

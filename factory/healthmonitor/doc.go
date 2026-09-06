@@ -77,26 +77,32 @@
 // only asks for it to start and to tear down. Nothing but this package closes
 // a window.
 //
-// Called by the command-line interface, which is not built here: [Search] at
-// the failed exit of a revert's own window, one step per pass, the composition
-// holding the batch's deploy record; [HealthMonitor.ErrorBudget] at the
+// Called by the command-line interface: [HealthMonitor.ErrorBudget] at the
 // production deploy row, where [Budget.Holds] is
 // gate.HoldErrorBudgetExhausted and the two items that pass it — a revert, and
 // an item a detector raised on that service — are the row's own to admit;
-// [HealthMonitor.RaiseObjectiveIntent] on the same pass;
+// [HealthMonitor.RaiseObjectiveIntent] on the same reading;
 // [HealthMonitor.PageOpenIncidents] on the pass that runs [HealthMonitor.Watch];
 // and [RevertOfRollback] with [MarkStands] at the mark, where the item ids this
 // returns are dropped through item.Dispatch.Drop with Ops as the caller and the
 // hold lifts because the row reads the mark.
 //
+// [Search] has no caller: it is the step at the failed exit of a revert's own
+// window, one per pass, and the composition holding the batch's deploy record is
+// not built.
+//
 // Not built: the environment's own record of the targets
 // a service with none authored runs on is not read: [targetsOrDefault] stands
 // the environment in for the whole set until it is, and [unmeasurable] and
 // the fallback in open.go say the same about a service's own reachability
-// fields. The deploy record names each control per target through the count of
-// instances running it; the build a control runs is read off that record's
-// control release, and a record naming none leaves the teardown asked for on
-// every target the window was allocated over. Ending a search's own deploy at
+// fields. The deploy record does not name a control per target: it carries one
+// control target and one control release for the whole deploy, so what says
+// which targets carry one is the count of control instances on each target's
+// row, and the build every control runs is the one control release. This
+// package asks the deployer to start a control on every target of the window
+// all the same, and a record whose target rows name no control instances leaves
+// the teardown asked for on every target the window was allocated over. Ending
+// a search's own deploy at
 // its exit is the deployer's and no call for it is composed: [Deployer] is
 // asked for the build to be deployed and for nothing to be torn down, so the
 // instances the search put in front of traffic end where the composition ends

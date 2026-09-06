@@ -129,17 +129,27 @@ func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, 
 }
 
 // ClosedPassedOrTimedOut is every window of the service that closed at one of
-// those two exits, newest close first. It is what both the last known-good
-// release and a rollback's target are computed from, and neither is computed
-// here: the order is the release's number, which this package does not read, and
-// so is the deploy record that says whether the release's build ever took
-// traffic, which both queries also descend past.
+// those two exits and measured something, newest close first. It is what both
+// the last known-good release and a rollback's target are computed from, and
+// neither is computed here: the order is the release's number, which this
+// package does not read, and so is the deploy record that says whether the
+// release's build ever took traffic, which both queries also descend past.
 //
 // It names the two exits it admits rather than the three that close without
 // failing the release, because skipped leaves nothing running to return to.
+//
+// A window that measures nothing is left out however it closed. Timing out
+// counts only because a release that never served cannot time out — one arm
+// silent beside a control that is serving crosses on the request rate and the
+// window closes failed — and that argument is about a window with arms. A
+// window over a service missing one of the four fields the deployer populates
+// has none: it records only that it measures nothing, no reading was ever taken
+// on it, and admitting it would make a release nothing measured a release the
+// factory shifts all of production onto.
 func ClosedPassedOrTimedOut(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID,
-		` and exit in ('`+string(ExitPassed)+`', '`+string(ExitTimedOut)+`') order by closed_at desc, id`,
+		` and not measures_nothing and exit in ('`+string(ExitPassed)+`', '`+string(ExitTimedOut)+`')
+		order by closed_at desc, id`,
 		"the windows that closed passed or timed out")
 }
 
