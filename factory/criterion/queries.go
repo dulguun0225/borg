@@ -147,8 +147,8 @@ func UnderWithdrawnConstraints(ctx context.Context, pool *pgxpool.Pool, serviceI
 // hazardous operation of the named area: the question an auditor and the human
 // at an irreversible Implementation gate ask, and the read the Spec gate's
 // mechanical rejection is made from — a build in an area graded irreversible
-// with no criterion in force naming its operation. That rejection is the gate's
-// and doc.go names it as a caller this package does not hold.
+// with no criterion in force naming its operation. That rejection is
+// [CheckHazardControlled] below.
 func ControllingHazard(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string, areaID string) ([]Criterion, error) {
 	if len(itemIDs) == 0 || areaID == "" {
 		return nil, nil
@@ -184,9 +184,9 @@ func (e *HazardUncontrolledError) Error() string {
 // not a rejection: the derivation and the rejection are the irreversible
 // grade's alone.
 //
-// Its caller is whatever fires the Spec row, which computes the rejection over
-// the requirement field there. This one is not computed beside it yet, and
-// doc.go says what stands in the way.
+// Its caller is whatever fires the Spec row, which computes this rejection
+// before the two over the requirement field and closes the row on the first
+// that rejects.
 func CheckHazardControlled(ctx context.Context, pool *pgxpool.Pool,
 	serviceID string, itemIDs []string, areaID string, irreversible bool,
 ) error {

@@ -107,18 +107,14 @@
 // Four callers this package is written for do not exist yet, and no substitute
 // stands in for them: Factory's two constraint listings, which are
 // [ForConstraint] and [UnderWithdrawnConstraints]; the intent raised when a
-// criterion becomes unreliable, keyed by the criterion; the service record's
-// unreliability bound, which [Unreliable] takes as an argument; and whatever
-// reports what a service promises that a human confirmed, which is
-// [HumanConfirmed]. The deployer's mutation pass at the candidate run is not
-// one of them: [DeriveMutation] and [RecordMutation] are what it calls, and the
+// criterion becomes unreliable, keyed by the criterion; whatever reads the
+// service record's unreliable bound back into [Unreliable] and onto the gate's
+// own criterion result, the bound itself being a field service.SetUnreliableBound
+// writes and policy.Factory.AuthorUnreliableBound authors; and whatever reports
+// what a service promises that a human confirmed, which is [HumanConfirmed].
+// The deployer's mutation pass at the candidate run is not one of them:
+// [DeriveMutation] and [RecordMutation] are what it calls, and the
 // command-line interface composes it.
-//
-// [CheckHazardControlled] is not called either, and its caller does exist: the
-// command-line interface fires the Spec row and computes the rejection over the
-// requirement field there. This one is not computed beside it because the check
-// a close event would name is not among the Spec row's checks in package gate,
-// which refuses a close naming a check that row does not reject on.
 //
 // [WithdrawalsWithAnAuthority] is read by the score, through the reader the
 // command-line interface composes for it: each withdrawal is a resolved factor

@@ -6,6 +6,7 @@ package main
 import (
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 )
 
@@ -27,6 +28,7 @@ func TestSetRejectionOverWhatTheSetAnswers(t *testing.T) {
 		inForce  []intent.Requirement
 		answered []string
 		rejects  bool
+		check    string
 	}{
 		{
 			name:     "one item answers the requirement whole",
@@ -46,30 +48,37 @@ func TestSetRejectionOverWhatTheSetAnswers(t *testing.T) {
 			name:    "a requirement named by no item and derived into none",
 			inForce: []intent.Requirement{whole},
 			rejects: true,
+			check:   gate.AutoRejectedByRequirementNamedByNoItem,
 		},
 		{
 			name:     "a requirement the factory enumerated, named by no item",
 			inForce:  []intent.Requirement{whole, enumerated},
 			answered: []string{"rq_whole"},
 			rejects:  true,
+			check:    gate.AutoRejectedByRequirementNamedByNoItem,
 		},
 		{
 			name:     "a derived share named by no item",
 			inForce:  []intent.Requirement{whole, shareA, shareB},
 			answered: []string{"rq_a"},
 			rejects:  true,
+			check:    gate.AutoRejectedByDerivedRequirementNamedByNoItem,
 		},
 	} {
 		t.Run(one.name, func(t *testing.T) {
-			found, rejects := setRejection(one.inForce, one.answered)
+			check, found, rejects := setRejection(one.inForce, one.answered)
 			if rejects != one.rejects {
-				t.Fatalf("setRejection = %q, %v; want rejects = %v", found, rejects, one.rejects)
+				t.Fatalf("setRejection = %q, %q, %v; want rejects = %v", check, found, rejects, one.rejects)
 			}
 			if rejects && found == "" {
 				t.Error("the rejection carries no reason, and the close event's is what a re-decomposition reads")
 			}
 			if !rejects && found != "" {
 				t.Errorf("a complete set reports %q", found)
+			}
+			if check != one.check {
+				t.Errorf("the rejection names check %q, want %q — the close event carries it as auto_rejected_by",
+					check, one.check)
 			}
 		})
 	}

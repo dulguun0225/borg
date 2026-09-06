@@ -23,6 +23,28 @@ import (
 // nothing.
 var ErrSetIncomplete = errors.New("gate: the set firing is missing something every one has")
 
+// The checks that reject at the Decomposition row, in the words a close event
+// names one by. They are constants here for the reason the Spec row's are: a
+// caller cannot report a rejection under a name of its own.
+const (
+	// AutoRejectedByRequirementNamedByNoItem is a requirement of the intent's
+	// reading in force that no item of the set names and that no share was
+	// derived from.
+	AutoRejectedByRequirementNamedByNoItem = "a requirement named by no item of the set and derived into none"
+	// AutoRejectedByDerivedRequirementNamedByNoItem is a share the split wrote
+	// and left with nobody: a derived requirement no item of the set names.
+	AutoRejectedByDerivedRequirementNamedByNoItem = "a derived requirement named by no item of the set"
+)
+
+// DecompositionChecks is every check that rejects on its own terms at the
+// Decomposition row, in the order the design names them. What computes them is
+// the caller: the requirements are package intent's and what each item answers
+// is package item's, and this package imports neither's reads.
+var DecompositionChecks = []string{
+	AutoRejectedByRequirementNamedByNoItem,
+	AutoRejectedByDerivedRequirementNamedByNoItem,
+}
+
 // SetMember is one item of a decomposition as the row decides over it: the item,
 // the service it changes, the area it is in, how many of the intent's
 // requirements it answers, and what it waits on. There is no build and no
@@ -35,7 +57,10 @@ type SetMember struct {
 	// Requirements is how many of the intent's requirements this item answers,
 	// which is the unit decomposition sets and the unit the item-size target is
 	// authored in. It is what the change group is computed from at this row,
-	// there being no build and no diff, so a member that names none is refused.
+	// there being no build and no diff. A member that answers none is read as
+	// the smallest set and not refused: what the set answers is the caller's
+	// completeness reading, and a firing this package rejected on its own shape
+	// would leave that reading with no row to reject at.
 	Requirements int
 	WaitsOn      []string
 }
@@ -172,10 +197,6 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		if m.ItemID == "" || m.ServiceID == "" {
 			return Opened{}, fmt.Errorf("%w: a member names item %q and service %q",
 				ErrSetIncomplete, m.ItemID, m.ServiceID)
-		}
-		if m.Requirements <= 0 {
-			return Opened{}, fmt.Errorf("%w: member %s answers %d requirement(s), and the change group here is computed from the set proposed",
-				ErrSetIncomplete, m.ItemID, m.Requirements)
 		}
 		assessment, err := g.score.AssessUnder(ctx, inForce, score.Change{
 			ItemID:    m.ItemID,

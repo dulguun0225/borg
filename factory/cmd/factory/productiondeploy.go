@@ -73,17 +73,30 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, g
 	if err != nil {
 		return gate.Opened{}, gate.Firing{}, err
 	}
+	it, err := item.Get(ctx, p.d.pool, c.itemID)
+	if err != nil {
+		return gate.Opened{}, gate.Firing{}, err
+	}
+	// The revert's own row is the one this reading is for: the rollback hold
+	// stands on every other item of the service and not on this one, so the row
+	// fires, and where a human decides it the wait is one the page's condition
+	// meets. It is read at this row because this is where the revert ships.
+	revert, err := p.revertWhileRollbackHolds(ctx, c.svc, it)
+	if err != nil {
+		return gate.Opened{}, gate.Firing{}, err
+	}
 	firing := gate.Firing{
-		Row:             gate.DeployToProduction,
-		ItemID:          c.itemID,
-		BuildID:         c.reverifiedBuildID,
-		ServiceID:       c.svc.ID,
-		AreaID:          p.areaID,
-		EnvironmentID:   p.production.ID,
-		CriteriaInForce: len(c.criteria),
-		Criteria:        c.criteria,
-		Measurement:     c.measurement,
-		Exposure:        reached,
+		Row:                      gate.DeployToProduction,
+		ItemID:                   c.itemID,
+		BuildID:                  c.reverifiedBuildID,
+		ServiceID:                c.svc.ID,
+		AreaID:                   p.areaID,
+		EnvironmentID:            p.production.ID,
+		CriteriaInForce:          len(c.criteria),
+		Criteria:                 c.criteria,
+		Measurement:              c.measurement,
+		Exposure:                 reached,
+		RevertWhileRollbackHolds: revert,
 	}
 	opened, err := p.gate.Fire(ctx, firing)
 	return opened, firing, err
@@ -253,16 +266,8 @@ func (p *path) windowHold(ctx context.Context, svc service.Service) (string, err
 // rollback's own deploy record names. That link is the one stored fact connecting the
 // two, nothing on the item saying it is a revert.
 func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
-	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, svc.ID, p.production.ID)
-	if err != nil || !found {
-		return "", err
-	}
-	revertIntentID, err := revertIntentOf(ctx, p, svc, rollback)
-	if err != nil || revertIntentID == "" {
-		return "", err
-	}
-	shipped, err := healthmonitor.Shipped(ctx, p.d.pool, p.production.ID, revertIntentID)
-	if err != nil || shipped {
+	rollback, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
+	if err != nil || !outstanding {
 		return "", err
 	}
 	if it.IntentID != "" && it.IntentID == revertIntentID {
@@ -271,6 +276,39 @@ func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.It
 	return fmt.Sprintf("%s — rollback %s failed release %s and its revert, intent %s, has not shipped",
 		gate.HoldRollbackAwaitingRevert, rollback.ID, rollback.Undoing.FailedReleaseID,
 		revertIntentID), nil
+}
+
+// outstandingRevert is the rollback this service is waiting for the revert of,
+// the intent of that revert, and whether anything is outstanding at all: no
+// rollback, no incident still open behind it, or a revert already shipped is
+// nothing outstanding.
+func (p *path) outstandingRevert(ctx context.Context, svc service.Service) (deploy.Deploy, string, bool, error) {
+	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, svc.ID, p.production.ID)
+	if err != nil || !found {
+		return deploy.Deploy{}, "", false, err
+	}
+	revertIntentID, err := revertIntentOf(ctx, p, svc, rollback)
+	if err != nil || revertIntentID == "" {
+		return deploy.Deploy{}, "", false, err
+	}
+	shipped, err := healthmonitor.Shipped(ctx, p.d.pool, p.production.ID, revertIntentID)
+	if err != nil || shipped {
+		return deploy.Deploy{}, "", false, err
+	}
+	return rollback, revertIntentID, true, nil
+}
+
+// revertWhileRollbackHolds is the one branch [path.rollbackHold] answers with no
+// hold: this item is the revert of a rollback that has not shipped. The service
+// runs the build the rollback restored, master still contains the defect, and
+// nothing ships past a human at this row — which is what the gate carries onto
+// the open event and what fires a page where a human decides it.
+func (p *path) revertWhileRollbackHolds(ctx context.Context, svc service.Service, it item.Item) (bool, error) {
+	_, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
+	if err != nil || !outstanding {
+		return false, err
+	}
+	return it.IntentID != "" && it.IntentID == revertIntentID, nil
 }
 
 // revertIntentOf is the intent whose revert a rollback is waiting for, and empty

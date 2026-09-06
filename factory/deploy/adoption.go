@@ -77,6 +77,10 @@ func RecordTargetCheck(ctx context.Context, checks *lastcheck.Writer, actor reco
 // RecordPlatformCheck writes the deployer's last check over one platform, which
 // is one per production environment record: the platform a candidate environment
 // is composed on, and what the deployer's counts over it were at that pass.
+//
+// It is one of two writers of that one record and nothing calls either, the
+// other being lastcheck.Writer.RecordPlatformPass; doc.go says so and does not
+// pick between them.
 func RecordPlatformCheck(ctx context.Context, checks *lastcheck.Writer, actor record.Actor,
 	platform string, interval time.Duration, lastPass bool, payload string) error {
 	if platform == "" {

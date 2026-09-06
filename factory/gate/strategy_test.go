@@ -3,12 +3,22 @@
 package gate_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/score"
 )
+
+// TestTheGatesReasonsMirrorTheScoresAll: package gate copies the score's
+// reasons onto the open event, so a reason the score names and this package
+// does not would be stored under a word nothing here declares.
+func TestTheGatesReasonsMirrorTheScoresAll(t *testing.T) {
+	if !slices.Equal(gate.Whys, score.Whys) {
+		t.Errorf("the gate names %q and the score names %q", gate.Whys, score.Whys)
+	}
+}
 
 // TestTheHeldOutSampleKeepsItsOwnBoundInAnIrreversibleArea: Why names what
 // bounded the pick, and a bound already named is not overwritten — an

@@ -442,25 +442,6 @@ func (p *path) requirementFor(c *candidate, named, sentence string) string {
 	return ""
 }
 
-// specRejection is the Spec row's mechanical rejection over the requirement a
-// criterion names, in both directions: a requirement assigned to the item that
-// no criterion in force for it names, and a criterion naming a requirement
-// assigned elsewhere. The two lists are read here — the requirements are the
-// ones decomposition assigned this item, and the criteria are the ones in force
-// for a build of this item alone — and [gate.SpecRejection] decides over them.
-func (p *path) specRejection(ctx context.Context, c *candidate) (check, found string, err error) {
-	inForce, err := criterion.InForce(ctx, p.d.pool, c.svc.ID, []string{c.itemID})
-	if err != nil {
-		return "", "", err
-	}
-	named := make([]string, 0, len(inForce))
-	for _, one := range inForce {
-		named = append(named, one.RequirementID)
-	}
-	check, found, _ = gate.SpecRejection(c.requirementIDs, named)
-	return check, found, nil
-}
-
 // reportAttempts says what a dispatch spent where it spent more than the one
 // entry that put the item on the stage: every attempt past the first is a
 // reply the protocol refused, and the item was entered again for each.

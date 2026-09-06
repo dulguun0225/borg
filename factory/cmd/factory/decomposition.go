@@ -220,7 +220,9 @@ func shareOf(statement string) string { return statement }
 // and where it finds one the row is closed as the factory's own reject before a
 // human is asked, the way a build that does not compile is rejected at
 // Implementation. It is computed before the row fires because the composition
-// holds the set: package gate imports neither the requirements nor the items.
+// holds the set: package gate imports neither the requirements nor the items,
+// and it names which of [gate.DecompositionChecks] rejected so the close event
+// carries it.
 func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *decompositionSet, candidates []*candidate) (bool, error) {
 	inForce, err := intent.Requirements(ctx, p.d.pool, in.ID)
 	if err != nil {
@@ -230,7 +232,7 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	for _, c := range candidates {
 		answered = append(answered, c.requirementIDs...)
 	}
-	incomplete, rejects := setRejection(inForce, answered)
+	check, incomplete, rejects := setRejection(inForce, answered)
 
 	members := make([]gate.SetMember, 0, len(candidates))
 	for _, c := range candidates {
@@ -259,16 +261,15 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	if rejects {
 		// The factory's own reject, closed as the gate component and before a
 		// human is asked, because a mechanical check rejects on its own terms.
-		// It goes through [gate.Gate.Decide] and not [gate.Gate.AutoReject]:
-		// that call refuses a check name the row does not offer, and package
-		// gate offers none at this row.
-		closing, err = p.gate.Decide(ctx, opened, gate.Given{
-			Actor: gate.Component(gate.Decomposition), Verdict: gate.VerdictReject, Reason: incomplete,
-		})
+		// It goes through [gate.Gate.AutoReject], which is what writes the check
+		// onto the close event as auto_rejected_by — so a reader of the log sees
+		// which of the row's two directions rejected and not only the reason.
+		closing, err = p.gate.AutoReject(ctx, opened, check, incomplete)
 		if err != nil {
 			return false, err
 		}
-		fmt.Fprintf(p.d.out, "The set is incomplete, so the row rejects before a human is asked: %s\n", incomplete)
+		fmt.Fprintf(p.d.out, "The set is incomplete, so the row rejects before a human is asked by %s: %s\n",
+			check, incomplete)
 	} else {
 		// The firing a refer would re-fire with is the set's, and
 		// [gate.Gate.Refer] re-fires through [gate.Gate.Fire], which refuses the

@@ -37,15 +37,16 @@ type Limits interface {
 	AttemptLimit(ctx context.Context, s policy.Subjects) (policy.Effective, error)
 }
 
-// Escalation is what performs an escalation where the stage has spent its
-// limit: the escalated value written onto the item, every pending row of the
-// item abandoned, and the wait to the notifier, in that order.
+// Escalation is what performs the first two of the three things an escalation
+// is where the stage has spent its limit: the escalated value written onto the
+// item, and every pending row of the item abandoned. The third, the wait to the
+// notifier, is this component's own call on [Notifier] and follows this one.
 //
 // It is an interface the composition supplies rather than a call made here,
 // because the abandonment of a pending row is the gate component's and
 // ../../end-goal/components.md's row for this component names no gate. What
 // the composition wires it to is [gate.Gate.EnforceAttemptLimit], which does
-// the three in the order that file fixes.
+// those two and reaches no notifier.
 type Escalation interface {
 	Escalate(ctx context.Context, actor record.Actor, itemID string, stage item.Stage) error
 }

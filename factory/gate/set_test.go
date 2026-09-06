@@ -179,12 +179,21 @@ func TestASetFiringMissingSomethingIsRefused(t *testing.T) {
 		"one member":     {IntentID: "in_a", EnvironmentID: "env_a", Members: two[:1]},
 		"a member with no service": {IntentID: "in_a", EnvironmentID: "env_a",
 			Members: []gate.SetMember{{ItemID: "it_a", Requirements: 1}, {ItemID: "it_b", ServiceID: "svc_b", Requirements: 1}}},
-		"a member answering no requirement": {IntentID: "in_a", EnvironmentID: "env_a",
-			Members: []gate.SetMember{{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b", Requirements: 1}}},
 	} {
 		if _, err := g.FireSet(ctx, firing); !errors.Is(err, gate.ErrSetIncomplete) {
 			t.Errorf("a set firing with %s = %v, want ErrSetIncomplete", name, err)
 		}
+	}
+
+	// A member answering no requirement is not one of them: what the set answers
+	// is the caller's completeness reading, decided at this row, so the row fires
+	// and the reading rejects rather than the firing erroring the run out.
+	if _, err := g.FireSet(ctx, gate.SetFiring{IntentID: "in_b", EnvironmentID: "env_a",
+		Members: []gate.SetMember{
+			{ItemID: "it_a", ServiceID: "svc_a"},
+			{ItemID: "it_b", ServiceID: "svc_b", Requirements: 1},
+		}}); err != nil {
+		t.Errorf("a set firing with a member answering no requirement = %v, want the row to fire", err)
 	}
 	// And a Decomposition firing given as an ordinary one is refused: that row
 	// decides over a set and not over one item's build.

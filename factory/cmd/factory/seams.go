@@ -61,33 +61,65 @@ func (p *path) raisedByTheHealthMonitor(ctx context.Context, itemID string) (boo
 		in.Actor.Kind == record.KindComponent && in.Actor.Key == healthmonitor.Actor.Key, nil
 }
 
-// pagedFiring is the page a gate firing sends. One condition inside the holds
-// meets the page's condition — a mismatch the drift detector found, which waits
-// on a human and on nothing else — and [gate.Opened.Pages] is what answers it.
+// pagedFiring is the page a gate firing sends. Two firings meet the page's
+// condition and [gate.Opened.Pages] is what answers for both: a mismatch the
+// drift detector found, which waits on a human and on nothing else where the
+// holds beside it lift themselves; and a human deciding on a revert while the
+// rollback that removed the defect still holds.
 //
 // It is keyed on the open event, which is the row a human acknowledges at Work,
 // so the acknowledgement [gateNotifier.Acknowledged] writes lands on the row
 // its page was reached on. A page keyed anywhere else could never be
 // acknowledged by the act that decides the row.
 //
-// It is beside the mismatch's own page and not instead of it: the notifier's
-// sweep of the drift detector's store pages about the record there, which a
-// human ends by clearing it, and this pages about the deploy that record is
-// holding — which a human ends at this row.
+// The mismatch's is beside the notifier's own and not instead of it: the sweep
+// of the drift detector's store pages about the record there, which a human ends
+// by clearing it, and this pages about the deploy that record is holding — which
+// a human ends at this row. Where both conditions hold at one firing the
+// mismatch's is the one sent, a page being the sequence of events on one row and
+// two on one row being one page: the mismatch is what holds the deploy, and the
+// revert row is reached again at the next firing once it is cleared.
+//
+// Neither is deferred by a rollback the health monitor is still calling for. A
+// mismatch is not about a release, and the revert's row is reached only after the
+// rollback ran — so [notifier.Wait.RollbackOutstanding] is false on both, and the
+// revert's page waits for the hours the service authored.
 func (p *path) pagedFiring(ctx context.Context, opened gate.Opened) error {
 	if p.notifier == nil || !opened.Pages() {
 		return nil
 	}
-	_, err := p.notifier.Notify(ctx, notifier.Wait{
-		Row:  opened.Row.ID,
-		Kind: notifier.KindDriftMismatch,
-		Waiting: fmt.Sprintf("%s waits on a human: %s",
-			opened.Gate, opened.Mismatch),
-		Holding:   people.OfObligation(people.ObligationDriftDetector),
+	wait := notifier.Wait{
+		Row:       opened.Row.ID,
 		Worse:     true,
 		ServiceID: opened.Subject.ServiceID,
-	})
+	}
+	switch {
+	case opened.Mismatch != "":
+		wait.Kind = notifier.KindDriftMismatch
+		wait.Waiting = fmt.Sprintf("%s waits on a human: %s", opened.Gate, opened.Mismatch)
+		wait.Holding = people.OfObligation(people.ObligationDriftDetector)
+	default:
+		wait.Kind = notifier.KindGateRevertDecision
+		wait.Waiting = fmt.Sprintf(
+			"%s waits on a human to decide the revert, and until they do master still holds the defect the rollback removed",
+			opened.Gate)
+		wait.Holding = whoTheRowWaitsOn(opened.WaitsOn)
+	}
+	_, err := p.notifier.Notify(ctx, wait)
 	return err
+}
+
+// whoTheRowWaitsOn is whose wait a paging gate row is: the duty the row belongs to,
+// which is the routing that showed the row in Work, and the zero value where the
+// row belongs to none — which the notifier routes to the owner, the same answer
+// a duty nobody holds gets. The production deploy row names no duty of its own,
+// so a revert decided there reaches the owner until a safeguard's routing or a
+// hold puts a duty on it.
+func whoTheRowWaitsOn(w gate.Waits) people.Holding {
+	if w.Duty != 0 {
+		return people.OfDuty(w.Duty)
+	}
+	return people.Holding{}
 }
 
 // gateNotifier is [gate.Notifier]: the one call a gate makes on the component

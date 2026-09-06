@@ -49,9 +49,11 @@ func (p PlatformPass) Leaked() int {
 // [PlatformPassOf], and a payload composed at each caller would be the same
 // shape spelled twice.
 //
-// Nothing calls it yet. The pass is the deployer's, which lives in the
-// command-line interface, and the composition owes one call per production
-// environment record that declares a platform, each pass.
+// Nothing calls it yet, and it is one of two writers of that one record, the
+// other being deploy.RecordPlatformCheck. The pass is the deployer's, which
+// lives in the command-line interface, and the composition owes one call per
+// production environment record that declares a platform, each pass — to one of
+// the two, which is not settled here.
 func (w *Writer) RecordPlatformPass(ctx context.Context, actor record.Actor, platformName string,
 	interval time.Duration, pass PlatformPass) (LastCheck, error) {
 

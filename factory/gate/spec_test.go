@@ -123,6 +123,28 @@ func TestASpecCheckRejectsAtTheSpecRowAndNowhereElse(t *testing.T) {
 		t.Errorf("the mechanical reject returns the item to %q, want the spec stage", payload.ReturnsTo)
 	}
 
+	// The uncontrolled hazard rejects at this row too, and it is the check the
+	// caller reports first where more than one fired.
+	if gate.SpecChecks[0] != gate.AutoRejectedByUncontrolledHazard {
+		t.Errorf("the Spec row's checks read %q first, want the uncontrolled hazard", gate.SpecChecks[0])
+	}
+	hazard, err := g.Fire(ctx, specBy(t, ctx, pool, token, author, "it_0000000000000000000000000000000b"))
+	if err != nil {
+		t.Fatalf("firing the Spec row a second time: %v", err)
+	}
+	closing, err = g.AutoReject(ctx, hazard, gate.AutoRejectedByUncontrolledHazard,
+		"no criterion in force bounds the hazardous operation of ar_payouts, which is graded irreversible")
+	if err != nil {
+		t.Fatalf("AutoReject on the uncontrolled hazard: %v", err)
+	}
+	payload = gate.ClosingPayload{}
+	if err := json.Unmarshal([]byte(closing.Payload), &payload); err != nil {
+		t.Fatalf("reading the closing payload: %v", err)
+	}
+	if payload.AutoRejectedBy != gate.AutoRejectedByUncontrolledHazard {
+		t.Errorf("the close event reads %+v, want a reject naming the hazard check", payload)
+	}
+
 	// The merge row still rejects on its own checks, and the Spec row's are
 	// refused there.
 	merged, err := g.Fire(ctx, mergeFiring)

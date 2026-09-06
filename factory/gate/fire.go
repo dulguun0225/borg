@@ -73,6 +73,17 @@ type Firing struct {
 	// the design's: a safeguard's withdrawal, and the shortening of
 	// decision-log retention.
 	RoutedTo RoutedTo
+	// RevertWhileRollbackHolds is whether the item under decision is the revert
+	// of a rollback that has not shipped yet. Where it holds and a human decides
+	// the row, the service runs the build the rollback restored, master still
+	// contains the defect, and nothing ships past that human — which is what
+	// [Opened.Pages] reads it for.
+	//
+	// It is the caller's answer and not a hold recomputed here: the hold a
+	// rollback leaves stands on every item of the service except this one, and
+	// what says which item is the revert is the intent the rollback's own deploy
+	// record leads to, which this package does not walk.
+	RevertWhileRollbackHolds bool
 	// PriorsRestarted is every author whose per-author prior stands drifted and
 	// whose held-out decisions the cut a shorter retention value permits would
 	// remove, which is the prior the score restarts when those decisions go. It
@@ -212,15 +223,16 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		// what says the measurement those fields exist for cannot be read.
 		HumanDecides: len(marks) > 0 || mismatch != "" ||
 			len(f.CouldNotDerive) > 0 || unmeasured != "",
-		Marks:           marks,
-		HeldOut:         selection.HeldOut,
-		WhyHeldOut:      selection.Why,
-		Holds:           holds,
-		PriorsRestarted: f.PriorsRestarted,
-		WaitsOn:         waits,
-		Mismatch:        mismatch,
-		ArtifactID:      version,
-		Referrers:       f.referrers,
+		Marks:                    marks,
+		HeldOut:                  selection.HeldOut,
+		WhyHeldOut:               selection.Why,
+		Holds:                    holds,
+		PriorsRestarted:          f.PriorsRestarted,
+		WaitsOn:                  waits,
+		Mismatch:                 mismatch,
+		RevertWhileRollbackHolds: f.RevertWhileRollbackHolds,
+		ArtifactID:               version,
+		Referrers:                f.referrers,
 	}
 	if !opened.HumanDecides {
 		opened.WaitsOn = Waits{}
@@ -244,37 +256,38 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 			AuthorBasis: string(author.Basis),
 			Authored:    assessment.Authored,
 		},
-		ArtifactDigest:   digest,
-		RecordID:         f.RecordID,
-		BuildID:          f.BuildID,
-		ServiceID:        f.ServiceID,
-		AreaID:           f.AreaID,
-		EnvironmentID:    f.EnvironmentID,
-		ReleaseID:        f.ReleaseID,
-		Criteria:         f.Criteria,
-		CriteriaInForce:  f.CriteriaInForce,
-		CriteriaFailed:   blocked(f.Criteria),
-		CouldNotDerive:   f.CouldNotDerive,
-		FormulaVersion:   assessment.FormulaVersion,
-		Likelihood:       assessment.Likelihood,
-		Impact:           assessment.Impact,
-		DiscountedImpact: assessment.DiscountedImpact,
-		ThresholdFrom:    string(applied.ThresholdFrom),
-		Safeguards:       applied.Safeguards,
-		Resolutions:      assessment.Resolved,
-		HumanDecides:     opened.HumanDecides,
-		Marks:            opened.Marks,
-		WhyHeldOut:       opened.WhyHeldOut,
-		ReviewSampleRate: reviewRate,
-		Holds:            opened.Holds,
-		PriorsRestarted:  f.PriorsRestarted,
-		Strategy:         opened.Strategy,
-		WaitsOn:          opened.WaitsOn,
-		Mismatch:         opened.Mismatch,
-		Unmeasured:       unmeasured,
-		Supersedes:       f.supersedes,
-		ReferredFrom:     f.referredFrom,
-		Referrers:        f.referrers,
+		ArtifactDigest:           digest,
+		RecordID:                 f.RecordID,
+		BuildID:                  f.BuildID,
+		ServiceID:                f.ServiceID,
+		AreaID:                   f.AreaID,
+		EnvironmentID:            f.EnvironmentID,
+		ReleaseID:                f.ReleaseID,
+		Criteria:                 f.Criteria,
+		CriteriaInForce:          f.CriteriaInForce,
+		CriteriaFailed:           blocked(f.Criteria),
+		CouldNotDerive:           f.CouldNotDerive,
+		FormulaVersion:           assessment.FormulaVersion,
+		Likelihood:               assessment.Likelihood,
+		Impact:                   assessment.Impact,
+		DiscountedImpact:         assessment.DiscountedImpact,
+		ThresholdFrom:            string(applied.ThresholdFrom),
+		Safeguards:               applied.Safeguards,
+		Resolutions:              assessment.Resolved,
+		HumanDecides:             opened.HumanDecides,
+		Marks:                    opened.Marks,
+		WhyHeldOut:               opened.WhyHeldOut,
+		ReviewSampleRate:         reviewRate,
+		Holds:                    opened.Holds,
+		PriorsRestarted:          f.PriorsRestarted,
+		Strategy:                 opened.Strategy,
+		WaitsOn:                  opened.WaitsOn,
+		Mismatch:                 opened.Mismatch,
+		RevertWhileRollbackHolds: opened.RevertWhileRollbackHolds,
+		Unmeasured:               unmeasured,
+		Supersedes:               f.supersedes,
+		ReferredFrom:             f.referredFrom,
+		Referrers:                f.referrers,
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload: %w", err)

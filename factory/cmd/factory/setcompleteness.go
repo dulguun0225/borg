@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 )
 
@@ -19,7 +20,8 @@ import (
 
 // setRejection is the Decomposition row's completeness check over one intent's
 // reading in force and the requirement ids the set's items answer between them.
-// It returns what it found and false where the set is complete.
+// It returns which of [gate.DecompositionChecks] rejects and what it found, and
+// false where the set is complete.
 //
 // Both directions the design names are here. A requirement the requester
 // confirmed that no item answers and no share was derived from is unanswered,
@@ -28,12 +30,10 @@ import (
 // split wrote and left with nobody, which reads as an ordinary requirement to
 // every gate below.
 //
-// It returns the reason and no check name, where [gate.SpecRejection] returns
-// one of the row's own constants: package gate owns the words a close event
-// names a mechanical check by, and it has none for this row yet — so this
-// rejection is closed with its reason and the close event carries no
-// auto_rejected_by.
-func setRejection(inForce []intent.Requirement, answered []string) (found string, rejects bool) {
+// The first direction is reported first, and a set that fails both carries the
+// one this returns; the other is found by the next round. The check name is what
+// the close event carries as auto_rejected_by, the way the Spec row's does.
+func setRejection(inForce []intent.Requirement, answered []string) (check, found string, rejects bool) {
 	for _, r := range inForce {
 		if r.Kind == intent.KindDerived || r.Unanswerable() {
 			continue
@@ -41,17 +41,19 @@ func setRejection(inForce []intent.Requirement, answered []string) (found string
 		if slices.Contains(answered, r.ID) || derivedFrom(inForce, r.ID) {
 			continue
 		}
-		return fmt.Sprintf("requirement %s is named by no item of the set and derived into none: %s",
-			r.ID, r.Statement), true
+		return gate.AutoRejectedByRequirementNamedByNoItem,
+			fmt.Sprintf("requirement %s is named by no item of the set and derived into none: %s",
+				r.ID, r.Statement), true
 	}
 	for _, r := range inForce {
 		if r.Kind != intent.KindDerived || slices.Contains(answered, r.ID) {
 			continue
 		}
-		return fmt.Sprintf("share %s, derived from requirement %s, is named by no item of the set: %s",
-			r.ID, r.DerivedFrom, r.Statement), true
+		return gate.AutoRejectedByDerivedRequirementNamedByNoItem,
+			fmt.Sprintf("share %s, derived from requirement %s, is named by no item of the set: %s",
+				r.ID, r.DerivedFrom, r.Statement), true
 	}
-	return "", false
+	return "", "", false
 }
 
 // derivedFrom reports whether the reading in force holds a share derived from

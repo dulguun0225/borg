@@ -18,11 +18,12 @@
 // and [ErrApproveThroughAHalt]. mark.go is [Mark] with [Marks], what put a
 // human at a row. merge.go is the Merge to master row's own vocabulary:
 // [MechanicalChecks] and [Derivations]. spec.go is the Spec row's:
-// [SpecChecks], [SpecRejection] over the requirement a criterion names, and
-// [ChecksAt], the checks a row rejects on. implementation.go is the
+// [SpecChecks] — the uncontrolled hazard and the two directions over the
+// requirement a criterion names — [SpecRejection] over the second and third of
+// them, and [ChecksAt], the checks a row rejects on. implementation.go is the
 // Implementation row's: [ImplementationChecks] and [ScreenRejection], the
 // rejection made from what the transition check and the drivers derived over the
-// build. strategy.go is [Strategy], [Schedule]
+// build. strategy.go is [Strategy], [Schedule], [Whys]
 // and [Pick] with [Pick.Validate], the shape the pick is stored in; the score
 // picks it. waits.go is [Waits],
 // [RoutedTo], and the three duties the design names for a row.
@@ -44,7 +45,8 @@
 // ([Gate.Pending]), the version under decision, the drift detector's store, the
 // holds standing, what the deployer found on the service, and the strategy.
 // payload.go is [OpeningPayload], [CriterionResult] and the read back into
-// [Opened]. set.go is [Gate.FireSet], which decides over a [SetFiring] of
+// [Opened] with [Opened.Pages]. set.go is the Decomposition row's:
+// [DecompositionChecks] and [Gate.FireSet], which decides over a [SetFiring] of
 // [SetMember]s — each naming how many of the intent's requirements its item
 // answers, which is what the change group is computed from at that row — and
 // [SetOpeningPayload], with [Gate.EditSetInPlace] beside it, the Decomposition
@@ -93,7 +95,14 @@
 // a human, and the one call made on it is the page's acknowledged event.
 // [SpecRejection] is computed here and read by the caller: what the two lists
 // it compares are read from is the requirement record and the criterion
-// record, and the Spec row's firing path is what hands them over.
+// record, and the Spec row's firing path is what hands them over. The third
+// check that row rejects on, [AutoRejectedByUncontrolledHazard], is the same
+// arrangement: the query is package criterion's and the caller makes it. So is
+// [DecompositionChecks] at the Decomposition row, over the intent's
+// requirements and what each item of the set answers.
+// [Firing.RevertWhileRollbackHolds] is the caller's too: the hold a rollback
+// leaves stands on every item but the revert, and what says which item is the
+// revert is a walk from a deploy record this package does not make.
 // [ScreenRejection] is the same arrangement at the Implementation row, over the
 // machines in force and the two derivations from the build.
 //

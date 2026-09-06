@@ -108,6 +108,12 @@ type OpeningPayload struct {
 	// human approving through it is saying the record is wrong and the deploy
 	// should proceed anyway.
 	Mismatch string `json:"drift_mismatch,omitempty"`
+	// RevertWhileRollbackHolds is whether the item under decision is the revert
+	// of a rollback that has not shipped. It is on the open event because a
+	// human deciding here is deciding whether the defect the rollback removed
+	// goes back on master, and a reader of the pending row has to see that this
+	// is that row.
+	RevertWhileRollbackHolds bool `json:"revert_while_rollback_holds,omitempty"`
 	// Unmeasured is which of the deployer's four fields the service is missing,
 	// in words, and is empty where it is missing none. A service missing one
 	// cannot auto-pass the production deploy row whatever the score computes.
@@ -162,6 +168,9 @@ type Opened struct {
 	// production. It is a field of its own beside Marks because a human deciding
 	// here has to read what disagrees and not only that something does.
 	Mismatch string
+	// RevertWhileRollbackHolds is whether the item under decision is the revert
+	// of a rollback that has not shipped, carried from the firing that said so.
+	RevertWhileRollbackHolds bool
 	// ArtifactID is the version under decision, and is empty at an event gate.
 	ArtifactID string
 	// Referrers is every holder who has referred this row.
@@ -172,10 +181,19 @@ type Opened struct {
 // rather than going to a verdict.
 func (o Opened) Holding() bool { return len(o.Holds) > 0 }
 
-// Pages reports whether the row fired a page. One condition inside the holds
-// does: a mismatch the drift detector found waits on a human and on nothing
-// else, where the conditions beside it lift themselves and page nobody.
-func (o Opened) Pages() bool { return o.Mismatch != "" }
+// Pages reports whether the row fired a page. Two conditions do. A mismatch the
+// drift detector found waits on a human and on nothing else, where the
+// conditions beside it in the holds lift themselves and page nobody. And a
+// human deciding on a revert while the rollback that removed the defect still
+// holds: the service runs the build that was restored, master still contains
+// the defect, and nothing ships past that human.
+//
+// The second is read together with [Opened.HumanDecides] and the first is not,
+// because a mismatch puts a human at the row by itself: a revert row the number
+// auto-passed leaves no human waiting, and a page is a wait on one.
+func (o Opened) Pages() bool {
+	return o.Mismatch != "" || (o.RevertWhileRollbackHolds && o.HumanDecides)
+}
 
 // openedFrom reads one row of the log back into the [Opened] the closing calls
 // and [Gate.Reevaluate] take. It is what a caller holding a pending row rather
@@ -223,16 +241,17 @@ func openedFrom(row decisionlog.Row) (Opened, error) {
 			ThresholdFrom: policy.Source(opening.ThresholdFrom),
 			Safeguards:    opening.Safeguards,
 		},
-		HumanDecides:    opening.HumanDecides,
-		Marks:           opening.Marks,
-		HeldOut:         opening.HeldOut,
-		WhyHeldOut:      opening.WhyHeldOut,
-		Holds:           opening.Holds,
-		PriorsRestarted: opening.PriorsRestarted,
-		Strategy:        opening.Strategy,
-		WaitsOn:         opening.WaitsOn,
-		Mismatch:        opening.Mismatch,
-		ArtifactID:      opening.ArtifactID,
-		Referrers:       opening.Referrers,
+		HumanDecides:             opening.HumanDecides,
+		Marks:                    opening.Marks,
+		HeldOut:                  opening.HeldOut,
+		WhyHeldOut:               opening.WhyHeldOut,
+		Holds:                    opening.Holds,
+		PriorsRestarted:          opening.PriorsRestarted,
+		Strategy:                 opening.Strategy,
+		WaitsOn:                  opening.WaitsOn,
+		Mismatch:                 opening.Mismatch,
+		RevertWhileRollbackHolds: opening.RevertWhileRollbackHolds,
+		ArtifactID:               opening.ArtifactID,
+		Referrers:                opening.Referrers,
 	}, nil
 }

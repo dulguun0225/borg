@@ -71,6 +71,15 @@ const (
 	WhyAuthored = "an owner authored this environment's strategy default"
 )
 
+// Whys is every reason a pick was decided by something other than the number,
+// in the order the constants above declare them. It exists so that package
+// gate, which mirrors these constants onto the open event, can be checked
+// against this list rather than against a reader's memory.
+var Whys = []string{
+	WhyFirstRelease, WhyPlatformServesNoShare, WhyIrreversible,
+	WhyHeldOut, WhySafeguarded, WhyAuthored,
+}
+
 // ShippedControlBound is the impact discounted by reversibility at or above
 // which the product ships picking the row with a control. What is in force is
 // the bound the score version names, which is this one until something ships

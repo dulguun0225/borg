@@ -317,3 +317,55 @@ func TestAnIncompleteFiringIsRefused(t *testing.T) {
 		t.Fatalf("the log holds %d rows after refused firings, want the one Read appended", len(rows))
 	}
 }
+
+// TestARevertDecidedWhileTheRollbackHoldsPages: the firing says the item under
+// decision is the revert of a rollback that has not shipped, and where a human
+// decides the row that is a wait the page's condition meets — the service runs
+// the build the rollback restored, master still holds the defect, and nothing
+// ships past that human. Where the number auto-passes there is no human waiting
+// and so no page.
+func TestARevertDecidedWhileTheRollbackHoldsPages(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, token, g := newGate(t, s, p)
+
+	firing := deployFiring(t, ctx, pool, token)
+	firing.RevertWhileRollbackHolds = true
+	opened, err := g.Fire(ctx, firing)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if !opened.HumanDecides {
+		t.Fatal("a number over the threshold left no human at the row")
+	}
+	if !opened.RevertWhileRollbackHolds || !opened.Pages() {
+		t.Errorf("the revert row reads revert=%v, pages=%v; want both",
+			opened.RevertWhileRollbackHolds, opened.Pages())
+	}
+
+	// The open event carries it, so a caller holding a pending row rather than
+	// the firing that wrote it reads the same answer.
+	var payload gate.OpeningPayload
+	if err := json.Unmarshal([]byte(opened.Row.Payload), &payload); err != nil {
+		t.Fatalf("reading the opening payload: %v", err)
+	}
+	if !payload.RevertWhileRollbackHolds {
+		t.Error("the open event does not say the row is a revert decided while the rollback holds")
+	}
+
+	// A number under the threshold leaves nobody waiting, and a page is a wait
+	// on a human.
+	quiet, under := &fakeScore{assessment: assessed(0.1)}, &fakePolicy{applied: applied(0.9)}
+	ctx, pool, token, g = newGate(t, quiet, under)
+	firing = deployFiring(t, ctx, pool, token)
+	firing.RevertWhileRollbackHolds = true
+	opened, err = g.Fire(ctx, firing)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if opened.HumanDecides {
+		t.Fatalf("a number under the threshold put a human at the row: %+v", opened.Marks)
+	}
+	if opened.Pages() {
+		t.Error("a revert row nobody decides fired a page, and a page is a wait on a human")
+	}
+}

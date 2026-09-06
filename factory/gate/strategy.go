@@ -60,7 +60,8 @@ type Pick struct {
 	Schedule Schedule
 	// Why is what bounded the pick where something did, in words a human reads
 	// beside the strategy: no build to keep serving, a platform that serves no
-	// share, an irreversible area, or the held-out sample.
+	// share, an irreversible area, the held-out sample, a safeguard, or the
+	// default an owner authored.
 	Why string
 }
 
@@ -84,7 +85,19 @@ const (
 	// control, which is what the production deploy row's fourth action places
 	// and what every deploy of that service picks under from then on.
 	WhySafeguarded = score.WhySafeguarded
+	// WhyAuthored is a strategy default an owner authored on production's
+	// environment record, which the score supplies none over.
+	WhyAuthored = score.WhyAuthored
 )
+
+// Whys is every reason, in the order [score.Whys] declares them. The two lists
+// are the same strings and TestTheGatesReasonsMirrorTheScoresAll is what keeps
+// them so: a reason added to the score and not here would reach the open event
+// under a word this package does not name.
+var Whys = []string{
+	WhyFirstRelease, WhyPlatformServesNoShare, WhyIrreversible,
+	WhyHeldOut, WhySafeguarded, WhyAuthored,
+}
 
 var (
 	// ErrStrategyUnknown is returned for a strategy outside [Strategies].

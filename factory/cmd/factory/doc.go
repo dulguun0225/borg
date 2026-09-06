@@ -115,7 +115,9 @@
 //     that layer's candidates in.
 //   - seams.go — the values the composition supplies a component that decides
 //     events: intentState, raisedByTheHealthMonitor, pagedFiring, the page a
-//     firing that pages sends on its own row, gateNotifier, which is
+//     firing that pages sends on its own row — a drift mismatch or a revert
+//     decided while the rollback holds — with whoTheRowWaitsOn, the duty that
+//     page routes on, gateNotifier, which is
 //     how a gate reaches a human, dispatchNotifier, the wait an item escalated
 //     leaves, and intakeNotifier, a round of the interview and an intent
 //     escalated.
@@ -146,8 +148,12 @@
 //     where it yielded more than one, and decompositionAttemptLimit, the limit
 //     its re-decompositions are read against.
 //   - setcompleteness.go — setRejection and derivedFrom, the Decomposition
-//     row's check over what the set answers, which rejects mechanically before a
-//     human is asked.
+//     row's two checks over what the set answers, which reject mechanically
+//     before a human is asked and name which of gate.DecompositionChecks
+//     rejected.
+//   - specrejection.go — specRejection, the same thing per item at the Spec
+//     row: the uncontrolled hazard, read from package criterion, and both
+//     directions over the requirement a criterion names.
 //   - authorintent.go — take, the intent a decomposition is authored from;
 //     authorIntent, intake through the four item stages for one intent;
 //     interview, the one round or none with the spec author plus the confirming
@@ -169,10 +175,8 @@
 //     and tasksStage: the three stages above the build, each dispatching its
 //     role, submitting what it authored, firing its own gate row, and
 //     re-authoring against a reject; itemGate, the firing the four item rows
-//     share, with the mechanical rejection its caller computed; specRejection,
-//     the Spec row's own rejection in both directions over the requirement a
-//     criterion names; and on, specMaterial, refining and requirementFor, what
-//     a dispatch is given.
+//     share, with the mechanical rejection its caller computed; and on,
+//     specMaterial, refining and requirementFor, what a dispatch is given.
 //   - author.go — implementationStage with startBranch, commitAndBuild and
 //     hazardOf, and consumerContractStage; Publishes, Declares,
 //     DeclaresSchemaChange, DeclaresBackfill, repoOfItem, the deployer's side of
@@ -231,7 +235,9 @@
 //     tearing down what it merged; candidateFor, tearDown.
 //   - productiondeploy.go — productionDeploy, the Deploy to production row
 //     and its five factory holds; fireProduction, putOnProduction,
-//     factoryHolds, windowHold, rollbackHold.
+//     factoryHolds, windowHold, rollbackHold, outstandingRevert and
+//     revertWhileRollbackHolds, the one item the rollback's hold does not
+//     reach.
 //
 // The watch and its operations:
 //
