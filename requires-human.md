@@ -127,6 +127,24 @@ pick one. The pick is named so it can be overruled.
   needs a candidate environment with a store, and this one has none, so the check reports that
   nothing ran — which the design reads as not passing.
 
+- **What a security predicate asserts.** [_What a consumer declares_](end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md)
+  says the second list exists, is per toolchain, is decided against the build, and takes a
+  could-not-derive outcome, and names no kind. The list, its versioning and its derivation are
+  built and ship no kind, so the merge row's rejection over it has a producer and nothing to fire
+  on until the content is decided. "An owner may only extend it" waits on the install event.
+- **What exit a window that measures nothing takes.** [_Overlapping windows_](end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md)
+  says "timing out counts only because a release that never served cannot time out", and
+  [_The analysis window_](end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md)
+  says such a window "records only that it measures nothing" without naming an exit. It closes
+  timed out — leaving it open would fill the window limit and hold the service on a reading nobody
+  can take — and the readers that pick a rollback target now descend past it. A fifth exit is the
+  alternative, and it is the design's to add.
+- **Whether the control belongs to the deploy or to the target.** [_The health monitor_](end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md)
+  says "There is one control per production target the release has reached … and the deploy record
+  names each"; the record carries one control target and one control release for the whole deploy,
+  and what says a control runs on a target is that row's instance count. Moving the two fields onto
+  the target rows is the change, and it touches the deploy's readers.
+
 ## Left to a component the factory does not have (stated in the owning package's `doc.go`; listed
 here only so the count is not lost)
 
@@ -145,6 +163,12 @@ build, because nothing hands the Implementation row a checkout; a platform that 
 no instance-hour span, this one keeping none; the unreliable bound is authored and read back by
 nobody; and no agent is ever handed a skill, so the versions the vector names are empty for want of
 anything to name — nothing composes a skill at all.
+
+Nothing writes a rework request anywhere, so the outcome
+[_Going back up_](end-goal/how-the-factory-works/03-gates/06-going-back-up.md) gives the per-author
+prior has no writer and the prior would read zero even once it reads the shape. An authored service
+level objective holds that service's production deploys for good on this composition, because the
+emission cannot say whether its store covers the period, which is what would lift the hold.
 
 Three smaller gaps of the same kind, each stated where it sits: the effort an entry names is sent to
 the provider in the field that provider documents, but no model this install can reach offers the
