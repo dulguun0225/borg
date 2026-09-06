@@ -25,6 +25,8 @@
 // [Factory.CreateProject], which writes production's environment in the same
 // event, [Factory.EndProject], which ends the two in one write once every
 // service in the project is retired, [Factory.CreateEnvironment],
+// [Factory.RemoveFromEnvironment], which performs the deployer's removal for one
+// environment and writes no record here,
 // [Factory.WithdrawEnvironment], [Factory.SetMaxConcurrentCandidateEnvironments],
 // [Factory.AuthorStrategyDefault] and [Factory.DeclareArea].
 // parameters.go is the thirteen parameters of gate policy's eleven rows, one
@@ -118,6 +120,9 @@
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md,
 // and the halt is
 // ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.
+// A service's retirement, a project's end, and the removal performed for one
+// environment are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md.
 // The policy version on every decision is
 // ../../end-goal/what-the-factory-does/02-traceability.md, and the shapes the
 // log holds are ../../end-goal/deferred.md. Every owner write at Factory and

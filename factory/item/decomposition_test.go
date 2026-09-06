@@ -137,6 +137,32 @@ func TestDecompositionDeclaresWhatAnItemWaitsOnAndAnswers(t *testing.T) {
 	}
 }
 
+// TestCreateWritesTheItemUnderTheIdTheCallerMinted: a caller that has to write
+// a record naming the item before the item exists mints the id with
+// [item.NewID] and passes it, and the row is written under exactly that id. It
+// is what decomposition does for a split's derived requirements, each of which
+// names the item that answers it while the item answers the share.
+func TestCreateWritesTheItemUnderTheIdTheCallerMinted(t *testing.T) {
+	ctx, pool, decomposition, _ := newWriters(t)
+
+	minted := item.NewID()
+	it, err := decomposition.Create(ctx, decompositionActor, item.New{
+		ID:        minted,
+		IntentID:  "in_" + strings.Repeat("0", 32),
+		ServiceID: "svc_" + strings.Repeat("0", 32),
+		Branch:    "item/minted",
+	}, "", "", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if it.ID != minted {
+		t.Errorf("Create wrote %s, the caller minted %s", it.ID, minted)
+	}
+	if _, err := item.Get(ctx, pool, minted); err != nil {
+		t.Errorf("Get of the minted id: %v", err)
+	}
+}
+
 // TestRepointMovesAStandingItemsWaitToTheReplacements: a re-decomposition
 // points what waited on a superseded item at the items that replaced it, which
 // is the inverse of the pointer the superseded item carries. An ended item

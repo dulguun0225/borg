@@ -67,15 +67,17 @@
 //
 // The deployer writes [Adopt] and nothing else: the four fields that say what
 // runs can be reached, replaced, undone, and read, at adoption and at every first
-// release. It takes the token and fences because its caller is not built.
+// release. It takes the token and fences because its caller begins the
+// transaction it runs in: package deploy's adoption, called by whatever composes
+// the deployer at a service's first release.
 //
 // # What is not built
 //
 // Package policy is the caller of every owner-authored write here, package
 // gatepolicy naming the parameter each is authored under. [Retire] takes the
 // three counts that refuse it as arguments, because each is a read of a package
-// this one may not import; the caller that computes them is not built either,
-// and neither is the removal the deployer performs when the write lands, which
+// this one may not import; what computes them is the interface the owner retires
+// through, and the removal the deployer performs when the write lands is what
 // package policy calls through what its composition supplies.
 //
 // Two numbers the design fixes and does not give. The bound above which a

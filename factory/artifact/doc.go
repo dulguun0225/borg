@@ -14,7 +14,8 @@
 // [Store.SubmitImplementation], [Store.SubmitConsumerContract] — and
 // insertVersion, which every submission goes through. fleet.go is
 // [Store.SubmitFleet] and [Store.EnterShipped], the two calls that write a
-// [FleetKinds] version. query.go is [Get], [Newest] and [InForce]. author.go is
+// [FleetKinds] version. query.go is [Get], [Newest], [NewestShipped] and
+// [InForce]. author.go is
 // [NewestOfKind], [IDsByAuthor] and [ItemsByAuthor]. redact.go is [Span] and
 // [Store.Redact]. schema.go is [Table], [IDPrefix] and [DDL].
 //
@@ -87,13 +88,18 @@
 // Both write the same columns and either can write version 1 of a chain, so
 // the column is what [InForce] reads and what keeps the caller from having to
 // know which start wrote each row. The install step and the first-start step
-// are the command-line interface's, and neither is built.
+// are the command-line interface's, and it makes both at every start: what
+// decides whether either writes is [NewestShipped], the newest entry a start
+// wrote, against the shipped-bundle identity this build carries.
 //
 // # In force
 //
-// [Newest] is the head of a fleet chain whatever decided it, which is what the
-// first-start step compares what shipped against: an upgrade that changed no
-// words enters nothing. [InForce] is the newest version of a chain that is
+// [Newest] is the head of a fleet chain whatever decided it. [NewestShipped] is
+// the head of what a start entered rather than anybody authored, which is what
+// the first-start step reads: it carries the shipped-bundle identity it entered
+// under, so a start under that identity enters nothing however many versions
+// have been authored over it, and an upgrade whose words are the ones that entry
+// carries enters nothing either. [InForce] is the newest version of a chain that is
 // either among the version ids the caller names as approvedVersionIDs or an
 // entry [EnteredByInstall] wrote — approval and withdrawal are the decision
 // log's facts, which this package does not import, so the caller supplies them
@@ -119,7 +125,7 @@
 // dispatched the run wrote no manifest: context assembly, which the design has
 // write one at every dispatch, is not built, so the component that dispatches
 // an agent holds package inputmanifest's writer and supplies the id here. That
-// caller is the command-line interface, and it is not built.
+// caller is package dispatch.
 // [Store.EnterShipped] writes none, an entry authoring nothing having read no
 // manifest, and the DDL's input_manifest_only_when_authored CHECK refuses one.
 //

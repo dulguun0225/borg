@@ -37,12 +37,39 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Artifact, error) {
 	return a, nil
 }
 
+// NewestShipped is the newest version of one fleet chain that a start entered
+// rather than anybody authored — [EnteredBys] naming the two events — and false
+// where no start has entered one. It is what the first-start step reads: the
+// entry carries the shipped-bundle identity it entered under, so a start whose
+// bundle is already on it is not a first start on that version and enters
+// nothing, however many versions have been authored over it since.
+func NewestShipped(ctx context.Context, pool *pgxpool.Pool, kind Kind, role, subject string) (Artifact, bool, error) {
+	var a Artifact
+	var storedKind, authorship, actorKind, actorBasis, enteredBy string
+	err := pool.QueryRow(ctx, selectArtifact+`
+		where kind = $1 and role = $2 and subject = $3 and entered_by <> ''
+		order by version desc limit 1`, string(kind), role, subject).
+		Scan(&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID, &a.Role, &a.Subject, &storedKind,
+			&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content, &a.ContentDigest,
+			&a.ShippedBundleIdentity, &enteredBy, &a.InputManifestID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Artifact{}, false, nil
+	} else if err != nil {
+		return Artifact{}, false, fmt.Errorf("artifact: reading the newest entered %s: %w", kind, err)
+	}
+	a.Actor.Kind = record.Kind(actorKind)
+	a.Actor.Basis = record.Basis(actorBasis)
+	a.Kind = Kind(storedKind)
+	a.Authorship = Authorship(authorship)
+	a.EnteredBy = EnteredBy(enteredBy)
+	return a, true, nil
+}
+
 // Newest is the newest version of one fleet chain — kind, and the role or
 // subject naming it — whatever decided it, and false where the chain is empty.
 // It is not "in force": a version not approved is not in force with the one
-// below it still standing, which is [InForce]'s question. This answers the
-// other one, which is the first-start step's: whether what shipped is already
-// the head of the chain, so an upgrade that changed nothing enters nothing.
+// below it still standing, which is [InForce]'s question, and it is not
+// [NewestShipped], which answers what the first-start step reads.
 func Newest(ctx context.Context, pool *pgxpool.Pool, kind Kind, role, subject string) (Artifact, bool, error) {
 	var a Artifact
 	var storedKind, authorship, actorKind, actorBasis, enteredBy string

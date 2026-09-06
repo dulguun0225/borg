@@ -172,7 +172,8 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// being a record nothing here writes.
 	p.dispatch, err = dispatch.New(dispatch.Composition{
 		Pool: d.pool, Token: d.token,
-		Fleet:      oneModelFleet{model: d.model, modelName: d.modelName, credential: d.modelCredentialName},
+		Fleet: oneModelFleet{model: d.model, modelName: d.modelName,
+			effort: d.effort, credential: d.modelCredentialName},
 		Prompts:    p.prompts,
 		Items:      p.items,
 		Policy:     p.policy,

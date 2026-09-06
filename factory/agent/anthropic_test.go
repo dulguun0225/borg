@@ -95,15 +95,23 @@ func TestCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	if len(sent.Messages) != 1 || sent.Messages[0].Role != "user" || sent.Messages[0].Content != "the user message" {
 		t.Errorf("Messages = %+v, want one user message", sent.Messages)
 	}
-	if sent.Effort != "" {
-		t.Errorf("Effort = %q, and a call naming none asks the provider for none", sent.Effort)
+	if sent.OutputConfig != nil {
+		t.Errorf("output_config = %+v, and a call naming no effort asks the provider for none", sent.OutputConfig)
+	}
+	if strings.Contains(string(gotBody), "output_config") {
+		t.Errorf("the request carries %s, and an entry naming no effort sends no such field", gotBody)
 	}
 }
 
 // TestAnthropicSendsTheEffortTheEntryNames: the effort a fleet entry names is
-// asked of the provider in the field this endpoint has for it. The factory does
-// not check that the provider offers it — an effort nobody offers fails at the
-// provider's own answer, which is where an exhausted account fails too.
+// asked of the provider in the field this endpoint has for it, which is
+// output_config.effort and not a top-level field. The factory does not check
+// that the provider offers it — an effort nobody offers fails at the provider's
+// own answer, which is where an exhausted account fails too — and that only
+// holds if the field itself is one the endpoint knows: measured against the real
+// endpoint, a top-level `effort` is refused with `Extra inputs are not
+// permitted` whatever the value, and `output_config.effort` is refused only by a
+// model that does not offer the setting.
 func TestAnthropicSendsTheEffortTheEntryNames(t *testing.T) {
 	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,8 +129,18 @@ func TestAnthropicSendsTheEffortTheEntryNames(t *testing.T) {
 	if err := json.Unmarshal(gotBody, &sent); err != nil {
 		t.Fatalf("unmarshalling the sent body: %v", err)
 	}
-	if sent.Effort != "high" {
-		t.Errorf("Effort = %q, want the effort the entry named", sent.Effort)
+	if sent.OutputConfig == nil || sent.OutputConfig.Effort != "high" {
+		t.Errorf("output_config = %+v, want the effort the entry named", sent.OutputConfig)
+	}
+	// The body itself and not the struct alone: a top-level effort field is
+	// what this endpoint refuses outright, and unmarshalling into [request]
+	// cannot see one.
+	var raw map[string]any
+	if err := json.Unmarshal(gotBody, &raw); err != nil {
+		t.Fatalf("unmarshalling the sent body as an object: %v", err)
+	}
+	if _, present := raw["effort"]; present {
+		t.Errorf("the request carries a top-level effort field: %s", gotBody)
 	}
 }
 

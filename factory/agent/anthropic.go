@@ -81,12 +81,24 @@ type request struct {
 	MaxTokens int       `json:"max_tokens"`
 	System    string    `json:"system"`
 	Messages  []message `json:"messages"`
-	// Effort is this endpoint's field for the effort a fleet entry names, and
-	// is left out where the entry names none. What the endpoint does with a
-	// value it does not offer is its own answer, which is where an entry asking
-	// for an effort nobody offers fails — the same place an exhausted account
-	// does, a status other than 200 carried back as a [StatusError].
-	Effort string `json:"effort,omitempty"`
+	// OutputConfig carries the effort a fleet entry names, and is left out
+	// where the entry names none. It is a nested object and not a top-level
+	// field: this endpoint refuses a body field it does not offer outright —
+	// `effort: Extra inputs are not permitted`, whatever the value — so an
+	// entry naming any effort at all would fail rather than only one asking for
+	// an effort nobody offers.
+	OutputConfig *outputConfig `json:"output_config,omitempty"`
+}
+
+// outputConfig is the effort as this endpoint takes it. What the endpoint does
+// with a model that does not offer the setting is its own answer — it refuses
+// the call naming the effort parameter — which is where an entry asking for an
+// effort nobody offers fails, the same place an exhausted account does, a status
+// other than 200 carried back as a [StatusError]. The values it accepts are its
+// own too, and this package sends what the entry names without checking it
+// against a list of its own.
+type outputConfig struct {
+	Effort string `json:"effort"`
 }
 
 type message struct {
@@ -124,13 +136,16 @@ func (a Anthropic) Complete(ctx context.Context, p principal.Principal, call Cal
 		return Reply{}, fmt.Errorf("agent: resolving the model credential: %w", err)
 	}
 
-	body, err := json.Marshal(request{
+	sending := request{
 		Model:     a.ModelName,
 		MaxTokens: maxTokens,
 		System:    call.System,
 		Messages:  []message{{Role: "user", Content: call.User}},
-		Effort:    call.Effort,
-	})
+	}
+	if call.Effort != "" {
+		sending.OutputConfig = &outputConfig{Effort: call.Effort}
+	}
+	body, err := json.Marshal(sending)
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: encoding the request: %w", err)
 	}

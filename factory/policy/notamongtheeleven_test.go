@@ -2,6 +2,7 @@ package policy_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/environment"
@@ -202,9 +203,9 @@ func TestARetirementCallsTheDeployersRemoval(t *testing.T) {
 		t.Errorf("retiring through a factory with no deployer composed = nil, want a refusal")
 	}
 
-	removed := ""
-	in.factory.Removal = func(_ context.Context, serviceID string) error {
-		removed = serviceID
+	removed, from := "", "unset"
+	in.factory.Removal = func(_ context.Context, serviceID, environmentID string) error {
+		removed, from = serviceID, environmentID
 		return nil
 	}
 	if _, err := in.factory.RetireService(ctx, owner, in.service.ID, 0, 0, 0); err != nil {
@@ -212,6 +213,9 @@ func TestARetirementCallsTheDeployersRemoval(t *testing.T) {
 	}
 	if removed != in.service.ID {
 		t.Errorf("the deployer was asked to remove %q, want %q", removed, in.service.ID)
+	}
+	if from != "" {
+		t.Errorf("the removal names environment %q, and a retirement reaches every persistent one", from)
 	}
 	read, err := service.Get(ctx, in.pool, in.service.ID)
 	if err != nil {
@@ -222,12 +226,50 @@ func TestARetirementCallsTheDeployersRemoval(t *testing.T) {
 	}
 }
 
+// TestARemovalForOneEnvironmentIsPerformedForThatOne is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md's
+// "the owner has the deployer remove each service from it first, the same
+// removal performed for that one environment, called from Factory": the call
+// reaches the deployer naming the environment, writes nothing on the service
+// record, and is refused where nothing composed a deployer or where it names no
+// environment.
+func TestARemovalForOneEnvironmentIsPerformedForThatOne(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	if err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, in.prod.ID); err == nil {
+		t.Errorf("removing through a factory with no deployer composed = nil, want a refusal")
+	}
+
+	removed, from := "", ""
+	in.factory.Removal = func(_ context.Context, serviceID, environmentID string) error {
+		removed, from = serviceID, environmentID
+		return nil
+	}
+	if err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, ""); !errors.Is(err, policy.ErrEnvironmentIDEmpty) {
+		t.Errorf("removing from no environment = %v, want ErrEnvironmentIDEmpty", err)
+	}
+	if err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, in.prod.ID); err != nil {
+		t.Fatalf("RemoveFromEnvironment: %v", err)
+	}
+	if removed != in.service.ID || from != in.prod.ID {
+		t.Errorf("the deployer was asked to remove %q from %q, want %q from %q",
+			removed, from, in.service.ID, in.prod.ID)
+	}
+	read, err := service.Get(ctx, in.pool, in.service.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Retired() {
+		t.Error("the service reads as retired, and a removal for one environment writes nothing on the record")
+	}
+}
+
 // TestAProjectEndsOnceEveryServiceInItIsRetired: the project is ended at Factory
 // and its production environment is withdrawn in the same write, refused while a
 // service in it still stands.
 func TestAProjectEndsOnceEveryServiceInItIsRetired(t *testing.T) {
 	ctx, in := newFactory(t)
-	in.factory.Removal = func(context.Context, string) error { return nil }
+	in.factory.Removal = func(context.Context, string, string) error { return nil }
 
 	if _, err := in.factory.EndProject(ctx, owner, in.project.ID, 0); err == nil {
 		t.Errorf("ending a project holding a service that is not retired = nil, want a refusal")

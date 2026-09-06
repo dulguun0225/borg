@@ -276,6 +276,10 @@ type pathFlags struct {
 	secrets string
 	targets string
 	human   string
+	// project is the project this composition works in, empty for the one run
+	// installs under [defaultProjectName]. It is read and never created: a
+	// project that does not exist is refused.
+	project string
 }
 
 // withPath composes the path for a subcommand that drives one step of it rather than
@@ -288,14 +292,19 @@ type pathFlags struct {
 // these to act on, and the error says so.
 //
 // It installs nothing. run creates the project and production's environment for
-// it; every one of these reads the default project and refuses where it does not
-// exist, so a subcommand can never leave a second project behind under a name
-// run never used. The candidate ceiling below is what the composition needs to
+// it; every one of these reads the project [pathFlags.project] names, the
+// default one where it names none, and refuses where it does not exist, so a
+// subcommand can never leave a second project behind under a name run never
+// used. The candidate ceiling below is what the composition needs to
 // exist and is authored on no record here, none of these composing a candidate
 // environment.
 func withPath(f pathFlags, command func(context.Context, *path) error) error {
 	if _, err := secretsResolver(f.secrets); err != nil {
 		return err
+	}
+	projectName := f.project
+	if projectName == "" {
+		projectName = defaultProjectName
 	}
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		driftStore, shut, err := openDriftDetector(ctx)
@@ -321,7 +330,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 			token:            token,
 			targets:          newTargetSet(localTargetAt),
 			dir:              f.targets,
-			project:          defaultProjectName,
+			project:          projectName,
 			credential:       deployCredential(),
 			in:               strings.NewReader(""),
 			out:              os.Stdout,
