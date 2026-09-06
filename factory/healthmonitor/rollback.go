@@ -81,6 +81,11 @@ func (h *HealthMonitor) whyNoRollback(ctx context.Context, w Watching, one Watch
 // the ordinal predecessor — and every release above the failed one that this
 // return also undoes closes its own open window skipped, master being linear
 // and this being no choice.
+//
+// No control survives the rollback: every control ends with its window, so each
+// window closed skipped here has its control torn down first, the order every
+// other exit takes. A control left running after its window closed is a
+// mismatch like any other, which holds that service's production deploys.
 func (h *HealthMonitor) rollBack(ctx context.Context, w Watching, one *Watched) error {
 	skippedIDs, err := h.releasesSkippedBy(ctx, w, one.Baseline, one.Release)
 	if err != nil {
@@ -102,12 +107,16 @@ func (h *HealthMonitor) rollBack(ctx context.Context, w Watching, one *Watched) 
 		if err != nil {
 			return err
 		}
-		if found && win.Open() {
-			if _, err := h.windows.Close(ctx, win.ID, window.ExitSkipped, window.Closing{}); err != nil {
-				return err
-			}
-			one.SkippedWindows = append(one.SkippedWindows, win.ID)
+		if !found || !win.Open() {
+			continue
 		}
+		if err := h.tearDownControls(ctx, w, win); err != nil {
+			return err
+		}
+		if _, err := h.windows.Close(ctx, win.ID, window.ExitSkipped, window.Closing{}); err != nil {
+			return err
+		}
+		one.SkippedWindows = append(one.SkippedWindows, win.ID)
 	}
 	return nil
 }

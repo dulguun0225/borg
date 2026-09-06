@@ -146,7 +146,13 @@ func waitedOn(w gate.Waits) string {
 // again is the firing this row was fired with, which a refer and an Edit in
 // place both need: each ends this row and fires another over what is now under
 // decision.
+//
+// A firing that pages sends it here, on the row this call is about, so that the
+// acknowledgement typed below writes both halves of the one act.
 func (p *path) settle(ctx context.Context, opened gate.Opened, again gate.Firing) (gate.Verdict, string, decisionlog.Row, error) {
+	if err := p.pagedFiring(ctx, opened); err != nil {
+		return "", "", decisionlog.Row{}, err
+	}
 	if !opened.HumanDecides {
 		closing, err := p.gate.AutoPass(ctx, opened)
 		if err != nil {
@@ -202,6 +208,12 @@ func (p *path) settle(ctx context.Context, opened gate.Opened, again gate.Firing
 				reason, referred.Close.ID, referred.Reopened.Row.ID)
 			report(p.d.out, referred.Reopened, nil)
 			opened = referred.Reopened
+			// A refer ends this row and fires another, and the page follows the
+			// row: the acknowledgement is keyed on whichever open event is
+			// under decision now.
+			if err := p.pagedFiring(ctx, opened); err != nil {
+				return "", "", decisionlog.Row{}, err
+			}
 			continue
 		}
 		// An approve names the set of holds it goes through, each one, because a

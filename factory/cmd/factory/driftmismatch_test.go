@@ -17,7 +17,9 @@ import (
 // TestADriftMismatchHoldsTheProductionDeployAndPages is the one hold the factory
 // cannot lift by gathering evidence, and so the one that fires the row and pages. What
 // the factory recorded about the service is not what is running, so nothing here can be
-// decided on the record.
+// decided on the record. The row is a decision as well as a page, so the one act at
+// Work writes both halves — the decision's acknowledgement and the page's — which is
+// only possible where the page a firing sends is keyed on the row a human acknowledges.
 func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.driftdetector = newDriftDetectorStore(t, ctx)
@@ -64,7 +66,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// anything is built, and every row over a build auto-passes for the second
 	// item on this service — so the mismatch is the only thing putting a human
 	// at a row that decides a deploy, which is what this test is about.
-	d.in = strings.NewReader("approve\napprove\napprove\nhold the record is wrong and I am checking the target\n")
+	d.in = strings.NewReader("approve\napprove\napprove\nacknowledge I have this row\nhold the record is wrong and I am checking the target\n")
 	d.model = interviewed(0)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
@@ -93,8 +95,30 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 			payload.Mismatch)
 	}
 
-	// The page: reached, to whoever installed the drift detector, because a mismatch
-	// belongs to no duty of the twelve.
+	// The firing's own page, on the row a human acknowledges at Work: the gate's
+	// open event. Acknowledging it wrote both halves of the one act — the
+	// decision's acknowledgement row above, and the page's acknowledged event
+	// here — which is what a page keyed on some other row could never take.
+	onTheRow, err := p(ctx, t, d).notifier.EventsFor(ctx, c.deployGate.opening)
+	if err != nil {
+		t.Fatalf("reading the page events on the gate row: %v", err)
+	}
+	if len(onTheRow) != 2 {
+		t.Fatalf("the gate row holds %+v, want the firing's page and its acknowledgement", onTheRow)
+	}
+	if notifier.Event(onTheRow[0].Event) != notifier.EventReached || onTheRow[0].Reached != installer.Key {
+		t.Errorf("the firing's page is %+v, want one reached to %q", onTheRow[0], installer.Key)
+	}
+	if notifier.Event(onTheRow[1].Event) != notifier.EventAcknowledged {
+		t.Errorf("the gate row's second event is %+v, want the acknowledgement of its page", onTheRow[1])
+	}
+	if notifier.Kind(onTheRow[1].WaitKind) != notifier.KindDriftMismatch {
+		t.Errorf("the acknowledgement names kind %q, want the kind the page was reached under",
+			onTheRow[1].WaitKind)
+	}
+
+	// The mismatch's own page: reached, to whoever installed the drift detector,
+	// because a mismatch belongs to no duty of the twelve.
 	events, err := p(ctx, t, d).notifier.EventsFor(ctx, raised.Raised)
 	if err != nil {
 		t.Fatalf("reading the page events: %v", err)

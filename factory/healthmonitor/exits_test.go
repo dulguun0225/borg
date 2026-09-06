@@ -19,6 +19,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
+	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
@@ -53,8 +54,19 @@ func TestASearchsWindowEndsWithItsExitAndRollsNothingBack(t *testing.T) {
 	if one.WhyNoRollback == "" {
 		t.Error("a search's failed exit reports nothing about why it rolled nothing back")
 	}
-	if len(deployer.calls) != 0 {
-		t.Errorf("the deployer was asked for %v at a search's exit, want nothing rolled back and nothing torn down", deployer.calls)
+	// Nothing of the search's own deploy is undone or ended: it rolls nothing
+	// back, and what its build was compared against is the instances of the
+	// rollback's target, which the search never tears down. The sweep over
+	// every kept fleet the service still holds runs at this close as it does at
+	// any other, and it is not the search's deploy it reads.
+	if len(deployer.rollbacks) != 0 || len(deployer.tornDown) != 0 {
+		t.Errorf("the deployer was asked for %v at a search's exit, want nothing rolled back and no control torn down",
+			deployer.calls)
+	}
+	for _, k := range deployer.kept {
+		if k.DeployID == searching.DeployID {
+			t.Errorf("the search's own deploy %s had a fleet ended at its exit", k.DeployID)
+		}
 	}
 	if len(pager.waits) != 0 {
 		t.Errorf("a search's exit fired %+v, want no page: a search meets no page condition", pager.waits)
@@ -205,4 +217,115 @@ func openSearchWindow(t *testing.T, ctx context.Context, g graph) window.Window 
 		t.Fatalf("opening the search's window: %v", err)
 	}
 	return opened
+}
+
+// TestARollbackTearsDownTheControlOfEveryWindowItSkips is what The health
+// monitor states of the failed exit: a rollback closes the window of every
+// release it undoes, failed for the one whose analysis failed and skipped for
+// the rest, and no control survives it — every control ends with its window.
+// A control left running after its window closed is a mismatch like any other,
+// which would hold that service's production deploys and page.
+func TestARollbackTearsDownTheControlOfEveryWindowItSkips(t *testing.T) {
+	ctx, g := newGraph(t)
+	shipOne(t, ctx, g, "in_below", window.ExitTimedOut)
+	under := shipOne(t, ctx, g, "in_under", "")
+	above := shipOne(t, ctx, g, "in_above", "")
+
+	deployer := &fakeDeployer{}
+	monitor := g.monitorWith(t, crossingEmission{rate: 0.5, baselineRate: 0.01, intervals: 8}, deployer, &fakePager{})
+
+	watched, err := monitor.Watch(ctx, g.watching())
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if len(watched) != 1 || watched[0].Exit != window.ExitFailed {
+		t.Fatalf("Watch read %+v, want the one window under watch closed failed", watched)
+	}
+	skippedWindow := windowOver(t, ctx, g, above)
+	if len(watched[0].SkippedWindows) != 1 || watched[0].SkippedWindows[0] != skippedWindow.ID {
+		t.Fatalf("the rollback closed %v skipped, want the window over the release above it",
+			watched[0].SkippedWindows)
+	}
+	closed, err := window.Get(ctx, g.pool, skippedWindow.ID)
+	if err != nil {
+		t.Fatalf("reading the skipped window back: %v", err)
+	}
+	if closed.Exit != window.ExitSkipped {
+		t.Fatalf("the window above closed %q, want skipped", closed.Exit)
+	}
+
+	// One teardown per window the rollback closed: the failed one's own and the
+	// skipped one's, each named on the deploy record the window was opened over.
+	for _, deployID := range []string{windowOver(t, ctx, g, under).DeployID, skippedWindow.DeployID} {
+		if !tornDownFor(deployer, deployID) {
+			t.Errorf("the control on deploy %s survived the rollback; the deployer was asked for %v",
+				deployID, deployer.calls)
+		}
+	}
+}
+
+// TestASkippedWindowKeepsNoFleetStanding is what Overlapping windows states
+// twice over: instances are kept while any open window's rollback could return
+// to that release and torn down when the last such window closes, and a release
+// the factory skipped over is not one it can return to. A window closed skipped
+// therefore neither holds a fleet standing nor keeps its own.
+func TestASkippedWindowKeepsNoFleetStanding(t *testing.T) {
+	ctx, g := newGraph(t)
+	shipOne(t, ctx, g, "in_below", window.ExitTimedOut)
+	skipped := shipOne(t, ctx, g, "in_skipped", window.ExitSkipped)
+	shipOne(t, ctx, g, "in_last", "")
+
+	deployer := keptRecorded{fakeDeployer: &fakeDeployer{}, g: g}
+	// Both arms behaving identically over enough intervals rules the size out,
+	// so the one open window closes passed.
+	monitor := g.monitorWith(t, crossingEmission{rate: 0.01, baselineRate: 0.01, intervals: 400}, deployer, &fakePager{})
+
+	watched, err := monitor.Watch(ctx, g.watching())
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if len(watched) != 1 || watched[0].Exit != window.ExitPassed {
+		t.Fatalf("Watch read %+v, want the one open window closed passed", watched)
+	}
+
+	// Nothing is open any more, so no rollback can return to the release below
+	// either fleet: the skipped window's own kept fleet ends here, and the
+	// release it skipped over holds nothing standing.
+	if len(deployer.kept) != 2 {
+		t.Fatalf("%d kept fleet(s) were torn down, want the skipped window's and the passed one's; the deployer was asked for %v",
+			len(deployer.kept), deployer.calls)
+	}
+	skippedDeploy := windowOver(t, ctx, g, skipped).DeployID
+	found := false
+	for _, k := range deployer.kept {
+		if k.DeployID == skippedDeploy {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the fleet kept by the skipped release's own deploy %s still stands: %+v",
+			skippedDeploy, deployer.kept)
+	}
+}
+
+// windowOver is the window one release's deploy was watched by, which a test
+// asserting over a teardown needs the deploy record of.
+func windowOver(t *testing.T, ctx context.Context, g graph, rel release.Release) window.Window {
+	t.Helper()
+	found, is, err := window.ForRelease(ctx, g.pool, rel.ID)
+	if err != nil || !is {
+		t.Fatalf("reading the window over release %s: found %t, %v", rel.ID, is, err)
+	}
+	return found
+}
+
+// tornDownFor reports whether the deployer was asked to tear down the control
+// on one deploy record.
+func tornDownFor(d *fakeDeployer, deployID string) bool {
+	for _, c := range d.tornDown {
+		if c.DeployID == deployID {
+			return true
+		}
+	}
+	return false
 }

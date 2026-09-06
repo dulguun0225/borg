@@ -87,6 +87,7 @@ type fakeDeployer struct {
 	calls     []string
 	rolledTo  string
 	controls  []healthmonitor.Control
+	tornDown  []healthmonitor.Control
 	rollbacks []healthmonitor.Rollback
 	kept      []healthmonitor.Kept
 }
@@ -99,6 +100,7 @@ func (d *fakeDeployer) StartControl(_ context.Context, c healthmonitor.Control) 
 
 func (d *fakeDeployer) TearDownControl(_ context.Context, c healthmonitor.Control) error {
 	d.calls = append(d.calls, "tear down control on "+c.Target)
+	d.tornDown = append(d.tornDown, c)
 	return nil
 }
 

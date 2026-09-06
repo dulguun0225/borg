@@ -26,10 +26,17 @@ var driftObligation = people.OfObligation(people.ObligationDriftDetector)
 // pass, moved here so the composition depends on the notifier for it
 // instead of duplicating the read.
 //
-// A mismatch nobody has been reached about is paged. One still uncleared on
-// a later pass widens, once, to the owner. One a human has cleared is
+// A mismatch nothing has been delivered about is notified. One still uncleared
+// on a later pass widens, once, to the owner. One a human has cleared is
 // answered — here, at the pass that finds it cleared, because clearing it
-// happened where nothing calls.
+// happened where nothing calls — and only where a page reached somebody about
+// it, there being nothing to answer otherwise.
+//
+// A mismatch delivered on mail and chat with its page held back to its
+// service's paging hours has no reached event, and is left to
+// [Notifier.PageDeferred]: notifying it again on every pass would deliver mail
+// and chat again each time, and it is the delivery record rather than the page
+// events that says the difference.
 //
 // An acknowledged mismatch stops only the widening: the row still waits and
 // the sweep goes on to every mismatch after it, the stale sweep and the
@@ -37,6 +44,10 @@ var driftObligation = people.OfObligation(people.ObligationDriftDetector)
 // own error would let one human saying they have a row stop the whole channel.
 func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Pool) error {
 	all, err := driftdetector.All(ctx, driftPool)
+	if err != nil {
+		return err
+	}
+	delivered, err := n.deliveredRows(ctx)
 	if err != nil {
 		return err
 	}
@@ -73,15 +84,20 @@ func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Po
 		}
 
 		switch {
-		case !reachedIt:
+		case m.Cleared():
+			if reachedIt && !answered {
+				if _, err := n.Answered(ctx, w, m.ClearedBy); err != nil {
+					return err
+				}
+			}
+		case !delivered[m.ID]:
 			if _, err := n.Notify(ctx, w); err != nil {
 				return err
 			}
-		case m.Cleared() && !answered:
-			if _, err := n.Answered(ctx, w, m.ClearedBy); err != nil {
-				return err
-			}
-		case !m.Cleared() && !widened && !acknowledged:
+		case !reachedIt:
+			// Its page is held to the service's paging hours and goes out at
+			// the next hour they allow, which [Notifier.PageDeferred] delivers.
+		case !widened && !acknowledged:
 			if _, err := n.Widen(ctx, w); err != nil {
 				return err
 			}

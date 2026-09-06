@@ -351,3 +351,76 @@ func TestAStoppedHealthMonitorPagesTheWindowCapCondition(t *testing.T) {
 			events, notifier.KindWindowCapUnevaluated)
 	}
 }
+
+// TestAMismatchHeldToTheHoursIsNotRenotifiedAndIsNotPagedOnceCleared is what a
+// wait with nothing waiting on it costs. A mismatch on a service whose paging
+// hours are closed reaches mail and chat and holds the page channel back, so no
+// reached event is written; without a second reading of that state every later
+// sweep would deliver mail and chat again, and the pass that delivers a page
+// when the hours come round would page about a mismatch a human had already
+// cleared.
+func TestAMismatchHeldToTheHoursIsNotRenotifiedAndIsNotPagedOnceCleared(t *testing.T) {
+	ctx, pool, token, n, channels := newNotifier(t)
+	if _, err := peopleWriter(pool, token).Declare(ctx, theHumanOwner, "hk_sre",
+		people.OfObligation(people.ObligationDriftDetector)); err != nil {
+		t.Fatalf("declaring who installed the drift detector: %v", err)
+	}
+	serviceID := aServiceWithNoPagingHoursNow(t, ctx, pool, token)
+
+	drift := driftTestPool(t, ctx)
+	recorded, err := driftdetector.NewWriter(drift).Record(ctx, driftdetector.Pass{
+		ServiceID: serviceID, Target: "t1", Reached: true, RunningBuild: "b_running",
+		RecordedBuildID: "b_recorded", Interval: time.Minute,
+	})
+	if err != nil || recorded.Raised == "" {
+		t.Fatalf("recording a mismatch: raised %q, %v", recorded.Raised, err)
+	}
+
+	if err := n.SweepDriftDetector(ctx, drift); err != nil {
+		t.Fatalf("SweepDriftDetector (page): %v", err)
+	}
+	if channels.on(notifier.ChannelPage) != 0 {
+		t.Fatalf("the mismatch paged outside the service's hours")
+	}
+	if channels.on(notifier.ChannelMail) != 1 || channels.on(notifier.ChannelChat) != 1 {
+		t.Fatalf("the first sweep delivered mail %d time(s) and chat %d, want one each",
+			channels.on(notifier.ChannelMail), channels.on(notifier.ChannelChat))
+	}
+
+	// A second sweep finds the same mismatch already delivered with its page
+	// held to the hours, and delivers nothing again.
+	if err := n.SweepDriftDetector(ctx, drift); err != nil {
+		t.Fatalf("SweepDriftDetector (second pass): %v", err)
+	}
+	if channels.on(notifier.ChannelMail) != 1 || channels.on(notifier.ChannelChat) != 1 {
+		t.Errorf("a second sweep delivered mail %d time(s) and chat %d, want the one each already sent",
+			channels.on(notifier.ChannelMail), channels.on(notifier.ChannelChat))
+	}
+
+	// Cleared where nothing calls: there is no page to answer, so the sweep
+	// writes nothing and delivers nothing.
+	if _, err := driftdetector.NewWriter(drift).Clear(ctx, recorded.Raised, "hk_sre"); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if err := n.SweepDriftDetector(ctx, drift); err != nil {
+		t.Fatalf("SweepDriftDetector (after the clearing): %v", err)
+	}
+	events, err := n.EventsFor(ctx, recorded.Raised)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("the mismatch holds %+v, want no page event: its page never reached anybody", events)
+	}
+
+	// And when the hours come round, the pass that delivers what they held back
+	// leaves a cleared mismatch alone.
+	authorHoursCovering(t, ctx, pool, token, serviceID, time.Now())
+	paged, err := n.PageDeferred(ctx, drift)
+	if err != nil {
+		t.Fatalf("PageDeferred: %v", err)
+	}
+	if len(paged) != 0 || channels.on(notifier.ChannelPage) != 0 {
+		t.Errorf("PageDeferred paged %v about a mismatch a human had already cleared", paged)
+	}
+}

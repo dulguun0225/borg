@@ -117,11 +117,16 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 // authored paging hours held back, which go out at the next hour that service
 // allows. It runs on every watch pass, that being the pass this interface makes
 // while anything is waiting.
+//
+// The drift detector's store goes with it, nil where none is installed: a
+// mismatch cleared there is the one wait that ends where nothing calls, and the
+// pass reads it so that the hours coming round do not page about one a human
+// has already cleared.
 func (p *path) pagesHeldToTheHours(ctx context.Context) error {
 	if p.notifier == nil {
 		return nil
 	}
-	paged, err := p.notifier.PageDeferred(ctx)
+	paged, err := p.notifier.PageDeferred(ctx, p.d.driftdetector)
 	if err != nil {
 		return err
 	}

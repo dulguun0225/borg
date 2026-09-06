@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
@@ -58,6 +59,35 @@ func (p *path) raisedByTheHealthMonitor(ctx context.Context, itemID string) (boo
 	}
 	return in.Source == intent.SourceDetector &&
 		in.Actor.Kind == record.KindComponent && in.Actor.Key == healthmonitor.Actor.Key, nil
+}
+
+// pagedFiring is the page a gate firing sends. One condition inside the holds
+// meets the page's condition — a mismatch the drift detector found, which waits
+// on a human and on nothing else — and [gate.Opened.Pages] is what answers it.
+//
+// It is keyed on the open event, which is the row a human acknowledges at Work,
+// so the acknowledgement [gateNotifier.Acknowledged] writes lands on the row
+// its page was reached on. A page keyed anywhere else could never be
+// acknowledged by the act that decides the row.
+//
+// It is beside the mismatch's own page and not instead of it: the notifier's
+// sweep of the drift detector's store pages about the record there, which a
+// human ends by clearing it, and this pages about the deploy that record is
+// holding — which a human ends at this row.
+func (p *path) pagedFiring(ctx context.Context, opened gate.Opened) error {
+	if p.notifier == nil || !opened.Pages() {
+		return nil
+	}
+	_, err := p.notifier.Notify(ctx, notifier.Wait{
+		Row:  opened.Row.ID,
+		Kind: notifier.KindDriftMismatch,
+		Waiting: fmt.Sprintf("%s waits on a human: %s",
+			opened.Gate, opened.Mismatch),
+		Holding:   people.OfObligation(people.ObligationDriftDetector),
+		Worse:     true,
+		ServiceID: opened.Subject.ServiceID,
+	})
+	return err
 }
 
 // gateNotifier is [gate.Notifier]: the one call a gate makes on the component

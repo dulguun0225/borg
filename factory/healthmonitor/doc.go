@@ -45,7 +45,8 @@
 // reads the mark a named human at Ops writes turns on.
 //
 // rollback.go is the failed exit in the order the design states it: the
-// rollback's own deploy record and the releases it undid closed skipped, the
+// rollback's own deploy record and the releases it undid closed skipped, each
+// with its control torn down first the way every other exit closes, the
 // incident and the intent it raises ([Crossed], [HealthMonitor.recordCrossing]),
 // a page where nothing was rolled back, and the window closed failed last —
 // never first, which is what would leave a release the factory had failed

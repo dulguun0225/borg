@@ -37,11 +37,12 @@ type Kept struct {
 // window that closed earlier while this one was still open left its kept fleet
 // standing, and nothing comes back to it afterwards.
 //
-// Three things keep a fleet standing, and each is read off a record. A window
-// still open could return to it. A window closed failed or skipped either
-// already shifted traffic onto it or is a failed release a human still has to
-// undo, so those instances are in use rather than kept. And the release
-// production is currently running is never torn down, whatever its windows did.
+// Two things keep a fleet standing, and each is read off a record. A window
+// still open could return to it, whatever exit it eventually takes; a window
+// that has closed could not, at any of the four exits, which is why a closed
+// one is a candidate here rather than a guard. And the release production is
+// currently running is never torn down, whatever its windows did — which is
+// what leaves the instances a rollback has just shifted traffic onto standing.
 func (h *HealthMonitor) tearDownKept(ctx context.Context, w Watching) error {
 	if h.deployer == nil {
 		return nil
@@ -52,7 +53,7 @@ func (h *HealthMonitor) tearDownKept(ctx context.Context, w Watching) error {
 	}
 	couldReturn := map[string]bool{}
 	for _, one := range all {
-		if !one.Open() && one.Exit.PassedOrTimedOut() {
+		if !one.Open() {
 			continue
 		}
 		target, has, err := h.returnsTo(ctx, w, one)
@@ -77,7 +78,7 @@ func (h *HealthMonitor) tearDownKept(ctx context.Context, w Watching) error {
 	}
 
 	for _, one := range all {
-		if one.Open() || !one.Exit.PassedOrTimedOut() {
+		if one.Open() {
 			continue
 		}
 		target, has, err := h.returnsTo(ctx, w, one)

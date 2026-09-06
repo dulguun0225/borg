@@ -35,14 +35,18 @@
 // every pass it makes over that service's windows; the notifier writes its
 // single one for itself on the pass that reads the drift detector's store; and
 // the deployer writes one per target of a persistent environment after a
-// production deploy completes there. The other three are not: the deployer's
-// one per platform a production environment record declares —
-// [Writer.RecordPlatformPass], which the command-line interface owes one call
-// of per production environment declaring a platform, per pass — and a single
-// one each for the pass over the constraints in force, the pass over the
-// advisory feed and dispatch's pass over a fleet proposal, the last three being
-// passes this milestone does not build. Each is wired by the dispatch that
-// builds its writer.
+// production deploy completes there. The other three are not: a single record
+// each for the pass over the constraints in force, the pass over the advisory
+// feed, and dispatch's pass over a fleet proposal, three passes this milestone
+// does not build. Each is wired by the dispatch that builds its writer.
+//
+// The deployer's second record, one per platform a production environment
+// record declares, is unwired too, and it has two writers, neither called:
+// [Writer.RecordPlatformPass] here, which composes the three counts, and
+// deploy.RecordPlatformCheck, which takes the payload as text. The pass is the
+// deployer's, which lives in the command-line interface, and the composition
+// owes one call per production environment record that declares a platform,
+// each pass.
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md,

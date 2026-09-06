@@ -105,7 +105,8 @@
 //     decomposition, and admissionOrder, which is the order dispatch admits
 //     that layer's candidates in.
 //   - seams.go — the values the composition supplies a component that decides
-//     events: intentState, raisedByTheHealthMonitor, gateNotifier, which is
+//     events: intentState, raisedByTheHealthMonitor, pagedFiring, the page a
+//     firing that pages sends on its own row, gateNotifier, which is
 //     how a gate reaches a human, dispatchNotifier, the wait an item escalated
 //     leaves, and intakeNotifier, a round of the interview and an intent
 //     escalated.

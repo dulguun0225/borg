@@ -22,7 +22,8 @@
 // to a service's own authored paging hours rather than paging at any hour, and
 // [Notifier.PageDeferred] with [Notifier.deferredDeliveries] and
 // [Notifier.endedRows], the pass that delivers such a page at the next hour the
-// service allows.
+// service allows — taking the drift detector's store, since a mismatch cleared
+// there is a row that stopped waiting and the log says so about every other.
 //
 // notifier.go is [Notifier] and [New], composed with the log, a fencing token, a
 // [Deliverer], and the owner's identifier — the owner is composed in rather than
@@ -49,8 +50,9 @@
 // [DeliveryTable], [DeliveryDDL], [DeliveryRecord], and the upsert beneath every
 // call to [Notifier.Notify], [Notifier.Widen], [Notifier.Acknowledge] and
 // [Notifier.Answered] — one row per waiting row, channel and recipient,
-// overwritten at each attempt — and [PagedRowsSince], the count the harm mark's
-// cap is read against. harmmark.go is [harmMarkPagesOff], the off switch on the
+// overwritten at each attempt — [Notifier.deliveredRows], which rows anything
+// has gone out about, and [PagedRowsSince], the count the harm mark's cap is
+// read against. harmmark.go is [harmMarkPagesOff], the off switch on the
 // factory-wide settings record, and [Notifier.overHarmMarkCap] with
 // [Notifier.pageOverTheCap]: past a service's cap the marked intent's own page
 // channel is skipped and one page per interval goes out on [capRow] instead,

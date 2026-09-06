@@ -181,7 +181,7 @@ func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
 	}
 
 	// A pass while the hours are still closed delivers nothing.
-	paged, err := n.PageDeferred(ctx)
+	paged, err := n.PageDeferred(ctx, nil)
 	if err != nil {
 		t.Fatalf("PageDeferred outside the hours: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
 
 	authorHoursCovering(t, ctx, pool, token, serviceID, time.Now())
 
-	paged, err = n.PageDeferred(ctx)
+	paged, err = n.PageDeferred(ctx, nil)
 	if err != nil {
 		t.Fatalf("PageDeferred: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
 	}
 
 	// A second pass finds the page delivered and adds nothing.
-	again, err := n.PageDeferred(ctx)
+	again, err := n.PageDeferred(ctx, nil)
 	if err != nil {
 		t.Fatalf("PageDeferred again: %v", err)
 	}

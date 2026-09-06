@@ -122,6 +122,31 @@ func (n *Notifier) recordDelivery(ctx context.Context, d Delivery, accepted bool
 	return tx.Commit(ctx)
 }
 
+// deliveredRows is every row this component has already delivered something
+// about, on any channel. It is what tells a row nothing has gone out about at
+// all from one whose mail and chat went out with the page channel held to its
+// service's paging hours: the second writes no page event, so the page events
+// alone cannot separate the two.
+func (n *Notifier) deliveredRows(ctx context.Context) (map[string]bool, error) {
+	rows, err := n.pool.Query(ctx, `select distinct row_id from `+DeliveryTable)
+	if err != nil {
+		return nil, fmt.Errorf("notifier: reading which rows have been delivered: %w", err)
+	}
+	defer rows.Close()
+	delivered := map[string]bool{}
+	for rows.Next() {
+		var row string
+		if err := rows.Scan(&row); err != nil {
+			return nil, fmt.Errorf("notifier: reading a delivered row: %w", err)
+		}
+		delivered[row] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("notifier: reading which rows have been delivered: %w", err)
+	}
+	return delivered, nil
+}
+
 // PagedRowsSince is how many distinct waiting rows of one kind this component
 // delivered a page about for one service since a stored time. It counts rows
 // and not attempts, because what the harm mark's cap counts is intents paged

@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -78,10 +81,16 @@ func withinHours(hours service.PagingHours, now time.Time) bool {
 // nothing waiting on it, and so is a kind of [anyHour], which the hours never
 // held back and whose page channel something else skipped.
 //
+// driftPool is the drift detector's own store, or nil on an install with no
+// detector. It is read for the one wait that ends where nothing calls: a
+// mismatch a human cleared there writes into no log of the factory's, so
+// without it the hours coming round would page about a mismatch already
+// cleared.
+//
 // It returns the rows it paged. What it costs is a pass of its own: a page held
 // to the morning goes out at the first pass after the hours open rather than at
 // the hour itself.
-func (n *Notifier) PageDeferred(ctx context.Context) ([]string, error) {
+func (n *Notifier) PageDeferred(ctx context.Context, driftPool *pgxpool.Pool) ([]string, error) {
 	held, err := n.deferredDeliveries(ctx)
 	if err != nil {
 		return nil, err
@@ -89,7 +98,7 @@ func (n *Notifier) PageDeferred(ctx context.Context) ([]string, error) {
 	if len(held) == 0 {
 		return nil, nil
 	}
-	ended, err := n.endedRows(ctx)
+	ended, err := n.endedRows(ctx, driftPool)
 	if err != nil {
 		return nil, err
 	}
@@ -171,9 +180,11 @@ func (n *Notifier) deferredDeliveries(ctx context.Context) ([]Wait, error) {
 	return held, nil
 }
 
-// endedRows is every row the log shows closed or abandoned, which is what says
-// a wait stopped waiting.
-func (n *Notifier) endedRows(ctx context.Context) (map[string]bool, error) {
+// endedRows is every row that stopped waiting: what the log shows closed or
+// abandoned, and — where a drift detector store is composed — every mismatch a
+// human cleared inside it, which is the one wait whose end is written into a
+// store no factory component may write and reported to nobody.
+func (n *Notifier) endedRows(ctx context.Context, driftPool *pgxpool.Pool) (map[string]bool, error) {
 	rows, err := n.reader.Read(ctx, componentPrincipal)
 	if err != nil {
 		return nil, err
@@ -183,6 +194,18 @@ func (n *Notifier) endedRows(ctx context.Context) (map[string]bool, error) {
 		switch row.Part {
 		case decisionlog.PartClose, decisionlog.PartAbandonment:
 			ended[row.Closes] = true
+		}
+	}
+	if driftPool == nil {
+		return ended, nil
+	}
+	all, err := driftdetector.All(ctx, driftPool)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range all {
+		if m.Cleared() {
+			ended[m.ID] = true
 		}
 	}
 	return ended, nil
