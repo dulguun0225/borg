@@ -35,6 +35,7 @@ import (
 type tellings struct {
 	interviewed []string
 	escalated   []string
+	accepted    []string
 }
 
 func (n *tellings) Interviewed(_ context.Context, _, questionID, _ string) error {
@@ -44,6 +45,11 @@ func (n *tellings) Interviewed(_ context.Context, _, questionID, _ string) error
 
 func (n *tellings) Escalated(_ context.Context, intentID string) error {
 	n.escalated = append(n.escalated, intentID)
+	return nil
+}
+
+func (n *tellings) AcceptanceRound(_ context.Context, _, questionID, _ string) error {
+	n.accepted = append(n.accepted, questionID)
 	return nil
 }
 

@@ -28,31 +28,25 @@ import (
 
 // specStage is the item's spec version, the criteria it introduces, the ones
 // it withdraws, the screen state machine where the item has a user interface,
-// and the Spec gate over the version. It is given the first version the
-// interview's own call authored for the first item of a run, and authors its
-// own on every re-entry and on every item after the first.
-func (p *path) specStage(ctx context.Context, c *candidate, authored agent.Refined,
-	firstIsAuthored bool, manifestID string) error {
+// and the Spec gate over the version. Every item authors its own, on the first
+// entry and on every re-entry: the interview is the intent's, run by the role
+// put on the intent, and it authors no spec.
+func (p *path) specStage(ctx context.Context, c *candidate) error {
 	d := p.d
 	returned := agent.Returned{}
 	for {
-		if !firstIsAuthored {
-			refined, run, err := p.dispatch.SpecAuthor(ctx, p.on(c, item.StageSpec, !returned.Empty()),
-				p.specMaterial(c), p.refining(c, returned))
-			p.reportAttempts(dispatch.RoleSpecAuthor, run)
-			if err != nil {
-				return err
-			}
-			manifestID = run.InputManifestID
-			if refined.Question != "" {
-				return fmt.Errorf(
-					"factory: the spec author asked a question about item %s, and the interview is the intent's and is over", c.itemID)
-			}
-			authored = refined
+		authored, run, err := p.dispatch.SpecAuthor(ctx, p.on(c, item.StageSpec, !returned.Empty()),
+			p.specMaterial(c), p.refining(c, returned))
+		p.reportAttempts(dispatch.RoleSpecAuthor, run)
+		if err != nil {
+			return err
 		}
-		firstIsAuthored = false
+		if authored.Question != "" {
+			return fmt.Errorf(
+				"factory: the spec author asked a question about item %s, and the interview is the intent's and is over", c.itemID)
+		}
 
-		version, err := p.submitSpec(ctx, c, authored, manifestID)
+		version, err := p.submitSpec(ctx, c, authored, run.InputManifestID)
 		if err != nil {
 			return err
 		}

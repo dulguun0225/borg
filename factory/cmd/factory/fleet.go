@@ -9,8 +9,11 @@ import (
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -35,9 +38,11 @@ type oneModelFleet struct {
 	credential string
 }
 
-// EntryFor is the entry for one role on one item.
+// EntryFor is the entry for one role on one item, or on an intent for the two
+// roles put on one — which name no stage, so the stage is not what an entry is
+// looked up by.
 func (f oneModelFleet) EntryFor(_ context.Context, role dispatch.Role, on dispatch.On) (dispatch.Entry, bool, error) {
-	if _, err := role.Stage(); err != nil {
+	if _, err := role.Stage(); err != nil && !role.OnAnIntent() {
 		return dispatch.Entry{}, false, err
 	}
 	scope := dispatch.Scope{}
@@ -70,10 +75,16 @@ func (r rolePrompts) InForce(ctx context.Context, role dispatch.Role) (artifact.
 }
 
 // shippedPromptFor is the words the product ships for one role. It is the one
-// place package agent's four constants are read: what a run reads is the
-// version in force, and these are only what the first start enters.
+// place package agent's six constants are read: what a run reads is the
+// version in force, and these are only what the first start enters. There is
+// one per role, the decomposer's included, whose words no run of this interface
+// reads — package agent's doc.go says why.
 func shippedPromptFor(role dispatch.Role) (string, error) {
 	switch role {
+	case dispatch.RoleInterviewer:
+		return agent.ShippedInterviewerPrompt, nil
+	case dispatch.RoleDecomposer:
+		return agent.ShippedDecomposerPrompt, nil
 	case dispatch.RoleSpecAuthor:
 		return agent.ShippedSpecAuthorPrompt, nil
 	case dispatch.RoleImplementationPlanner:
@@ -134,6 +145,30 @@ func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpo
 		entered = append(entered, string(role))
 	}
 	return prompts, entered, nil
+}
+
+// intentLimits is [dispatch.Limits]: the attempt limit in force, read per
+// subject. A stage's is package policy's read, where a safeguard on the area
+// may clamp it; the rounds of an intent name no stage — a role put on an intent
+// runs before there is an item — so that one is [intentAttemptLimit], the read
+// decomposition's own count is already compared against.
+type intentLimits struct {
+	reader *policy.Reader
+	pool   *pgxpool.Pool
+}
+
+// AttemptLimit is the limit in force at a stage.
+func (l intentLimits) AttemptLimit(ctx context.Context, s policy.Subjects) (policy.Effective, error) {
+	return l.reader.AttemptLimit(ctx, s)
+}
+
+// RoundsOnAnIntent is the limit the interview's rounds are counted against.
+func (l intentLimits) RoundsOnAnIntent(ctx context.Context) (policy.Effective, error) {
+	limit, err := intentAttemptLimit(ctx, l.pool, factorysettings.SubjectInterview)
+	if err != nil {
+		return policy.Effective{}, err
+	}
+	return policy.Effective{Parameter: gatepolicy.AttemptLimit, Number: float64(limit)}, nil
 }
 
 // gateEscalation is [dispatch.Escalation]: dispatch decides that the stage has

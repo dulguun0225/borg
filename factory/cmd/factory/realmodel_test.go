@@ -140,8 +140,8 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 
 	// The interview asks at most one question and may ask none, so the first
 	// scripted line has to be a valid verdict as well as an answer. What that
-	// costs is the answer's quality where a question does come: the spec author
-	// is answered with the word approve and authors on it.
+	// costs is the answer's quality where a question does come: the interviewer
+	// is answered with the word approve and states its reading on it.
 	//
 	// Eight lines: a first release puts a human at all seven rows of the item's
 	// path, and the answer may take the first of them.
@@ -235,14 +235,13 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 			t.Errorf("stage %s reports %d attempts, want at least one", st.Stage, st.Attempts)
 		}
 	}
-	// The spec stage of a run's first item makes no call of its own — that call
-	// is the interview's and is recorded against the intent — so the stages with
-	// a run record of their own are the three below it.
+	// The interview is a run on the intent and is recorded against it, and every
+	// stage of the item makes its own call and is recorded against the item.
 	if spendOnIntent(t, ctx, d, c.intentID) <= 0 {
 		t.Error("the intent's interview spent nothing, and a real call spends units")
 	}
 	for _, authored := range []item.Stage{
-		item.StageImplementationPlan, item.StageTasks, item.StageImplementation,
+		item.StageSpec, item.StageImplementationPlan, item.StageTasks, item.StageImplementation,
 	} {
 		if spendOn(t, ctx, d, c.itemID, authored) <= 0 {
 			t.Errorf("stage %s spent nothing, and a real call spends units", authored)

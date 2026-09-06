@@ -144,7 +144,7 @@ func TestAnswerIsWriteOnce(t *testing.T) {
 		t.Fatalf("Ask: %v", err)
 	}
 
-	answered, err := in.Answer(ctx, owner, asked.ID, "The primary one only.")
+	answered, err := in.Answer(ctx, owner, asked.ID, "The primary one only.", 3)
 	if err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
@@ -167,10 +167,10 @@ func TestAnswerIsWriteOnce(t *testing.T) {
 		t.Errorf("Questions = %+v, want the answered question, %+v", questions, answered)
 	}
 
-	if _, err := in.Answer(ctx, owner, asked.ID, "No, both."); !errors.Is(err, intent.ErrAlreadyAnswered) {
+	if _, err := in.Answer(ctx, owner, asked.ID, "No, both.", 3); !errors.Is(err, intent.ErrAlreadyAnswered) {
 		t.Errorf("Answer on an answered question = %v, want ErrAlreadyAnswered", err)
 	}
-	if _, err := in.Answer(ctx, owner, "q_missing", "anything"); !errors.Is(err, intent.ErrQuestionNotFound) {
+	if _, err := in.Answer(ctx, owner, "q_missing", "anything", 3); !errors.Is(err, intent.ErrQuestionNotFound) {
 		t.Errorf("Answer on a missing question = %v, want ErrQuestionNotFound", err)
 	}
 }
@@ -190,7 +190,7 @@ func TestAnEmptyAnswerIsRefused(t *testing.T) {
 		t.Fatalf("Ask: %v", err)
 	}
 
-	if _, err := in.Answer(ctx, owner, asked.ID, ""); !errors.Is(err, intent.ErrAnswerEmpty) {
+	if _, err := in.Answer(ctx, owner, asked.ID, "", 3); !errors.Is(err, intent.ErrAnswerEmpty) {
 		t.Errorf("Answer with no answer = %v, want ErrAnswerEmpty", err)
 	}
 	read, err := intent.Questions(ctx, pool, taken.ID)
@@ -200,7 +200,7 @@ func TestAnEmptyAnswerIsRefused(t *testing.T) {
 	if len(read) != 1 || read[0].Answered() {
 		t.Errorf("Questions = %+v, want the one question still unanswered", read)
 	}
-	if _, err := in.Answer(ctx, owner, asked.ID, "The primary one only."); err != nil {
+	if _, err := in.Answer(ctx, owner, asked.ID, "The primary one only.", 3); err != nil {
 		t.Errorf("Answer after the refusal: %v, want the question still answerable", err)
 	}
 }

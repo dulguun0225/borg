@@ -39,24 +39,30 @@ func TestOneChangeShips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the intent: %v", err)
 	}
-	// Two rounds: the one the spec author asked its question in, and the one it
-	// authored the spec in on the answer. A round is one call of the role, and
-	// the interview counts its rounds against the same attempt limit a stage
-	// does — so a round that produced nothing usable is one the limit sees.
-	if in.Rounds != 2 {
-		t.Errorf("intent rounds = %d, the question and the answer are two", in.Rounds)
+	// Three rounds: the one the spec author asked its question in, the one it
+	// authored the spec in on the answer, and the acceptance round the item
+	// going live asked. A round is one call of the role, and the interview
+	// counts its rounds against the same attempt limit a stage does — so a
+	// round that produced nothing usable is one the limit sees.
+	if in.Rounds != 3 {
+		t.Errorf("intent rounds = %d, the question, the answer and the acceptance round are three", in.Rounds)
 	}
+	// The intent stays refined until the requester answers: the acceptance
+	// round is asked here and answered at Work, which `factory accept` is this
+	// interface's stand-in for.
 	if in.State != intent.StateRefined {
-		t.Errorf("intent state = %s, the interview marked it refined", in.State)
+		t.Errorf("intent state = %s, the interview marked it refined and the acceptance round is unanswered", in.State)
 	}
 	questions, err := intent.Questions(ctx, d.pool, c.intentID)
 	if err != nil {
 		t.Fatalf("reading the questions: %v", err)
 	}
-	// Two questions: the spec author's own, answered with the scripted line,
-	// and the confirming round's, which this command-line interface answers itself.
-	if len(questions) != 2 {
-		t.Fatalf("the intent has %d questions, want the spec author's and the confirming round's", len(questions))
+	// Three questions: the spec author's own, answered with the scripted line,
+	// the confirming round's, which this command-line interface answers itself,
+	// and the acceptance round's, which waits on the requester.
+	if len(questions) != 3 {
+		t.Fatalf("the intent has %d questions, want the spec author's, the confirming round's and the acceptance round's",
+			len(questions))
 	}
 	if !questions[0].Answered() || questions[0].Answer != theAnswer {
 		t.Errorf("the question's answer = %q answered=%t, the human answered %q",

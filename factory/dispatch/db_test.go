@@ -116,6 +116,10 @@ func (f fixedLimit) AttemptLimit(context.Context, policy.Subjects) (policy.Effec
 	return policy.Effective{Number: f.limit}, nil
 }
 
+func (f fixedLimit) RoundsOnAnIntent(context.Context) (policy.Effective, error) {
+	return policy.Effective{Number: f.limit}, nil
+}
+
 // countingEscalation records what was escalated, standing in for the gate
 // component's own enforcement, which writes the escalated value, abandons the
 // pending rows and pages.
@@ -332,6 +336,12 @@ func TestOneDispatchWritesTheManifestTheRunAndTheTransition(t *testing.T) {
 	}
 	if recorded.InputManifestID != run.InputManifestID {
 		t.Errorf("the run names manifest %q, want the one written before it", recorded.InputManifestID)
+	}
+	// The sources handed over are on the run record beside the units, by the
+	// same reference the manifest names them by: what the manifest says was
+	// withheld, the run record says was sent.
+	if len(recorded.Sources) != 1 || recorded.Sources[0] != it.IntentID {
+		t.Errorf("the run names sources %v, want the reference of the one material handed over", recorded.Sources)
 	}
 
 	stages, err := item.Stages(c.ctx, c.pool, it.ID)

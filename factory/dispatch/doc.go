@@ -1,13 +1,13 @@
 // Package dispatch is the dispatch component: the match of an item's stage
-// against a role and of its service and area against a scope, and what runs an
-// agent.
+// against a role and of its service and area against a scope, or of an intent
+// against one of the two roles put on an intent, and what runs an agent.
 //
 // # The files
 //
-// role.go is [Role] with [Roles], [Role.Stage], [RoleAt], the operations
-// [Role.Operations] gives each role with [Role.Narrow] and
-// [ErrOperationWidened], and [Scope] with [Scope.Covers], [On.Areas] and
-// [Scope.String].
+// role.go is [Role] with [Roles], [Role.Stage], [Role.OnAnIntent],
+// [ErrRoleNamesNoStage], [RoleAt], the operations [Role.Operations] gives each
+// role with [Role.Narrow] and [ErrOperationWidened], and [Scope] with
+// [Scope.Covers], [On.Areas] and [Scope.String].
 // fleet.go is [Entry], the [Fleet] and [Prompts] interfaces the composition
 // supplies, and the two errors a caller reads — [ErrHeld] and
 // [ErrOutOfAttempts].
@@ -19,10 +19,11 @@
 // onto the item, and the agent run record. hold.go is [Hold] with [HoldKind],
 // [HoldFormatVersion], the three conditions this component computes, [Open]
 // and [Rematch]. admit.go is [Dispatch.Admit], the order items are admitted in
-// where more is ready than the infrastructure admits. run.go is the four
-// dispatches — [Dispatch.SpecAuthor],
-// [Dispatch.Planner], [Dispatch.TaskAuthor] and [Dispatch.Implementer] — and
-// the sequence they share.
+// where more is ready than the infrastructure admits. run.go is the five
+// dispatches — [Dispatch.Interviewer], [Dispatch.SpecAuthor],
+// [Dispatch.Planner], [Dispatch.TaskAuthor] and [Dispatch.Implementer] — the
+// sequence they share, and [sourcesOf], the material handed over as the run
+// record names it.
 //
 // db_test.go is against the database, this component writing records through
 // four packages that own tables; hold_test.go, split from it by subject at the
@@ -37,9 +38,17 @@
 // force, writes the transition onto the item, writes the input manifest,
 // runs the role under a principal naming the model version, this dispatch and
 // the scope, asking the provider for the effort the entry names, writes one
-// agent run record per call, and compares the item's own
-// count for the stage against the attempt limit in force — escalating over it
-// and telling the notifier that it did.
+// agent run record per call naming the sources it was handed, and compares the
+// item's own count for the stage against the attempt limit in force —
+// escalating over it and telling the notifier that it did.
+//
+// A dispatch of a role put on an intent — [RoleInterviewer] and
+// [RoleDecomposer] — makes the same sequence without the three parts that are
+// an item's: it reads no intent state, the interview being what refines an
+// unrefined intent; it writes no transition, there being no item; and the limit
+// it compares against is the rounds the caller carries in [On.CountedSoFar]
+// against [Limits.RoundsOnAnIntent], no per-stage row existing to read. Putting
+// one of the two on an item is [ErrRoleNamesNoStage].
 //
 // The scope's area is matched against the item's area chain and not against
 // its own area alone, so an entry drawn on a coarser area covers an item in a
@@ -48,7 +57,8 @@
 // # Who may write what
 //
 // This package owns no table. It writes the item's stage and the count beside
-// it through [item.Dispatch], which owns them; the input manifest through
+// it through [item.Dispatch], which owns them — for a run on an item, a run on
+// an intent writing neither; the input manifest through
 // [inputmanifest.Writer], until context assembly exists to write it; the agent
 // run record through [agentrun.Writer]; and its holds into the decision log
 // through [decisionlog.Writer]. The version a role authored is submitted by the
@@ -76,6 +86,12 @@
 // re-entered until something calls this component again; [Run.ID] is minted
 // per run and stored on the principal alone.
 //
+// The decomposer is matched, prompted and dispatched like any other role and
+// nothing calls it: the component that would put an agent in that role is a
+// stage that decides a decomposition, and the factory is told its
+// decomposition. So there is no method for it here, and package agent has the
+// words the product ships for it and no type that runs them.
+//
 // [Escalation] is the composition's, because the abandonment of an item's
 // pending rows is the gate component's and this component's row in
 // ../../end-goal/components.md names no gate. The wait that follows it is this
@@ -87,10 +103,12 @@
 // The match, the six holds, the re-match, the tier that orders admission, and
 // the claim are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md.
-// The role, the scope, the operations a role carries, the principal every call
-// is made under, and what a stage hands an agent — the reject or the rework
-// request among it — are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md. The stage and the
+// The role, the two roles put on an intent, the scope, the operations a role
+// carries, the principal every call is made under, and what a stage hands an
+// agent — the reject or the rework request among it — are
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md. The interview those
+// roles run, and the rounds it counts, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md. The stage and the
 // count per stage this component writes are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md.
 // The limit the count is compared against and the escalation over it are

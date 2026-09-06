@@ -1,10 +1,13 @@
-// Package agent owns the four authoring roles — [SpecAuthor], [Planner],
+// Package agent owns the roles an agent is put on — [Interviewer], which runs
+// on an intent, and the four authoring roles [SpecAuthor], [Planner],
 // [TaskAuthor] and [Implementer] — the [Model] interface every role calls, and
 // the two implementations of it, [OpenRouter] and [Anthropic]. The words the
-// product ships for each role are exported constants,
+// product ships per role are exported constants,
+// [ShippedInterviewerPrompt], [ShippedDecomposerPrompt],
 // [ShippedSpecAuthorPrompt], [ShippedPlannerPrompt],
-// [ShippedTaskAuthorPrompt] and [ShippedImplementerPrompt], and the four rules
-// they all name are [Rules], one constant included in each so they cannot
+// [ShippedTaskAuthorPrompt] and [ShippedImplementerPrompt] — one per role, the
+// way the design closes the set of prompts with the set of roles — and the four
+// rules they all name are [Rules], one constant included in each so they cannot
 // drift apart.
 //
 // # The files
@@ -14,6 +17,10 @@
 // [UnitsCachedInput], and [ErrReply]. rules.go is [Rules]. criterion.go is
 // [Criterion] and the writer that puts the criteria in force into a prompt.
 //
+// interviewer.go is [ShippedInterviewerPrompt], [Interviewer], the
+// [Interviewing] it takes, and the [Reading] it returns — a question or the
+// statements the requester confirms — with the parse of the reply.
+// decomposer.go is [ShippedDecomposerPrompt] and nothing else.
 // specauthor.go is [ShippedSpecAuthorPrompt], [SpecAuthor], the [Refining] it
 // takes with its [Question], [Requirement], [Constraint], [Hazard] and
 // [Returned] values, the [Refined] it returns with its [DraftCriterion] values,
@@ -46,6 +53,12 @@
 // first start, and a role whose Prompt is empty refuses with [ErrNoPrompt]
 // rather than falling back on them, because a role with no version in force is
 // a hold dispatch writes and a run it does not make.
+//
+// [Interviewer.Interview] takes an [Interviewing] and returns a [Reading]: one
+// question the role cannot proceed without, or the reading as statements, one
+// behaviour each, which intake writes as the intent's requirements when the
+// requester confirms them. It names no service and no item — the interview
+// happens before decomposition — and it authors no criterion.
 //
 // [SpecAuthor.Refine] takes a [Refining] and returns a [Refined] — the spec,
 // the criteria it introduces each naming the requirement it answers and the
@@ -104,6 +117,11 @@
 //
 // # Which callers are not built
 //
+// The decomposer has no type here and only its words: what would run them is a
+// stage that decides a decomposition, and the factory is told what to
+// decompose. The words ship because there is one role prompt per role, and a
+// dispatch on that role with no version in force is a hold rather than a run.
+//
 // The gate's mechanical rejection of a build whose emission does not count the
 // area's hazardous operation is not built: the prompt asks for the count and
 // nothing reads it back off the build. The drivers and the screen's transition
@@ -123,9 +141,14 @@
 // wherever the caller points the role.
 //
 // What defines it: a role — what an agent is put on, naming the work of one
-// stage — and the material a stage hands an agent, the reject or rework
-// request among it, are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md. The role prompt as
+// stage or put on an intent before there is an item — and the material a stage
+// hands an agent, the reject or rework request among it, are
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md. The interview the
+// interviewer runs, its rounds, and the reading written as a set of statements
+// in the six patterns are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md,
+// and what the decomposer would cut is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md. The role prompt as
 // a versioned record the factory enters what shipped into is
 // ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md,
 // and what a version may be authored from is 01-what-a-version-is-authored-from.md

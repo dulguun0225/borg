@@ -53,7 +53,7 @@ Then eight prompts on the first take, and nothing else waits on a human:
 
 | Prompt | What to type |
 |---|---|
-| `The spec author asks: …` | One line, any answer. A blank line is asked again — [the interview](../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md) is one round or none, and this is what the round is spent on. Some runs are not asked anything. |
+| `The interviewer asks: …` | One line, any answer. A blank line is asked again — [the interview](../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md) is one round or none, and this is what the round is spent on. Some runs are not asked anything. |
 | `Verdict (…): ` at `spec` | `approve`, which confirms the acceptance criteria are the right ones — duty 6. `edit` authors the version yourself: type it in full and end with a line holding one full stop. |
 | `Verdict (…): ` at `implementation_plan` | `approve`. This is the row [_Implementation plan_](../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/03-implementation-plan.md) keeps `edit` for: the plan is a document, so a human who wants a different approach edits one into it rather than rejecting the item to get one. |
 | `Verdict (…): ` at `tasks` | `approve`, or `edit` to resequence or split a task without changing the plan above it. |
