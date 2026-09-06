@@ -26,6 +26,10 @@
 //     or a call to secretref.Resolve or os.Getenv on a name carrying one of
 //     [CredentialWords], added or removed — a name removed is read the way one
 //     added is, a change to the file that holds it being a diff like any other.
+//     A literal whose last dot-segment is one of [FileExtensions] is a file
+//     name — "main.go", "go.mod" — and never a secret's name however much it
+//     looks like one, [FileExtensions] being the explicit list that tells the
+//     two apart.
 //   - An authorization check removed or weakened: a removed call to a function
 //     whose name carries one of [AuthorizationWords], or a removed if guard
 //     around one.
@@ -34,6 +38,12 @@
 //     named with its version and its declared licence. An unpinned range that
 //     resolved differently with nothing in the manifest changed is one, and its
 //     entry says the manifest named no line to point at.
+//
+// A change in a file whose name ends "_test.go" is read for none of the first
+// three kinds: what a test reaches is the test's own process at `go test` time
+// and not the service the build ships, which is the Go toolchain's own rule
+// rather than one this package invents. A dependency change is unaffected,
+// being a diff of the two resolved sets and not a read of these lines.
 //
 // Each entry names the file and the line, because what a human at Implementation
 // argues with is that list beside the diff. The list only ever raises the number

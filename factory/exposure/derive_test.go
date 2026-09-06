@@ -264,6 +264,58 @@ func TestACredentialNameRemovedIsRead(t *testing.T) {
 	}
 }
 
+// TestATestFileIsNotReadForReach: a line in a file whose name ends "_test.go" is
+// read for none of the three per-line kinds, while the same line in a file that
+// is not a test file is. What a test reaches is the test's own process and not
+// the service.
+func TestATestFileIsNotReadForReach(t *testing.T) {
+	dir, base, head := repoWith(t,
+		map[string]string{
+			"main.go":      "package main\n\nfunc main() {}\n",
+			"main_test.go": "package main\n\nimport \"testing\"\n\nfunc TestMain(t *testing.T) {}\n",
+		},
+		map[string]string{
+			"main.go": "package main\n\nfunc main() {}\n",
+			"main_test.go": "package main\n\nimport (\n\t\"net/http\"\n\t\"os\"\n\t\"testing\"\n)\n\n" +
+				"func TestMain(t *testing.T) {\n\t_, _ = http.Get(\"http://localhost:8081/version\")\n\t" +
+				"_, _ = os.ReadFile(\"main.go\")\n\t_ = testing.Short\n}\n",
+		})
+
+	evidence := derive(t, exposure.Checkout{Dir: dir}, base, head)
+	if list := evidence.List(); len(list) != 0 {
+		t.Errorf("a line added only in a _test.go file reads as %v, want nothing", list)
+	}
+}
+
+// TestTheSameLinesOutsideATestFileAreReadByTheOldRules: the lines from the test
+// above, added in a file that is not a test file, are read the way they always
+// were except for the file name: http.Get is still an outbound call added, and
+// os.ReadFile("main.go") is no longer a credential named, because "main.go"'s
+// last dot-segment is in [exposure.FileExtensions]. A literal shaped like a
+// secret's name and not like a file name, "model.openrouter", is still a
+// credential named — the existing behaviour the fix must not have taken with it.
+func TestTheSameLinesOutsideATestFileAreReadByTheOldRules(t *testing.T) {
+	dir, base, head := repoWith(t,
+		map[string]string{"main.go": "package main\n\nfunc main() {}\n"},
+		map[string]string{"main.go": "package main\n\nimport (\n\t\"net/http\"\n\t\"os\"\n)\n\n" +
+			"func main() {\n\t_, _ = http.Get(\"http://localhost:8081/version\")\n\t" +
+			"_, _ = os.ReadFile(\"main.go\")\n\t_ = \"model.openrouter\"\n}\n"})
+
+	evidence := derive(t, exposure.Checkout{Dir: dir}, base, head)
+	if len(evidence.OutboundCalls) != 2 {
+		t.Fatalf("the outbound calls found are %v, want the import and the http.Get call", evidence.OutboundCalls)
+	}
+	if !strings.Contains(evidence.OutboundCalls[1], "http.Get") {
+		t.Errorf("the entry is %q, want the http client method", evidence.OutboundCalls[1])
+	}
+	if len(evidence.Credentials) != 1 {
+		t.Fatalf("the credentials found are %v, want the one secret name and no file name", evidence.Credentials)
+	}
+	if !strings.Contains(evidence.Credentials[0], "model.openrouter") {
+		t.Errorf("the entry is %q, want the literal shaped like a secret's name and not %q", evidence.Credentials[0], "main.go")
+	}
+}
+
 // TestNoGitAtBaseIsUnavailableAndNeverNothing: an extractor that could not run
 // resolves the factor, and a diff that added none of this reads as nothing. The
 // two are opposite answers and this is where they are told apart.

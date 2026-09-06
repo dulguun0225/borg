@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -42,7 +43,18 @@ var httpClientMethods = []string{"Do", "Get", "Head", "Post", "PostForm"}
 // A string literal that is entirely one of those is a credential named, which is
 // what a build hard-coding a reference looks like. The whole literal has to
 // match, so a sentence carrying a dotted word is not one.
+//
+// The same shape is a file name — "main.go", "go.mod" — so a literal matching it
+// is checked against [FileExtensions] first: a literal whose last dot-segment is
+// one of those is a path in the repository and never counts as a secret's name.
 var secretName = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z0-9_-]+)+$`)
+
+// FileExtensions are the last dot-segment of a literal that makes it a file
+// name and not a secret's name, however much it looks like one. "main.go" and
+// "go.mod" match [secretName]'s shape the same way "deploy.local" does; this is
+// the explicit list that tells the two apart, so a reader sees exactly what is
+// refused rather than a regular expression standing in for it.
+var FileExtensions = []string{"go", "mod", "sum", "md", "txt", "json", "yaml", "yml", "toml", "html", "css", "js", "sql"}
 
 // literal is a Go string literal on one line, matched for its content alone.
 var literal = regexp.MustCompile(`"([^"\\]*)"`)
@@ -108,11 +120,25 @@ func credential(c change) (string, bool) {
 		}
 	}
 	for _, match := range literal.FindAllStringSubmatch(c.Text, -1) {
+		if isFileName(match[1]) {
+			continue
+		}
 		if secretName.MatchString(match[1]) {
 			return entry(c, direction(c)+" string literal shaped like a secret's name: "+match[1]), true
 		}
 	}
 	return "", false
+}
+
+// isFileName is whether a literal's last dot-segment is one of
+// [FileExtensions], which makes the literal a file name and refuses it before
+// [secretName]'s match counts.
+func isFileName(literal string) bool {
+	dot := strings.LastIndexByte(literal, '.')
+	if dot < 0 {
+		return false
+	}
+	return slices.Contains(FileExtensions, literal[dot+1:])
 }
 
 // direction is which side of the diff a line is on, in the words an entry is

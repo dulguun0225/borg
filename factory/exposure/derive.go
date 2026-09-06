@@ -110,6 +110,15 @@ func Derive(ctx context.Context, c Checkout, base, head string) (Evidence, Cover
 	changes := parse(string(out))
 	evidence := Evidence{}
 	for _, change := range changes {
+		// A test file's lines are not reach: what a _test.go file calls runs in
+		// the test binary's own process at `go test` time, never in the service
+		// this build ships, so it is not read for the three per-line kinds. This
+		// is the Go toolchain's own rule, the way the whole derivation is
+		// Go's — a dependency change is unaffected, being a diff of the two
+		// resolved sets and not a read of these lines.
+		if strings.HasSuffix(change.File, "_test.go") {
+			continue
+		}
 		if found, is := outboundCall(change); is {
 			evidence.OutboundCalls = append(evidence.OutboundCalls, found)
 		}
