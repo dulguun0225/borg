@@ -17,7 +17,9 @@
 // an approve takes: [ErrApproveNamesAHoldNotStanding], [ErrApproveLeavesAHoldOut]
 // and [ErrApproveThroughAHalt]. mark.go is [Mark] with [Marks], what put a
 // human at a row. merge.go is the Merge to master row's own vocabulary:
-// [MechanicalChecks] and [Derivations]. strategy.go is [Strategy], [Schedule],
+// [MechanicalChecks] and [Derivations]. spec.go is the Spec row's:
+// [SpecChecks], [SpecRejection] over the requirement a criterion names, and
+// [ChecksAt], the checks a row rejects on. strategy.go is [Strategy], [Schedule],
 // [Pick] with [Pick.Validate], and [ControlBound]. waits.go is [Waits],
 // [RoutedTo], and the three duties the design names for a row.
 //
@@ -43,7 +45,7 @@
 //
 // verdict.go appends the close event: [Gate.Decide] takes a [Given],
 // [Gate.AutoPass] is the factory approving, [Gate.AutoReject] is the factory
-// rejecting on one of [MechanicalChecks], and [ClosingPayload] is that event's
+// rejecting on one of [ChecksAt], and [ClosingPayload] is that event's
 // shape. refer.go is [Gate.Refer], the one verdict that closes a row and re-fires
 // it. refuse.go is the two refusals the log's writer cannot evaluate on its own,
 // supplied to it per close and compared as per-person keys: the People
@@ -74,8 +76,10 @@
 // and four of the holds this package names read records that do not exist yet:
 // a change freeze, a service's maximum concurrent kept fleets, an advisory
 // match, and the producing release of a contract migration. [Notifier] reaches
-// a human, and the two calls made on it are the page's acknowledged event and
-// the wait an escalation leaves.
+// a human, and the one call made on it is the page's acknowledged event.
+// [SpecRejection] is computed here and read by the caller: what the two lists
+// it compares are read from is the requirement record and the criterion
+// record, and the Spec row's firing path is what hands them over.
 //
 // [Firing.CouldNotDerive] and [Firing.Exposure] are what the component that
 // built hands the gate; neither derivation is built. The three rows outside
@@ -104,7 +108,10 @@
 //
 // The rows themselves are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/README.md,
-// each with a file of its own there: the candidate deploy row's holds are
+// each with a file of its own there: the Spec row's rejection in both
+// directions over the requirement a criterion names is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md,
+// the candidate deploy row's holds are
 // 06-deploy-to-candidate-environment.md, the merge row's mechanical rejections
 // and its derivations are 07-merge-to-master.md, the production deploy row's
 // holds and the four fields a service must have to auto-pass are

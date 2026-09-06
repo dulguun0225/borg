@@ -201,6 +201,13 @@ func (p *path) driftDetectorPages(ctx context.Context) error {
 // what-humans-do.md and are not copied here.
 const takeOverIssues = people.Duty(12)
 
+// answerTheInterview is duty 3 — answering the factory's interview for as many
+// rounds as it asks — which is the duty a round of questions belongs to and so
+// the duty the wait intake leaves routes by. The number is what people holds
+// and the design cites; the words are in what-humans-do.md and are not copied
+// here.
+const answerTheInterview = people.Duty(3)
+
 // liveIsWorse is whether something live is worse for the factory having given up.
 // An owner's request is a feature nobody is running; a detector's intent and an
 // intent grouped from end-user reports are both defects in software that is live.

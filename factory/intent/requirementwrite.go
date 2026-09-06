@@ -152,6 +152,68 @@ func (i *Intake) DeriveForItem(ctx context.Context, actor record.Actor, derivati
 	return written, nil
 }
 
+// SupersedeDerived supersedes every requirement in force the item carried,
+// which is what a re-decomposition does to the shares of the item it
+// supersedes. It is called by decomposition beside [item.Decomposition.Supersede],
+// the two being one event over two records with two writers: intake writes the
+// requirement and decomposition writes the item.
+//
+// replacedBy names, per superseded requirement, the requirements that replaced
+// it — the shares the replacement items carry, derived from the same
+// requirement. A requirement it does not name is superseded pointing at
+// nothing, which is what a re-decomposition that replaced the item with
+// nothing writes, and it is the pointer a superseded reading already takes.
+//
+// It returns what it superseded, and supersedes nothing on an item that
+// carried no share.
+func (i *Intake) SupersedeDerived(ctx context.Context, actor record.Actor, itemID string,
+	replacedBy map[string][]string) ([]Requirement, error) {
+	if err := actor.Validate(); err != nil {
+		return nil, err
+	}
+	if itemID == "" {
+		return nil, ErrItemIDEmpty
+	}
+
+	tx, err := i.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("intent: beginning the supersede of what %s carried: %w", itemID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, i.token); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `select `+requirementColumns+` from `+RequirementTable+`
+		where item_id = $1 and superseded_at = '' order by at, id for update`, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("intent: reading the requirements of item %s: %w", itemID, err)
+	}
+	carried, err := collectRequirements(rows, itemID)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	at := record.Now()
+	for n, r := range carried {
+		by, err := encodeSuperseded(replacedBy[r.ID])
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `update `+RequirementTable+`
+			set superseded_at = $1, superseded_by = $2 where id = $3`, at, by, r.ID); err != nil {
+			return nil, fmt.Errorf("intent: superseding requirement %s: %w", r.ID, err)
+		}
+		carried[n].SupersededAt = at
+		carried[n].SupersededBy = replacedBy[r.ID]
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("intent: committing the supersede of what %s carried: %w", itemID, err)
+	}
+	return carried, nil
+}
+
 // MarkUnanswerable is decomposition's mark on a requirement it judged no item
 // can answer, with a tagged reason, which is the treatment a statement fitting
 // no pattern already gets. The mark is write-once: a second judgment on the

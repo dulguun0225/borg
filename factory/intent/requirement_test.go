@@ -207,6 +207,93 @@ func TestDecompositionDerivesOneRequirementPerItemShare(t *testing.T) {
 	}
 }
 
+// TestAReDecompositionSupersedesTheSharesTheItemCarried: a derived requirement
+// is superseded with the item that carried it, taking the pointer a superseded
+// reading takes — the replacements where there are some, and nothing where the
+// re-decomposition replaced the item with nothing.
+func TestAReDecompositionSupersedesTheSharesTheItemCarried(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+	whole := "When a charge fails, the system shall retry it once and tell the ledger."
+	intentID := confirmed(t, ctx, in, "checkout should retry", intent.NewRequirement{Statement: whole})
+	reading, err := intent.Requirements(ctx, pool, intentID)
+	if err != nil {
+		t.Fatalf("Requirements: %v", err)
+	}
+
+	carried, err := in.DeriveForItem(ctx, intake, intent.Derivation{
+		IntentID: intentID, DerivedFrom: reading[0].ID, ItemID: "it_checkout",
+		Statement: "When a charge fails, the system shall retry it once.",
+	})
+	if err != nil {
+		t.Fatalf("DeriveForItem: %v", err)
+	}
+	replacement, err := in.DeriveForItem(ctx, intake, intent.Derivation{
+		IntentID: intentID, DerivedFrom: reading[0].ID, ItemID: "it_checkout_again",
+		Statement: "When a charge fails, the system shall retry it twice.",
+	})
+	if err != nil {
+		t.Fatalf("DeriveForItem for the replacement: %v", err)
+	}
+
+	superseded, err := in.SupersedeDerived(ctx, intake, "it_checkout",
+		map[string][]string{carried.ID: {replacement.ID}})
+	if err != nil {
+		t.Fatalf("SupersedeDerived: %v", err)
+	}
+	if len(superseded) != 1 || superseded[0].ID != carried.ID {
+		t.Fatalf("SupersedeDerived returned %+v, want the one share the item carried", superseded)
+	}
+	if forItem, err := intent.ForItem(ctx, pool, "it_checkout"); err != nil || len(forItem) != 0 {
+		t.Errorf("ForItem = %+v (%v), want nothing in force for the superseded item", forItem, err)
+	}
+	every, err := intent.EveryRequirement(ctx, pool, intentID)
+	if err != nil {
+		t.Fatalf("EveryRequirement: %v", err)
+	}
+	for _, r := range every {
+		if r.ID != carried.ID {
+			continue
+		}
+		if r.InForce() || len(r.SupersededBy) != 1 || r.SupersededBy[0] != replacement.ID {
+			t.Errorf("the superseded share is %+v, want it out of force pointing at %s", r, replacement.ID)
+		}
+	}
+
+	// The whole the shares derive from is untouched: what supersedes a reading
+	// is a confirming round, and this is a re-decomposition.
+	inForce, err := intent.Requirements(ctx, pool, intentID)
+	if err != nil {
+		t.Fatalf("Requirements: %v", err)
+	}
+	if len(inForce) != 2 {
+		t.Errorf("the reading in force is %d requirements, want the whole and the replacement's share", len(inForce))
+	}
+
+	// An item replaced by nothing: the pointer stays empty, which is what a
+	// retracted statement already writes.
+	if _, err := in.SupersedeDerived(ctx, intake, "it_checkout_again", nil); err != nil {
+		t.Fatalf("SupersedeDerived with no replacement: %v", err)
+	}
+	every, err = intent.EveryRequirement(ctx, pool, intentID)
+	if err != nil {
+		t.Fatalf("EveryRequirement: %v", err)
+	}
+	for _, r := range every {
+		if r.ID == replacement.ID && (r.InForce() || len(r.SupersededBy) != 0) {
+			t.Errorf("the share of an item replaced by nothing is %+v, want it out of force pointing at nothing", r)
+		}
+	}
+
+	// An item that carried no share supersedes nothing, and a call naming no
+	// item is refused.
+	if superseded, err := in.SupersedeDerived(ctx, intake, "it_nothing", nil); err != nil || len(superseded) != 0 {
+		t.Errorf("SupersedeDerived on an item with no share = %+v, %v, want nothing superseded", superseded, err)
+	}
+	if _, err := in.SupersedeDerived(ctx, intake, "", nil); !errors.Is(err, intent.ErrItemIDEmpty) {
+		t.Errorf("SupersedeDerived naming no item = %v, want ErrItemIDEmpty", err)
+	}
+}
+
 // TestDecompositionMarksARequirementUnanswerable: the mark carries a tagged
 // reason and is write-once, and what shows a requirement stopped by nothing is
 // the count of them on the intent.

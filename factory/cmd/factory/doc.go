@@ -97,10 +97,13 @@
 //     healthmonitor and contractcheck reach through), the seams it satisfies,
 //     and run, which walks the whole path once per intent over the install's
 //     dependency layers, plus layer, one dependency layer's own walk below
-//     decomposition.
-//   - seams.go — the three small values the composition supplies a component
-//     that decides events: intentState, raisedByTheHealthMonitor, and
-//     gateNotifier, which is how a gate reaches a human.
+//     decomposition, and admissionOrder, which is the order dispatch admits
+//     that layer's candidates in.
+//   - seams.go — the values the composition supplies a component that decides
+//     events: intentState, raisedByTheHealthMonitor, gateNotifier, which is
+//     how a gate reaches a human, dispatchNotifier, the wait an item escalated
+//     leaves, and intakeNotifier, a round of the interview and an intent
+//     escalated.
 //   - holds.go — Standing, the factory's own holds at a deploy row, and the
 //     four reads enforcement makes of a candidate's own store and of a
 //     backfill's completion, each saying which records it cannot reach.
@@ -111,7 +114,9 @@
 //     intoProduction, strategyOf, and adopt, the deployer's four fields on the
 //     service record.
 //   - decomposition.go — decomposeItems, one item per service an intent
-//     changes, decompositionGate, the Decomposition row fired over the set
+//     changes with what each item answers assigned to it, deriveShares and
+//     shareOf, one item's share of a requirement the split spreads over
+//     several, decompositionGate, the Decomposition row fired over the set
 //     where it yielded more than one, and decompositionAttemptLimit, the limit
 //     its re-decompositions are read against.
 //   - authorintent.go — take, the intent a decomposition is authored from;
@@ -135,8 +140,10 @@
 //     and tasksStage: the three stages above the build, each dispatching its
 //     role, submitting what it authored, firing its own gate row, and
 //     re-authoring against a reject; itemGate, the firing the four item rows
-//     share; and on, specMaterial, refining and requirementFor, what a dispatch
-//     is given.
+//     share, with the mechanical rejection its caller computed; specRejection,
+//     the Spec row's own rejection in both directions over the requirement a
+//     criterion names; and on, specMaterial, refining and requirementFor, what
+//     a dispatch is given.
 //   - author.go — implementationStage with startBranch, commitAndBuild and
 //     hazardOf, and consumerContractStage; Publishes, Declares,
 //     DeclaresSchemaChange, repoOfItem, the deployer's side of contractcheck;

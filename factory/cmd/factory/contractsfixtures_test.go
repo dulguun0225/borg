@@ -279,7 +279,8 @@ var theServiceOfPrompt = regexp.MustCompile(`(?m)^The service this item changes:
 // these episodes are about what follows decomposition.
 type contractModel struct{}
 
-func (m *contractModel) Complete(_ context.Context, _ principal.Principal, system, user string) (agent.Reply, error) {
+func (m *contractModel) Complete(_ context.Context, _ principal.Principal, call agent.Call) (agent.Reply, error) {
+	system, user := call.System, call.User
 	switch system {
 	case agent.ShippedSpecAuthorPrompt:
 		named := theServiceOfPrompt.FindStringSubmatch(user)
@@ -291,7 +292,10 @@ func (m *contractModel) Complete(_ context.Context, _ principal.Principal, syste
 			if svc != "" || !strings.Contains(user, statement) {
 				continue
 			}
-			return agent.Reply{Text: "SPEC:\n" + s.spec + "\nCRITERION: " + s.criterion, Units: map[string]int64{agent.UnitsOutput: 21}}, nil
+			return agent.Reply{
+				Text:  "SPEC:\n" + s.spec + "\nCRITERION" + answers(user) + ": " + s.criterion,
+				Units: map[string]int64{agent.UnitsOutput: 21},
+			}, nil
 		}
 		return agent.Reply{}, fmt.Errorf("fake model: no shape for service %s in this prompt", named[1])
 	case agent.ShippedPlannerPrompt:

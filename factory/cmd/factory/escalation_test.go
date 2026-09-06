@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
@@ -49,7 +50,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	// the intent the escalated item was decomposed from, so it is exercised
 	// against an item of the detector's intent rather than through a run this
 	// milestone cannot route there.
-	detected, err := intent.NewIntake(d.pool, d.token).TakeIn(ctx, healthmonitor.Actor, intent.Arrival{
+	detected, err := intent.NewIntake(d.pool, d.token, intent.NoNotifier{}).TakeIn(ctx, healthmonitor.Actor, intent.Arrival{
 		Source: intent.SourceDetector, Statement: theSecondStatement,
 		Evidence: intent.Evidence{ServiceID: "svc_escalation_test"},
 	})
@@ -75,8 +76,11 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decomposing the detector's item: %v", err)
 	}
-	if err := (gateNotifier{notifier: p.notifier, path: p}).Escalated(ctx, it.ID,
-		item.StageImplementation, "every implementer reply was refused"); err != nil {
+	// The composed value and not one this test builds: what decides whether
+	// something live is worse is the path the composition handed it, and a test
+	// that supplied its own would pass over a composition that supplied none.
+	if err := p.escalations.Escalated(ctx, it.ID,
+		item.StageImplementation, dispatch.EscalatedByTheAttemptLimit); err != nil {
 		t.Fatalf("escalating: %v", err)
 	}
 

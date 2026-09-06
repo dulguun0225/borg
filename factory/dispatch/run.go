@@ -22,7 +22,7 @@ func (d *Dispatch) SpecAuthor(ctx context.Context, on On, material []inputmanife
 	var authored agent.Refined
 	run, err := d.put(ctx, RoleSpecAuthor, on, material,
 		func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error) {
-			refined, err := agent.SpecAuthor{Model: entry.Model, Prompt: prompt}.Refine(ctx, as, of)
+			refined, err := agent.SpecAuthor{Model: entry.Model, Prompt: prompt, Effort: entry.Effort}.Refine(ctx, as, of)
 			authored = refined
 			return refined.Units, err
 		})
@@ -35,7 +35,7 @@ func (d *Dispatch) Planner(ctx context.Context, on On, material []inputmanifest.
 	var authored agent.Plan
 	run, err := d.put(ctx, RoleImplementationPlanner, on, material,
 		func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error) {
-			plan, err := agent.Planner{Model: entry.Model, Prompt: prompt}.Plan(ctx, as, of)
+			plan, err := agent.Planner{Model: entry.Model, Prompt: prompt, Effort: entry.Effort}.Plan(ctx, as, of)
 			authored = plan
 			return plan.Units, err
 		})
@@ -48,7 +48,7 @@ func (d *Dispatch) TaskAuthor(ctx context.Context, on On, material []inputmanife
 	var authored agent.Tasks
 	run, err := d.put(ctx, RoleTaskAuthor, on, material,
 		func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error) {
-			tasks, err := agent.TaskAuthor{Model: entry.Model, Prompt: prompt}.Divide(ctx, as, of)
+			tasks, err := agent.TaskAuthor{Model: entry.Model, Prompt: prompt, Effort: entry.Effort}.Divide(ctx, as, of)
 			authored = tasks
 			return tasks.Units, err
 		})
@@ -61,7 +61,7 @@ func (d *Dispatch) Implementer(ctx context.Context, on On, material []inputmanif
 	var authored agent.Change
 	run, err := d.put(ctx, RoleImplementer, on, material,
 		func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error) {
-			change, err := agent.Implementer{Model: entry.Model, Prompt: prompt}.Implement(ctx, as, of)
+			change, err := agent.Implementer{Model: entry.Model, Prompt: prompt, Effort: entry.Effort}.Implement(ctx, as, of)
 			authored = change
 			return change.Units, err
 		})

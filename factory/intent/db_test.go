@@ -29,10 +29,36 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
+// tellings is the notifier these tests compose an intake with: it records
+// what intake told a human rather than delivering anything, so a test of a
+// write can assert that the call was made.
+type tellings struct {
+	interviewed []string
+	escalated   []string
+}
+
+func (n *tellings) Interviewed(_ context.Context, _, questionID, _ string) error {
+	n.interviewed = append(n.interviewed, questionID)
+	return nil
+}
+
+func (n *tellings) Escalated(_ context.Context, intentID string) error {
+	n.escalated = append(n.escalated, intentID)
+	return nil
+}
+
 // newIntake gives a test a schema of its own, this package's DDL applied
 // inside it, and a writer over it. The schema is dropped when the test ends,
 // so a rerun on a database a previous run left dirty starts clean.
 func newIntake(t *testing.T) (context.Context, *pgxpool.Pool, *intent.Intake) {
+	t.Helper()
+	ctx, pool, in, _ := newIntakeTold(t)
+	return ctx, pool, in
+}
+
+// newIntakeTold is [newIntake] with the notifier it was composed with, for the
+// tests that assert intake told a human.
+func newIntakeTold(t *testing.T) (context.Context, *pgxpool.Pool, *intent.Intake, *tellings) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -73,7 +99,8 @@ func newIntake(t *testing.T) (context.Context, *pgxpool.Pool, *intent.Intake) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	return ctx, pool, intent.NewIntake(pool, token)
+	told := &tellings{}
+	return ctx, pool, intent.NewIntake(pool, token, told), told
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every

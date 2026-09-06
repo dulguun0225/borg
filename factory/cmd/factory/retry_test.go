@@ -139,12 +139,12 @@ type erroringModel struct {
 
 var errNotTheProtocol = errors.New("the model API answered 429")
 
-func (m *erroringModel) Complete(ctx context.Context, as principal.Principal, system, user string) (agent.Reply, error) {
-	if system == agent.ShippedImplementerPrompt {
+func (m *erroringModel) Complete(ctx context.Context, as principal.Principal, call agent.Call) (agent.Reply, error) {
+	if call.System == agent.ShippedImplementerPrompt {
 		m.calls++
 		return agent.Reply{}, errNotTheProtocol
 	}
-	return m.inner.Complete(ctx, as, system, user)
+	return m.inner.Complete(ctx, as, call)
 }
 
 // TestAnErrorThatIsNotAProtocolFailureIsNotRetried is what the limit is not

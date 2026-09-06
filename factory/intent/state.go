@@ -16,7 +16,12 @@ import (
 // a correction at the acceptance round — the last written by
 // [Intake.CorrectAcceptance] rather than here.
 //
-// An intent already dropped or delivered is refused: both are ends.
+// Three states refuse it. An intent already dropped or delivered is
+// [ErrFinished]: both are ends. An escalated one is [ErrEscalated], an
+// escalation staying a human's to clear. A re-decomposing one is
+// [ErrReDecomposing], an open Decomposition firing closing first and the
+// send-back landing then, which is a second call by the caller that made this
+// one — no field here remembers it.
 func (i *Intake) SendBack(ctx context.Context, actor record.Actor, intentID string, by SentBackBy) error {
 	if err := actor.Validate(); err != nil {
 		return err
@@ -27,6 +32,12 @@ func (i *Intake) SendBack(ctx context.Context, actor record.Actor, intentID stri
 	return i.write(ctx, intentID, "sending back", func(ctx context.Context, tx pgx.Tx, in Intent) error {
 		if finished(in.State) {
 			return fmt.Errorf("%w: %s is %s", ErrFinished, in.ID, in.State)
+		}
+		switch in.State {
+		case StateEscalated:
+			return fmt.Errorf("%w: %s", ErrEscalated, in.ID)
+		case StateReDecomposing:
+			return fmt.Errorf("%w: %s", ErrReDecomposing, in.ID)
 		}
 		return sendBack(ctx, tx, in.ID, by)
 	})
@@ -102,12 +113,18 @@ func (i *Intake) ClearReDecomposing(ctx context.Context, actor record.Actor, int
 // Which of the two counts exceeded the limit is what tells an escalated
 // interview from an escalated decomposition, and it is read off the counts
 // rather than off the value.
+//
+// An escalated intent waits on a human, so the notifier is told once the value
+// is written, the way [Intake.Ask] tells it about a round.
 func (i *Intake) Escalate(ctx context.Context, actor record.Actor, intentID string, limit int) (Intent, error) {
 	if err := actor.Validate(); err != nil {
 		return Intent{}, err
 	}
 	if limit <= 0 {
 		return Intent{}, fmt.Errorf("%w: %d", ErrLimitNotPositive, limit)
+	}
+	if i.notifier == nil {
+		return Intent{}, fmt.Errorf("%w: escalating %s", ErrNotifierNotComposed, intentID)
 	}
 	var escalated Intent
 	err := i.write(ctx, intentID, "escalating", func(ctx context.Context, tx pgx.Tx, in Intent) error {
@@ -128,6 +145,9 @@ func (i *Intake) Escalate(ctx context.Context, actor record.Actor, intentID stri
 	})
 	if err != nil {
 		return Intent{}, err
+	}
+	if err := i.notifier.Escalated(ctx, escalated.ID); err != nil {
+		return escalated, fmt.Errorf("intent: telling a human about the escalation of %s: %w", escalated.ID, err)
 	}
 	return escalated, nil
 }

@@ -140,30 +140,27 @@ type IntentState func(ctx context.Context, itemID string) (intent.State, error)
 // item holds while a halt stands.
 type RaisedByTheHealthMonitor func(ctx context.Context, itemID string) (bool, error)
 
-// Notifier is the two calls a gate makes on the component that reaches humans:
-// the acknowledged event of a page a row already fired, and the wait an
-// escalation leaves. It is an interface because the notifier's callers hand it a
-// wait rather than the other way round, so nothing that creates one is imported
-// there.
+// Notifier is the one call a gate makes on the component that reaches humans:
+// the acknowledged event of a page a row already fired. It is an interface
+// because the notifier's callers hand it a wait rather than the other way
+// round, so nothing that creates one is imported there.
+//
+// The wait an escalation leaves is not made here. ../../end-goal/components.md
+// gives that call to dispatch, and this component's own row names the notifier
+// only where a decision waits on a human.
 type Notifier interface {
 	// Acknowledged is the page's acknowledged event, written where the row that
 	// was acknowledged also pages: one act at Work writes both.
 	Acknowledged(ctx context.Context, openID string, human record.Actor) error
-	// Escalated is the wait an item stopped at the attempt limit leaves, which
-	// is what puts it in Work as an escalation.
-	Escalated(ctx context.Context, itemID string, stage item.Stage, reason string) error
 }
 
 // NoNotifier is what a factory composed with no notifier uses: nothing is
 // delivered. What it costs is that an acknowledgement is a row of the log and
-// nothing else, and an escalation reaches Work through the item's stage alone.
+// nothing else.
 type NoNotifier struct{}
 
 // Acknowledged delivers nothing.
 func (NoNotifier) Acknowledged(context.Context, string, record.Actor) error { return nil }
-
-// Escalated delivers nothing.
-func (NoNotifier) Escalated(context.Context, string, item.Stage, string) error { return nil }
 
 // decisionFormatVersion is the format version every row of a decision — the open
 // event, the close event, the abandonment and the acknowledgement, over one
@@ -197,8 +194,8 @@ type Composition struct {
 	// Draw is where the review sample's randomness comes from. A nil value is
 	// [NeverDraw], which is a factory that runs no review sample.
 	Draw Draw
-	// Notifier is what the acknowledgement and the escalation reach a human
-	// through. A nil value is [NoNotifier].
+	// Notifier is what the acknowledgement reaches a human through. A nil
+	// value is [NoNotifier].
 	Notifier Notifier
 	// Dispatch is the item's writer, which the gate calls to write an escalation
 	// onto an item that exceeded the attempt limit. A nil value refuses that

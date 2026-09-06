@@ -178,7 +178,7 @@ func TestAnIntentThatDoesNotPermitStopsItsItemAndOpensAWait(t *testing.T) {
 	repo.verified[it.ID] = mergequeue.Verified{Commit: "commit-one", BuildID: "bl_one", Passed: true}
 
 	// The intent goes back to unrefined, which is what reopens the interview.
-	if err := intent.NewIntake(pool, token).SendBack(ctx, detectorActor, in.ID, intent.SentBackByReworkRequest); err != nil {
+	if err := intent.NewIntake(pool, token, intent.NoNotifier{}).SendBack(ctx, detectorActor, in.ID, intent.SentBackByReworkRequest); err != nil {
 		t.Fatalf("sending the intent back: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func TestAnIntentThatDoesNotPermitStopsItsItemAndOpensAWait(t *testing.T) {
 
 	// The state clears at the round that refines the intent again, and the queue
 	// closes the wait and merges the candidate.
-	intake := intent.NewIntake(pool, token)
+	intake := intent.NewIntake(pool, token, intent.NoNotifier{})
 	if _, err := intake.Confirm(ctx, detectorActor, intent.Confirmation{
 		IntentID: in.ID,
 		Requirements: []intent.NewRequirement{

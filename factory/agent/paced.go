@@ -56,11 +56,11 @@ func NewPaced(inner Model, interval time.Duration) *Paced {
 // then calls the inner model. A context cancelled while it waits returns the
 // context's error and calls the inner model not at all, so a cancelled run
 // sends no further request.
-func (p *Paced) Complete(ctx context.Context, as principal.Principal, system, user string) (Reply, error) {
+func (p *Paced) Complete(ctx context.Context, as principal.Principal, call Call) (Reply, error) {
 	if err := p.wait(ctx); err != nil {
 		return Reply{}, err
 	}
-	return p.Inner.Complete(ctx, as, system, user)
+	return p.Inner.Complete(ctx, as, call)
 }
 
 // wait blocks until the interval since the last call start has passed, and

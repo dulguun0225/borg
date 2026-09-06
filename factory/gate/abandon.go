@@ -33,8 +33,8 @@ const (
 )
 
 // ErrAttemptLimit is returned by [Gate.EnforceAttemptLimit] where the item has
-// exceeded the limit for the stage. The item is escalated, its pending rows are
-// abandoned, and the wait goes to the notifier before it is returned.
+// exceeded the limit for the stage. The item is escalated and its pending rows
+// are abandoned before it is returned; the wait that leaves is dispatch's call.
 var ErrAttemptLimit = errors.New("gate: the item exceeded the attempt limit for this stage")
 
 // abandonmentPayload is what the abandonment row says: why no verdict is
@@ -84,11 +84,12 @@ type Escalated struct {
 }
 
 // EnforceAttemptLimit compares the item's own count for the stage against the
-// limit in force. Over it, three things happen and in this order: dispatch writes
-// the escalation onto the item, every pending row of the item is abandoned
-// naming the limit, and the wait goes to the notifier — so the item stops being
-// retried before anything says so, and a failure between the writes leaves the
-// item stopped rather than a row nobody is deciding.
+// limit in force. Over it, two things happen and in this order: dispatch writes
+// the escalation onto the item, and every pending row of the item is abandoned
+// naming the limit — so the item stops being retried before anything says so,
+// and a failure between the writes leaves the item stopped rather than a row
+// nobody is deciding. The third thing, the wait to the notifier, is dispatch's
+// own call and is made after this one returns.
 //
 // What the limit is compared against is the item's own count for the stage it is
 // at, kept per stage by dispatch: counting the rejects in the log instead would
@@ -134,9 +135,6 @@ func (g *Gate) EnforceAttemptLimit(ctx context.Context, actor record.Actor, item
 			return escalated, err
 		}
 		escalated.Abandoned = append(escalated.Abandoned, row)
-	}
-	if err := g.notifier.Escalated(ctx, itemID, stage, AbandonedByTheAttemptLimit); err != nil {
-		return escalated, fmt.Errorf("gate: reporting the escalation of %s: %w", itemID, err)
 	}
 	return escalated, nil
 }

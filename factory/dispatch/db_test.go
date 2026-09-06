@@ -38,6 +38,9 @@ const (
 	oneProject = "pr_00000000000000000000000000000000"
 	oneService = "svc_0000000000000000000000000000000"
 	oneArea    = "ar_00000000000000000000000000000000"
+	// theAreaAbove is the area oneArea lies inside, which is the second link
+	// of the chain a scope is matched against.
+	theAreaAbove = "ar_11111111111111111111111111111111"
 	modelName  = "vendor/test-model"
 )
 
@@ -51,10 +54,13 @@ type fakeModel struct {
 	calls   int
 	prompt  string
 	as      principal.Principal
+	// effort is what the entry asked the provider for, which the run record
+	// carries too.
+	effort string
 }
 
-func (f *fakeModel) Complete(_ context.Context, p principal.Principal, system, _ string) (agent.Reply, error) {
-	f.prompt, f.as = system, p
+func (f *fakeModel) Complete(_ context.Context, p principal.Principal, call agent.Call) (agent.Reply, error) {
+	f.prompt, f.as, f.effort = call.System, p, call.Effort
 	n := f.calls
 	f.calls++
 	if n >= len(f.replies) {
@@ -75,6 +81,9 @@ type oneEntry struct {
 	// condition that stops a dispatch.
 	covers bool
 	scope  dispatch.Scope
+	// effort is what the entry asks the provider for, empty where the owner
+	// named none.
+	effort string
 }
 
 func (o *oneEntry) EntryFor(_ context.Context, role dispatch.Role, on dispatch.On) (dispatch.Entry, bool, error) {
@@ -83,7 +92,7 @@ func (o *oneEntry) EntryFor(_ context.Context, role dispatch.Role, on dispatch.O
 	}
 	return dispatch.Entry{
 		Role: role, Scope: o.scope, Model: o.model,
-		ModelVersion: modelName, CredentialName: "model.test",
+		ModelVersion: modelName, CredentialName: "model.test", Effort: o.effort,
 	}, true, nil
 }
 
@@ -121,6 +130,20 @@ func (c *countingEscalation) Escalate(_ context.Context, _ record.Actor, itemID 
 	return nil
 }
 
+// countingNotifier records the wait an escalation left, standing in for the
+// notifier: components.md gives that call to dispatch, and this is what it is
+// made on.
+type countingNotifier struct {
+	items   []string
+	reasons []string
+}
+
+func (n *countingNotifier) Escalated(_ context.Context, itemID string, _ item.Stage, reason string) error {
+	n.items = append(n.items, itemID)
+	n.reasons = append(n.reasons, reason)
+	return nil
+}
+
 // composed is everything one test drives.
 type composed struct {
 	ctx        context.Context
@@ -130,6 +153,7 @@ type composed struct {
 	fleet      *oneEntry
 	prompts    *shippedPrompts
 	escalation *countingEscalation
+	told       *countingNotifier
 	model      *fakeModel
 	intake     *intent.Intake
 
@@ -179,8 +203,9 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 		fleet:      &oneEntry{model: model, covers: true},
 		prompts:    &shippedPrompts{inForce: true, version: artifact.Artifact{ID: "art_role_prompt", Content: "the role prompt in force"}},
 		escalation: &countingEscalation{},
+		told:       &countingNotifier{},
 		model:      model,
-		intake:     intent.NewIntake(pool, token),
+		intake:     intent.NewIntake(pool, token, intent.NoNotifier{}),
 	}
 	c.dispatch, err = dispatch.New(dispatch.Composition{
 		Pool: pool, Token: token,
@@ -191,6 +216,7 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 		Manifests:  inputmanifest.NewWriter(pool, token),
 		Runs:       agentrun.NewWriter(pool, token),
 		Escalation: c.escalation,
+		Notifier:   c.told,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -242,7 +268,8 @@ const aSpec = "SPEC:\nThe service exposes /healthz.\nCRITERION rq_a: The system 
 func on(it item.Item) dispatch.On {
 	return dispatch.On{
 		ItemID: it.ID, Stage: item.StageSpec, IntentID: it.IntentID,
-		ProjectID: oneProject, ServiceID: oneService, AreaID: oneArea,
+		ProjectID: oneProject, ServiceID: oneService,
+		AreaID: oneArea, AreaChain: []string{oneArea, theAreaAbove},
 	}
 }
 
@@ -253,6 +280,7 @@ func on(it item.Item) dispatch.On {
 // decomposition wrote.
 func TestOneDispatchWritesTheManifestTheRunAndTheTransition(t *testing.T) {
 	c := newDispatch(t, []agent.Reply{{Text: aSpec, Units: map[string]int64{agent.UnitsInput: 20, agent.UnitsOutput: 5}}}, nil, 3)
+	c.fleet.effort = "high"
 	it := c.oneItem(t, intent.StateRefined)
 
 	refined, run, err := c.dispatch.SpecAuthor(c.ctx, on(it),
@@ -268,6 +296,12 @@ func TestOneDispatchWritesTheManifestTheRunAndTheTransition(t *testing.T) {
 	}
 	if c.model.as.Actor.Key != modelName || c.model.as.DispatchID != run.ID {
 		t.Errorf("the call was made as %+v, want the model version and this dispatch", c.model.as)
+	}
+	// The effort the entry names is asked of the provider with the call and
+	// written on the run record, so what an entry asked for is on the record
+	// whether or not the provider offered it.
+	if c.model.effort != "high" {
+		t.Errorf("the call asked for effort %q, want the one the entry names", c.model.effort)
 	}
 
 	manifest, err := inputmanifest.Get(c.ctx, c.pool, run.InputManifestID)
@@ -289,6 +323,9 @@ func TestOneDispatchWritesTheManifestTheRunAndTheTransition(t *testing.T) {
 	if recorded.Role != string(dispatch.RoleSpecAuthor) || recorded.RolePromptVersionID != "art_role_prompt" {
 		t.Errorf("the run names role %q and prompt %q, want the role and the version in force",
 			recorded.Role, recorded.RolePromptVersionID)
+	}
+	if recorded.Effort != "high" {
+		t.Errorf("the run names effort %q, want the one the entry named", recorded.Effort)
 	}
 	if recorded.UnitsByKind[agent.UnitsInput] != 20 || recorded.UnitsByKind[agent.UnitsOutput] != 5 {
 		t.Errorf("the run spent %v, want the units the provider returned per kind", recorded.UnitsByKind)

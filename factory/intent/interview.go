@@ -61,12 +61,20 @@ func (i *Intake) OpenRound(ctx context.Context, actor record.Actor, intentID str
 //
 // The intent row is locked for the transaction, which is what keeps a question
 // from attaching to a round that is being advanced beside it.
+//
+// The question is what waits on a human, so the notifier is told once it is
+// written: the write is committed first, and a delivery that failed is
+// returned to the caller with the question already asked, because a question
+// nobody was told about is still a question the interview is waiting on.
 func (i *Intake) Ask(ctx context.Context, actor record.Actor, intentID, question string) (Question, error) {
 	if err := actor.Validate(); err != nil {
 		return Question{}, err
 	}
 	if question == "" {
 		return Question{}, ErrQuestionEmpty
+	}
+	if i.notifier == nil {
+		return Question{}, fmt.Errorf("%w: asking a question of %s", ErrNotifierNotComposed, intentID)
 	}
 	var asked Question
 	err := i.write(ctx, intentID, "asking a question of", func(ctx context.Context, tx pgx.Tx, in Intent) error {
@@ -79,6 +87,9 @@ func (i *Intake) Ask(ctx context.Context, actor record.Actor, intentID, question
 	})
 	if err != nil {
 		return Question{}, err
+	}
+	if err := i.notifier.Interviewed(ctx, asked.IntentID, asked.ID, asked.Question); err != nil {
+		return asked, fmt.Errorf("intent: telling a human about question %s: %w", asked.ID, err)
 	}
 	return asked, nil
 }

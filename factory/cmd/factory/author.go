@@ -77,7 +77,7 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 			return err
 		}
 
-		verdict, reason, err := p.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &c.implementationGate)
+		verdict, reason, err := p.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &c.implementationGate, "", "")
 		if err != nil {
 			return err
 		}

@@ -54,7 +54,14 @@ func (p *path) specStage(ctx context.Context, c *candidate, authored agent.Refin
 		if err != nil {
 			return err
 		}
-		verdict, reason, err := p.itemGate(ctx, c, gate.Spec, version, &c.specGate)
+		// The Spec row rejects in both directions over the requirement a
+		// criterion names, mechanically and whatever the score returns, so it
+		// is computed over the version just submitted and handed to the firing.
+		check, found, err := p.specRejection(ctx, c)
+		if err != nil {
+			return err
+		}
+		verdict, reason, err := p.itemGate(ctx, c, gate.Spec, version, &c.specGate, check, found)
 		if err != nil {
 			return err
 		}
@@ -87,7 +94,7 @@ func (p *path) submitSpec(ctx context.Context, c *candidate, authored agent.Refi
 		drafts = append(drafts, criterion.Draft{
 			Sentence:        one.Sentence,
 			NoPatternReason: reason,
-			RequirementID:   p.requirementFor(c, one.RequirementID),
+			RequirementID:   p.requirementFor(c, one.RequirementID, one.Sentence),
 		})
 	}
 	var machines []screenstatemachine.Draft
@@ -165,7 +172,7 @@ func (p *path) planStage(ctx context.Context, c *candidate) error {
 		c.planArtifactID = version.ID
 		fmt.Fprintf(p.d.out, "Implementation plan %s submitted for item %s\n", version.ID, c.itemID)
 
-		verdict, reason, err := p.itemGate(ctx, c, gate.ImplementationPlan, version.ID, &c.planGate)
+		verdict, reason, err := p.itemGate(ctx, c, gate.ImplementationPlan, version.ID, &c.planGate, "", "")
 		if err != nil {
 			return err
 		}
@@ -207,7 +214,7 @@ func (p *path) tasksStage(ctx context.Context, c *candidate) error {
 		c.tasksArtifactID = version.ID
 		fmt.Fprintf(p.d.out, "Tasks %s submitted for item %s: %d task(s)\n", version.ID, c.itemID, len(divided.Lines))
 
-		verdict, reason, err := p.itemGate(ctx, c, gate.Tasks, version.ID, &c.tasksGate)
+		verdict, reason, err := p.itemGate(ctx, c, gate.Tasks, version.ID, &c.tasksGate, "", "")
 		if err != nil {
 			return err
 		}
@@ -229,7 +236,14 @@ func (p *path) tasksStage(ctx context.Context, c *candidate) error {
 // build name no build; the Implementation row names the build the stage made
 // and hands the gate that build's diff, which is where the score reads the
 // change factors.
-func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifactID string, into *fired) (gate.Verdict, string, error) {
+//
+// check and found are a mechanical rejection the caller computed, empty where
+// the row has none or nothing rejected. The row fires first either way, so the
+// vector exists and the rejection is readable against it, and then the
+// factory's own reject closes it before a verdict is asked for — which is the
+// shape the merge row's own rejection takes.
+func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifactID string,
+	into *fired, check, found string) (gate.Verdict, string, error) {
 	firing := gate.Firing{
 		Row:           row,
 		ItemID:        c.itemID,
@@ -257,6 +271,16 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 		return "", "", err
 	}
 	report(p.d.out, opened, nil)
+	if check != "" {
+		closing, err := p.gate.AutoReject(ctx, opened, check, found)
+		if err != nil {
+			return "", "", err
+		}
+		*into = recordFiring(opened, closing)
+		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, found)
+		fmt.Fprintf(p.d.out, "  close event %s written as %s\n", closing.ID, closing.Actor.Key)
+		return gate.VerdictReject, found, nil
+	}
 	verdict, reason, closing, err := p.settle(ctx, opened, firing)
 	if err != nil {
 		return "", "", err
@@ -269,6 +293,11 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 // the intent it was decomposed from, and the subjects a scope is matched
 // against. reentering says the stage is being entered again after a reject,
 // which is what counts the attempt.
+//
+// The area chain goes with the area, because dispatch honours both halves of a
+// scope and an entry drawn on any area above the item's reaches it. This
+// interface declares one area per run inside the project, so the chain is that
+// area and nothing above it until an owner declares one.
 func (p *path) on(c *candidate, stage item.Stage, reentering bool) dispatch.On {
 	return dispatch.On{
 		ItemID:     c.itemID,
@@ -277,6 +306,7 @@ func (p *path) on(c *candidate, stage item.Stage, reentering bool) dispatch.On {
 		ProjectID:  p.projectID,
 		ServiceID:  c.svc.ID,
 		AreaID:     p.areaID,
+		AreaChain:  p.areaChain,
 		Reentering: reentering,
 	}
 }
@@ -303,21 +333,47 @@ func (p *path) refining(c *candidate, returned agent.Returned) agent.Refining {
 	}
 }
 
-// requirementFor is the requirement id a criterion names, checked against the
-// ids decomposition assigned this item: a role names an id it was given, and a
-// role that named one this item does not answer has its criterion recorded
-// against the item's first requirement instead — the criterion is still the
-// item's, and this interface has one requirement per intent to give it.
-func (p *path) requirementFor(c *candidate, named string) string {
-	for _, id := range c.requirementIDs {
-		if id == named {
-			return named
+// requirementFor is the requirement id a criterion names: the one the role's
+// reply named, whether or not this item answers it. A criterion naming a
+// requirement assigned elsewhere is written and rejected at the Spec row, which
+// is where the design puts that rejection — repointing it here would be this
+// interface deciding what the gate decides mechanically.
+//
+// A reply that named none is the interview's own first call, where the role
+// message listed no requirement and the criteria are what the requirements were
+// then written from, one per criterion and in order. So the requirement is the
+// item's own whose statement is this criterion's sentence, and a sentence
+// matching none leaves the criterion naming nothing — which package criterion
+// refuses for a sentence fitting a pattern.
+func (p *path) requirementFor(c *candidate, named, sentence string) string {
+	if named != "" {
+		return named
+	}
+	for _, r := range c.requirements {
+		if r.Statement == sentence {
+			return r.ID
 		}
 	}
-	if len(c.requirementIDs) > 0 {
-		return c.requirementIDs[0]
-	}
 	return ""
+}
+
+// specRejection is the Spec row's mechanical rejection over the requirement a
+// criterion names, in both directions: a requirement assigned to the item that
+// no criterion in force for it names, and a criterion naming a requirement
+// assigned elsewhere. The two lists are read here — the requirements are the
+// ones decomposition assigned this item, and the criteria are the ones in force
+// for a build of this item alone — and [gate.SpecRejection] decides over them.
+func (p *path) specRejection(ctx context.Context, c *candidate) (check, found string, err error) {
+	inForce, err := criterion.InForce(ctx, p.d.pool, c.svc.ID, []string{c.itemID})
+	if err != nil {
+		return "", "", err
+	}
+	named := make([]string, 0, len(inForce))
+	for _, one := range inForce {
+		named = append(named, one.RequirementID)
+	}
+	check, found, _ = gate.SpecRejection(c.requirementIDs, named)
+	return check, found, nil
 }
 
 // reportAttempts says what a dispatch spent where it spent more than the one

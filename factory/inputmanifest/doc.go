@@ -14,10 +14,9 @@
 // dispatched on does not name.
 //
 // Which caller is not built: context assembly. The design has it write the
-// manifest at every dispatch, ahead of the run; nothing in this wave performs
-// a dispatch, so the caller that would be context assembly — the component
-// that dispatches an agent — holds [Writer] and calls [Writer.Write] itself
-// until context assembly exists. That caller is the command-line interface,
+// manifest at every dispatch, ahead of the run; the component that dispatches
+// an agent holds [Writer] and calls [Writer.Write] itself until context
+// assembly exists. That caller is package dispatch,
 // and the id [Writer.Write] returns is what it hands the artifact store's
 // submission and package agentrun's writer: the version a run authored names
 // the manifest it was authored from, and so does the run's own record. read_at_once_bound is nullable and

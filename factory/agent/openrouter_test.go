@@ -67,7 +67,7 @@ func TestOpenRouterCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reply, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "the system prompt", "the user message")
+	reply, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "the system prompt", User: "the user message"})
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
@@ -103,6 +103,41 @@ func TestOpenRouterCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	}
 }
 
+// TestOpenRouterSendsTheEffortTheEntryNames: the effort a fleet entry names is
+// asked of the provider in the field this endpoint has for it, and a call that
+// names none sends none — the factory does not check that the provider offers
+// what the entry asked for, so an effort nobody offers fails at the provider's
+// own answer.
+func TestOpenRouterSendsTheEffortTheEntryNames(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("content-type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"}}],`+
+			`"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
+	}))
+	defer srv.Close()
+
+	if _, err := newOpenRouter(t, srv).Complete(context.Background(), as(),
+		Call{System: "s", User: "u", Effort: "high"}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	var sent chatRequest
+	if err := json.Unmarshal(gotBody, &sent); err != nil {
+		t.Fatalf("unmarshalling the sent body: %v", err)
+	}
+	if sent.Reasoning == nil || sent.Reasoning.Effort != "high" {
+		t.Errorf("the request carries %+v, want the effort the entry named", sent.Reasoning)
+	}
+
+	if _, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"}); err != nil {
+		t.Fatalf("Complete with no effort: %v", err)
+	}
+	if strings.Contains(string(gotBody), "reasoning") {
+		t.Errorf("the request carries %s, and an entry naming no effort asks for none", gotBody)
+	}
+}
+
 // TestOpenRouterCompleteReturnsStatusAndBodyAndNoKey is the error contract: a
 // non-200 answer is a StatusError carrying the status and the server's body,
 // and no error path renders the key's value.
@@ -113,7 +148,7 @@ func TestOpenRouterCompleteReturnsStatusAndBodyAndNoKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
+	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 	var status *StatusError
 	if !errors.As(err, &status) {
 		t.Fatalf("Complete = %v, want a StatusError", err)
@@ -140,7 +175,7 @@ func TestOpenRouterRefusesAnErrorCarriedAtTwoHundred(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
+	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 	if !errors.Is(err, ErrUpstream) {
 		t.Fatalf("Complete = %v, want ErrUpstream", err)
 	}
@@ -170,7 +205,7 @@ func TestOpenRouterNamesARefusalAsOne(t *testing.T) {
 				fmt.Fprint(w, body)
 			}))
 			defer srv.Close()
-			_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
+			_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 			if !errors.Is(err, ErrRefused) {
 				t.Fatalf("Complete = %v, want ErrRefused", err)
 			}
@@ -193,7 +228,7 @@ func TestOpenRouterNamesTheTokenCap(t *testing.T) {
 			`"usage":{"prompt_tokens":10,"completion_tokens":8192}}`)
 	}))
 	defer srv.Close()
-	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
+	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 	if !errors.Is(err, ErrAnswer) {
 		t.Fatalf("Complete = %v, want ErrAnswer", err)
 	}
@@ -219,7 +254,7 @@ func TestOpenRouterRefusesAnUnreadableAnswer(t *testing.T) {
 				fmt.Fprint(w, body)
 			}))
 			defer srv.Close()
-			_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
+			_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 			if !errors.Is(err, ErrAnswer) {
 				t.Fatalf("Complete = %v, want ErrAnswer", err)
 			}

@@ -45,6 +45,31 @@ type Escalation interface {
 	Escalate(ctx context.Context, actor record.Actor, itemID string, stage item.Stage) error
 }
 
+// EscalatedByTheAttemptLimit is why an item stopped being retried, in the words
+// the wait carries. It is the same sentence the abandonment of that item's
+// pending rows names, spelled here as well because this component appends
+// nothing to a decision: one spelling, so a defect found in one is found in the
+// other by one search.
+const EscalatedByTheAttemptLimit = "the item exceeded the attempt limit and stopped being retried"
+
+// Notifier is the one call this component makes on the component that reaches
+// humans: the wait an item escalated leaves, which ../../end-goal/components.md
+// gives to dispatch. It is an interface because the notifier's callers hand it
+// a wait rather than the other way round, so nothing that creates one is
+// imported there.
+type Notifier interface {
+	// Escalated is the wait an item stopped at the attempt limit leaves, which
+	// is what puts it in Work as an escalation.
+	Escalated(ctx context.Context, itemID string, stage item.Stage, reason string) error
+}
+
+// NoNotifier is what a dispatch composed with no notifier uses: nothing is
+// delivered, and an escalation reaches Work through the item's stage alone.
+type NoNotifier struct{}
+
+// Escalated delivers nothing.
+func (NoNotifier) Escalated(context.Context, string, item.Stage, string) error { return nil }
+
 // Composition is what a dispatch is built from. Every field is required.
 type Composition struct {
 	Pool  *pgxpool.Pool
@@ -68,6 +93,9 @@ type Composition struct {
 	Manifests  *inputmanifest.Writer
 	Runs       *agentrun.Writer
 	Escalation Escalation
+	// Notifier is what the wait an item escalated leaves reaches a human
+	// through. A nil value is [NoNotifier].
+	Notifier Notifier
 }
 
 // Dispatch is the component: the match of an item's stage against a role and
@@ -105,6 +133,9 @@ func New(c Composition) (*Dispatch, error) {
 			return nil, fmt.Errorf("dispatch: the composition names no %s", one.what)
 		}
 	}
+	if c.Notifier == nil {
+		c.Notifier = NoNotifier{}
+	}
 	return &Dispatch{c: c}, nil
 }
 
@@ -123,6 +154,13 @@ type On struct {
 	ProjectID string
 	ServiceID string
 	AreaID    string
+	// AreaChain is the item's own area and every area above it, up to the
+	// project the chain ends at. It is read by the caller, an area chain being
+	// package area's to walk and this package importing it not, and it is what
+	// a scope's area is matched against and what a hold row names. A caller
+	// that supplies none is matched on the item's own area alone, which
+	// [On.Areas] answers.
+	AreaChain []string
 
 	// Reentering says the stage is being entered again after a reject or a
 	// rework request sent the item back to it. [item.Dispatch.ReturnTo] counts
@@ -251,15 +289,21 @@ func (d *Dispatch) again(ctx context.Context, on On) error {
 	return err
 }
 
-// escalate is the item stopping being retried: the escalated value on the
-// item, the pending rows abandoned, and the wait to a human, performed by
-// whatever the composition supplied.
+// escalate is the item stopping being retried, in the order the design fixes:
+// the escalated value on the item and the pending rows abandoned, both by
+// whatever the composition supplied, and then the wait to a human, which is
+// this component's own call. So the item stops being retried before anything
+// says so, and a failure between the two leaves the item stopped rather than a
+// human told about work that is still being retried.
 func (d *Dispatch) escalate(ctx context.Context, on On) error {
 	if on.ItemID == "" {
 		return nil
 	}
 	if err := d.c.Escalation.Escalate(ctx, Actor, on.ItemID, on.Stage); err != nil {
 		return fmt.Errorf("dispatch: escalating %s at %s: %w", on.ItemID, on.Stage, err)
+	}
+	if err := d.c.Notifier.Escalated(ctx, on.ItemID, on.Stage, EscalatedByTheAttemptLimit); err != nil {
+		return fmt.Errorf("dispatch: reporting the escalation of %s: %w", on.ItemID, err)
 	}
 	return nil
 }

@@ -6,7 +6,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/area"
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
@@ -29,7 +31,17 @@ import (
 // declared here, and both deploy gates hold on it. This interface declares a chain
 // rather than deducing a graph: the services are given in order, and each item waits
 // on the one before it.
-func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []string, requirementIDs []string) ([]*candidate, error) {
+//
+// What each item answers is assigned here too. A decomposition yielding one item
+// assigns every requirement of the intent to it whole, which is what a set of one
+// answers by construction. One yielding several assigns none of them whole: the split
+// spreads each requirement over the items, so a share per item is derived from it and
+// written by intake, and the item answers the shares rather than the whole. What
+// states a share is the one thing this interface cannot supply — it is told which
+// services the work changes and never which part of a requirement each item answers —
+// so [shareOf] restates the requirement and doc.go says what that costs.
+func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []string,
+	requirements []agent.Requirement) ([]*candidate, error) {
 	d := p.d
 
 	// The area's own project, read once: an item's area and its service agree
@@ -71,6 +83,16 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 		if previous != "" {
 			waitsOn = []string{previous}
 		}
+		// A requirement one item answers alone is assigned to it whole; one the
+		// split spreads over several is assigned to none of them, and the item
+		// answers the share derived below instead.
+		var answered []string
+		if len(services) == 1 {
+			answered = make([]string, len(requirements))
+			for n, r := range requirements {
+				answered[n] = r.ID
+			}
+		}
 		// The branch is the intent's for the first item and the intent's plus the
 		// service's for the rest. Two items of one intent are on two repositories, so
 		// the names could not collide — but a name that says which service it is is
@@ -86,7 +108,7 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			AreaID:               p.areaID,
 			Branch:               branch,
 			WaitsOn:              waitsOn,
-			RequirementsAnswered: requirementIDs,
+			RequirementsAnswered: answered,
 		}, areaProjectID, svc.ProjectID, nil)
 		if err != nil {
 			return nil, err
@@ -98,6 +120,17 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			branch:         branch,
 			waitsOn:        waitsOn,
 			requirementIDs: it.RequirementsAnswered,
+			requirements:   requirements,
+		}
+		if len(services) > 1 {
+			shares, err := p.deriveShares(ctx, in, it.ID, requirements)
+			if err != nil {
+				return nil, err
+			}
+			c.requirements = shares
+			for _, share := range shares {
+				c.requirementIDs = append(c.requirementIDs, share.ID)
+			}
 		}
 		candidates = append(candidates, c)
 		previous = it.ID
@@ -111,9 +144,55 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			waited = fmt.Sprintf(", waiting on item %s", waitsOn[0])
 		}
 		fmt.Fprintf(d.out, "Service %s %s; item %s decomposed on branch %s%s\n", svc.ID, was, it.ID, branch, waited)
+		fmt.Fprintf(d.out, "  it answers %d requirement(s): %v\n", len(c.requirementIDs), c.requirementIDs)
 	}
 	return candidates, nil
 }
+
+// deriveShares writes this item's share of every requirement the split spreads
+// over the set, one requirement record each, attached to the intent and
+// pointing at the one it was derived from. Intake writes them, at
+// decomposition's call, and the item answers them.
+//
+// The statement is [shareOf]'s.
+func (p *path) deriveShares(ctx context.Context, in intent.Intent, itemID string,
+	requirements []agent.Requirement) ([]agent.Requirement, error) {
+	shares := make([]agent.Requirement, 0, len(requirements))
+	for _, whole := range requirements {
+		statement := shareOf(whole.Statement)
+		escapeReason := ""
+		if _, matched := criterion.Classify(statement); !matched {
+			escapeReason = "not classified by the command-line interface"
+		}
+		written, err := p.intake.DeriveForItem(ctx, decompositionActor, intent.Derivation{
+			IntentID:     in.ID,
+			DerivedFrom:  whole.ID,
+			ItemID:       itemID,
+			Statement:    statement,
+			EscapeReason: escapeReason,
+		})
+		if err != nil {
+			return nil, err
+		}
+		shares = append(shares, agent.Requirement{ID: written.ID, Statement: written.Statement})
+		fmt.Fprintf(p.d.out, "  requirement %s is spread over the set; share %s is item %s's\n",
+			whole.ID, written.ID, itemID)
+	}
+	return shares, nil
+}
+
+// shareOf is what a derived requirement states. The design has decomposition
+// state the item's share in the requester's terms, and a stage that decides a
+// decomposition is what would author that sentence: this interface is told
+// which services the work changes and nothing about which part of a requirement
+// each item answers, so the share restates the requirement and the service it
+// is for is read off the item.
+//
+// What that costs is the derivation's own cost, paid in full: a statement the
+// requester never confirmed stands where a confirmed one did, and here it says
+// no less than the whole rather than one item's part of it, so a criterion
+// naming it is drafted against the whole request.
+func shareOf(statement string) string { return statement }
 
 // decompositionGate is the stage's own gate: the one row where approving admits
 // several timelines at once. It fires over the set that already exists — how many
@@ -178,6 +257,17 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 		// decision that rejected the set.
 		if _, err := p.decomposition.Supersede(ctx, decompositionActor, c.itemID, nil); err != nil {
 			return false, err
+		}
+		// The shares that item carried go with it, pointing at nothing for the
+		// same reason: a derived requirement is superseded with the item that
+		// carried it, and the two records have two writers.
+		superseded, err := p.intake.SupersedeDerived(ctx, decompositionActor, c.itemID, nil)
+		if err != nil {
+			return false, err
+		}
+		if len(superseded) > 0 {
+			fmt.Fprintf(p.d.out, "  the %d share(s) item %s carried are superseded with it\n",
+				len(superseded), c.itemID)
 		}
 		c.superseded = true
 	}

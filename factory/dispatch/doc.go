@@ -6,17 +6,21 @@
 //
 // role.go is [Role] with [Roles], [Role.Stage], [RoleAt], the operations
 // [Role.Operations] gives each role with [Role.Narrow] and
-// [ErrOperationWidened], and [Scope] with [Scope.Covers] and [Scope.String].
+// [ErrOperationWidened], and [Scope] with [Scope.Covers], [On.Areas] and
+// [Scope.String].
 // fleet.go is [Entry], the [Fleet] and [Prompts] interfaces the composition
 // supplies, and the two errors a caller reads — [ErrHeld] and
 // [ErrOutOfAttempts].
 //
-// dispatch.go is [Dispatch], [Composition] and [New], the [Escalation]
-// interface, [Actor], [On] and [Run], and the reads a dispatch makes: the
+// dispatch.go is [Dispatch], [Composition] and [New], the [Escalation] and
+// [Notifier] interfaces with [NoNotifier] and [EscalatedByTheAttemptLimit],
+// [Actor], [On] and [Run], and the reads a dispatch makes: the
 // attempt limit in force, the item's own count for the stage, the transition
 // onto the item, and the agent run record. hold.go is [Hold] with [HoldKind],
 // [HoldFormatVersion], the three conditions this component computes, [Open]
-// and [Rematch]. run.go is the four dispatches — [Dispatch.SpecAuthor],
+// and [Rematch]. admit.go is [Dispatch.Admit], the order items are admitted in
+// where more is ready than the infrastructure admits. run.go is the four
+// dispatches — [Dispatch.SpecAuthor],
 // [Dispatch.Planner], [Dispatch.TaskAuthor] and [Dispatch.Implementer] — and
 // the sequence they share.
 //
@@ -32,8 +36,14 @@
 // role and the scope against a fleet entry and the role prompt version in
 // force, writes the transition onto the item, writes the input manifest,
 // runs the role under a principal naming the model version, this dispatch and
-// the scope, writes one agent run record per call, and compares the item's own
-// count for the stage against the attempt limit in force — escalating over it.
+// the scope, asking the provider for the effort the entry names, writes one
+// agent run record per call, and compares the item's own
+// count for the stage against the attempt limit in force — escalating over it
+// and telling the notifier that it did.
+//
+// The scope's area is matched against the item's area chain and not against
+// its own area alone, so an entry drawn on a coarser area covers an item in a
+// finer one. The chain is [On.AreaChain], read by the caller.
 //
 // # Who may write what
 //
@@ -47,9 +57,12 @@
 // # Which callers are not built
 //
 // The fleet entry is not a record: [Fleet] is an interface and the composition
-// answers it with what it was configured with, so the effort, the processing
+// answers it with what it was configured with, so the processing
 // location, the lender's key and the account kind an entry carries in the
-// design are absent from every agent run record written here. [Prompts] is the
+// design are absent from every agent run record written here. The effort is
+// not: [Entry.Effort] is what the composition supplies, it is sent to the
+// provider with the call, and it is written on every run record this component
+// writes. [Prompts] is the
 // same arrangement for the role prompt version in force, the approved version
 // ids being the log's facts and this package not importing them.
 //
@@ -65,8 +78,9 @@
 //
 // [Escalation] is the composition's, because the abandonment of an item's
 // pending rows is the gate component's and this component's row in
-// ../../end-goal/components.md names no gate. Context assembly, which that row
-// does name, is not built.
+// ../../end-goal/components.md names no gate. The wait that follows it is this
+// component's own call, on [Notifier], which that row does name. Context
+// assembly, which it names too, is not built.
 //
 // # What defines it
 //

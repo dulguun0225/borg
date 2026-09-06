@@ -39,6 +39,113 @@ func TestSendBackReopensTheInterview(t *testing.T) {
 	}
 }
 
+// TestSendBackIsRefusedOnAnEscalatedIntent: an escalation is a human's to
+// clear, so the raise of a replacement constraint attaches and does not write
+// unrefined over it.
+func TestSendBackIsRefusedOnAnEscalatedIntent(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+	taken := requested(t, ctx, in, "checkout should retry")
+	for range 3 {
+		if _, err := in.OpenRound(ctx, intake, taken.ID); err != nil {
+			t.Fatalf("OpenRound: %v", err)
+		}
+	}
+	if _, err := in.Escalate(ctx, intake, taken.ID, 2); err != nil {
+		t.Fatalf("Escalate: %v", err)
+	}
+
+	err := in.SendBack(ctx, intake, taken.ID, intent.SentBackByReplacementConstraint)
+	if !errors.Is(err, intent.ErrEscalated) {
+		t.Errorf("SendBack on an escalated intent = %v, want ErrEscalated", err)
+	}
+	read, err := intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.State != intent.StateEscalated || read.SentBackBy != "" {
+		t.Errorf("after the refused send-back the intent is %s sent back by %q, want escalated by nothing",
+			read.State, read.SentBackBy)
+	}
+}
+
+// TestSendBackIsRefusedWhileTheDecompositionFiringIsOpen: an open Decomposition
+// firing closes first and the send-back lands then, so a raise landing on a
+// re-decomposing intent takes only the attachment.
+func TestSendBackIsRefusedWhileTheDecompositionFiringIsOpen(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+	intentID := confirmed(t, ctx, in, "checkout should retry",
+		intent.NewRequirement{Statement: "The system shall retry a failed charge."},
+	)
+	if _, err := in.MarkReDecomposing(ctx, intake, intentID); err != nil {
+		t.Fatalf("MarkReDecomposing: %v", err)
+	}
+
+	err := in.SendBack(ctx, intake, intentID, intent.SentBackByReplacementConstraint)
+	if !errors.Is(err, intent.ErrReDecomposing) {
+		t.Errorf("SendBack while re-decomposing = %v, want ErrReDecomposing", err)
+	}
+	read, err := intent.Get(ctx, pool, intentID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.State != intent.StateReDecomposing {
+		t.Errorf("after the refused send-back the intent is %s, want re_decomposing", read.State)
+	}
+
+	// The firing closes, and the send-back lands then.
+	if err := in.ClearReDecomposing(ctx, intake, intentID); err != nil {
+		t.Fatalf("ClearReDecomposing: %v", err)
+	}
+	if err := in.SendBack(ctx, intake, intentID, intent.SentBackByReplacementConstraint); err != nil {
+		t.Fatalf("SendBack once the firing has closed: %v", err)
+	}
+	read, err = intent.Get(ctx, pool, intentID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.State != intent.StateUnrefined || read.SentBackBy != intent.SentBackByReplacementConstraint {
+		t.Errorf("the send-back left the intent %s sent back by %s, want unrefined by replacement_constraint",
+			read.State, read.SentBackBy)
+	}
+}
+
+// TestIntakeTellsAHumanAtARoundAndAtAnEscalation: the two writes that leave
+// something waiting on a human are the two calls intake makes on the notifier,
+// and it makes no other.
+func TestIntakeTellsAHumanAtARoundAndAtAnEscalation(t *testing.T) {
+	ctx, _, in, told := newIntakeTold(t)
+	taken := requested(t, ctx, in, "checkout should retry")
+	if len(told.interviewed) != 0 || len(told.escalated) != 0 {
+		t.Errorf("taking an intent in told a human %+v, and nothing waits on one yet", told)
+	}
+
+	if _, err := in.OpenRound(ctx, intake, taken.ID); err != nil {
+		t.Fatalf("OpenRound: %v", err)
+	}
+	if len(told.interviewed) != 0 {
+		t.Errorf("opening a round told a human %v, and the question is what waits", told.interviewed)
+	}
+	asked, err := in.Ask(ctx, intake, taken.ID, "Against which provider?")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if len(told.interviewed) != 1 || told.interviewed[0] != asked.ID {
+		t.Errorf("the round told a human about %v, want the one question %s", told.interviewed, asked.ID)
+	}
+
+	for range 2 {
+		if _, err := in.OpenRound(ctx, intake, taken.ID); err != nil {
+			t.Fatalf("OpenRound: %v", err)
+		}
+	}
+	if _, err := in.Escalate(ctx, intake, taken.ID, 2); err != nil {
+		t.Fatalf("Escalate: %v", err)
+	}
+	if len(told.escalated) != 1 || told.escalated[0] != taken.ID {
+		t.Errorf("the escalation told a human about %v, want intent %s", told.escalated, taken.ID)
+	}
+}
+
 // TestReDecompositionTracksItsOwnCount: the re-decomposition count is a field
 // of its own beside the rounds, advanced at the open and never at the close,
 // so an interview's rounds are never spent out of decomposition's budget.

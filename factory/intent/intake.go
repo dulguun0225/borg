@@ -20,11 +20,16 @@ import (
 type Intake struct {
 	pool  *pgxpool.Pool
 	token lease.Token
+	// notifier is the one component intake calls, at the two writes that
+	// leave something waiting on a human.
+	notifier Notifier
 }
 
-// NewIntake returns the writer over pool, fencing every write with token.
-func NewIntake(pool *pgxpool.Pool, token lease.Token) *Intake {
-	return &Intake{pool: pool, token: token}
+// NewIntake returns the writer over pool, fencing every write with token and
+// telling a human through notifier — [NoNotifier] where the caller reaches
+// none.
+func NewIntake(pool *pgxpool.Pool, token lease.Token, notifier Notifier) *Intake {
+	return &Intake{pool: pool, token: token, notifier: notifier}
 }
 
 // intentColumns is the intent's stored fields in the order [scanIntent] reads

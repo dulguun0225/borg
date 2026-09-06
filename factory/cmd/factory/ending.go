@@ -60,7 +60,10 @@ func dropCommand(args []string) error {
 			fmt.Println("Every row of its own the gate left open is abandoned by the next firing that reads them")
 			return nil
 		case strings.HasPrefix(id, intent.IDPrefix+"_"):
-			if err := intent.NewIntake(pool, token).Drop(ctx, actor, id); err != nil {
+			// Dropping leaves nothing waiting on a human, so this intake
+			// reaches none: the two calls intake makes are at a round of the
+			// interview and at an escalation, and this is neither.
+			if err := intent.NewIntake(pool, token, intent.NoNotifier{}).Drop(ctx, actor, id); err != nil {
 				return err
 			}
 			fmt.Printf("Intent %s is dropped: no item of it is dispatched and nothing below it moves\n", id)

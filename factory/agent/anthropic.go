@@ -81,6 +81,12 @@ type request struct {
 	MaxTokens int       `json:"max_tokens"`
 	System    string    `json:"system"`
 	Messages  []message `json:"messages"`
+	// Effort is this endpoint's field for the effort a fleet entry names, and
+	// is left out where the entry names none. What the endpoint does with a
+	// value it does not offer is its own answer, which is where an entry asking
+	// for an effort nobody offers fails — the same place an exhausted account
+	// does, a status other than 200 carried back as a [StatusError].
+	Effort string `json:"effort,omitempty"`
 }
 
 type message struct {
@@ -108,7 +114,7 @@ type response struct {
 // returns contains the credential's value: the resolver's errors carry no value
 // by that package's own rule, a transport error names the method and the URL and
 // no header, and a [StatusError] carries what the server sent back.
-func (a Anthropic) Complete(ctx context.Context, p principal.Principal, system, user string) (Reply, error) {
+func (a Anthropic) Complete(ctx context.Context, p principal.Principal, call Call) (Reply, error) {
 	// The value exists from here to the header write and in nothing a caller
 	// can reach afterwards. The principal recorded beside the credential's
 	// name is the caller's — the dispatch that put this agent on the stage —
@@ -121,8 +127,9 @@ func (a Anthropic) Complete(ctx context.Context, p principal.Principal, system, 
 	body, err := json.Marshal(request{
 		Model:     a.ModelName,
 		MaxTokens: maxTokens,
-		System:    system,
-		Messages:  []message{{Role: "user", Content: user}},
+		System:    call.System,
+		Messages:  []message{{Role: "user", Content: call.User}},
+		Effort:    call.Effort,
 	})
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: encoding the request: %w", err)

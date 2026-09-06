@@ -22,11 +22,12 @@ type fakeModel struct {
 	units  map[string]int64
 	system string
 	user   string
+	effort string
 	as     principal.Principal
 }
 
-func (f *fakeModel) Complete(_ context.Context, p principal.Principal, system, user string) (Reply, error) {
-	f.system, f.user, f.as = system, user, p
+func (f *fakeModel) Complete(_ context.Context, p principal.Principal, call Call) (Reply, error) {
+	f.system, f.user, f.effort, f.as = call.System, call.User, call.Effort, p
 	return Reply{Text: f.text, Units: f.units}, nil
 }
 

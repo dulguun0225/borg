@@ -155,6 +155,10 @@ type SpecAuthor struct {
 	// prompt is a dispatch that should not have happened, and [SpecAuthor.Refine]
 	// refuses it rather than falling back on the shipped words.
 	Prompt string
+	// Effort is the effort the fleet entry names, handed over by the same
+	// component and sent with the call. An empty one asks the provider for
+	// none.
+	Effort string
 }
 
 // Refining is what one [SpecAuthor.Refine] call is given: the intent's
@@ -220,7 +224,7 @@ func (s SpecAuthor) Refine(ctx context.Context, as principal.Principal, of Refin
 		b.WriteString("\nThis item has a user interface, so the spec declares its screen's state machine.\n")
 	}
 	writeReturned(&b, of.Returned)
-	reply, err := s.Model.Complete(ctx, as, s.Prompt, b.String())
+	reply, err := s.Model.Complete(ctx, as, Call{System: s.Prompt, User: b.String(), Effort: s.Effort})
 	if err != nil {
 		return Refined{}, err
 	}

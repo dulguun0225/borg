@@ -23,7 +23,9 @@
 // [Intake.MarkReDecomposing], [Intake.ClearReDecomposing], [Intake.Escalate]
 // and [Intake.Drop]. acceptance.go holds [Intake.AcceptanceRound], [Delivery],
 // [Intake.Delivered] and [Intake.CorrectAcceptance]. requirementwrite.go holds
-// [Intake.DeriveForItem] and [Intake.MarkUnanswerable]. read.go holds [Get],
+// [Intake.DeriveForItem], [Intake.SupersedeDerived] and
+// [Intake.MarkUnanswerable]. notifier.go holds [Notifier], [NoNotifier] and
+// [ErrNotifierNotComposed]. read.go holds [Get],
 // [OnEvidence], [Questions], [Requirements], [EveryRequirement], [ForItem] and
 // [Escaped].
 //
@@ -64,10 +66,9 @@
 // earlier reading is superseded in the same call and points at the statements
 // that named it, and the pointer is empty where the requester retracted the
 // statement. The sweep reads the reading and not the shares: a derived
-// requirement is superseded by the re-decomposition, with the item that
-// carried it, and no write here does that — the item's supersession is
-// package item's and the call that would carry the requirement with it is not
-// built.
+// requirement is superseded with the item that carried it, by
+// [Intake.SupersedeDerived], which decomposition calls beside the item's own
+// supersession — two records with two writers and one event.
 //
 // # Who may write what
 //
@@ -78,9 +79,14 @@
 // [Intake.Confirm], [Intake.Correct] and [Intake.AcceptanceRound]; Work at
 // [Intake.Answer], [Intake.Delivered], [Intake.CorrectAcceptance] and
 // [Intake.Drop]; decomposition at [Intake.MarkReDecomposing],
-// [Intake.ClearReDecomposing], [Intake.SetProject], [Intake.DeriveForItem] and
+// [Intake.ClearReDecomposing], [Intake.SetProject], [Intake.DeriveForItem],
+// [Intake.SupersedeDerived] and
 // [Intake.MarkUnanswerable]; and a named human at Ops through [Intake.TakeIn]
 // when they ask for a rollback's revert.
+//
+// [Intake] calls one component and it is the notifier, at the two writes that
+// leave something waiting on a human: [Intake.Ask] and [Intake.Escalate]. It
+// is [Notifier], an interface the composition supplies.
 //
 // A write to an existing row validates its caller's actor and stores it
 // nowhere: the row keeps the actor that created it, so the record does not say
@@ -103,8 +109,10 @@
 // report store, so an intent grouped from reports has no outcome this package
 // can compute and [Delivery.Outcome] is the caller's; the constraint record,
 // so [Arrival.ConstraintID] and [Arrival.Deadline] are an id and an instant
-// the caller supplies; and the project record, so [Arrival.ProjectID] is an id
-// this package stores and does not resolve.
+// the caller supplies; the project record, so [Arrival.ProjectID] is an id
+// this package stores and does not resolve; and the landing of a send-back
+// [Intake.SendBack] refuses on a re-decomposing intent, which no field here
+// remembers — the caller sends it back again once the firing has closed.
 //
 // What defines it: the three sources, the one writer, the project, the
 // evidence key and the tier at arrival are

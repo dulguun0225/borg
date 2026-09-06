@@ -46,6 +46,13 @@ var theSpecs = map[string]struct{ spec, criterion string }{
 // and the id shape the criterion package's encoding check matches.
 var rolePromptCriterion = regexp.MustCompile(`(?m)^(cr_[0-9a-f]{32}): (.*)$`)
 
+// rolePromptRequirement picks the requirements this item answers out of the spec
+// author's user prompt, rendered in the same shape: the id, a colon, and the
+// statement. Every criterion names the requirement it answers, so this fake
+// writes the first id it is given on the criterion line — the spec author's own
+// protocol, and what the Spec row's rejection is read against.
+var rolePromptRequirement = regexp.MustCompile(`(?m)^(rq_[0-9a-f]{32}): (.*)$`)
+
 // theResponse reads the response out of a criterion sentence in the event
 // pattern, which is where the fake implementer takes an encoding's expected
 // value from — the sentence, never the code it checks.
@@ -67,7 +74,8 @@ type fakeModel struct {
 	failEvery int
 }
 
-func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, system, user string) (agent.Reply, error) {
+func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agent.Call) (agent.Reply, error) {
+	system, user := call.System, call.User
 	switch system {
 	case agent.ShippedSpecAuthorPrompt:
 		m.specCalls++
@@ -77,7 +85,7 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, system, u
 		for statement, authored := range theSpecs {
 			if strings.Contains(user, statement) {
 				return agent.Reply{
-					Text:  "SPEC:\n" + authored.spec + "\nCRITERION: " + authored.criterion,
+					Text:  "SPEC:\n" + authored.spec + "\nCRITERION" + answers(user) + ": " + authored.criterion,
 					Units: map[string]int64{agent.UnitsOutput: 23},
 				}, nil
 			}
@@ -93,7 +101,7 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, system, u
 		if strings.Contains(user, "failed its analysis window and was rolled back") {
 			return agent.Reply{
 				Text: "SPEC:\nRestore the behaviour the failed release changed, leaving every criterion in force as it is.\n" +
-					"CRITERION: When asked what it was restored from, the system shall respond harm.",
+					"CRITERION" + answers(user) + ": When asked what it was restored from, the system shall respond harm.",
 				Units: map[string]int64{agent.UnitsOutput: 19},
 			}, nil
 		}
@@ -124,6 +132,18 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, system, u
 		return agent.Reply{Text: text, Units: map[string]int64{agent.UnitsOutput: 37}}, nil
 	}
 	return agent.Reply{}, fmt.Errorf("fake model: the system prompt is neither role's")
+}
+
+// answers is what goes between the word CRITERION and the colon: the id of the
+// first requirement the user message lists, and nothing where it lists none —
+// which is the interview's own first call, whose criteria are what the
+// requirements are then written from.
+func answers(user string) string {
+	named := rolePromptRequirement.FindStringSubmatch(user)
+	if named == nil {
+		return ""
+	}
+	return " " + named[1]
 }
 
 // implementerReply is the implementer's whole reply for the criteria the role prompt
@@ -240,12 +260,12 @@ func mainGo(failEvery int) []string {
 // merits and the merge queue rejecting it.
 type conflictingModel struct{ inner agent.Model }
 
-func (m *conflictingModel) Complete(ctx context.Context, as principal.Principal, system, user string) (agent.Reply, error) {
-	reply, err := m.inner.Complete(ctx, as, system, user)
-	if err != nil || system != agent.ShippedImplementerPrompt {
+func (m *conflictingModel) Complete(ctx context.Context, as principal.Principal, call agent.Call) (agent.Reply, error) {
+	reply, err := m.inner.Complete(ctx, as, call)
+	if err != nil || call.System != agent.ShippedImplementerPrompt {
 		return reply, err
 	}
-	named := rolePromptCriterion.FindAllStringSubmatch(user, -1)
+	named := rolePromptCriterion.FindAllStringSubmatch(call.User, -1)
 	introduced := named[len(named)-1][1]
 	reply.Text += "\n=== FILE shared.go ===\npackage main\n\n// shared, last written for " + introduced + "\n=== END ==="
 	return reply, nil
@@ -262,13 +282,13 @@ type refusingModel struct {
 	callsMade int
 }
 
-func (m *refusingModel) Complete(ctx context.Context, as principal.Principal, system, user string) (agent.Reply, error) {
-	if system == agent.ShippedImplementerPrompt {
+func (m *refusingModel) Complete(ctx context.Context, as principal.Principal, call agent.Call) (agent.Reply, error) {
+	if call.System == agent.ShippedImplementerPrompt {
 		m.callsMade++
 		if m.refused < m.refusals {
 			m.refused++
 			return agent.Reply{Text: "Sure! Here are the files you asked for:\n\n=== FILE main.go ===\npackage main\n=== END ===", Units: map[string]int64{agent.UnitsOutput: 5}}, nil
 		}
 	}
-	return m.inner.Complete(ctx, as, system, user)
+	return m.inner.Complete(ctx, as, call)
 }

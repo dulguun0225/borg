@@ -71,6 +71,14 @@ var (
 	// already dropped or delivered. Both are ends, and neither is written
 	// over.
 	ErrFinished = errors.New("intent: the intent is already dropped or delivered")
+	// ErrEscalated is returned by [Intake.SendBack] for an escalated intent.
+	// An escalation is a human's to clear, so a send-back does not write over
+	// one: what reaches such an intent is the attachment its caller makes.
+	ErrEscalated = errors.New("intent: an escalation is a human's to clear, and a send-back does not write over one")
+	// ErrReDecomposing is returned by [Intake.SendBack] for a re-decomposing
+	// intent. The open Decomposition firing closes first and the send-back
+	// lands then, which is a second call.
+	ErrReDecomposing = errors.New("intent: an open Decomposition firing closes before a send-back lands")
 
 	// ErrRequirementsEmpty is returned by [Intake.Confirm] for a reading with
 	// no statements in it.

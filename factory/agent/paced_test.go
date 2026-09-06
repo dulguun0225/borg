@@ -15,7 +15,7 @@ type countingModel struct {
 	at []time.Time
 }
 
-func (m *countingModel) Complete(_ context.Context, _ principal.Principal, _, _ string) (Reply, error) {
+func (m *countingModel) Complete(_ context.Context, _ principal.Principal, _ Call) (Reply, error) {
 	m.at = append(m.at, time.Now())
 	return Reply{Text: "SPEC:\nx\nCRITERION rq_a: The system shall answer.", Units: map[string]int64{UnitsOutput: 1}}, nil
 }
@@ -31,7 +31,7 @@ func TestPacedLeavesTheIntervalBetweenCalls(t *testing.T) {
 
 	start := time.Now()
 	for n := range 3 {
-		if _, err := paced.Complete(context.Background(), as(), "s", "u"); err != nil {
+		if _, err := paced.Complete(context.Background(), as(), Call{System: "s", User: "u"}); err != nil {
 			t.Fatalf("call %d: %v", n+1, err)
 		}
 	}
@@ -57,13 +57,13 @@ func TestPacedSendsNothingOnceTheContextIsCancelled(t *testing.T) {
 	inner := &countingModel{}
 	paced := NewPaced(inner, time.Hour)
 
-	if _, err := paced.Complete(context.Background(), as(), "s", "u"); err != nil {
+	if _, err := paced.Complete(context.Background(), as(), Call{System: "s", User: "u"}); err != nil {
 		t.Fatalf("the first call: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := paced.Complete(ctx, as(), "s", "u")
+	_, err := paced.Complete(ctx, as(), Call{System: "s", User: "u"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Complete = %v, want the context's error", err)
 	}
@@ -80,7 +80,7 @@ func TestPacedWithNoIntervalWaitsNever(t *testing.T) {
 
 	start := time.Now()
 	for range 5 {
-		if _, err := paced.Complete(context.Background(), as(), "s", "u"); err != nil {
+		if _, err := paced.Complete(context.Background(), as(), Call{System: "s", User: "u"}); err != nil {
 			t.Fatalf("Complete: %v", err)
 		}
 	}
