@@ -237,6 +237,27 @@ func TestOpenRouterNamesTheTokenCap(t *testing.T) {
 	}
 }
 
+// TestOpenRouterRefusesAReplyCutAtTheCap: a reply with content that finished
+// as length is missing whatever followed the cut, so it is refused as outside
+// the protocol with the cap named, and its spend comes back with the error.
+func TestOpenRouterRefusesAReplyCutAtTheCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"finish_reason":"length","message":{"content":"=== main.go ===\npackage main"}}],`+
+			`"usage":{"prompt_tokens":10,"completion_tokens":8192}}`)
+	}))
+	defer srv.Close()
+	reply, err := newOpenRouter(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
+	if !errors.Is(err, ErrReply) {
+		t.Fatalf("Complete = %v, want ErrReply", err)
+	}
+	if !strings.Contains(err.Error(), "cap") {
+		t.Errorf("error = %v, want the cap named", err)
+	}
+	if reply.Units[UnitsOutput] != 8192 {
+		t.Errorf("the refused reply's spend is %v, want the units the provider reported", reply.Units)
+	}
+}
+
 // TestOpenRouterRefusesAnUnreadableAnswer covers the 200 that is not the
 // documented shape: not JSON, no choice at all, and a first choice whose
 // content is empty — which is what a model that put its whole reply in a

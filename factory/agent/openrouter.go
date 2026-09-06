@@ -249,5 +249,12 @@ func (o OpenRouter) Complete(ctx context.Context, p principal.Principal, call Ca
 	if cached := parsed.Usage.PromptTokensDetails.CachedTokens; cached > 0 {
 		units[UnitsCachedInput] = cached
 	}
+	// A reply cut at the cap with content is outside every role's protocol —
+	// what follows the cut is missing — and it is refused here so the reason
+	// named is the cap and not the marker the cut removed. The spend goes back
+	// with the error, the way a refused reply's does.
+	if choice.FinishReason == "length" {
+		return Reply{Units: units}, fmt.Errorf("%w: the reply stopped at the %d-token cap mid-reply, so what follows the cut is missing", ErrReply, maxTokens)
+	}
 	return Reply{Text: text, Units: units}, nil
 }
