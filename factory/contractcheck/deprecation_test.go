@@ -178,7 +178,7 @@ func TestASafeguardsPredicateBlocksTheRemovalAndIsToldApartFromAConsumerContract
 	if err != nil {
 		t.Fatalf("writing the withdrawal: %v", err)
 	}
-	if _, err := g.factory.ApproveSafeguardWithdrawal(ctx, theApprover, written.ID); err != nil {
+	if _, err := g.factory.ApproveSafeguardWithdrawal(ctx, theApprover, written.ID, decidedAtARow); err != nil {
 		t.Fatalf("approving the withdrawal: %v", err)
 	}
 	after := candidateOf(t, ctx, g, g.producer, []contract.Form{trimmed}, nil, ok())

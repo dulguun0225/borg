@@ -56,7 +56,7 @@ func TestShorteningDecisionLogRetentionIsDecidedAndLengtheningIsNot(t *testing.T
 
 	// The row's approval is what writes it, and the actor is the human at that
 	// row rather than whoever authored the shorter value.
-	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600); err != nil {
+	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600, decidedAt); err != nil {
 		t.Fatalf("ApproveRetentionShortening: %v", err)
 	}
 	settings, err = factorysettings.Get(ctx, in.pool)
@@ -68,7 +68,7 @@ func TestShorteningDecisionLogRetentionIsDecidedAndLengtheningIsNot(t *testing.T
 	}
 
 	// A value that is not shorter does not come through the row.
-	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 60*24*3600); !errors.Is(err, policy.ErrNotAShortening) {
+	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 60*24*3600, decidedAt); !errors.Is(err, policy.ErrNotAShortening) {
 		t.Errorf("approving a lengthening at the row = %v, want ErrNotAShortening", err)
 	}
 }
@@ -84,7 +84,7 @@ func TestNeitherAnAuthoredValueNorTheRowGoesUnderTheRetentionFloor(t *testing.T)
 	}
 	// Every value that shortens the retention comes through the row, the first
 	// one included, so the floor is what that row is refused by.
-	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600); !errors.Is(err, factorysettings.ErrUnderTheRetentionFloor) {
+	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600, decidedAt); !errors.Is(err, factorysettings.ErrUnderTheRetentionFloor) {
 		t.Errorf("approving a value under the floor = %v, want ErrUnderTheRetentionFloor", err)
 	}
 	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 90*24*3600); err != nil {

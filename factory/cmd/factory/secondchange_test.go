@@ -326,8 +326,11 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	}
 	// The safeguard leaves force at the row that decides the withdrawal, closed by
 	// a human other than the one who wrote it — the row is routed away from them.
+	// This test drives the write rather than the row, so it supplies the close
+	// event that row's own approval would name; `factory approve` is what fires
+	// it, and the legal hold's own test drives that end to end.
 	if _, err := policy.NewFactory(d.pool, d.token).ApproveSafeguardWithdrawal(ctx,
-		owner(t, ctx, d.pool, d.token, "reviewer"), written.ID); err != nil {
+		owner(t, ctx, d.pool, d.token, "reviewer"), written.ID, closedAtItsRow); err != nil {
 		t.Fatalf("approving the withdrawal: %v", err)
 	}
 	applied, err := policy.NewReader(d.pool, d.token, score.Version{}).AtGate(ctx,

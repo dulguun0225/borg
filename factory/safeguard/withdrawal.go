@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
@@ -38,9 +39,9 @@ type Withdrawal struct {
 // InsertWithdrawal writes a pending withdrawal naming safeguardID, inside tx.
 // It is not in force until [ApproveWithdrawal] marks it: the gate row A
 // safeguard's withdrawal decides it, held by a human always and routed to the
-// human the safeguard's own [Routing] names — that row is not built, so this
-// and [ApproveWithdrawal] are the two writes it will call, in two separate
-// transactions around the human's decision.
+// human the safeguard's own [Routing] names. This and [ApproveWithdrawal] are
+// the two writes that row makes, in two separate transactions around the
+// human's decision.
 func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
 	safeguardID string) (Withdrawal, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
@@ -70,9 +71,9 @@ func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor r
 }
 
 // ApproveWithdrawal marks one withdrawal approved, inside tx. Its caller is
-// the gate row that decides it, at its close — this package does not fire
-// that row and takes no verdict, so a caller today is standing in for a row
-// that does not exist yet. A withdrawal already approved is refused with
+// the gate row that decides it, at its close, reached through
+// policy.Factory.ApproveSafeguardWithdrawal: this package does not fire that
+// row and takes no verdict. A withdrawal already approved is refused with
 // [ErrAlreadyApproved], the same rule the log's own close events take against
 // a second ending.
 func ApproveWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, withdrawalID string) error {
@@ -97,39 +98,32 @@ func ApproveWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, withdr
 	return nil
 }
 
-// Withdraw is [InsertWithdrawal] followed at once by [ApproveWithdrawal],
-// standing in for the gate row A safeguard's withdrawal until that row
-// exists: the row always holds a human, so nothing calls this in the shape
-// the design wants outside a caller acting as that row until it is built.
-// Package policy's Factory.WithdrawSafeguard is such a caller, and does not
-// decide this — the row does, once it exists.
-func Withdraw(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, safeguardID string) error {
-	safeguard, err := oneByID(ctx, tx, safeguardID)
+// GetWithdrawal is one withdrawal by id, read through the pool. The gate row
+// that decides it reads it before it fires: the actor on this record is the one
+// human the row may not route to, and the safeguard it names is what the row's
+// own routing is read from.
+func GetWithdrawal(ctx context.Context, pool *pgxpool.Pool, id string) (Withdrawal, error) {
+	var w Withdrawal
+	var kind, basis string
+	var approvedAt *string
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at,
+		safeguard_id, approved, approved_at from `+WithdrawalTable+` where id = $1`, id).
+		Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At, &w.SafeguardID, &w.Approved, &approvedAt)
 	if err != nil {
-		return err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Withdrawal{}, fmt.Errorf("%w: %s", ErrWithdrawalNotFound, id)
+		}
+		return Withdrawal{}, fmt.Errorf("safeguard: reading withdrawal %s: %w", id, err)
 	}
-	w, err := InsertWithdrawal(ctx, tx, token, actor, safeguard.ID)
-	if err != nil {
-		return err
+	w.Actor.Kind, w.Actor.Basis = record.Kind(kind), record.Basis(basis)
+	if approvedAt != nil {
+		w.ApprovedAt = *approvedAt
 	}
-	return ApproveWithdrawal(ctx, tx, token, w.ID)
+	return w, nil
 }
 
-// oneByID reads one safeguard by id inside tx, refusing [ErrNotFound] where
-// none exists — [Withdraw] and its callers check this before writing a
-// withdrawal naming a safeguard that was never placed.
-func oneByID(ctx context.Context, tx pgx.Tx, id string) (Safeguard, error) {
-	rows, err := tx.Query(ctx, selectSafeguards+` where id = $1`, id)
-	if err != nil {
-		return Safeguard{}, fmt.Errorf("safeguard: reading %s: %w", id, err)
-	}
-	defer rows.Close()
-	if !rows.Next() {
-		return Safeguard{}, fmt.Errorf("%w: %s", ErrNotFound, id)
-	}
-	p, err := scan(rows)
-	if err != nil {
-		return Safeguard{}, err
-	}
-	return p, rows.Err()
-}
+// There is no call here that writes a withdrawal and approves it in one step.
+// A withdrawal is decided at the gate row A safeguard's withdrawal, held by a
+// human always and routed away from whoever wrote it, so a caller that combined
+// the two writes would be the mechanism that row exists to refuse: a record
+// removing a human from a gate with no decision on it.

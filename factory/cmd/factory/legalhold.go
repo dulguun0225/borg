@@ -11,13 +11,14 @@ import (
 
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/legalhold"
+	"github.com/dulguun0225/borg/factory/policy"
 )
 
-// legalHoldCommand sets a legal hold, or withdraws one. Package policy does
-// not import package legalhold yet, so this writes directly through
-// [legalhold.Writer] rather than through [policy.Factory] — the same
-// exception [haltCommand] makes and for the same reason: nothing here
-// appends a policy version.
+// legalHoldCommand sets a legal hold, or writes a withdrawal of one. Both go
+// through [policy.Factory], the record's one writer, so each appends a policy
+// version. A withdrawal is written pending: the hold stands until the gate row
+// A legal hold's withdrawal approves it, which is `factory approve
+// -legal-hold-withdrawal`, decided by a human other than the one who wrote it.
 func legalHoldCommand(args []string) error {
 	flags := flag.NewFlagSet("legal-hold", flag.ContinueOnError)
 	subject := flags.String("subject", "", "what the hold reaches, as kind:name — service:x, project:y, or factory: for the whole install")
@@ -33,13 +34,15 @@ func legalHoldCommand(args []string) error {
 		if err != nil {
 			return err
 		}
+		factory := policy.NewFactory(pool, token)
 		if *withdraw != "" {
-			wd, err := legalhold.NewWriter(pool, token).InsertWithdrawal(ctx, actor, *withdraw)
+			wd, version, err := factory.WriteLegalHoldWithdrawal(ctx, actor, *withdraw)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Withdrawal %s of legal hold %s written, pending approval\n", wd.ID, *withdraw)
-			fmt.Println("The gate row this withdrawal decides is not built, so this stands pending until a human approves it; nothing here fires that row")
+			fmt.Printf("Withdrawal %s of legal hold %s written, pending; policy version %s\n",
+				wd.ID, *withdraw, version.ID)
+			fmt.Printf("The hold stands until the row that decides it closes: `factory approve -legal-hold-withdrawal %s`\n", wd.ID)
 			return nil
 		}
 		if *subject == "" || *reason == "" {
@@ -49,11 +52,13 @@ func legalHoldCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		h, err := legalhold.NewWriter(pool, token).Insert(ctx, actor, on, *reason)
+		h, version, err := factory.SetLegalHold(ctx, actor, on, *reason)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Legal hold %s set on %s by %s %s: %s\n", h.ID, h.Subject, actor.Kind, *human, h.Reason)
+		fmt.Printf("Legal hold %s set on %s by %s %s: %s; policy version %s\n",
+			h.ID, h.Subject, actor.Kind, *human, h.Reason, version.ID)
+		fmt.Println("It is refused wherever it reaches: a hold on a project reaches the project's environment and every service in it")
 		return nil
 	})
 }

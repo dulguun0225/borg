@@ -46,6 +46,11 @@ type SetFiring struct {
 	IntentID      string
 	EnvironmentID string
 	Members       []SetMember
+
+	// supersedes is the open event an Edit in place supersedes, set by
+	// [Gate.EditSetInPlace] and by nothing else: a caller cannot supersede a row
+	// by composing a set firing, which is the rule [Firing] keeps one level down.
+	supersedes string
 }
 
 // SetMemberPayload is one member as the open event stores it.
@@ -89,6 +94,9 @@ type SetOpeningPayload struct {
 	HumanDecides     bool               `json:"human_decides"`
 	Marks            []Mark             `json:"marks,omitempty"`
 	WaitsOn          Waits              `json:"waits_on,omitzero"`
+	// Supersedes is the open event an Edit in place superseded, and is empty on
+	// every other firing. The superseded row is ended by an abandonment.
+	Supersedes string `json:"supersedes,omitempty"`
 }
 
 // FireSet fires the Decomposition row over one decomposition. It asks the score
@@ -127,8 +135,10 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		return Opened{}, fmt.Errorf("%w: it names %d item(s), and this row fires where decomposition yielded more than one",
 			ErrSetIncomplete, len(f.Members))
 	}
-	if err := g.noSetPending(ctx, f.IntentID); err != nil {
-		return Opened{}, err
+	if f.supersedes == "" {
+		if err := g.noSetPending(ctx, f.IntentID); err != nil {
+			return Opened{}, err
+		}
 	}
 
 	span := servicesSpanned(f)
@@ -183,7 +193,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 
 	overThreshold := applied.Number >= policyApplied.Threshold
 	resolved := len(applied.Resolved) > 0
-	marks := marksOn(overThreshold, resolved, policyApplied.HumanBySafeguard, false, false, false)
+	marks := marksOn(overThreshold, resolved, policyApplied.HumanBySafeguard, f.supersedes != "", false, false)
 	waits, err := g.waitsOn(ctx, Decomposition, nil, RoutedTo{})
 	if err != nil {
 		return Opened{}, err
@@ -219,6 +229,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		HumanDecides:     opened.HumanDecides,
 		Marks:            opened.Marks,
 		WaitsOn:          opened.WaitsOn,
+		Supersedes:       f.supersedes,
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload of decomposition: %w", err)
@@ -234,6 +245,34 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		return Opened{}, err
 	}
 	opened.Row = row
+	return opened, nil
+}
+
+// EditSetInPlace is Decomposition's Edit in place: a human at the row changing
+// the set rather than sending the intent back to be decomposed again. It takes
+// the terms every other row's Edit in place takes — a new open event naming the
+// row it supersedes, with a vector computed from what is now under decision, and
+// an abandonment ending the superseded row, in that order, so that a failure
+// between them leaves a row pending rather than a decision with nothing deciding
+// it — and the new row carries [MarkEditInPlace], so it waits on a holder other
+// than the editor however the recomputed number moves.
+//
+// What the human edited is the set of items, which decomposition's own writer
+// wrote before this is called: this package decides over records that already
+// exist, so the caller supersedes items and writes the new ones and then fires
+// the row again over what it produced.
+func (g *Gate) EditSetInPlace(ctx context.Context, superseded Opened, f SetFiring) (Opened, error) {
+	if superseded.Gate.Kind != KindDecomposition {
+		return Opened{}, fmt.Errorf("%w: %s decides no set", ErrEditInPlaceRefused, superseded.Gate)
+	}
+	f.supersedes = superseded.Row.ID
+	opened, err := g.FireSet(ctx, f)
+	if err != nil {
+		return Opened{}, err
+	}
+	if _, err := g.abandon(ctx, superseded, component(Decomposition), AbandonedBySupersession); err != nil {
+		return opened, err
+	}
 	return opened, nil
 }
 

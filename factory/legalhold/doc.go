@@ -9,17 +9,20 @@
 // [InsertWithdrawal] and [ApproveWithdrawal], meant to be called inside a
 // caller's own transaction the way package policy calls a record package's
 // write; [Writer] and [NewWriter], which wrap those three in their own
-// transaction for a caller — a test, today — that holds none of its own; and
+// transaction for a caller — a test, today — that holds none of its own;
+// [GetWithdrawal], one withdrawal by id, which the gate row that decides it
+// reads before it fires, the actor on that record being the one human the row
+// may not route to; and
 // [Reaching], whether a hold stands over one subject, a hold on the whole
-// factory reaching every subject asked about; and [Standing], every hold in
-// force, which is what a truncation of the decision log is refused against.
+// factory reaching every subject asked about and a hold on a project reaching
+// every service in it; and [Standing], every hold in force, which is what a
+// truncation of the decision log is refused against.
 //
 // A withdrawal is written pending and is not in force until a second write
-// approves it: it ends only at a gate row of its own, held by a human always
-// and routed away from the human who wrote it, the treatment the gate row A
-// safeguard's withdrawal already gets. That row is not built, so nothing here
-// combines the two writes into one call — a caller wanting that composes
-// [InsertWithdrawal] and [ApproveWithdrawal] itself.
+// approves it: it ends only at the gate row gate.LegalHoldWithdrawal, held by a
+// human always and routed away from the human who wrote it, the treatment the
+// gate row A safeguard's withdrawal already gets. Nothing here combines the two
+// writes into one call — the row is what sits between them.
 //
 // Who may write what: [Writer] is Factory, and package policy's own writes —
 // SetLegalHold, WriteLegalHoldWithdrawal and ApproveLegalHoldWithdrawal — call

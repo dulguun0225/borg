@@ -26,8 +26,8 @@ const (
 	// would have auto-passed it and an authored rate sent it to a human anyway.
 	MarkReviewSample Mark = "the review sample selected this row"
 	// MarkWithdrawalRow is a row that reads no threshold at all — a safeguard's
-	// withdrawal, a halt's withdrawal, and the shortening of decision-log
-	// retention. A human is at each of them always.
+	// withdrawal, a halt's withdrawal, a legal hold's withdrawal, and the
+	// shortening of decision-log retention. A human is at each of them always.
 	MarkWithdrawalRow Mark = "this row reads no threshold: a human decides it always"
 	// MarkTheNumber is the residual the design states: a row waiting on a human
 	// that carries none of the five above is one the number sent them to. It is

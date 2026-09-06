@@ -164,6 +164,13 @@ type Version struct {
 	LegalHoldID  string
 	WithdrawalID string
 
+	// Decision is the close event of the gate row that decided this write, and
+	// is empty on every write no row decides. The four writes a row decides —
+	// the three withdrawals' approvals and the shortening of decision-log
+	// retention — carry it, so an auditor reads which decision put the value in
+	// force rather than being told a field moved.
+	Decision string
+
 	// Key is the deterministic key of the write: a step taken again carries the
 	// same key as the version in force and appends nothing.
 	Key string
@@ -202,6 +209,7 @@ type payload struct {
 	HaltID        string               `json:"halt_id,omitempty"`
 	LegalHoldID   string               `json:"legal_hold_id,omitempty"`
 	WithdrawalID  string               `json:"withdrawal_id,omitempty"`
+	Decision      string               `json:"decision,omitempty"`
 	Key           string               `json:"key"`
 	Authored      []AuthoredValue      `json:"authored,omitempty"`
 	Safeguards    []string             `json:"safeguards,omitempty"`
@@ -220,7 +228,7 @@ func (v Version) marshal() (string, error) {
 	body, err := json.Marshal(payload{
 		Caller: v.Caller, Action: v.Action, Parameter: v.Parameter, Scope: v.Scope,
 		Number: v.Number, List: v.List, SafeguardID: v.SafeguardID, HaltID: v.HaltID,
-		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, Key: v.Key,
+		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, Decision: v.Decision, Key: v.Key,
 		Authored: v.Authored, Safeguards: v.Safeguards, Halts: v.Halts, LegalHolds: v.LegalHolds,
 		Declaration: v.Declaration, AutoPassRates: v.AutoPassRates,
 		ConfirmsScoreVersion: v.ConfirmsScoreVersion,
@@ -245,7 +253,7 @@ func versionOf(row decisionlog.Row) (Version, error) {
 		ID: row.ID, Actor: row.Actor, At: row.At,
 		Caller: p.Caller, Action: p.Action, Parameter: p.Parameter, Scope: p.Scope,
 		Number: p.Number, List: p.List, SafeguardID: p.SafeguardID, HaltID: p.HaltID,
-		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, Key: p.Key,
+		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, Decision: p.Decision, Key: p.Key,
 		Authored: p.Authored, Safeguards: p.Safeguards, Halts: p.Halts, LegalHolds: p.LegalHolds,
 		Declaration: p.Declaration, AutoPassRates: p.AutoPassRates,
 		ConfirmsScoreVersion: p.ConfirmsScoreVersion,

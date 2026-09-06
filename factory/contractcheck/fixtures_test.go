@@ -54,6 +54,12 @@ var (
 	theBy       = artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
 )
 
+// decidedAtARow stands for the close event of the gate row that decided a
+// safeguard's withdrawal. No row fires in these tests — the gate component
+// fires one — so what they supply is the id that close would have, which is all
+// the approval reads of it.
+const decidedAtARow = "dl_0000000000000000000000000000001"
+
 // theInterface is the name every producer here gives what it publishes, and
 // theStore the name it gives its own store.
 const (

@@ -270,6 +270,12 @@ func owner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.To
 	return actor
 }
 
+// closedAtItsRow stands for the close event of the gate row that decided a
+// safeguard's withdrawal, for a test that drives the write rather than the row:
+// the approval names that close and refuses a call with none, and what fires
+// the row is `factory approve`.
+const closedAtItsRow = "dl_0000000000000000000000000000001"
+
 // inSchema points a connection URL at one schema and nothing else, so every
 // unqualified name in the DDL and in the writers' statements resolves there.
 func inSchema(t *testing.T, base, schema string) string {

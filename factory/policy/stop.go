@@ -58,9 +58,13 @@ func (f *Factory) WriteHaltWithdrawal(ctx context.Context, actor record.Actor,
 // ApproveHaltWithdrawal is what that gate row calls at its close, and it is
 // where the halt lifts. So the interval the factory stood halted is a fact of
 // the trail with an actor at each end: the version this appends and the one
-// [Factory.SetHalt] appended.
+// [Factory.SetHalt] appended. decision is that close event, required with
+// [ErrNotDecidedAtARow].
 func (f *Factory) ApproveHaltWithdrawal(ctx context.Context, actor record.Actor,
-	withdrawalID string) (Version, error) {
+	withdrawalID, decision string) (Version, error) {
+	if decision == "" {
+		return Version{}, fmt.Errorf("%w: the withdrawal %s", ErrNotDecidedAtARow, withdrawalID)
+	}
 	haltID, err := oneColumn(ctx, f, `select halt_id from `+halt.WithdrawalTable+` where id = $1`,
 		withdrawalID, halt.ErrWithdrawalNotFound)
 	if err != nil {
@@ -68,7 +72,7 @@ func (f *Factory) ApproveHaltWithdrawal(ctx context.Context, actor record.Actor,
 	}
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionWithdrawalApproved,
-		scope: Scope{Kind: "halt", ID: haltID}, dropHalt: haltID,
+		scope: Scope{Kind: "halt", ID: haltID}, dropHalt: haltID, decision: decision,
 		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
 			return Created{WithdrawalID: withdrawalID}, halt.ApproveWithdrawal(ctx, tx, f.token, withdrawalID)
 		},
@@ -118,10 +122,14 @@ func (f *Factory) WriteLegalHoldWithdrawal(ctx context.Context, actor record.Act
 	return written, version, err
 }
 
-// ApproveLegalHoldWithdrawal is what that gate row calls at its close, and it
-// is where the hold lifts.
+// ApproveLegalHoldWithdrawal is what the gate row A legal hold's withdrawal
+// calls at its close, and it is where the hold lifts. decision is that close
+// event, required with [ErrNotDecidedAtARow].
 func (f *Factory) ApproveLegalHoldWithdrawal(ctx context.Context, actor record.Actor,
-	withdrawalID string) (Version, error) {
+	withdrawalID, decision string) (Version, error) {
+	if decision == "" {
+		return Version{}, fmt.Errorf("%w: the withdrawal %s", ErrNotDecidedAtARow, withdrawalID)
+	}
 	holdID, err := oneColumn(ctx, f, `select legal_hold_id from `+legalhold.WithdrawalTable+` where id = $1`,
 		withdrawalID, legalhold.ErrWithdrawalNotFound)
 	if err != nil {
@@ -129,7 +137,7 @@ func (f *Factory) ApproveLegalHoldWithdrawal(ctx context.Context, actor record.A
 	}
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionWithdrawalApproved,
-		scope: Scope{Kind: "legal_hold", ID: holdID}, dropLegalHold: holdID,
+		scope: Scope{Kind: "legal_hold", ID: holdID}, dropLegalHold: holdID, decision: decision,
 		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
 			return Created{WithdrawalID: withdrawalID}, legalhold.ApproveWithdrawal(ctx, tx, f.token, withdrawalID)
 		},

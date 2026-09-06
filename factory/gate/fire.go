@@ -272,11 +272,12 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 // none exists, however the recomputed number moves: [MarkEditInPlace] is what
 // says so.
 func (g *Gate) EditInPlace(ctx context.Context, superseded Opened, f Firing) (Opened, error) {
+	if superseded.Gate.Kind == KindDecomposition {
+		return Opened{}, fmt.Errorf("%w: %s decides a set, which [Gate.EditSetInPlace] supersedes",
+			ErrEditInPlaceRefused, superseded.Gate)
+	}
 	if !superseded.Gate.ArtifactGate() {
 		return Opened{}, fmt.Errorf("%w: %s decides no document", ErrEditInPlaceRefused, superseded.Gate)
-	}
-	if superseded.Gate.Kind == KindDecomposition {
-		return Opened{}, ErrEditInPlaceRefused
 	}
 	f.supersedes = superseded.Row.ID
 	opened, err := g.Fire(ctx, f)

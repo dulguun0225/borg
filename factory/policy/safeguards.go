@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,14 @@ import (
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/service"
 )
+
+// ErrNotDecidedAtARow is returned by the four approvals a gate row decides —
+// the three withdrawals' and the shortening of decision-log retention's — for a
+// call naming no close event. Each of those writes removes a protection, and the
+// design gives each of them a row: a call with no decision behind it would be
+// the record moving with nothing having decided it, which is the mechanism those
+// rows exist to refuse.
+var ErrNotDecidedAtARow = errors.New("policy: this write is decided at a gate row, and the call names no close event")
 
 // AddSafeguard places one, in the direction the parameter's definition gives
 // it, and appends the version in the same transaction. The bound is one value
@@ -114,9 +123,14 @@ func (f *Factory) WriteSafeguardWithdrawal(ctx context.Context, actor record.Act
 // ApproveSafeguardWithdrawal is what the gate row A safeguard's withdrawal
 // calls at its close, and it is where the safeguard leaves force. actor is the
 // human who decided the row, which is never the one who wrote the withdrawal —
-// the row is routed away from them, and this package does not fire it.
+// the row is routed away from them, and this package does not fire it. decision
+// is that close event, required with [ErrNotDecidedAtARow], so a safeguard
+// cannot leave force on a call nobody decided.
 func (f *Factory) ApproveSafeguardWithdrawal(ctx context.Context, actor record.Actor,
-	withdrawalID string) (Version, error) {
+	withdrawalID, decision string) (Version, error) {
+	if decision == "" {
+		return Version{}, fmt.Errorf("%w: the withdrawal %s", ErrNotDecidedAtARow, withdrawalID)
+	}
 	safeguardID, err := f.safeguardOfWithdrawal(ctx, withdrawalID)
 	if err != nil {
 		return Version{}, err
@@ -124,6 +138,7 @@ func (f *Factory) ApproveSafeguardWithdrawal(ctx context.Context, actor record.A
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionWithdrawalApproved,
 		scope: Scope{Kind: "safeguard", ID: safeguardID}, dropSafeguard: safeguardID,
+		decision: decision,
 		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
 			return Created{WithdrawalID: withdrawalID},
 				safeguard.ApproveWithdrawal(ctx, tx, f.token, withdrawalID)

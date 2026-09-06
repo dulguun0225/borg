@@ -11,6 +11,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // SubjectKind is what a legal hold reaches.
@@ -244,6 +245,29 @@ func ApproveWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, withdr
 	return nil
 }
 
+// GetWithdrawal is one withdrawal by id, read through the pool. The gate row
+// that decides it reads it before it fires: the actor on this record is the one
+// human the row may not route to.
+func GetWithdrawal(ctx context.Context, pool *pgxpool.Pool, id string) (Withdrawal, error) {
+	var w Withdrawal
+	var kind, basis string
+	var approvedAt *string
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at,
+		legal_hold_id, approved, approved_at from `+WithdrawalTable+` where id = $1`, id).
+		Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At, &w.HoldID, &w.Approved, &approvedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Withdrawal{}, fmt.Errorf("%w: %s", ErrWithdrawalNotFound, id)
+		}
+		return Withdrawal{}, fmt.Errorf("legalhold: reading withdrawal %s: %w", id, err)
+	}
+	w.Actor.Kind, w.Actor.Basis = record.Kind(kind), record.Basis(basis)
+	if approvedAt != nil {
+		w.ApprovedAt = *approvedAt
+	}
+	return w, nil
+}
+
 // Standing is every legal hold in force: every row [WithdrawalTable] names no
 // approved withdrawal for, oldest first. It is the read a truncation makes:
 // the decision log's cut removes rows about every subject, so a hold over the
@@ -279,14 +303,26 @@ func Standing(ctx context.Context, pool *pgxpool.Pool) ([]Hold, error) {
 }
 
 // Reaching says whether a legal hold stands over subject: one naming it
-// exactly, or one on [SubjectFactory], which reaches everything. Both are
-// read with no approved withdrawal.
+// exactly, one on the project the subject lies in, or one on [SubjectFactory],
+// which reaches everything. All three are read with no approved withdrawal.
+//
+// The project clause is what [SubjectProject] means — a project's environment
+// and every service in it — so a hold an owner set on a project is refused
+// wherever it reaches and not only where its own name is typed. Which project a
+// service lies in is a field of the service record, read here rather than
+// supplied by the caller: a caller that had to pass it could pass nothing and
+// lose the reach without anything saying so.
 func Reaching(ctx context.Context, pool *pgxpool.Pool, subject Subject) (bool, error) {
 	var n int
 	err := pool.QueryRow(ctx, `select count(*) from `+Table+` h
 		where not exists (select 1 from `+WithdrawalTable+` w where w.legal_hold_id = h.id and w.approved)
-		and (h.subject_kind = $1 or (h.subject_kind = $2 and h.subject_id = $3))`,
-		string(SubjectFactory), string(subject.Kind), subject.ID).Scan(&n)
+		and (h.subject_kind = $1
+			or (h.subject_kind = $2 and h.subject_id = $3)
+			or (h.subject_kind = $4 and $2 = $5
+				and exists (select 1 from `+service.Table+` s
+					where s.id = $3 and s.project_id = h.subject_id)))`,
+		string(SubjectFactory), string(subject.Kind), subject.ID,
+		string(SubjectProject), string(SubjectService)).Scan(&n)
 	if err != nil {
 		return false, fmt.Errorf("legalhold: reading whether a hold reaches %s: %w", subject, err)
 	}

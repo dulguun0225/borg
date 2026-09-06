@@ -30,9 +30,11 @@ var (
 	// rather than closing to its own author.
 	ErrSelfApproval = errors.New("gate: this close is by the author of the version under decision, and another holder of the row's duty exists")
 	// ErrClosedByTheActor is returned for a close by the human a record's own
-	// routing says may not decide it: the actor on a withdrawal is never the
-	// human its row waits on, and the human who authored a shorter retention
-	// value is not the one who decides it.
+	// routing says may not decide it, where another decider exists: the actor on
+	// a withdrawal is never the human its row waits on, and the human who
+	// authored a shorter retention value is not the one who decides it. Where no
+	// other decider exists the row still fires to that person, closes, and
+	// carries [ClosingPayload.SelfApproval].
 	ErrClosedByTheActor = errors.New("gate: this row does not route to the human who wrote the record it decides")
 )
 
@@ -78,9 +80,9 @@ type ClosingPayload struct {
 	// AutoRejectedBy is which mechanical check rejected, and is empty on every
 	// close event but [Gate.AutoReject]'s.
 	AutoRejectedBy string `json:"auto_rejected_by,omitempty"`
-	// SelfApproval is a close by the author of the version under decision where
-	// no second holder of the row's duty exists. An install with one owner is
-	// allowed, and its trail says what it is.
+	// SelfApproval is a close by the author of the version under decision, or by
+	// the writer of the record under decision, where no second decider exists. An
+	// install with one owner is allowed, and its trail says what it is.
 	SelfApproval bool `json:"self_approval,omitempty"`
 }
 

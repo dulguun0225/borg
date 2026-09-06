@@ -29,9 +29,11 @@ const (
 
 // RoutedTo is what a row whose routing is a record's rather than the design's
 // carries: a safeguard's withdrawal routes to the duty or named human that
-// safeguard's own routing field gives, and the shortening of decision-log
-// retention routes away from whoever authored the shorter value. It is supplied
-// by the caller, the record being one this package does not read.
+// safeguard's own routing field gives, a halt's and a legal hold's withdrawal
+// route to the owner and away from the human who wrote the withdrawal, and the
+// shortening of decision-log retention routes away from whoever authored the
+// shorter value. It is supplied by the caller, the record being one this package
+// does not read.
 type RoutedTo struct {
 	// Duty is the duty the record routes to, and is zero where it names none.
 	Duty people.Duty

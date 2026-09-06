@@ -9,8 +9,8 @@ import (
 	"github.com/dulguun0225/borg/factory/score"
 )
 
-// Kind is which gate row a firing is at. Twelve of the thirteen are fixed rows;
-// [KindDeployToEnvironment] is the one a customer's own environment
+// Kind is which gate row a firing is at. Thirteen of the fourteen are fixed
+// rows; [KindDeployToEnvironment] is the one a customer's own environment
 // parameterises, a [Row] naming the environment beside it.
 type Kind string
 
@@ -50,20 +50,24 @@ const (
 	// KindHaltWithdrawal is the third: the record that ends a halt. It reads no
 	// factor set and no threshold either, and routes to the owner.
 	KindHaltWithdrawal Kind = "a_halts_withdrawal"
+	// KindLegalHoldWithdrawal is the record that ends a legal hold. It reads no
+	// factor set and no threshold either, and routes away from the human who
+	// wrote the withdrawal.
+	KindLegalHoldWithdrawal Kind = "a_legal_holds_withdrawal"
 	// KindDecisionLogRetentionShortening is the row that decides a shortening of
 	// decision-log retention, which takes the safeguard withdrawal's shape.
 	KindDecisionLogRetentionShortening Kind = "decision_log_retention_shortening"
 )
 
 // Kinds is every kind a row may have, in the order the design names them: the
-// eight of the default path, the further deploy row, and the four that belong to
+// eight of the default path, the further deploy row, and the five that belong to
 // no item.
 var Kinds = []Kind{
 	KindDecomposition, KindSpec, KindImplementationPlan, KindTasks, KindImplementation,
 	KindDeployToCandidateEnvironment, KindMergeToMaster, KindDeployToProduction,
 	KindDeployToEnvironment,
 	KindRolePromptOrSkill, KindSafeguardWithdrawal, KindHaltWithdrawal,
-	KindDecisionLogRetentionShortening,
+	KindLegalHoldWithdrawal, KindDecisionLogRetentionShortening,
 }
 
 // Row is one gate row: its kind and, on [KindDeployToEnvironment] alone, the
@@ -102,6 +106,7 @@ var (
 	RolePromptOrSkill              = Of(KindRolePromptOrSkill)
 	SafeguardWithdrawal            = Of(KindSafeguardWithdrawal)
 	HaltWithdrawal                 = Of(KindHaltWithdrawal)
+	LegalHoldWithdrawal            = Of(KindLegalHoldWithdrawal)
 	DecisionLogRetentionShortening = Of(KindDecisionLogRetentionShortening)
 )
 
@@ -173,7 +178,7 @@ func cut(name string) (kind, environmentID string, parameterised bool) {
 // ArtifactGate reports whether the row decides over a document a stage has
 // written, which is the kind of gate that names an artifact version on its open
 // event. The others are event gates: they decide whether a merge or a deploy
-// happens at all, and Decomposition, which decides a set, and the three rows
+// happens at all, and Decomposition, which decides a set, and the four rows
 // that decide a record rather than a version.
 func (r Row) ArtifactGate() bool {
 	switch r.Kind {
@@ -184,15 +189,15 @@ func (r Row) ArtifactGate() bool {
 	}
 }
 
-// DecidesAnItem reports whether the row is on an item's path. The four rows that
-// are not — a role prompt or a skill, the two withdrawals, and the shortening of
-// decision-log retention — have no stage to be at, no build to point at, and no
-// release to reach, so nothing reads an intent's state for them, no attempt is
+// DecidesAnItem reports whether the row is on an item's path. The five rows that
+// are not — a role prompt or a skill, the three withdrawals, and the shortening
+// of decision-log retention — have no stage to be at, no build to point at, and
+// no release to reach, so nothing reads an intent's state for them, no attempt is
 // counted at them, and a reject at one sends nothing back.
 func (r Row) DecidesAnItem() bool {
 	switch r.Kind {
 	case KindRolePromptOrSkill, KindSafeguardWithdrawal, KindHaltWithdrawal,
-		KindDecisionLogRetentionShortening:
+		KindLegalHoldWithdrawal, KindDecisionLogRetentionShortening:
 		return false
 	default:
 		return true
@@ -200,14 +205,16 @@ func (r Row) DecidesAnItem() bool {
 }
 
 // ReadsAThreshold reports whether the row is decided against the risk threshold
-// at all. Three rows are not: a safeguard's withdrawal, a halt's withdrawal, and
-// the shortening of decision-log retention each read no factor set and no
-// threshold, a human being at them always — a row the score could auto-pass
-// would be the score deciding to remove a human from a gate, to stop being
-// stopped, or to destroy the evidence it learns from.
+// at all. Four rows are not: a safeguard's withdrawal, a halt's withdrawal, a
+// legal hold's withdrawal, and the shortening of decision-log retention each
+// read no factor set and no threshold, a human being at them always — a row the
+// score could auto-pass would be the score deciding to remove a human from a
+// gate, to stop being stopped, to lift a hold counsel put on, or to destroy the
+// evidence it learns from.
 func (r Row) ReadsAThreshold() bool {
 	switch r.Kind {
-	case KindSafeguardWithdrawal, KindHaltWithdrawal, KindDecisionLogRetentionShortening:
+	case KindSafeguardWithdrawal, KindHaltWithdrawal, KindLegalHoldWithdrawal,
+		KindDecisionLogRetentionShortening:
 		return false
 	default:
 		return true
@@ -260,7 +267,7 @@ var ErrVerdictUnknown = errors.New("gate: the row does not offer that verdict")
 // available up to the merge to master and nowhere after it, so the production
 // deploy row and every further deploy row offer approve, hold and refer alone.
 // Hold is a deploy row's: it stops an event that would otherwise happen, and at
-// the four rows outside an item a hold would name a state the row is already in
+// the five rows outside an item a hold would name a state the row is already in
 // — a version or a withdrawal nobody approved simply is not in force.
 func Actions(row Row) ([]Verdict, error) {
 	if err := row.Validate(); err != nil {
@@ -269,7 +276,7 @@ func Actions(row Row) ([]Verdict, error) {
 	switch row.Kind {
 	case KindDecomposition, KindSpec, KindImplementationPlan, KindTasks, KindImplementation,
 		KindMergeToMaster, KindRolePromptOrSkill, KindSafeguardWithdrawal, KindHaltWithdrawal,
-		KindDecisionLogRetentionShortening:
+		KindLegalHoldWithdrawal, KindDecisionLogRetentionShortening:
 		return []Verdict{VerdictApprove, VerdictReject, VerdictRefer}, nil
 	case KindDeployToCandidateEnvironment:
 		return []Verdict{VerdictApprove, VerdictReject, VerdictHold, VerdictRefer}, nil
@@ -350,22 +357,15 @@ func DefaultReturnsTo(row Row) (ReturnsTo, bool) {
 	}
 }
 
-// ErrEditInPlaceRefused is returned for Decomposition's third action. Edit in
-// place at that row is a human re-decomposing the set by hand, and
-// re-decomposing is not built: it needs a stage that decides the decomposition
-// rather than one told what to produce. A rejection is what stops a bad
-// decomposition here, and repairing one is what the next thing to touch
-// decomposition owes.
-var ErrEditInPlaceRefused = errors.New("gate: no set to edit in place — re-decomposing is not built, so a bad decomposition is rejected rather than repaired")
-
-// ErrStrategySafeguardRefused is returned for the production deploy row's
-// fourth action. Safeguarding the strategy is an owner's write at Factory
-// rather than a verdict at this row, and package safeguard is where it is
-// placed; the row itself decides the deploy.
-var ErrStrategySafeguardRefused = errors.New("gate: safeguarding the strategy is a safeguard an owner places and not a verdict given here")
+// ErrEditInPlaceRefused is returned for an Edit in place at a row that decides
+// neither a document nor a set: an event gate has no version under decision, and
+// the rows outside every item that decide a record have nothing in the record to
+// edit. Decomposition takes [Gate.EditSetInPlace], which supersedes the set
+// rather than a version.
+var ErrEditInPlaceRefused = errors.New("gate: this row decides no document, so there is nothing to edit in place")
 
 // ErrNoFactorSet is returned for a row that reads no factor set at all, which is
-// the three rows [Row.ReadsAThreshold] names: a human is at each of them always,
+// the four rows [Row.ReadsAThreshold] names: a human is at each of them always,
 // so there is nothing for a set of factors to decide.
 var ErrNoFactorSet = errors.New("gate: this row reads no factor set and no threshold")
 

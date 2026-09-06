@@ -24,6 +24,7 @@ import (
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 var owner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
@@ -138,6 +139,69 @@ func TestAHoldOnTheWholeFactoryReachesEverySubject(t *testing.T) {
 		if !reaching {
 			t.Errorf("a hold on the whole factory does not reach %s", subject)
 		}
+	}
+}
+
+// TestAHoldOnAProjectReachesEveryServiceInIt: a project is a persistent
+// environment and every service in it, and a hold is refused wherever it
+// reaches — so the read of whether one reaches a service asks which project that
+// service lies in rather than only whether the hold names it.
+func TestAHoldOnAProjectReachesEveryServiceInIt(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	w := legalhold.NewWriter(pool, token)
+
+	services := service.NewWriter(pool, token)
+	inside, err := services.Create(ctx, owner, "checkout", "/srv/repos/checkout", "prj_held")
+	if err != nil {
+		t.Fatalf("creating the service inside the held project: %v", err)
+	}
+	outside, err := services.Create(ctx, owner, "billing", "/srv/repos/billing", "prj_other")
+	if err != nil {
+		t.Fatalf("creating the service outside it: %v", err)
+	}
+
+	held, err := w.Insert(ctx, owner, legalhold.Subject{Kind: legalhold.SubjectProject, ID: "prj_held"},
+		"a litigation hold over everything in this project")
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	reaching, err := legalhold.Reaching(ctx, pool, legalhold.Subject{
+		Kind: legalhold.SubjectService, ID: inside.ID,
+	})
+	if err != nil {
+		t.Fatalf("Reaching: %v", err)
+	}
+	if !reaching {
+		t.Errorf("a hold on the project does not reach the service in it")
+	}
+
+	reaching, err = legalhold.Reaching(ctx, pool, legalhold.Subject{
+		Kind: legalhold.SubjectService, ID: outside.ID,
+	})
+	if err != nil {
+		t.Fatalf("Reaching: %v", err)
+	}
+	if reaching {
+		t.Errorf("a hold on one project reaches a service in another")
+	}
+
+	// The withdrawal's own record is what the row that decides it reads: the
+	// actor on it is the human that row may not route to.
+	written, err := w.InsertWithdrawal(ctx, owner, held.ID)
+	if err != nil {
+		t.Fatalf("InsertWithdrawal: %v", err)
+	}
+	read, err := legalhold.GetWithdrawal(ctx, pool, written.ID)
+	if err != nil {
+		t.Fatalf("GetWithdrawal: %v", err)
+	}
+	if read.Actor.Key != owner.Key || read.HoldID != held.ID || read.Approved {
+		t.Errorf("the withdrawal reads back as %+v, want the one written, pending, by its own actor", read)
+	}
+	if _, err := legalhold.GetWithdrawal(ctx, pool, "lghw_nothing"); !errors.Is(err,
+		legalhold.ErrWithdrawalNotFound) {
+		t.Errorf("reading a withdrawal that does not exist = %v, want ErrWithdrawalNotFound", err)
 	}
 }
 

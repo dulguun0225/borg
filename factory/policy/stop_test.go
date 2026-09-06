@@ -1,12 +1,15 @@
 package policy_test
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/halt"
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/safeguard"
 )
 
 // TestAHaltAndItsWithdrawalEachAppendAVersion: setting a halt and withdrawing
@@ -47,7 +50,7 @@ func TestAHaltAndItsWithdrawalEachAppendAVersion(t *testing.T) {
 		t.Errorf("%d halts stand while the withdrawal is pending, want the one that was set", len(standing))
 	}
 
-	approved, err := in.factory.ApproveHaltWithdrawal(ctx, approver, written.ID)
+	approved, err := in.factory.ApproveHaltWithdrawal(ctx, approver, written.ID, decidedAt)
 	if err != nil {
 		t.Fatalf("ApproveHaltWithdrawal: %v", err)
 	}
@@ -96,7 +99,7 @@ func TestALegalHoldTakesTheSameThreeWrites(t *testing.T) {
 		t.Error("the hold stopped reaching its subject while its withdrawal was still pending")
 	}
 
-	approved, err := in.factory.ApproveLegalHoldWithdrawal(ctx, approver, written.ID)
+	approved, err := in.factory.ApproveLegalHoldWithdrawal(ctx, approver, written.ID, decidedAt)
 	if err != nil {
 		t.Fatalf("ApproveLegalHoldWithdrawal: %v", err)
 	}
@@ -111,3 +114,78 @@ func TestALegalHoldTakesTheSameThreeWrites(t *testing.T) {
 		t.Error("the hold still reaches its subject after the withdrawal was approved")
 	}
 }
+
+// TestNoneOfTheFourApprovalsIsWrittenWithoutTheCloseThatDecidedIt: each of them
+// removes a protection, and the design gives each a gate row — so a call naming
+// no close event is refused, and the record does not move. The version the
+// approval appends names that close, which is how an auditor reads which
+// decision put it in force.
+func TestNoneOfTheFourApprovalsIsWrittenWithoutTheCloseThatDecidedIt(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	placed, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RiskThreshold,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID, Key: "deploy_to_production"},
+		safeguard.Bound{}, safeguard.Routing{})
+	if err != nil {
+		t.Fatalf("AddSafeguard: %v", err)
+	}
+	safeguardWithdrawal, _, err := in.factory.WriteSafeguardWithdrawal(ctx, owner, placed.ID)
+	if err != nil {
+		t.Fatalf("WriteSafeguardWithdrawal: %v", err)
+	}
+	set, _, err := in.factory.SetHalt(ctx, owner, "the factory is writing changes nobody asked for")
+	if err != nil {
+		t.Fatalf("SetHalt: %v", err)
+	}
+	haltWithdrawal, _, err := in.factory.WriteHaltWithdrawal(ctx, owner, set.ID)
+	if err != nil {
+		t.Fatalf("WriteHaltWithdrawal: %v", err)
+	}
+	hold, _, err := in.factory.SetLegalHold(ctx, owner,
+		legalhold.Subject{Kind: legalhold.SubjectService, ID: in.service.ID}, "counsel asked for it")
+	if err != nil {
+		t.Fatalf("SetLegalHold: %v", err)
+	}
+	holdWithdrawal, _, err := in.factory.WriteLegalHoldWithdrawal(ctx, owner, hold.ID)
+	if err != nil {
+		t.Fatalf("WriteLegalHoldWithdrawal: %v", err)
+	}
+
+	for name, refused := range map[string]error{
+		"a safeguard's withdrawal": firstError(
+			in.factory.ApproveSafeguardWithdrawal(ctx, approver, safeguardWithdrawal.ID, "")),
+		"a halt's withdrawal": firstError(
+			in.factory.ApproveHaltWithdrawal(ctx, approver, haltWithdrawal.ID, "")),
+		"a legal hold's withdrawal": firstError(
+			in.factory.ApproveLegalHoldWithdrawal(ctx, approver, holdWithdrawal.ID, "")),
+		"a shortening of decision-log retention": firstError(
+			in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600, "")),
+	} {
+		if !errors.Is(refused, policy.ErrNotDecidedAtARow) {
+			t.Errorf("approving %s with no close event = %v, want ErrNotDecidedAtARow", name, refused)
+		}
+	}
+
+	// Nothing moved: the halt still stands, which is what says the refusal was
+	// before the write and not after it.
+	standing, err := halt.Standing(ctx, in.pool)
+	if err != nil {
+		t.Fatalf("Standing: %v", err)
+	}
+	if len(standing) != 1 {
+		t.Errorf("%d halts stand after the refused approval, want the one that was set", len(standing))
+	}
+
+	// Named, the close event goes on the version the approval appends.
+	approved, err := in.factory.ApproveHaltWithdrawal(ctx, approver, haltWithdrawal.ID, decidedAt)
+	if err != nil {
+		t.Fatalf("ApproveHaltWithdrawal: %v", err)
+	}
+	if approved.Decision != decidedAt {
+		t.Errorf("the approval's version names decision %q, want the close event that decided it", approved.Decision)
+	}
+}
+
+// firstError drops the version an approval returns and keeps the error, so the
+// four refusals above read as one table.
+func firstError(_ policy.Version, err error) error { return err }

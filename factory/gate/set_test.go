@@ -194,12 +194,13 @@ func TestASetFiringMissingSomethingIsRefused(t *testing.T) {
 	}
 }
 
-// TestEditInPlaceAtDecompositionIsRefusedWithItsReason: re-decomposing is not
-// built, so a bad decomposition is rejected rather than repaired, and edit in
-// place — a human authoring a new version while the row waits — is refused with
-// its own reason. Decomposition still offers approve, reject and refer: refer
-// is on every row, and it is not edit in place.
-func TestEditInPlaceAtDecompositionIsRefusedWithItsReason(t *testing.T) {
+// TestEditInPlaceAtDecompositionSupersedesTheSet: Decomposition's third action
+// is Edit in place, and what it edits is the set rather than a document — so it
+// takes [Gate.EditSetInPlace] and not the version-superseding call the other
+// rows take. The new row names the row it supersedes, carries the edit-in-place
+// mark so it waits on a holder other than the editor, and the superseded row is
+// ended by an abandonment.
+func TestEditInPlaceAtDecompositionSupersedesTheSet(t *testing.T) {
 	actions, err := gate.Actions(gate.Decomposition)
 	if err != nil {
 		t.Fatalf("Actions: %v", err)
@@ -209,19 +210,60 @@ func TestEditInPlaceAtDecompositionIsRefusedWithItsReason(t *testing.T) {
 		t.Fatalf("Decomposition offers %v, want approve, reject and refer", actions)
 	}
 
-	s, p := &varyingScore{by: map[string]float64{"it_a": 0.2, "it_b": 0.3}}, &fakePolicy{applied: applied(0.5)}
+	s, p := &varyingScore{by: map[string]float64{"it_a": 0.2, "it_b": 0.3, "it_c": 0.2}}, &fakePolicy{applied: applied(0.5)}
 	ctx, _, _, g := newGate(t, s, p)
-	opened, err := g.FireSet(ctx, gate.SetFiring{
+	firing := gate.SetFiring{
 		IntentID:      "in_0000000000000000000000000000000a",
 		EnvironmentID: "env_000000000000000000000000000000a",
 		Members: []gate.SetMember{
 			{ItemID: "it_a", ServiceID: "svc_a", Requirements: 1},
 			{ItemID: "it_b", ServiceID: "svc_b", Requirements: 1},
 		},
-	})
+	}
+	opened, err := g.FireSet(ctx, firing)
 	if err != nil {
 		t.Fatalf("FireSet: %v", err)
 	}
+
+	// The human at the row cut the set differently: three items where
+	// decomposition proposed two.
+	edited := firing
+	edited.Members = append(slices.Clone(firing.Members),
+		gate.SetMember{ItemID: "it_c", ServiceID: "svc_a", Requirements: 1})
+	reopened, err := g.EditSetInPlace(ctx, opened, edited)
+	if err != nil {
+		t.Fatalf("EditSetInPlace: %v", err)
+	}
+	if reopened.Row.ID == opened.Row.ID {
+		t.Fatal("the edit in place reused the row it superseded")
+	}
+	if !reopened.HumanDecides || !slices.Contains(reopened.Marks, gate.MarkEditInPlace) {
+		t.Errorf("the row an edit in place fired carries %v and decides %v, want the edit-in-place mark and a human",
+			reopened.Marks, reopened.HumanDecides)
+	}
+
+	// The superseded row is ended and the new one is the only pending row on the
+	// intent, which is what keeps one gate on one thing to one pending row.
+	pending, err := g.Pending(ctx)
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Row.ID != reopened.Row.ID {
+		t.Errorf("%d rows are pending after the edit in place, want the one it fired", len(pending))
+	}
+	var payload gate.SetOpeningPayload
+	if err := json.Unmarshal([]byte(reopened.Row.Payload), &payload); err != nil {
+		t.Fatalf("reading the opening payload of the row the edit fired: %v", err)
+	}
+	if payload.Supersedes != opened.Row.ID {
+		t.Errorf("the new open event supersedes %q, want %s", payload.Supersedes, opened.Row.ID)
+	}
+	if len(payload.Set) != 3 {
+		t.Errorf("the new open event names %d items, want the three the human cut", len(payload.Set))
+	}
+
+	// Edit in place through the version-superseding call is refused at this row
+	// and says which call takes it.
 	if _, err := g.EditInPlace(ctx, opened, gate.Firing{}); !errors.Is(err, gate.ErrEditInPlaceRefused) {
 		t.Errorf("EditInPlace at Decomposition = %v, want ErrEditInPlaceRefused", err)
 	}
