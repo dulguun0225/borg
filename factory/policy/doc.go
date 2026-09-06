@@ -30,7 +30,8 @@
 // [Factory.WithdrawEnvironment], [Factory.SetMaxConcurrentCandidateEnvironments],
 // [Factory.AuthorStrategyDefault] and [Factory.DeclareArea].
 // parameters.go is the thirteen parameters of gate policy's eleven rows, one
-// Author call each, with [Factory.ConfirmGateThreshold] beside the two threshold
+// Author call each, with [Factory.ConfirmGateThreshold] and
+// [Factory.ConfirmRolePromptOrSkillThreshold] beside the two threshold
 // writes: a threshold write names the score version in force at it, and the
 // confirmation names one without moving the number. Both are what
 // [score.InForceAt] reads back. settings.go is what an owner authors on the factory-wide

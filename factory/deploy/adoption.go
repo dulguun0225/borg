@@ -16,7 +16,9 @@ import (
 // What the deployer writes on records other packages own. Both are the
 // deployer's own facts about itself and about what it reached, written through
 // the writer of the record they belong to: four fields of the service record,
-// and a last check per target and per platform.
+// and a last check per target of a persistent environment. The deployer's last
+// check per platform is [lastcheck.Writer.RecordPlatformPass], the sole writer
+// of that record, and is not here.
 
 // Adopt writes the deployer's four fields on the service record: a target it
 // reached, instances the platform can replace, a rollback path, and an emission
@@ -67,28 +69,6 @@ func RecordTargetCheck(ctx context.Context, checks *lastcheck.Writer, actor reco
 	_, err := checks.Record(ctx, actor, lastcheck.LastCheck{
 		Component: lastcheck.ComponentDeployer,
 		Subject:   address,
-		Interval:  interval,
-		LastPass:  lastPass,
-		Payload:   payload,
-	})
-	return err
-}
-
-// RecordPlatformCheck writes the deployer's last check over one platform, which
-// is one per production environment record: the platform a candidate environment
-// is composed on, and what the deployer's counts over it were at that pass.
-//
-// It is one of two writers of that one record and nothing calls either, the
-// other being lastcheck.Writer.RecordPlatformPass; doc.go says so and does not
-// pick between them.
-func RecordPlatformCheck(ctx context.Context, checks *lastcheck.Writer, actor record.Actor,
-	platform string, interval time.Duration, lastPass bool, payload string) error {
-	if platform == "" {
-		return fmt.Errorf("%w: the last check names no platform", ErrTargetNotFound)
-	}
-	_, err := checks.Record(ctx, actor, lastcheck.LastCheck{
-		Component: lastcheck.ComponentDeployer,
-		Subject:   platform,
 		Interval:  interval,
 		LastPass:  lastPass,
 		Payload:   payload,

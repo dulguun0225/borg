@@ -26,33 +26,34 @@
 //
 // [Writer.Record] refuses an actor that is not a component, and so does the
 // CHECK: a last check is the writing component's own record of its own pass,
-// about the component and never about the work. Six components write one here,
-// each its own rows. The seventh the design names is the drift detector's, kept
-// in package driftdetector's own store, which no factory component may write —
-// so [Components] does not list it and the CHECK refuses it.
+// about the component and never about the work. Seven components write one
+// here, each its own rows. The eighth the design names is the drift
+// detector's, kept in package driftdetector's own store, which no factory
+// component may write — so [Components] does not list it and the CHECK
+// refuses it.
 //
-// Of the six, three are wired. The health monitor writes one per service on
+// Of the seven, four are wired. The health monitor writes one per service on
 // every pass it makes over that service's windows; the notifier writes its
-// single one for itself on the pass that reads the drift detector's store; and
-// the deployer writes one per target of a persistent environment after a
-// production deploy completes there. The other three are not: a single record
-// each for the pass over the constraints in force, the pass over the advisory
-// feed, and dispatch's pass over a fleet proposal, three passes this milestone
-// does not build. Each is wired by the dispatch that builds its writer.
-//
-// The deployer's second record, one per platform a production environment
-// record declares, is unwired too, and it has two writers, neither called:
-// [Writer.RecordPlatformPass] here, which composes the three counts, and
-// deploy.RecordPlatformCheck, which takes the payload as text. The pass is the
-// deployer's, which lives in the command-line interface, and the composition
-// owes one call per production environment record that declares a platform,
-// each pass.
+// single one for itself on the pass that reads the drift detector's store; the
+// deployer writes two kinds of its own, both on every production deploy: one
+// per target of a persistent environment, through deploy.RecordTargetCheck,
+// and one per platform a production environment record declares, beside it,
+// through [Writer.RecordPlatformPass] here — the sole writer of that record,
+// composing the payload from the three counts the design names rather than
+// taking it as text; and package contractcheck's pass over the deprecation
+// list writes its single one for itself on every pass of
+// [contractcheck.Check.Raise], the shape this and the notifier's own already
+// have. The other three are not
+// wired: a single record each for the pass over the constraints in force, the
+// pass over the advisory feed, and dispatch's pass over a fleet proposal,
+// three passes this milestone does not build. Each is wired by the dispatch
+// that builds its writer.
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md,
 // which sets the shape every last check record has — the interval on the record,
 // the further pass owed, and the third comparison that reads them all;
-// ../../end-goal/records.md for the seven components each writing its own;
+// ../../end-goal/records.md for the eight components each writing its own;
 // ../../end-goal/one-process.md for why the health monitor keeps one per service
 // rather than one for itself; and
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md

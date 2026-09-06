@@ -165,6 +165,80 @@ func TestAFormulaChangeWaitsOnTheOwnerWhereAThresholdIsAuthored(t *testing.T) {
 	}
 }
 
+// TestConfirmRolePromptOrSkillThresholdClearsAVersionWaitingAtTheFactorySettingsScope:
+// the role-prompt-or-skill row has no project and so no environment, so its
+// threshold is authored on the factory-wide settings record — the one scope
+// [Factory.ConfirmGateThreshold] cannot reach. Without its own confirmation an
+// owner at that scope could clear a version waiting there only by re-authoring
+// the number.
+func TestConfirmRolePromptOrSkillThresholdClearsAVersionWaitingAtTheFactorySettingsScope(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	first, found, err := score.Newest(ctx, in.pool, in.token)
+	if err != nil || !found {
+		t.Fatalf("the score version in force: %v", err)
+	}
+	authored, err := in.factory.AuthorRolePromptOrSkillThreshold(ctx, owner, 0.4)
+	if err != nil {
+		t.Fatalf("AuthorRolePromptOrSkillThreshold: %v", err)
+	}
+	if authored.ConfirmsScoreVersion != first.ID {
+		t.Errorf("the threshold write confirms %q, want the version in force %q",
+			authored.ConfirmsScoreVersion, first.ID)
+	}
+
+	// A version that changes the published formula or the factor set, which
+	// waits at every scope an owner authored a threshold at.
+	scorer := score.NewWriter(in.pool, in.token, score.NoMarks{})
+	recalibrated, err := scorer.EnterShipped(ctx,
+		record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed}, "borg/2.0.0")
+	if err != nil {
+		t.Fatalf("EnterShipped: %v", err)
+	}
+	if recalibrated.ID == first.ID || recalibrated.Branch == score.BranchSupplied {
+		t.Fatalf("the version appended is %s, and nothing here waits on an owner", recalibrated.Branch)
+	}
+
+	reader := policy.NewReader(in.pool, in.token, recalibrated)
+	waiting, err := reader.AtGate(ctx, ownerReading, in.subjects(policy.RolePromptOrSkillRow))
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if waiting.ScoreVersion != first.ID || waiting.ScoreVersionWaiting != recalibrated.ID {
+		t.Errorf("the row decides under %q and waits on %q, want %q and %q",
+			waiting.ScoreVersion, waiting.ScoreVersionWaiting, first.ID, recalibrated.ID)
+	}
+
+	confirmed, err := in.factory.ConfirmRolePromptOrSkillThreshold(ctx, owner)
+	if err != nil {
+		t.Fatalf("ConfirmRolePromptOrSkillThreshold: %v", err)
+	}
+	if confirmed.Action != policy.ActionConfirmed || confirmed.ConfirmsScoreVersion != recalibrated.ID {
+		t.Errorf("the confirmation is %+v", confirmed)
+	}
+
+	cleared, err := reader.AtGate(ctx, ownerReading, in.subjects(policy.RolePromptOrSkillRow))
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if cleared.ScoreVersion != recalibrated.ID || cleared.ScoreVersionWaiting != "" {
+		t.Errorf("after the confirmation the row decides under %q and waits on %q, want %q and nothing",
+			cleared.ScoreVersion, cleared.ScoreVersionWaiting, recalibrated.ID)
+	}
+	// The threshold itself is the owner's, unmoved by any of it.
+	if cleared.Threshold != 0.4 || cleared.ThresholdFrom != policy.FromAuthored {
+		t.Errorf("the threshold reads %v from %s, want the authored 0.4", cleared.Threshold, cleared.ThresholdFrom)
+	}
+
+	again, err := in.factory.ConfirmRolePromptOrSkillThreshold(ctx, owner)
+	if err != nil {
+		t.Fatalf("ConfirmRolePromptOrSkillThreshold twice: %v", err)
+	}
+	if again.ID != confirmed.ID {
+		t.Errorf("confirming the same score version twice appended %s beside %s", again.ID, confirmed.ID)
+	}
+}
+
 // payloadOfNewestVersion is the stored text of the newest policy version row,
 // which is what package score unmarshals.
 func payloadOfNewestVersion(t *testing.T, ctx context.Context, in installed) string {

@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -150,6 +152,9 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	if err := p.recordTargetChecks(ctx, dep); err != nil {
 		return err
 	}
+	if err := p.recordPlatformCheck(ctx); err != nil {
+		return err
+	}
 	if err := p.adopt(ctx, c.svc, dep); err != nil {
 		return err
 	}
@@ -233,6 +238,35 @@ func (p *path) recordTargetChecks(ctx context.Context, dep deploy.Deploy) error 
 		}
 	}
 	return nil
+}
+
+// recordPlatformCheck is the deployer's own last check over the platform this
+// production environment declares, written through
+// [lastcheck.Writer.RecordPlatformPass], the one writer of that record. It runs
+// beside [path.recordTargetChecks] so the record is exercised on every
+// production deploy rather than left uncalled.
+//
+// Seam 4 has no operation that answers how many candidate environments the
+// platform holds or what room it reports, so this pass reads only the half it
+// can: how many candidate environments the factory's own records hold as
+// standing for the project. It reports that count as held by the platform too
+// and no room figure, which is the honest reading where nothing on the other
+// side of the seam answers either question — not a modelled guess at what the
+// platform would say.
+func (p *path) recordPlatformCheck(ctx context.Context) error {
+	if p.production.Platform.Name == "" {
+		return nil
+	}
+	standing, err := environment.CountLiveCandidates(ctx, p.d.pool, p.production.ID)
+	if err != nil {
+		return err
+	}
+	_, err = p.checks.RecordPlatformPass(ctx, deployActor, p.production.Platform.Name,
+		atLeastASecond(p.d.watchFor), lastcheck.PlatformPass{
+			StandingByTheRecords: standing,
+			HeldByThePlatform:    standing,
+		})
+	return err
 }
 
 // factoryHolds is every hold the factory sets at the production deploy row that

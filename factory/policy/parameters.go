@@ -107,6 +107,41 @@ func (f *Factory) AuthorRolePromptOrSkillThreshold(ctx context.Context, actor re
 	})
 }
 
+// ConfirmRolePromptOrSkillThreshold is the owner's confirmation that the
+// threshold standing on the role-prompt-or-skill row is the threshold they
+// mean under the score version in force now — the factory-settings scope's own
+// version of [Factory.ConfirmGateThreshold], which an environment's scope
+// already had: it authors no value and writes no field, appending only a
+// version naming the scope and that score version, which is what puts a
+// version that changed the published formula, the factor set or the weights
+// into force at this row. Without it an owner clears a version waiting here
+// only by re-authoring the number.
+//
+// An owner who disagrees re-authors the number instead, through
+// [Factory.AuthorRolePromptOrSkillThreshold], which confirms the same way.
+// Confirming the same score version twice appends nothing, the key being the
+// same.
+func (f *Factory) ConfirmRolePromptOrSkillThreshold(ctx context.Context, actor record.Actor) (Version, error) {
+	settings, err := factorysettings.Get(ctx, f.pool)
+	if err != nil {
+		return Version{}, err
+	}
+	confirms, err := f.scoreVersionInForce(ctx)
+	if err != nil {
+		return Version{}, err
+	}
+	if confirms == "" {
+		return Version{}, fmt.Errorf("%w: there is no score version to confirm the role-prompt-or-skill threshold against",
+			score.ErrNoVersion)
+	}
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionConfirmed,
+		parameter:            gatepolicy.RiskThreshold,
+		scope:                Scope{Kind: ScopeFactorySettings, ID: settings.ID, Key: RolePromptOrSkillRow},
+		confirmsScoreVersion: confirms,
+	})
+}
+
 // ratesAt is the realized auto-pass rate at a threshold, from whatever the
 // composition supplied, and nothing where it supplied none.
 func (f *Factory) ratesAt(ctx context.Context, scope Scope, gateRow string, threshold float64) ([]AutoPassRate, error) {

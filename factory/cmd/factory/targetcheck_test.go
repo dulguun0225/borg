@@ -74,3 +74,29 @@ func TestTheDeployersLastCheckOwesAFurtherPassOnlyWhereTheRolloutHasNotFinished(
 		t.Errorf("Stale a day later = %v, %v; a rollout that stopped part way is what this reads as", stale, err)
 	}
 }
+
+// TestTheDeployersPlatformCheckIsWrittenOnEveryProductionDeploy is
+// lastcheck.Writer.RecordPlatformPass, the sole writer of the deployer's
+// per-platform record, exercised through the composition: package deploy no
+// longer has a second writer of its own, and this is what calls the one that
+// is left.
+func TestTheDeployersPlatformCheckIsWrittenOnEveryProductionDeploy(t *testing.T) {
+	ctx, d, _ := newPath(t, "")
+	path := p(ctx, t, d)
+
+	if err := path.recordPlatformCheck(ctx); err != nil {
+		t.Fatalf("recording the deployer's platform check: %v", err)
+	}
+
+	check, found, err := lastcheck.Get(ctx, d.pool, lastcheck.ComponentDeployer, path.production.Platform.Name)
+	if err != nil || !found {
+		t.Fatalf("Get(the deployer's check on the platform) = found %v, %v", found, err)
+	}
+	pass, err := lastcheck.PlatformPassOf(check)
+	if err != nil {
+		t.Fatalf("PlatformPassOf: %v", err)
+	}
+	if pass.StandingByTheRecords != 0 || pass.HeldByThePlatform != 0 {
+		t.Errorf("the pass reads %+v, want no candidate environments standing on a fresh install", pass)
+	}
+}
