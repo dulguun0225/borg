@@ -105,7 +105,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // not a stage an agent is dispatched to. The principal at the seam is the same
 // component, calling as itself.
 var (
-	deployer      = record.Actor{Kind: record.KindComponent, Key: "deployer"}
+	deployer      = record.Actor{Kind: record.KindComponent, Key: "deployer", Basis: record.BasisClaimed}
 	deployerCalls = principal.OfComponent("deployer")
 	credential    = secretref.MustNew("deploy.production")
 )
@@ -284,7 +284,7 @@ func TestTheStoreRefusesWhatTheWriterDoes(t *testing.T) {
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, number,
 		 release_id, build_id, status, failed_step, strategy_picked, strategy_performed,
 		 snapshot_name, snapshot_digest, snapshot_deleted_at)
-		values ($1, $2, 'component', 'deployer', '', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+		values ($1, $2, 'component', 'deployer', 'claimed', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
 
 	cases := map[string]struct {
 		releaseID, buildID, status, step, picked, performed string

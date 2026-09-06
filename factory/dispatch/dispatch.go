@@ -13,6 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -20,7 +21,11 @@ import (
 // on the transitions it writes, on the holds it opens and closes, on the input
 // manifests it writes until context assembly exists, and on the agent run
 // records it writes after a run.
-var Actor = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
+
+// componentPrincipal is who this component's reads of the decision log are made
+// as: dispatch calls as itself, and the read event names it.
+var componentPrincipal = principal.OfComponent("dispatch")
 
 // Limits is the one value this component reads out of gate policy: the
 // attempt limit in force at a stage, which an owner authored or the score

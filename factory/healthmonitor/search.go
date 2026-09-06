@@ -349,7 +349,7 @@ func (h *HealthMonitor) openSearchWindow(ctx context.Context, w Watching, svc se
 	if scoreVersion == "" {
 		return window.Window{}, ErrScoreVersionMissing
 	}
-	version, err := h.policy.Newest(ctx, Actor)
+	version, err := h.policy.Newest(ctx, componentPrincipal)
 	if err != nil {
 		return window.Window{}, err
 	}

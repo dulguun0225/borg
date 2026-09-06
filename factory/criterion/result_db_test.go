@@ -13,11 +13,11 @@ import (
 // deployer is who writes what a run on a candidate environment produced: the
 // one component that reaches a deploy target is the one that reports what it
 // observed there.
-var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer"}
+var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer", Basis: record.BasisClaimed}
 
 // buildRunner is the other writer of results: the encodings that declare the
 // build are decided in the build's own process, run 0, against no environment.
-var buildRunner = record.Actor{Kind: record.KindComponent, Key: "buildrunner"}
+var buildRunner = record.Actor{Kind: record.KindComponent, Key: "buildrunner", Basis: record.BasisClaimed}
 
 // onEnvironment is a run of the given number against the given composition.
 func onEnvironment(buildID string, number int, composition string) criterion.Run {
@@ -191,14 +191,14 @@ func TestARunIsRefusedWhereItDisagreesWithItsPlace(t *testing.T) {
 
 	_, err := pool.Exec(ctx, `insert into `+criterion.ResultTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, run, criterion_id, outcome, place, composition)
-		values ($1, $2, 'component', 'deployer', '', $3, 'bl_a', 0, $4, 'passed', 'candidate_environment', 'seed@1')`,
+		values ($1, $2, 'component', 'deployer', 'claimed', $3, 'bl_a', 0, $4, 'passed', 'candidate_environment', 'seed@1')`,
 		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id)
 	if err == nil || !strings.Contains(err.Error(), "run_matches_place") {
 		t.Errorf("inserting a candidate run numbered 0 = %v, want a violation of run_matches_place", err)
 	}
 	_, err = pool.Exec(ctx, `insert into `+criterion.ResultTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, run, criterion_id, outcome, place, composition)
-		values ($1, $2, 'component', 'buildrunner', '', $3, 'bl_a', 0, $4, 'passed', 'build', 'seed@1')`,
+		values ($1, $2, 'component', 'buildrunner', 'claimed', $3, 'bl_a', 0, $4, 'passed', 'build', 'seed@1')`,
 		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id)
 	if err == nil || !strings.Contains(err.Error(), "composition_matches_place") {
 		t.Errorf("inserting a build-decided result carrying a composition = %v, want a violation of composition_matches_place", err)
@@ -231,7 +231,7 @@ func TestUndecidedIsNeverRecorded(t *testing.T) {
 
 	_, err := pool.Exec(ctx, `insert into `+criterion.ResultTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, run, criterion_id, outcome, place, composition)
-		values ($1, $2, 'component', 'deployer', '', $3, 'bl_a', 1, $4, 'undecided', 'candidate_environment', 'seed@1')`,
+		values ($1, $2, 'component', 'deployer', 'claimed', $3, 'bl_a', 1, $4, 'undecided', 'candidate_environment', 'seed@1')`,
 		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id)
 	if err == nil || !strings.Contains(err.Error(), "outcome_observed") {
 		t.Errorf("inserting an undecided result = %v, want a violation of outcome_observed", err)

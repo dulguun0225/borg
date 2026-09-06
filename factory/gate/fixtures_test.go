@@ -29,6 +29,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -41,6 +42,10 @@ const (
 )
 
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+
+// ownerReading is the same owner as a principal, which is what a read of the
+// log takes.
+var ownerReading = principal.OfHuman("person:owner", record.BasisClaimed)
 
 // fakeScore answers with one assessment and records what it was asked, so a test
 // can assert that the gate handed the score what the firing knew.
@@ -97,7 +102,7 @@ type fakePolicy struct {
 	askedDuty     int
 }
 
-func (f *fakePolicy) AtGate(_ context.Context, _ record.Actor, s policy.Subjects) (policy.Applied, error) {
+func (f *fakePolicy) AtGate(_ context.Context, _ principal.Principal, s policy.Subjects) (policy.Applied, error) {
 	f.asked = s
 	return f.applied, nil
 }
@@ -286,7 +291,7 @@ func decisionPart(rows []decisionlog.Row, part decisionlog.Part) []decisionlog.R
 // the one a test that fired once and read nothing else since wants.
 func lastOpeningPayload(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) gate.OpeningPayload {
 	t.Helper()
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

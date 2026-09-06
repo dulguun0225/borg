@@ -55,7 +55,7 @@ func (s policyScope) String() string {
 // [Newest] is the read. Which scope a gate row reads is that package's, so the
 // scope arrives here as the string an owner authored on.
 func InForceAt(ctx context.Context, pool *pgxpool.Pool, token lease.Token, scope string) (Version, bool, error) {
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, componentPrincipal)
 	if err != nil {
 		return Version{}, false, err
 	}

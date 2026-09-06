@@ -26,9 +26,9 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health monitor"}
+var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health monitor", Basis: record.BasisClaimed}
 
-var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer"}
+var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *lastcheck.Writer) {
 	t.Helper()
@@ -163,7 +163,7 @@ func TestOnlyTheSixComponentsInThisStoreMayWriteOne(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `insert into `+lastcheck.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, component, subject, checked_at, interval_seconds, further_pass_owed, payload)
-		values ('lc_x', $1, 'component', 'drift detector', '', $2, 'drift_detector', '/srv', $2, 60, true, '')`,
+		values ('lc_x', $1, 'component', 'drift detector', 'claimed', $2, 'drift_detector', '/srv', $2, 60, true, '')`,
 		lastcheck.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted a component written around the writer")
 	}
@@ -204,7 +204,7 @@ func TestASubjectIsRequiredOfTheComponentsThatKeepOnePerThing(t *testing.T) {
 	}); !errors.Is(err, lastcheck.ErrSubjectDoesNotMatchComponent) {
 		t.Errorf("the health monitor's naming no service = %v, want ErrSubjectDoesNotMatchComponent", err)
 	}
-	notifier := record.Actor{Kind: record.KindComponent, Key: "notifier"}
+	notifier := record.Actor{Kind: record.KindComponent, Key: "notifier", Basis: record.BasisClaimed}
 	if _, err := w.Record(ctx, notifier, lastcheck.LastCheck{
 		Component: lastcheck.ComponentNotifier,
 		Subject:   "something",
@@ -221,7 +221,7 @@ func TestASubjectIsRequiredOfTheComponentsThatKeepOnePerThing(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `insert into `+lastcheck.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, component, subject, checked_at, interval_seconds, further_pass_owed, payload)
-		values ('lc_y', $1, 'component', 'notifier', '', $2, 'notifier', 'something', $2, 60, true, '')`,
+		values ('lc_y', $1, 'component', 'notifier', 'claimed', $2, 'notifier', 'something', $2, 60, true, '')`,
 		lastcheck.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted the notifier's record naming a subject")
 	}
@@ -258,7 +258,7 @@ func TestAnIntervalIsRequiredAndAHumanWritesNone(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `insert into `+lastcheck.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, component, subject, checked_at, interval_seconds, further_pass_owed, payload)
-		values ('lc_w', $1, 'component', 'health monitor', '', $2, 'health_monitor', 'svc_one', $2, 0, true, '')`,
+		values ('lc_w', $1, 'component', 'health monitor', 'claimed', $2, 'health_monitor', 'svc_one', $2, 0, true, '')`,
 		lastcheck.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted an interval of nothing")
 	}

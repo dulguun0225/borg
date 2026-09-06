@@ -27,7 +27,7 @@ import (
 
 // healthMonitor is the one writer of incidents, the way doc.go names it. A human
 // is never one; TestAHumanActorIsRefused is the mirror of that.
-var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health_monitor"}
+var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health_monitor", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *incident.Writer) {
 	t.Helper()
@@ -264,7 +264,7 @@ func TestDDLListsEveryStatus(t *testing.T) {
 			(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 			 reading, quantity, size, confidence, run_length, boundary_version, policy_version, score_version, failure_records,
 			 intent_id, observations, status, resolved_at)
-			values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15, '', 0, $16, $17)`,
+			values ($1, $2, 'component', 'health_monitor', 'claimed', $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15, '', 0, $16, $17)`,
 			record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
 			string(r.Reading), r.Quantity, r.Size, r.Confidence, r.BoundaryVersion, r.PolicyVersion, r.ScoreVersion, r.FailureRecords,
 			string(status), resolvedAt)
@@ -278,7 +278,7 @@ func TestDDLListsEveryStatus(t *testing.T) {
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 		 reading, quantity, size, confidence, run_length, boundary_version, policy_version, score_version, failure_records,
 		 intent_id, observations, status, resolved_at)
-		values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15, '', 0, 'flaky', '')`,
+		values ($1, $2, 'component', 'health_monitor', 'claimed', $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15, '', 0, 'flaky', '')`,
 		record.NewID(incident.IDPrefix), incident.FormatVersion, record.Now(), r.EnvironmentID, r.ServiceID, r.ReleaseID, r.DeployID,
 		string(r.Reading), r.Quantity, r.Size, r.Confidence, r.BoundaryVersion, r.PolicyVersion, r.ScoreVersion, r.FailureRecords)
 	if err == nil {

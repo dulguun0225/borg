@@ -49,7 +49,7 @@ const (
 	theServiceName = "under-watch"
 )
 
-var theActor = record.Actor{Kind: record.KindComponent, Key: "test"}
+var theActor = record.Actor{Kind: record.KindComponent, Key: "test", Basis: record.BasisClaimed}
 
 // graph is the records one test writes and the writers it writes them through.
 type graph struct {

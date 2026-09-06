@@ -131,9 +131,9 @@ func (g *Gate) Pending(ctx context.Context) ([]Opened, error) {
 	return pending, nil
 }
 
-// pendingReader is the actor the read event of [Gate.Pending] names: the gate
-// component asking which of its own rows are still waiting.
-var pendingReader = Component(Row{Kind: KindDecomposition})
+// pendingReader is the principal the read event of [Gate.Pending] names: the
+// gate component asking which of its own rows are still waiting.
+var pendingReader = componentPrincipal(Row{Kind: KindDecomposition})
 
 // artifactUnderDecision is the version under decision and its content digest,
 // read from the artifact store at the firing. The identifier says which version

@@ -290,7 +290,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // event before it answers.
 func readLog(t *testing.T, ctx context.Context, d deps) []decisionlog.Row {
 	t.Helper()
-	rows, err := decisionlog.NewReader(d.pool, d.token).Read(ctx, owner(t, ctx, d.pool, d.token, d.human))
+	rows, err := decisionlog.NewReader(d.pool, d.token).Read(ctx, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)))
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}
@@ -315,7 +315,7 @@ func openingOf(t *testing.T, ctx context.Context, d deps, openingID string) gate
 // verifyLog is the chain walk, as the human the deps compose with.
 func verifyLog(t *testing.T, ctx context.Context, d deps) error {
 	t.Helper()
-	return decisionlog.NewReader(d.pool, d.token).Verify(ctx, owner(t, ctx, d.pool, d.token, d.human))
+	return decisionlog.NewReader(d.pool, d.token).Verify(ctx, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)))
 }
 
 // decisionRows is rows filtered to the decision shape, in log order. Every

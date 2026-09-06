@@ -10,13 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// component is the actor every read this package makes of the decision log is
-// attributed to: the score reading its own evidence, and not any human or any
-// other component.
-var component = record.Actor{Kind: record.KindComponent, Key: "score"}
+// component is the actor every row this package appends is attributed to: the
+// score writing its own version, and not any human or any other component.
+var component = record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed}
+
+// componentPrincipal is who every read this package makes of the decision log
+// is made as: the score calls as itself, and the read event names it.
+var componentPrincipal = principal.OfComponent("score")
 
 // ErrChangeIncomplete is returned by [Score.Assess] for a change naming no item
 // or no service. Every firing has both, so a blank is a caller's defect and not

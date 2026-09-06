@@ -46,7 +46,7 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 
 	// The open event of an auto-pass waits on nobody, which is what tells a
 	// reader of the log that nothing was ever pending here.
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 	if opening.WaitsOn.Duty != 0 || opening.WaitsOn.Human != "" || len(opening.WaitsOn.Holders) != 0 {
 		t.Errorf("an auto-passed firing waits on %+v, want nothing", opening.WaitsOn)
 	}
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify after an auto-pass: %v", err)
 	}
 }
@@ -163,7 +163,7 @@ func TestAHoldCloses(t *testing.T) {
 	if payload.WhyItAutoPassed != "" {
 		t.Errorf("the hold says it was auto-passed by %q", payload.WhyItAutoPassed)
 	}
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify after a hold: %v", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestARejectWithoutReasonIsRefused(t *testing.T) {
 	// Fire's own check that nothing is already pending reads the log first,
 	// which appends a read event ahead of the opening; this Read appends one
 	// more, so the log holds three rows and not the one this firing appended.
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 	if payload.Reason == "" || payload.ReturnsTo != gate.ReturnsToImplementation {
 		t.Errorf("a mechanical reject carries a reason %q and returns to %q", payload.Reason, payload.ReturnsTo)
 	}
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("the chain does not verify after a mechanical reject: %v", err)
 	}
 

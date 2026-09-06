@@ -128,7 +128,7 @@ func TestRecordMutationRefusals(t *testing.T) {
 	insert := `insert into ` + criterion.MutationTable + `
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, run,
 		toolchain, tool, coverage, mutants_tested, mutants_detected, could_not_derive)
-		values ($1, $2, 'component', 'deployer', '', $3, 'bl_c', $4, 'go', 'mutate', '', $5, $6, $7)`
+		values ($1, $2, 'component', 'deployer', 'claimed', $3, 'bl_c', $4, 'go', 'mutate', '', $5, $6, $7)`
 
 	_, err := pool.Exec(ctx, insert, record.NewID(criterion.MutationIDPrefix), criterion.FormatVersionMutation,
 		record.Now(), 0, 4, 1, "")

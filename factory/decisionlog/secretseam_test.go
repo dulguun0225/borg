@@ -82,7 +82,7 @@ func TestAResolvedSecretReachesNoRecord(t *testing.T) {
 		t.Fatalf("%d rows name the reference, want 2 — the search found nothing to trust", naming)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }

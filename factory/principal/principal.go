@@ -28,8 +28,8 @@ var (
 // asked for and refuses on it never — populated, self-asserted, enforced by
 // nothing.
 type Principal struct {
-	// Actor is the seam 1 actor: the kind, the key, and — on a human — whether
-	// the key is claimed or verified.
+	// Actor is the seam 1 actor: the kind, the key, and whether the key is
+	// claimed or verified.
 	Actor record.Actor
 	// DispatchID is the dispatch that put an agent on an item, and is empty on a
 	// human's and on a component's principal.
@@ -40,9 +40,10 @@ type Principal struct {
 }
 
 // OfComponent is the principal a component calls as: itself, named the way its
-// actor is.
+// actor is. Its key is claimed, seam 5 naming no check a component's own name
+// could be verified by.
 func OfComponent(name string) Principal {
-	return Principal{Actor: record.Actor{Kind: record.KindComponent, Key: name}}
+	return Principal{Actor: record.Actor{Kind: record.KindComponent, Key: name, Basis: record.BasisClaimed}}
 }
 
 // OfHuman is the principal a human at a screen calls as: the per-person opaque
@@ -54,10 +55,11 @@ func OfHuman(key string, basis record.Basis) Principal {
 
 // OfAgent is the principal an agent calls as: the model version its fleet entry
 // names, the dispatch that put it on the item, and the scope it was dispatched
-// under.
+// under. Its key is claimed: seam 5 verifies an agent by checking its dispatch
+// against its scope, and nothing here makes that check.
 func OfAgent(modelVersion, dispatchID, scope string) Principal {
 	return Principal{
-		Actor:      record.Actor{Kind: record.KindAgent, Key: modelVersion},
+		Actor:      record.Actor{Kind: record.KindAgent, Key: modelVersion, Basis: record.BasisClaimed},
 		DispatchID: dispatchID,
 		Scope:      scope,
 	}

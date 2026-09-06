@@ -15,7 +15,7 @@ import (
 // Actor is who the drift detector's rows are written as. It is a component
 // like any other: what makes this store independent is that no factory
 // component may write it, not that its rows have no author.
-var Actor = record.Actor{Kind: record.KindComponent, Key: "driftdetector"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "driftdetector", Basis: record.BasisClaimed}
 
 var (
 	// ErrPassIncomplete is returned by [Writer.Record] for a pass missing something

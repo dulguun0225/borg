@@ -322,7 +322,7 @@ func (n *Notifier) deliver(ctx context.Context, d Delivery) (decisionlog.Row, er
 // It reads through the notifier's own [decisionlog.Reader], which appends a read
 // event naming [Actor] as the principal before it answers.
 func (n *Notifier) EventsFor(ctx context.Context, row string) ([]Payload, error) {
-	rows, err := n.reader.Read(ctx, Actor)
+	rows, err := n.reader.Read(ctx, componentPrincipal)
 	if err != nil {
 		return nil, err
 	}

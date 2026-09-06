@@ -27,7 +27,7 @@ import (
 
 // contextAssembly is the actor every test writes as: context assembly is not
 // built, so the caller that dispatches stands in for it, the way doc.go says.
-var contextAssembly = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+var contextAssembly = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *inputmanifest.Writer) {
 	t.Helper()

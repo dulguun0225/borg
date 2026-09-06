@@ -12,10 +12,13 @@ import (
 )
 
 // acquire is a second lease token over the same pool, for a test that writes
-// an owner-authored field directly rather than through [service.Writer].
+// an owner-authored field directly rather than through [service.Writer]. The
+// fixture's own lease is taken with a lapsed ttl so that this one is allowed,
+// and taking it fences the fixture's token out, the way a second instance
+// starting would.
 func acquire(ctx context.Context, t *testing.T, pool *pgxpool.Pool) lease.Token {
 	t.Helper()
-	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	token, err := lease.Acquire(ctx, pool, "test", -time.Second)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}

@@ -174,7 +174,7 @@ func TestTheInputManifestIsWrittenWhereTheCallerSuppliesOne(t *testing.T) {
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
 		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
 		input_manifest_id)
-		values ($1, $2, 'component', 'factory.start', '', $3, '', 'reviewer', '', 'role_prompt', 1,
+		values ($1, $2, 'component', 'factory.start', 'claimed', $3, '', 'reviewer', '', 'role_prompt', 1,
 		'', '', '', 'text', 'x', 'bundle-1', 'install', 'im_three')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "input_manifest_only_when_authored") {

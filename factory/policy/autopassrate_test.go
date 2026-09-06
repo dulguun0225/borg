@@ -47,7 +47,7 @@ func TestTheRateAtAThresholdIsFrozenOnTheVersionThatSetIt(t *testing.T) {
 	}
 
 	scope := policy.Scope{Kind: policy.ScopeEnvironment, ID: in.prod.ID}
-	frozen, found, err := in.reader.AuthoredAutoPassRate(ctx, owner, scope, "merge_to_master")
+	frozen, found, err := in.reader.AuthoredAutoPassRate(ctx, ownerReading, scope, "merge_to_master")
 	if err != nil {
 		t.Fatalf("AuthoredAutoPassRate: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestTheRateAtAThresholdIsFrozenOnTheVersionThatSetIt(t *testing.T) {
 
 	// Another gate row on the same record has its own, and a row nothing set
 	// has none.
-	if _, found, err := in.reader.AuthoredAutoPassRate(ctx, owner, scope, "deploy_to_production"); err != nil {
+	if _, found, err := in.reader.AuthoredAutoPassRate(ctx, ownerReading, scope, "deploy_to_production"); err != nil {
 		t.Fatalf("AuthoredAutoPassRate: %v", err)
 	} else if found {
 		t.Error("a row no version set a threshold on has a rate")
@@ -67,7 +67,7 @@ func TestTheRateAtAThresholdIsFrozenOnTheVersionThatSetIt(t *testing.T) {
 	if _, err := in.factory.AuthorGateThreshold(ctx, owner, in.prod.ID, "merge_to_master", 0.6); err != nil {
 		t.Fatalf("AuthorGateThreshold: %v", err)
 	}
-	frozen, _, err = in.reader.AuthoredAutoPassRate(ctx, owner, scope, "merge_to_master")
+	frozen, _, err = in.reader.AuthoredAutoPassRate(ctx, ownerReading, scope, "merge_to_master")
 	if err != nil {
 		t.Fatalf("AuthoredAutoPassRate: %v", err)
 	}

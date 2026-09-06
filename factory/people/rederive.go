@@ -9,6 +9,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -27,8 +28,8 @@ import (
 // standing holding was an obligation is not re-created here; that gap is
 // policy's type and not this package's write.
 func Rederive(ctx context.Context, pool *pgxpool.Pool, token lease.Token, reader *policy.Reader,
-	principal record.Actor) ([]string, error) {
-	newest, err := reader.Newest(ctx, principal)
+	p principal.Principal) ([]string, error) {
+	newest, err := reader.Newest(ctx, p)
 	if errors.Is(err, policy.ErrNoVersion) {
 		return nil, nil
 	}

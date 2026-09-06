@@ -38,7 +38,7 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 		t.Fatalf("Decide: %v", err)
 	}
 
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify after fire and decide: %v", err)
 	}
 
@@ -46,7 +46,7 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 	// which appends a read event ahead of the opening; Verify and this Read
 	// each append one more, so the log holds five rows and not the two this
 	// decision appended.
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestTheOpeningPayloadNamesTheValuesApplied(t *testing.T) {
 	// Fire's own check that nothing is already pending reads the log first,
 	// which appends a read event ahead of the opening; this Read appends one
 	// more, so the log holds three rows and not the one this firing appended.
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestAnIncompleteFiringIsRefused(t *testing.T) {
 		t.Errorf("Fire of a row this milestone does not build = %v, want ErrRowUnknown", err)
 	}
 
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, owner)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

@@ -265,7 +265,7 @@ func TestTheKindIsTheSeamAndThereAreThree(t *testing.T) {
 		 targets, credential, platform_name, platform_credential, can_compose_on_demand,
 		 max_concurrent_candidate_environments, item_id, composed_from, seed_version, value_set_version,
 		 torn_down_at, torn_down_reason, withdrawn_at)
-		values ('env_y', $1, 'component', 'deployer', '', $2, 'candidate', $3, 'candidate/none',
+		values ('env_y', $1, 'component', 'deployer', 'claimed', $2, 'candidate', $3, 'candidate/none',
 		 'noshare /srv', 'deploy.local', '', '', false, 0, '', '', '', '', '', '', '')`,
 		environment.FormatVersion, record.Now(), theProject); err == nil {
 		t.Error("the store accepted a candidate's environment naming no item")

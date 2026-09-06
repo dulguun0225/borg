@@ -37,14 +37,16 @@ var (
 // instance asks.
 var expired = record.FormatTime(time.Unix(0, 0))
 
-// Acquire takes the lease for instance, or reports [ErrHeld] naming the
-// current holder if another instance holds it unexpired. It seeds the single
-// row where none exists yet, so the first call in a fresh store always
-// succeeds. Where the row is absent, expired, or already held by instance,
-// it sets the holder to instance, extends expires_at by ttl from now, raises
-// number by one, and returns the new number as a [Token] — reacquiring by
-// the instance that already holds it is still a new token, the way a renewal
-// through [Renew] is not.
+// Acquire takes the lease for instance where it is unheld or expired, and
+// reports [ErrHeld] naming the current holder otherwise. Those are the two
+// conditions and there is no third: a name matching the holder's is not one,
+// because two processes started under one name are the two instances the
+// lease exists to keep from running beside each other. It seeds the single row
+// where none exists yet, so the first call in a fresh store always succeeds.
+// Where it takes the lease it sets the holder to instance, extends expires_at
+// by ttl from now, raises number by one, and returns the new number as a
+// [Token]; a holder extends its own lease through [Renew], which moves no
+// number.
 func Acquire(ctx context.Context, pool *pgxpool.Pool, instance string, ttl time.Duration) (Token, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -69,7 +71,7 @@ func Acquire(ctx context.Context, pool *pgxpool.Pool, instance string, ttl time.
 	if err != nil {
 		return 0, fmt.Errorf("lease: parsing the stored expiry: %w", err)
 	}
-	if time.Now().Before(expiry) && holder != instance {
+	if holder != "" && time.Now().Before(expiry) {
 		return 0, fmt.Errorf("%w: %q", ErrHeld, holder)
 	}
 
@@ -82,6 +84,23 @@ func Acquire(ctx context.Context, pool *pgxpool.Pool, instance string, ttl time.
 		return 0, fmt.Errorf("lease: committing: %w", err)
 	}
 	return Token(number), nil
+}
+
+// Release leaves the lease unheld, so that the next process to start acquires
+// it rather than waiting out the interval. It is what a process that stops
+// cleanly calls: ../../end-goal/one-process.md gives waiting out the interval
+// as the cost of a restart after a crash, which is the case where nothing was
+// there to call this. It moves no number, so the token it released stays a
+// token no write passes [Fence] with once anything acquires after it.
+//
+// A token that is not the lease's current number releases nothing and is not an
+// error: a stalled holder whose lease was taken has nothing left to release.
+func Release(ctx context.Context, pool *pgxpool.Pool, token Token) error {
+	if _, err := pool.Exec(ctx, `update `+Table+` set instance = '', expires_at = $1
+		where id = 1 and number = $2`, expired, int64(token)); err != nil {
+		return fmt.Errorf("lease: releasing: %w", err)
+	}
+	return nil
 }
 
 // Renew extends the lease's expiry by ttl from now, refusing with [ErrFenced]

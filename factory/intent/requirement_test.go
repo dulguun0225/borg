@@ -285,7 +285,7 @@ func TestTheStoreRefusesARequirementAroundTheWriter(t *testing.T) {
 	insert := `insert into requirement (id, format_version, actor_kind, actor_key, actor_key_basis, at,
 		intent_id, statement, pattern, escape_reason, kind, derived_from, item_id,
 		superseded_at, superseded_by, unanswerable_reason)
-		values ($1, '` + intent.FormatVersionRequirement + `', 'component', 'intake', '', $2,
+		values ($1, '` + intent.FormatVersionRequirement + `', 'component', 'intake', 'claimed', $2,
 		$3, $4, $5, $6, $7, $8, $9, $10, $11, '')`
 	for _, refused := range []struct {
 		name                                 string

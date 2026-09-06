@@ -105,7 +105,7 @@ func TestASecondChangeShips(t *testing.T) {
 
 	// The walk from the second deploy reaches the second intent and no other.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), second.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)), second.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theSecondStatement) {
@@ -331,7 +331,7 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 		t.Fatalf("approving the withdrawal: %v", err)
 	}
 	applied, err := policy.NewReader(d.pool, d.token, score.Version{}).AtGate(ctx,
-		gate.Component(gate.DeployToProduction), policy.Subjects{
+		gate.ComponentPrincipal(gate.DeployToProduction), policy.Subjects{
 			GateRow:       gate.DeployToProduction.String(),
 			EnvironmentID: res.environmentID,
 			ServiceID:     res.serviceID,

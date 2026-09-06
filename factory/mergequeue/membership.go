@@ -50,7 +50,7 @@ func (q *Queue) membership(ctx context.Context, serviceID string) (Membership, e
 	if len(atStage) == 0 {
 		return m, nil
 	}
-	approved, err := gate.ApprovalTimes(ctx, q.pool, q.token, Actor, gate.MergeToMaster)
+	approved, err := gate.ApprovalTimes(ctx, q.pool, q.token, componentPrincipal, gate.MergeToMaster)
 	if err != nil {
 		return Membership{}, err
 	}

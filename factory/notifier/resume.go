@@ -57,7 +57,7 @@ func (n *Notifier) Resume(ctx context.Context) ([]string, error) {
 // stillWaiting is every row of the log that opened and has not ended: a
 // decision with no closing and no abandonment, and a wait with no closing.
 func (n *Notifier) stillWaiting(ctx context.Context) (map[string]bool, error) {
-	rows, err := n.reader.Read(ctx, Actor)
+	rows, err := n.reader.Read(ctx, componentPrincipal)
 	if err != nil {
 		return nil, err
 	}

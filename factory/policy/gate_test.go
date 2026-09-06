@@ -26,7 +26,7 @@ func TestAGateWithNoRecordsToReadFallsBackToWhatTheScoreSupplies(t *testing.T) {
 	if _, err := in.factory.AuthorGateThreshold(ctx, owner, in.prod.ID, "merge_to_master", 0.5); err != nil {
 		t.Fatalf("AuthorGateThreshold: %v", err)
 	}
-	applied, err := in.reader.AtGate(ctx, owner, policy.Subjects{GateRow: "merge_to_master"})
+	applied, err := in.reader.AtGate(ctx, ownerReading, policy.Subjects{GateRow: "merge_to_master"})
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
-	if _, err := policy.NewReader(pool, token, score.Version{}).AtGate(ctx, owner,
+	if _, err := policy.NewReader(pool, token, score.Version{}).AtGate(ctx, ownerReading,
 		policy.Subjects{GateRow: "merge_to_master"}); !errors.Is(err, policy.ErrNoVersion) {
 		t.Errorf("AtGate on a factory nobody installed = %v, want ErrNoVersion", err)
 	}

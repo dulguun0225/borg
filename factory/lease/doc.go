@@ -5,8 +5,9 @@
 // # The code
 //
 // schema.go holds [Table] and [DDL]. lease.go holds [Token], [Acquire],
-// [Renew], and [Fence], and the three errors: [ErrHeld], returned by
-// [Acquire] against a holder that has not expired; [ErrFenced], returned by
+// [Release], [Renew], and [Fence], and the three errors: [ErrHeld], returned by
+// [Acquire] against a lease that is held and has not expired, whichever name
+// asks; [ErrFenced], returned by
 // [Renew] and by [Fence] against a token that is not the lease's current
 // number; and [ErrNoLease], returned by [Fence] where the table holds no row.
 //
@@ -17,9 +18,9 @@
 // for expires_at, and [record.FormatTime] and [record.ParseTime] to write and
 // read it.
 //
-// Who may write what: [Acquire] and [Renew] are the only writers of the
-// lease row, called once each by the process that starts and by that
-// process's own renewal pass. [Fence] never writes it; every other writer in
+// Who may write what: [Acquire], [Release] and [Renew] are the only writers of
+// the lease row — the process that starts, the same process stopping cleanly,
+// and that process's own renewal pass. [Fence] never writes it; every other writer in
 // the module calls [Fence] inside its own write transaction before the write
 // it guards, so a call whose token has lapsed commits nothing.
 //

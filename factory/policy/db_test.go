@@ -18,7 +18,7 @@ import (
 func TestAFailedWriteAppendsNoVersion(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	before, err := in.reader.Versions(ctx, owner)
+	before, err := in.reader.Versions(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Versions: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestAFailedWriteAppendsNoVersion(t *testing.T) {
 		t.Fatalf("authoring a window limit of zero = %v, want ErrNotPositive", err)
 	}
 
-	after, err := in.reader.Versions(ctx, owner)
+	after, err := in.reader.Versions(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Versions: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestEveryAuthoringWriteMovesTheVersion(t *testing.T) {
 		t.Errorf("the version in force is %s, want the newest write %s", inForce.ID, added.ID)
 	}
 
-	read, err := in.reader.Version(ctx, owner, authored.ID)
+	read, err := in.reader.Version(ctx, ownerReading, authored.ID)
 	if err != nil {
 		t.Fatalf("Version: %v", err)
 	}

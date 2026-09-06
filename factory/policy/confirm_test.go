@@ -23,7 +23,7 @@ func TestThePolicyVersionFieldsTheScoreReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfirmGateThreshold: %v", err)
 	}
-	rows, err := in.reader.Versions(ctx, owner)
+	rows, err := in.reader.Versions(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Versions: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestAFormulaChangeWaitsOnTheOwnerWhereAThresholdIsAuthored(t *testing.T) {
 	// what an upgrade's first start appends: under a changed formula the same
 	// change gets a different number.
 	scorer := score.NewWriter(in.pool, in.token, score.NoMarks{})
-	recalibrated, err := scorer.EnterShipped(ctx, record.Actor{Kind: record.KindComponent, Key: "score"}, "borg/2.0.0")
+	recalibrated, err := scorer.EnterShipped(ctx, record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed}, "borg/2.0.0")
 	if err != nil {
 		t.Fatalf("EnterShipped: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestAFormulaChangeWaitsOnTheOwnerWhereAThresholdIsAuthored(t *testing.T) {
 	}
 
 	reader := policy.NewReader(in.pool, in.token, recalibrated)
-	authored, err := reader.AtGate(ctx, owner, in.subjects("merge_to_master"))
+	authored, err := reader.AtGate(ctx, ownerReading, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestAFormulaChangeWaitsOnTheOwnerWhereAThresholdIsAuthored(t *testing.T) {
 		t.Errorf("the row waits on %q, want %q", authored.ScoreVersionWaiting, recalibrated.ID)
 	}
 
-	unauthored, err := reader.AtGate(ctx, owner, in.subjects("implementation"))
+	unauthored, err := reader.AtGate(ctx, ownerReading, in.subjects("implementation"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestAFormulaChangeWaitsOnTheOwnerWhereAThresholdIsAuthored(t *testing.T) {
 	if _, err := in.factory.ConfirmGateThreshold(ctx, owner, in.prod.ID, "merge_to_master"); err != nil {
 		t.Fatalf("ConfirmGateThreshold: %v", err)
 	}
-	confirmed, err := reader.AtGate(ctx, owner, in.subjects("merge_to_master"))
+	confirmed, err := reader.AtGate(ctx, ownerReading, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}

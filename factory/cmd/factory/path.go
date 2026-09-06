@@ -32,16 +32,16 @@ import (
 
 // The component actors of the path, named per the M1 convention.
 var (
-	scoreActor         = record.Actor{Kind: record.KindComponent, Key: "score"}
-	intakeActor        = record.Actor{Kind: record.KindComponent, Key: "intake"}
-	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
-	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
-	buildActor         = record.Actor{Kind: record.KindComponent, Key: "build"}
+	scoreActor         = record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed}
+	intakeActor        = record.Actor{Kind: record.KindComponent, Key: "intake", Basis: record.BasisClaimed}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
+	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
+	buildActor         = record.Actor{Kind: record.KindComponent, Key: "build", Basis: record.BasisClaimed}
 	// installActor is the install's first-start step, which is what enters the
 	// shipped role prompt versions: a call that authors nothing, with the
 	// factory's own start as the actor.
-	installActor = record.Actor{Kind: record.KindComponent, Key: "install"}
-	deployActor  = record.Actor{Kind: record.KindComponent, Key: "deploy"}
+	installActor = record.Actor{Kind: record.KindComponent, Key: "install", Basis: record.BasisClaimed}
+	deployActor  = record.Actor{Kind: record.KindComponent, Key: "deploy", Basis: record.BasisClaimed}
 )
 
 // The four authoring roles, each an agent rather than a component: a model in
@@ -50,19 +50,19 @@ var (
 // run — two agents on one model are one author under two actors, which is why
 // the key is the model version and not the role.
 func (p *path) specAuthorActor() record.Actor {
-	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName, Basis: record.BasisClaimed}
 }
 
 func (p *path) plannerActor() record.Actor {
-	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName, Basis: record.BasisClaimed}
 }
 
 func (p *path) taskAuthorActor() record.Actor {
-	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName, Basis: record.BasisClaimed}
 }
 
 func (p *path) implementerActor() record.Actor {
-	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName, Basis: record.BasisClaimed}
 }
 
 // path is one run's collaborators, composed once. It is also the deployer: it
@@ -235,7 +235,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 			deployed = live.ID
 		}
 	}
-	return s, walk(ctx, d.pool, d.out, d.token, p.human, deployed)
+	return s, walk(ctx, d.pool, d.out, d.token, asPrincipal(p.human), deployed)
 }
 
 // itemOfDeploy is the item a deploy's release was cut from, and empty where the

@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -46,19 +47,28 @@ func humanNamed(ctx context.Context, pool *pgxpool.Pool, token lease.Token, name
 	return record.Actor{Kind: record.KindHuman, Key: key, Basis: record.BasisClaimed}, nil
 }
 
+// asPrincipal is who a call this interface makes is made as, where the caller is
+// the human -human named: the actor [humanNamed] resolved, calling as itself.
+// Every read of the log appends a read event naming the principal, and a human
+// is dispatched to no stage, so no dispatch and no scope travel with it.
+func asPrincipal(actor record.Actor) principal.Principal {
+	return principal.OfHuman(actor.Key, actor.Basis)
+}
+
 // personKeyPrefix is what a minted per-person key is prefixed with. The key is
 // opaque and the prefix is what makes one readable as a person's key in a record
 // that holds several kinds of id.
 const personKeyPrefix = "person"
 
-// withPool opens the database, applies the schema, acquires the lease, and runs
-// one command against the pool with the token every writer and every read event
-// carries. The schema is applied here for the reason the run applies it: these
-// subcommands are the first thing an owner may reach on a fresh install, and a
-// factory whose policy tables do not exist yet cannot be authored on. The lease
-// is acquired here for the reason the run acquires it: this process reaches the
-// store for the life of the command, per ../../../end-goal/one-process.md, and a
-// held lease is a start failure.
+// withPool opens the database, acquires the lease, starts against the store's
+// schema history, and runs one command against the pool with the token every
+// writer and every read event carries. The order is the run's:
+// ../../../end-goal/one-process.md puts the lease before anything else touches
+// the store, and the schema history's own reading and the schema itself are
+// what [postgres.Start] does under it. The schema is applied here for the reason
+// the run applies it: these subcommands are the first thing an owner may reach
+// on a fresh install, and a factory whose policy tables do not exist yet cannot
+// be authored on. A held lease is a start failure.
 //
 // An error saying the factory has not been installed is answered with what to do
 // about it. The two records an owner authors on are created by the run's first
@@ -72,14 +82,14 @@ func withPool(command func(context.Context, *pgxpool.Pool, lease.Token) error) e
 		return err
 	}
 	defer pool.Close()
-	if err := postgres.Apply(ctx, pool); err != nil {
-		return err
-	}
 	token, stopLease, err := acquireLease(ctx, pool)
 	if err != nil {
 		return err
 	}
 	defer stopLease()
+	if _, err := postgres.Start(ctx, pool); err != nil {
+		return err
+	}
 	err = command(ctx, pool, token)
 	if errors.Is(err, policy.ErrNoVersion) || errors.Is(err, factorysettings.ErrNotFound) || errors.Is(err, project.ErrNotFound) {
 		return fmt.Errorf("%w\nthe factory is not installed: the run's first take creates the factory-wide settings record, the project, and production's environment, and there is nothing to author on until it has", err)

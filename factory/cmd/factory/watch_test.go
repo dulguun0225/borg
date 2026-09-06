@@ -192,7 +192,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 	// And the whole episode is readable as links: the walk from what is live now
 	// reaches the intent behind the release that is serving.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), current.ID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)), current.ID); err != nil {
 		t.Fatalf("the walk from the rollback stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {

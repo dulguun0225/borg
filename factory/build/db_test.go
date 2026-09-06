@@ -90,7 +90,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var dispatch = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+var dispatch = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 
 // draftOf is one draft naming itemID, serviceID and commit, with an artifact
 // digest every draft this file writes needs and does not otherwise care about.
@@ -149,7 +149,7 @@ func TestAnEmptyCommitHashIsRefusedTwice(t *testing.T) {
 
 	// Around the writer, the CHECK constraint is what refuses it.
 	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity)
-		values ($1, $2, 'component', 'dispatch', '', $3, $4, $5, '', 'sha256:x', '', '', '', '', '')`,
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, '', 'sha256:x', '', '', '', '', '')`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"), record.NewID("svc"))
 	if err == nil {
 		t.Error("the store accepted a build with no commit hash")
@@ -169,7 +169,7 @@ func TestAnEmptyServiceIDIsRefusedTwice(t *testing.T) {
 	}
 
 	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, declares_schema_change)
-		values ($1, $2, 'component', 'dispatch', '', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', '', false)`,
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', '', false)`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a build naming no service = %v, want a violation of service_id_present", err)

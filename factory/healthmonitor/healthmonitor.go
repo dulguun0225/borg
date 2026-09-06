@@ -15,6 +15,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -22,7 +23,11 @@ import (
 // Actor is who the health monitor's writes are made as: the analysis window it
 // opens and closes, the incident it raises, the revert intent it takes in
 // through intake, and its own last check per service.
-var Actor = record.Actor{Kind: record.KindComponent, Key: "health_monitor"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "health_monitor", Basis: record.BasisClaimed}
+
+// componentPrincipal is who this component's reads of the decision log are made
+// as: the health monitor calls as itself, and the read event names it.
+var componentPrincipal = principal.OfComponent("health_monitor")
 
 // Watching is the service one call is about: the record's id, the name — which
 // the revert intent's statement is written with, a statement naming an id being

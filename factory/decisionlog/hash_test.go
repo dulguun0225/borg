@@ -15,7 +15,7 @@ func fixedRow() Row {
 		Seq:           2,
 		ID:            "dl_00112233445566778899aabbccddeeff",
 		FormatVersion: "decision/1",
-		Actor:         record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master"},
+		Actor:         record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master", Basis: record.BasisClaimed},
 		At:            "2026-08-17T00:00:00.000000000Z",
 		Shape:         ShapeDecision,
 		Payload:       `{"verdict":"pass"}`,
@@ -31,7 +31,7 @@ func fixedRow() Row {
 // changes this value, and changing it is changing what every stored hash
 // means.
 func TestChainHashIsFixed(t *testing.T) {
-	const want = "9e07e54934f433417275eec6953300c724fa9b48ec768252eb94c900cdec4a5a"
+	const want = "192516cf838ab9bad1957f1f062e2c8908cf8951edc3c4389fe9ea7a6aefebb3"
 	if got := fixedRow().ChainHash(); got != want {
 		t.Fatalf("ChainHash() = %q, want %q", got, want)
 	}
@@ -48,7 +48,7 @@ func TestChainHashCoversEveryField(t *testing.T) {
 		"ID":             func(r *Row) { r.ID = "dl_ffeeddccbbaa99887766554433221100" },
 		"Actor.Kind":     func(r *Row) { r.Actor.Kind = record.KindHuman },
 		"Actor.Key":      func(r *Row) { r.Actor.Key = "person:abc" },
-		"Actor.Basis":    func(r *Row) { r.Actor.Basis = record.BasisClaimed },
+		"Actor.Basis":    func(r *Row) { r.Actor.Basis = record.BasisVerified },
 		"At":             func(r *Row) { r.At = "2026-08-17T00:00:00.000000001Z" },
 		"Shape":          func(r *Row) { r.Shape = ShapeWait },
 		"Payload":        func(r *Row) { r.Payload = `{"verdict":"fail"}` },

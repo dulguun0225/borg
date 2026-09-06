@@ -33,7 +33,7 @@ func TestTheStoreRefusesATimestampThatIsNotTheLayout(t *testing.T) {
 			t.Errorf("the timestamp %q was refused by %q, want %q", at, got, want)
 		}
 	}
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }
@@ -58,7 +58,7 @@ func TestOpenedInWorkAtMustBeEmptyOrTheLayout(t *testing.T) {
 		t.Fatal("a malformed OpenedInWorkAt was accepted")
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }

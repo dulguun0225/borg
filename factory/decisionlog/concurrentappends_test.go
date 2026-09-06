@@ -26,7 +26,7 @@ func TestConcurrentAppendsChainInOrder(t *testing.T) {
 			defer wg.Done()
 			for n := range each {
 				opened, err := log.AppendWaitOpen(ctx, decisionlog.Entry{
-					Actor:         record.Actor{Kind: record.KindComponent, Key: "appender"},
+					Actor:         record.Actor{Kind: record.KindComponent, Key: "appender", Basis: record.BasisClaimed},
 					Payload:       strings.Repeat("x", a) + "-" + strings.Repeat("y", n),
 					FormatVersion: "wait/1",
 				})
@@ -35,7 +35,7 @@ func TestConcurrentAppendsChainInOrder(t *testing.T) {
 					continue
 				}
 				if _, err := log.AppendWaitClose(ctx, decisionlog.Entry{
-					Actor:   record.Actor{Kind: record.KindComponent, Key: "appender"},
+					Actor:   record.Actor{Kind: record.KindComponent, Key: "appender", Basis: record.BasisClaimed},
 					Payload: "gone", FormatVersion: "wait/1", Closes: opened.ID,
 				}); err != nil {
 					failures <- err
@@ -49,10 +49,10 @@ func TestConcurrentAppendsChainInOrder(t *testing.T) {
 		t.Errorf("appending a wait: %v", err)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	rows, err := reader.Read(ctx, owner)
+	rows, err := reader.Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

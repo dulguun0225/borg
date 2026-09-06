@@ -275,13 +275,19 @@
 // Every subcommand acquires the lease before it touches the store, whether it
 // writes or only reads: a read still appends a read event, which is itself a
 // write of the log, so the one-process rule holds for the command-line interface's
-// twelve subcommands and not only for "run". acquireLease in main.go takes it
-// under this process's own instance — the machine's hostname and this
-// process's id — starts a goroutine renewing it every third of its ttl for
+// twelve subcommands and not only for "run". acquireLease in main.go applies
+// package lease's own table — the one thing created before the lease, since a
+// lease cannot be taken in a store whose lease table does not exist — takes the
+// lease under this process's own instance, the machine's hostname and this
+// process's id, starts a goroutine renewing it every third of its ttl for
 // the life of the process, and returns
 // the token every writer the composition constructs and every [decisionlog.Reader]
-// carries. A held lease is a start failure, printed on stderr naming the
-// holder, with a non-zero exit.
+// carries. [postgres.Start] runs after that, under the lease: it reads the
+// store's schema history, refuses to start against a store this version cannot
+// read, and applies the rest of the schema. A held lease is a start failure,
+// printed on stderr naming the holder, with a non-zero exit; the stop function
+// each subcommand defers releases the lease, so the next one starts rather than
+// waiting out the ttl.
 //
 // What is not built here: the fleet entry is not a record, so oneModelFleet
 // answers for every role over the whole factory and no dispatch of this

@@ -45,7 +45,7 @@ func TestConcurrentAuthoringKeepsOneChain(t *testing.T) {
 		}
 	}
 
-	if err := decisionlog.NewReader(in.pool, in.token).Verify(ctx, owner); err != nil {
+	if err := decisionlog.NewReader(in.pool, in.token).Verify(ctx, ownerReading); err != nil {
 		t.Errorf("the chain broke under concurrent authoring: %v", err)
 	}
 	newest := newestVersion(t, ctx, in)

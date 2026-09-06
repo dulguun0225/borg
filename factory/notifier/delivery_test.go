@@ -220,7 +220,7 @@ func markedWait(row, serviceID string) notifier.Wait {
 func aServiceWithNoPagingHoursNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) string {
 	t.Helper()
 	writer := service.NewWriter(pool, token)
-	svc, err := writer.Create(ctx, record.Actor{Kind: record.KindComponent, Key: "decomposition"},
+	svc, err := writer.Create(ctx, record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed},
 		"paged-service", "/srv/repository", "prj_one")
 	if err != nil {
 		t.Fatalf("creating the service: %v", err)

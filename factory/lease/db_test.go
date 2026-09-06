@@ -108,6 +108,52 @@ func TestAcquireThenARefusalWhileHeld(t *testing.T) {
 	}
 }
 
+// TestAnUnexpiredLeaseRefusesTheNameHoldingIt: the two conditions an
+// acquisition takes are unheld and expired, and the holder's own name is
+// neither. Two processes on one host under one name would otherwise both
+// start, which is the case the lease exists to refuse.
+func TestAnUnexpiredLeaseRefusesTheNameHoldingIt(t *testing.T) {
+	ctx, pool := newLease(t)
+
+	token, err := lease.Acquire(ctx, pool, "instance-a", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	if _, err := lease.Acquire(ctx, pool, "instance-a", time.Minute); !errors.Is(err, lease.ErrHeld) {
+		t.Fatalf("Acquire under the holder's own name = %v, want %v", err, lease.ErrHeld)
+	}
+
+	// The refusal moved no number, so the holder's token still fences.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		t.Errorf("Fence(token) = %v, want nil", err)
+	}
+}
+
+// TestAnExpiredLeaseIsAcquiredByTheSameInstance: the holder that let its own
+// lease lapse acquires it again the way any other starting process does, and
+// takes the next number.
+func TestAnExpiredLeaseIsAcquiredByTheSameInstance(t *testing.T) {
+	ctx, pool := newLease(t)
+
+	first, err := lease.Acquire(ctx, pool, "instance-a", -time.Second)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	second, err := lease.Acquire(ctx, pool, "instance-a", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire after its own lease lapsed: %v", err)
+	}
+	if second != first+1 {
+		t.Fatalf("Acquire = %d, want %d", second, first+1)
+	}
+}
+
 func TestAnExpiredLeaseIsAcquiredByAnotherInstance(t *testing.T) {
 	ctx, pool := newLease(t)
 
@@ -171,6 +217,47 @@ func TestRenewExtendsTheLease(t *testing.T) {
 	// instance is still refused, which is what shows the renewal took.
 	if _, err := lease.Acquire(ctx, pool, "instance-b", time.Minute); !errors.Is(err, lease.ErrHeld) {
 		t.Errorf("Acquire by another instance after Renew = %v, want %v", err, lease.ErrHeld)
+	}
+}
+
+// TestReleaseLeavesTheLeaseUnheld: a process that stops cleanly leaves the
+// lease for the next one rather than making it wait out the interval, and a
+// token that is no longer the lease's number releases nothing.
+func TestReleaseLeavesTheLeaseUnheld(t *testing.T) {
+	ctx, pool := newLease(t)
+
+	first, err := lease.Acquire(ctx, pool, "instance-a", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if err := lease.Release(ctx, pool, first); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	second, err := lease.Acquire(ctx, pool, "instance-b", time.Minute)
+	if err != nil {
+		t.Fatalf("Acquire after Release: %v", err)
+	}
+
+	// A stale token releases nothing: the holder that took the lease keeps it.
+	if err := lease.Release(ctx, pool, first); err != nil {
+		t.Fatalf("Release with a stale token: %v", err)
+	}
+	if _, err := lease.Acquire(ctx, pool, "instance-c", time.Minute); !errors.Is(err, lease.ErrHeld) {
+		t.Errorf("Acquire after a stale Release = %v, want %v", err, lease.ErrHeld)
+	}
+
+	// The released token moved no number, so it is still fenced out, and the
+	// token the second instance took is the one that passes.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lease.Fence(ctx, tx, first); !errors.Is(err, lease.ErrFenced) {
+		t.Errorf("Fence(released) = %v, want %v", err, lease.ErrFenced)
+	}
+	if err := lease.Fence(ctx, tx, second); err != nil {
+		t.Errorf("Fence(second) = %v, want nil", err)
 	}
 }
 

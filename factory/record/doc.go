@@ -6,7 +6,8 @@
 //
 // actor.go holds [Actor] — a [Kind], one of [Kinds], a key that is never
 // empty, and a [Basis], one of [Bases] — and [Actor.Validate], which refuses
-// an unknown kind, an empty key, and a basis that disagrees with the kind.
+// an unknown kind, an empty key, and a basis that is empty or is not one of
+// [Bases].
 // columns.go holds [Columns] and [Constraints], the SQL a table composes into
 // its own DDL, and [TimePattern], the CHECK a stored timestamp is matched
 // against. id.go holds [NewID], which mints an identifier under a per-table
@@ -39,6 +40,13 @@
 // name: the mapping from that key to a name is the People declaration's, kept
 // outside this chain, so that an erasure there deletes the mapping and leaves
 // the chain, its links, and its counts standing.
+//
+// The basis is carried by an actor of every kind, human, component and agent.
+// Nothing in the module writes [BasisVerified]: seam 5's enforcement is not
+// built, so every actor is written [BasisClaimed], and the design gives a
+// component no way to be verified at all — a component calls as itself, and
+// seam 5 names a check for a human at a screen and for an agent's dispatch
+// against its scope and for nothing else.
 //
 // What defines it: the actor on every gate decision, edit, approval, and undo
 // of a shipped change, its key never a name, and the basis beside it, are

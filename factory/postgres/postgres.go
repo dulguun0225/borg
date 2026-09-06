@@ -67,6 +67,20 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// ApplyLease creates package lease's own table and nothing else. It is the one
+// thing a starting process creates before it acquires the lease, because a
+// lease cannot be taken in a store whose lease table does not exist; every
+// other table is created by [Start], after the lease is held. [Apply] runs the
+// same list again, which changes nothing.
+func ApplyLease(ctx context.Context, pool *pgxpool.Pool) error {
+	for n, statement := range lease.DDL {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("postgres: applying lease statement %d: %w", n+1, err)
+		}
+	}
+	return nil
+}
+
 // Apply creates the factory's schema: every package that owns a table, in the
 // order this function names them. A package is added by writing another line
 // into the list here and nothing else — nothing is discovered and nothing
@@ -80,7 +94,9 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 //
 // Each statement is written so that applying it to a database that already has
 // it changes nothing, so Apply may run at the start of every process, one
-// process at a time. doc.go says why two at once is not the same thing.
+// process at a time — which is what the lease the process already holds when
+// [Start] calls this makes true. doc.go says why two at once is not the same
+// thing.
 func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, owner := range []struct {
 		name string

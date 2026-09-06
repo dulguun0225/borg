@@ -25,6 +25,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
@@ -34,10 +35,14 @@ import (
 
 var (
 	owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+	// ownerReading is the same owner as a principal, which is what a read of
+	// the log takes: a record names an actor and a read event names the
+	// principal that made the call.
+	ownerReading = principal.OfHuman("person:owner", record.BasisClaimed)
 	// approver is the human at a gate row that decides a withdrawal, which is
 	// routed away from whoever wrote it.
 	approver           = record.Actor{Kind: record.KindHuman, Key: "person:approver", Basis: record.BasisClaimed}
-	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
 )
 
 var credential = secretref.MustNew("deploy.local")
@@ -154,7 +159,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // newestVersion is the policy version in force, read as the owner.
 func newestVersion(t *testing.T, ctx context.Context, in installed) policy.Version {
 	t.Helper()
-	version, err := in.reader.Newest(ctx, owner)
+	version, err := in.reader.Newest(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Newest: %v", err)
 	}
@@ -189,7 +194,7 @@ func startingValue(t *testing.T, parameter gatepolicy.Parameter) float64 {
 // firing a threshold from a version its own decision row does not name.
 func scoreVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) score.Version {
 	t.Helper()
-	version, err := score.NewWriter(pool, token, score.NoMarks{}).Ensure(ctx, record.Actor{Kind: record.KindComponent, Key: "score"})
+	version, err := score.NewWriter(pool, token, score.NoMarks{}).Ensure(ctx, record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed})
 	if err != nil {
 		t.Fatalf("ensuring the score version: %v", err)
 	}

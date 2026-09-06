@@ -102,7 +102,7 @@ func (p WaitPayload) subject() subject {
 // waits its predecessor opened: what outlasts a run of the queue is a record,
 // and its speculative re-verifications are the only state that is not.
 func (q *Queue) standing(ctx context.Context) (map[subject]decisionlog.Row, error) {
-	rows, err := decisionlog.NewReader(q.pool, q.token).ByShape(ctx, Actor, decisionlog.ShapeWait)
+	rows, err := decisionlog.NewReader(q.pool, q.token).ByShape(ctx, componentPrincipal, decisionlog.ShapeWait)
 	if err != nil {
 		return nil, err
 	}

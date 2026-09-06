@@ -6,13 +6,18 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
 // Actor is who a page event is written as. The notifier delivers the wait; who
 // created it is on the wait's own record, and the page event says which wait it is
 // about rather than repeating that record's actor.
-var Actor = record.Actor{Kind: record.KindComponent, Key: "notifier"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "notifier", Basis: record.BasisClaimed}
+
+// componentPrincipal is who this component's reads of the decision log are made
+// as: the notifier calls as itself, and the read event names it.
+var componentPrincipal = principal.OfComponent("notifier")
 
 // Channel is one of the three the notifier delivers on.
 type Channel string

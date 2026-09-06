@@ -91,7 +91,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var merge = record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master"}
+var merge = record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master", Basis: record.BasisClaimed}
 
 // minting is a release of one item, with a commit of its own. Every mint here
 // names a distinct commit unless the test is about the commit.
@@ -205,7 +205,7 @@ func TestTheStoreRefusesWhatASkippedLockWouldProduce(t *testing.T) {
 // refusals are tested: the writer's checks are not what these assert.
 const insertRelease = `insert into release
 	(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, number, build_id, commit_id, item_id)
-	values ($1, $2, 'component', 'gate.merge_to_master', '', $3, $4, $5, $6, $7, $8)`
+	values ($1, $2, 'component', 'gate.merge_to_master', 'claimed', $3, $4, $5, $6, $7, $8)`
 
 // TestAnEmptyLinkIsRefusedTwice covers this package's link columns at the two
 // that every release names. An empty link names nothing, so it is refused by the

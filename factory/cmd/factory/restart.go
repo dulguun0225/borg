@@ -117,7 +117,7 @@ func (p *path) restart(ctx context.Context) error {
 		fmt.Fprintf(d.out, "Factory's restart rewrote %s to what the newest policy version names\n", one.Value.Parameter)
 	}
 
-	restored, err := people.Rederive(ctx, d.pool, d.token, p.policy, p.human)
+	restored, err := people.Rederive(ctx, d.pool, d.token, p.policy, asPrincipal(p.human))
 	if err != nil {
 		return err
 	}

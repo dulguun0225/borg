@@ -122,7 +122,7 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, owner); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("the chain does not verify after a set decision: %v", err)
 	}
 	if closing.Closes != opened.Row.ID {

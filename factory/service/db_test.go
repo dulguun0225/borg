@@ -74,7 +74,10 @@ func newWriter(t *testing.T) (context.Context, *pgxpool.Pool, *service.Writer) {
 			t.Fatalf("applying service statement %d: %v", n+1, err)
 		}
 	}
-	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
+	// The ttl is already lapsed, so a test that needs a second token over the
+	// same pool can take one: lease.Acquire takes a lease that is unheld or
+	// expired and refuses every other, whichever name asks.
+	token, err := lease.Acquire(ctx, pool, "test", -time.Second)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -95,7 +98,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var decomposition = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+var decomposition = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 // aProject stands in for a project id: this package neither imports package
@@ -247,7 +250,7 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		snapshot_retention_seconds, objective, objective_period_seconds,
 		paging_hours_start, paging_hours_end, paging_hours_zone, product_licence,
 		target_reached, instances_replaceable, rollback_path_present, emission_readable, deployer_wrote_at)
-		values ($1, '` + service.FormatVersion + `', 'component', 'decomposition', '', $2, $3, $4, $5,
+		values ($1, '` + service.FormatVersion + `', 'component', 'decomposition', 'claimed', $2, $3, $4, $5,
 		'', '', '', '',
 		'', '',
 		null, null, null, null,

@@ -24,9 +24,9 @@ const TimePattern = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z$`
 
 // Constraints is what the store refuses regardless of which writer inserted
 // the row: an actor kind outside [Kinds], an empty actor key, a basis that
-// disagrees with [Actor.Validate]'s rule — required and one of [Bases] on a
-// human, empty otherwise — an empty format version, and a timestamp that is
-// not [TimeLayout]. A table composes it among its own table constraints.
+// disagrees with [Actor.Validate]'s rule — required and one of [Bases] on an
+// actor of every kind — an empty format version, and a timestamp that is not
+// [TimeLayout]. A table composes it among its own table constraints.
 //
 // The timestamp is checked for its shape and not merely for being there,
 // because one writer following the layout is not what makes the format hold.
@@ -42,9 +42,6 @@ const TimePattern = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z$`
 // violation reads the same wherever it comes from.
 const Constraints = `constraint actor_kind_known check (actor_kind in ('human', 'component', 'agent')),
 	constraint actor_key_present check (actor_key <> ''),
-	constraint actor_key_basis_matches_kind check (
-		(actor_kind = 'human' and actor_key_basis in ('claimed', 'verified'))
-		or (actor_kind <> 'human' and actor_key_basis = '')
-	),
+	constraint actor_key_basis_known check (actor_key_basis in ('claimed', 'verified')),
 	constraint format_version_present check (format_version <> ''),
 	constraint at_is_time_layout check (at ~ '` + TimePattern + `')`

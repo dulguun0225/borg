@@ -16,7 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
-	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/release"
 )
 
@@ -27,7 +27,7 @@ import (
 // the item's gates left in the log — what each was decided over and under, the
 // number against the threshold applied, the verdict and its actor — and whether
 // the chain verifies clean, which is what M2's demonstration is read from.
-func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, token lease.Token, principal record.Actor, deployID string) error {
+func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, token lease.Token, p principal.Principal, deployID string) error {
 	dep, err := deploy.Get(ctx, pool, deployID)
 	if err != nil {
 		return err
@@ -66,7 +66,7 @@ func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, token lease.To
 	// and reading them in order is reading what the factory decided about this
 	// change and who decided it.
 	reader := decisionlog.NewReader(pool, token)
-	rows, err := reader.Read(ctx, principal)
+	rows, err := reader.Read(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func walk(ctx context.Context, pool *pgxpool.Pool, out io.Writer, token lease.To
 		return fmt.Errorf("factory: no open event in the log names item %s", it.ID)
 	}
 
-	if err := reader.Verify(ctx, principal); err != nil {
+	if err := reader.Verify(ctx, p); err != nil {
 		return err
 	}
 	fmt.Fprintln(out, "decisionlog.Verify: the chain is clean")

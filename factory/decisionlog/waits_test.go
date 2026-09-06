@@ -34,7 +34,7 @@ func TestAWaitIsTwoRows(t *testing.T) {
 		t.Errorf("the wait's closing is %+v, want part %q closing %q", closing, decisionlog.PartClose, opening.ID)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }
@@ -79,7 +79,7 @@ func TestAWaitCloseRefusesWhatItDoesNotName(t *testing.T) {
 		t.Errorf("a second closing on one wait: %v, want ErrAlreadyEnded", err)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }

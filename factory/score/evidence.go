@@ -104,7 +104,7 @@ type Evidence struct {
 func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks) (*Evidence, error) {
 	e := newEvidence()
 
-	closed, err := decisionlog.NewReader(pool, token).ClosedDecisions(ctx, component)
+	closed, err := decisionlog.NewReader(pool, token).ClosedDecisions(ctx, componentPrincipal)
 	if err != nil {
 		return nil, err
 	}

@@ -6,14 +6,14 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
-	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
-// Versions is every policy version, oldest first, read as principal. Reading
-// the log appends a read event naming that principal, which is one row per call
-// here as it is everywhere the log is read.
-func (r *Reader) Versions(ctx context.Context, principal record.Actor) ([]Version, error) {
-	rows, err := r.log.ByShape(ctx, principal, decisionlog.ShapePolicyVersion)
+// Versions is every policy version, oldest first, read as p. Reading the log
+// appends a read event naming that principal, which is one row per call here as
+// it is everywhere the log is read.
+func (r *Reader) Versions(ctx context.Context, p principal.Principal) ([]Version, error) {
+	rows, err := r.log.ByShape(ctx, p, decisionlog.ShapePolicyVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -31,8 +31,8 @@ func (r *Reader) Versions(ctx context.Context, principal record.Actor) ([]Versio
 // Newest is the policy version in force, which is the newest row of that shape.
 // A gate firing names it, so a factory with no version is [ErrNoVersion] and not
 // an empty string passed off as a version.
-func (r *Reader) Newest(ctx context.Context, principal record.Actor) (Version, error) {
-	versions, err := r.Versions(ctx, principal)
+func (r *Reader) Newest(ctx context.Context, p principal.Principal) (Version, error) {
+	versions, err := r.Versions(ctx, p)
 	if err != nil {
 		return Version{}, err
 	}
@@ -44,8 +44,8 @@ func (r *Reader) Newest(ctx context.Context, principal record.Actor) (Version, e
 
 // Version is one version by id, which is what a reader of a decision follows to
 // the policy it was decided under.
-func (r *Reader) Version(ctx context.Context, principal record.Actor, id string) (Version, error) {
-	versions, err := r.Versions(ctx, principal)
+func (r *Reader) Version(ctx context.Context, p principal.Principal, id string) (Version, error) {
+	versions, err := r.Versions(ctx, p)
 	if err != nil {
 		return Version{}, err
 	}
@@ -66,9 +66,9 @@ func (r *Reader) Version(ctx context.Context, principal record.Actor, id string)
 // that touches another parameter appends a version naming the threshold it did
 // not change and no rate beside it. The reference for a threshold in force is
 // the rate at the moment that threshold was set.
-func (r *Reader) AuthoredAutoPassRate(ctx context.Context, principal record.Actor,
+func (r *Reader) AuthoredAutoPassRate(ctx context.Context, p principal.Principal,
 	scope Scope, gateRow string) ([]AutoPassRate, bool, error) {
-	versions, err := r.Versions(ctx, principal)
+	versions, err := r.Versions(ctx, p)
 	if err != nil {
 		return nil, false, err
 	}

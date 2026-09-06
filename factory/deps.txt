@@ -13,10 +13,10 @@
 # A line beginning with "test" allows an edge that appears only in a package's
 # test imports. Every record package's database tests are in an external test
 # package and open the pool through postgres, which that package cannot import
-# itself once postgres applies its DDL — the arrangement decisionlog's line
-# has carried since M0 — so each record package has a test line naming
-# postgres. decisionlog's also names secretref, and principal for the caller
-# the resolver takes, for the demonstration that a resolved secret's value
+# itself once postgres applies its DDL, so each record package has a test line
+# naming postgres. decisionlog's is the one that does not: its tests apply
+# lease.DDL and decisionlog.DDL directly in a schema of their own, so its line
+# names secretref alone, for the demonstration that a resolved secret's value
 # reaches no record, which is the one test that needs a secret and a database
 # at once. score's names the record packages its tests
 # populate and the log its versions and its decisions are rows of. It does not
@@ -292,13 +292,21 @@
 # ../../end-goal/one-process.md is what that guards against. The edge is added
 # to each package's line as it is wired to call it, so a package's line naming
 # lease and one not yet naming it may sit side by side for a time.
+#
+# decisionlog -> principal is the read event: it names the principal and what
+# was asked for, and a principal is more than the actor a record carries — an
+# agent's dispatch and the scope it was dispatched under travel with it. Every
+# package that reads the log through decisionlog.Reader therefore imports
+# principal to say who is reading: score, policy, gate, mergequeue,
+# notifier, healthmonitor and people, beside dispatch and cmd/factory, which
+# already had the edge.
 
 record
 gatepolicy
 boundary
 exposure
 lease -> record
-decisionlog -> record lease
+decisionlog -> record lease principal
 principal -> record
 secretref -> principal
 targetseam -> principal secretref
@@ -325,15 +333,15 @@ halt -> record lease
 legalhold -> record lease
 window -> boundary gatepolicy record lease
 incident -> record lease
-people -> record lease legalhold policy
+people -> record lease legalhold policy principal
 driftdetector -> record decisionlog lastcheck
-score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease release window
-policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold project safeguard score secretref service
+score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease principal release window
+policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold principal project safeguard score secretref service
 dispatch -> agent agentrun artifact decisionlog inputmanifest intent item lease policy principal record
-gate -> area artifact criterion decisionlog environment halt intent item lease people policy record score service
-mergequeue -> build contract decisionlog environment gate halt intent item lease record release
-notifier -> decisionlog driftdetector factorysettings lastcheck lease people record service
-healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy record release service window
+gate -> area artifact criterion decisionlog environment halt intent item lease people policy principal record score service
+mergequeue -> build contract decisionlog environment gate halt intent item lease principal record release
+notifier -> decisionlog driftdetector factorysettings lastcheck lease people principal record service
+healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy principal record release service window
 contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item policy record release service window
 agent -> secretref principal
 localtarget -> principal secretref targetseam
@@ -344,7 +352,7 @@ cmd/factory -> agent agentrun area artifact boundary build driftdetector consume
 cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
 test dispatch -> postgres
-test decisionlog -> secretref principal
+test decisionlog -> secretref
 test intent -> postgres lease
 test project -> postgres lease
 test service -> postgres lease

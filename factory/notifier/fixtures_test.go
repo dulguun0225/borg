@@ -25,6 +25,7 @@ import (
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -34,7 +35,11 @@ const theOwner = "owner"
 
 // testActor is who this test's own reads and writes around the notifier are made
 // as, where the write is not the notifier's own.
-var testActor = record.Actor{Kind: record.KindComponent, Key: "test"}
+var testActor = record.Actor{Kind: record.KindComponent, Key: "test", Basis: record.BasisClaimed}
+
+// testReading is the same test actor as a principal, which is what a read of
+// the log takes.
+var testReading = principal.OfComponent("test")
 
 // theHumanOwner is the owner as a human actor, for writes the People declaration
 // takes.
@@ -136,7 +141,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // behalf.
 func readLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) []decisionlog.Row {
 	t.Helper()
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, testActor)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, testReading)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}
@@ -146,7 +151,7 @@ func readLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.
 // verifyLog fails the test if the chain does not verify, as [testActor].
 func verifyLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) {
 	t.Helper()
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, testActor); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, testReading); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
 }

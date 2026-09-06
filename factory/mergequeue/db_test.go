@@ -111,7 +111,7 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 	if payload.Reading == "" {
 		t.Error("the payload names no reading, and the rejection names which of the three it was")
 	}
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, testActor); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, testReading); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
 }

@@ -1,12 +1,11 @@
 // The database tests of this package are in decisionlog_test rather than in
 // decisionlog, so that a test reaches the store the way a caller of this
 // package would. They apply [lease.DDL] and [decisionlog.DDL] directly in a
-// schema of their own, rather than through package postgres:
-// postgres.Apply reaches nearly every package in the module, most of which
-// do not compile while record.Actor is mid-change, and this package's own
-// tests do not need any of them. postgres is where the two DDL lists are
-// composed for a real install; here they are applied the same way lease's
-// own tests apply lease.DDL.
+// schema of their own, rather than through package postgres, so that they
+// depend on this package's schema and lease's and on no other. postgres is
+// where the two DDL lists are composed for a real install; here they are
+// applied the same way lease's own tests apply lease.DDL. deps.txt records
+// that as the one record package whose test line does not name postgres.
 //
 // None of these tests skips when the database is unreachable. The milestone
 // is demonstrated by them running, so an unreachable database fails the run.
@@ -28,6 +27,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -111,8 +111,14 @@ func inSchema(t *testing.T, base, schema string) string {
 // and the notifier is the component the design names for a page event.
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:abc", Basis: record.BasisClaimed}
 var otherHuman = record.Actor{Kind: record.KindHuman, Key: "person:def", Basis: record.BasisClaimed}
-var gate = record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master"}
-var notifierActor = record.Actor{Kind: record.KindComponent, Key: "notifier"}
+
+// The same three as principals, which is what a read takes: a record names an
+// actor and a read event names the principal that made the call.
+var ownerReading = principal.OfHuman("person:abc", record.BasisClaimed)
+var otherHumanReading = principal.OfHuman("person:def", record.BasisClaimed)
+var componentReading = principal.OfComponent("gate.merge_to_master")
+var gate = record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master", Basis: record.BasisClaimed}
+var notifierActor = record.Actor{Kind: record.KindComponent, Key: "notifier", Basis: record.BasisClaimed}
 
 // insertAround writes a row without going through the writer, which is how a
 // test reaches the constraints rather than the methods. It fills the hash

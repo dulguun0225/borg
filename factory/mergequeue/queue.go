@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -19,7 +20,11 @@ import (
 // Actor is who the queue's writes are made as. The rejection row and every wait
 // it opens name it as the caller and as the actor, the design's arrangement for
 // something that happened where no gate fired.
-var Actor = record.Actor{Kind: record.KindComponent, Key: "merge_queue"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "merge_queue", Basis: record.BasisClaimed}
+
+// componentPrincipal is who this component's reads of the decision log are made
+// as: the queue calls as itself, and the read event names it.
+var componentPrincipal = principal.OfComponent("merge_queue")
 
 // healthMonitorActorKey is the key the health monitor's own actor carries,
 // spelled here rather than imported. One of the two items the halt's stop passes

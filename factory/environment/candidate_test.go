@@ -11,7 +11,7 @@ import (
 
 // deployer is the candidate kind's writer: the one component that reaches a
 // deploy target at all is the one that reaches environments.
-var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer"}
+var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer", Basis: record.BasisClaimed}
 
 // composition is what a candidate's environment was composed from: each
 // dependency at the release that was current then, and the versions of the seed

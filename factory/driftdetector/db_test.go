@@ -359,7 +359,7 @@ func TestDDLRefusesAMismatchClearedWithoutAHumanAndALastCheckUnreachedWithNoWhy(
 	_, err := pool.Exec(ctx, `insert into `+driftdetector.MismatchTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, running_build,
 		 recorded_release_id, recorded_build_id, later_agreements, cleared_at, cleared_by)
-		values ($1, $2, 'component', 'driftdetector', '', $3, $4, $5, $6, $7, $8, 0, $9, '')`,
+		values ($1, $2, 'component', 'driftdetector', 'claimed', $3, $4, $5, $6, $7, $8, 0, $9, '')`,
 		record.NewID(driftdetector.MismatchIDPrefix), driftdetector.FormatVersionMismatch, record.Now(), record.NewID("svc"), record.NewID("tgt"),
 		record.NewID("bl"), record.NewID("rel"), record.NewID("bl"), record.Now())
 	if err == nil {
@@ -369,7 +369,7 @@ func TestDDLRefusesAMismatchClearedWithoutAHumanAndALastCheckUnreachedWithNoWhy(
 	_, err = pool.Exec(ctx, `insert into `+driftdetector.LastCheckTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, target, reached, why,
 		 running_build, recorded_release_id, recorded_build_id, agreed)
-		values ($1, $2, 'component', 'driftdetector', '', $3, $4, $5, false, '', $6, $7, $8, false)`,
+		values ($1, $2, 'component', 'driftdetector', 'claimed', $3, $4, $5, false, '', $6, $7, $8, false)`,
 		record.NewID(driftdetector.LastCheckIDPrefix), driftdetector.FormatVersionLastCheck, record.Now(), record.NewID("svc"), record.NewID("tgt"),
 		record.NewID("bl"), record.NewID("rel"), record.NewID("bl"))
 	if err == nil {

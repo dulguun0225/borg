@@ -8,7 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/lease"
-	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
 // ApprovalTimes is when each item's decision at one row closed as an approval,
@@ -29,17 +29,17 @@ import (
 // bytes by decisionlog's contract, so a row in a shape this package does not know
 // is not a decision at this gate row.
 //
-// It reads the whole log through token and principal — the reader every caller
-// of the log carries and the actor its own read event names — which is what the
+// It reads the whole log through token and p — the reader every caller
+// of the log carries and the principal its own read event names — which is what the
 // merge queue's order costs: the design makes that order the item's priority
 // and then the time of the approval in the log, so the time is not a field of
 // any record and the log is where it is. What that costs grows with the log,
 // and what would remove it is an index on the log this package does not own.
-func ApprovalTimes(ctx context.Context, pool *pgxpool.Pool, token lease.Token, principal record.Actor, row Row) (map[string]string, error) {
+func ApprovalTimes(ctx context.Context, pool *pgxpool.Pool, token lease.Token, p principal.Principal, row Row) (map[string]string, error) {
 	if err := row.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, principal)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, p)
 	if err != nil {
 		return nil, err
 	}

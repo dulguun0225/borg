@@ -28,7 +28,7 @@ func TestTruncateRemovesTheOldestRowsAndKeepsTheHead(t *testing.T) {
 		t.Errorf("Truncate appended shape %q, want %q", truncation.Shape, decisionlog.ShapeTruncation)
 	}
 
-	rows, err := reader.Read(ctx, owner)
+	rows, err := reader.Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestTruncateRemovesTheOldestRowsAndKeepsTheHead(t *testing.T) {
 		}
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify after a truncation: %v", err)
 	}
 }
@@ -89,7 +89,7 @@ func TestTruncateRefusesWhileALegalHoldStands(t *testing.T) {
 
 	// Nothing was removed and nothing was appended: the refusal is before the
 	// transaction, so the row the cut named is still the row it named.
-	rows, err := reader.Read(ctx, owner)
+	rows, err := reader.Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestATruncatedTailIsNotCaughtByVerifyAlone(t *testing.T) {
 	if replacement.PrevHash != appended[len(appended)-2].Hash {
 		t.Fatalf("the replacement names predecessor %s, want the row before the removed one", replacement.PrevHash)
 	}
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify = %v; the head is anchored now, so this test has outlived the limit it records", err)
 	}
 }

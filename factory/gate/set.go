@@ -171,7 +171,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 	// what every row reads its threshold from. It is not read against a service:
 	// one decomposition changes several, and a threshold per service would make
 	// one row read two.
-	policyApplied, err := g.policy.AtGate(ctx, component(Decomposition), subjectsFor(Decomposition, f))
+	policyApplied, err := g.policy.AtGate(ctx, componentPrincipal(Decomposition), subjectsFor(Decomposition, f))
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", Decomposition, err)
 	}

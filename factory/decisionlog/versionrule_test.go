@@ -116,7 +116,7 @@ func TestOnlyADecisionsOpeningOrATruncationNamesTheVersions(t *testing.T) {
 		}
 	})
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }

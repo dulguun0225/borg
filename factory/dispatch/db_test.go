@@ -41,7 +41,7 @@ const (
 	modelName  = "vendor/test-model"
 )
 
-var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
 
 // fakeModel answers a canned reply per call, in order, and records the
 // principal and the prompt it was called with.

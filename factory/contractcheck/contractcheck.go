@@ -17,7 +17,7 @@ import (
 // Actor is who this component's writes are made as: the brownout intent and the
 // removal intent the detector takes in through intake. Every other operation here
 // reads.
-var Actor = record.Actor{Kind: record.KindComponent, Key: "contract_check"}
+var Actor = record.Actor{Kind: record.KindComponent, Key: "contract_check", Basis: record.BasisClaimed}
 
 // Candidate is the candidate one check is about: the item, the service it
 // changes, that service's name for the words a rejection is read in, the build,

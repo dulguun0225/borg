@@ -112,7 +112,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, err
 	}
 
-	applied, err := g.policy.AtGate(ctx, component(f.Row), subjects)
+	applied, err := g.policy.AtGate(ctx, componentPrincipal(f.Row), subjects)
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", f.Row, err)
 	}

@@ -33,7 +33,7 @@ import (
 
 // implementer is the actor a consumer contract version is written as: the stage
 // that derived it from the build.
-var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implementer"}
+var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implementer", Basis: record.BasisClaimed}
 
 // by is who authored the version, which for a derived consumer contract is the
 // model the implementation stage ran on.
@@ -286,7 +286,7 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 
 	insert := `insert into ` + consumercontract.Table + ` (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id,
 		artifact_id, address, producer_service, producer_service_id, interface_name, element, kind, argument)
-		values ($1, $2, 'component', 'agent.implementer', '', $3, $4, $5, $6, $7, $8, '', $9, $10, $11, '')`
+		values ($1, $2, 'component', 'agent.implementer', 'claimed', $3, $4, $5, $6, $7, $8, '', $9, $10, $11, '')`
 	for _, refused := range []struct {
 		name                                                                       string
 		item, service, artifactID, address, producer, interfaceName, element, kind string

@@ -154,7 +154,7 @@ func TestOneChangeShips(t *testing.T) {
 	// The walk alone — the walk subcommand's code — reaches the intent's
 	// statement from the deploy id, and reports the chain clean.
 	var walked bytes.Buffer
-	if err := walk(ctx, d.pool, &walked, d.token, owner(t, ctx, d.pool, d.token, d.human), c.deployID); err != nil {
+	if err := walk(ctx, d.pool, &walked, d.token, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)), c.deployID); err != nil {
 		t.Fatalf("the walk stopped: %v\noutput so far:\n%s", err, walked.String())
 	}
 	if !strings.Contains(walked.String(), theStatement) {
@@ -206,7 +206,7 @@ func TestOneChangeShips(t *testing.T) {
 		t.Fatalf("reading the score version: %v", err)
 	}
 	reader := policy.NewReader(d.pool, d.token, scoreVersion)
-	policyVersion, err := reader.Newest(ctx, owner(t, ctx, d.pool, d.token, d.human))
+	policyVersion, err := reader.Newest(ctx, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)))
 	if err != nil {
 		t.Fatalf("reading the policy version: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestOneChangeShips(t *testing.T) {
 	if _, err := score.Get(ctx, d.pool, d.token, rows[0].ScoreVersion); err != nil {
 		t.Errorf("the score version a decision names does not read back: %v", err)
 	}
-	if _, err := reader.Version(ctx, owner(t, ctx, d.pool, d.token, d.human), rows[0].PolicyVersion); err != nil {
+	if _, err := reader.Version(ctx, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)), rows[0].PolicyVersion); err != nil {
 		t.Errorf("the policy version a decision names does not read back: %v", err)
 	}
 

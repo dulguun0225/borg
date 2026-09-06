@@ -106,16 +106,23 @@ func defaultInstance() string {
 	return fmt.Sprintf("%s:%d", host, os.Getpid())
 }
 
-// acquireLease takes the lease for this process, per
-// ../../../end-goal/one-process.md: every subcommand reaches the store while it
-// runs, whether it writes or only reads — a read appends a read event, which is
-// itself a write of the log — so every subcommand acquires it before doing
-// anything else against the store. A held lease is a start failure.
+// acquireLease creates package lease's own table and takes the lease for this
+// process, per ../../../end-goal/one-process.md: every subcommand reaches the
+// store while it runs, whether it writes or only reads — a read appends a read
+// event, which is itself a write of the log — so every subcommand acquires it
+// before anything else touches the store. The lease's own table is the one
+// thing created first, because a lease cannot be taken in a store whose lease
+// table does not exist; every other table is created by [postgres.Start] after
+// this returns. A held lease is a start failure.
 //
 // It returns the token every writer and every reader below this point carries,
 // and a stop function, deferred by every caller, that ends the goroutine
-// renewing the lease every leaseRenewEvery for the life of the process.
+// renewing the lease every leaseRenewEvery and then releases the lease, so the
+// next subcommand starts rather than waiting out the ttl this one left behind.
 func acquireLease(ctx context.Context, pool *pgxpool.Pool) (lease.Token, func(), error) {
+	if err := postgres.ApplyLease(ctx, pool); err != nil {
+		return 0, nil, err
+	}
 	token, err := lease.Acquire(ctx, pool, defaultInstance(), leaseTTL)
 	if err != nil {
 		if errors.Is(err, lease.ErrHeld) {
@@ -136,7 +143,10 @@ func acquireLease(ctx context.Context, pool *pgxpool.Pool) (lease.Token, func(),
 			}
 		}
 	}()
-	return token, func() { close(stop) }, nil
+	return token, func() {
+		close(stop)
+		_ = lease.Release(context.WithoutCancel(ctx), pool, token)
+	}, nil
 }
 
 func main() {
@@ -315,14 +325,14 @@ func runCommand(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	if err := postgres.Apply(ctx, pool); err != nil {
-		return err
-	}
 	token, stopLease, err := acquireLease(ctx, pool)
 	if err != nil {
 		return err
 	}
 	defer stopLease()
+	if _, err := postgres.Start(ctx, pool); err != nil {
+		return err
+	}
 	driftStore, shut, err := openDriftDetector(ctx)
 	if err != nil {
 		return err
@@ -400,11 +410,14 @@ func walkCommand(args []string) error {
 		return err
 	}
 	defer stopLease()
+	if _, err := postgres.Start(ctx, pool); err != nil {
+		return err
+	}
 	actor, err := humanNamed(ctx, pool, token, *human)
 	if err != nil {
 		return err
 	}
-	return walk(ctx, pool, os.Stdout, token, actor, id)
+	return walk(ctx, pool, os.Stdout, token, asPrincipal(actor), id)
 }
 
 // stringList is a repeated flag whose values are read later, because reading one

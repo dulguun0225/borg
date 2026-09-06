@@ -46,7 +46,7 @@ import (
 )
 
 var (
-	theActor = record.Actor{Kind: record.KindComponent, Key: "test"}
+	theActor = record.Actor{Kind: record.KindComponent, Key: "test", Basis: record.BasisClaimed}
 	theOwner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
 	// theApprover is the human at the gate row that decides a safeguard's
 	// withdrawal, which is routed away from whoever wrote it.
@@ -303,7 +303,7 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 		t.Fatalf("minting the release: %v", err)
 	}
 	dep := shipDeploy(t, ctx, g, svc, deploy.OfRelease(rel.ID, bl.ID))
-	w, err := g.windows.Open(ctx, record.Actor{Kind: record.KindComponent, Key: "health_monitor"}, window.OpenEvent{
+	w, err := g.windows.Open(ctx, record.Actor{Kind: record.KindComponent, Key: "health_monitor", Basis: record.BasisClaimed}, window.OpenEvent{
 		DeployID: dep, ReleaseID: rel.ID, BuildID: bl.ID, ServiceID: svc.ID, PassedAvailable: true,
 		Size:                   map[gatepolicy.Quantity]float64{gatepolicy.QuantityErrorRate: 0.1},
 		Power:                  map[gatepolicy.Quantity]float64{gatepolicy.QuantityErrorRate: 0.8},

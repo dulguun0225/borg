@@ -93,7 +93,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var store = record.Actor{Kind: record.KindComponent, Key: "artifact.store"}
+var store = record.Actor{Kind: record.KindComponent, Key: "artifact.store", Basis: record.BasisClaimed}
 
 // of is the criterion's three links as most tests need them.
 var of = criterion.Of{ServiceID: "svc_a", SpecArtifactID: "art_a", ItemID: "it_a"}
@@ -177,7 +177,7 @@ func TestInsertRefusesACriterionNamingNoRequirement(t *testing.T) {
 	_, err = pool.Exec(ctx, `insert into criterion
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id,
 		sentence, pattern, no_pattern_reason, requirement_id, constraint_derived, hazard_derived)
-		values ($1, $2, 'component', 'artifact.store', '', $3, 'svc_a', 'art_a', 'it_a',
+		values ($1, $2, 'component', 'artifact.store', 'claimed', $3, 'svc_a', 'art_a', 'it_a',
 		'The system shall hold.', 'always_true', '', '', '{}', '')`,
 		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "requirement_id_present_on_a_pattern") {
@@ -252,7 +252,7 @@ func TestTheStoreRefusesAReasonMismatchInsertedAroundTheWriter(t *testing.T) {
 	_, err := pool.Exec(ctx, `insert into criterion
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id,
 		sentence, pattern, no_pattern_reason, requirement_id, constraint_derived, hazard_derived)
-		values ($1, $2, 'component', 'artifact.store', '', $3, 'svc_a', 'art_a', 'it_a',
+		values ($1, $2, 'component', 'artifact.store', 'claimed', $3, 'svc_a', 'art_a', 'it_a',
 		'The system shall hold.', 'always_true', 'a reason it must not carry', 'rq_a', '{}', '')`,
 		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now())
 	if err == nil {
@@ -289,7 +289,7 @@ func TestAnEmptyLinkIsRefusedTwice(t *testing.T) {
 	_, err = pool.Exec(ctx, `insert into criterion
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id,
 		sentence, pattern, no_pattern_reason, requirement_id, constraint_derived, hazard_derived)
-		values ($1, $2, 'component', 'artifact.store', '', $3, '', 'art_a', 'it_a',
+		values ($1, $2, 'component', 'artifact.store', 'claimed', $3, '', 'art_a', 'it_a',
 		'The system shall hold.', 'always_true', '', 'rq_a', '{}', '')`,
 		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {

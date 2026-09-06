@@ -24,6 +24,20 @@ func TestTheThreeCallersEachValidate(t *testing.T) {
 	}
 }
 
+// TestEveryKindCarriesABasis: the claimed-or-verified field is on every actor,
+// so the two constructors that supply the key themselves supply a basis with
+// it, and nothing here writes verified.
+func TestEveryKindCarriesABasis(t *testing.T) {
+	for _, p := range []principal.Principal{
+		principal.OfComponent("deployer"),
+		principal.OfAgent("model/1", "dsp_one", "the item's own repository"),
+	} {
+		if p.Actor.Basis != record.BasisClaimed {
+			t.Errorf("%s carries basis %q, want %q", p, p.Actor.Basis, record.BasisClaimed)
+		}
+	}
+}
+
 // TestOnlyAnAgentCarriesADispatch: the scope travels with an agent's calls and
 // with nobody else's, so a component or a human carrying one is refused rather
 // than recorded as though a scope had been checked.

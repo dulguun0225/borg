@@ -66,21 +66,20 @@ func newOwner(t *testing.T) (context.Context, *pgxpool.Pool) {
 	return ctx, pool
 }
 
-// testToken acquires the lease as the instance a subcommand called later in the
-// same process acquires it as, so a fixture's own write and a subcommand's
-// withPool re-acquiring afterward are the same instance reacquiring rather than
-// two instances disagreeing over who holds it.
-// testToken is the lease this test holds, acquired once and answered again on
-// every call. Acquiring twice takes the lease a second time and fences the first
-// token out, so a test that took one per write would refuse its own second
-// write — which is what the one-process rule does to two processes and not what
-// any of these tests is about.
+// testToken is the lease this test holds for its own fixture writes, acquired
+// once and answered again on every call. It is taken with a ttl already lapsed:
+// a subcommand called later in the same test acquires the lease for itself, and
+// lease.Acquire takes one that is unheld or expired and refuses every other,
+// whichever name asks. Acquiring twice takes the lease a second time and fences
+// the first token out, so a fixture write made after a subcommand has run is
+// refused — which is the one-process rule and not what any of these tests is
+// about.
 func testToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool) lease.Token {
 	t.Helper()
 	if held, taken := tokens[pool]; taken {
 		return held
 	}
-	token, err := lease.Acquire(ctx, pool, defaultInstance(), time.Minute)
+	token, err := lease.Acquire(ctx, pool, defaultInstance(), -time.Second)
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
@@ -118,13 +117,13 @@ func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.
 func policyVersions(t *testing.T, ctx context.Context, pool *pgxpool.Pool) ([]policy.Version, error) {
 	t.Helper()
 	// The lease is taken again rather than reused: each subcommand takes one of
-	// its own for the life of the command, so the token this test held before
-	// they ran is fenced out by the last of them.
-	token, err := lease.Acquire(ctx, pool, defaultInstance(), time.Minute)
+	// its own for the life of the command and releases it when it ends, so the
+	// token this test held before they ran is fenced out by the last of them.
+	token, err := lease.Acquire(ctx, pool, defaultInstance(), -time.Second)
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
-	return policy.NewReader(pool, token, score.Version{}).Versions(ctx, owner(t, ctx, pool, token, "owner"))
+	return policy.NewReader(pool, token, score.Version{}).Versions(ctx, asPrincipal(owner(t, ctx, pool, token, "owner")))
 }
 
 func decomposeService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) service.Service {

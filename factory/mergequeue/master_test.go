@@ -248,7 +248,7 @@ func TestAHumanAcceptsACommitTheQueueDidNotMake(t *testing.T) {
 	if closed[0].Actor != owner {
 		t.Errorf("the closing was written as %+v, want the human who accepted", closed[0].Actor)
 	}
-	if err := decisionlog.NewReader(pool, token).Verify(ctx, testActor); err != nil {
+	if err := decisionlog.NewReader(pool, token).Verify(ctx, testReading); err != nil {
 		t.Errorf("the chain does not verify: %v", err)
 	}
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -37,13 +38,16 @@ import (
 const serviceID = "svc_00000000000000000000000000000000"
 
 var (
-	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
-	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
-	detectorActor      = record.Actor{Kind: record.KindComponent, Key: "constraints_pass"}
-	healthMonitorActor = record.Actor{Kind: record.KindComponent, Key: "health_monitor"}
-	buildRunnerActor   = record.Actor{Kind: record.KindComponent, Key: "build_runner"}
+	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
+	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
+	detectorActor      = record.Actor{Kind: record.KindComponent, Key: "constraints_pass", Basis: record.BasisClaimed}
+	healthMonitorActor = record.Actor{Kind: record.KindComponent, Key: "health_monitor", Basis: record.BasisClaimed}
+	buildRunnerActor   = record.Actor{Kind: record.KindComponent, Key: "build_runner", Basis: record.BasisClaimed}
 	owner              = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
-	testActor          = record.Actor{Kind: record.KindComponent, Key: "test"}
+	testActor          = record.Actor{Kind: record.KindComponent, Key: "test", Basis: record.BasisClaimed}
+	// testReading is the same test actor as a principal, which is what a read
+	// of the log takes.
+	testReading = principal.OfComponent("test")
 )
 
 // fakeRepository answers every operation on master and on a candidate's
@@ -351,7 +355,7 @@ func built(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.To
 // test's own.
 func readLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) []decisionlog.Row {
 	t.Helper()
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, testActor)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, testReading)
 	if err != nil {
 		t.Fatalf("reading the log: %v", err)
 	}

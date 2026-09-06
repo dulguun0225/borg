@@ -368,7 +368,7 @@ func (w *Writer) append(ctx context.Context, actor record.Actor,
 
 // versions is every score version in the log, oldest first.
 func versions(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]Version, error) {
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, componentPrincipal)
 	if err != nil {
 		return nil, err
 	}

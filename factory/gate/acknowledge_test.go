@@ -33,7 +33,7 @@ func TestAcknowledgeAppendsAndRefusesANonHuman(t *testing.T) {
 		t.Errorf("the acknowledgement's actor is %+v, want %+v", row.Actor, owner)
 	}
 
-	component := record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master"}
+	component := record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master", Basis: record.BasisClaimed}
 	if _, err := g.Acknowledge(ctx, opened, component); !errors.Is(err, decisionlog.ErrAcknowledgementNotHuman) {
 		t.Errorf("Acknowledge by a component = %v, want ErrAcknowledgementNotHuman", err)
 	}

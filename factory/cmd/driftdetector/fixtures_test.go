@@ -36,7 +36,7 @@ import (
 
 // testActor is who these tests write the factory's records as, a component
 // like any other actor here — nothing in these tests is a human's act.
-var testActor = record.Actor{Kind: record.KindComponent, Key: "test"}
+var testActor = record.Actor{Kind: record.KindComponent, Key: "test", Basis: record.BasisClaimed}
 
 // testServiceName is the one service these tests write.
 const testServiceName = "demo"

@@ -83,7 +83,7 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var store = record.Actor{Kind: record.KindComponent, Key: "artifact.store"}
+var store = record.Actor{Kind: record.KindComponent, Key: "artifact.store", Basis: record.BasisClaimed}
 
 func simpleDraft() screenstatemachine.Draft {
 	return screenstatemachine.Draft{
@@ -196,7 +196,7 @@ func TestDDLRefusesAnEmptyRequiredColumn(t *testing.T) {
 	_, err := pool.Exec(ctx, `insert into `+screenstatemachine.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id,
 		screen, supersedes, initial, states, events, transitions, terminal)
-		values ($1, $2, 'component', 'artifact.store', '', $3, '', 'art_a', 'it_a',
+		values ($1, $2, 'component', 'artifact.store', 'claimed', $3, '', 'art_a', 'it_a',
 		'ssm_x', '', 'empty', '{empty}', '{}', '[]', '{}')`,
 		record.NewID(screenstatemachine.IDPrefix), screenstatemachine.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {

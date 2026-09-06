@@ -257,7 +257,7 @@ type verdicts struct {
 // to resolve, and rejection.go is where it does.
 func (s *Score) humanVerdicts(ctx context.Context, wanted func(OpenEvent) bool) (verdicts, error) {
 	var counted verdicts
-	closed, err := decisionlog.NewReader(s.pool, s.token).ClosedDecisions(ctx, component)
+	closed, err := decisionlog.NewReader(s.pool, s.token).ClosedDecisions(ctx, componentPrincipal)
 	if err != nil {
 		return counted, err
 	}

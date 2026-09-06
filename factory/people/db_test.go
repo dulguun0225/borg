@@ -26,6 +26,7 @@ import (
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -33,6 +34,10 @@ import (
 // owner is the one writer of declarations, the way doc.go names it: a human,
 // and never a component.
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+
+// ownerReading is the same owner as a principal, which is what a read of the
+// log takes.
+var ownerReading = principal.OfHuman("person:owner", record.BasisClaimed)
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token, *people.Writer) {
 	t.Helper()
@@ -120,7 +125,7 @@ func TestDeclaringADutyAndAnObligationReadBackAsHolding(t *testing.T) {
 
 func TestAComponentActorIsRefused(t *testing.T) {
 	ctx, pool, _, w := newTable(t)
-	component := record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+	component := record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 
 	if _, err := w.Declare(ctx, component, "hk_alice", people.OfDuty(1)); !errors.Is(err, people.ErrNotAnOwner) {
 		t.Errorf("Declare by a component = %v, want ErrNotAnOwner", err)
@@ -130,7 +135,7 @@ func TestAComponentActorIsRefused(t *testing.T) {
 	_, err := pool.Exec(ctx, `insert into `+people.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
 		 credential_account, spend_ceiling, withdrawn_at)
-		values ($1, $2, 'component', 'dispatch', '', $3, 'hk_alice', 1, '', '', 0, '')`,
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, 'hk_alice', 1, '', '', 0, '')`,
 		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now())
 	if err == nil {
 		t.Error("the store accepted a declaration written by a component")
@@ -347,7 +352,7 @@ func TestDeclareAppendsAPolicyVersionBeforeTheDeclaration(t *testing.T) {
 	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfDuty(4)); err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
-	newest, err := reader.Newest(ctx, owner)
+	newest, err := reader.Newest(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Newest: %v", err)
 	}
@@ -392,7 +397,7 @@ func TestRederiveWritesBackADutyTheVersionNamesThatTheTableLost(t *testing.T) {
 		t.Fatalf("the row survived the direct delete: holders %v, err %v", holders, err)
 	}
 
-	rewritten, err := people.Rederive(ctx, pool, token, reader, owner)
+	rewritten, err := people.Rederive(ctx, pool, token, reader, ownerReading)
 	if err != nil {
 		t.Fatalf("Rederive: %v", err)
 	}
@@ -408,7 +413,7 @@ func TestRederiveWritesBackADutyTheVersionNamesThatTheTableLost(t *testing.T) {
 	}
 
 	// A re-derivation that finds the table already agreeing writes nothing.
-	again, err := people.Rederive(ctx, pool, token, reader, owner)
+	again, err := people.Rederive(ctx, pool, token, reader, ownerReading)
 	if err != nil {
 		t.Fatalf("Rederive again: %v", err)
 	}

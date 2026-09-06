@@ -27,7 +27,7 @@ func TestSchemaAppliesTwice(t *testing.T) {
 func TestVerifyOfAnEmptyLogSucceeds(t *testing.T) {
 	ctx, pool, _, token := newLog(t)
 	reader := decisionlog.NewReader(pool, token)
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("an empty log does not verify: %v", err)
 	}
 }
@@ -68,28 +68,28 @@ func TestTheTenShapesChainUnbroken(t *testing.T) {
 		t.Fatalf("AppendReworkRequest: %v", err)
 	}
 	rejection, err := log.AppendQueueRejection(ctx, decisionlog.Entry{
-		Actor:   record.Actor{Kind: record.KindComponent, Key: "mergequeue"},
+		Actor:   record.Actor{Kind: record.KindComponent, Key: "mergequeue", Basis: record.BasisClaimed},
 		Payload: `{"reading":"no longer passes"}`, FormatVersion: "queue_rejection/1",
 	})
 	if err != nil {
 		t.Fatalf("AppendQueueRejection: %v", err)
 	}
 	policyVersion, err := log.AppendPolicyVersion(ctx, decisionlog.Entry{
-		Actor: record.Actor{Kind: record.KindComponent, Key: "factory"}, Payload: `{"changed":"threshold"}`,
+		Actor: record.Actor{Kind: record.KindComponent, Key: "factory", Basis: record.BasisClaimed}, Payload: `{"changed":"threshold"}`,
 		FormatVersion: "policy_version/1",
 	})
 	if err != nil {
 		t.Fatalf("AppendPolicyVersion: %v", err)
 	}
 	scoreVersion, err := log.AppendScoreVersion(ctx, decisionlog.Entry{
-		Actor: record.Actor{Kind: record.KindComponent, Key: "score"}, Payload: `{"moved":"factor"}`,
+		Actor: record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed}, Payload: `{"moved":"factor"}`,
 		FormatVersion: "score_version/1",
 	})
 	if err != nil {
 		t.Fatalf("AppendScoreVersion: %v", err)
 	}
 	install, err := log.AppendInstallEvent(ctx, decisionlog.Entry{
-		Actor: record.Actor{Kind: record.KindComponent, Key: "first-start"}, Payload: `{"event":"upgrade","version":"1.2.3"}`,
+		Actor: record.Actor{Kind: record.KindComponent, Key: "first-start", Basis: record.BasisClaimed}, Payload: `{"event":"upgrade","version":"1.2.3"}`,
 		FormatVersion: "install_event/1",
 	})
 	if err != nil {
@@ -109,10 +109,10 @@ func TestTheTenShapesChainUnbroken(t *testing.T) {
 		t.Fatalf("AppendDecisionClose: %v", err)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	rows, err := reader.Read(ctx, owner)
+	rows, err := reader.Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestATamperedRowIsNamed(t *testing.T) {
 		t.Fatalf("the tampering changed %d rows, want 1", tag.RowsAffected())
 	}
 
-	broken := brokenBy(t, reader.Verify(ctx, owner))
+	broken := brokenBy(t, reader.Verify(ctx, ownerReading))
 	if broken.Row.Seq != middle.Seq {
 		t.Errorf("Verify names row %d, the tampered row is %d", broken.Row.Seq, middle.Seq)
 	}
@@ -216,7 +216,7 @@ func TestARemovedRowIsNamed(t *testing.T) {
 		t.Fatalf("removing row %d: %v", appended[1].Seq, err)
 	}
 
-	broken := brokenBy(t, reader.Verify(ctx, owner))
+	broken := brokenBy(t, reader.Verify(ctx, ownerReading))
 	if broken.Row.Seq != appended[2].Seq {
 		t.Errorf("Verify names row %d, want the row after the removed one, %d", broken.Row.Seq, appended[2].Seq)
 	}
@@ -258,7 +258,7 @@ func appendThreeOpenings(ctx context.Context, t *testing.T, log *decisionlog.Wri
 		}
 		appended = append(appended, row)
 	}
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("the chain is broken before anything tampered with it: %v", err)
 	}
 	return appended

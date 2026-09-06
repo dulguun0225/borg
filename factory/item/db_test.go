@@ -91,14 +91,14 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
+var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
 
 // oneProject is the project both the area and the service of a fixture item are
 // in. Create compares the two rather than storing either, so a test that gives
 // one value twice is an item whose area lies inside its service's project.
 const oneProject = "pr_00000000000000000000000000000000"
 
-var dispatchActor = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+var dispatchActor = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 
 // oneItem is an item freshly decomposed, for the tests that need one to advance or
 // report against.

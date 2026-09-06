@@ -22,7 +22,7 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-var logActor = record.Actor{Kind: record.KindComponent, Key: "test"}
+var logActor = record.Actor{Kind: record.KindComponent, Key: "test", Basis: record.BasisClaimed}
 
 // newFactoryPool is the factory's own store, on a schema of its own with
 // the whole factory schema applied, and the token every write here fences

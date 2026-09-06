@@ -18,11 +18,14 @@ import (
 func TestAFenceWithAStaleTokenRefusesTheAppend(t *testing.T) {
 	ctx, pool, _, staleToken := newLog(t)
 
-	// The same instance reacquires the lease, which lease.Acquire treats as
-	// a fresh acquisition and not a renewal: the number rises, and the token
+	// The holder releases the lease and another instance takes it, which is
+	// what a start after a clean stop is: the number rises, and the token
 	// newLog's writer holds is no longer current.
-	if _, err := lease.Acquire(ctx, pool, "test", time.Minute); err != nil {
-		t.Fatalf("reacquiring the lease: %v", err)
+	if err := lease.Release(ctx, pool, staleToken); err != nil {
+		t.Fatalf("releasing the lease: %v", err)
+	}
+	if _, err := lease.Acquire(ctx, pool, "another", time.Minute); err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
 	}
 
 	stale := decisionlog.NewWriter(pool, staleToken)
@@ -32,7 +35,7 @@ func TestAFenceWithAStaleTokenRefusesTheAppend(t *testing.T) {
 		t.Errorf("appending with a stale token: %v, want %v", err, lease.ErrFenced)
 	}
 
-	rows, err := decisionlog.NewReader(pool, currentLeaseNumber(t, ctx, pool)).Read(ctx, owner)
+	rows, err := decisionlog.NewReader(pool, currentLeaseNumber(t, ctx, pool)).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

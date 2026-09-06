@@ -28,7 +28,7 @@ import (
 
 // dispatcher is the actor every test writes as: dispatch as a component is
 // not built, so the caller that performed the run stands in for it.
-var dispatcher = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
+var dispatcher = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *agentrun.Writer) {
 	t.Helper()

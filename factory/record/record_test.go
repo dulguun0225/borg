@@ -16,18 +16,21 @@ func TestActorValidate(t *testing.T) {
 	}{
 		{"human claimed", Actor{Kind: KindHuman, Key: "p_abc123", Basis: BasisClaimed}, nil},
 		{"human verified", Actor{Kind: KindHuman, Key: "p_abc123", Basis: BasisVerified}, nil},
-		{"component", Actor{Kind: KindComponent, Key: "gate.merge"}, nil},
-		{"agent", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8"}, nil},
+		{"component claimed", Actor{Kind: KindComponent, Key: "gate.merge", Basis: BasisClaimed}, nil},
+		{"agent claimed", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8", Basis: BasisClaimed}, nil},
+		{"agent verified", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8", Basis: BasisVerified}, nil},
 		{"empty actor", Actor{}, ErrKindUnknown},
 		{"empty kind", Actor{Key: "owner"}, ErrKindUnknown},
 		{"unknown kind", Actor{Kind: "robot", Key: "owner"}, ErrKindUnknown},
 		{"empty key human", Actor{Kind: KindHuman, Basis: BasisClaimed}, ErrKeyEmpty},
-		{"empty key component", Actor{Kind: KindComponent}, ErrKeyEmpty},
-		{"empty key agent", Actor{Kind: KindAgent}, ErrKeyEmpty},
+		{"empty key component", Actor{Kind: KindComponent, Basis: BasisClaimed}, ErrKeyEmpty},
+		{"empty key agent", Actor{Kind: KindAgent, Basis: BasisClaimed}, ErrKeyEmpty},
 		{"human no basis", Actor{Kind: KindHuman, Key: "p_abc123"}, ErrBasisEmpty},
+		{"component no basis", Actor{Kind: KindComponent, Key: "gate.merge"}, ErrBasisEmpty},
+		{"agent no basis", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8"}, ErrBasisEmpty},
 		{"human unknown basis", Actor{Kind: KindHuman, Key: "p_abc123", Basis: "guessed"}, ErrBasisUnknown},
-		{"component with basis", Actor{Kind: KindComponent, Key: "gate.merge", Basis: BasisClaimed}, ErrBasisNotEmpty},
-		{"agent with basis", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8", Basis: BasisVerified}, ErrBasisNotEmpty},
+		{"component unknown basis", Actor{Kind: KindComponent, Key: "gate.merge", Basis: "guessed"}, ErrBasisUnknown},
+		{"agent unknown basis", Actor{Kind: KindAgent, Key: "anthropic/claude-opus-4.8", Basis: "guessed"}, ErrBasisUnknown},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

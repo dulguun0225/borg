@@ -15,7 +15,7 @@ import (
 func TestInstallIsTheRecordsAnOwnerAuthorsOnAndIsIdempotent(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	versions, err := in.reader.Versions(ctx, owner)
+	versions, err := in.reader.Versions(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Versions: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestAVersionIsARowOfTheLog(t *testing.T) {
 		t.Fatalf("AuthorWindowLimit: %v", err)
 	}
 
-	rows, err := decisionlog.NewReader(in.pool, in.token).ByShape(ctx, owner, decisionlog.ShapePolicyVersion)
+	rows, err := decisionlog.NewReader(in.pool, in.token).ByShape(ctx, ownerReading, decisionlog.ShapePolicyVersion)
 	if err != nil {
 		t.Fatalf("ByShape: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestAVersionIsARowOfTheLog(t *testing.T) {
 	if !found {
 		t.Errorf("no policy version row of the log has the id %s the write returned", version.ID)
 	}
-	if err := decisionlog.NewReader(in.pool, in.token).Verify(ctx, owner); err != nil {
+	if err := decisionlog.NewReader(in.pool, in.token).Verify(ctx, ownerReading); err != nil {
 		t.Errorf("the chain does not hold with the versions in it: %v", err)
 	}
 }

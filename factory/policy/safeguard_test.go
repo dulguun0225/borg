@@ -64,7 +64,7 @@ func TestASafeguardNeverWidens(t *testing.T) {
 func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	before, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
+	before, err := in.reader.AtGate(ctx, ownerReading, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 
-	after, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
+	after, err := in.reader.AtGate(ctx, ownerReading, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 
 	// The other row has no safeguard: a safeguard on a gate row reaches that row
 	// and no other.
-	elsewhere, err := in.reader.AtGate(ctx, owner, in.subjects("merge_to_master"))
+	elsewhere, err := in.reader.AtGate(ctx, ownerReading, in.subjects("merge_to_master"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 	if err != nil {
 		t.Fatalf("WriteSafeguardWithdrawal: %v", err)
 	}
-	pending, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
+	pending, err := in.reader.AtGate(ctx, ownerReading, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 	if _, err := in.factory.ApproveSafeguardWithdrawal(ctx, approver, written.ID); err != nil {
 		t.Fatalf("ApproveSafeguardWithdrawal: %v", err)
 	}
-	withdrawn, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))
+	withdrawn, err := in.reader.AtGate(ctx, ownerReading, in.subjects("deploy_to_production"))
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestASafeguardOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 
 	subjects := in.subjects("merge_to_master")
 	subjects.AreaID = inner.ID
-	applied, err := in.reader.AtGate(ctx, owner, subjects)
+	applied, err := in.reader.AtGate(ctx, ownerReading, subjects)
 	if err != nil {
 		t.Fatalf("AtGate: %v", err)
 	}

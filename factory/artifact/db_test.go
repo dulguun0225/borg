@@ -104,9 +104,9 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-var specAuthor = record.Actor{Kind: record.KindComponent, Key: "agent.spec_author"}
-var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implementer"}
-var factoryStart = record.Actor{Kind: record.KindComponent, Key: "factory.start"}
+var specAuthor = record.Actor{Kind: record.KindComponent, Key: "agent.spec_author", Basis: record.BasisClaimed}
+var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implementer", Basis: record.BasisClaimed}
+var factoryStart = record.Actor{Kind: record.KindComponent, Key: "factory.start", Basis: record.BasisClaimed}
 
 // modelVersion is the author both roles write as here, which is the point of the
 // field: the prior is kept per model version, so two agents in two roles on one
@@ -325,7 +325,7 @@ func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
 		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
 		input_manifest_id)
-		values ($1, $2, 'component', 'agent.implementer', '', $3, 'it_a', '', '', 'implementation', 1,
+		values ($1, $2, 'component', 'agent.implementer', 'claimed', $3, 'it_a', '', '', 'implementation', 1,
 		'', 'reviewer', 'claude-opus-5', 'a commit', 'x', '', '', '')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil {
@@ -350,7 +350,7 @@ func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
 		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
 		input_manifest_id)
-		values ($1, $2, 'component', 'agent.implementer', '', $3, '', '', '', 'implementation', 1,
+		values ($1, $2, 'component', 'agent.implementer', 'claimed', $3, '', '', '', 'implementation', 1,
 		'', 'agent', 'claude-opus-5', 'a commit', 'x', '', '', '')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "chain_key_matches_kind") {
@@ -375,7 +375,7 @@ func TestAVersionWithNoAuthorIsRefusedTwice(t *testing.T) {
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
 		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
 		input_manifest_id)
-		values ($1, $2, 'component', 'agent.implementer', '', $3, 'it_a', '', '', 'implementation', 1,
+		values ($1, $2, 'component', 'agent.implementer', 'claimed', $3, 'it_a', '', '', 'implementation', 1,
 		'', 'agent', '', 'a commit', 'x', '', '', '')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "author_pair_together") {

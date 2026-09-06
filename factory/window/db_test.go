@@ -33,7 +33,7 @@ import (
 )
 
 // healthMonitor is the one writer of analysis windows, the way doc.go names it.
-var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health_monitor"}
+var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health_monitor", Basis: record.BasisClaimed}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *window.Writer, lease.Token) {
 	t.Helper()

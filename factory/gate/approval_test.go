@@ -52,7 +52,7 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 	// A row in a shape this package cannot read is skipped rather than returned as
 	// an error, the way every other reader of this log treats one.
 	if _, err := decisionlog.NewWriter(pool, token).AppendDecisionOpen(ctx, decisionlog.Entry{
-		Actor:         record.Actor{Kind: record.KindComponent, Key: "gate.some_other_gate"},
+		Actor:         record.Actor{Kind: record.KindComponent, Key: "gate.some_other_gate", Basis: record.BasisClaimed},
 		Payload:       "a payload this package has no shape for",
 		FormatVersion: "decision/1",
 		PolicyVersion: testPolicyVersion,
@@ -61,7 +61,7 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 		t.Fatalf("appending the unreadable open event: %v", err)
 	}
 
-	times, err := gate.ApprovalTimes(ctx, pool, token, owner, gate.MergeToMaster)
+	times, err := gate.ApprovalTimes(ctx, pool, token, ownerReading, gate.MergeToMaster)
 	if err != nil {
 		t.Fatalf("ApprovalTimes: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 		t.Errorf("ApprovalTimes names %s, which was rejected at that row", rejectedItem)
 	}
 
-	if _, err := gate.ApprovalTimes(ctx, pool, token, owner, gate.Of(gate.Kind("some_other_row"))); !errors.Is(err, gate.ErrRowUnknown) {
+	if _, err := gate.ApprovalTimes(ctx, pool, token, ownerReading, gate.Of(gate.Kind("some_other_row"))); !errors.Is(err, gate.ErrRowUnknown) {
 		t.Errorf("ApprovalTimes at a row this package does not fire = %v, want ErrRowUnknown", err)
 	}
 }

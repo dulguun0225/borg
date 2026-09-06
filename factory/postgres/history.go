@@ -154,10 +154,10 @@ var HistoryDDL = []string{
 // widen the store, a change this version declares that the history holds under
 // another checksum, and a removal declared with no snapshot named.
 //
-// Which caller is not built: the install's first-start step, which is what calls
-// this and then writes the install event naming what it applied and, at a
-// removal, the snapshot standing for the version before. The command-line
-// interface calls [Apply] today and takes no reading of the history.
+// The command-line interface calls this at every start, once it holds the
+// lease. What is not built is the rest of the install's first-start step: the
+// install event naming what this returns and, at a removal, the snapshot
+// standing for the version before.
 func Start(ctx context.Context, pool *pgxpool.Pool) ([]Change, error) {
 	for n, statement := range HistoryDDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {

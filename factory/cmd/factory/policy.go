@@ -86,7 +86,7 @@ func policyCommand(args []string) error {
 			return err
 		}
 		reader := policy.NewReader(pool, token, scoreVersion)
-		version, err := reader.Newest(ctx, actor)
+		version, err := reader.Newest(ctx, asPrincipal(actor))
 		if err != nil {
 			return err
 		}

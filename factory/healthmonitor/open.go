@@ -61,7 +61,7 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 	if err != nil {
 		return window.Window{}, false, err
 	}
-	version, err := h.policy.Newest(ctx, Actor)
+	version, err := h.policy.Newest(ctx, componentPrincipal)
 	if err != nil {
 		return window.Window{}, false, err
 	}

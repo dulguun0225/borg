@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -77,7 +78,7 @@ type Score interface {
 // the firing is decided under, the two sample rates, and the attempt limit.
 // Package policy is the implementation.
 type Policy interface {
-	AtGate(ctx context.Context, principal record.Actor, s policy.Subjects) (policy.Applied, error)
+	AtGate(ctx context.Context, p principal.Principal, s policy.Subjects) (policy.Applied, error)
 	// HeldOutSampleRate is how often the score auto-passes a change it would
 	// have gated, a field of the factory-wide settings record with a safeguard
 	// as a ceiling over it.
@@ -259,11 +260,22 @@ func New(c Composition) *Gate {
 // package — the item goes back to a stage — and whatever performs that has to
 // name the same actor the close event does.
 func Component(row Row) record.Actor {
-	return record.Actor{Kind: record.KindComponent, Key: "gate." + row.String()}
+	return record.Actor{Kind: record.KindComponent, Key: "gate." + row.String(), Basis: record.BasisClaimed}
 }
 
 // component is [Component], for this package's own calls.
 func component(row Row) record.Actor { return Component(row) }
+
+// ComponentPrincipal is who a read made on behalf of that gate row is made as:
+// the gate component, calling as itself. It is the principal beside
+// [Component]'s actor, because a read event names the principal and a record
+// names the actor, and it is exported for the reason [Component] is.
+func ComponentPrincipal(row Row) principal.Principal {
+	return principal.OfComponent("gate." + row.String())
+}
+
+// componentPrincipal is [ComponentPrincipal], for this package's own calls.
+func componentPrincipal(row Row) principal.Principal { return ComponentPrincipal(row) }
 
 // stops reports whether the intent's state stops every component that could move
 // the item. The four are the design's own list, and refined and delivered are

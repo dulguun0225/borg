@@ -392,7 +392,7 @@ func TestEventsForSkipsAPayloadItCannotRead(t *testing.T) {
 	ctx, pool, token, n, _ := newNotifier(t)
 
 	if _, err := decisionlog.NewWriter(pool, token).AppendPageEvent(ctx, decisionlog.Entry{
-		Actor:         record.Actor{Kind: record.KindComponent, Key: "some.other.notifier"},
+		Actor:         record.Actor{Kind: record.KindComponent, Key: "some.other.notifier", Basis: record.BasisClaimed},
 		Payload:       "a payload this package has no shape for",
 		FormatVersion: notifier.PageEventFormatVersion,
 	}); err != nil {

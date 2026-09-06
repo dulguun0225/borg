@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -234,11 +235,13 @@ func (f *Factory) author(ctx context.Context, actor record.Actor, parameter gate
 	})
 }
 
-// newest is the version in force, read as the actor making the write. Reading
-// the log appends a read event, so an owner write is a read event, a version,
-// and the field it authored.
+// newest is the version in force, read as the actor making the write, calling
+// as itself. Reading the log appends a read event, so an owner write is a read
+// event, a version, and the field it authored. No dispatch and no scope travel
+// with it: what this package writes is authored by a human and by nothing that
+// was dispatched to a stage.
 func (f *Factory) newest(ctx context.Context, actor record.Actor) (Version, error) {
-	return NewReader(f.pool, f.token, score.Version{}).Newest(ctx, actor)
+	return NewReader(f.pool, f.token, score.Version{}).Newest(ctx, principal.Principal{Actor: actor})
 }
 
 // scoreVersionInForce is the newest score version, which is what an owner

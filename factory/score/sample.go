@@ -139,7 +139,7 @@ func (s *Score) decide(rate float64, wouldGate, selectedEarlier bool) Selection 
 // at a firing that has not been decided yet is still selected, and the next row to
 // fire has to know.
 func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, token lease.Token, itemID string) (bool, error) {
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, componentPrincipal)
 	if err != nil {
 		return false, err
 	}
@@ -162,7 +162,7 @@ func heldOutBefore(ctx context.Context, pool *pgxpool.Pool, token lease.Token, i
 // the selections were made. It is what the command-line interface prints and what
 // a reader asking which items reached production with a human removed follows.
 func HeldOutItems(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]string, error) {
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
+	rows, err := decisionlog.NewReader(pool, token).Read(ctx, componentPrincipal)
 	if err != nil {
 		return nil, err
 	}

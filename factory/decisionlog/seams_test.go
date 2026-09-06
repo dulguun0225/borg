@@ -20,12 +20,13 @@ func TestEveryRecordCarriesAnActor(t *testing.T) {
 			actor record.Actor
 			want  error
 		}{
-			"no actor at all": {record.Actor{}, record.ErrKindUnknown},
-			"no kind":         {record.Actor{Key: "gate.merge_to_master"}, record.ErrKindUnknown},
-			"unknown kind":    {record.Actor{Kind: "robot", Key: "owner"}, record.ErrKindUnknown},
-			"no key":          {record.Actor{Kind: record.KindHuman, Basis: record.BasisClaimed}, record.ErrKeyEmpty},
-			"human no basis":  {record.Actor{Kind: record.KindHuman, Key: "person:abc"}, record.ErrBasisEmpty},
-			"component+basis": {record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master", Basis: record.BasisClaimed}, record.ErrBasisNotEmpty},
+			"no actor at all":     {record.Actor{}, record.ErrKindUnknown},
+			"no kind":             {record.Actor{Key: "gate.merge_to_master"}, record.ErrKindUnknown},
+			"unknown kind":        {record.Actor{Kind: "robot", Key: "owner"}, record.ErrKindUnknown},
+			"no key":              {record.Actor{Kind: record.KindHuman, Basis: record.BasisClaimed}, record.ErrKeyEmpty},
+			"human no basis":      {record.Actor{Kind: record.KindHuman, Key: "person:abc"}, record.ErrBasisEmpty},
+			"component no basis":  {record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master"}, record.ErrBasisEmpty},
+			"component odd basis": {record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master", Basis: "guessed"}, record.ErrBasisUnknown},
 		}
 		for name, c := range cases {
 			entry := decisionlog.Entry{
@@ -43,7 +44,7 @@ func TestEveryRecordCarriesAnActor(t *testing.T) {
 
 	t.Run("the store refuses", func(t *testing.T) {
 		unknown := aRow()
-		unknown.Actor = record.Actor{Kind: "robot", Key: "owner"}
+		unknown.Actor = record.Actor{Kind: "robot", Key: "owner", Basis: record.BasisClaimed}
 		if got, want := refusedBy(t, insertAround(ctx, pool, unknown)), "actor_kind_known"; got != want {
 			t.Errorf("an unknown actor kind was refused by %q, want %q", got, want)
 		}
@@ -54,23 +55,30 @@ func TestEveryRecordCarriesAnActor(t *testing.T) {
 			t.Errorf("an empty actor key was refused by %q, want %q", got, want)
 		}
 
-		// An actor with neither kind nor key violates actor_kind_known and
-		// actor_key_present at once; the store reports actor_key_present for
-		// this row.
+		// An actor with no kind, no key and no basis violates three constraints
+		// at once; the store reports actor_key_basis_known for this row.
 		none := aRow()
 		none.Actor = record.Actor{}
-		if got, want := refusedBy(t, insertAround(ctx, pool, none)), "actor_key_present"; got != want {
+		if got, want := refusedBy(t, insertAround(ctx, pool, none)), "actor_key_basis_known"; got != want {
 			t.Errorf("no actor at all was refused by %q, want %q", got, want)
 		}
 
 		noBasis := aRow()
 		noBasis.Actor = record.Actor{Kind: record.KindHuman, Key: "person:abc"}
-		if got, want := refusedBy(t, insertAround(ctx, pool, noBasis)), "actor_key_basis_matches_kind"; got != want {
+		if got, want := refusedBy(t, insertAround(ctx, pool, noBasis)), "actor_key_basis_known"; got != want {
 			t.Errorf("a human with no basis was refused by %q, want %q", got, want)
+		}
+
+		// The basis is on every actor, so a component's row without one is
+		// refused by the same constraint a human's is.
+		componentNoBasis := aRow()
+		componentNoBasis.Actor = record.Actor{Kind: record.KindComponent, Key: "gate.merge_to_master"}
+		if got, want := refusedBy(t, insertAround(ctx, pool, componentNoBasis)), "actor_key_basis_known"; got != want {
+			t.Errorf("a component with no basis was refused by %q, want %q", got, want)
 		}
 	})
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }

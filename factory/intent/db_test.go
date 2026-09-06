@@ -91,7 +91,7 @@ func inSchema(t *testing.T, base, schema string) string {
 }
 
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
-var intake = record.Actor{Kind: record.KindComponent, Key: "intake"}
+var intake = record.Actor{Kind: record.KindComponent, Key: "intake", Basis: record.BasisClaimed}
 
 // requested is an owner's intent, taken in and ready to be interviewed.
 func requested(t *testing.T, ctx context.Context, in *intent.Intake, statement string) intent.Intent {

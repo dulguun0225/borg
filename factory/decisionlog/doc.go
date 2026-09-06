@@ -1,9 +1,8 @@
 // Package decisionlog is the factory's one append-only log and the one writer
 // that appends to it. Every component that decides anything calls [Writer]
-// rather than writing into the table, because eleven writers would be eleven
-// implementations of the chain and eleven heads. Reading the log goes through
-// [Reader], which appends a read event of its own on every read, because
-// reading evidence is itself something the log records.
+// rather than writing into the table, which is the one-writer rule seam 2
+// states. Reading the log goes through [Reader], which appends a read event of
+// its own on every read, naming the principal that made the call.
 //
 // # The code
 //
@@ -27,7 +26,9 @@
 // field in the same one. truncate.go holds
 // [Cut] and [Writer.Truncate]. read.go holds [Reader], [NewReader], and
 // [Reader.Read], [Reader.Verify], [Reader.ClosedDecisions], [Reader.Pending],
-// [Reader.ByShape], each of which appends a read event before it answers. verify.go holds the
+// [Reader.ByShape], each of which takes a [principal.Principal] and appends a
+// read event naming it before it answers — the actor's three fields in the
+// row's own columns and the dispatch and the scope in the payload. verify.go holds the
 // chain walk beneath [Reader.Verify], with [Break] and [BrokenError] naming
 // the first row that breaks it. closed.go holds [Closed] and the pairing
 // beneath [Reader.ClosedDecisions].
@@ -150,7 +151,9 @@
 //
 // What defines it: the ten shapes, the chain, the one-writer rule, and the
 // fencing token are seam 2 of "Security comes last",
-// ../../end-goal/deferred.md#security-comes-last. The four rows of a decision
+// ../../end-goal/deferred.md#security-comes-last, which is also where the read
+// event naming the principal is stated and where the principal on a call is
+// seam 5. The four rows of a decision
 // are
 // ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md.
 // The wait's two rows and the three kinds of hold are

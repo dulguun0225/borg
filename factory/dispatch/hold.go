@@ -78,7 +78,7 @@ func (d *Dispatch) hold(ctx context.Context, run Run, on On, condition, state st
 // re-match reads: a hold is a row and not a field, so a start finds the open
 // ones by reading records and never by keeping a list.
 func (d *Dispatch) Open(ctx context.Context) ([]Hold, []string, error) {
-	rows, err := d.c.Reader.ByShape(ctx, Actor, decisionlog.ShapeWait)
+	rows, err := d.c.Reader.ByShape(ctx, componentPrincipal, decisionlog.ShapeWait)
 	if err != nil {
 		return nil, nil, err
 	}

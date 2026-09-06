@@ -75,7 +75,7 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 		}
 	})
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }
@@ -116,7 +116,7 @@ func TestOneOpeningTakesOneClosing(t *testing.T) {
 		t.Errorf("a second closing around the method was refused by %q, want %q", got, want)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }
@@ -168,7 +168,7 @@ func TestAnAbandonmentEndsAnOpeningAndRefusesASecondEnding(t *testing.T) {
 		t.Errorf("a second abandonment: %v, want ErrAlreadyEnded", err)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }
@@ -206,7 +206,7 @@ func TestAnAcknowledgementTwiceFromOneHumanIsRefused(t *testing.T) {
 		t.Errorf("a component's acknowledgement: %v, want ErrAcknowledgementNotHuman", err)
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }
@@ -241,7 +241,7 @@ func TestARejectOrAHoldWithNoReasonIsRefused(t *testing.T) {
 		}
 	}
 
-	if err := reader.Verify(ctx, owner); err != nil {
+	if err := reader.Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }

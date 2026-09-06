@@ -204,7 +204,7 @@ func insertAround(ctx context.Context, pool *pgxpool.Pool, exit string) error {
 		 emission_version_release, emission_version_control, quantities_outside,
 		 own_history_sizes, own_history_run_length, threshold_sizes, threshold_run_length,
 		 policy_version, score_version, exit, closed_at, closed_on, finest_size_reached)
-		values ($1, $2, 'component', 'health_monitor', '', $3, $4, $5, $6, $7, false, true, false,
+		values ($1, $2, 'component', 'health_monitor', 'claimed', $3, $4, $5, $6, $7, false, true, false,
 		 '{"error_rate":0.1}', '{"error_rate":0.8}', 0.95, 3600, $8, 'one.example', '',
 		 'emission/1', 'emission/1', '', '{}', 0, '{}', 0, 'pv_1', 'sv_1', $9, $10, '', '')`,
 		record.NewID(window.IDPrefix), window.FormatVersion, record.Now(),
