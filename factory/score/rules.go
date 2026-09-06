@@ -3,7 +3,7 @@ package score
 // LearningVersion names the published rules by which a supplied value moves. It
 // moves when a rule changes, the way [FormulaVersion] moves when the formula
 // does, and a version naming it is readable against the rules that were in force.
-const LearningVersion = "outcomes-3"
+const LearningVersion = "outcomes-4"
 
 // Rules is the published rules, in the words the score version stores and an
 // owner disagreeing with a moved value reads. A learned value nobody can argue
@@ -41,7 +41,10 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       auto-passed on the number at that row and whose item turned out badly, floored
                       at 0.05 — so the next change scoring what that one scored is decided by a human.
                       It rises one band per 3 held-out firings at that row whose releases reached a
-                      window that closed passed, ceilinged at 0.90, and nothing else raises it. A
+                      window that closed passed, ceilinged at 0.90, and only where no held-out
+                      firing at that row reached a window that closed failed: one of those is the
+                      sample having shown a gate was needed at that row, and it stops the rise
+                      whatever the passed ones counted. Nothing else raises it. A
                       gated change a human approved is not evidence the gate was unnecessary: it is
                       consistent with the change never having been risky, with the human having caught
                       what would have made it risky, and with its author having been more careful for

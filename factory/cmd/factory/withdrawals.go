@@ -40,12 +40,15 @@ func (w withdrawals) ProtectionRemovedBy(ctx context.Context, artifactID string)
 	if artifactID == "" {
 		return nil, nil
 	}
+	// The walk of the log bounds the screen half alone. Human-confirmed is the
+	// only one of the three provenances that is a decision rather than a column,
+	// and a supersession removes protection only over a human-confirmed machine;
+	// the constraint-derived and hazard-derived fields are the criterion's own
+	// row, so an install where the score auto-passes every Spec row — no spec
+	// version human-approved anywhere — still resolves their withdrawal.
 	confirmed, decidedBy, err := humanConfirmedSpecVersions(ctx, w.pool, w.token)
 	if err != nil {
 		return nil, err
-	}
-	if len(confirmed) == 0 {
-		return nil, nil
 	}
 	holders, err := people.Holders(ctx, w.pool, people.OfDuty(gate.DutyConfirmTheCriteria))
 	if err != nil {

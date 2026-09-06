@@ -44,11 +44,14 @@ func TestASafeguardKeepsAControlWhateverTheNumberPreferred(t *testing.T) {
 	}
 }
 
-// TestTheAuthoredDefaultIsWhatProductionTakesWhereNothingNarrowsThePick: the
-// default is a field of production's environment record, and the pick starts
-// from it. Nothing bounded such a pick, so it names no bound.
-func TestTheAuthoredDefaultIsWhatProductionTakesWhereNothingNarrowsThePick(t *testing.T) {
+// TestTheAuthoredDefaultIsTheValueInForceAndTheNumberSuppliesNoneOverIt: the
+// default is a field of production's environment record, and what an owner
+// authored is the value in force — the score supplies a strategy where they
+// authored none and never over one. A safeguard and the held-out sample still
+// add a control over an authored default, both adding rather than replacing.
+func TestTheAuthoredDefaultIsTheValueInForceAndTheNumberSuppliesNoneOverIt(t *testing.T) {
 	below := Assessment{ControlBound: ShippedControlBound, DiscountedImpact: 0}
+	over := Assessment{ControlBound: ShippedControlBound, DiscountedImpact: ShippedControlBound}
 	authored := Rollout{
 		ReplacesReleaseID:       "rel_000000000000000000000000000000a",
 		EveryTargetServesAShare: true,
@@ -59,19 +62,55 @@ func TestTheAuthoredDefaultIsWhatProductionTakesWhereNothingNarrowsThePick(t *te
 	if pick.Strategy != StrategyWithControl || pick.Schedule != ScheduleWidened {
 		t.Errorf("the pick under an authored default is %+v, want the row with a control", pick)
 	}
-	if pick.Why != "" {
-		t.Errorf("the pick names the bound %q, and nothing bounded it", pick.Why)
+	if pick.Why != WhyAuthored {
+		t.Errorf("the pick reads %q beside the strategy, want the authored default", pick.Why)
 	}
 
-	// The default authored the other way is what the score already does where
-	// nobody authored one: the number decides.
+	// The default authored the other way is the value in force too: a number at
+	// or above the bound supplies nothing over it, which is what an unauthored
+	// default and an authored one being indistinguishable costs.
 	without := authored
 	without.Default = StrategyWithoutControl
-	if pick := PickStrategy(below, without); pick.Strategy != StrategyWithoutControl {
-		t.Errorf("the pick under a default without a control is %+v, want the row without one", pick)
+	for _, a := range []Assessment{below, over} {
+		pick := PickStrategy(a, without)
+		if pick.Strategy != StrategyWithoutControl || pick.Schedule != "" {
+			t.Errorf("the pick at %.2f under a default without a control is %+v, want the row without one",
+				a.DiscountedImpact, pick)
+		}
+		if pick.Why != WhyAuthored {
+			t.Errorf("the pick reads %q beside the strategy, want the authored default", pick.Why)
+		}
 	}
-	over := Assessment{ControlBound: ShippedControlBound, DiscountedImpact: ShippedControlBound}
-	if pick := PickStrategy(over, without); pick.Strategy != StrategyWithControl {
-		t.Errorf("a number at the bound under a default without a control picks %+v, want the row with one", pick)
+
+	// An irreversible area bounds the schedule and never the row, so it does not
+	// reach a default authored without a control.
+	irreversible := without
+	irreversible.Irreversible = true
+	if pick := PickStrategy(over, irreversible); pick.Strategy != StrategyWithoutControl {
+		t.Errorf("the pick in an irreversible area under that default is %+v, want the authored row", pick)
+	}
+
+	// Both things that add a control add it over the authored default, each
+	// naming what added it.
+	safeguarded := without
+	safeguarded.KeepsAControl = true
+	if pick := PickStrategy(below, safeguarded); pick.Strategy != StrategyWithControl || pick.Why != WhySafeguarded {
+		t.Errorf("the safeguarded pick over that default is %+v, want a control the safeguard added", pick)
+	}
+	heldOut := without
+	heldOut.HeldOut = true
+	if pick := PickStrategy(below, heldOut); pick.Strategy != StrategyWithControl || pick.Why != WhyHeldOut {
+		t.Errorf("the held-out pick over that default is %+v, want a control the sample added", pick)
+	}
+
+	// Where nobody authored one the score supplies the strategy, and a pick
+	// nothing bounded names no bound.
+	unauthored := authored
+	unauthored.Default = ""
+	if pick := PickStrategy(below, unauthored); pick.Strategy != StrategyWithoutControl || pick.Why != "" {
+		t.Errorf("the pick with nothing authored is %+v, want the row without a control and no bound named", pick)
+	}
+	if pick := PickStrategy(over, unauthored); pick.Strategy != StrategyWithControl || pick.Why != "" {
+		t.Errorf("the pick at the bound with nothing authored is %+v, want the row with a control", pick)
 	}
 }
