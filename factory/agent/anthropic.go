@@ -31,9 +31,13 @@ const anthropicVersion = "2023-06-01"
 // job at M7 and not configuration M1 has anywhere to put.
 const oauthBeta = "oauth-2025-04-20"
 
-// maxTokens caps one reply. 8192 holds a spec or a small repository's worth
-// of files, which is what an M1 reply is.
-const maxTokens = 8192
+// maxTokens caps one reply. The implementer's protocol returns whole files, so
+// a reply grows with the service: 8192 held a spec or a first release's worth
+// of files and was measured cutting the implementer's reply mid-file on a
+// service of ten kilobytes of Go, four attempts out of four, a reasoning
+// model's thinking counting toward the same cap. 32768 is what the providers
+// this factory calls accept for the models it names.
+const maxTokens = 32768
 
 // Anthropic is a [Model] answered by the Anthropic messages API, authenticated
 // with a Claude subscription's long-lived OAuth token. The model name comes
