@@ -59,8 +59,11 @@
 // rollback's target and the last known-good release are computed from — the
 // caller descending past a release whose deploy stopped before its build took
 // traffic, which is the deploy record's fact and not this one's; [All]; and
-// [Closed], every closed window of every service, which is what the score learns
-// from. Ordering those windows by release number is the caller's, because this
+// [ClosedAtTheVersionInForce], every closed window of every service written
+// under [boundary.Version], which is what the score learns from — an exit under
+// another construction is not evidence in the same currency, and
+// [ClosedPassedOrTimedOut] is deliberately not filtered that way because it asks
+// whether any window failed a release and not at what rate it was read. Ordering those windows by release number is the caller's, because this
 // package does not read release records.
 //
 // # Who may write what

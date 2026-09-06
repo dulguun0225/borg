@@ -75,7 +75,6 @@ type graph struct {
 	checkout   *fakeCheckout
 	exchanges  *fakeExchanges
 	storeState *fakeStoreState
-	backfills  *fakeBackfills
 	check      *contractcheck.Check
 	// production is the environment record every deploy here is written against,
 	// and the one the producer's own diff reads what is running from.
@@ -140,7 +139,6 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		},
 		exchanges:  &fakeExchanges{observed: map[string][]consumercontract.Document{}},
 		storeState: newFakeStoreState(),
-		backfills:  newFakeBackfills(),
 	}
 	installed, err := g.factory.Install(ctx, theOwner, "acme", []string{t.TempDir()}, secretref.MustNew("deploy.local"), 8)
 	if err != nil {
@@ -160,7 +158,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	}
 
 	g.check, err = contractcheck.New(pool, policy.NewReader(pool, token, score.Version{}), intent.NewIntake(pool, token),
-		g.checkout, g.exchanges, g.storeState, g.backfills)
+		g.checkout, g.exchanges, g.storeState)
 	if err != nil {
 		t.Fatalf("composing the check: %v", err)
 	}
@@ -291,9 +289,7 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 		t.Fatalf("writing the build: %v", err)
 	}
 	if len(declares) > 0 {
-		if _, _, _, err := g.store.SubmitConsumerContract(ctx, theActor, theBy, it.ID, svc.ID,
-			"derived from the build",
-			consumercontract.Derived{Extractor: consumercontract.GoExtractor("test"), Drafts: declares}); err != nil {
+		if _, _, _, err := g.store.SubmitConsumerContract(ctx, theActor, theBy, it.ID, svc.ID, "derived from the build", consumercontract.Derived{Extractor: consumercontract.GoExtractor("test"), Drafts: declares}, ""); err != nil {
 			t.Fatalf("submitting the consumer contract: %v", err)
 		}
 	}
@@ -331,10 +327,26 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 	return rel, w.ID
 }
 
+// markBackfill is what a backfill item's release leaves behind: a completed
+// deploy record naming the store contract and the pair of elements the copy ran
+// between. Enforcement reads that record, so a test that wants a backfill marked
+// complete writes one rather than being told the answer.
+func markBackfill(t *testing.T, ctx context.Context, g graph, svc service.Service, contractName, element, from string) {
+	t.Helper()
+	shipDeployWith(t, ctx, g, svc, deploy.OfBuild(record.NewID("bl")),
+		deploy.Backfill{Contract: contractName, Element: element, FromElement: from})
+}
+
 // shipDeploy starts, reaches and completes a deploy of what onto production's
 // one target, without a control — the same discipline package deploy states
 // for a target that runs a release as a local process — and returns its id.
 func shipDeploy(t *testing.T, ctx context.Context, g graph, svc service.Service, what deploy.What) string {
+	t.Helper()
+	return shipDeployWith(t, ctx, g, svc, what, deploy.Backfill{})
+}
+
+func shipDeployWith(t *testing.T, ctx context.Context, g graph, svc service.Service,
+	what deploy.What, backfill deploy.Backfill) string {
 	t.Helper()
 	targets := make([]deploy.Reaching, len(g.productionTargets))
 	for i, address := range g.productionTargets {
@@ -343,6 +355,7 @@ func shipDeploy(t *testing.T, ctx context.Context, g graph, svc service.Service,
 	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
 		ServiceID: svc.ID, EnvironmentID: g.production, What: what,
 		Targets: targets, IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+		Backfill: backfill,
 	})
 	if err != nil {
 		t.Fatalf("starting the deploy: %v", err)

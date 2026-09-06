@@ -2,6 +2,8 @@ package decisionlog
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,11 +33,22 @@ func NewReader(pool *pgxpool.Pool, token lease.Token) *Reader {
 	return &Reader{pool: pool, token: token}
 }
 
+// readEventPayload is what a read event says: what was asked for, never a
+// screen opened. It is marshalled rather than written as text, because a
+// chained row cannot be corrected once it is appended.
+type readEventPayload struct {
+	Read string `json:"read"`
+}
+
 // appendReadEvent is the one read event every method below appends.
 func (r *Reader) appendReadEvent(ctx context.Context, principal record.Actor, asked string) error {
-	_, err := commitAppend(ctx, r.pool, r.token, ShapeReadEvent, "", Entry{
+	payload, err := json.Marshal(readEventPayload{Read: asked})
+	if err != nil {
+		return fmt.Errorf("decisionlog: marshalling the read event for %q: %w", asked, err)
+	}
+	_, err = commitAppend(ctx, r.pool, r.token, ShapeReadEvent, "", Entry{
 		Actor:         principal,
-		Payload:       `{"read":"` + asked + `"}`,
+		Payload:       string(payload),
 		FormatVersion: "read_event/1",
 	}, nil)
 	return err

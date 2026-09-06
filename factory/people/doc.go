@@ -11,6 +11,10 @@
 // the fleet. schema.go holds [Table], [MappingTable], their id prefixes and
 // [DDL].
 //
+// The mapping holds a key and a name and nothing else: the hours a service
+// pages within are a field of the service record and a wait naming no service
+// pages at any hour, so nothing per human is kept here.
+//
 // read.go holds [Declaration] and [Declaration.Holds], and the reads that
 // take a pool and no [Writer]: [Get], [ByHolding], [Holders] — the
 // notifier's read, returning keys — and [All], what the command-line interface
@@ -34,6 +38,9 @@
 // is allowed — a [Mapping] with no row of [Table] behind it — added so a
 // human can read the four screens without gating, approving, or otherwise
 // acting anywhere.
+//
+// The tests are db_test.go, the holding table and the re-derivation, and
+// mapping_test.go, the mapping and its deletion; both against the database.
 //
 // rederive.go holds [Rederive], called at the factory's start: it rewrites
 // every duty the newest policy version's declaration names that the table

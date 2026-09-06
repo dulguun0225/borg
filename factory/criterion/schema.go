@@ -25,6 +25,10 @@ const IDPrefix = "cr"
 // the id is the row's and never what anything points at.
 const WithdrawalIDPrefix = "crw"
 
+// MutationTable is the table of mutation scores: one row per build and run
+// mutated, beside that run's criteria results.
+const MutationTable = "criterion_mutation"
+
 // ResultIDPrefix is what [record.NewID] is called with for a result row. The
 // identity of a result is the build, the run, and the criterion, so the id is
 // the row's and never what anything points at — the prefix differs from
@@ -40,9 +44,19 @@ const FormatVersion = "criterion/1"
 // every insert into [WithdrawalTable].
 const FormatVersionWithdrawal = "criterion_withdrawal/1"
 
+// MutationIDPrefix is what [record.NewID] is called with for a mutation row.
+// The identity of a mutation score is the build and the run, so the id is the
+// row's and never what anything points at, and the prefix differs from
+// [IDPrefix] so that [Encodings] never reads one of these as a criterion id.
+const MutationIDPrefix = "crm"
+
 // FormatVersionResult is what this package writes into format_version on
 // every insert into [ResultTable].
 const FormatVersionResult = "criterion_result/1"
+
+// FormatVersionMutation is what this package writes into format_version on
+// every insert into [MutationTable].
+const FormatVersionMutation = "criterion_mutation/1"
 
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than
@@ -64,6 +78,16 @@ const FormatVersionResult = "criterion_result/1"
 // because one criterion can stand for several; hazard_derived names the area
 // whose hazardous operation the criterion bounds, and is empty on a criterion
 // that bounds none.
+//
+// The mutation row is the reading on the build the Merge to master gate reads:
+// what the mutation of one run produced, beside that run's criteria results.
+// The score itself is no column — it is derived from the two counts at the
+// read, the way undecided is, so the number cannot disagree with the counts it
+// is made of. could_not_derive and the counts are exclusive: a derivation that
+// could not be made counts nothing, and one that was made tested at least one
+// mutant, which is what keeps a mutation of nothing from reading as a score of
+// zero. The mutation happens at the candidate run, so run is numbered from 1
+// like every run the deployer performs.
 //
 // A result row carries the run and the composition copied onto it. Keyed by
 // build and criterion alone, a second run would overwrite the first and the
@@ -125,5 +149,27 @@ var DDL = []string{
 	),
 	constraint composition_matches_place check ((place = 'build') = (composition = '')),
 	constraint one_row_per_build_run_and_criterion unique (build_id, run, criterion_id)
+)`,
+
+	`create table if not exists ` + MutationTable + ` (
+	` + record.Columns + `,
+	build_id text not null,
+	run int not null,
+	toolchain text not null,
+	tool text not null,
+	coverage text not null,
+	mutants_tested int not null,
+	mutants_detected int not null,
+	could_not_derive text not null,
+	` + record.Constraints + `,
+	constraint build_id_present check (build_id <> ''),
+	constraint run_is_a_candidate_environments check (run >= 1),
+	constraint counts_not_negative check (mutants_tested >= 0 and mutants_detected >= 0),
+	constraint detected_within_tested check (mutants_detected <= mutants_tested),
+	constraint could_not_derive_counts_nothing check (
+		could_not_derive = '' or (mutants_tested = 0 and mutants_detected = 0)
+	),
+	constraint a_derivation_tested_a_mutant check (could_not_derive <> '' or mutants_tested >= 1),
+	constraint one_row_per_build_and_run unique (build_id, run)
 )`,
 }

@@ -88,7 +88,7 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 		c.releaseID = outcome.Release.ID
 		c.releaseNumber = outcome.Release.Number
 		c.published = outcome.Published
-		if _, err := p.dispatch.End(ctx, mergequeue.Actor, outcome.ItemID); err != nil {
+		if _, err := p.items.End(ctx, mergequeue.Actor, outcome.ItemID); err != nil {
 			return adopted, err
 		}
 		fmt.Fprintf(p.d.out, "Master fast-forwarded to %s; release %s minted, number %d; item %s is merged\n",
@@ -138,7 +138,7 @@ func (p *path) returnRejected(ctx context.Context, outcome mergequeue.Outcome) e
 		fmt.Fprintf(p.d.out, "  rejection row %s written as the queue; the item is sent back to nothing\n", r.Row)
 		return nil
 	}
-	if _, err := p.dispatch.ReturnTo(ctx, mergequeue.Actor, outcome.ItemID, item.Stage(r.ReturnsTo)); err != nil {
+	if _, err := p.items.ReturnTo(ctx, mergequeue.Actor, outcome.ItemID, item.Stage(r.ReturnsTo)); err != nil {
 		return err
 	}
 	fmt.Fprintf(p.d.out, "  rejection row %s written as the queue; the item is back at %s with an attempt counted there, and keeps its environment\n",
@@ -189,7 +189,10 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 	if c.environmentID == "" || c.tornDown {
 		return nil
 	}
-	if err := p.d.targets.at(c.environmentDir).Stop(ctx, deployerPrincipal, c.svc.Name, p.d.credential); err != nil {
+	// What the stop left on the target is read and discarded: a candidate
+	// environment is torn down whole, so the placement of a process that is
+	// being ended with its environment says nothing a later reader needs.
+	if _, err := p.d.targets.at(c.environmentDir).Stop(ctx, deployerPrincipal, c.svc.Name, p.d.credential); err != nil {
 		return err
 	}
 	if err := p.candidates.TearDown(ctx, deployActor, c.environmentID, environment.ReasonMerged, environment.Rate{}); err != nil {

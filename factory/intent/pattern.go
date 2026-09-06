@@ -26,9 +26,9 @@ const (
 	// PatternOptionalFeature is `Where <feature is included>, the system
 	// shall <response>`.
 	PatternOptionalFeature Pattern = "optional_feature"
-	// PatternStateWithEvent is `While <state>, when <trigger>, the system
-	// shall <response>`.
-	PatternStateWithEvent Pattern = "state_with_event"
+	// PatternStateWithAnEventInsideIt is `While <state>, when <trigger>, the
+	// system shall <response>`, the sixth pattern.
+	PatternStateWithAnEventInsideIt Pattern = "state_with_an_event_inside_it"
 )
 
 // Patterns is the six a requirement's statement may fit. The CHECK constraint
@@ -36,7 +36,7 @@ const (
 // TestDDLListsEveryKindAndPattern fails if the two stop agreeing.
 var Patterns = []Pattern{
 	PatternAlwaysTrue, PatternEvent, PatternState,
-	PatternUnwantedCondition, PatternOptionalFeature, PatternStateWithEvent,
+	PatternUnwantedCondition, PatternOptionalFeature, PatternStateWithAnEventInsideIt,
 }
 
 // Classify is which of the six patterns the statement fits, or false for one
@@ -45,9 +45,9 @@ var Patterns = []Pattern{
 // and by nothing that reads it. A false is not a refusal: the writer admits
 // the statement with a tagged escape reason instead.
 //
-// A statement beginning `While ` is checked as state-with-event before state,
-// because the state form is a prefix of the longer one and checking them the
-// other way round would never return it.
+// A statement beginning `While ` is checked as the state with an event inside
+// it before state, because the state form is a prefix of the longer one and
+// checking them the other way round would never return it.
 func Classify(statement string) (Pattern, bool) {
 	s := strings.ToLower(statement)
 	const shall = ", the system shall "
@@ -59,7 +59,7 @@ func Classify(statement string) (Pattern, bool) {
 	case strings.HasPrefix(s, "while "):
 		when := strings.Index(s, ", when ")
 		if when >= 0 && strings.Contains(s[when:], shall) {
-			return PatternStateWithEvent, true
+			return PatternStateWithAnEventInsideIt, true
 		}
 		if strings.Contains(s, shall) {
 			return PatternState, true

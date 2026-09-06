@@ -232,3 +232,57 @@ func TestDDLListsEverySubjectKind(t *testing.T) {
 		}
 	}
 }
+
+// TestStandingIsEveryHoldWithNoApprovedWithdrawal: what a truncation of the
+// decision log is refused against — every hold in force, whatever its subject,
+// and none an approved withdrawal has ended.
+func TestStandingIsEveryHoldWithNoApprovedWithdrawal(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	w := legalhold.NewWriter(pool, token)
+
+	standing, err := legalhold.Standing(ctx, pool)
+	if err != nil {
+		t.Fatalf("Standing: %v", err)
+	}
+	if len(standing) != 0 {
+		t.Fatalf("Standing on an install with no hold = %v, want none", standing)
+	}
+
+	onAService, err := w.Insert(ctx, owner,
+		legalhold.Subject{Kind: legalhold.SubjectService, ID: "svc_a"}, "a litigation hold")
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	if _, err := w.Insert(ctx, owner,
+		legalhold.Subject{Kind: legalhold.SubjectFactory}, "a hold over the whole install"); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	standing, err = legalhold.Standing(ctx, pool)
+	if err != nil {
+		t.Fatalf("Standing: %v", err)
+	}
+	if len(standing) != 2 {
+		t.Fatalf("Standing = %v, want the two holds placed", standing)
+	}
+	if standing[0].ID != onAService.ID || standing[0].Subject.ID != "svc_a" ||
+		standing[0].Reason != "a litigation hold" {
+		t.Errorf("the first hold reads back as %+v, want the one placed on svc_a", standing[0])
+	}
+
+	withdrawal, err := w.InsertWithdrawal(ctx, owner, onAService.ID)
+	if err != nil {
+		t.Fatalf("InsertWithdrawal: %v", err)
+	}
+	if err := w.ApproveWithdrawal(ctx, withdrawal.ID); err != nil {
+		t.Fatalf("ApproveWithdrawal: %v", err)
+	}
+
+	standing, err = legalhold.Standing(ctx, pool)
+	if err != nil {
+		t.Fatalf("Standing: %v", err)
+	}
+	if len(standing) != 1 || standing[0].Subject.Kind != legalhold.SubjectFactory {
+		t.Errorf("Standing after one withdrawal = %v, want the factory-wide hold alone", standing)
+	}
+}

@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
@@ -31,6 +32,16 @@ type Applied struct {
 	// prints beside the number so that an owner reading a gate can see which
 	// outcomes moved the threshold it was compared against.
 	Supplied score.Supplied
+	// ScoreVersion is the score version in force at this row: the newest, where
+	// nobody authored a threshold here, and the last one confirmed at this scope
+	// where somebody did. The firing computes its vector under it and names it on
+	// the open event, so that a version which redefined the number does not decide
+	// a gate an authored threshold binds until its owner has confirmed it.
+	ScoreVersion string
+	// ScoreVersionWaiting is the newest score version where it is not the one in
+	// force here, and is empty where the two are the same. It is what the screen
+	// the threshold is authored from shows beside the threshold it waits on.
+	ScoreVersionWaiting string
 }
 
 // AtGate is what applies at one gate firing: the threshold in force for the row
@@ -52,7 +63,14 @@ func (r *Reader) AtGate(ctx context.Context, principal record.Actor, s Subjects)
 			return Applied{}, err
 		}
 	}
-	supplied, _ := r.score.Value(gatepolicy.RiskThreshold, s.GateRow)
+
+	inForce, waiting, err := r.scoreVersionAt(ctx, authored.Present, Scope{
+		Kind: ScopeEnvironment, ID: s.EnvironmentID, Key: s.GateRow,
+	})
+	if err != nil {
+		return Applied{}, err
+	}
+	supplied, _ := inForce.Value(gatepolicy.RiskThreshold, s.GateRow)
 
 	safeguards, err := r.safeguardsOn(ctx, gatepolicy.RiskThreshold, s)
 	if err != nil {
@@ -60,9 +78,11 @@ func (r *Reader) AtGate(ctx context.Context, principal record.Actor, s Subjects)
 	}
 
 	applied := Applied{
-		PolicyVersion: version.ID,
-		Threshold:     authored.Or(supplied.Value),
-		ThresholdFrom: sourceOf(authored),
+		PolicyVersion:       version.ID,
+		Threshold:           authored.Or(supplied.Value),
+		ThresholdFrom:       sourceOf(authored),
+		ScoreVersion:        inForce.ID,
+		ScoreVersionWaiting: waiting,
 	}
 	if !authored.Present {
 		applied.Supplied = supplied
@@ -72,4 +92,31 @@ func (r *Reader) AtGate(ctx context.Context, principal record.Actor, s Subjects)
 		applied.Safeguards = append(applied.Safeguards, p.ID)
 	}
 	return applied, nil
+}
+
+// scoreVersionAt is the score version that decides one gate row, and the newest
+// version where that is not the one in force there.
+//
+// Where nobody authored a threshold at the scope, the newest version is in force
+// and the one this reader was composed with is it: every value one firing reads
+// comes from the version its own decision row names. Where somebody did,
+// [score.InForceAt] is the read — the newest version, where every version that
+// redefined the number since has been confirmed at that scope, and the last one
+// confirmed there otherwise.
+func (r *Reader) scoreVersionAt(ctx context.Context, authored bool, scope Scope) (score.Version, string, error) {
+	if !authored || scope.ID == "" || scope.Key == "" {
+		return r.score, "", nil
+	}
+	inForce, found, err := score.InForceAt(ctx, r.pool, r.token, scope.String())
+	if err != nil {
+		return score.Version{}, "", fmt.Errorf("policy: reading the score version in force at %s: %w", scope, err)
+	}
+	if !found {
+		return r.score, "", nil
+	}
+	waiting := ""
+	if inForce.ID != r.score.ID {
+		waiting = r.score.ID
+	}
+	return inForce, waiting, nil
 }

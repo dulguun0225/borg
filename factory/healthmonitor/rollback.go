@@ -185,6 +185,16 @@ func (h *HealthMonitor) pageNoRollback(ctx context.Context, one Watched) error {
 		Kind: notifier.KindFailedWithNoRollback,
 		Waiting: fmt.Sprintf("release %d failed its analysis window and no rollback was performed: %s",
 			one.Release.Number, one.WhyNoRollback),
+		ServiceID: one.Window.ServiceID,
+		// The kind meets the page's condition by definition, and a wait that
+		// denied it would be refused where it is delivered.
+		Worse: true,
+		// Production serves a release this component has just failed and no
+		// rollback has run, which is the whole of the design's first kind: the
+		// software is worse for every hour of the wait, so the page fires at
+		// whatever hour the condition arose and never waits for the service's
+		// paging hours.
+		RollbackOutstanding: true,
 	})
 	return err
 }

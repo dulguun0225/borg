@@ -43,17 +43,15 @@ type Restoration struct {
 	// Artifacts is what the digest is computed through, and is required: a
 	// rollback that verified nothing would restore a name and not the bytes.
 	Artifacts Artifacts
-	// UndoneDeployIDs are the deploys this rollback undoes — the failed
-	// release's own and those of every release it skipped — whose targets are
-	// advanced to rolled back as this rollback completes on each.
-	UndoneDeployIDs []string
 }
 
 // Restore is the slow rollback: the build of the release being returned to put
 // back on the targets and waited for. It verifies the artifact's digest first,
-// writes the rollback's deploy record, performs the deploy the way any other is
-// performed, and then advances the deploys it undoes to rolled back, target by
-// target.
+// writes the rollback's deploy record, and performs the deploy the way any other
+// is performed — which is what advances the deploys it undoes, one target at a
+// time, as this rollback completes on each. Which deploys those are is
+// [Performance.UndoneDeployIDs]: the failed release's own and those of every
+// release the same rollback skipped.
 //
 // Slow is the design's own word for it, and it is what a rollout that kept no
 // control leaves: with a control the release a rollback returns to is still
@@ -62,10 +60,10 @@ type Restoration struct {
 // crossing and the restored build serving, during which production is running
 // the failed release.
 //
-// The order is [Perform]'s and for the same reason. The rollback's own record is
-// completed before anything is marked undone: a store that said a release was
-// rolled back with nothing put back in its place would describe a service
-// running nothing.
+// The order is [Perform]'s and for the same reason: on each target the build is
+// put back and that target marked complete before the deploys it undoes are
+// advanced on that target, so a store never says a release was rolled back on a
+// target with nothing put back in its place.
 func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
 	if r.What.ReleaseID == "" {
 		return Deploy{}, fmt.Errorf("%w: a rollback returns to a numbered release", ErrUndoingIncomplete)
@@ -98,23 +96,8 @@ func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
 				ErrDigestDiffers, r.What.BuildID, found, r.RecordedDigest))
 	}
 
-	d, err = perform(ctx, w, r.Performance, d, token)
-	if err != nil {
-		return d, err
-	}
-
-	// Every release this rollback undid, failed first. The failed release and
-	// the skipped ones are the same write with different reasons, which is why
-	// the two are kept apart on the record and treated alike here. Each target
-	// is advanced as this rollback completed on it, a target the release never
-	// reached included.
-	for _, undone := range r.UndoneDeployIDs {
-		if undone == d.ID {
-			continue
-		}
-		if err := w.Undo(ctx, undone); err != nil {
-			return d, err
-		}
-	}
-	return d, nil
+	// Every release this rollback undoes is advanced inside the walk. The failed
+	// release and the skipped ones are the same write with different reasons,
+	// which is why the two are kept apart on the record and treated alike there.
+	return perform(ctx, w, r.Performance, d, token)
 }

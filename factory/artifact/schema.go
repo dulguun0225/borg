@@ -48,14 +48,23 @@ const FormatVersion = "artifact/1"
 // shipped_bundle_identity is present on it and on no other row, naming the
 // release of the product that entered it.
 //
+// entered_by names which of the two events entered such a row, and is empty on
+// every authored one. The two are not the same entry: the install's entries
+// enter in force ungated, a factory with nothing decided in it having to run,
+// and an upgrade's first start enters a version awaiting the gate every
+// version fires. Version 1 of a chain is written by either event, and
+// shipped_bundle_identity is present on both, so without this column the row
+// does not say which one wrote it and [InForce] cannot tell the ungated case
+// from the pending one.
+//
 // content_digest is the sha256 of content in hexadecimal, computed at the
 // write and never supplied by the caller — [Store.Redact] is the one path
 // that recomputes it after the write, over the redacted content.
 //
 // input_manifest_id names the input manifest the version was authored from,
-// and is empty until the dispatcher that will write one exists; it is empty
-// on every shipped version too, an entry authoring nothing having read no
-// manifest.
+// supplied by the caller that dispatched the run and empty where that caller
+// wrote none; it is empty on every shipped version too, an entry authoring
+// nothing having read no manifest.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -70,16 +79,18 @@ var DDL = []string{
 	content text not null,
 	content_digest text not null,
 	shipped_bundle_identity text not null,
+	entered_by text not null,
 	input_manifest_id text not null,
 	` + record.Constraints + `,
 	constraint kind_known check (kind in
-		('spec', 'implementation', 'consumer_contract', 'role_prompt', 'skill', 'selection_rule')),
+		('spec', 'implementation_plan', 'tasks', 'implementation', 'consumer_contract',
+		 'role_prompt', 'skill', 'selection_rule')),
 	constraint version_starts_at_one check (version >= 1),
 	constraint authorship_known check (authorship in ('', 'agent', 'human', 'gate')),
 	constraint author_pair_together check ((authorship = '') = (author = '')),
 	constraint content_digest_present check (content_digest <> ''),
 	constraint chain_key_matches_kind check (
-		(kind in ('spec', 'implementation', 'consumer_contract')
+		(kind in ('spec', 'implementation_plan', 'tasks', 'implementation', 'consumer_contract')
 			and item_id <> '' and role = '' and subject = '')
 		or (kind = 'role_prompt' and item_id = '' and role <> '' and subject = '')
 		or (kind = 'skill' and item_id = '' and role = '' and subject <> '')
@@ -87,6 +98,8 @@ var DDL = []string{
 	),
 	constraint shipped_bundle_identity_matches_authorship check
 		((authorship = '') = (shipped_bundle_identity <> '')),
+	constraint entered_by_known check (entered_by in ('', 'install', 'upgrade_first_start')),
+	constraint entered_by_matches_authorship check ((authorship = '') = (entered_by <> '')),
 	constraint input_manifest_only_when_authored check (authorship <> '' or input_manifest_id = ''),
 	constraint one_row_per_version unique (item_id, kind, role, subject, version)
 )`,

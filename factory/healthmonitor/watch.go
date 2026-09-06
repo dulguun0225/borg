@@ -245,24 +245,58 @@ func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window
 	return one, nil
 }
 
-// tearDownControls ends the control on every target the window was allocated
-// over. A control exists only while a window is open, and one left running after
+// tearDownControls ends the control on every target the deploy record names one
+// on, and on every target the window was allocated over where the record names
+// none. A control exists only while a window is open, and one left running after
 // its window closed is a mismatch like any other, which is how a failed teardown
-// is caught.
+// is caught — so the teardown is asked for wherever a control could be running
+// rather than only where the record says one is.
+//
+// It reads the record rather than the window because the record is what the
+// design says names each control: which targets carry one, the build it runs,
+// and how many instances are running it.
 func (h *HealthMonitor) tearDownControls(ctx context.Context, w Watching, win window.Window) error {
 	if h.deployer == nil {
 		return nil
 	}
-	for _, target := range win.Targets {
+	buildID := ""
+	if dep, err := deploy.Get(ctx, h.pool, win.DeployID); err == nil && dep.ControlReleaseID != "" {
+		if rel, err := release.Get(ctx, h.pool, dep.ControlReleaseID); err == nil {
+			buildID = rel.BuildID
+		}
+	}
+	for _, target := range h.controlTargets(ctx, win) {
 		control := Control{
 			ServiceID: w.ID, ServiceName: w.Name, EnvironmentID: w.EnvironmentID,
-			DeployID: win.DeployID, Target: target,
+			DeployID: win.DeployID, Target: target, BuildID: buildID,
 		}
 		if err := h.deployer.TearDownControl(ctx, control); err != nil {
 			return fmt.Errorf("healthmonitor: tearing down the control for %s on %s: %w", w.Name, target, err)
 		}
 	}
 	return nil
+}
+
+// controlTargets is every target of this deploy whose record names a control:
+// the count of instances running it is the field that says so. Where the record
+// names none — a deploy written before the rollout reached any target, or a
+// record this factory cannot read — the window's own target set stands in, so a
+// teardown is still asked for wherever one could be running.
+func (h *HealthMonitor) controlTargets(ctx context.Context, win window.Window) []string {
+	targets, err := deploy.Targets(ctx, h.pool, win.DeployID)
+	if err != nil {
+		return win.Targets
+	}
+	var carrying []string
+	for _, t := range targets {
+		if t.Fleets.Control.Instances > 0 {
+			carrying = append(carrying, t.Address)
+		}
+	}
+	if len(carrying) == 0 {
+		return win.Targets
+	}
+	return carrying
 }
 
 // newestRecord is the newest time the store held a record for this service over

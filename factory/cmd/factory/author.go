@@ -7,69 +7,19 @@ import (
 	"path/filepath"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/service"
 )
-
-// specStage is one item's spec version and the criteria it introduces, and
-// then the advance through the stages between spec and implementation. It
-// makes no model call of its own on the item's first item — that call is the
-// interview's, recorded there against the intent — so the only agentrun this
-// writes is for an item after the first, whose spec author call already ran
-// in the caller's own loop and recorded itself.
-//
-// [item.Dispatch.Advance] counts the item's own attempt at entering
-// implementation_plan, tasks and implementation in turn: this milestone's
-// command-line interface authors nothing at the first two, so they are passed
-// through rather than skipped, the stage order admitting no other way there.
-func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refined) error {
-	d := p.d
-	// The author is the model version and not the role: the prior is kept per
-	// model, so two agents on one model share one.
-	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: d.modelName}
-	requirementID := ""
-	if len(c.requirementIDs) > 0 {
-		requirementID = c.requirementIDs[0]
-	}
-	var drafts []criterion.Draft
-	if refined.Criterion != "" {
-		reason := ""
-		if _, matched := criterion.Classify(refined.Criterion); !matched {
-			reason = "not classified by the command-line interface"
-		}
-		drafts = append(drafts, criterion.Draft{
-			Sentence:        refined.Criterion,
-			NoPatternReason: reason,
-			RequirementID:   requirementID,
-		})
-	}
-	specArt, introduced, _, err := p.store.SubmitSpec(ctx, p.specAuthorActor(), by,
-		c.itemID, c.svc.ID, refined.Spec, drafts, nil, nil)
-	if err != nil {
-		return err
-	}
-	for _, cr := range introduced {
-		c.criterionIDs = append(c.criterionIDs, cr.ID)
-		fmt.Fprintf(d.out, "Spec %s submitted; criterion %s (%s): %s\n", specArt.ID, cr.ID, cr.Pattern, cr.Sentence)
-	}
-	if len(introduced) == 0 {
-		fmt.Fprintf(d.out, "Spec %s submitted, introducing no criterion\n", specArt.ID)
-	}
-
-	for _, next := range []item.Stage{item.StageImplementationPlan, item.StageTasks, item.StageImplementation} {
-		if _, err := p.dispatch.Advance(ctx, dispatchActor, c.itemID, next); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // implementationStage is one item's implementation version, the consumer
 // contract derived from the same build, the build record, and the measurement.
@@ -82,9 +32,79 @@ func (p *path) specStage(ctx context.Context, c *candidate, refined agent.Refine
 // master, so the tree the branch starts from holds what the items already merged put
 // there: their code, and the encodings the check on the candidate environment
 // rejects a build without.
-func (p *path) implementationStage(ctx context.Context, c *candidate, spec string,
-	gaveUp func(string, error) error) error {
+func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 	d := p.d
+	returned := agent.Returned{}
+	for {
+		if err := p.startBranch(ctx, c); err != nil {
+			return err
+		}
+		current, err := repoFiles(c.svc.Repository)
+		if err != nil {
+			return err
+		}
+		inForce, err := p.inForceFor(ctx, c.svc, []string{c.itemID})
+		if err != nil {
+			return err
+		}
+		hazard, err := p.hazardOf(ctx)
+		if err != nil {
+			return err
+		}
+
+		change, run, err := p.dispatch.Implementer(ctx, p.on(c, item.StageImplementation, !returned.Empty()),
+			[]inputmanifest.Material{
+				{Class: "spec", Reference: c.specArtifactID, Bytes: int64(len(c.spec))},
+				{Class: "implementation_plan", Reference: c.planArtifactID, Bytes: int64(len(c.plan))},
+				{Class: "tasks", Reference: c.tasksArtifactID, Bytes: int64(len(c.tasks))},
+				{Class: "repository_files", Reference: c.svc.Repository, Bytes: filesSize(current)},
+			},
+			agent.Implementing{
+				Criteria: rolePromptCriteria(inForce),
+				Spec:     c.spec,
+				Plan:     c.plan,
+				Tasks:    c.tasks,
+				Files:    current,
+				Hazard:   hazard,
+				Screen:   c.screenStates,
+				Returned: returned,
+			})
+		p.reportAttempts(dispatch.RoleImplementer, run)
+		if err != nil {
+			return err
+		}
+		if err := p.commitAndBuild(ctx, c, change, run.InputManifestID); err != nil {
+			return err
+		}
+
+		verdict, reason, err := p.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &c.implementationGate)
+		if err != nil {
+			return err
+		}
+		if verdict == gate.VerdictApprove {
+			return nil
+		}
+		if _, err := p.items.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
+			return err
+		}
+		fmt.Fprintf(d.out, "Rejected at %s: %s\nItem %s builds again against what was found wrong\n",
+			gate.Implementation, reason, c.itemID)
+		returned = agent.Returned{Reason: reason, Version: c.commit}
+	}
+}
+
+// startBranch puts the repository on the item's own branch, creating the
+// repository where it does not exist yet.
+//
+// What the candidate branch is based on follows from whether master exists.
+// Decomposition says master does not exist until the first release and the
+// implementation role commits the candidate branch with no base — which is
+// every candidate decomposed before the first one merges, not only the very
+// first. Every candidate after that is based on master, so the tree the branch
+// starts from holds what the items already merged put there: their code, and
+// the encodings the check on the candidate environment rejects a build
+// without.
+func (p *path) startBranch(ctx context.Context, c *candidate) error {
 	repo := c.svc.Repository
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		return fmt.Errorf("factory: creating the repository directory: %w", err)
@@ -96,54 +116,29 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	if err != nil {
 		return err
 	}
+	c.basedOnMaster = head != ""
+	if _, err := git(repo, "switch", c.branch); err == nil {
+		return nil
+	}
 	if head != "" {
-		if _, err := git(repo, "switch", "-c", c.branch, "master"); err != nil {
-			return err
-		}
-	} else if _, err := git(repo, "switch", "--orphan", c.branch); err != nil {
+		_, err = git(repo, "switch", "-c", c.branch, "master")
 		return err
 	}
-	current, err := repoFiles(repo)
-	if err != nil {
-		return err
-	}
-	inForce, err := p.inForceFor(ctx, c.svc, []string{c.itemID})
-	if err != nil {
-		return err
-	}
+	_, err = git(repo, "switch", "--orphan", c.branch)
+	return err
+}
 
-	// The input manifest: what was handed to the implementer before the run,
-	// named by reference — context assembly is not built, so this stage writes
-	// it itself, as doc.go for package inputmanifest says its caller does until
-	// then.
-	manifestID, err := p.writeManifest(ctx, c.itemID, item.StageImplementation, "",
-		[]inputmanifest.Material{
-			{Class: "spec", Reference: c.itemID, Bytes: int64(len(spec))},
-			{Class: "repository_files", Reference: repo, Bytes: filesSize(current)},
-		})
-	if err != nil {
-		return err
-	}
-
-	implStage, err := limitFor(ctx, p.policy, item.StageImplementation, p.subjectsFor(c))
-	if err != nil {
-		return err
-	}
-	change, callErr := attempt(d.out, implStage, "implementer", func() (agent.Change, int64, error) {
-		ch, err := agent.Implementer{Model: d.model}.Implement(ctx, agent.Implementing{
-			Criteria: rolePromptCriteria(inForce),
-			Spec:     spec,
-			Files:    current,
-		})
-		return ch, ch.Tokens, err
-	})
-	if recErr := p.recordAgentRun(ctx, "implementer", c.itemID, item.StageImplementation,
-		manifestID, implStage.spends, outcomeOf(callErr)); recErr != nil {
-		return recErr
-	}
-	if callErr != nil {
-		return gaveUp(c.itemID, callErr)
-	}
+// commitAndBuild writes what the implementer authored, commits it on the
+// item's branch, submits the implementation version and the consumer contract
+// derived from the same build, makes the build record, and takes the build's
+// diff.
+//
+// The binary that runs is produced where it will run, which is the candidate's
+// own environment, one step down — so what is checked here is only that the
+// build compiles, which is what the Implementation gate rejects a build for.
+func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Change, manifestID string) error {
+	d := p.d
+	repo := c.svc.Repository
 	if err := writeFiles(repo, change.Files); err != nil {
 		return err
 	}
@@ -160,7 +155,7 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	}
 	c.commit = commit
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: d.modelName}
-	implArt, err := p.store.SubmitImplementation(ctx, p.implementerActor(), by, c.itemID, commit)
+	implArt, err := p.store.SubmitImplementation(ctx, p.implementerActor(), by, c.itemID, commit, manifestID)
 	if err != nil {
 		return err
 	}
@@ -171,15 +166,10 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	// written through the same store. It is derived and never typed, so what the
 	// record says is what the code reads — and an item that reads nothing of another
 	// service declares nothing, which is not a missing consumer contract.
-	if err := p.consumerContractStage(ctx, c); err != nil {
+	if err := p.consumerContractStage(ctx, c, manifestID); err != nil {
 		return err
 	}
 
-	// The build: the record, and a compile to see that there is something to run.
-	// The binary that runs is produced where it will run, which is the candidate's
-	// own environment, one step down — so what is checked here is only that the build
-	// compiles, which is what the Implementation gate would reject a build for and
-	// that gate is not built.
 	bl, err := p.createBuild(ctx, repo, c.itemID, c.svc.ID, commit)
 	if err != nil {
 		return err
@@ -195,11 +185,25 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 	// candidate with no master is diffed against the empty tree, which is every
 	// line of it added and is the reading the design gives a first release: the
 	// widest reach and nothing to return to.
-	c.measurement = measure(repo, head != "")
+	c.measurement = measure(repo, c.basedOnMaster)
 	if c.measurement.Unavailable != "" {
 		fmt.Fprintf(d.out, "The build's diff could not be measured: %s\n", c.measurement.Unavailable)
 	}
 	return nil
+}
+
+// hazardOf is the hazardous operation the run's area declares, and is empty
+// where it declares none or where the run names no area. It is what the
+// implementer's emission counts.
+func (p *path) hazardOf(ctx context.Context) (string, error) {
+	if p.areaID == "" {
+		return "", nil
+	}
+	ar, err := area.Get(ctx, p.d.pool, p.areaID)
+	if err != nil {
+		return "", err
+	}
+	return ar.Hazard.Operation, nil
 }
 
 // consumerContractStage writes the consumer contract version this build derives,
@@ -211,7 +215,7 @@ func (p *path) implementationStage(ctx context.Context, c *candidate, spec strin
 // not a version introducing nothing: a version with no predicate would say the
 // factory looked and found nothing, and what the records should say is that this
 // build reads nothing of anyone.
-func (p *path) consumerContractStage(ctx context.Context, c *candidate) error {
+func (p *path) consumerContractStage(ctx context.Context, c *candidate, manifestID string) error {
 	allowed, err := p.policy.AllowedPredicateKinds(ctx)
 	if err != nil {
 		return err
@@ -237,7 +241,7 @@ func (p *path) consumerContractStage(ctx context.Context, c *candidate) error {
 	art, derivation, written, err := p.store.SubmitConsumerContract(ctx, p.implementerActor(), by,
 		c.itemID, c.svc.ID,
 		fmt.Sprintf("%d predicate(s) derived from the build of item %s", len(derived.Drafts), c.itemID),
-		derived)
+		derived, manifestID)
 	if err != nil {
 		return err
 	}

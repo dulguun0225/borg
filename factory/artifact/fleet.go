@@ -15,7 +15,8 @@ import (
 // authoring it is [_What an agent is told_]'s "another caller in the agent
 // that authors a version" — and [Store.EnterShipped] is the fourth, ungated
 // path for the words that shipped with the product.
-func (s *Store) SubmitFleet(ctx context.Context, actor record.Actor, by By, kind Kind, role, subject, content string) (Artifact, error) {
+func (s *Store) SubmitFleet(ctx context.Context, actor record.Actor, by By, kind Kind,
+	role, subject, content, inputManifestID string) (Artifact, error) {
 	key, err := fleetKey(kind, role, subject)
 	if err != nil {
 		return Artifact{}, err
@@ -33,7 +34,7 @@ func (s *Store) SubmitFleet(ctx context.Context, actor record.Actor, by By, kind
 		return Artifact{}, err
 	}
 
-	submitted, err := insertVersion(ctx, tx, actor, by, key, kind, content, "")
+	submitted, err := insertVersion(ctx, tx, actor, by, key, kind, content, inputManifestID, shipped{})
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -49,13 +50,24 @@ func (s *Store) SubmitFleet(ctx context.Context, actor record.Actor, by By, kind
 // empty, the pair [By.Empty] names, and shippedBundleIdentity is required —
 // it is the release of the product that entered this version, and it is
 // present on this entry and on no other.
-func (s *Store) EnterShipped(ctx context.Context, actor record.Actor, kind Kind, role, subject, content, shippedBundleIdentity string) (Artifact, error) {
+//
+// enteredBy is which of the two events wrote the row, and it is required:
+// both events write the same columns and either can write version 1 of a
+// chain, so without it the row does not say whether it entered in force
+// ungated — the install's alone do — or entered awaiting the gate every
+// version fires. [InForce] reads it, and the caller does not have to know
+// which start wrote each row.
+func (s *Store) EnterShipped(ctx context.Context, actor record.Actor, kind Kind,
+	role, subject, content string, enteredBy EnteredBy, shippedBundleIdentity string) (Artifact, error) {
 	key, err := fleetKey(kind, role, subject)
 	if err != nil {
 		return Artifact{}, err
 	}
 	if err := actor.Validate(); err != nil {
 		return Artifact{}, err
+	}
+	if !slices.Contains(EnteredBys, enteredBy) {
+		return Artifact{}, fmt.Errorf("%w: %q", ErrEnteredByUnknown, enteredBy)
 	}
 	if shippedBundleIdentity == "" {
 		return Artifact{}, ErrShippedBundleIdentityEmpty
@@ -70,7 +82,8 @@ func (s *Store) EnterShipped(ctx context.Context, actor record.Actor, kind Kind,
 		return Artifact{}, err
 	}
 
-	submitted, err := insertVersion(ctx, tx, actor, By{}, key, kind, content, shippedBundleIdentity)
+	submitted, err := insertVersion(ctx, tx, actor, By{}, key, kind, content, "",
+		shipped{EnteredBy: enteredBy, BundleIdentity: shippedBundleIdentity})
 	if err != nil {
 		return Artifact{}, err
 	}

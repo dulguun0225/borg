@@ -13,24 +13,28 @@
 // [OfBuild] and [OfRemoval] and [What.Removal], and [AdvisoryLockKey].
 // schema.go is [Table], [TargetTable], [MitigationTable], [IDPrefix],
 // [MitigationIDPrefix], [FormatVersion], [FormatVersionMitigation] and [DDL].
-// writer.go is [Writer] and [NewWriter] with [Writer.Pool], [Reaching] and
-// [Beginning], [Writer.Start] and [Writer.StartUndoing], [Writer.Complete],
-// [Writer.MarkFailed] and [Writer.PerformedWithoutControl], and every error
-// this writer returns. writetarget.go is the writes per target row:
-// [Writer.ReachTarget], [Writer.CompleteTarget], [Writer.TearDownKept],
-// [Writer.Undo] and [Writer.UndoTarget]. snapshot.go is the schema change the
-// build carries and the copy taken before it:
-// [Writer.MarkSchemaChangeComplete], [Writer.NameSnapshot] and
+// writer.go is [Writer] and [NewWriter] with [Writer.Pool], [Writer.Complete],
+// [Writer.MarkFailed], [Writer.PerformedWithControl] and
+// [Writer.PerformedWithoutControl], and every error this writer returns.
+// start.go is what begins a deploy: [Reaching], [Beginning], [Writer.Start] and
+// [Writer.StartUndoing]. writetarget.go is the writes per target row:
+// [Writer.ReachTarget], [Writer.CompleteTarget] and [Writer.UndoTarget].
+// instancehours.go is the three fleets' spans: [Writer.TearDownRelease],
+// [Writer.TearDownControl], [Writer.TearDownKept] and [Hours]. snapshot.go is
+// the schema changes the build carries and the copy taken before them:
+// [Writer.MarkSchemaChangesComplete], [Writer.NameSnapshot] and
 // [Writer.DeleteSnapshot].
 //
 // read.go is every read that takes the pool and not the writer: [Get],
-// [Targets], [CompleteOnEvery], [Current], [ByRelease], [Unfinished],
-// [Rollbacks] and [NewestRollback]. rollout.go is the ordinary rollout:
-// [Reach], [Bake] and [Notifier] as interfaces the caller implements,
+// [Targets], [CompleteOnEvery], [Current], [BackfillComplete], [ByRelease],
+// [Unfinished], [Rollbacks] and [NewestRollback]. rollout.go is the ordinary
+// rollout: [Reach], [Bake] and [Notifier] as interfaces the caller implements,
 // [Performance] and [Perform], [DigestConfiguration], and the errors
-// [ErrSnapshotRefused], [ErrSchemaChangeRefused] and [ErrTargetRefused].
-// restore.go is the slow rollback: [Artifacts], [ErrDigestDiffers],
-// [Restoration] and [Restore]. resume.go is the restart: [Resume] and
+// [ErrSnapshotRefused] and [ErrTargetRefused]. schemastep.go is the step before
+// traffic — the store brought to what the build declares, the snapshot before a
+// destructive change, and the adoption's changes written as found applied — with
+// [ErrSchemaChangeRefused]. restore.go is the slow rollback: [Artifacts],
+// [ErrDigestDiffers], [Restoration] and [Restore]. resume.go is the restart: [Resume] and
 // [Partial]. mitigation.go is what Ops asks for outside a rollout:
 // [Operation] with [Operations], [Mitigation] and [Mitigating], [Mitigate],
 // [Writer.BeginMitigation] and [Writer.EndMitigation], [Mitigations] and
@@ -45,9 +49,12 @@
 // reason its own comment states, and holds the fixtures the other test files
 // of that package use; read_test.go is what a reader reads as running;
 // schema_test.go is the one subject that needs no database: the CHECK
-// constraints listing every value; rollout_test.go is the ordered walk, the
-// rollback's verification, the restart, and the mitigation, against
-// [targetseam.Fake].
+// constraints listing every value. Against [targetseam.Fake]: rollout_test.go
+// is the ordered walk and the strategy performed, and holds the fakes the three
+// beside it share; schemastep_test.go is the store step; restore_test.go is the
+// rollback's verification, what it advances target by target, and the restart;
+// mitigation_test.go is the mitigation. instancehours_test.go is the three
+// fleets' spans and the backfill mark.
 //
 // # The record
 //
@@ -72,22 +79,40 @@
 // [Strategy] attaches to a production deploy and to no other:
 // strategy_picked is what the score chose and strategy_performed what the
 // deployer performed, which differ where a target declared as serving a share
-// refuses the shift — [Writer.PerformedWithoutControl] is that write.
-// control_target names the target the control ran on under a strategy with
-// one.
+// refuses the shift — [Writer.PerformedWithoutControl] is that write, and
+// [Writer.PerformedWithControl] is the shift returning. Neither is written at
+// the start: a deployer that stopped before it performed anything would
+// otherwise leave a record naming a control that never ran. control_target
+// names the target the control ran on and control_release_id the release it
+// runs, a control being defined by which release it runs.
+//
+// A deploy names every schema change its build carries, and a revert's deploy is
+// the one that carries more than one. [Writer.MarkSchemaChangesComplete] runs on
+// the deploy that applied them, on the one that applied none because the store's
+// history already held every one, and on an adoption's, so the record of a
+// change that failed to apply is the only one naming changes that did not
+// complete.
+//
+// Three fleets run on each target of a production deploy and the record dates
+// each: [Fleets] holds the release's own, the control's, and the instances kept
+// for the release a rollback would return to, each closed by one of the three
+// teardown writes, and [Target.InstanceHours] is the three added up.
 //
 // # A rollback is this record and not another
 //
 // [Restore] is the slow rollback: a deploy of the release being returned to,
 // naming on the same record the release it failed, the releases it skipped,
-// and the source that called for it — [Undoing]. A record of its own was
+// and the source that called for it — [Undoing]. It advances the deploys it
+// undoes, [Performance.UndoneDeployIDs], one target at a time as it completes on
+// each, so a rollback that stopped undoes nothing beyond the targets it reached. A record of its own was
 // refused because a second writer on the fact of what is running is the fact
 // the drift detector exists to check. Where a control kept the earlier release
 // running, the fast rollback is a traffic shift and not this path at all;
 // [Restore] is what a rollout without a control, or a control's own target,
-// leaves. It verifies the build's artifact digest against what the target
-// reports before deploying anything, so a redeploy by name never restores
-// bytes other than the ones that were verified.
+// leaves. It verifies the artifact the host holds now against the digest the
+// build record holds, before deploying anything and before asking any target
+// what it runs, so a redeploy by name never restores bytes other than the ones
+// that were verified.
 //
 // [Resume] is the restart: it completes a record every target of which
 // finished, marks a record no target reached failed at [StepStopped], and
@@ -140,5 +165,14 @@
 // computed by the health monitor, which is what calls [Restore]; the restart
 // and the deployer's write order in ../../end-goal/one-process.md; and the
 // mitigation in
-// ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md.
+// ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md. The
+// three fleets, their spans and the instance-hour rate they are converted at are
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md,
+// the release a control runs is
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/03-a-control-above-a-release.md,
+// when a kept fleet is torn down and what bounds the batch a revert delivers are
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
+// and the schema history's row, the adoption's changes found applied, and the
+// backfill the record marks complete are
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
 package deploy

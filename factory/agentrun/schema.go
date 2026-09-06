@@ -5,8 +5,11 @@ import "github.com/dulguun0225/borg/factory/record"
 // Table is the one table this package owns.
 const Table = "agent_run"
 
-// IDPrefix is what [record.NewID] is called with for an agent run record.
-const IDPrefix = "ar"
+// IDPrefix is what [record.NewID] is called with for an agent run record. It
+// is the record kind's name in an id and the only part of an id a reader may
+// interpret, so it is this kind's alone: no other record package in the module
+// mints it.
+const IDPrefix = "agr"
 
 // FormatVersion is what this package writes into format_version on every
 // insert into [Table].

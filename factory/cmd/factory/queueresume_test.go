@@ -17,10 +17,11 @@ import (
 // what a run of a service whose queue holds somebody else's item would otherwise do
 // after it had already spent the model calls.
 func TestARunThatStoppedLeavesAnItemTheNextQueueFinishes(t *testing.T) {
-	// The input runs out after the first candidate's Merge to master gate: the interview, two
-	// candidate deploy rows, and one merge approval, and then nothing for the second
-	// merge row to read.
-	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\napprove\n")
+	// The input runs out after the first candidate's Merge to master gate: the
+	// interview, the four rows of each item's own artifacts, two candidate
+	// deploy rows, and one merge approval, and then nothing for the second merge
+	// row to read.
+	ctx, d, out := newPath(t, theAnswer+"\n"+strings.Repeat("approve\n", 11))
 
 	stopped, err := run(ctx, d, of(theStatement, theSecondStatement))
 	if err == nil {

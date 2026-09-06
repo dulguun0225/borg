@@ -73,7 +73,14 @@ func (m Measurement) FromProposedSet() bool {
 // no extractor runs for the toolchain, which resolves the factor rather than
 // reading it as nothing — a diff adding none of this reads as nothing, and an
 // extractor that did not run does not.
+//
+// Derived is what separates the two, and it is a field rather than a length
+// check because the zero value of a slice is what a caller that read nothing
+// hands over: an evidence nobody derived is unavailable, never an empty list. A
+// caller whose extractor ran and found none of this sets Derived and leaves the
+// four lists empty, which is the reading that lowers the number.
 type ExposureEvidence struct {
+	Derived             bool
 	OutboundCalls       []string
 	Credentials         []string
 	AuthorizationChecks []string
@@ -91,7 +98,13 @@ func (e ExposureEvidence) List() []string {
 // change group cannot be computed: the share of the factory working from the
 // version in force this one replaces, and how far this version departs from it.
 // Both are the caller's, the fleet's records being the row's own.
+// Derived is whether the fleet's records were read for this firing, and carries
+// what it carries on [ExposureEvidence]: a share of nothing and a departure of
+// nothing are what a caller that read no record hands over, and reading them as
+// a version nobody works from and a version that departs in nothing would be the
+// lowest reading there is on the row the factory knows least about.
 type FleetChange struct {
+	Derived            bool
 	ShareWorkingFromIt float64
 	Departure          float64
 	Unavailable        string

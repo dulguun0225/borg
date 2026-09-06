@@ -284,6 +284,52 @@ func CountLiveCandidates(ctx context.Context, pool *pgxpool.Pool, productionEnvi
 	return count, nil
 }
 
+// TornDownCandidates is every candidate environment of the project the named
+// production environment belongs to whose record marks it torn down. It is what
+// the deployer's pass over the platform compares against what the platform
+// reports holding: a candidate environment the platform holds and the records
+// mark torn down is a teardown that failed, and the deployer tears it down again
+// on its next pass, keyed on the environment, so a leak does not consume the
+// room for good.
+//
+// The rows are kept rather than deleted at teardown, which is what makes this a
+// read and not a history: the deploy records naming them would otherwise point
+// at nothing.
+//
+// Nothing calls it yet. The pass is the deployer's, which lives in the
+// command-line interface.
+func TornDownCandidates(ctx context.Context, pool *pgxpool.Pool, productionEnvironmentID string) ([]Environment, error) {
+	production, err := Get(ctx, pool, productionEnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	if production.Kind != KindProduction {
+		return nil, fmt.Errorf("%w: %s is %s", ErrNotAProductionEnvironment, productionEnvironmentID, production.Kind)
+	}
+	rows, err := pool.Query(ctx, selectEnvironment+`
+		where kind = $1 and project_id = $2 and torn_down_at <> '' order by torn_down_at, id`,
+		string(KindCandidate), production.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("environment: reading the torn-down candidate environments of %s: %w",
+			production.ProjectID, err)
+	}
+	defer rows.Close()
+
+	var torn []Environment
+	for rows.Next() {
+		e, err := scan(rows, production.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		torn = append(torn, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("environment: reading the torn-down candidate environments of %s: %w",
+			production.ProjectID, err)
+	}
+	return torn, nil
+}
+
 func scan(row pgx.Row, named string) (Environment, error) {
 	var e Environment
 	var kind, actorKind, actorBasis, targets, credential, platformCredential, composed, reason string

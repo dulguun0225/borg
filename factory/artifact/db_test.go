@@ -122,11 +122,10 @@ var byAgent = artifact.By{Authorship: artifact.AuthorshipAgent, Author: modelVer
 func TestSubmitSpecWritesTheSpecItsCriteriaItsWithdrawalsAndItsMachinesTogether(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	_, firstCriteria, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a",
-		"The service opens an intent per report.",
-		[]criterion.Draft{
-			{Sentence: "When a report arrives, the system shall open an intent.", RequirementID: "req_a"},
-		}, nil, nil)
+	_, firstCriteria, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "The service opens an intent per report.", []criterion.Draft{
+		{Sentence: "When a report arrives, the system shall open an intent.", RequirementID: "req_a"},
+	}, nil, nil, "")
+
 	if err != nil {
 		t.Fatalf("SubmitSpec: %v", err)
 	}
@@ -134,18 +133,15 @@ func TestSubmitSpecWritesTheSpecItsCriteriaItsWithdrawalsAndItsMachinesTogether(
 		t.Fatalf("the first SubmitSpec wrote %d criteria, want 1", len(firstCriteria))
 	}
 
-	spec, criteria, machines, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_b", "svc_a",
-		"The service also shows the checkout page.",
-		[]criterion.Draft{
-			{Sentence: "When checkout opens, the system shall render the page.", RequirementID: "req_b"},
-			{Sentence: "The checkout page loads fast.", NoPatternReason: "no pattern fits a latency feel", RequirementID: "req_c"},
-		},
-		[]string{firstCriteria[0].ID},
-		[]screenstatemachine.Draft{{
-			Initial: "empty", States: []string{"empty", "loaded"}, Events: []string{"load"},
-			Transitions: []screenstatemachine.Transition{{From: "empty", Event: "load", To: "loaded"}},
-			Terminal:    []string{"loaded"},
-		}})
+	spec, criteria, machines, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_b", "svc_a", "The service also shows the checkout page.", []criterion.Draft{
+		{Sentence: "When checkout opens, the system shall render the page.", RequirementID: "req_b"},
+		{Sentence: "The checkout page loads fast.", NoPatternReason: "no pattern fits a latency feel", RequirementID: "req_c"},
+	}, []string{firstCriteria[0].ID}, []screenstatemachine.Draft{{
+		Initial: "empty", States: []string{"empty", "loaded"}, Events: []string{"load"},
+		Transitions: []screenstatemachine.Transition{{From: "empty", Event: "load", To: "loaded"}},
+		Terminal:    []string{"loaded"},
+	}}, "")
+
 	if err != nil {
 		t.Fatalf("SubmitSpec: %v", err)
 	}
@@ -196,12 +192,11 @@ func TestSubmitSpecWritesTheSpecItsCriteriaItsWithdrawalsAndItsMachinesTogether(
 func TestABadDraftTakesTheArtifactRowDownWithIt(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	_, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a",
-		"A spec whose criteria do not all hold.",
-		[]criterion.Draft{
-			{Sentence: "When a report arrives, the system shall open an intent.", RequirementID: "req_a"},
-			{Sentence: "The checkout page loads fast."}, // no pattern, no reason
-		}, nil, nil)
+	_, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "A spec whose criteria do not all hold.", []criterion.Draft{
+		{Sentence: "When a report arrives, the system shall open an intent.", RequirementID: "req_a"},
+		{Sentence: "The checkout page loads fast."},
+	}, nil, nil, "")
+
 	if !errors.Is(err, criterion.ErrReasonMissing) {
 		t.Fatalf("SubmitSpec = %v, want ErrReasonMissing", err)
 	}
@@ -224,11 +219,11 @@ func TestABadDraftTakesTheArtifactRowDownWithIt(t *testing.T) {
 func TestTheVersionChain(t *testing.T) {
 	ctx, _, s := newStore(t)
 
-	first, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version one", nil, nil, nil)
+	first, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version one", nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("SubmitSpec: %v", err)
 	}
-	second, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version two", nil, nil, nil)
+	second, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version two", nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("SubmitSpec again: %v", err)
 	}
@@ -239,7 +234,7 @@ func TestTheVersionChain(t *testing.T) {
 		t.Errorf("the second version supersedes %q, want %s", second.Supersedes, first.ID)
 	}
 
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "3f786850e387550fdab836ed7e6dc881de23001b")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "3f786850e387550fdab836ed7e6dc881de23001b", "")
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -254,7 +249,7 @@ func TestSubmitImplementation(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
 	commit := "3f786850e387550fdab836ed7e6dc881de23001b"
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", commit)
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", commit, "")
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -277,22 +272,61 @@ func TestSubmitImplementation(t *testing.T) {
 	}
 }
 
+// TestSubmitPlanAndTasksAreTheirOwnChains: the two stages between spec and
+// implementation each author a version of the item, and each chain is numbered
+// on its own — a plan version 1 and a tasks version 1 stand side by side.
+func TestSubmitPlanAndTasksAreTheirOwnChains(t *testing.T) {
+	ctx, pool, s := newStore(t)
+
+	plan, err := s.SubmitPlan(ctx, implementer, byAgent, "it_a", "The change adds health.go.", "")
+	if err != nil {
+		t.Fatalf("SubmitPlan: %v", err)
+	}
+	if plan.Kind != artifact.KindImplementationPlan || plan.Version != 1 {
+		t.Errorf("the plan is a %s at version %d, want %s at 1", plan.Kind, plan.Version, artifact.KindImplementationPlan)
+	}
+	tasks, err := s.SubmitTasks(ctx, implementer, byAgent, "it_a", "Write health.go.\nWrite health_test.go.", "")
+	if err != nil {
+		t.Fatalf("SubmitTasks: %v", err)
+	}
+	if tasks.Kind != artifact.KindTasks || tasks.Version != 1 {
+		t.Errorf("the tasks are a %s at version %d, want %s at 1", tasks.Kind, tasks.Version, artifact.KindTasks)
+	}
+	second, err := s.SubmitPlan(ctx, implementer, byAgent, "it_a", "The change adds health.go and rewrites main.go.", "")
+	if err != nil {
+		t.Fatalf("SubmitPlan again: %v", err)
+	}
+	if second.Version != 2 || second.Supersedes != plan.ID {
+		t.Errorf("the second plan is version %d superseding %q, want 2 superseding %s",
+			second.Version, second.Supersedes, plan.ID)
+	}
+
+	read, err := artifact.Get(ctx, pool, tasks.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read != tasks {
+		t.Errorf("Get returned %+v, want %+v", read, tasks)
+	}
+}
+
 // TestAnUnknownAuthorshipIsRefusedTwice is the store's validation and the
 // CHECK constraint behind it: the method refuses an authorship outside the
 // three, and a row inserted around the methods is refused by the store.
 func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	_, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: "reviewer", Author: modelVersion}, "it_a", "a commit")
+	_, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: "reviewer", Author: modelVersion}, "it_a", "a commit", "")
 	if !errors.Is(err, artifact.ErrAuthorshipUnknown) {
 		t.Fatalf("SubmitImplementation = %v, want ErrAuthorshipUnknown", err)
 	}
 
 	_, err = pool.Exec(ctx, `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, input_manifest_id)
+		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
+		input_manifest_id)
 		values ($1, $2, 'component', 'agent.implementer', '', $3, 'it_a', '', '', 'implementation', 1,
-		'', 'reviewer', 'claude-opus-5', 'a commit', 'x', '', '')`,
+		'', 'reviewer', 'claude-opus-5', 'a commit', 'x', '', '', '')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil {
 		t.Fatal("the store accepted an authorship outside the four")
@@ -305,18 +339,19 @@ func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	if _, err := s.SubmitImplementation(ctx, implementer, byAgent, "", "a commit"); !errors.Is(err, artifact.ErrItemIDEmpty) {
+	if _, err := s.SubmitImplementation(ctx, implementer, byAgent, "", "a commit", ""); !errors.Is(err, artifact.ErrItemIDEmpty) {
 		t.Errorf("SubmitImplementation naming no item = %v, want ErrItemIDEmpty", err)
 	}
-	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "", "svc_a", "a spec", nil, nil, nil); !errors.Is(err, artifact.ErrItemIDEmpty) {
+	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "", "svc_a", "a spec", nil, nil, nil, ""); !errors.Is(err, artifact.ErrItemIDEmpty) {
 		t.Errorf("SubmitSpec naming no item = %v, want ErrItemIDEmpty", err)
 	}
 
 	_, err := pool.Exec(ctx, `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, input_manifest_id)
+		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
+		input_manifest_id)
 		values ($1, $2, 'component', 'agent.implementer', '', $3, '', '', '', 'implementation', 1,
-		'', 'agent', 'claude-opus-5', 'a commit', 'x', '', '')`,
+		'', 'agent', 'claude-opus-5', 'a commit', 'x', '', '', '')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "chain_key_matches_kind") {
 		t.Errorf("inserting a version naming no item = %v, want a violation of chain_key_matches_kind", err)
@@ -329,81 +364,22 @@ func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 func TestAVersionWithNoAuthorIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	if _, err := s.SubmitImplementation(ctx, implementer,
-		artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "a commit"); !errors.Is(err, artifact.ErrAuthorEmpty) {
+	if _, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "a commit", ""); !errors.Is(err, artifact.ErrAuthorEmpty) {
 		t.Errorf("SubmitImplementation naming no author = %v, want ErrAuthorEmpty", err)
 	}
-	if _, _, _, err := s.SubmitSpec(ctx, specAuthor,
-		artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "svc_a", "a spec", nil, nil, nil); !errors.Is(err, artifact.ErrAuthorEmpty) {
+	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "svc_a", "a spec", nil, nil, nil, ""); !errors.Is(err, artifact.ErrAuthorEmpty) {
 		t.Errorf("SubmitSpec naming no author = %v, want ErrAuthorEmpty", err)
 	}
 
 	_, err := pool.Exec(ctx, `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, input_manifest_id)
+		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
+		input_manifest_id)
 		values ($1, $2, 'component', 'agent.implementer', '', $3, 'it_a', '', '', 'implementation', 1,
-		'', 'agent', '', 'a commit', 'x', '', '')`,
+		'', 'agent', '', 'a commit', 'x', '', '', '')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "author_pair_together") {
 		t.Errorf("inserting a version naming no author = %v, want a violation of author_pair_together", err)
-	}
-}
-
-// TestTheAuthorIsWhatAPriorIsKeptOn: two roles on one model are one author, and
-// the store keeps the author beside the authorship rather than instead of it.
-func TestTheAuthorIsWhatAPriorIsKeptOn(t *testing.T) {
-	ctx, pool, s := newStore(t)
-
-	spec, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "a spec", nil, nil, nil)
-	if err != nil {
-		t.Fatalf("SubmitSpec: %v", err)
-	}
-	implementation, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "a commit")
-	if err != nil {
-		t.Fatalf("SubmitImplementation: %v", err)
-	}
-	if spec.Actor == implementation.Actor {
-		t.Error("the two versions were written by one actor, and the roles differ")
-	}
-	if spec.Author != modelVersion || implementation.Author != modelVersion {
-		t.Errorf("the authors are %q and %q, want the one model %q", spec.Author, implementation.Author, modelVersion)
-	}
-
-	authored, err := artifact.IDsByAuthor(ctx, pool, modelVersion)
-	if err != nil {
-		t.Fatalf("IDsByAuthor: %v", err)
-	}
-	if len(authored) != 2 {
-		t.Errorf("%s wrote %d versions, want both", modelVersion, len(authored))
-	}
-	if others, err := artifact.IDsByAuthor(ctx, pool, "some-other-model"); err != nil || len(others) != 0 {
-		t.Errorf("IDsByAuthor of a model that wrote nothing = %v, %v", others, err)
-	}
-	if none, err := artifact.IDsByAuthor(ctx, pool, ""); err != nil || len(none) != 0 {
-		t.Errorf("IDsByAuthor of no author = %v, %v", none, err)
-	}
-
-	newest, found, err := artifact.NewestOfKind(ctx, pool, "it_a", artifact.KindImplementation)
-	if err != nil || !found {
-		t.Fatalf("NewestOfKind = %+v, %v, %v", newest, found, err)
-	}
-	if newest.ID != implementation.ID {
-		t.Errorf("the newest implementation is %s, want %s", newest.ID, implementation.ID)
-	}
-	if _, found, err := artifact.NewestOfKind(ctx, pool, "it_nothing", artifact.KindImplementation); err != nil || found {
-		t.Errorf("NewestOfKind on an item with no version = %v, %v", found, err)
-	}
-
-	second, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "a second commit")
-	if err != nil {
-		t.Fatalf("SubmitImplementation again: %v", err)
-	}
-	newest, _, err = artifact.NewestOfKind(ctx, pool, "it_a", artifact.KindImplementation)
-	if err != nil {
-		t.Fatalf("NewestOfKind: %v", err)
-	}
-	if newest.ID != second.ID || newest.Version != 2 {
-		t.Errorf("the newest implementation is %s at version %d, want the second one", newest.ID, newest.Version)
 	}
 }
 
@@ -424,6 +400,16 @@ func TestDDLListsEveryKind(t *testing.T) {
 	for _, kind := range artifact.Kinds {
 		if !strings.Contains(artifact.DDL[0], "'"+string(kind)+"'") {
 			t.Errorf("the DDL's kind CHECK does not list %q", kind)
+		}
+	}
+}
+
+// TestDDLListsEveryEnteredEvent fails if [artifact.EnteredBys] and the CHECK
+// constraint in the DDL stop agreeing.
+func TestDDLListsEveryEnteredEvent(t *testing.T) {
+	for _, enteredBy := range artifact.EnteredBys {
+		if !strings.Contains(artifact.DDL[0], "'"+string(enteredBy)+"'") {
+			t.Errorf("the DDL's entered_by CHECK does not list %q", enteredBy)
 		}
 	}
 }

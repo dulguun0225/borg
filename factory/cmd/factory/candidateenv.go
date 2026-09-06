@@ -107,7 +107,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	opened, err := p.gate.Fire(ctx, gate.Firing{
+	firing := gate.Firing{
 		Row:             gate.DeployToCandidateEnvironment,
 		ItemID:          c.itemID,
 		BuildID:         c.buildID,
@@ -117,12 +117,13 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		CriteriaInForce: len(inForce),
 		Measurement:     c.measurement,
 		Exposure:        reached,
-	})
+	}
+	opened, err := p.gate.Fire(ctx, firing)
 	if err != nil {
 		return err
 	}
 	report(d.out, opened, nil)
-	verdict, feedback, closing, err := p.settle(ctx, opened)
+	verdict, feedback, closing, err := p.settle(ctx, opened, firing)
 	if err != nil {
 		return err
 	}
@@ -130,7 +131,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	switch verdict {
 	case gate.VerdictReject:
 		c.rejected = true
-		if _, err := p.dispatch.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.items.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there\n",

@@ -1,6 +1,6 @@
 // The four seams enforcement is composed with, as fakes: what a candidate's
 // build publishes and declares, what its run wrote, what its environment's own
-// store holds, and which backfills a deploy record marks complete. Each stands
+// store holds. Each stands
 // where the deployer would — every one of them reaches a repository, a process
 // or a store, and a package test has none of the three.
 package contractcheck_test
@@ -86,25 +86,4 @@ func (f *fakeStoreState) Snapshot(_ context.Context, c contractcheck.Candidate) 
 		return s, nil
 	}
 	return contractcheck.Snapshot{Taken: true, Verified: true}, nil
-}
-
-// fakeBackfills is which backfills a deploy record marks complete, keyed by
-// service, contract and element. An element with no entry is not complete: the
-// unremarkable answer is that no migration is in progress, which is what every
-// element this fake is never asked about is.
-type fakeBackfills struct {
-	complete map[string]string
-}
-
-func newFakeBackfills() *fakeBackfills {
-	return &fakeBackfills{complete: map[string]string{}}
-}
-
-func (f *fakeBackfills) mark(serviceID, contractName, element, deployID string) {
-	f.complete[serviceID+"/"+contractName+"/"+element] = deployID
-}
-
-func (f *fakeBackfills) Complete(_ context.Context, serviceID, contractName, element string) (string, bool, error) {
-	deployID, found := f.complete[serviceID+"/"+contractName+"/"+element]
-	return deployID, found, nil
 }

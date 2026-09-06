@@ -59,8 +59,12 @@ type Target interface {
 	// credential d references, and reports how the instances it replaced ended.
 	Deploy(ctx context.Context, p principal.Principal, d Deployment) (Placement, error)
 	// Stop ends every instance of the named service on the target, reaching it
-	// with the credential the reference names.
-	Stop(ctx context.Context, p principal.Principal, service string, credential secretref.Ref) error
+	// with the credential the reference names, and reports how those instances
+	// ended: drained where it stopped new requests reaching them and let the
+	// ones they held finish, cut where the platform could not. A removal writes
+	// what this reports on the deploy record, so a platform that cuts is
+	// recorded as cutting.
+	Stop(ctx context.Context, p principal.Principal, service string, credential secretref.Ref) (Placement, error)
 	// ReadRunning is what the target says is running for the named service, and
 	// the schema history where the target holds the service's store.
 	ReadRunning(ctx context.Context, p principal.Principal, service string, credential secretref.Ref) (Running, error)
@@ -168,21 +172,40 @@ type SchemaChange struct {
 	// Change is the change's identity, the one the build declares and the
 	// history is read against.
 	Change string
+	// Release is the release that ships the change, which the history row names
+	// beside it. It is empty on a deploy that has no release — a candidate's own
+	// environment, and a build the search called for.
+	Release string
 	// Text is what performs the change.
 	Text string
 	// Destroys is whether the change destroys stored data, which the store rule
 	// forbids without a snapshot before it.
-	Destroys   bool
-	Credential secretref.Ref
+	Destroys bool
+	// FoundApplied is the adoption's word: the store arrived with the change
+	// already in it, so the row goes into the history and the change is not
+	// applied. It is the deploy of the adoption item's release that asks for it,
+	// on every environment, and no other deploy does.
+	FoundApplied bool
+	Credential   secretref.Ref
 }
 
 // SchemaChangeApplied is one row of the store's schema history, which is what
-// says which changes a store carries: the change's identity, a checksum of its
-// text, and whether it widened the store or removed something from it.
+// says which changes a store carries: the release that shipped the change, the
+// change's identity, a checksum of its text, whether it widened the store or
+// removed something from it, and whether the deployer applied it or took it on
+// the adoption's word.
 type SchemaChangeApplied struct {
+	// Release is the release that shipped the change, and is empty where the
+	// deploy that wrote the row named none.
+	Release  string
 	Change   string
 	Checksum string
 	Widened  bool
+	// FoundApplied is a row written at an adopted service's first release
+	// without the change being applied: the store arrived carrying it. A later
+	// reader tells a change the factory applied from one it took on the
+	// adoption's word by this field.
+	FoundApplied bool
 }
 
 // SnapshotRequest is a whole copy of the service's store, asked for before a
@@ -268,6 +291,10 @@ func (c SchemaChange) Validate() error {
 	}
 	if c.Change == "" {
 		return fmt.Errorf("%w: service %q names no change", ErrIncomplete, c.Service)
+	}
+	if c.FoundApplied && c.Release == "" {
+		return fmt.Errorf("%w: %s of service %q is found applied and names no release",
+			ErrIncomplete, c.Change, c.Service)
 	}
 	return nil
 }

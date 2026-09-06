@@ -193,6 +193,37 @@ func (i *Intake) SetDeadline(ctx context.Context, actor record.Actor, intentID, 
 	})
 }
 
+// SetProject writes the project the work is placed in, once. Its caller is
+// decomposition, and it is called for one case: decomposition has to place a
+// service the work creates and nothing else answers where — no source supplied
+// a project at the arrival, and there is no existing service to reach one
+// through.
+//
+// It is never rewritten, so an approval keeps pointing at what was approved: a
+// call on an intent that already names a project is [ErrProjectAlreadyWritten],
+// whether it names the same project or another one. The refusal is here and not
+// a CHECK, a column being unable to see what stood in it before the update; the
+// row is locked and read in the same transaction, so two concurrent fills are
+// one fill and one refusal.
+func (i *Intake) SetProject(ctx context.Context, actor record.Actor, intentID, projectID string) error {
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if projectID == "" {
+		return ErrProjectIDEmpty
+	}
+	return i.write(ctx, intentID, "writing the project of", func(ctx context.Context, tx pgx.Tx, in Intent) error {
+		if finished(in.State) {
+			return fmt.Errorf("%w: %s is %s", ErrFinished, in.ID, in.State)
+		}
+		if in.ProjectID != "" {
+			return fmt.Errorf("%w: %s is in %s", ErrProjectAlreadyWritten, in.ID, in.ProjectID)
+		}
+		_, err := tx.Exec(ctx, `update `+Table+` set project_id = $1 where id = $2`, projectID, in.ID)
+		return err
+	})
+}
+
 // write is the shape every write to an existing intent takes: a fenced
 // transaction, the row locked and read, the caller's own change, and a
 // commit. what names the write in the error text.

@@ -141,12 +141,10 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	// The interview asks at most one question and may ask none, so the first
 	// scripted line has to be a valid verdict as well as an answer. What that
 	// costs is the answer's quality where a question does come: the spec author
-	// is answered with the word approve and authors on it. Three lines, because a
-	// first release puts a human at both gate rows and the answer may take the
-	// first of them.
+	// is answered with the word approve and authors on it.
 	//
-	// Four lines, because a first release puts a human at all three rows and the
-	// answer may take the first of them.
+	// Eight lines: a first release puts a human at all seven rows of the item's
+	// path, and the answer may take the first of them.
 	//
 	// Paced as the run subcommand paces it, so what this test drives is what a
 	// take drives — a run that sends requests back to back is one of the things
@@ -163,7 +161,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("making the repository directory: %v", err)
 	}
-	ctx, d, out := newPathIn(t, "approve\napprove\napprove\napprove\n",
+	ctx, d, out := newPathIn(t, strings.Repeat("approve\n", 8),
 		[]serviceRepo{{name: theService, repo: repo}})
 	d.model = agent.NewPaced(provided, realModelPace)
 	// The author every version this take writes names is the model that wrote it,
@@ -232,14 +230,22 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	}
 	for _, st := range stages {
 		spend := spendOn(t, ctx, d, c.itemID, st.Stage)
-		t.Logf("stage %s: %d attempt(s), %d tokens", st.Stage, st.Attempts, spend)
+		t.Logf("stage %s: %d attempt(s), %d unit(s)", st.Stage, st.Attempts, spend)
 		if st.Attempts < 1 {
 			t.Errorf("stage %s reports %d attempts, want at least one", st.Stage, st.Attempts)
 		}
 	}
-	for _, authored := range []item.Stage{item.StageSpec, item.StageImplementation} {
+	// The spec stage of a run's first item makes no call of its own — that call
+	// is the interview's and is recorded against the intent — so the stages with
+	// a run record of their own are the three below it.
+	if spendOnIntent(t, ctx, d, c.intentID) <= 0 {
+		t.Error("the intent's interview spent nothing, and a real call spends units")
+	}
+	for _, authored := range []item.Stage{
+		item.StageImplementationPlan, item.StageTasks, item.StageImplementation,
+	} {
 		if spendOn(t, ctx, d, c.itemID, authored) <= 0 {
-			t.Errorf("stage %s spent nothing, and a real call spends tokens", authored)
+			t.Errorf("stage %s spent nothing, and a real call spends units", authored)
 		}
 	}
 
@@ -249,6 +255,10 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		row string
 		got fired
 	}{
+		{"spec", c.specGate},
+		{"implementation plan", c.planGate},
+		{"tasks", c.tasksGate},
+		{"implementation", c.implementationGate},
 		{"deploy to candidate environment", c.candidateGate},
 		{"merge to master", c.mergeGate},
 		{"deploy to production", c.deployGate},

@@ -24,10 +24,10 @@ var (
 	// the row and re-fires it to a holder who has not referred it, so it is two
 	// appends and one refusal of its own; [Gate.Refer] is where it is given.
 	ErrReferGivenHere = errors.New("gate: a refer is given through Refer, which re-fires the row")
-	// ErrSelfApproval is returned for a close whose actor is the author named on
-	// the artifact version its open event names, where another holder of the
-	// row's duty exists. The row re-fires to that holder rather than closing to
-	// its own author.
+	// ErrSelfApproval is returned for a close whose actor wrote the artifact
+	// version its open event names — the same per-person key on both — where
+	// another holder of the row's duty exists. The row re-fires to that holder
+	// rather than closing to its own author.
 	ErrSelfApproval = errors.New("gate: this close is by the author of the version under decision, and another holder of the row's duty exists")
 	// ErrClosedByTheActor is returned for a close by the human a record's own
 	// routing says may not decide it: the actor on a withdrawal is never the

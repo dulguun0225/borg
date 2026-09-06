@@ -10,14 +10,17 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/agentrun"
+	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
 // TestARefusedReplyIsRetried is the limit doing its work: the implementer's
 // first reply is prose the protocol refuses, the second is a change, and the
-// take ships. The item's implementation stage records one attempt — an
-// attempt is counted once, on entry to author, and not once per model call —
-// and the agentrun records name both calls the retry made.
+// take ships. The item's implementation stage records two attempts — a refused
+// reply sends the item back to the stage to be entered again, and the entry is
+// what counts, which is what makes the limit the item's own count and not one
+// run's — and the agentrun records name both calls the retry made.
 func TestARefusedReplyIsRetried(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.model = &refusingModel{inner: &fakeModel{}, refusals: 1}
@@ -39,8 +42,12 @@ func TestARefusedReplyIsRetried(t *testing.T) {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
 	for _, st := range stages {
-		if st.Attempts != 1 {
-			t.Errorf("stage %s attempts = %d, want 1", st.Stage, st.Attempts)
+		want := 1
+		if st.Stage == item.StageImplementation {
+			want = 2
+		}
+		if st.Attempts != want {
+			t.Errorf("stage %s attempts = %d, want %d", st.Stage, st.Attempts, want)
 		}
 	}
 
@@ -64,14 +71,14 @@ func TestARefusedReplyIsRetried(t *testing.T) {
 		t.Error("the intent's interview spent nothing")
 	}
 	if spendOn(t, ctx, d, c.itemID, item.StageImplementation) <= 0 {
-		t.Error("stage implementation spent nothing, and a refused attempt spent tokens too")
+		t.Error("stage implementation spent nothing, and a refused attempt spent units too")
 	}
 }
 
 // TestAStageOutOfAttemptsStops is the other end of the limit: every reply
-// refused, so the factory stops retrying and says it is stuck. Nothing ships,
-// and the item carries the whole count — which is what an escalation is read
-// from once there is a screen to read it on.
+// refused, so the factory stops retrying, escalates the item, and says so.
+// Nothing ships, and the item carries the whole count — which is what an
+// escalation is read from once there is a screen to read it on.
 func TestAStageOutOfAttemptsStops(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	model := &refusingModel{inner: &fakeModel{}, refusals: attemptLimit + 5}
@@ -84,7 +91,7 @@ func TestAStageOutOfAttemptsStops(t *testing.T) {
 	if !errors.Is(err, agent.ErrReply) {
 		t.Errorf("the error is %v, want the refused reply wrapped in it", err)
 	}
-	if !strings.Contains(err.Error(), "stuck on this item") {
+	if !errors.Is(err, dispatch.ErrOutOfAttempts) {
 		t.Errorf("the error is %q, and a stage out of attempts is the factory saying it cannot do this one", err)
 	}
 	if model.callsMade != attemptLimit {
@@ -94,17 +101,28 @@ func TestAStageOutOfAttemptsStops(t *testing.T) {
 		t.Errorf("the run reports %d candidates, a stage out of attempts finishes none", len(res.candidates))
 	}
 
-	// The item exists at one attempt: an attempt is counted once, on entry to
-	// author, and not once per model call the retry made — the whole count of
-	// calls the limit spent is what the agentrun records carry.
+	// The item carries one attempt per entry, which is what the limit was
+	// compared against: the stage was entered once and then again after each
+	// refused reply, up to the limit, and the item is escalated at it.
 	var itemID string
 	var attempts int
 	if err := d.pool.QueryRow(ctx, `select item_id, attempts from `+item.StageTable+` where stage = $1`,
 		string(item.StageImplementation)).Scan(&itemID, &attempts); err != nil {
 		t.Fatalf("reading the implementation stage's attempts: %v", err)
 	}
-	if attempts != 1 {
-		t.Errorf("the implementation stage records %d attempts, want 1", attempts)
+	// One entry more than the limit allows: the item is entered again after
+	// each refused reply, and the entry whose count exceeds the limit is the
+	// one that escalates rather than authoring.
+	if attempts != attemptLimit+1 {
+		t.Errorf("the implementation stage records %d attempts, want the %d the limit allows and the entry that exceeded it",
+			attempts, attemptLimit)
+	}
+	var stage string
+	if err := d.pool.QueryRow(ctx, `select stage from `+item.Table+` where id = $1`, itemID).Scan(&stage); err != nil {
+		t.Fatalf("reading the item's stage: %v", err)
+	}
+	if stage != string(item.StageEscalated) {
+		t.Errorf("the item is at %s, and an item that exceeded the limit is escalated", stage)
 	}
 	if calls := spendCallsOn(t, ctx, d, itemID, item.StageImplementation); calls != attemptLimit {
 		t.Errorf("the agentrun records name %d implementer calls, the limit spent %d", calls, attemptLimit)
@@ -121,12 +139,12 @@ type erroringModel struct {
 
 var errNotTheProtocol = errors.New("the model API answered 429")
 
-func (m *erroringModel) Complete(ctx context.Context, system, user string) (agent.Reply, error) {
-	if system == agent.ImplementerSystemPrompt {
+func (m *erroringModel) Complete(ctx context.Context, as principal.Principal, system, user string) (agent.Reply, error) {
+	if system == agent.ShippedImplementerPrompt {
 		m.calls++
 		return agent.Reply{}, errNotTheProtocol
 	}
-	return m.inner.Complete(ctx, system, user)
+	return m.inner.Complete(ctx, as, system, user)
 }
 
 // TestAnErrorThatIsNotAProtocolFailureIsNotRetried is what the limit is not

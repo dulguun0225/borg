@@ -124,7 +124,7 @@ var DDL = []string{
 	constraint intent_id_present check (intent_id <> ''),
 	constraint statement_present check (statement <> ''),
 	constraint pattern_known check (pattern in
-		('always_true', 'event', 'state', 'unwanted_condition', 'optional_feature', 'state_with_event', '')),
+		('always_true', 'event', 'state', 'unwanted_condition', 'optional_feature', 'state_with_an_event_inside_it', '')),
 	constraint escape_reason_with_no_pattern check ((pattern = '') = (escape_reason <> '')),
 	constraint kind_known check (kind in ('confirmed', 'enumerated_from_evidence', 'derived')),
 	constraint derived_names_what_it_derives_from check ((kind = 'derived') = (derived_from <> '')),

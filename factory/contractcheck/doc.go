@@ -3,14 +3,14 @@
 // contract make.
 //
 // contractcheck.go is the component itself: [Check] and [New], composed with
-// the [Checkout], [Exchanges], [StoreState] and [Backfills] seams, plus the
-// [Candidate] a check is asked about and [Actor], the actor its two writes —
-// the brownout intent and the removal intent — are made as. The five files
+// the [Checkout], [Exchanges] and [StoreState] seams, plus the [Candidate] a
+// check is asked about and [Actor], the actor its two writes — the brownout
+// intent and the removal intent — are made as. The five files
 // below are one question each, checked.go being the shape [Check.Enforce]
 // returns and not a sixth question.
 //
 // The tests are against the database: fixtures_test.go holds the graph the
-// others build on and fakes_test.go the four seams it is composed with,
+// others build on and fakes_test.go the three seams it is composed with,
 // db_test.go is the composition [New] refuses, and
 // enforce_test.go, deprecation_test.go, inforce_test.go and store_test.go are
 // the four questions, one file each.
@@ -27,8 +27,11 @@
 // consumers'.
 //
 // [Check.Deprecated], in deprecation.go, is the deprecation list: a [Marked]
-// per marked element with [Blocking] naming what still holds it, and
-// [Blocking.Blocked] is the rejection. A breaking diff and the list are one
+// per marked element, naming the consumer contracts and safeguards' predicates
+// that still hold it, whether any consumer's derivation was partial, and whether
+// any could not be derived at all — [Marked.Empty] is nothing holding it, which
+// is what a breaking change and a removal each wait for. [Broken.Blocking],
+// built by the diff in check.go, is what a rejection names. A breaking diff and the list are one
 // check, so a breaking change passes exactly when nothing still names the
 // elements it breaks — no consumer contract in force, and no safeguard's
 // predicate. A safeguard's predicate is told apart from a derived consumer
@@ -62,19 +65,20 @@
 // build declares one: a store contract's form moves whenever the code deriving
 // it moves, and a build can move it with no change for a deploy to apply. [Migration]
 // is what it found and [Migration.Blocked] the rejection; [Waiting] is an
-// element whose backfill no deploy record marks complete through [Backfills],
-// which blocks the item that moves reads to it and the drop after it until one
-// does.
+// element whose backfill no deploy record marks complete, read through
+// deploy.BackfillComplete, which blocks the item that moves reads to it and the
+// drop after it until one does.
 //
 // Who may write what: this component owns no table. It writes two records —
 // the brownout intent and the removal intent, both through [intent.Intake] —
 // and everything else it does is a read. What it does not do is reject: it
 // answers, and the caller gives that answer to [gate.Gate.AutoReject], which is
 // the one thing that closes a firing. What it does to a checkout, what it
-// observes of a run, what the candidate environment's own store holds, and
-// which backfills a deploy record marks complete are behind [Checkout],
-// [Exchanges], [StoreState] and [Backfills], which whatever composes the
-// deployer implements and [New] takes.
+// observes of a run, and what the candidate environment's own store holds are
+// behind [Checkout], [Exchanges] and [StoreState], which whatever composes the
+// deployer implements and [New] takes. Which backfills a deploy record marks
+// complete is not among them: it is a read of the deploy record, the way what is
+// running is.
 //
 // What defines it: the diff, a breaking one being a rejection at the Merge to
 // master gate, and who is affected being a query are

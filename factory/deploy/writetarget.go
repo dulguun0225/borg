@@ -33,21 +33,6 @@ func (w *Writer) CompleteTarget(ctx context.Context, id, address string, replace
 		string(CompletionComplete), string(replacement), record.Now())
 }
 
-// TearDownKept closes the kept fleet's span on one target: when it was torn
-// down, the hours those instances ran, and what that converted to at the rate in
-// force at this write. The amount is fixed here and never repriced by a rate
-// corrected later; where no rate was in force, priced.InForce is false and the
-// columns stay null, which is not an amount of zero.
-func (w *Writer) TearDownKept(ctx context.Context, id, address string, hours float64, priced Priced) error {
-	var amount, rate any
-	if priced.InForce {
-		amount, rate = priced.Amount, priced.Rate
-	}
-	return w.updateTarget(ctx, id, address, "tearing down the kept instances of", `update `+TargetTable+`
-		set replaced_at = $1, instance_hours = $2, amount = $3, rate = $4
-		where deploy_id = $5 and address = $6`, record.Now(), hours, amount, rate)
-}
-
 // updateTarget runs one write against one target's row, fenced, and refuses
 // where the deploy has no row for that address.
 func (w *Writer) updateTarget(ctx context.Context, id, address, doing, statement string, args ...any) error {
@@ -66,35 +51,20 @@ func (w *Writer) updateTarget(ctx context.Context, id, address, doing, statement
 	})
 }
 
-// Undo marks every target of a deploy rolled back, a target the release never
-// reached included, which is what the record of the rollback that undid it
-// advances as it completes on each. It is what happens to the deploy of the
-// failed release and to the deploy of every release the same rollback skipped.
+// UndoTarget marks one target of a deploy rolled back, which is how a rollback
+// advances the deploys it undoes as it completes on each target: a rollback that
+// stopped undoes nothing on the record beyond the targets it reached. It is what
+// happens to the deploy of the failed release and to the deploy of every release
+// the same rollback skipped, one target at a time.
 //
 // It takes no source, where the rollback's own record does. The source is a fact
 // of the rollback and is written once, on the record of the rollback that named
 // it — so a reader asking why a deploy was undone follows the rollback rather
 // than finding the reason copied onto every deploy the same event touched.
-func (w *Writer) Undo(ctx context.Context, id string) error {
-	return w.inTransaction(ctx, "rolling back "+id, func(tx pgx.Tx) error {
-		if _, err := lockStatus(ctx, tx, id); err != nil {
-			return err
-		}
-		tag, err := tx.Exec(ctx, `update `+TargetTable+` set completion = $1 where deploy_id = $2`,
-			string(CompletionRolledBack), id)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("%w: %s has no target", ErrTargetNotFound, id)
-		}
-		return nil
-	})
-}
-
-// UndoTarget marks one target of a deploy rolled back, which is how a rollback
-// advances the deploys it undoes as it completes on each target: a rollback that
-// stopped undoes nothing on the record beyond the targets it reached.
+//
+// A deploy with no row for that address is [ErrTargetNotFound], which the
+// rollback reads as a deploy that never reached the target it has just finished
+// with: there is nothing there to undo.
 func (w *Writer) UndoTarget(ctx context.Context, id, address string) error {
 	return w.updateTarget(ctx, id, address, "rolling back", `update `+TargetTable+`
 		set completion = $1 where deploy_id = $2 and address = $3`, string(CompletionRolledBack))

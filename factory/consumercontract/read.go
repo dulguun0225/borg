@@ -266,6 +266,44 @@ func NewestDerivation(ctx context.Context, q Querier, itemID string) (Derivation
 	return d, true, nil
 }
 
+// StandingCouldNotDerive is every consumer whose newest derivation could not
+// derive at all, whatever the producer and whatever the service — a record and
+// not an empty list, because "no consumer reads this" and "no consumer's read
+// was visible" call for opposite responses.
+//
+// It is the whole install because nothing bounds what an unreadable consumer
+// consumes: what reads it is the score's context factor, which cannot say which
+// services consume what a candidate publishes while any consumer is unreadable,
+// so the factor is resolved rather than valued and a human decides whatever the
+// formula returns. A later derivation by a newer extractor supersedes an earlier
+// one, so it is the newest per item that stands.
+func StandingCouldNotDerive(ctx context.Context, q Querier) ([]Derivation, error) {
+	rows, err := q.Query(ctx, `select d.id, d.actor_kind, d.actor_key, d.actor_key_basis, d.at, d.item_id,
+		d.service_id, d.artifact_id, d.extractor, d.extractor_version, d.toolchain, d.factory_version,
+		d.unfollowed, d.cause, d.reported
+		from `+DerivationTable+` d
+		where d.cause <> ''
+		and d.at = (select max(newest.at) from `+DerivationTable+` newest where newest.item_id = d.item_id)
+		order by d.at, d.id`)
+	if err != nil {
+		return nil, fmt.Errorf("consumercontract: reading the consumers nobody could read: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Derivation
+	for rows.Next() {
+		d, err := scanDerivation(rows)
+		if err != nil {
+			return nil, fmt.Errorf("consumercontract: reading a derivation: %w", err)
+		}
+		read = append(read, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("consumercontract: reading the consumers nobody could read: %w", err)
+	}
+	return read, nil
+}
+
 // DerivationsForItems is the newest derivation of each of these items, in the
 // order the items were given nothing about — it is the read beside [ForItems],
 // and it answers which of the consumers in force are partial and which could not

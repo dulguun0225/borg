@@ -121,6 +121,11 @@ type chatResponse struct {
 	Usage struct {
 		PromptTokens     int64 `json:"prompt_tokens"`
 		CompletionTokens int64 `json:"completion_tokens"`
+		// PromptTokensDetails carries the part of the prompt the provider
+		// served from its own cache, which it prices apart from the rest.
+		PromptTokensDetails struct {
+			CachedTokens int64 `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 	Error struct {
 		Code    int    `json:"code"`
@@ -129,17 +134,15 @@ type chatResponse struct {
 }
 
 // Complete sends one user message under one system prompt and returns the
-// reply's text and its token spend, input and output together. No error it
+// reply's text and the units the provider returned per kind. No error it
 // returns contains the credential's value: the resolver's errors carry no value
 // by that package's own rule, a transport error names the method and the URL and
 // no header, and a [StatusError] carries what the server sent back.
-func (o OpenRouter) Complete(ctx context.Context, system, user string) (Reply, error) {
+func (o OpenRouter) Complete(ctx context.Context, p principal.Principal, system, user string) (Reply, error) {
 	// The value exists from here to the header write and in nothing a caller
-	// can reach afterwards.
-	//
-	// The principal recorded is this component's own, for the reason
-	// [Anthropic.Complete] states.
-	credential, err := o.Resolver.Resolve(principal.OfComponent("agent"), o.Credential)
+	// can reach afterwards. The principal recorded beside the credential's name
+	// is the caller's, for the reason [Anthropic.Complete] states.
+	credential, err := o.Resolver.Resolve(p, o.Credential)
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: resolving the model credential: %w", err)
 	}
@@ -222,8 +225,15 @@ func (o OpenRouter) Complete(ctx context.Context, system, user string) (Reply, e
 			return Reply{}, fmt.Errorf("%w: its first choice has no content and finished as %q", ErrAnswer, choice.FinishReason)
 		}
 	}
-	return Reply{
-		Text:   text,
-		Tokens: parsed.Usage.PromptTokens + parsed.Usage.CompletionTokens,
-	}, nil
+	// The cached part of the prompt is reported inside the prompt count, so it
+	// is subtracted out here: the two kinds are priced apart and a kind counted
+	// twice would be a spend the provider never charged.
+	units := map[string]int64{
+		UnitsInput:  parsed.Usage.PromptTokens - parsed.Usage.PromptTokensDetails.CachedTokens,
+		UnitsOutput: parsed.Usage.CompletionTokens,
+	}
+	if cached := parsed.Usage.PromptTokensDetails.CachedTokens; cached > 0 {
+		units[UnitsCachedInput] = cached
+	}
+	return Reply{Text: text, Units: units}, nil
 }

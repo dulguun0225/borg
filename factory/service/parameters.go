@@ -23,6 +23,16 @@ var (
 	// at the moment it opened, and a window limit of nothing would let a service
 	// hold no window and so ship nothing.
 	ErrNotPositive = errors.New("service: this value is above zero")
+	// ErrRateNegative is returned by [SetInstanceHourRate] for a rate below
+	// nothing. A rate of nothing is admitted: an instance-hour that converts to
+	// nothing is a real value, where a negative one converts an hour run into
+	// money earned.
+	ErrRateNegative = errors.New("service: a rate is not negative")
+	// ErrOverflowOperationEmpty is returned by [SetOperationCap] for a cap that
+	// names no overflow operation. The cap and the name the excess lands in are
+	// one write: a cap without one truncates the count and leaves nowhere for the
+	// rest to land.
+	ErrOverflowOperationEmpty = errors.New("service: an operation cap names the overflow operation the excess lands in")
 	// ErrQuantityEmpty is returned by [SetWindowSize] and [SetWindowPower] for a
 	// value authored against no quantity. The size and the power are one value
 	// per quantity, so an authoring that names none names nothing.
@@ -152,6 +162,41 @@ func SetExposureBound(ctx context.Context, tx pgx.Tx, serviceID string, bound fl
 	return set(ctx, tx, serviceID, `exposure_bound`, bound)
 }
 
+// SetBakeVolume writes the traffic the targets a rollout has already reached
+// serve before the next is reached. It is a volume and not a period, because the
+// analysis window is a volume condition and a period on a quiet service measures
+// nothing. Where an owner authors none the score supplies it, and a safeguard may
+// raise it and never lower it.
+func SetBakeVolume(ctx context.Context, tx pgx.Tx, serviceID string, volume float64) error {
+	if volume <= 0 {
+		return fmt.Errorf("%w: the bake volume %v", ErrNotPositive, volume)
+	}
+	return set(ctx, tx, serviceID, `bake_volume`, volume)
+}
+
+// SetBacklogCap writes how many releases may wait behind a rollback hold — the
+// ones the rollback skipped and the ones merged while it stands alike — before
+// the merge queue stops fast-forwarding this service's candidates. Where an owner
+// authors none it is the window limit, so both halves of the exception are
+// bounded by one number until an owner separates them.
+func SetBacklogCap(ctx context.Context, tx pgx.Tx, serviceID string, cap float64) error {
+	if cap <= 0 {
+		return fmt.Errorf("%w: the backlog cap %v", ErrNotPositive, cap)
+	}
+	return set(ctx, tx, serviceID, `backlog_cap`, cap)
+}
+
+// SetInstanceHourRate writes what one instance-hour converts to, in the currency
+// the owner's rates are authored in. A rate of nothing is a real value and is
+// admitted: what an absent rate means is that the deployer writes no amount at
+// all on the deploy record's targets, which is not an amount of zero.
+func SetInstanceHourRate(ctx context.Context, tx pgx.Tx, serviceID string, rate float64) error {
+	if rate < 0 {
+		return fmt.Errorf("%w: the instance-hour rate %v", ErrRateNegative, rate)
+	}
+	return set(ctx, tx, serviceID, `instance_hour_rate`, rate)
+}
+
 // SetMutantCap writes how many mutants the mutation score may spend per item.
 func SetMutantCap(ctx context.Context, tx pgx.Tx, serviceID string, cap float64) error {
 	if cap <= 0 {
@@ -228,6 +273,9 @@ func withQuantities(ctx context.Context, pool *pgxpool.Pool, s Service) (Service
 		return Service{}, err
 	}
 	if s.Parameters.WindowPower, err = perQuantity(ctx, pool, WindowPowerTable, "power", s.ID); err != nil {
+		return Service{}, err
+	}
+	if s.ExplicitThreshold, err = explicitThresholds(ctx, pool, s.ID); err != nil {
 		return Service{}, err
 	}
 	return s, nil

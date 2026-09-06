@@ -132,7 +132,7 @@ func TestASchemaChangeRunsTheServicesScriptAndIsInTheHistory(t *testing.T) {
 	writeScript(t, dir, "checkout", "0001-add-the-column", "added")
 
 	if err := local.ApplySchemaChange(ctx, deployer, targetseam.SchemaChange{
-		Service: "checkout", Change: "0001-add-the-column", Credential: credential,
+		Service: "checkout", Change: "0001-add-the-column", Release: "rel_4", Credential: credential,
 	}); err != nil {
 		t.Fatalf("ApplySchemaChange: %v", err)
 	}
@@ -151,6 +151,10 @@ func TestASchemaChangeRunsTheServicesScriptAndIsInTheHistory(t *testing.T) {
 	}
 	if !running.SchemaHistory[0].Widened || running.SchemaHistory[0].Checksum == "" {
 		t.Errorf("the history row is %+v, want a checksum and a widening", running.SchemaHistory[0])
+	}
+	if running.SchemaHistory[0].Release != "rel_4" || running.SchemaHistory[0].FoundApplied {
+		t.Errorf("the history row is %+v, want the release that shipped it and applied by the deployer",
+			running.SchemaHistory[0])
 	}
 
 	err = local.ApplySchemaChange(ctx, deployer, targetseam.SchemaChange{
@@ -242,5 +246,38 @@ func TestThePlatformRefusesWhatItCannotDo(t *testing.T) {
 		Service: "checkout", Build: "rel_one", Count: 1, Credential: credential,
 	}); err != nil {
 		t.Errorf("SetInstanceCount(1) = %v, want the count this platform already runs", err)
+	}
+}
+
+// TestAnAdoptedStoresChangesAreWrittenIntoTheHistoryAndAppliedToNothing: an
+// adopted service arrives with its store at the schema its head declares, so the
+// deploy of the adoption item's release writes one row per change the build
+// declares, naming that release and marked as found applied, and applies none.
+func TestAnAdoptedStoresChangesAreWrittenIntoTheHistoryAndAppliedToNothing(t *testing.T) {
+	ctx := t.Context()
+	local, dir := newTarget(t, "checkout")
+	writeScript(t, dir, "checkout", "0001-create-the-table", "created")
+
+	if err := local.ApplySchemaChange(ctx, deployer, targetseam.SchemaChange{
+		Service: "checkout", Change: "0001-create-the-table", Release: "rel_1",
+		FoundApplied: true, Credential: credential,
+	}); err != nil {
+		t.Fatalf("ApplySchemaChange found applied: %v", err)
+	}
+
+	if _, err := os.ReadFile(filepath.Join(localtarget.DataDir(dir, "checkout"), "0001-create-the-table")); err == nil {
+		t.Error("the script ran against the store, and a change found applied is applied to nothing")
+	}
+
+	running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
+	if err != nil {
+		t.Fatalf("ReadRunning: %v", err)
+	}
+	if len(running.SchemaHistory) != 1 {
+		t.Fatalf("the history reads %+v, want the one row the adoption wrote", running.SchemaHistory)
+	}
+	row := running.SchemaHistory[0]
+	if row.Change != "0001-create-the-table" || row.Release != "rel_1" || !row.FoundApplied || row.Checksum == "" {
+		t.Errorf("the history row is %+v, want rel_1's change found applied with a checksum", row)
 	}
 }

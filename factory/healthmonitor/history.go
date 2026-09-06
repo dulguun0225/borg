@@ -100,16 +100,24 @@ func (h *HealthMonitor) ownHistory(ctx context.Context, w Watching, win window.W
 // number — which is why the other arm here is the number itself, held over the
 // same units the release served.
 //
-// The number is the objective read the other way round: the share of the work
-// the service may fail. Where an owner authored no objective there is no
-// threshold, and a service's first release is then unmeasured and nothing about
-// it is discovered by watching.
+// The number is what a safeguard set on the service record, per quantity. Where
+// no safeguard set one there is no threshold, and a service's first release is
+// then unmeasured and nothing about it is discovered by watching — there being
+// no build in production to compare it against either.
 func (h *HealthMonitor) threshold(ctx context.Context, w Watching, svc service.Service,
 	win window.Window) (*Crossing, error) {
-	if len(win.ThresholdSize) == 0 || win.ThresholdRunLength <= 1 || !svc.Objective.Authored() {
+	if len(win.ThresholdSize) == 0 || win.ThresholdRunLength <= 1 || len(svc.ExplicitThreshold) == 0 {
 		return nil, nil
 	}
-	allowed := 1 - svc.Objective.Target.Number
+	allowed := map[gatepolicy.Quantity]float64{}
+	for quantity, threshold := range svc.ExplicitThreshold {
+		if _, named := win.ThresholdSize[quantity]; named {
+			allowed[quantity] = threshold.Number
+		}
+	}
+	if len(allowed) == 0 {
+		return nil, nil
+	}
 	comparisons := max(len(win.Targets), 1) * len(win.ThresholdSize)
 	boundaryFor := func(q gatepolicy.Quantity) (boundary.Boundary, bool) {
 		size, carried := win.ThresholdSize[q]
@@ -129,7 +137,7 @@ func (h *HealthMonitor) threshold(ctx context.Context, w Watching, svc service.S
 		if err != nil {
 			return nil, fmt.Errorf("healthmonitor: reading %s against its threshold on %s: %w", w.Name, target, err)
 		}
-		if err := evaluate(boundaryFor, win.Power, target, against(series, allowed, win.ThresholdSize),
+		if err := evaluate(boundaryFor, win.Power, target, against(series, allowed),
 			KindExplicitThreshold, &read); err != nil {
 			return nil, err
 		}
@@ -138,26 +146,27 @@ func (h *HealthMonitor) threshold(ctx context.Context, w Watching, svc service.S
 }
 
 // against replaces the other arm of every interval with the threshold itself:
-// the same units the release served, failing at exactly the number the owner
-// stated. That is what makes an absolute number readable by a boundary built for
-// two arms — the number is an arm that behaves exactly as authored, so the
-// statistic is the release's exceedance of it and nothing else.
+// the same units the release served, at exactly the number the safeguard stated
+// for that quantity. That is what makes an absolute number readable by a
+// boundary built for two arms — the number is an arm that behaves exactly as
+// authored, so the statistic is the release's exceedance of it and nothing else.
 //
-// Only the quantities the threshold names are kept, since a threshold set on one
-// quantity says nothing about another.
-func against(series Series, allowed float64, sizes map[gatepolicy.Quantity]float64) Series {
+// Only the quantities a threshold was set on are kept, since a threshold set on
+// one quantity says nothing about another.
+func against(series Series, allowed map[gatepolicy.Quantity]float64) Series {
 	stated := series
 	stated.Operations = nil
 	for _, operation := range series.Operations {
 		quantities := map[gatepolicy.Quantity]boundary.Observed{}
 		for quantity, observed := range operation.Quantities {
-			if _, named := sizes[quantity]; !named {
+			number, named := allowed[quantity]
+			if !named {
 				continue
 			}
 			var replaced boundary.Observed
 			for _, counts := range observed.Intervals {
 				counts.BaselineUnits = counts.Units
-				counts.BaselineCount = int64(math.Round(allowed * float64(counts.Units)))
+				counts.BaselineCount = int64(math.Round(number * float64(counts.Units)))
 				replaced.Intervals = append(replaced.Intervals, counts)
 			}
 			quantities[quantity] = replaced

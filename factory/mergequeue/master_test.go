@@ -423,3 +423,44 @@ func TestMasterIsReadBeforeEveryMintAndNotOnlyAtTheStart(t *testing.T) {
 		t.Errorf("the log holds %d openings of that wait, want one", len(open))
 	}
 }
+
+// TestRestartReadsMasterAndFastForwardsNothing is the queue's restart: it makes
+// the same reading a run makes before it mints — so a service master and the
+// records disagree over is reported held at the start rather than at the first
+// mint — and it merges nothing, a start being a read of the queue's own records
+// and not a pass of the queue.
+func TestRestartReadsMasterAndFastForwardsNothing(t *testing.T) {
+	repo := newRepository()
+	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo})
+
+	it := queued(ctx, t, pool, token, 1)
+	repo.verified[it.ID] = mergequeue.Verified{Commit: "commit-two", BuildID: "bl_two", Passed: true}
+	if _, err := release.NewWriter(pool, token).Mint(ctx, mergequeue.Actor, release.Minting{
+		ServiceID: serviceID, BuildID: "bl_one", Commit: "commit-one", ItemID: "it_00000000000000000000000000000001",
+	}); err != nil {
+		t.Fatalf("minting the release master's head is compared against: %v", err)
+	}
+	repo.held["commit-one"], repo.held["a-humans-push"] = true, true
+	repo.head = "a-humans-push"
+
+	read, completed, err := q.Restart(ctx, serviceID)
+	if err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if read.Stopped != string(mergequeue.WaitMasterHoldsACommitTheQueueDidNotMake) {
+		t.Fatalf("the restart reports %q, want the service held on a commit the queue did not make", read.Stopped)
+	}
+	if read.WaitRow == "" {
+		t.Error("the stop names no wait row, and the stop is the row")
+	}
+	if len(completed) != 0 {
+		t.Errorf("the restart wrote %d outcome(s), and no merge of its own was unfinished", len(completed))
+	}
+	if len(repo.reverified) != 0 || len(repo.fastForwards) != 0 {
+		t.Errorf("the restart re-verified %v and fast-forwarded %v, and a start merges nothing",
+			repo.reverified, repo.fastForwards)
+	}
+	if _, _, err := q.Restart(ctx, ""); !errors.Is(err, mergequeue.ErrServiceIDEmpty) {
+		t.Errorf("Restart with no service = %v, want ErrServiceIDEmpty", err)
+	}
+}

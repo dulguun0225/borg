@@ -10,10 +10,13 @@
 //	driftdetector clear <mismatch-id> -human <name>
 //	driftdetector install -address <address>
 //
-// pass runs all three comparisons this command wires: the first, over what
-// each target runs; the second, over the log's chain against the head this
-// store recorded; and the third, over the factory's own last check records,
-// which is what makes a stopped factory component reach a human. show
+// pass runs three of the six comparisons: the first, over what each target
+// runs and the digest it reports; the second, over the log's chain against the
+// head this store recorded; and the third, over the factory's own last check
+// records, which is what makes a stopped factory component reach a human. The
+// fourth (the instances a rollback would need against the count the deploy
+// record keeps), the fifth (the schema history in each service's store) and the
+// sixth (the configuration digest running on a target) are not built here. show
 // prints every mismatch and the last check per target, which is what makes
 // a stopped drift detector visible rather than silent — no mismatches is
 // not health if the last check is a week old. clear clears one mismatch on
@@ -26,10 +29,13 @@
 // comparison: [pass] itself, [recordedFor] — the recorded release, read the
 // way [deploy.Current] already reads a service's current release rather
 // than with the per-target fallback 08-drift-detection.md states, an open
-// point the report names — [excusedBuilds], [deployerLastCheckStale] — the
-// rollout exemption's second bound — and [report]. checks.go is the second
-// and third comparisons: [chainCheck] and [staleCheck]. The tests are
-// pass_test.go, which opens both stores and exercises pass directly.
+// point the report names — [excusedBuilds], which is the rollout exemption
+// per target, bounded by the window's own cap, by the targets the deploy
+// record marks complete, and by [deployerLastCheckStale], and [report].
+// checks.go is the second and third comparisons: [chainCheck], [staleCheck]
+// with [raiseStale] and [holdsWhat], which is which services a stopped
+// component's mismatch holds. The tests are pass_test.go, which opens both
+// stores and exercises pass directly.
 //
 // What it reaches a target through is the same seam an agent does, and the read
 // operation is the one that changes nothing. It calls as itself, a component,

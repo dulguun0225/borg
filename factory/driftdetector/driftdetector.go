@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/record"
@@ -49,9 +50,14 @@ type Mismatch struct {
 	// empty on a [MismatchKindChain] mismatch.
 	ServiceID string
 	Target    string
-	// Detail is the chain mismatch's own words, and is empty on a target
-	// mismatch, which composes [Mismatch.Why] from the other fields instead.
+	// Detail is the words of a chain or a stale-component mismatch, and is empty
+	// on a target mismatch, which composes [Mismatch.Why] from the other fields
+	// instead.
 	Detail string
+	// Component is the factory component whose last check is past the interval
+	// it promised, on a [MismatchKindStaleComponent] mismatch, and is empty on
+	// every other kind.
+	Component string
 	// RunningBuild is what the target said it runs, and is empty where it runs
 	// nothing at all — which is a mismatch like any other against a factory that says
 	// a release is live.
@@ -77,7 +83,7 @@ func (m Mismatch) Cleared() bool { return m.ClearedAt != "" }
 // composed here rather than stored, because every part of it is a field and a stored
 // sentence would be a second copy able to disagree with them.
 func (m Mismatch) Why() string {
-	if m.Kind == MismatchKindChain {
+	if m.Kind == MismatchKindChain || m.Kind == MismatchKindStaleComponent {
 		return HoldWords + ": " + m.Detail
 	}
 	running := "nothing"
@@ -321,6 +327,62 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 		recorded.Raised = m.ID
 	}
 	return recorded, nil
+}
+
+// StaleComponent is what the third comparison found: a factory component whose
+// last check is past the interval it names with a further pass owed, and what
+// its stopping holds. The health monitor's record is per service, so its
+// mismatch names that service and no target; the deployer's is per target of an
+// environment and holds that environment's production deploys, which is one
+// mismatch per service in it, each naming the target as well.
+type StaleComponent struct {
+	Component string
+	ServiceID string
+	Target    string
+	Why       string
+}
+
+// RaiseStaleComponent is the third comparison's own write. A component that
+// stopped is not evidence about the software, so this stays inside the rule the
+// other two keep: it holds what the stopped component reaches and the detector
+// still cannot cause anything to be built, deployed, scored, approved, or
+// measured.
+//
+// One uncleared mismatch stands per component, service and target: a later pass
+// finding the same component still stale raises nothing, the way a target that
+// still disagrees records an agreement rather than a second row.
+func (w *Writer) RaiseStaleComponent(ctx context.Context, s StaleComponent) (string, error) {
+	if s.Component == "" || s.ServiceID == "" || s.Why == "" {
+		return "", fmt.Errorf("%w: a stale component names the component, the service it holds, and what was found",
+			ErrPassIncomplete)
+	}
+	var standing string
+	err := w.pool.QueryRow(ctx, `select id from `+MismatchTable+`
+		where kind = $1 and component = $2 and service_id = $3 and target = $4 and cleared_at = ''
+		order by at limit 1`,
+		MismatchKindStaleComponent, s.Component, s.ServiceID, s.Target).Scan(&standing)
+	if err == nil {
+		return "", nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("driftdetector: reading the standing mismatch on %s: %w", s.Component, err)
+	}
+
+	m := Mismatch{
+		ID: record.NewID(MismatchIDPrefix), Actor: Actor, At: record.Now(),
+		Kind: MismatchKindStaleComponent, ServiceID: s.ServiceID, Target: s.Target,
+		Component: s.Component, Detail: s.Why,
+	}
+	_, err = w.pool.Exec(ctx, `insert into `+MismatchTable+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, component,
+		 running_build, recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '', '', '', $11, 0, '', '')`,
+		m.ID, FormatVersionMismatch, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At,
+		m.Kind, m.ServiceID, m.Target, m.Component, m.Detail,
+	)
+	if err != nil {
+		return "", fmt.Errorf("driftdetector: raising a mismatch on the stopped %s: %w", s.Component, err)
+	}
+	return m.ID, nil
 }
 
 // RaiseChainMismatch is the second comparison's own write: the log's chain no

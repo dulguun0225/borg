@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
@@ -15,12 +16,14 @@ import (
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
+	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lastcheck"
@@ -73,7 +76,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		store:         artifact.NewStore(d.pool, d.token),
 		intake:        intent.NewIntake(d.pool, d.token),
 		decomposition: item.NewDecomposition(d.pool, d.token),
-		dispatch:      item.NewDispatch(d.pool, d.token),
+		items:         item.NewDispatch(d.pool, d.token),
 		builds:        build.NewWriter(d.pool, d.token),
 		deploys:       deploy.NewWriter(d.pool, d.token),
 		checks:        lastcheck.NewWriter(d.pool, d.token),
@@ -118,19 +121,54 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 
 	p.gate = gate.New(gate.Composition{
-		Pool:          d.pool,
-		Token:         d.token,
-		Log:           p.log,
-		Score:         score.New(d.pool, scoreVersion, d.draw, marks, d.token),
-		Policy:        p.policy,
-		Holds:         p,
-		DriftDetector: mismatches,
-		IntentState:   p.intentState,
-		HumanName:     p.nameOfKey,
-		Draw:          d.draw,
-		Notifier:      gateNotifier{notifier: p.notifier},
-		Dispatch:      p.dispatch,
+		Pool:                     d.pool,
+		Token:                    d.token,
+		Log:                      p.log,
+		Score:                    score.New(d.pool, scoreVersion, d.draw, marks, d.token),
+		Policy:                   p.policy,
+		Holds:                    p,
+		DriftDetector:            mismatches,
+		IntentState:              p.intentState,
+		RaisedByTheHealthMonitor: p.raisedByTheHealthMonitor,
+		Draw:                     d.draw,
+		Notifier:                 gateNotifier{notifier: p.notifier},
+		Dispatch:                 p.items,
 	})
+
+	// The first-start step for what an agent is told: the shipped role prompt
+	// per role entered through the artifact store, with the factory's own
+	// start as the actor and the author pair empty, where the chain does not
+	// already hold those words. What a run reads is the version in force, so
+	// this happens before the component that hands one to a role exists.
+	prompts, entered, err := enterShippedPrompts(ctx, p.store, d.pool, installActor, factoryVersion)
+	if err != nil {
+		return nil, err
+	}
+	p.prompts = prompts
+	if len(entered) > 0 {
+		fmt.Fprintf(d.out, "The shipped role prompt entered the chain for %v, under bundle %s\n", entered, factoryVersion)
+	}
+
+	// Dispatch: the match of an item's stage against a role and of its service
+	// and area against a scope, and what runs an agent. The fleet is this
+	// interface's own composition — one model and one credential from the
+	// command line, an entry per role over the whole factory — the fleet entry
+	// being a record nothing here writes.
+	p.dispatch, err = dispatch.New(dispatch.Composition{
+		Pool: d.pool, Token: d.token,
+		Fleet:      oneModelFleet{model: d.model, modelName: d.modelName, credential: d.modelCredentialName},
+		Prompts:    p.prompts,
+		Items:      p.items,
+		Policy:     p.policy,
+		Log:        p.log,
+		Reader:     decisionlog.NewReader(d.pool, d.token),
+		Manifests:  inputmanifest.NewWriter(d.pool, d.token),
+		Runs:       agentrun.NewWriter(d.pool, d.token),
+		Escalation: gateEscalation{gate: p.gate},
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	// The queue. It reaches the repository and the candidate environments through
 	// this same value, which is the deployer, and it is composed without three
@@ -178,7 +216,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// Enforcement. The checkout, the run it observes, the candidate's own store
 	// and a backfill's completion are all this same value, the deployer being
 	// what reaches a repository and a target.
-	p.contracts, err = contractcheck.New(d.pool, p.policy, p.intake, p, p, p, p)
+	p.contracts, err = contractcheck.New(d.pool, p.policy, p.intake, p, p, p)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +240,13 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			fmt.Fprintf(d.out, "Area %s declared as %s\n", d.area, ar.ID)
 		}
 		p.areaID = ar.ID
+	}
+
+	// Every component's restart, before anything reads a record: this process
+	// has just taken the lease, so what the last holder left half done is
+	// finished here rather than read as though it were whole.
+	if err := p.restart(ctx); err != nil {
+		return nil, err
 	}
 	return p, nil
 }

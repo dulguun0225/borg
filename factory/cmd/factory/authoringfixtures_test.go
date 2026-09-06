@@ -1,5 +1,7 @@
 // Helpers shared by the authoring subcommand tests: a schema of its own per
-// test, and installing the factory and decomposing a service on it.
+// test, installing the factory and decomposing a service on it, and the reads
+// of what a stage or an intent spent, which are over the agent run records the
+// component that dispatched the role wrote.
 package main
 
 import (
@@ -12,7 +14,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
@@ -138,4 +142,61 @@ func decomposeService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, nam
 		t.Fatalf("creating the service: %v", err)
 	}
 	return svc
+}
+
+// spendOn is what the agentrun records say one item's stage cost, summed over
+// the units recorded under kind "total" — package agentrun's own read, spend
+// no longer being a field of the item.
+func spendOn(t *testing.T, ctx context.Context, d deps, itemID string, stage item.Stage) int64 {
+	t.Helper()
+	runs, err := agentrun.ForItem(ctx, d.pool, itemID)
+	if err != nil {
+		t.Fatalf("reading the agent runs of %s: %v", itemID, err)
+	}
+	var total int64
+	for _, r := range runs {
+		if r.Stage != string(stage) {
+			continue
+		}
+		for _, units := range r.UnitsByKind {
+			total += units
+		}
+	}
+	return total
+}
+
+// spendCallsOn is how many agentrun records name one item's stage — the number
+// of model calls made there, refused ones included, which is what a retry's
+// own count is now read from rather than from the item's per-stage attempts.
+func spendCallsOn(t *testing.T, ctx context.Context, d deps, itemID string, stage item.Stage) int {
+	t.Helper()
+	runs, err := agentrun.ForItem(ctx, d.pool, itemID)
+	if err != nil {
+		t.Fatalf("reading the agent runs of %s: %v", itemID, err)
+	}
+	var calls int
+	for _, r := range runs {
+		if r.Stage == string(stage) {
+			calls++
+		}
+	}
+	return calls
+}
+
+// spendOnIntent is [spendOn] scoped to the intent rather than to an item: the
+// interview's own model calls are recorded there, since they happen before
+// the first item exists.
+func spendOnIntent(t *testing.T, ctx context.Context, d deps, intentID string) int64 {
+	t.Helper()
+	runs, err := agentrun.ForIntent(ctx, d.pool, intentID)
+	if err != nil {
+		t.Fatalf("reading the agent runs of %s: %v", intentID, err)
+	}
+	var total int64
+	for _, r := range runs {
+		for _, units := range r.UnitsByKind {
+			total += units
+		}
+	}
+	return total
 }

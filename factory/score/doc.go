@@ -32,8 +32,8 @@
 //
 // learn.go is the pass — [Learn] over the store, [LearnFrom] over an [Evidence],
 // both answering a [Learned]. evidence.go is [ReadEvidence] and the [Outcome] of
-// each item; windowlearn.go moves the analysis window's size, power and cap and
-// the window limit; rejection.go resolves a human's rejection one of four ways
+// each item; windowlearn.go moves the analysis window's size and power per
+// quantity, its cap per service, and the window limit; rejection.go resolves a human's rejection one of four ways
 // and publishes the [FalseAlarm]s; bands.go is the [Band]s of the number;
 // drift.go is the two calibration readings and the [Drift] each publishes;
 // fit.go is [Fit], the weights a recalibration refits; rules.go is [Rules] and

@@ -13,6 +13,10 @@ import (
 // so that a gate can hold one behind an interface and a test can hold a fake.
 type Reader struct {
 	pool *pgxpool.Pool
+	// token fences the read events the log appends, and is what
+	// [Reader.ScoreVersionAtGate] passes to package score to read which version
+	// is in force at one scope.
+	token lease.Token
 	// log is how every policy version is read. A version is a row of the
 	// decision log, so reading one is reading the log, which appends a read
 	// event of its own.
@@ -32,7 +36,7 @@ type Reader struct {
 // factory that has appended no version yet supplies, so a reader composed
 // before the first ensure answers with those and not with nothing.
 func NewReader(pool *pgxpool.Pool, token lease.Token, version score.Version) *Reader {
-	return &Reader{pool: pool, log: decisionlog.NewReader(pool, token), score: version}
+	return &Reader{pool: pool, token: token, log: decisionlog.NewReader(pool, token), score: version}
 }
 
 // Subjects is what a read is performed against: the records whose fields hold

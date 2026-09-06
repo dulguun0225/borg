@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -163,17 +164,31 @@ func All(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, e
 	return list(ctx, pool, serviceID, ` order by at, id`, "the windows")
 }
 
-// Closed is every closed window of every service, oldest close first. It is the
-// one read here that is not per service: what the score learns from a window is
-// its exit, and the subjects it learns about are the services the windows name,
-// so a reader asking per service would first have to be told which services to
-// ask about.
+// ClosedAtTheVersionInForce is every closed window of every service whose
+// boundary version is [boundary.Version], oldest close first. It is the one read
+// here that is not per service: what the score learns from a window is its exit,
+// and the subjects it learns about are the services the windows name, so a
+// reader asking per service would first have to be told which services to ask
+// about.
+//
+// The version is in the read and not in the caller because passed and failed
+// under two constructions are not one currency: a mechanism that learns from
+// exits reads exits at the boundary version in force and none at another, so an
+// upgrade that changes the version restarts the per-author prior at an unseen
+// author's width, the window limit at 1, the supplied size and power at what the
+// product ships, and the bands empty. That is the treatment evidence already
+// gets when a truncation of the log removes it.
+//
+// [ClosedPassedOrTimedOut] is deliberately not filtered this way: a rollback's
+// target and the last known-good release ask whether any window failed a release
+// and not at what rate it was read.
 //
 // Open windows are left out because an open window has no exit and so says
 // nothing about an outcome yet. The whole table is read at once, which is what
 // learning over every outcome costs while the store is small.
-func Closed(ctx context.Context, pool *pgxpool.Pool) ([]Window, error) {
-	return query(ctx, pool, selectWindow+` where exit <> '' order by closed_at, id`, "the closed windows")
+func ClosedAtTheVersionInForce(ctx context.Context, pool *pgxpool.Pool) ([]Window, error) {
+	return query(ctx, pool, selectWindow+` where exit <> '' and boundary_version = $1
+		order by closed_at, id`, "the closed windows at the boundary version in force", boundary.Version)
 }
 
 // list is every read that returns more than one window of one service. The

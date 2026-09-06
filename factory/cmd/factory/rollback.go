@@ -64,25 +64,25 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	}
 	dep, err := deploy.Restore(ctx, p.deploys, deploy.Restoration{
 		Performance: deploy.Performance{
-			Actor:          deployActor,
-			Principal:      deployerPrincipal,
-			ServiceID:      r.ServiceID,
-			ServiceName:    r.ServiceName,
-			EnvironmentID:  r.EnvironmentID,
-			What:           deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
-			IntoProduction: true,
-			StrategyPicked: deploy.StrategyWithoutControl,
-			Credential:     p.d.credential,
-			Reaches:        p.reaches(p.production),
+			Actor:           deployActor,
+			Principal:       deployerPrincipal,
+			ServiceID:       r.ServiceID,
+			ServiceName:     r.ServiceName,
+			EnvironmentID:   r.EnvironmentID,
+			What:            deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
+			IntoProduction:  true,
+			StrategyPicked:  deploy.StrategyWithoutControl,
+			Credential:      p.d.credential,
+			Reaches:         p.reaches(p.production),
+			UndoneDeployIDs: undone,
 		},
 		Undoing: deploy.Undoing{
 			FailedReleaseID:   r.FailedReleaseID,
 			SkippedReleaseIDs: r.SkippedReleaseIDs,
 			Source:            r.Source,
 		},
-		RecordedDigest:  made.ArtifactDigest,
-		Artifacts:       artifactsOf{pool: p.d.pool},
-		UndoneDeployIDs: undone,
+		RecordedDigest: made.ArtifactDigest,
+		Artifacts:      artifactsOf{pool: p.d.pool},
 	})
 	if err != nil {
 		return err

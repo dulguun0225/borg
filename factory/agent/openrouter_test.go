@@ -50,7 +50,8 @@ func newOpenRouter(t *testing.T, srv *httptest.Server) OpenRouter {
 // the Authorization header carries the resolved value as a bearer token, no
 // x-api-key and neither Anthropic header is sent, the body carries the model,
 // max_tokens, and the system prompt as the first of two messages, and a canned
-// answer parses into a Reply whose Tokens is prompt plus completion.
+// answer parses into a Reply whose Units carry the input and output counts
+// apart, which is what the agent run record stores.
 func TestOpenRouterCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	var gotAuth, gotAPIKey, gotBeta, gotVersion string
 	var gotBody []byte
@@ -66,15 +67,15 @@ func TestOpenRouterCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reply, err := newOpenRouter(t, srv).Complete(context.Background(), "the system prompt", "the user message")
+	reply, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "the system prompt", "the user message")
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
 	if reply.Text != "QUESTION: which port?" {
 		t.Errorf("Text = %q, want the first choice's content", reply.Text)
 	}
-	if reply.Tokens != 107 {
-		t.Errorf("Tokens = %d, want prompt+completion = 107", reply.Tokens)
+	if reply.Units[UnitsInput] != 100 || reply.Units[UnitsOutput] != 7 {
+		t.Errorf("Units = %v, want input 100 and output 7 counted apart", reply.Units)
 	}
 	if gotAuth != "Bearer "+openRouterKeyValue {
 		t.Errorf("authorization = %q, want the resolved value as a bearer token", gotAuth)
@@ -112,7 +113,7 @@ func TestOpenRouterCompleteReturnsStatusAndBodyAndNoKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newOpenRouter(t, srv).Complete(context.Background(), "s", "u")
+	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
 	var status *StatusError
 	if !errors.As(err, &status) {
 		t.Fatalf("Complete = %v, want a StatusError", err)
@@ -139,7 +140,7 @@ func TestOpenRouterRefusesAnErrorCarriedAtTwoHundred(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newOpenRouter(t, srv).Complete(context.Background(), "s", "u")
+	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
 	if !errors.Is(err, ErrUpstream) {
 		t.Fatalf("Complete = %v, want ErrUpstream", err)
 	}
@@ -169,7 +170,7 @@ func TestOpenRouterNamesARefusalAsOne(t *testing.T) {
 				fmt.Fprint(w, body)
 			}))
 			defer srv.Close()
-			_, err := newOpenRouter(t, srv).Complete(context.Background(), "s", "u")
+			_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
 			if !errors.Is(err, ErrRefused) {
 				t.Fatalf("Complete = %v, want ErrRefused", err)
 			}
@@ -192,7 +193,7 @@ func TestOpenRouterNamesTheTokenCap(t *testing.T) {
 			`"usage":{"prompt_tokens":10,"completion_tokens":8192}}`)
 	}))
 	defer srv.Close()
-	_, err := newOpenRouter(t, srv).Complete(context.Background(), "s", "u")
+	_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
 	if !errors.Is(err, ErrAnswer) {
 		t.Fatalf("Complete = %v, want ErrAnswer", err)
 	}
@@ -218,7 +219,7 @@ func TestOpenRouterRefusesAnUnreadableAnswer(t *testing.T) {
 				fmt.Fprint(w, body)
 			}))
 			defer srv.Close()
-			_, err := newOpenRouter(t, srv).Complete(context.Background(), "s", "u")
+			_, err := newOpenRouter(t, srv).Complete(context.Background(), as(), "s", "u")
 			if !errors.Is(err, ErrAnswer) {
 				t.Fatalf("Complete = %v, want ErrAnswer", err)
 			}

@@ -26,6 +26,24 @@
 // [HealthMonitor.previousRead] and the two questions it answers at the open:
 // [passedReachable] and [operationsReadAlone].
 //
+// search.go is [HealthMonitor.Search] and [SearchBudget]: one step of the
+// search that recovers attribution after a batch's window fails — a build at a
+// time made through [Builder], deployed with a control through
+// [Deployer.DeploySearch], and measured by a window of its own — with the three
+// limits the design puts on it, [ErrSearchRefused] where the service's windows
+// cannot close on evidence, [ErrSearchBudgetSpent] where the budget on the
+// service record is spent, and [ErrNoDeployer] where the factory is composed
+// without one. objective.go is [Budget] with [Budget.Holds] and
+// [Budget.Raises], [HealthMonitor.ErrorBudget] and
+// [HealthMonitor.RaiseObjectiveIntent]: what is left of a service's objective,
+// the burn rate over the period and over the last hour, the hold an exhausted
+// or uncomputed budget sets, and the intent the objective raises keyed on the
+// service and the period. pages.go is [HealthMonitor.PageOpenIncidents], the
+// page an open incident whose crossing has not stopped fires where no window is
+// open, and [HealthMonitor.rollbackOutstanding], which of the two kinds a page
+// about a release is. mark.go is [RevertOfRollback] and [MarkStands], the two
+// reads the mark a named human at Ops writes turns on.
+//
 // rollback.go is the failed exit in the order the design states it: the
 // rollback's own deploy record and the releases it undid closed skipped, the
 // incident and the intent it raises ([Crossed], [HealthMonitor.recordCrossing]),
@@ -53,19 +71,26 @@
 // only asks for it to start and to tear down. Nothing but this package closes
 // a window.
 //
-// Not built: the deployer's [Builder] is wired but [HealthMonitor.Search] and
-// the budget it spends against are not — package boundaries the search's
-// three limits would need are not here either. The service-level objective's
-// error budget, its burn-rate readings, and the intent a spent budget raises
-// are not built: [Spend] is the shape a caller's [Emission] answers with, and
-// nothing here yet computes a hold from it. The page for an open incident
-// whose crossing has not stopped, with no open window, is not built — only
-// the failed exit's own page is. The environment's own record of the targets
+// Called by the command-line interface, which is not built here: [Search] at
+// the failed exit of a revert's own window, one step per pass, the composition
+// holding the batch's deploy record; [HealthMonitor.ErrorBudget] at the
+// production deploy row, where [Budget.Holds] is
+// gate.HoldErrorBudgetExhausted and the two items that pass it — a revert, and
+// an item a detector raised on that service — are the row's own to admit;
+// [HealthMonitor.RaiseObjectiveIntent] on the same pass;
+// [HealthMonitor.PageOpenIncidents] on the pass that runs [HealthMonitor.Watch];
+// and [RevertOfRollback] with [MarkStands] at the mark, where the item ids this
+// returns are dropped through item.Dispatch.Drop with Ops as the caller and the
+// hold lifts because the row reads the mark.
+//
+// Not built: the environment's own record of the targets
 // a service with none authored runs on is not read: [targetsOrDefault] stands
 // the environment in for the whole set until it is, and [unmeasurable] and
 // the fallback in open.go say the same about a service's own reachability
-// fields. notifier.KindFailedWithNoRollback is named here and added by
-// whichever package's dispatch owns package notifier.
+// fields. The deploy record names each control per target through the count of
+// instances running it; the build a control runs is read off that record's
+// control release, and a record naming none leaves the teardown asked for on
+// every target the window was allocated over.
 //
 // What defines it: ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
 // for the control, its fallback, the quantities, and what the health monitor is;
@@ -75,6 +100,11 @@
 // ../../end-goal/how-the-factory-works/08-operations/04-after-the-analysis-window.md for the
 // intent a later crossing writes;
 // ../../end-goal/how-the-factory-works/08-operations/06-incidents.md for the incident, what it
-// names, and its deduplication; and ../../end-goal/how-the-factory-works/06-releases/06-rollback.md for
+// names, and its deduplication;
+// ../../end-goal/how-the-factory-works/08-operations/05-service-level-objectives.md
+// for the error budget, the burn rate, the hold and the intent the objective
+// raises; ../../end-goal/how-the-factory-works/08-operations/07-pages.md for the
+// two kinds of wait and which of them fires at any hour; and
+// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md for
 // what a rollback is, what its record names, and the page where it finds nothing to return to.
 package healthmonitor

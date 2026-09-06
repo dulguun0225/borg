@@ -12,9 +12,14 @@
 // is what a channel does and [Delivery] is what it is handed — the recipient by
 // per-person key, never a name; it is an interface its caller implements, because
 // what mail is on a self-hosted install is the owner's arrangement and not the
-// factory's. hours.go is [Notifier.deferredToHours] and [withinHours], a wait of
-// the second kind held to a service's own authored paging hours rather than
-// paging at any hour.
+// factory's. [Wait.RollbackOutstanding] is which of the two kinds a wait is —
+// production serving a release the health monitor called for a rollback on,
+// with the rollback not run, is the first kind and pages at any hour — and it
+// is the caller's answer the way [Wait.Worse] is: package healthmonitor sets it
+// on the page a failed exit with no rollback fires, and the command-line
+// interface answers it for the waits it creates. hours.go is
+// [Notifier.deferredToHours] and [withinHours], a wait of the second kind held
+// to a service's own authored paging hours rather than paging at any hour.
 //
 // notifier.go is [Notifier] and [New], composed with the log, a fencing token, a
 // [Deliverer], and the owner's identifier — the owner is composed in rather than
@@ -25,7 +30,11 @@
 // where it belongs to neither, so routing is implemented once rather than beside
 // each thing that waits. [Notifier.Notify] writes one reached row per holder of
 // the duty, under [PageEventFormatVersion], and a [DeliveryRecord] per channel per
-// holder even where the channel writes nothing else; [Notifier.Widen] writes one
+// holder even where the channel writes nothing else — the recipient being part of
+// that record's key, so two holders of one duty are two records and not one — and a
+// channel that refuses the send is recorded and does not stop the channels after
+// it, the page being last and the one channel that carries what the other two
+// cannot; [Notifier.Widen] writes one
 // widened row to the owner and refuses a second with [ErrAlreadyWidened] or one
 // over an acknowledged wait with [ErrAcknowledged]; [Notifier.Acknowledge] writes
 // the fourth event, stopping only the widening; and [Notifier.Answered] is called
@@ -34,11 +43,24 @@
 // back, appending a read event naming [Actor] as the principal. delivery.go is
 // [DeliveryTable], [DeliveryDDL], [DeliveryRecord], and the upsert beneath every
 // call to [Notifier.Notify], [Notifier.Widen], [Notifier.Acknowledge] and
-// [Notifier.Answered] — one row per waiting row and channel, overwritten at each
-// attempt. harmmark.go is [harmMarkPagesOff], the one field of the
-// factory-wide settings this package reads for [KindHarmMarkedReport].
+// [Notifier.Answered] — one row per waiting row, channel and recipient,
+// overwritten at each attempt — and [PagedRowsSince], the count the harm mark's
+// cap is read against. harmmark.go is [harmMarkPagesOff], the off switch on the
+// factory-wide settings record, and [Notifier.overHarmMarkCap] with
+// [Notifier.pageOverTheCap]: past a service's cap the marked intent's own page
+// channel is skipped and one page per interval goes out on [capRow] instead,
+// naming the service and how many marked intents arrived past the cap.
+// resume.go is [Notifier.Resume], this component's restart: the delivery
+// record it overwrites per row the log still holds open, so a row still
+// waiting is delivered again and one that stopped waiting is not. A row with
+// no page event carries nothing to rebuild the wait from and is left waiting,
+// which is a wait of a kind that pages never — the delivery record alone does
+// not say what it was waiting for.
 // driftpass.go is [Notifier.SweepDriftDetector] — the notifier reading the drift
-// detector's store itself, since that store calls nothing — [Notifier.SweepDriftDetectorStale],
+// detector's store itself, since that store calls nothing, with [kindOfMismatch]:
+// a mismatch the detector raised because the health monitor's own last check is
+// stale is the fourth page condition, a window past its cap that nothing has
+// evaluated, and every other mismatch is [KindDriftMismatch] — [Notifier.SweepDriftDetectorStale],
 // the notifier's own half of "each of the two processes watches the other" over the
 // detector's per-target last check, [Notifier.CatchUpDriftDetectorDelivery],
 // appended at the factory's next start for the detector's own delivery, carrying

@@ -297,3 +297,82 @@ func newOwnStore(t *testing.T, _ context.Context) *pgxpool.Pool {
 	_, pool, _ := newTable(t)
 	return pool
 }
+
+// TestAStaleComponentHoldsWhatItReachesAndIsRaisedOnce is the third
+// comparison's own record: a component whose last check is past the interval it
+// promised holds what that component reaches — the health monitor's a service's
+// production deploys, the deployer's an environment's, one row per service in
+// it — and a later pass finding it still stale raises no second row.
+func TestAStaleComponentHoldsWhatItReachesAndIsRaisedOnce(t *testing.T) {
+	ctx, own := newTableCtx(t)
+	writer := driftdetector.NewWriter(own)
+
+	raised, err := writer.RaiseStaleComponent(ctx, driftdetector.StaleComponent{
+		Component: "health_monitor", ServiceID: "svc_one",
+		Why: "the health monitor's own last check for this service is stale",
+	})
+	if err != nil || raised == "" {
+		t.Fatalf("RaiseStaleComponent = %q, %v", raised, err)
+	}
+	again, err := writer.RaiseStaleComponent(ctx, driftdetector.StaleComponent{
+		Component: "health_monitor", ServiceID: "svc_one",
+		Why: "the health monitor's own last check for this service is stale",
+	})
+	if err != nil || again != "" {
+		t.Errorf("a second pass over the same stale component = %q, %v, want no second row", again, err)
+	}
+
+	// The deployer's record is per target, so its mismatch names one as well and
+	// is a row of its own beside the health monitor's.
+	perTarget, err := writer.RaiseStaleComponent(ctx, driftdetector.StaleComponent{
+		Component: "deployer", ServiceID: "svc_one", Target: "/srv/one",
+		Why: "the deployer's own last check for this target is stale",
+	})
+	if err != nil || perTarget == "" {
+		t.Fatalf("RaiseStaleComponent for the deployer = %q, %v", perTarget, err)
+	}
+
+	held, why, err := driftdetector.NewStore(own).Mismatch(ctx, "svc_one")
+	if err != nil {
+		t.Fatalf("Mismatch: %v", err)
+	}
+	if !held || why == "" {
+		t.Errorf("Mismatch = %t %q, want the stopped component holding this service's production deploys", held, why)
+	}
+	other, _, err := driftdetector.NewStore(own).Mismatch(ctx, "svc_two")
+	if err != nil {
+		t.Fatalf("Mismatch of another service: %v", err)
+	}
+	if other {
+		t.Error("a stale component's mismatch held a service it does not reach")
+	}
+	if _, err := writer.RaiseStaleComponent(ctx, driftdetector.StaleComponent{Component: "notifier"}); err == nil {
+		t.Error("a stale component naming no service was admitted, and a mismatch that holds nothing stops nothing")
+	}
+}
+
+// TestStaleAgainstIsTheSafeguardsOwnReading is what a safeguard on the drift
+// detector's last check binds: an age of an owner's own, read beside the
+// interval the detector supplies for itself.
+func TestStaleAgainstIsTheSafeguardsOwnReading(t *testing.T) {
+	ctx, own := newTableCtx(t)
+	writer := driftdetector.NewWriter(own)
+	if _, err := writer.Record(ctx, driftdetector.Pass{
+		ServiceID: "svc_one", Target: "/srv/one", Reached: true,
+		RunningBuild: "b_one", RecordedBuildID: "b_one", Interval: time.Hour,
+	}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	older, err := driftdetector.StaleAgainst(ctx, own, time.Minute, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("StaleAgainst: %v", err)
+	}
+	if len(older) != 1 {
+		t.Errorf("StaleAgainst read %d check(s) older than a minute an hour later, want the one just written", len(older))
+	}
+	none, err := driftdetector.StaleAgainst(ctx, own, 0, time.Now())
+	if err != nil || len(none) != 0 {
+		t.Errorf("StaleAgainst with no age authored = %v, %v, want nothing: no safeguard set one", none, err)
+	}
+}

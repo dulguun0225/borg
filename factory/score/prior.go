@@ -8,6 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
@@ -141,6 +142,10 @@ func (s *Score) exitsOfAuthor(ctx context.Context, author string) (exits, error)
 	if err != nil {
 		return counted, err
 	}
+	undone, err := s.undoneByAHuman(ctx)
+	if err != nil {
+		return counted, err
+	}
 
 	for _, itemID := range items {
 		rel, released, err := release.ForItem(ctx, s.pool, itemID)
@@ -167,6 +172,11 @@ func (s *Score) exitsOfAuthor(ctx context.Context, author string) (exits, error)
 			counted.ruledNothingOut++
 		case watched && w.Exit == window.ExitFailed:
 			counted.failed++
+		case undone[rel.ID]:
+			// The window did not fail it and a human undid it anyway, which is
+			// the case the design counts: a change undone after it shipped, on a
+			// release the health monitor let stand.
+			counted.undone++
 		case watched && w.Exit == window.ExitPassed:
 			counted.passed++
 		case watched:
@@ -174,6 +184,40 @@ func (s *Score) exitsOfAuthor(ctx context.Context, author string) (exits, error)
 		}
 	}
 	return counted, nil
+}
+
+// undoneByAHuman is every release a human's undo failed. A rollback names the
+// source that called for it and package deploy names three of them: the health
+// monitor at the analysis window's failed exit, the search at the end of one of
+// its windows, and a named human at Ops. A source that is neither of the first
+// two is a human's, which is what the prior counts as an undo.
+//
+// The releases the rollback skipped are not counted. They were never failed —
+// their code is still on master and the revert redelivers them — so counting
+// them would read one human's undo as an outcome on every author who merged
+// while the hold stood.
+func (s *Score) undoneByAHuman(ctx context.Context) (map[string]bool, error) {
+	rollbacks, err := deploy.Rollbacks(ctx, s.pool)
+	if err != nil {
+		return nil, err
+	}
+	undone := map[string]bool{}
+	for _, d := range rollbacks {
+		if humansUndo(d) {
+			undone[d.Undoing.FailedReleaseID] = true
+		}
+	}
+	return undone, nil
+}
+
+// humansUndo is whether one rollback is a human's undo of a shipped change: it
+// names a release it failed, and its source is neither of the two the factory
+// calls for itself.
+func humansUndo(d deploy.Deploy) bool {
+	if d.Undoing.FailedReleaseID == "" {
+		return false
+	}
+	return d.Undoing.Source != deploy.SourceHealthMonitorAtFailed && d.Undoing.Source != deploy.SourceSearch
 }
 
 // deliveredInABatch is whether this item's release was delivered under a

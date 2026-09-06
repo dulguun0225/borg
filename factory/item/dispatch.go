@@ -26,6 +26,11 @@ var (
 	// staying put, and anything at or past merged are all this error. Merged is
 	// [Dispatch.End]'s and never an advance.
 	ErrNotNextStage = errors.New("item: an item advances one stage forward at a time, spec through queued")
+	// ErrNotAtThatStage is returned by [Dispatch.Enter] where the item stands
+	// at another stage: entering counts one more attempt at where the item
+	// already is, and moving it is [Dispatch.Advance]'s or
+	// [Dispatch.ReturnTo]'s.
+	ErrNotAtThatStage = errors.New("item: an item is entered again only at the stage it stands at")
 	// ErrNotBackUp is returned by [Dispatch.ReturnTo] for a target that is not
 	// at or above the stage the item is at. Going back up is the one way back,
 	// and going forward is [Dispatch.Advance]'s.
@@ -98,6 +103,32 @@ func nextStage(s Stage) (Stage, bool) {
 		return "", false
 	}
 	return next, true
+}
+
+// Enter counts another entry to the stage the item is already at, which is
+// what a second attempt at one stage is: [Dispatch.ReturnTo] sends the item
+// back to be entered again and counts nothing, and this is the entry. The
+// stage the item stands at is what is counted — a caller naming a different
+// one is [ErrNotAtThatStage], because entering a stage the item is not at is
+// an advance or a return and not this.
+//
+// It is the write the attempt limit is compared against: the count is the
+// item's own and outlives the process, so a second run entering the stage
+// carries on from what the first left rather than starting the allowance
+// again.
+func (d *Dispatch) Enter(ctx context.Context, actor record.Actor, itemID string, stage Stage) (Item, error) {
+	if err := actor.Validate(); err != nil {
+		return Item{}, err
+	}
+	if !slices.Contains(AuthoringStages, stage) {
+		return Item{}, fmt.Errorf("%w: %q", ErrNotAuthoringStage, stage)
+	}
+	return d.move(ctx, itemID, "the entry", func(tx pgx.Tx, it Item) (Stage, error) {
+		if it.Stage != stage {
+			return "", fmt.Errorf("%w: %s is at %s, not entering %s", ErrNotAtThatStage, itemID, it.Stage, stage)
+		}
+		return stage, countEntry(ctx, tx, actor, itemID, stage)
+	})
 }
 
 // ReturnTo sends the item back up the pipeline: a gate's reject, an author's

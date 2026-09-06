@@ -8,15 +8,17 @@
 // # The files
 //
 // driftdetector.go is [Actor], [Mismatch] with [Mismatch.Cleared] and
-// [Mismatch.Why], [HoldWords], [MismatchKindTarget] and [MismatchKindChain],
-// [LastCheck] with [LastCheck.Stale], [Pass] with [Pass.Agreed], [Recorded],
-// and [Writer] and [NewWriter] with [Writer.Record], [Writer.Clear] and
-// [Writer.RaiseChainMismatch]. head.go is [Head], [Writer.RecordHead],
+// [Mismatch.Why], [HoldWords], [MismatchKindTarget], [MismatchKindChain] and
+// [MismatchKindStaleComponent], [LastCheck] with [LastCheck.Stale], [Pass] with
+// [Pass.Agreed], [Recorded], [StaleComponent], and [Writer] and [NewWriter]
+// with [Writer.Record], [Writer.Clear], [Writer.RaiseChainMismatch] and
+// [Writer.RaiseStaleComponent]. head.go is [Head], [Writer.RecordHead],
 // [GetHead] and [VerifyChain], the second comparison's own. delivery.go is
 // [Writer.SetAddress], [Address], [OwnDelivery], [Writer.Deliver] and
 // [OwnDeliveries], the detector's own page. read.go is [Store] and
 // [NewStore] with [Store.Mismatch], and the reads [Uncleared],
-// [UnclearedChain], [All], [Get] and [LastChecks]. schema.go is every
+// [UnclearedChain], [All], [Get], [LastChecks] and [StaleAgainst], the age a
+// safeguard on this store's last check binds. schema.go is every
 // table's name and id prefix, [DDL], and this store's own [DefaultURL],
 // [URLEnv], [URL], [Open] and [Apply].
 //
@@ -39,6 +41,20 @@
 // than traffic it is never set, one directory running one process, and the
 // field is carried so that a platform which does keep a control does not
 // have to add it.
+//
+// The third comparison is the factory's own last check records, read by the
+// detector's process and written back here as [Writer.RaiseStaleComponent]: a
+// component past the interval it promised holds what that component reaches —
+// the health monitor's a service's production deploys, the deployer's an
+// environment's, one row per service in it — and one uncleared row stands per
+// component, service and target.
+//
+// The fourth comparison (the instances a rollback would need against the count
+// the deploy record keeps), the fifth (the schema history in each service's
+// store) and the sixth (the configuration digest running on a target) are not
+// built: nothing here carries an instance count, a schema history, or a
+// configuration digest read off a target, and cmd/driftdetector performs none
+// of the three.
 //
 // [VerifyChain] is the second comparison: it reads the factory's log past
 // the head this store recorded last pass and confirms the chain still holds
@@ -78,8 +94,8 @@
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md — the one process,
-// the two records, the four readers, the six comparisons, the detector's own
-// delivery, and what clearing requires — and
+// the four records, the four readers, the six comparisons of which three are
+// built, the detector's own delivery, and what clearing requires — and
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md for the hold
 // it sets, which is the one hold the factory cannot lift by gathering evidence.
 package driftdetector

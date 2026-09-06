@@ -62,16 +62,23 @@ func LearnFrom(e *Evidence) (Learned, error) {
 	}, nil
 }
 
-// thresholds is the risk threshold per gate row. Both halves of the rule are read
-// off the same closed decisions: what the score auto-passed on the number, and
-// what it auto-passed because its own sample selected the item.
+// thresholds is the risk threshold per gate row. Three halves of the rule are
+// read off the same closed decisions: what the score auto-passed on the number,
+// what it auto-passed because its own sample selected the item, and what a human
+// rejected at that row.
 //
 // Only a window that closed passed makes an item well and only one that failed
 // makes it badly, so a held-out release whose window timed out raises nothing:
 // the sample exists to produce an outcome, and the exit that reports none reports
 // none here either.
+//
+// A rejection is read at the row the human was at and at no other. The item it
+// rejected was never auto-passed there — that is what a human at a gate means —
+// so it cannot be read off the auto-pass half, and reading it off the rows that
+// did auto-pass the same item would move every row but the one the gate fired at.
 func thresholds(e *Evidence) []Supplied {
 	start, _ := Starting(gatepolicy.RiskThreshold)
+	needed := rejectionsTheFactoryNeeded(e)
 	var moved []Supplied
 	for _, row := range e.GateRows() {
 		lowestBad := math.NaN()
@@ -104,11 +111,29 @@ func thresholds(e *Evidence) []Supplied {
 			why = fmt.Sprintf("%d held-out firing(s) at this row reached a window that closed passed and none that failed, which is %d band(s) of unbiased evidence that the gate was not needed",
 				good, bands)
 		}
+		if needed[row] > 0 {
+			value = math.Max(thresholdFloor, value-float64(needed[row])*thresholdBand)
+			why = fmt.Sprintf("%s%d rejection(s) at this row resolved as a gate the factory needed, each lowering the threshold one band",
+				prefix(why), needed[row])
+		}
 		if why != "" && value != start.Value {
 			moved = append(moved, Supplied{Parameter: gatepolicy.RiskThreshold, Subject: row, Value: value, Why: why})
 		}
 	}
 	return moved
+}
+
+// rejectionsTheFactoryNeeded is how many rejections resolved as a gate the
+// factory needed, per gate row the human was at. A rejection that resolved as a
+// false alarm is not here: it moves nothing and is published per human instead.
+func rejectionsTheFactoryNeeded(e *Evidence) map[string]int {
+	needed := map[string]int{}
+	for _, r := range e.resolvedRejections() {
+		if r.Gate != "" && r.MovesTheThreshold() {
+			needed[r.Gate]++
+		}
+	}
+	return needed
 }
 
 // attemptLimits is the attempt limit per stage, and it moves both ways: up to one

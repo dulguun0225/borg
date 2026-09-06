@@ -39,7 +39,7 @@ func humanNamed(ctx context.Context, pool *pgxpool.Pool, token lease.Token, name
 	if !found {
 		key = record.NewID(personKeyPrefix)
 		actor := record.Actor{Kind: record.KindHuman, Key: key, Basis: record.BasisClaimed}
-		if _, err := people.WriteMapping(ctx, pool, token, actor, key, name, "", "", ""); err != nil {
+		if _, err := people.WriteMapping(ctx, pool, token, actor, key, name); err != nil {
 			return record.Actor{}, err
 		}
 	}

@@ -79,7 +79,8 @@ func hunk(header string) (base, head int) {
 	return base, head
 }
 
-// number is the count before the comma of a hunk header's side.
+// number is the first line number of a hunk header's side: the digits before
+// the comma, the comma and what follows being the line count.
 func number(field string) int {
 	if comma := strings.IndexByte(field, ','); comma >= 0 {
 		field = field[:comma]

@@ -23,7 +23,7 @@ func TestThePrioritySubcommandReordersAQueue(t *testing.T) {
 		t.Fatalf("decomposing the item: %v", err)
 	}
 
-	if err := dispatch([]string{"priority", it.ID, "-priority", "7"}); err != nil {
+	if err := chosen([]string{"priority", it.ID, "-priority", "7"}); err != nil {
 		t.Fatalf("priority: %v", err)
 	}
 	read, err := item.Get(ctx, pool, it.ID)
@@ -34,10 +34,10 @@ func TestThePrioritySubcommandReordersAQueue(t *testing.T) {
 		t.Errorf("the item's priority is %d, the owner set 7", read.Priority)
 	}
 
-	if err := dispatch([]string{"priority", "-priority", "7"}); err == nil {
+	if err := chosen([]string{"priority", "-priority", "7"}); err == nil {
 		t.Error("priority with no item id was accepted")
 	}
-	if err := dispatch([]string{"priority", "it_missing", "-priority", "1"}); !errors.Is(err, item.ErrNotFound) {
+	if err := chosen([]string{"priority", "it_missing", "-priority", "1"}); !errors.Is(err, item.ErrNotFound) {
 		t.Errorf("priority on a missing item = %v, want ErrNotFound", err)
 	}
 }

@@ -244,6 +244,40 @@ func ApproveWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, withdr
 	return nil
 }
 
+// Standing is every legal hold in force: every row [WithdrawalTable] names no
+// approved withdrawal for, oldest first. It is the read a truncation makes:
+// the decision log's cut removes rows about every subject, so a hold over the
+// factory, a project or a service alike reaches what it would remove, and
+// decisionlog.Writer.Truncate takes what this returns and refuses the cut
+// where it is not empty.
+func Standing(ctx context.Context, pool *pgxpool.Pool) ([]Hold, error) {
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at,
+		subject_kind, subject_id, reason from `+Table+` h
+		where not exists (select 1 from `+WithdrawalTable+` w where w.legal_hold_id = h.id and w.approved)
+		order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("legalhold: reading the holds in force: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Hold
+	for rows.Next() {
+		var h Hold
+		var kind, basis, subjectKind string
+		if err := rows.Scan(&h.ID, &kind, &h.Actor.Key, &basis, &h.At,
+			&subjectKind, &h.Subject.ID, &h.Reason); err != nil {
+			return nil, fmt.Errorf("legalhold: reading a hold in force: %w", err)
+		}
+		h.Actor.Kind, h.Actor.Basis = record.Kind(kind), record.Basis(basis)
+		h.Subject.Kind = SubjectKind(subjectKind)
+		read = append(read, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("legalhold: reading the holds in force: %w", err)
+	}
+	return read, nil
+}
+
 // Reaching says whether a legal hold stands over subject: one naming it
 // exactly, or one on [SubjectFactory], which reaches everything. Both are
 // read with no approved withdrawal.

@@ -136,7 +136,11 @@ func pickStrategy(a score.Assessment, replaces string, everyTargetServesAShare, 
 	case a.DiscountedImpact >= ControlBound:
 		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened}
 	}
-	if irreversible && pick.Strategy == StrategyWithControl {
+	// Why names the one bound that applied, so a bound already named is not
+	// overwritten: a held-out release in an irreversible area was bounded by the
+	// sample, and the schedule an irreversible area holds it to is the one every
+	// controlled rollout already takes.
+	if irreversible && pick.Strategy == StrategyWithControl && pick.Why == "" {
 		pick.Why = WhyIrreversible
 	}
 	return pick, nil

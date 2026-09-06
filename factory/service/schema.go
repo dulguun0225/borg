@@ -15,6 +15,13 @@ const (
 	WindowPowerTable = "service_window_power"
 )
 
+// ExplicitThresholdTable is the third per-quantity table: the absolute number a
+// safeguard set for one service and one quantity, and the size it is read at.
+// It is per quantity for the reason the size and the power are, and it is a
+// table rather than two columns because a service may carry a threshold on one
+// quantity and none on another.
+const ExplicitThresholdTable = "service_explicit_threshold"
+
 // SeedTable and ValueSetTable are the two version tables: what the candidate's
 // store starts with, and the non-production values the configuration takes on a
 // candidate. Each authoring is a version written beside the earlier ones and
@@ -27,21 +34,23 @@ const (
 // IDPrefix is what [record.NewID] is called with for a service, and the four
 // beside it are for the rows of the four tables above.
 const (
-	IDPrefix            = "svc"
-	WindowSizeIDPrefix  = "sws"
-	WindowPowerIDPrefix = "swp"
-	SeedIDPrefix        = "ssv"
-	ValueSetIDPrefix    = "svs"
+	IDPrefix                  = "svc"
+	WindowSizeIDPrefix        = "sws"
+	WindowPowerIDPrefix       = "swp"
+	ExplicitThresholdIDPrefix = "set"
+	SeedIDPrefix              = "ssv"
+	ValueSetIDPrefix          = "svs"
 )
 
 // FormatVersion is what this package writes into format_version on every insert
 // into [Table], and the four beside it on every insert into the others.
 const (
-	FormatVersion            = "service/2"
-	FormatVersionWindowSize  = "service_window_size/1"
-	FormatVersionWindowPower = "service_window_power/1"
-	FormatVersionSeed        = "service_seed_version/1"
-	FormatVersionValueSet    = "service_value_set_version/1"
+	FormatVersion                  = "service/3"
+	FormatVersionWindowSize        = "service_window_size/1"
+	FormatVersionWindowPower       = "service_window_power/1"
+	FormatVersionExplicitThreshold = "service_explicit_threshold/1"
+	FormatVersionSeed              = "service_seed_version/1"
+	FormatVersionValueSet          = "service_value_set_version/1"
 )
 
 // DDL is this package's schema, in the order the statements are applied.
@@ -53,11 +62,34 @@ const (
 // name is a refused insert and not two services. name, repository and project_id
 // are the identity decomposition writes and no later write moves any of them.
 //
+// operation_cap is how many operations one release may hold open per interval,
+// the cap the failure record's keys already take, and overflow_operation is the
+// name the excess lands in, so a service that names an operation per identifier
+// grows the store by the cap and no further. The two are authored together and
+// are absent together, which operation_cap_names_its_overflow enforces.
+//
+// environment_hour_rate and instance_hour_rate price the hosting a candidate and
+// a kept fleet consume outside the factory: converted at the write, they turn the
+// recorded environment-hours and instance-hours into money. Where none is
+// authored those figures stay units only.
+//
+// search_budget_builds and search_budget_seconds are what a search may spend,
+// each build it deploys putting a build that passed no gate in front of real
+// traffic. Where an owner authors neither, the budget is what bisecting a batch
+// of the backlog cap's size needs, which package healthmonitor supplies.
+//
 // Every number an owner authors is null where they authored nothing, which is
 // not the same as a value of zero: for a gate-policy parameter an unauthored
 // value is the score's to supply, and for one authored outright — the objective,
 // the paging hours, the two retentions — nothing supplies it and absence is the
 // design's own default, stated in the file doc.go names for each.
+//
+// The bake volume, the backlog cap and the instance-hour rate sit beside the
+// window limit rather than among gate policy's eleven rows: the first two are
+// supplied where an owner authors none — the score supplies the bake volume, and
+// the backlog cap is the window limit — and the rate is authored outright, an
+// absent one being a deploy record whose amount and rate are null together and
+// not an amount of zero. A rate of zero is a real value and is not absence.
 //
 // The four booleans are the deployer's and false until it writes them, which is
 // what deployer_wrote_at tells apart from a deployer that wrote false: absent
@@ -84,6 +116,14 @@ var DDL = []string{
 	window_cap_seconds double precision,
 	window_limit double precision,
 	exposure_bound double precision,
+	bake_volume double precision,
+	backlog_cap double precision,
+	instance_hour_rate double precision,
+	environment_hour_rate double precision,
+	operation_cap double precision,
+	overflow_operation text not null default '',
+	search_budget_builds double precision,
+	search_budget_seconds double precision,
 	mutant_cap double precision,
 	failure_record_key_cap double precision,
 	unreliable_bound double precision,
@@ -118,6 +158,14 @@ var DDL = []string{
 	constraint window_cap_positive check (window_cap_seconds is null or window_cap_seconds > 0),
 	constraint window_limit_positive check (window_limit is null or window_limit > 0),
 	constraint exposure_bound_positive check (exposure_bound is null or exposure_bound > 0),
+	constraint bake_volume_positive check (bake_volume is null or bake_volume > 0),
+	constraint backlog_cap_positive check (backlog_cap is null or backlog_cap > 0),
+	constraint instance_hour_rate_not_negative check (instance_hour_rate is null or instance_hour_rate >= 0),
+	constraint environment_hour_rate_not_negative check (environment_hour_rate is null or environment_hour_rate >= 0),
+	constraint operation_cap_positive check (operation_cap is null or operation_cap > 0),
+	constraint operation_cap_names_its_overflow check ((operation_cap is null) = (overflow_operation = '')),
+	constraint search_budget_builds_positive check (search_budget_builds is null or search_budget_builds > 0),
+	constraint search_budget_seconds_positive check (search_budget_seconds is null or search_budget_seconds > 0),
 	constraint mutant_cap_positive check (mutant_cap is null or mutant_cap > 0),
 	constraint failure_record_key_cap_positive check (failure_record_key_cap is null or failure_record_key_cap > 0),
 	constraint unreliable_bound_is_a_share check (unreliable_bound is null or (unreliable_bound >= 0 and unreliable_bound <= 1)),
@@ -154,6 +202,20 @@ var DDL = []string{
 	constraint quantity_present check (quantity <> ''),
 	constraint power_is_a_share check (power > 0 and power < 1),
 	constraint one_power_per_service_and_quantity unique (service_id, quantity)
+)`,
+
+	`create table if not exists ` + ExplicitThresholdTable + ` (
+	` + record.Columns + `,
+	service_id text not null,
+	quantity text not null,
+	threshold double precision not null,
+	size double precision not null,
+	` + record.Constraints + `,
+	constraint service_id_present check (service_id <> ''),
+	constraint quantity_present check (quantity <> ''),
+	constraint threshold_is_a_share check (threshold >= 0 and threshold <= 1),
+	constraint threshold_size_is_a_share check (size > 0 and size <= 1),
+	constraint one_threshold_per_service_and_quantity unique (service_id, quantity)
 )`,
 
 	`create table if not exists ` + SeedTable + ` (

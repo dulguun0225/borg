@@ -380,3 +380,41 @@ func TestNothingAdvancesToAValueThatEndsAnItem(t *testing.T) {
 		}
 	}
 }
+
+// TestEnterCountsAnotherAttemptAtTheStageTheItemStandsAt: a second attempt at
+// one stage is the item entering it again, and the count is what the attempt
+// limit is compared against — so it rises on the stored row and outlives the
+// process that made the attempt.
+func TestEnterCountsAnotherAttemptAtTheStageTheItemStandsAt(t *testing.T) {
+	ctx, pool, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
+
+	entered, err := dispatch.Enter(ctx, dispatchActor, it.ID, item.StageSpec)
+	if err != nil {
+		t.Fatalf("Enter: %v", err)
+	}
+	if entered.Stage != item.StageSpec {
+		t.Errorf("Enter returned stage %s, want the stage the item stands at", entered.Stage)
+	}
+	stages, err := item.Stages(ctx, pool, it.ID)
+	if err != nil {
+		t.Fatalf("Stages: %v", err)
+	}
+	if len(stages) != 1 || stages[0].Attempts != 2 {
+		t.Fatalf("Stages returned %+v, want spec at two attempts", stages)
+	}
+}
+
+// TestEnterRefusesAStageTheItemIsNotAt: entering is another attempt at where
+// the item already is; moving it is Advance's or ReturnTo's.
+func TestEnterRefusesAStageTheItemIsNotAt(t *testing.T) {
+	ctx, _, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
+
+	if _, err := dispatch.Enter(ctx, dispatchActor, it.ID, item.StageImplementation); !errors.Is(err, item.ErrNotAtThatStage) {
+		t.Errorf("Enter at a stage the item is not at = %v, want ErrNotAtThatStage", err)
+	}
+	if _, err := dispatch.Enter(ctx, dispatchActor, it.ID, item.StageQueued); !errors.Is(err, item.ErrNotAuthoringStage) {
+		t.Errorf("Enter at queued = %v, want ErrNotAuthoringStage", err)
+	}
+}

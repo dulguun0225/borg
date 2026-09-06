@@ -18,6 +18,11 @@ var (
 	// ErrBoundaryUnknown is returned by [Writer.Truncate] for a [Cut] whose
 	// Boundary names no row.
 	ErrBoundaryUnknown = errors.New("decisionlog: the truncation's boundary names no row")
+	// ErrLegalHoldStands is returned by [Writer.Truncate] where a legal hold
+	// reaches what the cut would remove. A truncation is refused wherever one
+	// reaches, and the rows a cut removes are every subject's, so any hold
+	// standing over the factory, a project or a service reaches them.
+	ErrLegalHoldStands = errors.New("decisionlog: a legal hold stands, and a truncation is refused wherever one reaches")
 )
 
 // Cut is what [Writer.Truncate] is given: who authored the retention value
@@ -41,12 +46,23 @@ type Cut struct {
 // names none at all ([ErrBoundaryEmpty]), which would remove the head along
 // with everything before it.
 //
+// legalHolds is every legal hold standing over the factory, a project or a
+// service, each named in the words a reader sees, and one of them refuses the
+// cut with [ErrLegalHoldStands]: while a legal hold stands, truncation is
+// refused wherever it reaches, and a cut removes rows about every subject. The
+// caller reads them — package legalhold's Standing is the read — because the
+// package that owns that record may not be imported here: it is a record of the
+// graph and this package is what every record package's writer appends through.
+//
 // [Reader.Verify] is what reads the boundary back afterwards: the oldest row
 // remaining is the new checkpoint, and its prev_hash need not be empty
 // because this truncation row names it.
-func (w *Writer) Truncate(ctx context.Context, cut Cut) (Row, error) {
+func (w *Writer) Truncate(ctx context.Context, cut Cut, legalHolds []string) (Row, error) {
 	if err := cut.Actor.Validate(); err != nil {
 		return Row{}, err
+	}
+	if len(legalHolds) > 0 {
+		return Row{}, fmt.Errorf("%w: %v", ErrLegalHoldStands, legalHolds)
 	}
 	if cut.Boundary == "" {
 		return Row{}, ErrBoundaryEmpty

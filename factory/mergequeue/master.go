@@ -33,6 +33,32 @@ type Master struct {
 	CompletedItemID string
 }
 
+// Restart is the queue's restart: it reads master against the service's
+// release records and writes the release record its own unfinished merge left
+// owing. It is the read [Queue.Run] makes before it mints, performed on its
+// own so that a start makes it without fast-forwarding anything — a start is a
+// read of the queue's own records and not a pass of the queue.
+//
+// It takes the same advisory lock a run does, so a start and a run of one
+// service cannot interleave.
+func (q *Queue) Restart(ctx context.Context, serviceID string) (Master, []Outcome, error) {
+	if serviceID == "" {
+		return Master{}, nil, ErrServiceIDEmpty
+	}
+	unlock, err := q.lock(ctx, serviceID)
+	if err != nil {
+		return Master{}, nil, err
+	}
+	defer unlock()
+
+	m, err := q.membership(ctx, serviceID)
+	if err != nil {
+		return Master{}, nil, err
+	}
+	read, completed, _, err := q.readMaster(ctx, serviceID, m.Members)
+	return read, completed, err
+}
+
 // readMaster is that reading. Master's head being the commit the service's
 // newest release names is the ordinary case. The two readings that stop the
 // service are a commit master does not hold and a commit the queue did not put

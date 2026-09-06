@@ -102,12 +102,24 @@ func (b Boundary) Evaluate(o Observed) (Reading, error) {
 // observation of the difference — a read whose period the store does not cover
 // is read as no volume and never as a low one — and seen is which arms appeared
 // at all, which is what tells a release with no control from one nobody called.
+//
+// The one exception is the quantity a regression lowers, which is the request
+// rate: an interval the other arm served and the release arm counted no units
+// in is an observation of the release arm having received none, at a share of
+// nothing over the units the interval carried on the arm that was served. It is
+// here rather than left to an [Emission] to encode, because failing a release
+// that emits nothing beside a control that is serving is what the request-rate
+// reading exists for, and none is the plainest case.
 func (b Boundary) series(o Observed) (differences, sampling, baselines []float64, seen arms) {
 	for _, c := range o.Intervals {
 		release, hasRelease := c.Rate()
 		baseline, hasBaseline := c.BaselineRate()
 		seen.release = seen.release || hasRelease
 		seen.baseline = seen.baseline || hasBaseline
+		units := c.Units
+		if b.Worse == WorseLower && !hasRelease && hasBaseline {
+			release, hasRelease, units = 0, true, c.BaselineUnits
+		}
 		if !hasRelease || !hasBaseline {
 			continue
 		}
@@ -117,7 +129,7 @@ func (b Boundary) series(o Observed) (differences, sampling, baselines []float64
 		}
 		differences = append(differences, difference)
 		baselines = append(baselines, baseline)
-		sampling = append(sampling, sampled(c.Count, c.Units)+sampled(c.BaselineCount, c.BaselineUnits))
+		sampling = append(sampling, sampled(c.Count, units)+sampled(c.BaselineCount, c.BaselineUnits))
 	}
 	return differences, sampling, baselines, seen
 }

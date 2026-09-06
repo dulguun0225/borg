@@ -42,7 +42,12 @@ const (
 	// ShapeScoreVersion is appended by the score as its values move.
 	ShapeScoreVersion Shape = "score_version"
 	// ShapeInstallEvent is written at every upgrade and at every start after
-	// the factory's records are restored from a backup.
+	// the factory's records are restored from a backup, naming the event, the
+	// actor, and which version of the factory shipped it. It is also the shape
+	// of the row the merge queue writes for the numbers a mint passed over
+	// after a restore: the design puts that gap beside the install event rather
+	// than in a shape of its own, and the payload's own kind says which of the
+	// two a row is.
 	ShapeInstallEvent Shape = "install_event"
 	// ShapeReadEvent is appended when the log itself is read, or when stored
 	// report text a redaction could reach is read.

@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/lease"
-	"github.com/dulguun0225/borg/factory/record"
 )
 
 var (
@@ -56,6 +55,16 @@ var (
 	// ErrNoSnapshot is returned by [Writer.DeleteSnapshot] for a record naming
 	// no copy. There is nothing for a deletion to stand beside.
 	ErrNoSnapshot = errors.New("deploy: the deploy names no snapshot")
+	// ErrControlIncomplete is returned by [Writer.Start] for a control target
+	// with no release or a release with no target. A control is defined by which
+	// release it runs — the release a rollback of this deploy would return to —
+	// so one that names none is a comparison against nothing.
+	ErrControlIncomplete = errors.New("deploy: a control names the target it runs on and the release it runs")
+	// ErrBackfillIncomplete is returned by [Writer.Start] for a backfill naming
+	// some of the three. What a backfill declares is the element it fills and
+	// the element it fills from, on one store contract, and a pair missing a
+	// side is a mark enforcement cannot read.
+	ErrBackfillIncomplete = errors.New("deploy: a backfill names a store contract, the element it fills, and the element it fills from")
 )
 
 // Writer is the one writer of the deploy record, its completion per target, and
@@ -74,178 +83,6 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 // records while it runs. Reading a deploy needs no writer; performing one needs
 // both.
 func (w *Writer) Pool() *pgxpool.Pool { return w.pool }
-
-// Reaching is one target the deploy will reach: its address, and how many
-// instances of the release a rollback of this one would return to the deployer
-// is keeping there. The order of the slice is the environment's own, which is
-// the order the deployer reaches them in.
-type Reaching struct {
-	Address       string
-	KeptInstances int
-}
-
-// Beginning is what the deployer names when it begins a deploy. Everything on
-// it is written at the start, which is when the window opens over the deploy:
-// the targets with their kept-instance counts, the digests, and the strategy
-// where the deploy is into production.
-type Beginning struct {
-	ServiceID     string
-	EnvironmentID string
-	What          What
-	// Targets are the environment's targets in the environment's order. A row is
-	// written for each at the start, not reached.
-	Targets []Reaching
-	// IntoProduction is whether the environment is the production one, which is
-	// the only place a strategy attaches.
-	IntoProduction bool
-	// StrategyPicked is what the score picked, required where IntoProduction and
-	// refused elsewhere. What was performed is written by the rollout.
-	StrategyPicked Strategy
-	// DeliveredReleaseIDs is a revert's deploy listing the releases it delivers.
-	DeliveredReleaseIDs []string
-	// SchemaChange is the change the build carries, and empty where it carries
-	// none.
-	SchemaChange string
-	// ConfigurationDigest is over the resolved value set the build runs under.
-	ConfigurationDigest string
-	// WayInTokenDigest is the digest of the token minted for the way in.
-	WayInTokenDigest string
-	// ControlTarget is the target a control runs on, under a strategy with one.
-	ControlTarget string
-}
-
-// Start writes the deploy record and its rows per target in one transaction:
-// the sequence number is one above the highest this service and environment
-// have, read under an advisory lock per pair so two deploys onto one pair
-// serialise, and every target of the environment gets a row marked not reached
-// with the kept-instance count for that target.
-func (w *Writer) Start(ctx context.Context, actor record.Actor, b Beginning) (Deploy, error) {
-	return w.start(ctx, actor, b, Undoing{})
-}
-
-// StartUndoing writes the deploy record of a rollback: a deploy of the release
-// it returns to, naming what it failed, what it skipped, and the source that
-// called for it. Every other field is an ordinary deploy's, because a rollback
-// is a deploy event and not a record of its own — every field it would need is
-// on this record already, and a second writer on the fact of what is running is
-// the fact the drift detector exists to check.
-func (w *Writer) StartUndoing(ctx context.Context, actor record.Actor, b Beginning, undoing Undoing) (Deploy, error) {
-	if !undoing.Any() {
-		return Deploy{}, ErrUndoingIncomplete
-	}
-	if undoing.Source == "" {
-		return Deploy{}, fmt.Errorf("%w: it names no source", ErrUndoingIncomplete)
-	}
-	for _, skipped := range undoing.SkippedReleaseIDs {
-		if skipped == "" {
-			return Deploy{}, fmt.Errorf("%w: one of the releases it skipped", ErrUndoingIncomplete)
-		}
-		if skipped == undoing.FailedReleaseID {
-			return Deploy{}, fmt.Errorf("%w: %s is failed and skipped, and the two are kept apart",
-				ErrUndoingIncomplete, skipped)
-		}
-	}
-	return w.start(ctx, actor, b, undoing)
-}
-
-func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, undoing Undoing) (Deploy, error) {
-	if err := actor.Validate(); err != nil {
-		return Deploy{}, err
-	}
-	if b.ServiceID == "" {
-		return Deploy{}, ErrServiceIDEmpty
-	}
-	if b.EnvironmentID == "" {
-		return Deploy{}, ErrEnvironmentEmpty
-	}
-	if b.What.ReleaseID != "" && b.What.BuildID == "" {
-		return Deploy{}, ErrBuildIDEmpty
-	}
-	if len(b.Targets) == 0 {
-		return Deploy{}, ErrNoTargets
-	}
-	for _, target := range b.Targets {
-		if target.Address == "" {
-			return Deploy{}, fmt.Errorf("%w: one of them names no address", ErrNoTargets)
-		}
-	}
-	if b.IntoProduction != (b.StrategyPicked != "") {
-		return Deploy{}, fmt.Errorf("%w: into production %v, strategy %q",
-			ErrStrategyNotProduction, b.IntoProduction, b.StrategyPicked)
-	}
-
-	d := Deploy{
-		ID:                  record.NewID(IDPrefix),
-		Actor:               actor,
-		At:                  record.Now(),
-		ServiceID:           b.ServiceID,
-		EnvironmentID:       b.EnvironmentID,
-		ReleaseID:           b.What.ReleaseID,
-		BuildID:             b.What.BuildID,
-		DeliveredReleaseIDs: b.DeliveredReleaseIDs,
-		StrategyPicked:      b.StrategyPicked,
-		StrategyPerformed:   b.StrategyPicked,
-		Status:              StatusStarted,
-		SchemaChange:        b.SchemaChange,
-		ConfigurationDigest: b.ConfigurationDigest,
-		WayInTokenDigest:    b.WayInTokenDigest,
-		ControlTarget:       b.ControlTarget,
-		Undoing:             undoing,
-	}
-
-	tx, err := w.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return Deploy{}, fmt.Errorf("deploy: beginning the start of %s: %w", d.ID, err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := lease.Fence(ctx, tx, w.token); err != nil {
-		return Deploy{}, err
-	}
-
-	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`,
-		AdvisoryLockKey(b.ServiceID, b.EnvironmentID)); err != nil {
-		return Deploy{}, fmt.Errorf("deploy: taking the sequence lock for %s in %s: %w",
-			b.ServiceID, b.EnvironmentID, err)
-	}
-	err = tx.QueryRow(ctx, `select coalesce(max(number), 0) + 1 from `+Table+`
-		where service_id = $1 and environment_id = $2`, b.ServiceID, b.EnvironmentID).Scan(&d.Number)
-	if err != nil {
-		return Deploy{}, fmt.Errorf("deploy: reading the highest sequence number of %s in %s: %w",
-			b.ServiceID, b.EnvironmentID, err)
-	}
-
-	_, err = tx.Exec(ctx, `insert into `+Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, number,
-		 release_id, build_id, delivered_release_ids, strategy_picked, strategy_performed, status,
-		 schema_change, configuration_digest, way_in_token_digest, control_target,
-		 failed_release_id, skipped_release_ids, source)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
-		d.ID, FormatVersion, string(d.Actor.Kind), d.Actor.Key, string(d.Actor.Basis), d.At,
-		d.ServiceID, d.EnvironmentID, d.Number, d.ReleaseID, d.BuildID, joinReleases(d.DeliveredReleaseIDs),
-		string(d.StrategyPicked), string(d.StrategyPerformed), string(d.Status),
-		d.SchemaChange, d.ConfigurationDigest, d.WayInTokenDigest, d.ControlTarget,
-		d.Undoing.FailedReleaseID, joinReleases(d.Undoing.SkippedReleaseIDs), d.Undoing.Source,
-	)
-	if err != nil {
-		return Deploy{}, fmt.Errorf("deploy: starting %s: %w", d.ID, err)
-	}
-
-	for position, target := range b.Targets {
-		_, err = tx.Exec(ctx, `insert into `+TargetTable+`
-			(deploy_id, position, address, completion, kept_instances)
-			values ($1, $2, $3, $4, $5)`,
-			d.ID, position, target.Address, string(CompletionNotReached), target.KeptInstances)
-		if err != nil {
-			return Deploy{}, fmt.Errorf("deploy: writing the row of target %s of %s: %w",
-				target.Address, d.ID, err)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return Deploy{}, fmt.Errorf("deploy: committing the start of %s: %w", d.ID, err)
-	}
-	return d, nil
-}
 
 // Complete advances the deploy from started to complete, and refuses a deploy
 // any target of which is not complete: the record as a whole is complete when
@@ -304,20 +141,49 @@ func (w *Writer) MarkFailed(ctx context.Context, id, step string) error {
 	})
 }
 
+// PerformedWithControl records that the deployer performed the row with a
+// control: the shift the control's schedule asked for returned. It writes only
+// where nothing is recorded as performed yet, so a target that refused the shift
+// earlier in the walk is not overwritten by a later one that took it — a rollout
+// one target of which ran no comparison is a rollout without a control on the
+// record.
+func (w *Writer) PerformedWithControl(ctx context.Context, id string) error {
+	return w.performed(ctx, id, StrategyWithControl, ` and strategy_performed = ''`)
+}
+
 // PerformedWithoutControl records that the deployer performed the row without a
-// control on a deploy the score picked one for, which is what a target declared
-// as serving a share refusing the shift produces. The picked field is left as
-// it was, so an owner reading a rollout that ran no comparison reads on one
-// record whether the platform was the reason.
+// control: either the row the score picked, once the instances of a target have
+// been replaced with none of the build they replace left running, or the row a
+// target declared as serving a share leaves by refusing the shift. The picked
+// field is left as it was, so an owner reading a rollout that ran no comparison
+// reads on one record whether the platform was the reason.
+//
+// Nothing is written at the start of a deploy: a deployer that stopped between
+// the record's write and the shift would otherwise leave a record naming a
+// control that never ran, which is the reading the performed field exists to
+// prevent.
 func (w *Writer) PerformedWithoutControl(ctx context.Context, id string) error {
+	return w.performed(ctx, id, StrategyWithoutControl, ``)
+}
+
+func (w *Writer) performed(ctx context.Context, id string, strategy Strategy, onlyWhere string) error {
 	return w.inTransaction(ctx, "recording the strategy performed on "+id, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `update `+Table+` set strategy_performed = $1
-			where id = $2 and strategy_picked <> ''`, string(StrategyWithoutControl), id)
+			where id = $2 and strategy_picked <> ''`+onlyWhere, string(strategy), id)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("%w: %s is not a production deploy", ErrStrategyNotProduction, id)
+			var picked string
+			err := tx.QueryRow(ctx, `select strategy_picked from `+Table+` where id = $1`, id).Scan(&picked)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: %s", ErrNotFound, id)
+			} else if err != nil {
+				return err
+			}
+			if picked == "" {
+				return fmt.Errorf("%w: %s is not a production deploy", ErrStrategyNotProduction, id)
+			}
 		}
 		return nil
 	})
@@ -361,17 +227,18 @@ func lockStatus(ctx context.Context, tx pgx.Tx, id string) (Status, error) {
 	return Status(status), nil
 }
 
-// The releases a rollback skipped and the ones a revert's deploy delivers are
-// stored as one column holding one id per line, the arrangement item's waits_on
-// and environment's targets already have: an id is record.NewID's alphabet,
-// which holds no line ending, so the separator needs no escaping. It is a column
-// rather than a table because what reads it reads all of one deploy's at once,
-// and a table would be a row per edge for a list bounded by the window limit and
-// the backlog cap.
+// The releases a rollback skipped, the ones a revert's deploy delivers, and the
+// schema changes the build carries are each stored as one column holding one
+// value per line, the arrangement item's waits_on and environment's targets
+// already have: an id is record.NewID's alphabet and a change's identity is a
+// path element, neither of which holds a line ending, so the separator needs no
+// escaping. It is a column rather than a table because what reads it reads all
+// of one deploy's at once, and a table would be a row per edge for a list
+// bounded by the window limit and the backlog cap.
 
-func joinReleases(ids []string) string { return strings.Join(ids, "\n") }
+func joinLines(values []string) string { return strings.Join(values, "\n") }
 
-func splitReleases(stored string) []string {
+func splitLines(stored string) []string {
 	if stored == "" {
 		return nil
 	}

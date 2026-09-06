@@ -104,18 +104,16 @@ type response struct {
 }
 
 // Complete sends one user message under one system prompt and returns the
-// reply's text and its token spend, input and output together. No error it
+// reply's text and the units the provider returned per kind. No error it
 // returns contains the credential's value: the resolver's errors carry no value
 // by that package's own rule, a transport error names the method and the URL and
 // no header, and a [StatusError] carries what the server sent back.
-func (a Anthropic) Complete(ctx context.Context, system, user string) (Reply, error) {
+func (a Anthropic) Complete(ctx context.Context, p principal.Principal, system, user string) (Reply, error) {
 	// The value exists from here to the header write and in nothing a caller
-	// can reach afterwards.
-	//
-	// The principal recorded is this component's own: nothing yet carries the
-	// dispatch's principal down to a [Model], so the resolver sees the client
-	// asking for the credential and not who the running stage is.
-	credential, err := a.Resolver.Resolve(principal.OfComponent("agent"), a.Credential)
+	// can reach afterwards. The principal recorded beside the credential's
+	// name is the caller's — the dispatch that put this agent on the stage —
+	// so the resolution names who was running and not this client.
+	credential, err := a.Resolver.Resolve(p, a.Credential)
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: resolving the model credential: %w", err)
 	}
@@ -181,7 +179,10 @@ func (a Anthropic) Complete(ctx context.Context, system, user string) (Reply, er
 		return Reply{}, fmt.Errorf("%w: it has no text block", ErrAnswer)
 	}
 	return Reply{
-		Text:   text.String(),
-		Tokens: parsed.Usage.InputTokens + parsed.Usage.OutputTokens,
+		Text: text.String(),
+		Units: map[string]int64{
+			UnitsInput:  parsed.Usage.InputTokens,
+			UnitsOutput: parsed.Usage.OutputTokens,
+		},
 	}, nil
 }

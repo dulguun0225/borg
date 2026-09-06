@@ -23,14 +23,20 @@ import (
 var ErrSetIncomplete = errors.New("gate: the set firing is missing something every one has")
 
 // SetMember is one item of a decomposition as the row decides over it: the item,
-// the service it changes, the area it is in, and what it waits on. There is no
-// build and no artifact — decomposition writes items and the gate decides over
-// records that already exist, so what is decided is the shape of the set.
+// the service it changes, the area it is in, how many of the intent's
+// requirements it answers, and what it waits on. There is no build and no
+// artifact — decomposition writes items and the gate decides over records that
+// already exist, so what is decided is the shape of the set.
 type SetMember struct {
 	ItemID    string
 	ServiceID string
 	AreaID    string
-	WaitsOn   []string
+	// Requirements is how many of the intent's requirements this item answers,
+	// which is the unit decomposition sets and the unit the item-size target is
+	// authored in. It is what the change group is computed from at this row,
+	// there being no build and no diff, so a member that names none is refused.
+	Requirements int
+	WaitsOn      []string
 }
 
 // SetFiring is what fires the Decomposition row: the intent decomposition was
@@ -44,19 +50,23 @@ type SetFiring struct {
 
 // SetMemberPayload is one member as the open event stores it.
 type SetMemberPayload struct {
-	ItemID    string   `json:"item_id"`
-	ServiceID string   `json:"service_id"`
-	AreaID    string   `json:"area_id"`
-	WaitsOn   []string `json:"waits_on"`
+	ItemID    string `json:"item_id"`
+	ServiceID string `json:"service_id"`
+	AreaID    string `json:"area_id"`
+	// Requirements is how many of the intent's requirements this item answers,
+	// which is what the change group was computed from here.
+	Requirements int      `json:"requirements"`
+	WaitsOn      []string `json:"waits_on"`
 }
 
 // SetOpeningPayload is what the Decomposition row's open event says: the intent,
 // the whole set, the vector of the member the number came from, the values
 // applied, and the mark that put a human at the row.
 //
-// It does not embed [score.Subject], which every other open event does, and the
-// omission is the point: decomposition proposes a set rather than an artifact,
-// so a verdict here is an outcome on no author's work and on no one item.
+// It does not embed [score.OpenEvent], which every other open event does, and
+// the omission is the point: decomposition proposes a set rather than an
+// artifact, so a verdict here is an outcome on no author's work and on no one
+// item.
 // NumberFrom names the member whose number was applied so a reader can see what
 // drove it.
 type SetOpeningPayload struct {
@@ -81,16 +91,16 @@ type SetOpeningPayload struct {
 	WaitsOn          Waits              `json:"waits_on,omitzero"`
 }
 
-// NoBuildAtDecomposition is why the diff could not be measured at this row,
-// written onto every member's measurement. The change factors computed from a
-// diff are unavailable at decomposition, because decomposition happens before
-// anything is built — and an unavailable factor is resolved rather than valued,
-// so a human decides here whatever the formula returns.
-const NoBuildAtDecomposition = "no build exists at decomposition, and the diff is measured from one"
-
 // FireSet fires the Decomposition row over one decomposition. It asks the score
 // about each member and applies the highest of their numbers, because approving
 // the set approves every item in it — a set is as risky as its riskiest item.
+//
+// The change group here is computed from the set decomposition proposed and not
+// from a diff: how many of the intent's requirements each item answers, and how
+// many services the set spans. There is no build at this row and there was never
+// going to be one, so nothing is resolved on its account — a factor the gate was
+// never going to have, treated as missing, would put a human at every
+// decomposition forever.
 // What that costs is that a set of ten small items and one large one is decided
 // at the large one's number, which is the safe direction and is a real loss of
 // throughput.
@@ -121,6 +131,8 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		return Opened{}, err
 	}
 
+	span := servicesSpanned(f)
+
 	var applied score.Assessment
 	from := ""
 	members := make([]SetMemberPayload, 0, len(f.Members))
@@ -129,12 +141,19 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 			return Opened{}, fmt.Errorf("%w: a member names item %q and service %q",
 				ErrSetIncomplete, m.ItemID, m.ServiceID)
 		}
+		if m.Requirements <= 0 {
+			return Opened{}, fmt.Errorf("%w: member %s answers %d requirement(s), and the change group here is computed from the set proposed",
+				ErrSetIncomplete, m.ItemID, m.Requirements)
+		}
 		assessment, err := g.score.Assess(ctx, score.Change{
-			ItemID:      m.ItemID,
-			ServiceID:   m.ServiceID,
-			AreaID:      m.AreaID,
-			FactorSet:   score.SetAboveABuild,
-			Measurement: score.Measurement{Unavailable: NoBuildAtDecomposition},
+			ItemID:    m.ItemID,
+			ServiceID: m.ServiceID,
+			AreaID:    m.AreaID,
+			FactorSet: score.SetAboveABuild,
+			Measurement: score.Measurement{
+				RequirementsProposed: m.Requirements,
+				ServicesProposed:     span,
+			},
 		})
 		if err != nil {
 			return Opened{}, fmt.Errorf("gate: assessing item %s of decomposition: %w", m.ItemID, err)
@@ -143,7 +162,8 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 			applied, from = assessment, m.ItemID
 		}
 		members = append(members, SetMemberPayload{
-			ItemID: m.ItemID, ServiceID: m.ServiceID, AreaID: m.AreaID, WaitsOn: m.WaitsOn,
+			ItemID: m.ItemID, ServiceID: m.ServiceID, AreaID: m.AreaID,
+			Requirements: m.Requirements, WaitsOn: m.WaitsOn,
 		})
 	}
 
@@ -243,4 +263,18 @@ func subjectsFor(row Row, f SetFiring) policy.Subjects {
 		}
 	}
 	return subjects
+}
+
+// servicesSpanned is how many services the set decomposition proposed changes,
+// which is the reach the change group reads at this row. It is the set's and not
+// the member's: what one item can affect at decomposition is the set it was
+// proposed in, every member of which is approved by one verdict.
+func servicesSpanned(f SetFiring) int {
+	seen := map[string]bool{}
+	for _, m := range f.Members {
+		if m.ServiceID != "" {
+			seen[m.ServiceID] = true
+		}
+	}
+	return len(seen)
 }

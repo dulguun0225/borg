@@ -15,6 +15,7 @@ import (
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
 // theHealthInterface is the name the producer's build gives what it publishes, and
@@ -278,9 +279,9 @@ var theServiceOfPrompt = regexp.MustCompile(`(?m)^The service this item changes:
 // these episodes are about what follows decomposition.
 type contractModel struct{}
 
-func (m *contractModel) Complete(_ context.Context, system, user string) (agent.Reply, error) {
+func (m *contractModel) Complete(_ context.Context, _ principal.Principal, system, user string) (agent.Reply, error) {
 	switch system {
-	case agent.SpecAuthorSystemPrompt:
+	case agent.ShippedSpecAuthorPrompt:
 		named := theServiceOfPrompt.FindStringSubmatch(user)
 		if named == nil {
 			return agent.Reply{}, fmt.Errorf("fake model: the spec author's prompt names no service")
@@ -290,10 +291,20 @@ func (m *contractModel) Complete(_ context.Context, system, user string) (agent.
 			if svc != "" || !strings.Contains(user, statement) {
 				continue
 			}
-			return agent.Reply{Text: "SPEC:\n" + s.spec + "\nCRITERION: " + s.criterion, Tokens: 21}, nil
+			return agent.Reply{Text: "SPEC:\n" + s.spec + "\nCRITERION: " + s.criterion, Units: map[string]int64{agent.UnitsOutput: 21}}, nil
 		}
 		return agent.Reply{}, fmt.Errorf("fake model: no shape for service %s in this prompt", named[1])
-	case agent.ImplementerSystemPrompt:
+	case agent.ShippedPlannerPrompt:
+		return agent.Reply{
+			Text:  "PLAN:\nWrite the published interface, the mirror of what this service reads, and one encoding per criterion in force.",
+			Units: map[string]int64{agent.UnitsOutput: 11},
+		}, nil
+	case agent.ShippedTaskAuthorPrompt:
+		return agent.Reply{
+			Text:  "TASKS:\nWrite the contract file.\nWrite the encodings.\nWrite the main that emits the exchange.",
+			Units: map[string]int64{agent.UnitsOutput: 9},
+		}, nil
+	case agent.ShippedImplementerPrompt:
 		for _, s := range theShapes {
 			if !strings.Contains(user, "\n"+s.spec+"\n") {
 				continue
@@ -302,7 +313,7 @@ func (m *contractModel) Complete(_ context.Context, system, user string) (agent.
 			if err != nil {
 				return agent.Reply{}, err
 			}
-			return agent.Reply{Text: text, Tokens: 41}, nil
+			return agent.Reply{Text: text, Units: map[string]int64{agent.UnitsOutput: 41}}, nil
 		}
 		return agent.Reply{}, fmt.Errorf("fake model: the implementer's prompt carries no spec this fake implements")
 	}

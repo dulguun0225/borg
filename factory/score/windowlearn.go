@@ -67,36 +67,46 @@ func windowParameters(e *Evidence) ([]Supplied, error) {
 			}
 		}
 
-		moved = append(moved, sizes(e, service, size.Value)...)
-		moved = append(moved, powers(e, service, power.Value, size.Value)...)
+		sized, sizeInForce := sizes(e, service, size.Value)
+		moved = append(moved, sized...)
+		moved = append(moved, powers(e, service, power.Value, sizeInForce)...)
 	}
 	return moved, nil
 }
 
 // sizes is the size in force per quantity on one service: the coarser of what the
 // evidence asks for and the finest size the traffic reached, the latter read off
-// the freshest closed window that reports one.
+// the freshest closed window that reports one. It answers what moved and the size
+// in force on every quantity, moved or not, which is what the power's own rule is
+// read against in the same pass.
 //
 // Which quantity's size a miss names is the incident's, and where the incident
 // names none — a human's undo among them — the miss moves the size of every
 // quantity, which is what the design says of an undo.
-func sizes(e *Evidence, service string, startingSize float64) []Supplied {
-	misses := e.missesOnATimedOutWindow(service)
-	wanted := math.Max(windowSizeFloor, startingSize/math.Pow(2, float64(len(misses))))
+func sizes(e *Evidence, service string, startingSize float64) ([]Supplied, map[gatepolicy.Quantity]float64) {
+	misses := map[gatepolicy.Quantity]int{}
+	for _, m := range e.missesOnATimedOutWindow(service) {
+		for _, quantity := range m.quantities {
+			misses[quantity]++
+		}
+	}
 	reached, known := e.finestSizeReached(service)
 
 	var moved []Supplied
+	inForce := map[gatepolicy.Quantity]float64{}
 	for _, quantity := range gatepolicy.Quantities {
-		value, why := wanted, ""
-		if len(misses) > 0 {
-			why = fmt.Sprintf("%d window(s) on this service timed out over a release an incident was raised against, so nothing was ruled out at the size they watched at",
-				len(misses))
+		value := math.Max(windowSizeFloor, startingSize/math.Pow(2, float64(misses[quantity])))
+		why := ""
+		if misses[quantity] > 0 {
+			why = fmt.Sprintf("%d window(s) on this service timed out over a release an incident naming this quantity was raised against, so nothing was ruled out at the size they watched at",
+				misses[quantity])
 		}
 		if known && reached[quantity] > value {
 			value = reached[quantity]
 			why = fmt.Sprintf("%sthe newest closed window of this service reports %v as the finest size its traffic reached on this quantity inside the cap",
 				prefix(why), reached[quantity])
 		}
+		inForce[quantity] = value
 		if why == "" || value == startingSize {
 			continue
 		}
@@ -105,7 +115,7 @@ func sizes(e *Evidence, service string, startingSize float64) []Supplied {
 			Value: value, Why: why,
 		})
 	}
-	return moved
+	return moved, inForce
 }
 
 // powers is the power in force per quantity on one service. It rises on a false
@@ -114,26 +124,31 @@ func sizes(e *Evidence, service string, startingSize float64) []Supplied {
 // caught — and falls where the service's windows run to the cap on volume a lower
 // rate would have closed within, which is the power's own observable and not the
 // size's.
-func powers(e *Evidence, service string, startingPower, sizeInForce float64) []Supplied {
+func powers(e *Evidence, service string, startingPower float64, sizeInForce map[gatepolicy.Quantity]float64) []Supplied {
 	falsePasses := len(e.falsePasses(service))
-	timedOut := e.timedOutRun(service, sizeInForce)
 
-	value, why := startingPower, ""
-	switch {
-	case falsePasses > 0:
-		value = math.Min(windowPowerCeiling, 1-(1-startingPower)/math.Pow(2, float64(falsePasses)))
-		why = fmt.Sprintf("%d window(s) on this service closed passed over a release an incident was raised against, so a regression of the size in force reached passed",
-			falsePasses)
-	case timedOut >= windowsPerPowerFall:
-		value = math.Max(windowPowerFloor, startingPower-windowPowerStep)
-		why = fmt.Sprintf("%d window(s) of this service in a row timed out on traffic that reached the size in force, which is volume a lower power would have closed passed within",
-			timedOut)
-	}
-	if why == "" || value == startingPower {
-		return nil
-	}
 	var moved []Supplied
 	for _, quantity := range gatepolicy.Quantities {
+		// The run is read per quantity against the size in force for that
+		// quantity, which the pass has just supplied: a window that reached the
+		// size on one quantity and not on another is volume a lower power would
+		// have closed passed within on the first alone.
+		timedOut := e.timedOutRun(service, quantity, sizeInForce[quantity])
+
+		value, why := startingPower, ""
+		switch {
+		case falsePasses > 0:
+			value = math.Min(windowPowerCeiling, 1-(1-startingPower)/math.Pow(2, float64(falsePasses)))
+			why = fmt.Sprintf("%d window(s) on this service closed passed over a release an incident was raised against, so a regression of the size in force reached passed",
+				falsePasses)
+		case timedOut >= windowsPerPowerFall:
+			value = math.Max(windowPowerFloor, startingPower-windowPowerStep)
+			why = fmt.Sprintf("%d window(s) of this service in a row timed out on traffic that reached the size in force on this quantity, which is volume a lower power would have closed passed within",
+				timedOut)
+		}
+		if why == "" || value == startingPower {
+			continue
+		}
 		moved = append(moved, Supplied{
 			Parameter: gatepolicy.WindowPower, Subject: QuantitySubject(service, quantity),
 			Value: value, Why: why,

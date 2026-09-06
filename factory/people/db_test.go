@@ -1,7 +1,10 @@
 // The database tests of this package are in people_test rather than in
 // people, because they open the pool through package postgres, which imports
 // this one to apply its DDL. deps.txt records the edge as "test people ->
-// postgres".
+// postgres". db_test.go is the holding table and the re-derivation and holds
+// the fixtures; mapping_test.go is the key-to-name mapping and its deletion.
+// The two are one external test package split by subject, each file held to
+// 500 lines.
 //
 // None of these tests skips when the database is unreachable. The milestone
 // is demonstrated by them running, so an unreachable database fails the run.
@@ -363,63 +366,6 @@ func TestDeclareAppendsAPolicyVersionBeforeTheDeclaration(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the version's declaration = %+v, want hk_alice holding duty 4", newest.Declaration)
-	}
-}
-
-// TestWriteMappingRoundTripsAndResolvesAName is the one place a key maps to
-// a name, kept outside the chain.
-func TestWriteMappingRoundTripsAndResolvesAName(t *testing.T) {
-	ctx, pool, token, _ := newTable(t)
-
-	if _, err := people.WriteMapping(ctx, pool, token, owner, "hk_alice", "Alice", "09:00", "17:00", "UTC"); err != nil {
-		t.Fatalf("WriteMapping: %v", err)
-	}
-	name, err := people.NameOf(ctx, pool, "hk_alice")
-	if err != nil {
-		t.Fatalf("NameOf: %v", err)
-	}
-	if name != "Alice" {
-		t.Errorf("NameOf = %q, want Alice", name)
-	}
-
-	// Writing it again for the same key updates the one row.
-	if _, err := people.WriteMapping(ctx, pool, token, owner, "hk_alice", "Alice Smith", "", "", ""); err != nil {
-		t.Fatalf("WriteMapping again: %v", err)
-	}
-	name, err = people.NameOf(ctx, pool, "hk_alice")
-	if err != nil {
-		t.Fatalf("NameOf: %v", err)
-	}
-	if name != "Alice Smith" {
-		t.Errorf("NameOf after a second write = %q, want Alice Smith", name)
-	}
-}
-
-// TestDeleteMappingIsRefusedUnderALegalHoldAndDeletesOtherwise is the legal
-// hold's own refusal: DeleteMapping calls the caller's check first, and
-// refuses the deletion with ErrLegalHoldReaches where it reports a hold
-// standing, leaving the mapping and every record the key is written on
-// untouched.
-func TestDeleteMappingIsRefusedUnderALegalHoldAndDeletesOtherwise(t *testing.T) {
-	ctx, pool, token, _ := newTable(t)
-	if _, err := people.WriteMapping(ctx, pool, token, owner, "hk_alice", "Alice", "", "", ""); err != nil {
-		t.Fatalf("WriteMapping: %v", err)
-	}
-
-	held := func(context.Context) (bool, error) { return true, nil }
-	if err := people.DeleteMapping(ctx, pool, token, "hk_alice", held); !errors.Is(err, people.ErrLegalHoldReaches) {
-		t.Errorf("DeleteMapping under a hold = %v, want ErrLegalHoldReaches", err)
-	}
-	if _, err := people.NameOf(ctx, pool, "hk_alice"); err != nil {
-		t.Errorf("NameOf after a refused deletion: %v, want the mapping still standing", err)
-	}
-
-	clear := func(context.Context) (bool, error) { return false, nil }
-	if err := people.DeleteMapping(ctx, pool, token, "hk_alice", clear); err != nil {
-		t.Fatalf("DeleteMapping with no hold: %v", err)
-	}
-	if _, err := people.NameOf(ctx, pool, "hk_alice"); !errors.Is(err, people.ErrMappingNotFound) {
-		t.Errorf("NameOf after deletion = %v, want ErrMappingNotFound", err)
 	}
 }
 

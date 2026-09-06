@@ -126,13 +126,16 @@ func TestTheItemSizeTargetIsCountedInRequirements(t *testing.T) {
 	}
 }
 
-// TestTheWindowsSizeAndPowerArePerQuantity: one value per quantity, because a
+// TestTheReadingsSizesArePerQuantity: one value per quantity, because a
 // detectable change in an error rate and one in a latency quantile are not one
-// number, and no other parameter is keyed that way.
-func TestTheWindowsSizeAndPowerArePerQuantity(t *testing.T) {
+// number. Four parameters are keyed that way and no other is — the window's size
+// and power, and the explicit threshold with the size beside it, which is read
+// on one quantity and says nothing about another.
+func TestTheReadingsSizesArePerQuantity(t *testing.T) {
+	perQuantityParameters := []Parameter{WindowSize, WindowPower, ExplicitThreshold, ExplicitThresholdSize}
 	for _, d := range slices.Concat(Definitions, NotAmongTheEleven, SafeguardOnly) {
 		perQuantity := d.Key == KeyQuantity
-		want := d.Parameter == WindowSize || d.Parameter == WindowPower
+		want := slices.Contains(perQuantityParameters, d.Parameter)
 		if perQuantity != want {
 			t.Errorf("%q is keyed %q", d.Parameter, d.Key)
 		}
@@ -169,18 +172,21 @@ func TestTheAttemptLimitIsOneParameterAndNotThree(t *testing.T) {
 	}
 }
 
-// TestARetentionParameterIsAuthoredAndNotAmongTheEleven: the retention values are
-// authored on the factory-wide settings record and are not gate policy's rows, so
-// they carry no row and are still resolvable — a safeguard binds them.
+// TestARetentionParameterIsAuthoredAndNotAmongTheEleven: the retention values,
+// the two rates, the remediation period, the harm mark's cap and the explicit
+// threshold are authored and are not gate policy's rows, so they carry no row
+// and are still resolvable — a safeguard binds each of them.
 func TestARetentionParameterIsAuthoredAndNotAmongTheEleven(t *testing.T) {
 	directions := map[Parameter]Direction{
-		DecisionLogRetention: DirectionFloor,
-		ReportRetention:      DirectionCeiling,
-		BackupRetention:      DirectionNone,
-		RetentionFloor:       DirectionNone,
-		RemediationPeriod:    DirectionCeiling,
-		ReportChannelRate:    DirectionCeiling,
-		HarmMarkPageCap:      DirectionCeiling,
+		DecisionLogRetention:  DirectionFloor,
+		ReportRetention:       DirectionCeiling,
+		BackupRetention:       DirectionNone,
+		RetentionFloor:        DirectionNone,
+		RemediationPeriod:     DirectionCeiling,
+		ReportChannelRate:     DirectionCeiling,
+		HarmMarkPageCap:       DirectionCeiling,
+		ExplicitThreshold:     DirectionCeiling,
+		ExplicitThresholdSize: DirectionCeiling,
 	}
 	if len(NotAmongTheEleven) != len(directions) {
 		t.Fatalf("NotAmongTheEleven holds %d parameters, the test names %d", len(NotAmongTheEleven), len(directions))

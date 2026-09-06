@@ -15,6 +15,7 @@ import (
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
@@ -23,7 +24,6 @@ import (
 	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/notifier"
-	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
@@ -37,14 +37,27 @@ var (
 	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
 	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch"}
 	buildActor         = record.Actor{Kind: record.KindComponent, Key: "build"}
-	deployActor        = record.Actor{Kind: record.KindComponent, Key: "deploy"}
+	// installActor is the install's first-start step, which is what enters the
+	// shipped role prompt versions: a call that authors nothing, with the
+	// factory's own start as the actor.
+	installActor = record.Actor{Kind: record.KindComponent, Key: "install"}
+	deployActor  = record.Actor{Kind: record.KindComponent, Key: "deploy"}
 )
 
-// specAuthorActor and implementerActor are the two authoring roles, each an
-// agent rather than a component: a model in a role the factory dispatches to
-// a stage, keyed by the model version this run was given. Both name the same
-// model, this interface running one model per run.
+// The four authoring roles, each an agent rather than a component: a model in
+// a role dispatch put on a stage, keyed by the model version this run was
+// given. All four name the same model, this interface running one model per
+// run — two agents on one model are one author under two actors, which is why
+// the key is the model version and not the role.
 func (p *path) specAuthorActor() record.Actor {
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+}
+
+func (p *path) plannerActor() record.Actor {
+	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
+}
+
+func (p *path) taskAuthorActor() record.Actor {
 	return record.Actor{Kind: record.KindAgent, Key: p.d.modelName}
 }
 
@@ -72,13 +85,20 @@ type path struct {
 	store         *artifact.Store
 	intake        *intent.Intake
 	decomposition *item.Decomposition
-	dispatch      *item.Dispatch
-	builds        *build.Writer
-	deploys       *deploy.Writer
-	checks        *lastcheck.Writer
-	candidates    *environment.Candidates
-	queue         *mergequeue.Queue
-	contracts     *contractcheck.Check
+	// items is the item's writer after decomposition — the stage and the count
+	// beside it — and dispatch is the component that puts an agent on a stage
+	// and writes the transition through it.
+	items    *item.Dispatch
+	dispatch *dispatch.Dispatch
+	// prompts is the role prompt version in force per role, which the first
+	// start entered.
+	prompts    rolePrompts
+	builds     *build.Writer
+	deploys    *deploy.Writer
+	checks     *lastcheck.Writer
+	candidates *environment.Candidates
+	queue      *mergequeue.Queue
+	contracts  *contractcheck.Check
 	// scoreVersion is the version in force for this run, held because a window
 	// stores the two versions in force at its open and the health monitor does not append
 	// one of its own.
@@ -114,81 +134,8 @@ var (
 	_ contractcheck.Checkout   = (*path)(nil)
 	_ contractcheck.Exchanges  = (*path)(nil)
 	_ contractcheck.StoreState = (*path)(nil)
-	_ contractcheck.Backfills  = (*path)(nil)
 	_ gate.Holds               = (*path)(nil)
 )
-
-// intentState is [gate.IntentState]: the state of the intent an item was
-// decomposed from, read before every firing on that item. It is a function the
-// composition supplies because what it takes is the item's intent, and a gate
-// decides events rather than following records from one to the next.
-func (p *path) intentState(ctx context.Context, itemID string) (intent.State, error) {
-	it, err := item.Get(ctx, p.d.pool, itemID)
-	if err != nil {
-		return "", err
-	}
-	if it.IntentID == "" {
-		return intent.StateRefined, nil
-	}
-	in, err := intent.Get(ctx, p.d.pool, it.IntentID)
-	if err != nil {
-		return "", err
-	}
-	return in.State, nil
-}
-
-// nameOfKey is [gate.HumanName]: a per-person key resolved to the name the
-// People mapping records for it. The gate needs it for one comparison — the
-// author on an artifact version is a name and the actor on a close event is a
-// key — and a key whose mapping was erased or never written resolves to itself,
-// which compares as the two being different people.
-func (p *path) nameOfKey(ctx context.Context, key string) (string, error) {
-	name, err := people.NameOf(ctx, p.d.pool, key)
-	if err != nil {
-		return key, nil
-	}
-	return name, nil
-}
-
-// gateNotifier is [gate.Notifier]: the two calls a gate makes on the component
-// that reaches humans. It is a type of its own rather than the notifier itself
-// because the gate's two calls take a row and an item, and the notifier's own
-// entrance takes a [notifier.Wait] — so the wait is composed here, where what it
-// waits on is known.
-type gateNotifier struct{ notifier *notifier.Notifier }
-
-// Acknowledged is the page's acknowledged event, written where the row that was
-// acknowledged also pages: one act at Work writes both.
-func (g gateNotifier) Acknowledged(ctx context.Context, openID string, human record.Actor) error {
-	if g.notifier == nil {
-		return nil
-	}
-	_, err := g.notifier.Acknowledge(ctx, notifier.Wait{
-		Row: openID, Kind: notifier.KindDriftMismatch,
-		Waiting: "a human at Work acknowledged the row this page was about",
-		Holding: people.OfDuty(takeOverIssues),
-	}, human.Key)
-	return err
-}
-
-// Escalated is the wait an item stopped at the attempt limit leaves, which is
-// what puts it in Work as an escalation. It routes to the duty that takes over
-// issues the factory cannot fix on its own, and it is worse where something live
-// is worse — which watch.go's own escalation read decides from the intent's
-// source and this one cannot, holding only the item and the stage.
-func (g gateNotifier) Escalated(ctx context.Context, itemID string, stage item.Stage, reason string) error {
-	if g.notifier == nil {
-		return nil
-	}
-	_, err := g.notifier.Notify(ctx, notifier.Wait{
-		Row:     itemID,
-		Kind:    notifier.KindItemEscalated,
-		Waiting: fmt.Sprintf("the factory gave up on %s at %s: %s", itemID, stage, reason),
-		Holding: people.OfDuty(takeOverIssues),
-		Worse:   true,
-	})
-	return err
-}
 
 // run walks the whole path once for each intent it is given, from a statement to
 // a running release, stopping with the first error.

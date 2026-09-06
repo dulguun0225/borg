@@ -40,7 +40,10 @@ func (w *Writer) AppendScoreVersion(ctx context.Context, e Entry) (Row, error) {
 }
 
 // AppendInstallEvent appends the row written at every upgrade and at every
-// start after the factory's records are restored from a backup.
+// start after the factory's records are restored from a backup, and the row
+// the merge queue writes beside it for the numbers a mint after a restore
+// passed over, which the design places beside the install event and not in a
+// shape of its own.
 func (w *Writer) AppendInstallEvent(ctx context.Context, e Entry) (Row, error) {
 	return w.appendSimple(ctx, ShapeInstallEvent, e)
 }

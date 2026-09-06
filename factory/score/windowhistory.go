@@ -62,10 +62,14 @@ func (e *Evidence) finestSizeReached(serviceID string) (map[gatepolicy.Quantity]
 }
 
 // timedOutRun is how many of this service's windows, newest first, timed out
-// while the traffic reached the size in force. That is the power's own
-// observable: volume a lower rate would have closed passed within, read off that
-// service's own windows.
-func (e *Evidence) timedOutRun(serviceID string, sizeInForce float64) int {
+// while the traffic reached the size in force on one quantity. That is the
+// power's own observable: volume a lower rate would have closed passed within,
+// read off that service's own windows.
+//
+// The size in force is one value per quantity, so the run is too: the window
+// reports the finest size its traffic reached on each, and the comparison is
+// between the two readings of the same quantity.
+func (e *Evidence) timedOutRun(serviceID string, quantity gatepolicy.Quantity, sizeInForce float64) int {
 	run := 0
 	for i := len(e.windows) - 1; i >= 0; i-- {
 		w := e.windows[i]
@@ -75,7 +79,7 @@ func (e *Evidence) timedOutRun(serviceID string, sizeInForce float64) int {
 		if w.Exit != window.ExitTimedOut {
 			break
 		}
-		reached, found := w.FinestSizeReached[gatepolicy.QuantityErrorRate]
+		reached, found := w.FinestSizeReached[quantity]
 		if !found || reached > sizeInForce {
 			break
 		}

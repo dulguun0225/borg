@@ -1,14 +1,17 @@
 package gatepolicy
 
-// NotAmongTheEleven is what an owner authors on the factory-wide settings record
-// that is not gate policy: retention, the report channel's rates, the remediation
-// period, and the harm mark's page cap. Each carries a direction because a
-// safeguard binds it and the direction differs per parameter, and none carries a
-// row because the rows are the eleven.
+// NotAmongTheEleven is what an owner authors that is not gate policy: retention,
+// the report channel's rates, the remediation period, the harm mark's page cap,
+// and the explicit threshold with the size beside it. Each carries a direction
+// because a safeguard binds it and the direction differs per parameter, and none
+// carries a row because the rows are the eleven.
 //
-// What is authored and not among the eleven on a service, an area or an
-// environment record is not here: those are fields of the record that owns them
-// and no safeguard on them is placed through this vocabulary yet.
+// Most of them are the factory-wide settings record's. The explicit threshold is
+// the service record's, and it is here rather than a field alone because a
+// safeguard is what sets it — the design's "an owner can add a safeguard setting
+// explicit thresholds for a service" — and a safeguard names the parameter it
+// binds through this vocabulary. What is authored and not among the eleven on an
+// area or an environment record is still not here.
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
 // is the whole list.
 var NotAmongTheEleven = []Definition{
@@ -49,6 +52,20 @@ var NotAmongTheEleven = []Definition{
 		Unit:   "reports admitted per hour, and unauthored is unbounded",
 	},
 	{
+		Parameter: ExplicitThreshold,
+		Kind:      KindFraction, Direction: DirectionCeiling, Scope: ScopeService, Key: KeyQuantity,
+		Limits: "the absolute number a service's quantity is read against beside the comparison; the release passes both or neither, so a safeguard here can only add a check",
+		Unit:   "the share of the work the service may be at, between 0 and 1",
+
+		ReaderAtThisMilestone: "the health monitor, as the third reading beside the comparison and the service's own recent history",
+	},
+	{
+		Parameter: ExplicitThresholdSize,
+		Kind:      KindFraction, Direction: DirectionCeiling, Scope: ScopeService, Key: KeyQuantity,
+		Limits: "the smallest change from an explicit threshold worth catching, which the owner sets when they set the number",
+		Unit:   "the smallest change ruled out, as a share",
+	},
+	{
 		Parameter: HarmMarkPageCap,
 		Kind:      KindCount, Direction: DirectionCeiling, Scope: ScopeFactorySettings, Key: KeyService,
 		Limits: "how many intents one service's marked reports may page per interval",
@@ -57,7 +74,7 @@ var NotAmongTheEleven = []Definition{
 }
 
 // SafeguardOnly is every parameter that a safeguard binds and nobody authors.
-// There is one. It is a list of its own rather than a row of [Definitions]
+// There are two. It is a list of its own rather than a row of [Definitions]
 // because gate policy is what an owner authors — eleven rows, counted by
 // TestElevenRows — and a parameter only a safeguard sets, listed among them,
 // would make that count twelve while changing nothing about what an owner may
@@ -77,5 +94,12 @@ var SafeguardOnly = []Definition{
 		Limits:                "what a consumer assumes of a producer where the derivation of a consumer contract cannot see the read",
 		Unit:                  "one predicate on one element of a contract",
 		ReaderAtThisMilestone: "enforcement, beside the consumer contracts derived from a consumer's build",
+	},
+	{
+		Parameter: DriftDetectorLastCheckMaxAge,
+		Kind:      KindSeconds, Direction: DirectionCeiling, Scope: ScopeNothing, Key: KeyNone,
+		Limits:                "how old the drift detector's own last check may be before the production deploy row holds",
+		Unit:                  "seconds since that record was written",
+		ReaderAtThisMilestone: "the production deploy row, beside the mismatch it already reads",
 	},
 }

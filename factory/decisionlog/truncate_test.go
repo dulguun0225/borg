@@ -20,7 +20,7 @@ func TestTruncateRemovesTheOldestRowsAndKeepsTheHead(t *testing.T) {
 	truncation, err := log.Truncate(ctx, decisionlog.Cut{
 		Actor: owner, Retention: "30d", Boundary: boundary.ID,
 		PolicyVersion: "policy-1", ScoreVersion: "score-1",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Truncate: %v", err)
 	}
@@ -56,14 +56,50 @@ func TestTruncateRefusesAnEmptyOrUnknownBoundary(t *testing.T) {
 
 	if _, err := log.Truncate(ctx, decisionlog.Cut{
 		Actor: owner, Retention: "30d", PolicyVersion: "policy-1", ScoreVersion: "score-1",
-	}); !errors.Is(err, decisionlog.ErrBoundaryEmpty) {
+	}, nil); !errors.Is(err, decisionlog.ErrBoundaryEmpty) {
 		t.Errorf("a cut naming no boundary: %v, want ErrBoundaryEmpty", err)
 	}
 	if _, err := log.Truncate(ctx, decisionlog.Cut{
 		Actor: owner, Retention: "30d", Boundary: "dl_00112233445566778899aabbccddeeff",
 		PolicyVersion: "policy-1", ScoreVersion: "score-1",
-	}); !errors.Is(err, decisionlog.ErrBoundaryUnknown) {
+	}, nil); !errors.Is(err, decisionlog.ErrBoundaryUnknown) {
 		t.Errorf("a cut naming a boundary that does not exist: %v, want ErrBoundaryUnknown", err)
+	}
+}
+
+// TestTruncateRefusesWhileALegalHoldStands is the design's refusal: while a
+// legal hold stands, truncation is refused wherever it reaches, and the rows a
+// cut removes are every subject's. The holds are handed in by the caller,
+// package legalhold being a record package this one may not import.
+func TestTruncateRefusesWhileALegalHoldStands(t *testing.T) {
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
+
+	appended := appendThreeOpenings(ctx, t, log, reader)
+	boundary := appended[1]
+
+	cut := decisionlog.Cut{
+		Actor: owner, Retention: "30d", Boundary: boundary.ID,
+		PolicyVersion: "policy-1", ScoreVersion: "score-1",
+	}
+	if _, err := log.Truncate(ctx, cut, []string{"lgh_1 over the whole factory"}); !errors.Is(err,
+		decisionlog.ErrLegalHoldStands) {
+		t.Fatalf("Truncate while a legal hold stands = %v, want ErrLegalHoldStands", err)
+	}
+
+	// Nothing was removed and nothing was appended: the refusal is before the
+	// transaction, so the row the cut named is still the row it named.
+	rows, err := reader.Read(ctx, owner)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	for _, row := range rows {
+		if row.Shape == decisionlog.ShapeTruncation {
+			t.Fatalf("a truncation row was appended under a legal hold: %+v", row)
+		}
+	}
+	if _, err := log.Truncate(ctx, cut, nil); err != nil {
+		t.Fatalf("Truncate with no hold standing: %v", err)
 	}
 }
 

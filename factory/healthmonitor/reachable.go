@@ -39,8 +39,14 @@ func (h *HealthMonitor) previousRead(ctx context.Context, serviceID string) (win
 //
 // It is read off what the service's last window actually reached, which is the
 // same arithmetic the score's size in force is computed by: the finest size that
-// window's traffic could rule out, against the size this one is asking for. A
-// service with no closed window yet has nothing to be refused on, and the
+// window's traffic could rule out, read at the power this window asks for, against
+// the size this one is asking for. The power is in it because a finest size is
+// recorded at the power that window was reading at, and the same traffic asked to
+// catch a regression more reliably catches only a coarser one — so a service that
+// reached its size at even odds can be refused the exit at a power of nine in ten
+// without the traffic having changed at all.
+//
+// A service with no closed window yet has nothing to be refused on, and the
 // question is answered again at every open.
 func passedReachable(previous window.Window, o window.OpenEvent) bool {
 	if len(previous.FinestSizeReached) == 0 {
@@ -48,7 +54,25 @@ func passedReachable(previous window.Window, o window.OpenEvent) bool {
 	}
 	for quantity, size := range o.Size {
 		reached, read := previous.FinestSizeReached[quantity]
-		if read && reached > size {
+		if !read {
+			continue
+		}
+		recordedAt, atAPower := previous.Power[quantity]
+		asked, asksAPower := o.Power[quantity]
+		if atAPower && asksAPower {
+			b, found := previous.Boundary(quantity)
+			if !found {
+				continue
+			}
+			atThisPower, err := b.AtPower(reached, recordedAt, asked)
+			if err != nil {
+				// A power the arithmetic cannot reach is one no count of intervals
+				// reaches, which is the window with no passed exit available to it.
+				return false
+			}
+			reached = atThisPower
+		}
+		if reached > size {
 			return false
 		}
 	}
@@ -102,13 +126,27 @@ func operationsReadAlone(previous window.Window, o window.OpenEvent) []string {
 }
 
 // supportsEveryQuantity is whether one operation's volume reaches the units
-// every quantity's size needs. Every, because the operation is one series read
-// on all of them: admitting it for one quantity and not another would be two
-// sets of operations on one window.
+// every quantity's size needs at the power in force. Every, because the
+// operation is one series read on all of them: admitting it for one quantity and
+// not another would be two sets of operations on one window.
+//
+// The units bound is the within-interval one and carries no power of its own, so
+// the power enters it the way it enters the size: the size the operation has to
+// support is read at the power in force through [boundary.Boundary.AtPower],
+// from the size asked for at even odds — the power at which the units bound is
+// stated. An operation admitted without that reading would be one read alone at
+// a size its traffic supports only half the time.
 func supportsEveryQuantity(o window.OpenEvent, comparisons int, baselineRate float64, units int64) bool {
 	for quantity, size := range o.Size {
 		b := boundary.Boundary{
 			Size: size, Confidence: o.Confidence, Comparisons: comparisons, Worse: window.Worse(quantity),
+		}
+		if power, asksAPower := o.Power[quantity]; asksAPower {
+			atThisPower, err := b.AtPower(size, evenOdds, power)
+			if err != nil {
+				return false
+			}
+			b.Size = atThisPower
 		}
 		needed, err := b.UnitsToPassed(baselineRate)
 		if err != nil || float64(units) < needed {
@@ -117,6 +155,13 @@ func supportsEveryQuantity(o window.OpenEvent, comparisons int, baselineRate flo
 	}
 	return true
 }
+
+// evenOdds is the power the units bound is stated at: it asks how many units a
+// release running at the baseline needs before the two rates could be told apart
+// at all, which is the expected crossing and not one reached with a stated
+// probability. Reading a size from it at the power in force is what puts the two
+// bounds on one footing.
+const evenOdds = 0.5
 
 // rateOf is one arm's share out of the counts, and nothing where that arm
 // counted no units.

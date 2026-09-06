@@ -1,7 +1,9 @@
-// The tests of what the deployer does, as against what the record holds: the
-// ordered walk over the targets, the steps before traffic, the rollback's
-// verification, the restart, and the mitigation. The target is
-// [targetseam.NewFake]; localtarget is where a real process runs.
+// The ordered walk over an environment's targets and the strategy the deployer
+// performed, as against what the record holds. The step before traffic is
+// schemastep_test.go, the rollback and the restart restore_test.go, and the
+// mitigation mitigation_test.go; the fakes and the helpers the four share are
+// here. The target is [targetseam.NewFake]; localtarget is where a real process
+// runs.
 package deploy_test
 
 import (
@@ -59,8 +61,10 @@ func twoFakes(shares bool) ([]deploy.Reach, []*targetseam.Fake) {
 	one, two := targetseam.NewFake(), targetseam.NewFake()
 	one.Instances, two.Instances = 2, 2
 	return []deploy.Reach{
-		{Address: "/srv/one", Target: one, KeptInstances: 1, ServesAShare: shares, Share: 0.1},
-		{Address: "/srv/two", Target: two, KeptInstances: 1, ServesAShare: shares, Share: 0.1},
+		{Address: "/srv/one", Target: one, ReleaseInstances: 2, ControlInstances: 1,
+			KeptInstances: 1, ServesAShare: shares, Share: 0.1},
+		{Address: "/srv/two", Target: two, ReleaseInstances: 2,
+			KeptInstances: 1, ServesAShare: shares, Share: 0.1},
 	}, []*targetseam.Fake{one, two}
 }
 
@@ -162,6 +166,7 @@ func TestATargetThatRefusesTheShiftMakesThePerformedStrategyDiffer(t *testing.T)
 
 	p := performance(serviceID, r, reaches)
 	p.StrategyPicked = deploy.StrategyWithControl
+	p.ControlReleaseID = "rel_the_rollback_would_return_to"
 
 	d, err := deploy.Perform(ctx, w, p)
 	if err != nil {
@@ -177,8 +182,52 @@ func TestATargetThatRefusesTheShiftMakesThePerformedStrategyDiffer(t *testing.T)
 	if read.StrategyPerformed != deploy.StrategyWithoutControl {
 		t.Errorf("the performed strategy reads %q, want without a control", read.StrategyPerformed)
 	}
-	if read.ControlTarget != "/srv/one" {
-		t.Errorf("the control target reads %q, want the first target the rollout reaches", read.ControlTarget)
+	if read.ControlTarget != "/srv/one" || read.ControlReleaseID != "rel_the_rollback_would_return_to" {
+		t.Errorf("the control is %q running %q, want the first target the rollout reaches and the release a rollback returns to",
+			read.ControlTarget, read.ControlReleaseID)
+	}
+}
+
+// TestTheStrategyPerformedIsWrittenOnlyOnceSomethingWasPerformed: a deployer
+// that stopped between the record's write and the shift would otherwise leave a
+// record naming a control that never ran, which is the reading the performed
+// field exists to prevent.
+func TestTheStrategyPerformedIsWrittenOnlyOnceSomethingWasPerformed(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+	reaches, _ := twoFakes(true)
+
+	started, err := w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
+		ControlTarget: "/srv/one", ControlReleaseID: "rel_below",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	read, err := deploy.Get(ctx, pool, started.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.StrategyPerformed != "" {
+		t.Errorf("the record names %q performed at the start, want nothing performed yet", read.StrategyPerformed)
+	}
+
+	// A whole rollout with a control writes it once the shift returns.
+	p := performance(serviceID, r, reaches)
+	p.StrategyPicked = deploy.StrategyWithControl
+	p.ControlReleaseID = "rel_below"
+	d, err := deploy.Perform(ctx, w, p)
+	if err != nil {
+		t.Fatalf("Perform: %v", err)
+	}
+	if read, err = deploy.Get(ctx, pool, d.ID); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.StrategyPerformed != deploy.StrategyWithControl {
+		t.Errorf("the performed strategy reads %q, want with a control once the shift returned", read.StrategyPerformed)
 	}
 }
 
@@ -219,97 +268,6 @@ func TestAStrategyAttachesToAProductionDeployAndNoOther(t *testing.T) {
 	p.IntoProduction = true
 	if _, err := deploy.Perform(ctx, w, p); !errors.Is(err, deploy.ErrStrategyNotProduction) {
 		t.Errorf("a production deploy with no strategy = %v, want ErrStrategyNotProduction", err)
-	}
-}
-
-// TestASnapshotThatCannotBeVerifiedStopsTheDeployAndPages: a snapshot the
-// deployer cannot take and verify is a deploy not performed — the record is
-// marked failed at that step, no target is marked complete, and a page fires.
-func TestASnapshotThatCannotBeVerifiedStopsTheDeployAndPages(t *testing.T) {
-	ctx, pool, w, token := newTableWithToken(t)
-	const serviceID = "svc_a"
-	r := mintRelease(t, ctx, pool, token, serviceID)
-	reaches, _ := twoFakes(false)
-
-	paged := &pages{}
-	p := performance(serviceID, r, reaches)
-	p.Notifier = paged
-	p.SchemaChanges = []targetseam.SchemaChange{{
-		Service: "checkout", Change: "0003-drop-the-old-column", Text: "drop", Destroys: true,
-		Credential: credential,
-	}}
-	// No snapshot name, so there is no copy to take and verify.
-	_, err := deploy.Perform(ctx, w, p)
-	if !errors.Is(err, deploy.ErrSnapshotRefused) {
-		t.Fatalf("Perform = %v, want ErrSnapshotRefused", err)
-	}
-	if len(paged.reasons) != 1 {
-		t.Errorf("the deployer paged %d times, want once at that exit: %v", len(paged.reasons), paged.reasons)
-	}
-	assertFailedAt(t, ctx, pool, serviceID, deploy.StepSnapshot)
-}
-
-// TestASchemaChangeThatFailsToApplyStopsTheDeploy: a change that fails to apply
-// stops the deploy before any traffic shifts, no target is marked complete, the
-// previous release stays current, and the failure stands on the record for Ops.
-func TestASchemaChangeThatFailsToApplyStopsTheDeploy(t *testing.T) {
-	ctx, pool, w, token := newTableWithToken(t)
-	const serviceID = "svc_a"
-	r := mintRelease(t, ctx, pool, token, serviceID)
-	reaches, _ := twoFakes(false)
-
-	p := performance(serviceID, r, reaches)
-	p.SchemaChanges = []targetseam.SchemaChange{{
-		Service: "checkout", Change: "", Text: "add", Credential: credential,
-	}}
-	_, err := deploy.Perform(ctx, w, p)
-	if !errors.Is(err, deploy.ErrSchemaChangeRefused) {
-		t.Fatalf("Perform = %v, want ErrSchemaChangeRefused", err)
-	}
-	assertFailedAt(t, ctx, pool, serviceID, deploy.StepSchemaChange)
-}
-
-// TestAChangeTheHistoryAlreadyHoldsIsNotApplied: which changes a store carries
-// is read from the schema history the deployer keeps in the store and never
-// from a deploy record, so a deploy applies the changes its build declares that
-// the history lacks.
-func TestAChangeTheHistoryAlreadyHoldsIsNotApplied(t *testing.T) {
-	ctx, pool, w, token := newTableWithToken(t)
-	const serviceID = "svc_a"
-	r := mintRelease(t, ctx, pool, token, serviceID)
-	reaches, fakes := twoFakes(false)
-	fakes[0].SchemaHistory["checkout"] = []targetseam.SchemaChangeApplied{
-		{Change: "0001-add-the-column", Checksum: "a", Widened: true},
-	}
-
-	p := performance(serviceID, r, reaches)
-	p.SchemaChanges = []targetseam.SchemaChange{
-		{Service: "checkout", Change: "0001-add-the-column", Credential: credential},
-		{Service: "checkout", Change: "0002-backfill", Credential: credential},
-	}
-
-	d, err := deploy.Perform(ctx, w, p)
-	if err != nil {
-		t.Fatalf("Perform: %v", err)
-	}
-	applied := 0
-	for _, call := range fakes[0].Calls() {
-		if call.Op == targetseam.OpApplySchemaChange {
-			applied++
-			if call.Change != "0002-backfill" {
-				t.Errorf("the deploy applied %s, want the change the history lacks", call.Change)
-			}
-		}
-	}
-	if applied != 1 {
-		t.Errorf("the deploy applied %d changes, want the one the history lacks", applied)
-	}
-	read, err := deploy.Get(ctx, pool, d.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if !read.SchemaChangeCompleted || read.SchemaChange != "0002-backfill" {
-		t.Errorf("the record says %q completed %v, want the change it carried", read.SchemaChange, read.SchemaChangeCompleted)
 	}
 }
 

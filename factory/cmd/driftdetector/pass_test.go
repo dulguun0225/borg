@@ -24,6 +24,7 @@ import (
 	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/release"
@@ -237,24 +238,7 @@ func TestAnOpenWindowExcusesABuildRunningBesideTheCurrentRelease(t *testing.T) {
 	shipRelease(ctx, t, s.factory, token, svc, env, "c1")
 	rolling := startRelease(ctx, t, s.factory, token, svc, env, "c2")
 
-	if _, err := window.NewWriter(s.factory, token).Open(ctx, testActor, window.OpenEvent{
-		DeployID:               rolling.ID,
-		ReleaseID:              rolling.ReleaseID,
-		BuildID:                rolling.BuildID,
-		ServiceID:              svc.ID,
-		PassedAvailable:        true,
-		Size:                   map[gatepolicy.Quantity]float64{gatepolicy.QuantityErrorRate: 0.1},
-		Power:                  map[gatepolicy.Quantity]float64{gatepolicy.QuantityErrorRate: 0.8},
-		Confidence:             0.95,
-		CapSeconds:             3600,
-		BoundaryVersion:        boundary.Version,
-		Targets:                []string{dir},
-		EmissionVersionRelease: "emission/1",
-		PolicyVersion:          "pv_1",
-		ScoreVersion:           "sv_1",
-	}); err != nil {
-		t.Fatalf("opening the window: %v", err)
-	}
+	openWindowOver(ctx, t, s.factory, token, svc.ID, rolling, dir, 3600)
 	recordRunning(t, dir, testServiceName, rolling.BuildID)
 
 	out := &strings.Builder{}
@@ -269,5 +253,92 @@ func TestAnOpenWindowExcusesABuildRunningBesideTheCurrentRelease(t *testing.T) {
 	held, why, err := driftdetector.NewStore(s.own).Mismatch(ctx, svc.ID)
 	if err != nil || held {
 		t.Errorf("Mismatch = %v %q, %v; a build an open window accounts for is excused", held, why, err)
+	}
+}
+
+// openWindowOver opens an analysis window over one deploy with the parameters
+// every window this test opens carries, the cap being what each test varies.
+func openWindowOver(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token,
+	serviceID string, over deploy.Deploy, dir string, capSeconds float64) {
+	t.Helper()
+	if _, err := window.NewWriter(pool, token).Open(ctx, testActor, window.OpenEvent{
+		DeployID:               over.ID,
+		ReleaseID:              over.ReleaseID,
+		BuildID:                over.BuildID,
+		ServiceID:              serviceID,
+		PassedAvailable:        true,
+		Size:                   map[gatepolicy.Quantity]float64{gatepolicy.QuantityErrorRate: 0.1},
+		Power:                  map[gatepolicy.Quantity]float64{gatepolicy.QuantityErrorRate: 0.8},
+		Confidence:             0.95,
+		CapSeconds:             capSeconds,
+		BoundaryVersion:        boundary.Version,
+		Targets:                []string{dir},
+		EmissionVersionRelease: "emission/1",
+		PolicyVersion:          "pv_1",
+		ScoreVersion:           "sv_1",
+	}); err != nil {
+		t.Fatalf("opening the window: %v", err)
+	}
+}
+
+// TestAWindowOpenPastItsCapExcusesNothing is the exemption's own bound: the
+// record that suppresses the check is written by the component whose failure the
+// check exists to survive, so an exemption may not outlive the window it
+// describes.
+func TestAWindowOpenPastItsCapExcusesNothing(t *testing.T) {
+	ctx, s, token := newStores(t)
+	dir := t.TempDir()
+	env, svc, credential := setUp(ctx, t, s.factory, token, dir)
+	shipRelease(ctx, t, s.factory, token, svc, env, "c1")
+	rolling := startRelease(ctx, t, s.factory, token, svc, env, "c2")
+
+	// A cap of a thousandth of a second is past by the time the pass runs.
+	openWindowOver(ctx, t, s.factory, token, svc.ID, rolling, dir, 0.001)
+	recordRunning(t, dir, testServiceName, rolling.BuildID)
+
+	out := &strings.Builder{}
+	targetAt := func(dir string) targetseam.Target { return localtarget.New(dir) }
+	if err := pass(ctx, s, out, credential, targetAt); err != nil {
+		t.Fatalf("pass: %v", err)
+	}
+	held, _, err := driftdetector.NewStore(s.own).Mismatch(ctx, svc.ID)
+	if err != nil {
+		t.Fatalf("Mismatch: %v", err)
+	}
+	if !held {
+		t.Errorf("a window open past its cap excused a build running beside the current release:\n%s", out)
+	}
+}
+
+// TestATargetTheDeployRecordMarksCompleteIsNeverExempt is the other bound: that
+// target is meant to run the release under watch, so a build the window would
+// otherwise excuse is a mismatch there whatever window is open. It reads the
+// exemption itself rather than a pass's report, because what the recorded
+// release is per target is the reading pass.go states as an open point.
+func TestATargetTheDeployRecordMarksCompleteIsNeverExempt(t *testing.T) {
+	ctx, s, token := newStores(t)
+	dir := t.TempDir()
+	env, svc, _ := setUp(ctx, t, s.factory, token, dir)
+	shipRelease(ctx, t, s.factory, token, svc, env, "c1")
+	rolling := startRelease(ctx, t, s.factory, token, svc, env, "c2")
+	openWindowOver(ctx, t, s.factory, token, svc.ID, rolling, dir, 3600)
+
+	excused, err := excusedBuilds(ctx, s.factory, svc.ID)
+	if err != nil {
+		t.Fatalf("excusedBuilds: %v", err)
+	}
+	if !excused[dir][rolling.BuildID] {
+		t.Fatalf("a target the rollout has not reached excuses nothing, and the exemption covers exactly those")
+	}
+
+	if err := deploy.NewWriter(s.factory, token).CompleteTarget(ctx, rolling.ID, dir,
+		targetseam.ReplacementDrained); err != nil {
+		t.Fatalf("completing the target: %v", err)
+	}
+	if excused, err = excusedBuilds(ctx, s.factory, svc.ID); err != nil {
+		t.Fatalf("excusedBuilds: %v", err)
+	}
+	if excused[dir][rolling.BuildID] {
+		t.Error("a target the deploy record marks complete was exempted")
 	}
 }

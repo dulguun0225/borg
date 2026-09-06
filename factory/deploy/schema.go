@@ -24,7 +24,7 @@ const (
 // FormatVersion is written into every deploy record's format_version column,
 // and [FormatVersionMitigation] into every mitigation's.
 const (
-	FormatVersion           = "deploy/2"
+	FormatVersion           = "deploy/3"
 	FormatVersionMitigation = "mitigation/1"
 )
 
@@ -65,10 +65,15 @@ const lockName = "borg/factory/deploy/"
 //
 // The strategy is a production deploy's and no other's: a strategy decides
 // whether a control runs, and a control exists only where organic traffic does.
-// Both fields are empty together on every other deploy, which
-// strategies_together holds in both directions. The performed one is what the
-// window, Ops, and the score read, and it differs from the picked one where a
-// target declared as serving a share refused the shift.
+// Both fields are empty on every other deploy, which
+// performed_names_its_picked holds one way round; the other way round is not a
+// rule, because the performed field is empty until the deployer has performed
+// something. It is written when the shift returns, or when the row without a
+// control has replaced the instances of the first target, and never at the
+// start: a deployer that stopped between the record's write and the shift would
+// otherwise leave a record naming a control that never ran. The performed one is
+// what the window, Ops, and the score read, and it differs from the picked one
+// where a target declared as serving a share refused the shift.
 //
 // status is started, complete, or failed. Failed is where the deployer stopped
 // the deploy before any target was complete, and the step that stopped it is on
@@ -94,11 +99,22 @@ const lockName = "borg/factory/deploy/"
 // the ones the hold was holding, whose code is in its build. Without it Ops
 // reads those releases as merged and never deployed while their code is live.
 //
-// schema_change is the change this deploy's build carries, applied to the
-// service's store before the build takes traffic, and schema_change_completed
-// is whether it completed. Which changes a store carries is read from the
+// schema_changes are the changes this deploy's build carries, one per line,
+// applied to the service's store before the build takes traffic, and
+// schema_changes_completed is whether they completed. A revert's deploy is the
+// one deploy that can carry more than one: it delivers releases that never
+// deployed on their own, and it applies each of their changes that no deploy
+// applied, in release order. Which changes a store carries is read from the
 // store's own schema history and never from here; what this says is what this
-// deploy did.
+// deploy did — including a deploy that applied none because the history already
+// held every one of them, which is completed and not a change that failed.
+//
+// backfill_contract, backfill_element and backfill_from_element are what a
+// backfill item's release copies between, all three together or none of them.
+// The record marks the backfill complete by being marked complete, the deployer
+// completing it only once every row the old form holds is present in the new,
+// and enforcement rejects the item that moves reads to that element and the drop
+// after it until one does.
 //
 // snapshot_name and snapshot_digest are the copy taken and verified before a
 // change that destroys stored data, and snapshot_deleted_at is written when the
@@ -117,8 +133,13 @@ const lockName = "borg/factory/deploy/"
 // column yet.
 //
 // control_target is the target the control runs on under a strategy with one,
-// and is empty on every deploy without one. How many instances the control
-// keeps is the kept-instance count on that target's row.
+// and control_release_id is the release it runs — the newest release below this
+// one whose window closed without failing it, which is the release a rollback of
+// this deploy would return to. A control is defined by which release it runs, so
+// the two are empty together, which control_names_its_release holds. How many
+// instances the control runs is control_instances on that target's row, which is
+// not the kept-instance count: a control is sized for the release's share, and
+// the kept fleet is sized for all of production.
 //
 // # Completion per target
 //
@@ -130,9 +151,12 @@ const lockName = "borg/factory/deploy/"
 // the position that is the environment's order, and holds one of not reached,
 // complete, or rolled back.
 //
-// kept_instances is how many instances of the release a rollback of this one
-// would return to the deployer is keeping on that target, written when the
-// deploy starts. Without it those kept instances are an assertion and the drift
+// release_instances, control_instances and kept_instances are the three sets of
+// instances a production deploy runs on that target, each written when the
+// deploy starts, which is when the window opens over it: the release's own, the
+// control's, and the instances of the release a rollback of this one would
+// return to — the capacity that release had, times the fraction its owner
+// authored. Without the last those kept instances are an assertion and the drift
 // detector has nothing to read what runs against.
 //
 // reached_at is written before the deployer calls that target and complete_at
@@ -141,12 +165,19 @@ const lockName = "borg/factory/deploy/"
 // the seam reported: a drain, or a cut where the platform could not hold a
 // request open across the replacement.
 //
-// replaced_at, instance_hours, amount and rate are the kept fleet's span
-// carried into a duration: from the target's completion to the teardown, the
-// hours those kept instances ran, and the amount they converted to at the rate
-// in force at the write, fixed there and never repriced. The amount and the
+// release_torn_down_at, control_torn_down_at and kept_torn_down_at are the three
+// fleets' spans carried into a duration, each ending where that fleet did: the
+// release's own when the release replacing it completed here, the control's and
+// the kept fleet's when the last window that could return to that release
+// closed. Each span starts when the deploy started and the window opened over
+// it, which is the record's own timestamp. release_instance_hours,
+// control_instance_hours and kept_instance_hours are the hours each fleet ran,
+// and instance_hours is the three added up, which is what instance-hours per
+// release sums. amount is each span converted at the rate in force when that
+// span was written, added together and never repriced by a rate corrected later,
+// and rate is the rate in force at the last of those writes. The amount and the
 // rate are null together where the service record carried no instance-hour
-// rate.
+// rate, which is not an amount of zero.
 //
 // # The mitigation
 //
@@ -170,14 +201,18 @@ var DDL = []string{
 	strategy_performed text not null default '',
 	status text not null,
 	failed_step text not null default '',
-	schema_change text not null default '',
-	schema_change_completed boolean not null default false,
+	schema_changes text not null default '',
+	schema_changes_completed boolean not null default false,
 	snapshot_name text not null default '',
 	snapshot_digest text not null default '',
 	snapshot_deleted_at text not null default '',
 	configuration_digest text not null default '',
 	way_in_token_digest text not null default '',
 	control_target text not null default '',
+	control_release_id text not null default '',
+	backfill_contract text not null default '',
+	backfill_element text not null default '',
+	backfill_from_element text not null default '',
 	failed_release_id text not null default '',
 	skipped_release_ids text not null default '',
 	source text not null default '',
@@ -191,10 +226,15 @@ var DDL = []string{
 		strategy_picked in ('', 'without_control', 'with_control')
 		and strategy_performed in ('', 'without_control', 'with_control')
 	),
-	constraint strategies_together check ((strategy_picked = '') = (strategy_performed = '')),
+	constraint performed_names_its_picked check (strategy_performed = '' or strategy_picked <> ''),
 	constraint status_known check (status in ('started', 'complete', 'failed')),
 	constraint failed_names_its_step check ((status = 'failed') = (failed_step <> '')),
-	constraint schema_change_completed_names_one check (schema_change <> '' or not schema_change_completed),
+	constraint schema_changes_completed_names_one check (schema_changes <> '' or not schema_changes_completed),
+	constraint control_names_its_release check ((control_target = '') = (control_release_id = '')),
+	constraint backfill_names_all_three check (
+		(backfill_contract = '' and backfill_element = '' and backfill_from_element = '')
+		or (backfill_contract <> '' and backfill_element <> '' and backfill_from_element <> '')
+	),
 	constraint snapshot_names_its_digest check ((snapshot_name = '') = (snapshot_digest = '')),
 	constraint snapshot_deleted_names_one check (snapshot_deleted_at = '' or snapshot_name <> ''),
 	constraint snapshot_deleted_at_is_time_layout check (
@@ -208,11 +248,18 @@ var DDL = []string{
 	position int not null,
 	address text not null,
 	completion text not null,
+	release_instances int not null default 0,
+	control_instances int not null default 0,
 	kept_instances int not null default 0,
 	replacement text not null default '',
 	reached_at text not null default '',
 	complete_at text not null default '',
-	replaced_at text not null default '',
+	release_torn_down_at text not null default '',
+	control_torn_down_at text not null default '',
+	kept_torn_down_at text not null default '',
+	release_instance_hours double precision not null default 0,
+	control_instance_hours double precision not null default 0,
+	kept_instance_hours double precision not null default 0,
 	instance_hours double precision not null default 0,
 	amount double precision,
 	rate double precision,
@@ -220,11 +267,18 @@ var DDL = []string{
 	constraint address_present check (address <> ''),
 	constraint position_not_negative check (position >= 0),
 	constraint completion_known check (completion in ('not_reached', 'complete', 'rolled_back')),
-	constraint kept_instances_not_negative check (kept_instances >= 0),
+	constraint instances_not_negative check (
+		release_instances >= 0 and control_instances >= 0 and kept_instances >= 0),
+	constraint torn_down_at_is_time_layout check (
+		(release_torn_down_at = '' or release_torn_down_at ~ '` + record.TimePattern + `')
+		and (control_torn_down_at = '' or control_torn_down_at ~ '` + record.TimePattern + `')
+		and (kept_torn_down_at = '' or kept_torn_down_at ~ '` + record.TimePattern + `')),
 	constraint replacement_known check (replacement in ('', 'drained', 'cut')),
 	constraint complete_names_its_replacement check (completion <> 'complete' or replacement <> ''),
 	constraint amount_names_its_rate check ((amount is null) = (rate is null)),
-	constraint instance_hours_not_negative check (instance_hours >= 0)
+	constraint instance_hours_not_negative check (
+		release_instance_hours >= 0 and control_instance_hours >= 0
+		and kept_instance_hours >= 0 and instance_hours >= 0)
 )`,
 
 	`create table if not exists ` + MitigationTable + ` (

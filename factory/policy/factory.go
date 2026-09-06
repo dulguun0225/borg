@@ -110,6 +110,12 @@ type write struct {
 	// two keys: the People declaration is the one, and its key is a digest of
 	// what the version will name.
 	keyExtra string
+
+	// confirmsScoreVersion is the score version a threshold write confirms or
+	// re-authors against, and is empty on every other write. It is part of the
+	// key: confirming the same version twice writes nothing, and confirming the
+	// one appended since is a write of its own.
+	confirmsScoreVersion string
 }
 
 // append is every owner write: read the version in force, derive the write's
@@ -129,7 +135,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 	}
 
 	key := writeKey(w.caller, w.actor, w.action, w.parameter, w.scope, w.number, w.list,
-		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold)
+		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold+w.confirmsScoreVersion)
 	if w.mint == nil && previous.Key != "" && previous.Key == key {
 		return previous, nil
 	}
@@ -168,6 +174,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		Authored: slices.Clone(previous.Authored), Safeguards: slices.Clone(previous.Safeguards),
 		Halts: slices.Clone(previous.Halts), LegalHolds: slices.Clone(previous.LegalHolds),
 		Declaration: declaration, AutoPassRates: w.rates,
+		ConfirmsScoreVersion: w.confirmsScoreVersion,
 	}
 	if w.mint != nil {
 		created, err := w.mint(ctx, tx)
@@ -232,6 +239,22 @@ func (f *Factory) author(ctx context.Context, actor record.Actor, parameter gate
 // and the field it authored.
 func (f *Factory) newest(ctx context.Context, actor record.Actor) (Version, error) {
 	return NewReader(f.pool, f.token, score.Version{}).Newest(ctx, actor)
+}
+
+// scoreVersionInForce is the newest score version, which is what an owner
+// authoring or confirming a threshold authors against: what they compare a
+// number to is what the published formula returns now, so the write names the
+// version that returns it. A factory with no score version yet names none, and
+// nothing at a gate then waits on a confirmation.
+func (f *Factory) scoreVersionInForce(ctx context.Context) (string, error) {
+	version, found, err := score.Newest(ctx, f.pool, f.token)
+	if err != nil {
+		return "", fmt.Errorf("policy: reading the score version in force: %w", err)
+	}
+	if !found {
+		return "", nil
+	}
+	return version.ID, nil
 }
 
 func ownerOnly(actor record.Actor) error {

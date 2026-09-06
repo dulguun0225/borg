@@ -57,3 +57,48 @@ func ControllingHazard(ctx context.Context, pool *pgxpool.Pool, serviceID string
 			notWithdrawn+` order by at`,
 		serviceID, itemIDs, areaID)
 }
+
+// HazardUncontrolledError is the Spec gate's mechanical rejection: a build in
+// an area graded irreversible with no criterion in force bounding that area's
+// hazardous operation. The gate rejects on it whatever the score returns, and
+// it names the area so the rejection says which grade it was read against.
+type HazardUncontrolledError struct {
+	AreaID string
+}
+
+func (e *HazardUncontrolledError) Error() string {
+	return "criterion: no criterion in force bounds the hazardous operation of " + e.AreaID +
+		", which is graded irreversible"
+}
+
+// CheckHazardControlled is that rejection, made from [ControllingHazard]: for a
+// build in an area graded irreversible, it is a [*HazardUncontrolledError]
+// where no criterion in force for the build names the area, and nil where one
+// does.
+//
+// irreversible is the grade in force for the item's area, which is the highest
+// named anywhere on its chain up to the project — package area walks the chain
+// and this package does not import it, so the caller reads the grade and
+// passes what it read. A build in an area of any other grade is nil here and
+// not a rejection: the derivation and the rejection are the irreversible
+// grade's alone.
+//
+// Its caller is the gate component at the Spec row, and it is not built.
+func CheckHazardControlled(ctx context.Context, pool *pgxpool.Pool,
+	serviceID string, itemIDs []string, areaID string, irreversible bool,
+) error {
+	if !irreversible {
+		return nil
+	}
+	if areaID == "" {
+		return ErrAreaIDEmpty
+	}
+	controlling, err := ControllingHazard(ctx, pool, serviceID, itemIDs, areaID)
+	if err != nil {
+		return err
+	}
+	if len(controlling) == 0 {
+		return &HazardUncontrolledError{AreaID: areaID}
+	}
+	return nil
+}

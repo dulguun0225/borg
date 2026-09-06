@@ -84,6 +84,7 @@
 // the queue opens and closes;
 // ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md for the
 // attempt being counted at what the item is sent to; and
-// ../../end-goal/one-process.md for the restart, which is this queue reading
-// master and writing the release record its own unfinished merge left owing.
+// ../../end-goal/one-process.md for the restart, which is [Queue.Restart]:
+// this queue reading master and writing the release record its own unfinished
+// merge left owing.
 package mergequeue

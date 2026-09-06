@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -36,6 +37,14 @@ const (
 // abandoned, and the wait goes to the notifier before it is returned.
 var ErrAttemptLimit = errors.New("gate: the item exceeded the attempt limit for this stage")
 
+// abandonmentPayload is what the abandonment row says: why no verdict is
+// coming, in the words the caller gave. It is marshalled rather than written as
+// text, because the reason is an arbitrary string and a chained row cannot be
+// corrected afterwards.
+type abandonmentPayload struct {
+	Abandoned string `json:"abandoned"`
+}
+
 // Abandon ends a pending decision that will never receive a verdict, naming why.
 // The actor is the gate component, which is the component that ended the
 // decision.
@@ -49,9 +58,13 @@ func (g *Gate) abandon(ctx context.Context, opened Opened, actor record.Actor, w
 		return decisionlog.Row{}, fmt.Errorf("%w: the abandonment of %s says none",
 			ErrReasonMissing, opened.Row.ID)
 	}
+	payload, err := json.Marshal(abandonmentPayload{Abandoned: why})
+	if err != nil {
+		return decisionlog.Row{}, fmt.Errorf("gate: marshalling the abandonment of %s: %w", opened.Row.ID, err)
+	}
 	return g.log.AppendDecisionAbandonment(ctx, decisionlog.Entry{
 		Actor:         actor,
-		Payload:       `{"abandoned":"` + why + `"}`,
+		Payload:       string(payload),
 		FormatVersion: decisionFormatVersion,
 		Closes:        opened.Row.ID,
 		Reason:        why,

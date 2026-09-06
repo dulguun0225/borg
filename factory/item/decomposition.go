@@ -59,9 +59,10 @@ type New struct {
 	// not something discovered at deploy time.
 	WaitsOn []string
 	// RequirementsAnswered is the ids of the intent's requirements this item
-	// answers. It is empty on an item whose intent has no requirement record
-	// yet — package intent does not write one, which this package's doc.go
-	// names as the caller that is not built.
+	// answers — rows of package intent's requirement table, written by intake
+	// at the confirming round and at decomposition's own split. It is empty on
+	// an item that answers none, and the ids are checked for being present and
+	// never for pointing at anything.
 	RequirementsAnswered []string
 }
 

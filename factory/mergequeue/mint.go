@@ -34,12 +34,12 @@ const SkippedNumbersKind = "merge_queue_skipped_numbers"
 // skippedFormatVersion is the format version that row is appended with. It names
 // decisionlog.ShapeInstallEvent through decisionlog.Formats.
 //
-// This is a departure and it is stated here: the log holds ten shapes and none of
-// them is a skipped-number row. The design puts the gap beside the install event
-// — the row that says there was a restore — rather than as a puzzle on Ops, so
-// the queue writes it under that shape with itself as actor and the payload's
-// kind saying what it is, which is the arrangement [RejectionKind] already has
-// inside its own shape.
+// The log holds ten shapes and the design names no eleventh for a skipped-number
+// row: it puts the gap beside the install event — the row that says there was a
+// restore — rather than as a puzzle on Ops. So the queue writes it under that
+// shape with itself as actor and the payload's kind saying what it is, which is
+// the arrangement [RejectionKind] already has inside its own shape, and
+// decisionlog.ShapeInstallEvent says the same of the two rows it carries.
 const skippedFormatVersion = "install_event/1"
 
 // SkippedNumbersPayload is what that row says: the two readings the mint was

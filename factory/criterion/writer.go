@@ -37,6 +37,10 @@ var (
 	// ErrCriterionIDEmpty is returned by [Withdraw] and by the result writers
 	// for a row naming no criterion.
 	ErrCriterionIDEmpty = errors.New("criterion: the criterion id is empty")
+	// ErrAreaIDEmpty is returned by [CheckHazardControlled] for a build read
+	// as irreversible and naming no area. A grade is declared on an area, so a
+	// grade with no area is the caller's defect and not a rejection.
+	ErrAreaIDEmpty = errors.New("criterion: the area id is empty")
 )
 
 // Of is what a criterion belongs to: the service it is a promise of, the spec

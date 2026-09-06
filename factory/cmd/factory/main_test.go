@@ -39,8 +39,12 @@ func TestOneChangeShips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the intent: %v", err)
 	}
-	if in.Rounds != 1 {
-		t.Errorf("intent rounds = %d, one round was asked", in.Rounds)
+	// Two rounds: the one the spec author asked its question in, and the one it
+	// authored the spec in on the answer. A round is one call of the role, and
+	// the interview counts its rounds against the same attempt limit a stage
+	// does — so a round that produced nothing usable is one the limit sees.
+	if in.Rounds != 2 {
+		t.Errorf("intent rounds = %d, the question and the answer are two", in.Rounds)
 	}
 	if in.State != intent.StateRefined {
 		t.Errorf("intent state = %s, the interview marked it refined", in.State)
@@ -85,10 +89,12 @@ func TestOneChangeShips(t *testing.T) {
 	// intent, upstream of the item's first stage; the implementer's is the
 	// item's own.
 	if spendOnIntent(t, ctx, d, c.intentID) <= 0 {
-		t.Error("the intent's interview spent no tokens, and the spec author was called there")
+		t.Error("the intent's interview spent no units, and the spec author was called there")
 	}
-	if spendOn(t, ctx, d, c.itemID, item.StageImplementation) <= 0 {
-		t.Error("stage implementation spent no tokens, and the model was called there")
+	for _, stage := range []item.Stage{item.StageImplementationPlan, item.StageTasks, item.StageImplementation} {
+		if spendOn(t, ctx, d, c.itemID, stage) <= 0 {
+			t.Errorf("stage %s spent no units, and a role was dispatched to it", stage)
+		}
 	}
 	for _, stage := range []item.Stage{item.StageSpec, item.StageImplementationPlan, item.StageTasks, item.StageImplementation} {
 		if !reported[stage] {
@@ -158,35 +164,39 @@ func TestOneChangeShips(t *testing.T) {
 		t.Errorf("the walk does not report the chain clean:\n%s", walked.String())
 	}
 
-	// The log: three decisions, six rows — the candidate deploy row, the merge
-	// row, and the production deploy row, each opened by its gate component.
-	// Reading the log itself appends read events, filtered out here: they are
-	// not decisions.
+	// The log: seven decisions, fourteen rows — the four rows of the item's own
+	// artifacts, the candidate deploy row, the merge row and the production
+	// deploy row, each opened by its gate component and closed after it. That
+	// is every row of the default path but Decomposition, which fires where
+	// decomposition yielded more than one item. Reading the log itself appends
+	// read events, filtered out here: they are not decisions.
 	rows := decisionRows(readLog(t, ctx, d))
-	if len(rows) != 6 {
-		t.Fatalf("the log holds %d decision rows, three decisions are six:\n%s", len(rows), out)
+	wantRows := []string{
+		"gate.spec",
+		"gate.implementation_plan",
+		"gate.tasks",
+		"gate.implementation",
+		"gate.deploy_to_candidate_environment",
+		"gate.merge_to_master",
+		"gate.deploy_to_production",
 	}
-	for n, want := range []struct {
-		part  decisionlog.Part
-		actor string
-	}{
-		{decisionlog.PartOpen, "gate.deploy_to_candidate_environment"},
-		{decisionlog.PartClose, ""},
-		{decisionlog.PartOpen, "gate.merge_to_master"},
-		{decisionlog.PartClose, ""},
-		{decisionlog.PartOpen, "gate.deploy_to_production"},
-		{decisionlog.PartClose, ""},
-	} {
-		row := rows[n]
-		if row.Shape != decisionlog.ShapeDecision || row.Part != want.part {
-			t.Errorf("row %d is shape %s part %s, want a %s decision row", n+1, row.Shape, row.Part, want.part)
-		}
-		if want.actor != "" && row.Actor.Key != want.actor {
-			t.Errorf("row %d's actor is %q, want %q", n+1, row.Actor.Key, want.actor)
-		}
+	if len(rows) != 2*len(wantRows) {
+		t.Fatalf("the log holds %d decision rows, seven decisions are fourteen:\n%s", len(rows), out)
 	}
-	if rows[1].Closes != rows[0].ID || rows[3].Closes != rows[2].ID || rows[5].Closes != rows[4].ID {
-		t.Error("a close event does not close the open event before it")
+	for n, actor := range wantRows {
+		open, closed := rows[2*n], rows[2*n+1]
+		if open.Shape != decisionlog.ShapeDecision || open.Part != decisionlog.PartOpen {
+			t.Errorf("row %d is shape %s part %s, want a decision's opening", 2*n+1, open.Shape, open.Part)
+		}
+		if open.Actor.Key != actor {
+			t.Errorf("row %d's actor is %q, want %q", 2*n+1, open.Actor.Key, actor)
+		}
+		if closed.Part != decisionlog.PartClose {
+			t.Errorf("row %d is part %s, want the closing of %s", 2*n+2, closed.Part, actor)
+		}
+		if closed.Closes != open.ID {
+			t.Errorf("the closing of %s does not close the opening before it", actor)
+		}
 	}
 
 	// Every decision names the policy version and the score version it was
@@ -215,12 +225,21 @@ func TestOneChangeShips(t *testing.T) {
 		t.Errorf("the policy version a decision names does not read back: %v", err)
 	}
 
-	// The merge row's opening names the implementation version under decision and
-	// the whole vector; neither deploy row's names an artifact, there being none
-	// under decision at a deploy.
+	// The four artifact rows each name the version they decided over: a spec, a
+	// plan, a tasks version and an implementation, in that order and each on the
+	// item's own chain.
+	for n, artifactID := range []string{c.specArtifactID, c.planArtifactID, c.tasksArtifactID, c.implArtifactID} {
+		payload := openingPayload(t, rows[2*n])
+		if payload.ArtifactID != artifactID {
+			t.Errorf("the opening of %s names artifact %q, want %q", wantRows[n], payload.ArtifactID, artifactID)
+		}
+	}
+
 	// The merge row is an event gate: what it decides is whether a merge happens
 	// at all, so it names the build it decides over and no artifact version.
-	mergeOpening := openingPayload(t, rows[2])
+	// Neither deploy row's opening names an artifact either, there being none
+	// under decision at a deploy.
+	mergeOpening := openingPayload(t, rows[10])
 	if mergeOpening.ArtifactID != "" {
 		t.Errorf("the merge opening names artifact %s, and no document is under decision at an event gate",
 			mergeOpening.ArtifactID)
@@ -243,14 +262,14 @@ func TestOneChangeShips(t *testing.T) {
 	if len(mergeOpening.Criteria) != 1 || mergeOpening.Criteria[0].Outcome != criterion.OutcomePassed {
 		t.Errorf("the merge opening carries criteria %+v, want the one criterion passed", mergeOpening.Criteria)
 	}
-	for _, deployRow := range []decisionlog.Row{rows[0], rows[4]} {
+	for _, deployRow := range []decisionlog.Row{rows[8], rows[12]} {
 		if payload := openingPayload(t, deployRow); payload.ArtifactID != "" {
 			t.Errorf("a deploy opening names artifact %q, and nothing is under decision at a deploy", payload.ArtifactID)
 		}
 	}
 	// The candidate deploy row's opening carries no outcome: the run that decides
 	// the criteria is what that deploy is for.
-	if payload := openingPayload(t, rows[0]); len(payload.Criteria) != 0 {
+	if payload := openingPayload(t, rows[8]); len(payload.Criteria) != 0 {
 		t.Errorf("the candidate deploy opening carries criteria %+v, and none is decided yet", payload.Criteria)
 	}
 

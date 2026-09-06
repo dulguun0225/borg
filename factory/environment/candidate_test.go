@@ -261,3 +261,60 @@ func TestTheCeilingIsCountedPerProject(t *testing.T) {
 		t.Errorf("counting against a candidate's environment = %v, want ErrNotAProductionEnvironment", err)
 	}
 }
+
+// TestTheTornDownCandidatesAreWhatAFailedTeardownIsFoundAgainst: a candidate
+// environment the platform holds and the records mark torn down is a teardown
+// that failed. What the deployer's pass compares against what the platform
+// reports holding is this read, scoped to the production record the room is
+// declared on.
+func TestTheTornDownCandidatesAreWhatAFailedTeardownIsFoundAgainst(t *testing.T) {
+	ctx, pool, w, token := newTable(t)
+	candidates := environment.NewCandidates(pool, token)
+
+	production, err := w.Create(ctx, owner, productionSpec())
+	if err != nil {
+		t.Fatalf("creating production: %v", err)
+	}
+	standing, err := candidates.Compose(ctx, deployer, "it_a", theProject,
+		oneTarget("/srv/a"), credential, environment.Composition{})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	torn, err := candidates.Compose(ctx, deployer, "it_b", theProject,
+		oneTarget("/srv/b"), credential, environment.Composition{})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+
+	if none, err := environment.TornDownCandidates(ctx, pool, production.ID); err != nil || len(none) != 0 {
+		t.Fatalf("TornDownCandidates before any teardown = %+v, %v", none, err)
+	}
+	if err := candidates.TearDown(ctx, deployer, torn.ID, environment.ReasonMerged, environment.Rate{}); err != nil {
+		t.Fatalf("TearDown: %v", err)
+	}
+
+	down, err := environment.TornDownCandidates(ctx, pool, production.ID)
+	if err != nil {
+		t.Fatalf("TornDownCandidates: %v", err)
+	}
+	if len(down) != 1 || down[0].ID != torn.ID {
+		t.Fatalf("TornDownCandidates = %+v, want the one torn down", down)
+	}
+	if down[0].Live() {
+		t.Error("a torn-down environment reads as live")
+	}
+	// A reclamation is not a teardown for good: the row still stands, and the
+	// environment is composed again when the item next reaches the gate.
+	if err := candidates.TearDown(ctx, deployer, standing.ID, environment.ReasonReclaimed, environment.Rate{}); err != nil {
+		t.Fatalf("TearDown reclaiming: %v", err)
+	}
+	if down, err = environment.TornDownCandidates(ctx, pool, production.ID); err != nil || len(down) != 1 {
+		t.Errorf("TornDownCandidates after a reclamation = %+v, %v, want the one torn down for good", down, err)
+	}
+
+	// The read is keyed by a production record and by no other, the way the
+	// count of what stands is.
+	if _, err := environment.TornDownCandidates(ctx, pool, standing.ID); !errors.Is(err, environment.ErrNotAProductionEnvironment) {
+		t.Errorf("reading against a candidate's environment = %v, want ErrNotAProductionEnvironment", err)
+	}
+}

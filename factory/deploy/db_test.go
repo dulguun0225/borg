@@ -118,8 +118,8 @@ const productionID = "env_000000000000000000000000000000a"
 // twoTargets is an environment with two targets, in the order a rollout reaches
 // them.
 var twoTargets = []deploy.Reaching{
-	{Address: "/srv/one", KeptInstances: 2},
-	{Address: "/srv/two", KeptInstances: 2},
+	{Address: "/srv/one", ReleaseInstances: 4, ControlInstances: 1, KeptInstances: 2},
+	{Address: "/srv/two", ReleaseInstances: 4, KeptInstances: 2},
 }
 
 func addressesOf(targets []deploy.Reaching) []string {
@@ -223,6 +223,7 @@ func TestCompletionIsPerTarget(t *testing.T) {
 		ServiceID: serviceID, EnvironmentID: productionID,
 		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
 		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
+		ControlTarget: "/srv/one", ControlReleaseID: "rel_below",
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -242,8 +243,8 @@ func TestCompletionIsPerTarget(t *testing.T) {
 		if target.Position != n || target.Address != twoTargets[n].Address {
 			t.Errorf("target %d is %s at position %d, want the environment's order", n, target.Address, target.Position)
 		}
-		if target.KeptInstances != 2 {
-			t.Errorf("target %s keeps %d instances, want the count written at the start", target.Address, target.KeptInstances)
+		if target.Fleets.Kept.Instances != 2 || target.Fleets.Release.Instances != 4 {
+			t.Errorf("target %s runs %+v, want the three counts written at the start", target.Address, target.Fleets)
 		}
 	}
 
@@ -299,8 +300,9 @@ func TestTheStoreRefusesWhatTheWriterDoes(t *testing.T) {
 		"a step with no failure": {
 			buildID: "bl_a", status: "started", step: "somewhere", want: "failed_names_its_step",
 		},
-		"one strategy and not the other": {
-			buildID: "bl_a", status: "started", picked: "with_control", want: "strategies_together",
+		"a strategy performed under none picked": {
+			buildID: "bl_a", status: "started", performed: "with_control",
+			want: "performed_names_its_picked",
 		},
 		"a snapshot with no digest": {
 			buildID: "bl_a", status: "started", snapshotName: "before-the-drop", want: "snapshot_names_its_digest",

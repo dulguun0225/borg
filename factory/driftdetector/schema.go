@@ -42,14 +42,20 @@ const (
 	FormatVersionAddress   = "drift_own_address/1"
 )
 
-// MismatchKindTarget and MismatchKindChain are the two shapes a mismatch
-// takes. A target mismatch names the service and the target that
-// disagreed; a chain mismatch names neither — service_id and target are
-// both empty — because the log reaches every decision and so holds every
-// service's production deploys at once.
+// MismatchKindTarget, MismatchKindChain and MismatchKindStaleComponent are the
+// three shapes a mismatch takes, and each one holds what the record it impeaches
+// reaches. A target mismatch names the service and the target that disagreed. A
+// chain mismatch names neither — service_id and target are both empty — because
+// the log reaches every decision and so holds every service's production deploys
+// at once. A stale-component mismatch names the component whose last check is
+// past the interval it promised, and the service it holds: the health monitor's
+// record is per service and holds that service's production deploys, and the
+// deployer's is per target of an environment and holds that environment's, which
+// is one row per service in it naming the target as well.
 const (
-	MismatchKindTarget = "target"
-	MismatchKindChain  = "chain"
+	MismatchKindTarget         = "target"
+	MismatchKindChain          = "chain"
+	MismatchKindStaleComponent = "stale_component"
 )
 
 // DefaultURL is the drift detector's own store as the demonstration runs it: the
@@ -126,22 +132,25 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 // this one: the interval this pass runs on, and whether the writer still
 // owes a further pass over this target.
 //
-// mismatch_kind_known and the two shapes below it are
-// [MismatchKindTarget] and [MismatchKindChain]: an ordinary mismatch names
-// the service and the target that disagreed, and the chain mismatch —
-// raised when the second comparison finds the log's chain no longer holds
-// the head this store recorded — names neither, because it holds every
-// service's production deploys at once. service_id_matches_kind and
-// target_matches_kind are the CHECK that enforces the split. detail is the
-// chain mismatch's own words — an ordinary mismatch's [Mismatch.Why]
-// composes its sentence from the other fields, and a chain mismatch has
-// none of those to compose from.
+// mismatch_kind_known and the three shapes below it are [MismatchKindTarget],
+// [MismatchKindChain] and [MismatchKindStaleComponent]: an ordinary mismatch
+// names the service and the target that disagreed; the chain mismatch — raised
+// when the second comparison finds the log's chain no longer holds the head this
+// store recorded — names neither, because it holds every service's production
+// deploys at once; and a stale-component mismatch names the component that
+// stopped, the service its stopping holds, and the target where the record that
+// stopped is per target. service_id_matches_kind, target_matches_kind and
+// component_matches_kind are the CHECK that enforces the split. detail is the
+// words of the two kinds that have no fields to compose a sentence from — an
+// ordinary mismatch's [Mismatch.Why] composes its own — which
+// detail_matches_kind enforces in both directions.
 var DDL = []string{
 	`create table if not exists ` + MismatchTable + ` (
 	` + record.Columns + `,
 	kind text not null,
 	service_id text not null,
 	target text not null,
+	component text not null default '',
 	running_build text not null,
 	recorded_release_id text not null,
 	recorded_build_id text not null,
@@ -150,9 +159,15 @@ var DDL = []string{
 	cleared_at text not null,
 	cleared_by text not null,
 	` + record.Constraints + `,
-	constraint mismatch_kind_known check (kind in ('` + MismatchKindTarget + `', '` + MismatchKindChain + `')),
-	constraint service_id_matches_kind check ((kind = '` + MismatchKindTarget + `') = (service_id <> '')),
-	constraint target_matches_kind check ((kind = '` + MismatchKindTarget + `') = (target <> '')),
+	constraint mismatch_kind_known check (kind in ('` + MismatchKindTarget + `', '` + MismatchKindChain + `',
+		'` + MismatchKindStaleComponent + `')),
+	constraint service_id_matches_kind check ((kind <> '` + MismatchKindChain + `') = (service_id <> '')),
+	constraint target_matches_kind check (
+		(kind = '` + MismatchKindTarget + `' and target <> '')
+		or (kind = '` + MismatchKindChain + `' and target = '')
+		or kind = '` + MismatchKindStaleComponent + `'),
+	constraint component_matches_kind check ((kind = '` + MismatchKindStaleComponent + `') = (component <> '')),
+	constraint detail_matches_kind check ((kind = '` + MismatchKindTarget + `') = (detail = '')),
 	constraint later_agreements_not_negative check (later_agreements >= 0),
 	constraint cleared_together check ((cleared_at <> '') = (cleared_by <> '')),
 	constraint cleared_at_is_time_layout check (cleared_at = '' or cleared_at ~ '` + record.TimePattern + `')

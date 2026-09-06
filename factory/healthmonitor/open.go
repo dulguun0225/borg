@@ -148,15 +148,16 @@ func (h *HealthMonitor) opening(ctx context.Context, w Watching, svc service.Ser
 	o.OperationsReadAlone = operationsReadAlone(previous, o)
 	o.PassedAvailable = hasTarget && passedReachable(previous, o)
 
-	// The explicit threshold's number is the service's objective read the other
-	// way round — the share of the work it may fail — and the size an owner
-	// authors beside that number is not a field of the service record yet, so the
-	// threshold is read at the size in force for the same quantity. doc.go says
-	// which caller is not built.
-	if svc.Objective.Authored() && o.Size[gatepolicy.QuantityErrorRate] > 0 {
-		o.ThresholdSize = map[gatepolicy.Quantity]float64{
-			gatepolicy.QuantityErrorRate: o.Size[gatepolicy.QuantityErrorRate],
+	// The explicit threshold is what a safeguard set on the service record: an
+	// absolute number per quantity and the size the owner set beside it. The
+	// window copies the size and the run length it is read at, as it copies the
+	// comparison's; the number itself stays on the record the safeguard wrote,
+	// which is where a reader argues with it.
+	for quantity, threshold := range svc.ExplicitThreshold {
+		if o.ThresholdSize == nil {
+			o.ThresholdSize = map[gatepolicy.Quantity]float64{}
 		}
+		o.ThresholdSize[quantity] = threshold.Size
 		o.ThresholdRunLength = h.readings.ThresholdRunLength
 	}
 

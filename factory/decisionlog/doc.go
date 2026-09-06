@@ -76,23 +76,44 @@
 // serving both keeps the schema at one reason field rather than two that
 // would only ever hold one value between them. [Entry.Reason] carries either.
 //
-// The log's writer refuses five closes. Three are checked here:
-// [Writer.AppendDecisionClose] refuses a reject or a hold with no reason,
-// refuses a closing on a row that is not a decision opening
-// ([ErrNotAnOpening]), and refuses a second ending on one opening
-// ([ErrAlreadyEnded]) — checked inside the transaction under the advisory
-// lock, beside the unique indexes that refuse the same thing where a row
-// reaches the store around this writer. The other two — a refer with nobody
-// left to refer to, and a closing whose actor authored the artifact version
-// its opening names where another holder exists — depend on the People
-// declaration and the artifact store, neither of which this package may
-// import. [Writer.RefuseClose] is where the gate component supplies them: a
-// function called inside the same transaction, after this package's own
-// checks and before the insert, that may refuse the close for a reason of its
-// own. A nil value refuses nothing extra.
+// The log's writer refuses five closes, and three of the five are checked
+// here. [Writer.AppendDecisionClose] refuses a reject or a hold with no
+// reason; it refuses a second close on one opening and a close on an opening
+// an abandonment has ended, which are the design's second and third and are
+// one check here, [ErrAlreadyEnded] over both endings — inside the
+// transaction under the advisory lock, beside the unique indexes that refuse
+// the same thing where a row reaches the store around this writer.
+// [ErrNotAnOpening] stands beside the five and is none of them: it refuses a
+// closing naming a row that is not a decision's opening at all.
+//
+// The other two of the five — a refer with nobody left to refer to, and a
+// closing whose actor wrote the artifact version its opening names where
+// another holder of the row's duty exists — depend on the People declaration
+// and the artifact store, neither of which this package may import.
+// [Writer.RefuseClose] is where the gate component supplies them: a function
+// called inside the same transaction, after this package's own checks and
+// before the insert, that may refuse the close for a reason of its own. A nil
+// value refuses nothing extra.
+//
+// An acknowledgement takes the same [ErrAlreadyEnded] check, for a reason of
+// its own rather than as a sixth refused close: it sits between the opening
+// and the row that ends it, so one appended after a close or an abandonment
+// would report a shared duty's time on a decision nobody was deciding.
 //
 // [Writer.Truncate] appends a [Cut] as a truncation row and then deletes every
 // row with a lower sequence, in one transaction under the lock and the fence.
+// It takes the legal holds standing beside the cut and refuses the truncation
+// where any of them does ([ErrLegalHoldStands]): a truncation is refused
+// wherever a legal hold reaches, and the caller reads them because the package
+// owning that record may not be imported here.
+// Which caller is not built: nothing enforces the retention value on a pass of
+// its own. [Writer.Truncate] is the call enforcement makes, and its one caller
+// is the command-line interface's `truncate`, which reads the value in force,
+// reads the legal holds standing, and cuts to the boundary a human named.
+// [Writer.AppendReworkRequest] has no caller either: what writes one is
+// whoever was authoring at the stage, through the component that dispatches,
+// and nothing in the module makes that call yet.
+//
 // [Reader.Verify] treats the oldest remaining row as the chain's checkpoint: a
 // truncation row anywhere in what remains naming that row as its boundary is
 // what lets its prev_hash differ from empty without breaking the chain: what
@@ -135,9 +156,15 @@
 // The wait's two rows and the three kinds of hold are
 // ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md.
 // A page event is
-// ../../end-goal/how-the-factory-works/08-operations/07-pages.md. Truncation
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md. The install
+// event, whose shape the merge queue also writes the numbers a mint after a
+// restore passed over under, is
+// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md.
+// Truncation
 // and decision-log retention are
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md,
+// and a truncation refused wherever a legal hold reaches is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md.
 // The fencing token and the head-conditioned append are
 // ../../end-goal/one-process.md.
 package decisionlog

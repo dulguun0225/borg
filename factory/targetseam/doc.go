@@ -45,4 +45,8 @@
 // The schema change applied before a build takes traffic, and the snapshot
 // taken and verified before a change that destroys stored data, are
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md.
+// The schema history's row — the release that shipped the change, the change's
+// identity, a checksum of its text, and the mark that says the store arrived
+// carrying it — is
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
 package targetseam

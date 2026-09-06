@@ -46,12 +46,12 @@ func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 		return nil
 	}
 
-	opened, err := p.fireProduction(ctx, c)
+	opened, firing, err := p.fireProduction(ctx, c)
 	if err != nil {
 		return err
 	}
 	report(d.out, opened, c.criteria)
-	verdict, _, closing, err := p.settle(ctx, opened)
+	verdict, _, closing, err := p.settle(ctx, opened, firing)
 	if err != nil {
 		return err
 	}
@@ -68,12 +68,12 @@ func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 // fireProduction fires the production deploy row over one candidate. It is its own
 // function because two callers fire it: the path, and a human approving through a
 // factory hold.
-func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, error) {
+func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, gate.Firing, error) {
 	reached, err := p.exposureOf(ctx, c.reverifiedBuildID)
 	if err != nil {
-		return gate.Opened{}, err
+		return gate.Opened{}, gate.Firing{}, err
 	}
-	return p.gate.Fire(ctx, gate.Firing{
+	firing := gate.Firing{
 		Row:             gate.DeployToProduction,
 		ItemID:          c.itemID,
 		BuildID:         c.reverifiedBuildID,
@@ -84,7 +84,9 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, e
 		Criteria:        c.criteria,
 		Measurement:     c.measurement,
 		Exposure:        reached,
-	})
+	}
+	opened, err := p.gate.Fire(ctx, firing)
+	return opened, firing, err
 }
 
 // putOnProduction is what an approval at that row performs: the verified build put

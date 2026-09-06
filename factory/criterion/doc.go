@@ -1,16 +1,22 @@
-// Package criterion owns a criterion of a service: the three tables its
-// record, its withdrawal and its results are written to, the six sentence
-// patterns and the classifier that decides which one a sentence is, the
-// in-force query, the provenance queries, the encoding derivation, and the
-// outcome history a bound reads as unreliable.
+// Package criterion owns a criterion of a service: the four tables its record,
+// its withdrawal, its results and the mutation read over its encodings are
+// written to, the six sentence patterns and the classifier that decides which
+// one a sentence is, the in-force query, the provenance queries, the encoding
+// derivation, the mutation score's own derivation, and the outcome history a
+// bound reads as unreliable.
 //
 // # The files
 //
 // writer.go is [Of], [Draft], [Criterion], [Insert], [Withdraw], [InForce] and
-// [Withdrawn]. queries.go is the three provenance queries, [ForConstraint],
-// [UnderWithdrawnConstraints] and [ControllingHazard]. schema.go is [Table],
-// [WithdrawalTable] and [ResultTable], the three id prefixes and format
-// versions, and [DDL]. pattern.go is [Pattern], the six [Patterns] and the
+// [Withdrawn]. queries.go is the three provenance queries — [ForConstraint],
+// [UnderWithdrawnConstraints] and [ControllingHazard] — and the rejection made
+// from the third, [CheckHazardControlled] with [HazardUncontrolledError].
+// mutation.go is [Mutation] with [Mutation.Score], [Mutation.Derived] and
+// [Mutation.Blocks], and [DeriveMutation] with [MutationTools].
+// mutationwrite.go is [MutationReading], [RecordMutation], [LatestMutation]
+// and [MutationsForBuild]. schema.go is [Table], [WithdrawalTable],
+// [ResultTable] and [MutationTable], the four id prefixes and format versions,
+// and [DDL]. pattern.go is [Pattern], the six [Patterns] and the
 // seventh value, and [Classify]. result.go is [Outcome] with [Outcomes] and
 // [Observed], [Place] with [Places], [Outcome.Blocks], [Run], [Result],
 // [InsertResults], [RecordResults], [ResultsForBuild], [Latest] and
@@ -18,8 +24,9 @@
 // [Encoding], [Derivation], [Derive], [Encodings], [CheckEncodings], and the
 // five errors it rejects with.
 //
-// db_test.go and result_db_test.go are the tests against the database;
-// encoding_test.go and pattern_test.go are the two subjects that need none.
+// db_test.go, result_db_test.go, hazard_db_test.go and mutation_db_test.go are
+// the tests against the database; encoding_test.go, pattern_test.go and
+// mutation_test.go are the three subjects that need none.
 //
 // # Who writes what
 //
@@ -74,18 +81,40 @@
 // [Unreliable] reads a criterion's outcome history over builds the caller
 // chose against a bound the caller read off the service record.
 //
+// # The mutation score
+//
+// Whether an encoding could have failed is a reading on the build and no
+// factor of the score: [DeriveMutation] mutates a checkout and produces the
+// share of the seeded defects the encodings caught, with a coverage field and a
+// could-not-derive outcome, and [RecordMutation] writes it beside that run's
+// criteria results. The score itself is derived from the two counts at the
+// read, the way undecided is. [Mutation.Blocks] is what the Merge to master
+// gate asks: a score below the mutation floor rejects there on the terms an
+// undecided criterion does, and a build the factory could not mutate never
+// passes.
+//
+// The derivation is per toolchain and Go is the one with an extractor. It runs
+// where the checkout is, reads the coverage of the checkout's own test run, and
+// mutates only where the checkout names one of [MutationTools] in a tool
+// directive of go.mod. The mutant cap authored on the service record is not
+// read here: it bounds what the deployer deploys, and the deployer's mutation
+// pass is the caller this is written for.
+//
 // # What is not built here
 //
 // Four callers this package is written for do not exist yet, and no substitute
-// stands in for them: the Spec gate's rejection of a build in an area graded
-// irreversible with no criterion in force naming its operation, which is a read
-// of [ControllingHazard]; Factory's two constraint listings, which are
-// [ForConstraint] and [UnderWithdrawnConstraints]; the intent raised when a
-// criterion becomes unreliable, keyed by the criterion; and the service
-// record's unreliability bound, which [Unreliable] takes as an argument.
+// stands in for them: the gate component at the Spec row, which calls
+// [CheckHazardControlled] with the grade in force for the item's area;
+// Factory's two constraint listings, which are [ForConstraint] and
+// [UnderWithdrawnConstraints]; the intent raised when a criterion becomes
+// unreliable, keyed by the criterion; and the service record's unreliability
+// bound, which [Unreliable] takes as an argument. The deployer's mutation pass
+// at the candidate run is a fifth: [DeriveMutation] and [RecordMutation] are
+// what it calls, and the command-line interface composes it.
 //
-// Who may write what: [Insert], [Withdraw], [InsertResults] and
-// [RecordResults] insert, and nothing here updates or deletes. The service_id,
+// Who may write what: [Insert], [Withdraw], [InsertResults],
+// [RecordResults] and [RecordMutation] insert, and nothing here updates or
+// deletes. The service_id,
 // spec_artifact_id, item_id, build_id, criterion_id, requirement_id,
 // constraint_derived and hazard_derived columns are id fields and not foreign
 // keys; the store checks each for being present where it is required and never
@@ -105,5 +134,11 @@
 // the run, the identity of a result and the composition copied onto it are
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md;
 // the undecided outcome is
-// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md.
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md;
+// the mutation score, its coverage and its could-not-derive outcome are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md,
+// and the mutation floor it is read against is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md;
+// the hazard-derived criterion and the Spec gate's mechanical rejection are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md.
 package criterion

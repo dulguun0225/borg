@@ -4,24 +4,29 @@
 //
 // # The code
 //
-// schema.go is [Table] and the four tables beside it — [WindowSizeTable],
-// [WindowPowerTable], [SeedTable], [ValueSetTable] — with their id prefixes,
-// format versions, and [DDL]. writer.go is [Service], [Writer] and [NewWriter]
+// schema.go is [Table] and the five tables beside it — [WindowSizeTable],
+// [WindowPowerTable], [ExplicitThresholdTable], [SeedTable], [ValueSetTable] —
+// with their id prefixes, format versions, and [DDL]. writer.go is [Service], [Writer] and [NewWriter]
 // with [Writer.Create], and the reads [Get], [ByName] and [All], each of which
 // returns everything on the record. parameters.go is [Parameters] and
 // the gate-policy writes: [SetWindowSize] and [SetWindowPower] per
 // [gatepolicy.Quantity], and
 // [SetWindowConfidence], [SetWindowCap], [SetWindowLimit] and [SetExposureBound]
-// for the service, beside [SetMutantCap], [SetFailureRecordKeyCap],
+// for the service, beside [SetBakeVolume], [SetBacklogCap],
+// [SetInstanceHourRate], [SetMutantCap], [SetFailureRecordKeyCap],
 // [SetUnreliableBound] and [SetIncidentItemBound], which are authored the same way
 // and are not gate policy's. provisioning.go is [Provisioned], [CredentialShape],
 // [SetProvisioned], [SetTargets] and [Retire]. operations.go is [Objective],
 // [PagingHours], [SetObjective], [SetPagingHours], [SetProductLicence] and
-// [SetSnapshotRetention]. deployer.go is [Reachability] and [Adopt]. versions.go is
+// [SetSnapshotRetention]. threshold.go is [Threshold] and
+// [SetExplicitThreshold], the absolute number a safeguard sets per quantity
+// beside the size it is read at, with [SetOperationCap] — the cap on how many
+// operations one release may hold open per interval and the overflow operation
+// the excess lands in — [SetEnvironmentHourRate] and [SetSearchBudget]. deployer.go is [Reachability] and [Adopt]. versions.go is
 // [Version] with [AuthorSeed], [AuthorValueSet], [SeedInForce], [ValueSetInForce]
 // and the two lists beside them. The tests are one file per subject above —
 // db_test.go, parameters_test.go, provisioning_test.go, operations_test.go,
-// deployer_test.go and versions_test.go — sharing the newWriter, acquire, begin
+// deployer_test.go, threshold_test.go and versions_test.go — sharing the newWriter, acquire, begin
 // and commit helpers of db_test.go and helpers_test.go, every one of them against
 // the database.
 //
@@ -85,6 +90,12 @@
 // The window's size, confidence and power per quantity, the cap, the window limit
 // and the exposure bound are
 // ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md. The
+// bake volume between one target of a rollout and the next is
+// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md, the
+// backlog cap on how many releases wait behind a rollback hold is
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
+// and the instance-hour rate the deployer prices a fleet's span at is
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md. The
 // objective and its period are
 // ../../end-goal/how-the-factory-works/08-operations/05-service-level-objectives.md,
 // and the hours a service pages within are

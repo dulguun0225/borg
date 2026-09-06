@@ -53,18 +53,22 @@ func (s *Store) Mismatch(ctx context.Context, serviceID string) (bool, string, e
 	return true, strings.Join(said, "; "), nil
 }
 
-// Uncleared is every target mismatch of one service that no human has
-// cleared, oldest first. It is what holds that service's production
-// deploys, and what the notifier pages about. A chain mismatch is never in
-// this answer — [UnclearedChain] is where it is read.
+// Uncleared is every mismatch of one service that no human has cleared, oldest
+// first: the target mismatches the first comparison raised, and the
+// stale-component mismatches the third raised for a component whose stopping
+// holds that service. Both hold that service's production deploys and both are
+// what the notifier pages about. A chain mismatch is never in this answer —
+// [UnclearedChain] is where it is read, because it holds every service at once.
 //
-// An empty service is every uncleared target mismatch, which is what a reader
-// of the whole store — the command-line interface's own printing — asks for.
+// An empty service is every uncleared mismatch of those two kinds, which is what
+// a reader of the whole store — the command-line interface's own printing — asks
+// for.
 func Uncleared(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Mismatch, error) {
-	where := ` where cleared_at = '' and kind = '` + MismatchKindTarget + `' order by at, id`
+	kinds := ` and kind in ('` + MismatchKindTarget + `', '` + MismatchKindStaleComponent + `')`
+	where := ` where cleared_at = ''` + kinds + ` order by at, id`
 	args := []any{}
 	if serviceID != "" {
-		where = ` where cleared_at = '' and kind = '` + MismatchKindTarget + `' and service_id = $1 order by at, id`
+		where = ` where cleared_at = ''` + kinds + ` and service_id = $1 order by at, id`
 		args = append(args, serviceID)
 	}
 	return mismatches(ctx, pool, where, args...)
@@ -96,15 +100,16 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Mismatch, error) {
 	return m, nil
 }
 
-const selectMismatch = `select id, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, running_build,
-	recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by
+const selectMismatch = `select id, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, component,
+	running_build, recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by
 	from ` + MismatchTable
 
 func scanMismatch(row pgx.Row) (Mismatch, error) {
 	var m Mismatch
 	var actorKind, basis string
-	err := row.Scan(&m.ID, &actorKind, &m.Actor.Key, &basis, &m.At, &m.Kind, &m.ServiceID, &m.Target, &m.RunningBuild,
-		&m.RecordedReleaseID, &m.RecordedBuildID, &m.Detail, &m.LaterAgreements, &m.ClearedAt, &m.ClearedBy)
+	err := row.Scan(&m.ID, &actorKind, &m.Actor.Key, &basis, &m.At, &m.Kind, &m.ServiceID, &m.Target, &m.Component,
+		&m.RunningBuild, &m.RecordedReleaseID, &m.RecordedBuildID, &m.Detail, &m.LaterAgreements,
+		&m.ClearedAt, &m.ClearedBy)
 	if err != nil {
 		return Mismatch{}, err
 	}
@@ -196,4 +201,35 @@ func LastChecks(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]La
 		return nil, fmt.Errorf("driftdetector: reading the last checks: %w", err)
 	}
 	return read, nil
+}
+
+// StaleAgainst is every last check of this store older than maxAge as of now.
+// It is the read a safeguard on the drift detector's last check is answered by:
+// the detector supplies its own interval, so what an owner may add is a maximum
+// age of their own, bound through gatepolicy's
+// DriftDetectorLastCheckMaxAge and read here.
+//
+// It is a second reading beside [LastCheck.Stale] and not a replacement for it:
+// that one asks whether the detector has missed a pass it promised, and this one
+// asks whether an owner is willing to deploy against a check this old. A maxAge
+// of nothing returns nothing, an owner having authored no safeguard.
+func StaleAgainst(ctx context.Context, pool *pgxpool.Pool, maxAge time.Duration, now time.Time) ([]LastCheck, error) {
+	if maxAge <= 0 {
+		return nil, nil
+	}
+	all, err := LastChecks(ctx, pool, "")
+	if err != nil {
+		return nil, err
+	}
+	var older []LastCheck
+	for _, c := range all {
+		checked, err := record.ParseTime(c.At)
+		if err != nil {
+			return nil, fmt.Errorf("driftdetector: the time on %s: %w", c.ID, err)
+		}
+		if now.After(checked.Add(maxAge)) {
+			older = append(older, c)
+		}
+	}
+	return older, nil
 }

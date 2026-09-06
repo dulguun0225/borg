@@ -6,16 +6,22 @@
 //
 // # The files
 //
-// writer.go is [Artifact], [Kind] with [Kinds], [ItemKinds] and [FleetKinds],
-// [Authorship] with [Authorships], [By] with [By.Empty], [Store] and
-// [NewStore] with the item-kind submissions — [Store.SubmitSpec],
-// [Store.SubmitImplementation], [Store.SubmitConsumerContract]. fleet.go is
+// version.go is the vocabulary and the record: [Artifact], [Kind] with
+// [Kinds], [ItemKinds] and [FleetKinds], [Authorship] with [Authorships],
+// [EnteredBy] with [EnteredBys], [By] with [By.Empty], and every sentinel this
+// package returns. writer.go is [Store] and [NewStore] with the item-kind
+// submissions — [Store.SubmitSpec], [Store.SubmitPlan], [Store.SubmitTasks],
+// [Store.SubmitImplementation], [Store.SubmitConsumerContract] — and
+// insertVersion, which every submission goes through. fleet.go is
 // [Store.SubmitFleet] and [Store.EnterShipped], the two calls that write a
-// [FleetKinds] version. query.go is [Get] and [InForce]. author.go is
+// [FleetKinds] version. query.go is [Get], [Newest] and [InForce]. author.go is
 // [NewestOfKind], [IDsByAuthor] and [ItemsByAuthor]. redact.go is [Span] and
 // [Store.Redact]. schema.go is [Table], [IDPrefix] and [DDL].
 //
-// The tests are db_test.go, every one of them against the database.
+// The tests are db_test.go for the submissions and the chain,
+// author_db_test.go for who authored a version and what it was authored from,
+// and fleet_db_test.go for the fleet chains, the two shipped entries and the
+// redaction; every one of them is against the database.
 //
 // [Store] is the one writer, and its callers are the ones [Authorships] names
 // — the agent in the stage's role, a human backstopping that stage, and the
@@ -28,7 +34,8 @@
 // A version is an int per chain and kind, starting at 1, and each version
 // names the id of the one it supersedes — the empty string for version 1. A
 // chain is named by exactly one of item_id, role and subject, depending on the
-// kind: [KindSpec], [KindImplementation] and [KindConsumerContract] belong to
+// kind: [KindSpec], [KindImplementationPlan], [KindTasks],
+// [KindImplementation] and [KindConsumerContract] belong to
 // an item; [KindRolePrompt] belongs to a role; [KindSkill] belongs to a
 // subject — an area, a service, or a project; [KindSelectionRule] belongs to
 // the factory as a whole and names none of the three. The store computes the
@@ -36,8 +43,9 @@
 // (item_id, kind, role, subject, version) refuses the duplicate two concurrent
 // submissions would produce, so the chain stays a chain without a lock.
 //
-// The content is the spec text for a spec, the commit hash for an
-// implementation, the words a human reads the version by for a consumer
+// The content is the spec text for a spec, the plan's text for an
+// implementation plan, one task per line for a tasks version, the commit hash
+// for an implementation, the words a human reads the version by for a consumer
 // contract, and the role prompt, skill or selection rule text itself for a
 // fleet kind. content_digest is the sha256 of content in hexadecimal, computed
 // at the write.
@@ -73,12 +81,24 @@
 // shippedBundleIdentity, the release of the product that entered it, present
 // on this entry and on no other.
 //
+// The two events are not one entry, and [EnteredBy] is which of them wrote the
+// row: [EnteredByInstall]'s entries enter in force ungated and
+// [EnteredByUpgradeFirstStart]'s enter awaiting the gate every version fires.
+// Both write the same columns and either can write version 1 of a chain, so
+// the column is what [InForce] reads and what keeps the caller from having to
+// know which start wrote each row. The install step and the first-start step
+// are the command-line interface's, and neither is built.
+//
 // # In force
 //
-// [InForce] is the newest version of a chain among the version ids the caller
-// names as approvedVersionIDs — approval and withdrawal are the decision
-// log's facts, which this package does not import, so the caller supplies
-// them already combined. It reads the chain by kind and role or subject,
+// [Newest] is the head of a fleet chain whatever decided it, which is what the
+// first-start step compares what shipped against: an upgrade that changed no
+// words enters nothing. [InForce] is the newest version of a chain that is
+// either among the version ids the caller names as approvedVersionIDs or an
+// entry [EnteredByInstall] wrote — approval and withdrawal are the decision
+// log's facts, which this package does not import, so the caller supplies them
+// already combined, and the install's ungated entries are read off the row. It
+// reads the chain by kind and role or subject,
 // which is why it serves the three [FleetKinds] rather than an item-kind
 // chain, whose "in force" question a criterion's or a machine's own in-force
 // query answers instead.
@@ -89,6 +109,17 @@
 // destroys the named [Span]s of a version's content in place and recomputes
 // content_digest, for erasure rather than correction. Its caller, the report
 // store's redaction pass, is not built.
+//
+// # What a version was authored from
+//
+// Every submission takes the input manifest the run was handed as its last
+// argument and writes it on the row. It is empty where the caller that
+// dispatched the run wrote no manifest: context assembly, which the design has
+// write one at every dispatch, is not built, so the component that dispatches
+// an agent holds package inputmanifest's writer and supplies the id here. That
+// caller is the command-line interface, and it is not built.
+// [Store.EnterShipped] writes none, an entry authoring nothing having read no
+// manifest, and the DDL's input_manifest_only_when_authored CHECK refuses one.
 //
 // Who may write what: [Store]'s submissions and [Store.EnterShipped] insert an
 // artifact version and the records that version introduces; [Store.Redact]

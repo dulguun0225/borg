@@ -7,8 +7,10 @@
 // lastcheck.go is [LastCheck] with [LastCheck.FurtherPassOwed] and
 // [LastCheck.Stale], the [Components] that write one and the constant per
 // component, [Writer] and [NewWriter] with [Writer.Record], and the reads [All],
-// [ForComponent], [Get] and [Stale]. schema.go is [Table], [IDPrefix],
-// [FormatVersion] and [DDL].
+// [ForComponent], [Get] and [Stale]. platform.go is the deployer's per-platform
+// record: [PlatformPass] with [PlatformPass.Leaked],
+// [Writer.RecordPlatformPass] and [PlatformPassOf]. schema.go is [Table],
+// [IDPrefix], [FormatVersion] and [DDL].
 //
 // The tests are db_test.go, every one of them against the database.
 //
@@ -16,7 +18,9 @@
 // conflicts on the pair and updates. The subject is a service id, a target
 // address, a platform name, or empty on the record a component keeps for itself.
 // The payload is the counts the writer reports, stored as the text the writer
-// wrote and never read here.
+// wrote and read here for one shape only: the deployer's per-platform record,
+// whose three counts the design names and a screen reads back, which is what
+// [PlatformPass] is and why platform.go departs from the rest of the file.
 //
 // # Who may write what
 //
@@ -27,9 +31,13 @@
 // in package driftdetector's own store, which no factory component may write —
 // so [Components] does not list it and the CHECK refuses it.
 //
-// Of the six, none is wired yet. The health monitor writes one per service, the
+// Of the six, none is wired yet: every writer here is called by the deployer,
+// the health monitor, the notifier or a pass of the command-line interface, and
+// none of those calls is composed. The health monitor writes one per service, the
 // deployer one per target of a persistent environment and one per platform a
-// production environment record declares, the notifier a single one for itself,
+// production environment record declares — [Writer.RecordPlatformPass], which
+// the command-line interface owes one call of per production environment
+// declaring a platform, per pass — the notifier a single one for itself,
 // and the pass over the constraints in force, the pass over the advisory feed
 // and dispatch's pass over a fleet proposal a single one each — the last three
 // being passes this milestone does not build. Each is wired by the dispatch that

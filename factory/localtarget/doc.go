@@ -27,10 +27,11 @@
 // called, named exactly by the build string. [Local.Deploy] drains whatever
 // runs for the service — asking it to end and giving it [Local.DrainWait] to
 // finish what it holds — starts dir/<build>, and reports the drain, or a cut
-// where the instance did not end in time. [Local.Stop] ends the process outright
-// and clears what says it runs, and [Local.ReadRunning] reports the build whose
-// process is still alive, the digest of the artifact it was started from, the
-// one instance this platform runs, and the service's schema history. A dead
+// where the instance did not end in time. [Local.Stop] ends the process
+// outright, reports the cut that is, and clears what says it runs, and
+// [Local.ReadRunning] reports the build whose process is still alive, the
+// digest of the artifact it was started from, the one instance this platform
+// runs, and the service's schema history. A dead
 // process reads as nothing running. The directory is a boundary and not a
 // prefix: a build that is not a local path is [ErrBuildNotLocal] rather than a
 // path joined and run, and the same check holds for the service name, the
@@ -52,10 +53,14 @@
 // # The service's store
 //
 // The store is a directory, dir/<service>.data, and the schema history the
-// deployer keeps in it is [HistoryFile], one line per change applied.
+// deployer keeps in it is [HistoryFile], one line per change applied: the
+// change, its checksum, what it did to the store, the release that shipped it,
+// and whether the deployer applied it or found it applied.
 // [Local.ApplySchemaChange] runs the script the service ships for the change
 // and appends to the history where the script succeeded, so a change that failed
-// to apply is one the next read of the history still lacks; a change the service
+// to apply is one the next read of the history still lacks; a change marked
+// found applied is written into the history and run against nothing, which is
+// what the deploy of an adopted service's first release asks for; a change the service
 // ships no script for is [ErrNoSchemaScript] and is applied by nothing.
 // [Local.Snapshot] copies the store, verifies the copy by digest, and returns the
 // name and the digest the deploy record then carries; a copy that does not verify
@@ -110,7 +115,10 @@
 // and the platform that serves no share are
 // ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md; the
 // schema change, its script and the snapshot before a destructive one are
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md.
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md,
+// and the history's own row, with the release that shipped each change and the
+// mark that says the store arrived carrying it, is
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
 // What reads [Local.ReadRunning] from outside the factory is
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md, the
 // quantity the started process emits is

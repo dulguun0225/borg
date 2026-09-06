@@ -55,7 +55,7 @@ func newTarget(t *testing.T, services ...string) (*localtarget.Local, string) {
 	local := localtarget.New(dir)
 	t.Cleanup(func() {
 		for _, service := range services {
-			if err := local.Stop(context.Background(), deployer, service, credential); err != nil {
+			if _, err := local.Stop(context.Background(), deployer, service, credential); err != nil {
 				t.Errorf("stopping service %q in cleanup: %v", service, err)
 			}
 		}
@@ -92,8 +92,12 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 		t.Fatalf("ReadRunning names %q, want rel_one", running.Build)
 	}
 
-	if err := local.Stop(ctx, deployer, "checkout", credential); err != nil {
+	ended, err := local.Stop(ctx, deployer, "checkout", credential)
+	if err != nil {
 		t.Fatalf("Stop: %v", err)
+	}
+	if ended.Replacement != targetseam.ReplacementCut {
+		t.Errorf("Stop reports %q, want the cut this platform performs", ended.Replacement)
 	}
 	running, err = local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
@@ -105,7 +109,7 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 
 	// Stopping a service with nothing running is not an error: what Stop
 	// promises already holds.
-	if err := local.Stop(ctx, deployer, "checkout", credential); err != nil {
+	if _, err := local.Stop(ctx, deployer, "checkout", credential); err != nil {
 		t.Errorf("Stop with nothing running: %v", err)
 	}
 }
@@ -233,7 +237,7 @@ func TestTheSeamsChecksHold(t *testing.T) {
 	if !errors.Is(err, targetseam.ErrNoPrincipal) {
 		t.Errorf("Deploy with no principal = %v, want %v", err, targetseam.ErrNoPrincipal)
 	}
-	if err := local.Stop(ctx, deployer, "", credential); !errors.Is(err, targetseam.ErrIncomplete) {
+	if _, err := local.Stop(ctx, deployer, "", credential); !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("Stop with no service = %v, want %v", err, targetseam.ErrIncomplete)
 	}
 	if _, err := local.ReadRunning(ctx, deployer, "checkout", secretref.Ref{}); !errors.Is(err, targetseam.ErrIncomplete) {

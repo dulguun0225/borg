@@ -55,8 +55,12 @@ func TestFakeRecordsEveryNamedOperation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ApplySchemaChange: %v", err)
 	}
-	if err := target.Stop(ctx, deployer, "checkout", credential); err != nil {
+	stopped, err := target.Stop(ctx, deployer, "checkout", credential)
+	if err != nil {
 		t.Fatalf("Stop: %v", err)
+	}
+	if stopped.Replacement != ReplacementDrained {
+		t.Errorf("Stop reports %q, want the drain this fake performs", stopped.Replacement)
 	}
 
 	want := []Op{
@@ -198,7 +202,13 @@ func TestTheSeamRefusesAnIncompleteOperation(t *testing.T) {
 			return err
 		},
 		"stop with no credential": func() error {
-			return fake.Stop(ctx, deployer, "checkout", secretref.Ref{})
+			_, err := fake.Stop(ctx, deployer, "checkout", secretref.Ref{})
+			return err
+		},
+		"a change found applied naming no release": func() error {
+			return fake.ApplySchemaChange(ctx, deployer, SchemaChange{
+				Service: "checkout", Change: "0002-add-the-column", FoundApplied: true, Credential: credential,
+			})
 		},
 		"read with no credential": func() error {
 			_, err := fake.ReadRunning(ctx, deployer, "checkout", secretref.Ref{})
@@ -237,7 +247,7 @@ func TestTheSeamRefusesACallWithNoPrincipal(t *testing.T) {
 	}); !errors.Is(err, ErrNoPrincipal) {
 		t.Fatalf("Deploy with no principal = %v, want ErrNoPrincipal", err)
 	}
-	if err := fake.Stop(ctx, principal.Principal{}, "checkout", credential); !errors.Is(err, ErrNoPrincipal) {
+	if _, err := fake.Stop(ctx, principal.Principal{}, "checkout", credential); !errors.Is(err, ErrNoPrincipal) {
 		t.Fatalf("Stop with no principal = %v, want ErrNoPrincipal", err)
 	}
 	if calls := fake.Calls(); len(calls) != 0 {
@@ -261,5 +271,44 @@ func TestAShareIsAFraction(t *testing.T) {
 	})
 	if !errors.Is(err, ErrCountNegative) {
 		t.Errorf("SetInstanceCount(-1) = %v, want ErrCountNegative", err)
+	}
+}
+
+// TestASchemaHistoryRowNamesItsReleaseAndWhetherItWasFoundApplied: which changes
+// a store carries is read from the history, and a row says which release shipped
+// the change and whether the deployer applied it or took it on the adoption's
+// word — an adopted service's store arrives at its head's schema, so its first
+// release writes rows and applies nothing.
+func TestASchemaHistoryRowNamesItsReleaseAndWhetherItWasFoundApplied(t *testing.T) {
+	ctx := context.Background()
+	credential := secretref.MustNew("deploy.production")
+	deployer := principal.OfComponent("deployer")
+	fake := NewFake()
+
+	if err := fake.ApplySchemaChange(ctx, deployer, SchemaChange{
+		Service: "checkout", Change: "0001-create", Release: "rel_1", Text: "create",
+		FoundApplied: true, Credential: credential,
+	}); err != nil {
+		t.Fatalf("the adoption's row: %v", err)
+	}
+	if err := fake.ApplySchemaChange(ctx, deployer, SchemaChange{
+		Service: "checkout", Change: "0002-add-the-column", Release: "rel_2", Text: "add",
+		Credential: credential,
+	}); err != nil {
+		t.Fatalf("ApplySchemaChange: %v", err)
+	}
+
+	running, err := fake.ReadRunning(ctx, deployer, "checkout", credential)
+	if err != nil {
+		t.Fatalf("ReadRunning: %v", err)
+	}
+	if len(running.SchemaHistory) != 2 {
+		t.Fatalf("the history holds %d row(s), want two", len(running.SchemaHistory))
+	}
+	if got := running.SchemaHistory[0]; got.Release != "rel_1" || !got.FoundApplied {
+		t.Errorf("the adoption's row is %+v, want rel_1 found applied", got)
+	}
+	if got := running.SchemaHistory[1]; got.Release != "rel_2" || got.FoundApplied {
+		t.Errorf("the applied row is %+v, want rel_2 applied by the deployer", got)
 	}
 }

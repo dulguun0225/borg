@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 )
@@ -132,10 +133,20 @@ func waitedOn(w gate.Waits) string {
 }
 
 // settle closes one firing: the factory's own verdict where the firing put no
-// human at the row, and the human's typed verdict where it did. What may be
-// typed is what the row offers, which differs per row — the merge row rejects,
-// the production deploy row holds, and the candidate deploy row does both.
-func (p *path) settle(ctx context.Context, opened gate.Opened) (gate.Verdict, string, decisionlog.Row, error) {
+// human at the row, and the human's own where it did.
+//
+// What may be typed is what the row offers, which differs per row — the merge
+// row rejects, the production deploy row holds, the candidate deploy row does
+// both, and refer is on every one of them because it is about the human and
+// not the event. Two more words are offered beside the verdicts and neither is
+// one: "acknowledge" says a holder has the row and decides nothing, so the
+// prompt comes again; "edit" is Edit in place, where a human authors the
+// version themselves rather than sending the item back for one.
+//
+// again is the firing this row was fired with, which a refer and an Edit in
+// place both need: each ends this row and fires another over what is now under
+// decision.
+func (p *path) settle(ctx context.Context, opened gate.Opened, again gate.Firing) (gate.Verdict, string, decisionlog.Row, error) {
 	if !opened.HumanDecides {
 		closing, err := p.gate.AutoPass(ctx, opened)
 		if err != nil {
@@ -153,35 +164,137 @@ func (p *path) settle(ctx context.Context, opened gate.Opened) (gate.Verdict, st
 	if err != nil {
 		return "", "", decisionlog.Row{}, err
 	}
-	fmt.Fprintf(p.d.out, "Verdict (%s): ", strings.Join(words(actions), ", "))
-	line, err := readLine(p.lines)
-	if err != nil {
-		return "", "", decisionlog.Row{}, err
+	for {
+		fmt.Fprintf(p.d.out, "Verdict (%s): ", strings.Join(words(actions, opened.Gate), ", "))
+		line, err := readLine(p.lines)
+		if err != nil {
+			return "", "", decisionlog.Row{}, err
+		}
+		if rest, is := strings.CutPrefix(line, "acknowledge"); is {
+			row, err := p.gate.Acknowledge(ctx, opened, p.human)
+			if err != nil {
+				return "", "", decisionlog.Row{}, err
+			}
+			fmt.Fprintf(p.d.out, "Acknowledged as %s; row %s, and the row still waits on a verdict%s\n",
+				p.d.human, row.ID, strings.TrimSpace(rest))
+			continue
+		}
+		if rest, is := strings.CutPrefix(line, "edit"); is {
+			settled, closing, err := p.editInPlace(ctx, opened, again, strings.TrimSpace(rest))
+			if err != nil {
+				fmt.Fprintf(p.d.out, "Edit in place is refused here: %v\n", err)
+				continue
+			}
+			return settled, "", closing, nil
+		}
+		verdict, reason, err := typed(line, actions, opened.Gate)
+		if err != nil {
+			fmt.Fprintln(p.d.out, err)
+			continue
+		}
+		if verdict == gate.VerdictRefer {
+			referred, err := p.gate.Refer(ctx, opened, p.human, reason, again)
+			if err != nil {
+				fmt.Fprintf(p.d.out, "Referring is refused here: %v\n", err)
+				continue
+			}
+			fmt.Fprintf(p.d.out, "Referred: %s; close event %s, and the row fired again as %s\n",
+				reason, referred.Close.ID, referred.Reopened.Row.ID)
+			report(p.d.out, referred.Reopened, nil)
+			opened = referred.Reopened
+			continue
+		}
+		// An approve names the set of holds it goes through, each one, because a
+		// bare approve while a hold stands is what the gate refuses. The set is
+		// the one the firing found; the gate recomputes it at the close and
+		// refuses an approve that names a hold no longer standing or leaves out
+		// one that is.
+		given := gate.Given{Actor: p.human, Verdict: verdict, Reason: reason}
+		if verdict == gate.VerdictApprove {
+			given.Holds = opened.Holds
+		}
+		closing, err := p.gate.Decide(ctx, opened, given)
+		if err != nil {
+			return "", "", decisionlog.Row{}, err
+		}
+		fmt.Fprintf(p.d.out, "The verdict is %s; close event %s written as %s %s\n",
+			verdict, closing.ID, closing.Actor.Kind, p.d.human)
+		return verdict, reason, closing, nil
 	}
-	verdict, feedback, err := typed(line, actions)
-	if err != nil {
-		return "", "", decisionlog.Row{}, err
-	}
-	// An approve names the set of holds it goes through, each one, because a bare
-	// approve while a hold stands is what the gate refuses. The set is the one
-	// the firing found; the gate recomputes it at the close and refuses an
-	// approve that names a hold no longer standing or leaves out one that is.
-	given := gate.Given{Actor: p.human, Verdict: verdict, Reason: feedback}
-	if verdict == gate.VerdictApprove {
-		given.Holds = opened.Holds
-	}
-	closing, err := p.gate.Decide(ctx, opened, given)
-	if err != nil {
-		return "", "", decisionlog.Row{}, err
-	}
-	fmt.Fprintf(p.d.out, "The verdict is %s; close event %s written as %s %s\n",
-		verdict, closing.ID, closing.Actor.Kind, p.d.human)
-	return verdict, feedback, closing, nil
 }
 
-// typed reads a verdict the human typed. A reject carries its feedback after the
-// word, which is what the action is: reject with feedback.
-func typed(line string, actions []gate.Verdict) (gate.Verdict, string, error) {
+// editInPlace is the action a human takes at a document gate instead of
+// rejecting: they author the version themselves. The text is typed on the
+// terminal and ends at a line holding one full stop, the artifact store writes
+// it with the gate component as the authorship — the version's author is the
+// human at the gate and its writer is still the store — and the row fires
+// again over the new version, the one it supersedes abandoned.
+//
+// It is refused at the Implementation row, which is the one artifact gate the
+// design gives no Edit in place, and at every event gate, which the gate
+// package refuses for itself.
+func (p *path) editInPlace(ctx context.Context, opened gate.Opened, again gate.Firing, rest string) (gate.Verdict, decisionlog.Row, error) {
+	if opened.Gate.Kind == gate.KindImplementation {
+		return "", decisionlog.Row{}, fmt.Errorf("%w: a human does not author a build at the row that decides it",
+			gate.ErrEditInPlaceRefused)
+	}
+	if !opened.Gate.ArtifactGate() {
+		return "", decisionlog.Row{}, fmt.Errorf("%w: %s decides no document", gate.ErrEditInPlaceRefused, opened.Gate)
+	}
+	fmt.Fprintln(p.d.out, "Type the version in full; a line holding one full stop ends it.")
+	text := rest
+	for {
+		line, err := readLine(p.lines)
+		if err != nil {
+			return "", decisionlog.Row{}, err
+		}
+		if line == "." {
+			break
+		}
+		if text != "" {
+			text += "\n"
+		}
+		text += line
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", decisionlog.Row{}, errors.New("an edit in place authors a version, and this one is empty")
+	}
+
+	by := artifact.By{Authorship: artifact.AuthorshipGate, Author: p.d.human}
+	var version artifact.Artifact
+	var err error
+	switch opened.Gate.Kind {
+	case gate.KindSpec:
+		// A human authoring at the gate read no manifest: context assembly
+		// selects what an agent reads, and this version was typed.
+		version, _, _, err = p.store.SubmitSpec(ctx, gate.Component(opened.Gate), by,
+			opened.Subject.ItemID, opened.Subject.ServiceID, text, nil, nil, nil, "")
+	case gate.KindImplementationPlan:
+		version, err = p.store.SubmitPlan(ctx, gate.Component(opened.Gate), by, opened.Subject.ItemID, text, "")
+	case gate.KindTasks:
+		version, err = p.store.SubmitTasks(ctx, gate.Component(opened.Gate), by, opened.Subject.ItemID, text, "")
+	default:
+		err = fmt.Errorf("%w: %s", gate.ErrEditInPlaceRefused, opened.Gate)
+	}
+	if err != nil {
+		return "", decisionlog.Row{}, err
+	}
+	again.ArtifactID = version.ID
+	reopened, err := p.gate.EditInPlace(ctx, opened, again)
+	if err != nil {
+		return "", decisionlog.Row{}, err
+	}
+	fmt.Fprintf(p.d.out, "Edited in place: version %s authored at the gate; row %s supersedes %s\n",
+		version.ID, reopened.Row.ID, opened.Row.ID)
+	report(p.d.out, reopened, nil)
+	verdict, _, closing, err := p.settle(ctx, reopened, again)
+	return verdict, closing, err
+}
+
+// typed reads a verdict the human typed. A reject carries its reason after the
+// word, which is what the action is: reject with feedback. A refer carries one
+// too, and the gate refuses one that carries none.
+func typed(line string, actions []gate.Verdict, row gate.Row) (gate.Verdict, string, error) {
 	for _, action := range actions {
 		rest, matched := strings.CutPrefix(line, string(action))
 		if !matched {
@@ -189,19 +302,29 @@ func typed(line string, actions []gate.Verdict) (gate.Verdict, string, error) {
 		}
 		return action, strings.TrimSpace(rest), nil
 	}
-	return "", "", fmt.Errorf("factory: the verdict is one of %s, not %q", strings.Join(words(actions), ", "), line)
+	return "", "", fmt.Errorf("factory: the verdict is one of %s, not %q",
+		strings.Join(words(actions, row), ", "), line)
 }
 
-// words is the actions as they are offered on the terminal, the reject carrying
-// the feedback its action is named for.
-func words(actions []gate.Verdict) []string {
-	offered := make([]string, 0, len(actions))
+// words is the actions as they are offered on the terminal: the reject and the
+// refer carrying the reason each is named for, and the two words that are not
+// verdicts — acknowledge, which decides nothing, and edit, offered at the
+// document gates that take Edit in place.
+func words(actions []gate.Verdict, row gate.Row) []string {
+	offered := make([]string, 0, len(actions)+2)
 	for _, a := range actions {
-		if a == gate.VerdictReject {
+		switch a {
+		case gate.VerdictReject:
 			offered = append(offered, "reject <feedback>")
-			continue
+		case gate.VerdictRefer:
+			offered = append(offered, "refer <what you could not judge>")
+		default:
+			offered = append(offered, string(a))
 		}
-		offered = append(offered, string(a))
+	}
+	offered = append(offered, "acknowledge")
+	if row.ArtifactGate() && row.Kind != gate.KindImplementation {
+		offered = append(offered, "edit")
 	}
 	return offered
 }

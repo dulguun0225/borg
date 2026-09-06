@@ -51,6 +51,12 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	// service's own recent past has intervals to read a spread between rather than
 	// one interval holding four hundred failures — a window closes on the count of
 	// intervals and never on the volume inside one.
+	// The path is composed before the emission is written, not after: a
+	// composition runs every component's restart, and the units this writes are
+	// stamped relative to now — so composing between the write and the pass
+	// would age them past the recent history the reading is taken over.
+	path := p(ctx, t, d)
+
 	signal := localtarget.SignalFile(d.dir, c.reverifiedBuildID)
 	var failing strings.Builder
 	for n := range 400 {
@@ -61,7 +67,6 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 		t.Fatalf("writing what the running build emits: %v", err)
 	}
 
-	path := p(ctx, t, d)
 	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass stopped: %v\noutput so far:\n%s", err, out)
 	}

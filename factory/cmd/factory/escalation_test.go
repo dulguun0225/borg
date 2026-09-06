@@ -10,8 +10,10 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse is the page's condition read off
@@ -43,10 +45,10 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	// statement's text — package intent's rewrite drops that lookup,
 	// authorintent.go's own comment says why — so a run given this statement
 	// would take a fresh owner's intent in rather than working the detector's.
-	// What this test is about is the page's condition, read off the intent
-	// [path.escalated] is given, so it is exercised directly against the
-	// detector's intent rather than through a run this milestone cannot route
-	// there.
+	// What this test is about is the page's condition, which the gate reads off
+	// the intent the escalated item was decomposed from, so it is exercised
+	// against an item of the detector's intent rather than through a run this
+	// milestone cannot route there.
 	detected, err := intent.NewIntake(d.pool, d.token).TakeIn(ctx, healthmonitor.Actor, intent.Arrival{
 		Source: intent.SourceDetector, Statement: theSecondStatement,
 		Evidence: intent.Evidence{ServiceID: "svc_escalation_test"},
@@ -61,7 +63,20 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("composing the path: %v", err)
 	}
-	if err := p.escalated(ctx, detected.ID, "it_escalation_test", "every implementer reply was refused"); err != nil {
+	svc, err := service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor,
+		"escalation-test", t.TempDir(), p.projectID)
+	if err != nil {
+		t.Fatalf("writing the service: %v", err)
+	}
+	it, err := p.decomposition.Create(ctx, decompositionActor, item.New{
+		IntentID: detected.ID, ServiceID: svc.ID, Branch: "item/" + detected.ID,
+		RequirementsAnswered: []string{"rq_escalation_test"},
+	}, "", svc.ProjectID, nil)
+	if err != nil {
+		t.Fatalf("decomposing the detector's item: %v", err)
+	}
+	if err := (gateNotifier{notifier: p.notifier, path: p}).Escalated(ctx, it.ID,
+		item.StageImplementation, "every implementer reply was refused"); err != nil {
 		t.Fatalf("escalating: %v", err)
 	}
 

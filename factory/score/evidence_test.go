@@ -72,6 +72,30 @@ func withIncident(e *Evidence, releaseID string) *Evidence {
 	return e
 }
 
+// withIncidentOn raises an incident against one release that names the quantity
+// its reading crossed on, which is what makes a miss move that quantity's size
+// and no other's.
+func withIncidentOn(e *Evidence, releaseID string, quantity gatepolicy.Quantity) *Evidence {
+	e.incidents = append(e.incidents, incident.Incident{
+		ID: "inc_" + string(quantity), ReleaseID: releaseID, ServiceID: "svc_a",
+		Quantity: string(quantity),
+	})
+	e.index()
+	return e
+}
+
+// withFinestSizePerWindow puts a finest size per quantity on the window at each
+// index, newest last, which is what a run read per quantity is held against.
+func withFinestSizePerWindow(e *Evidence, reached []map[gatepolicy.Quantity]float64) *Evidence {
+	for i := range e.windows {
+		if i < len(reached) {
+			e.windows[i].FinestSizeReached = reached[i]
+		}
+	}
+	e.index()
+	return e
+}
+
 // withFinestSize puts on every window of the evidence the finest size the
 // window reports this service's traffic reached, which is what the size in force
 // is held against.

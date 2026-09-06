@@ -59,11 +59,12 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 
 	// The next change: the production deploy row fires with the mismatch on its
 	// open event and a human at it, and the human holds.
-	// One verdict and not three: the second item on this service reads under the
-	// threshold at every row and every factor over a build is valued, so the two
-	// rows above production auto-pass and the mismatch is the only thing putting
-	// a human anywhere — which is what this test is about.
-	d.in = strings.NewReader("hold the record is wrong and I am checking the target\n")
+	// Three approvals and then the hold: the three rows above a build put a
+	// human there on every item, the change's reach not being computable before
+	// anything is built, and every row over a build auto-passes for the second
+	// item on this service — so the mismatch is the only thing putting a human
+	// at a row that decides a deploy, which is what this test is about.
+	d.in = strings.NewReader("approve\napprove\napprove\nhold the record is wrong and I am checking the target\n")
 	d.model = interviewed(0)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {

@@ -69,8 +69,7 @@ func (b Boundary) IntervalsForPassed(deviation, power float64) (float64, error) 
 	if deviation <= 0 {
 		return 0, fmt.Errorf("boundary: the spread between intervals is above nothing, not %v", deviation)
 	}
-	z := normalQuantile(power)
-	root := deviation * (z + math.Sqrt(z*z+2*b.Crossing())) / b.Size
+	root := deviation * powerFactor(power, b.Crossing()) / b.Size
 	if math.IsNaN(root) || math.IsInf(root, 0) || root <= 0 {
 		return 0, fmt.Errorf("%w: size %v at power %v", ErrPowerUnreachable, b.Size, power)
 	}
@@ -96,8 +95,47 @@ func (b Boundary) FinestSize(deviation, power float64, intervals int) (float64, 
 		return 0, fmt.Errorf("boundary: a finest size needs an interval read and a spread above nothing, not %d at %v",
 			intervals, deviation)
 	}
+	return deviation * powerFactor(power, b.Crossing()) / math.Sqrt(float64(intervals)), nil
+}
+
+// AtPower is a finest size already reached read at another power: the same
+// intervals and the same spread, asked to catch a regression that reliably
+// rather than at the power the size was recorded at. It is
+// [Boundary.FinestSize]'s own factor applied twice — the arithmetic there goes
+// as z(power) + sqrt(z(power)squared + twice the crossing), and the intervals
+// and the deviation cancel — so a caller holding a recorded size and the power
+// it was recorded at can ask what this window's power would need without
+// holding the series again.
+//
+// It is what says whether the traffic a service actually received supports the
+// power in force at the size in force, which is the question the passed exit's
+// availability turns on. A higher power reads the size coarser, which is the
+// direction that refuses the exit.
+func (b Boundary) AtPower(reached, recordedAt, power float64) (float64, error) {
+	if err := b.Validate(); err != nil {
+		return 0, err
+	}
+	for _, share := range []float64{recordedAt, power} {
+		if share <= 0 || share >= 1 {
+			return 0, fmt.Errorf("%w: %v", ErrPowerOutOfRange, share)
+		}
+	}
+	if reached <= 0 {
+		return 0, fmt.Errorf("boundary: a finest size already reached is above nothing, not %v", reached)
+	}
+	from, to := powerFactor(recordedAt, b.Crossing()), powerFactor(power, b.Crossing())
+	if from <= 0 || math.IsNaN(from) || math.IsNaN(to) {
+		return 0, fmt.Errorf("%w: size %v at power %v", ErrPowerUnreachable, reached, power)
+	}
+	return reached * to / from, nil
+}
+
+// powerFactor is what the power costs in the size arithmetic, which is the one
+// place the power enters it: the standard normal quantile at that power, plus
+// the root of its square and twice the crossing.
+func powerFactor(power, crossing float64) float64 {
 	z := normalQuantile(power)
-	return deviation * (z + math.Sqrt(z*z+2*b.Crossing())) / math.Sqrt(float64(intervals)), nil
+	return z + math.Sqrt(z*z+2*crossing)
 }
 
 // IntervalsToFailed is how many intervals a release whose arms differ by

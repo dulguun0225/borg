@@ -22,9 +22,10 @@
 // [RoutedTo], and the three duties the design names for a row.
 //
 // gate.go is [Gate], [Composition] and [New], the [Score], [Policy],
-// [DriftDetector], [Holds], [IntentState], [HumanName] and [Notifier] a gate is
-// composed from with [NoDriftDetector] and [NoNotifier], plus the errors every
-// call shares and [Component], the actor a row's open event is written as.
+// [DriftDetector], [Holds], [IntentState], [RaisedByTheHealthMonitor] and
+// [Notifier] a gate is composed from with [NoDriftDetector] and [NoNotifier],
+// plus the errors every call shares and [Component], the actor a row's open
+// event is written as.
 // sample.go is the two samples: the score's held-out one, and the review sample
 // with its [Draw], [RandomDraw] and [NeverDraw].
 //
@@ -36,14 +37,19 @@
 // holds standing, what the deployer found on the service, and the strategy.
 // payload.go is [OpeningPayload], [CriterionResult] and the read back into
 // [Opened]. set.go is [Gate.FireSet], which decides over a [SetFiring] of
-// [SetMember]s with [SetOpeningPayload] and [NoBuildAtDecomposition].
+// [SetMember]s — each naming how many of the intent's requirements its item
+// answers, which is what the change group is computed from at that row — and
+// [SetOpeningPayload].
 //
 // verdict.go appends the close event: [Gate.Decide] takes a [Given],
 // [Gate.AutoPass] is the factory approving, [Gate.AutoReject] is the factory
 // rejecting on one of [MechanicalChecks], and [ClosingPayload] is that event's
 // shape. refer.go is [Gate.Refer], the one verdict that closes a row and re-fires
 // it. refuse.go is the two refusals the log's writer cannot evaluate on its own,
-// supplied to it per close. acknowledge.go is [Gate.Acknowledge]. abandon.go is
+// supplied to it per close and compared as per-person keys: the People
+// declaration holds a duty by key, an artifact version records the actor that
+// wrote it by key, and a safeguard's routing names one. acknowledge.go is
+// [Gate.Acknowledge]. abandon.go is
 // [Gate.Abandon] with the three reasons a decision is ended, and
 // [Gate.EnforceAttemptLimit] with [Escalated]. reevaluate.go is [Gate.Reevaluate]
 // and [Gate.ReevaluatePending], which re-test the holds on a pending row.
@@ -61,11 +67,10 @@
 // # Which callers are not built
 //
 // [IntentState] is a function the composition supplies, and the component that
-// reads an item's intent is not built. [HumanName] resolves a close event's
-// actor to the name an artifact version records as its author, and the People
-// declaration's key-to-name mapping it would read is not built either; where it
-// is nil the two are compared unresolved, so a self-approval is refused only
-// where the key and the author are spelled the same. [Holds] is the composition's,
+// reads an item's intent is not built. [RaisedByTheHealthMonitor] is the second
+// read of that intent, which is what a halt's two exceptions come to; a gate
+// composed without it excepts nothing, so every item holds while a halt stands.
+// [Holds] is the composition's,
 // and four of the holds this package names read records that do not exist yet:
 // a change freeze, a service's maximum concurrent kept fleets, an advisory
 // match, and the producing release of a contract migration. [Notifier] reaches
@@ -108,7 +113,7 @@
 // 11-a-halts-withdrawal.md. The row that decides a shortening of decision-log
 // retention is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md,
-// and the halt no approve passes is
+// and the halt no approve passes, with the two exceptions it takes, is
 // ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.
 //
 // The vector, the resolution that puts a human at a row whatever the number, and

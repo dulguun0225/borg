@@ -33,6 +33,9 @@ func (s *Score) exposure(_ context.Context, c Change) (reading, error) {
 	if c.Exposure.Unavailable != "" {
 		return reading{unavailable: c.Exposure.Unavailable}, nil
 	}
+	if !c.Exposure.Derived {
+		return reading{unavailable: "nothing derived an exposure list for this change, and a list nobody derived is never read as no dependency change"}, nil
+	}
 	list := c.Exposure.List()
 	value := level(float64(len(list)), exposureBreakpoints, 1.0)
 	words := fmt.Sprintf("%d outbound call(s) added, %d credential(s) named or read, %d authorization check(s) removed or weakened, and %d dependency change(s)",

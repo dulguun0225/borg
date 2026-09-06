@@ -14,26 +14,34 @@ import (
 // own; a refer with nobody left to refer to and a close by the author of the
 // version under decision are supplied from here, because both depend on the
 // People declaration and the artifact store.
+//
+// Everything compared here is a per-person key. The People declaration records
+// who holds a duty by key, an artifact version records the actor that wrote it
+// by key, and a safeguard's routing names a key: the mapping from a key to a
+// name is outside the chain, so no refusal reads it.
 
 // closeRefusals is what one close is refused against: who is closing it, the
-// author named on the version under decision, who holds the row's duty at the
-// close, who has already referred it, and the human the record's own routing
-// bars. Everything here is read once, immediately before the append, so the
-// refusal is evaluated against the roster in force at the close.
+// actor that wrote the version under decision, who holds the row's duty at the
+// close, who has already referred it, whether the row already waits on the
+// owner, and the human the record's own routing bars. Everything here is read
+// once, immediately before the append, so the refusal is evaluated against the
+// roster in force at the close.
 type closeRefusals struct {
-	// actor is the name the close's actor resolves to, which is what an
-	// artifact's author is written as. It is the actor's own key where no
-	// resolver is composed.
+	// actor is the per-person key of whoever is closing the row.
 	actor string
-	// author is the author named on the artifact version the open event names,
-	// and is empty at an event gate.
-	author string
+	// author is the actor the artifact version the open event names was written
+	// by, and is the zero actor at an event gate.
+	author record.Actor
 	// holders is who the People declaration records as holding the row's duty at
-	// the close.
+	// the close, by per-person key.
 	holders []string
-	// referrers is every holder who has already referred this row.
+	// referrers is every holder who has already referred this row, by key.
 	referrers []string
-	// notHuman is the human the record's own routing bars from deciding.
+	// waitsOnTheOwner is whether the row being closed already waits on the
+	// owner, which is where a row nobody is left to hold widens to.
+	waitsOnTheOwner bool
+	// notHuman is the per-person key of the human the record's own routing bars
+	// from deciding.
 	notHuman string
 }
 
@@ -42,16 +50,10 @@ type closeRefusals struct {
 // alone.
 func (g *Gate) refusalsFor(ctx context.Context, opened Opened, actor record.Actor) (closeRefusals, error) {
 	refusals := closeRefusals{
-		actor:     actor.Key,
-		referrers: opened.Referrers,
-		notHuman:  opened.WaitsOn.NotHuman,
-	}
-	if actor.Kind == record.KindHuman && g.humanName != nil {
-		name, err := g.humanName(ctx, actor.Key)
-		if err != nil {
-			return closeRefusals{}, fmt.Errorf("gate: resolving who %s is: %w", actor.Key, err)
-		}
-		refusals.actor = name
+		actor:           actor.Key,
+		referrers:       opened.Referrers,
+		waitsOnTheOwner: opened.WaitsOn.TheOwner(),
+		notHuman:        opened.WaitsOn.NotHuman,
 	}
 	author, err := g.authorOf(ctx, opened.ArtifactID)
 	if err != nil {
@@ -68,12 +70,20 @@ func (g *Gate) refusalsFor(ctx context.Context, opened Opened, actor record.Acto
 	return refusals, nil
 }
 
+// byTheAuthor reports whether this close is being given by the human who wrote
+// the version under decision. Only a human authors a version somebody can then
+// approve for themselves: an agent's key is a model version and the gate
+// component's is its own name, and neither closes a row as a person.
+func (r closeRefusals) byTheAuthor() bool {
+	return r.author.Kind == record.KindHuman && r.author.Key != "" && r.author.Key == r.actor
+}
+
 // selfApproval reports whether this close is the version's own author closing a
 // row no second holder of its duty exists for. Where one does, [closeRefusals.refuse]
 // refuses the close instead; where none does, the row still fires to the editor
 // and the close event carries the field.
 func (r closeRefusals) selfApproval() bool {
-	return r.author != "" && r.actor == r.author && !r.anotherHolderExists()
+	return r.byTheAuthor() && !r.anotherHolderExists()
 }
 
 // anotherHolderExists reports whether the People declaration records a holder of
@@ -93,10 +103,10 @@ func (r closeRefusals) refuse(verdict Verdict) error {
 	if r.notHuman != "" && r.actor == r.notHuman {
 		return fmt.Errorf("%w: %s", ErrClosedByTheActor, r.actor)
 	}
-	if r.author != "" && r.actor == r.author && r.anotherHolderExists() {
+	if r.byTheAuthor() && r.anotherHolderExists() {
 		return fmt.Errorf("%w: %s authored it, and %v holds the duty", ErrSelfApproval, r.actor, r.holders)
 	}
-	if verdict == VerdictRefer && r.alreadyTheOwners() {
+	if verdict == VerdictRefer && r.nobodyLeftToReferTo() {
 		return fmt.Errorf("%w: %v have referred it and it already waits on the owner",
 			ErrNobodyLeftToReferTo, r.referrers)
 	}
@@ -104,8 +114,8 @@ func (r closeRefusals) refuse(verdict Verdict) error {
 }
 
 // leftToReferTo is every holder of the row's duty who has neither referred it
-// nor is referring it now. A referred row re-fires to one of these, and a refer
-// with none left is refused, the screen saying so.
+// nor is referring it now. A referred row re-fires to one of these, and where
+// none is left it widens to the owner, which is where every unheld row goes.
 func (r closeRefusals) leftToReferTo() []string {
 	var left []string
 	for _, holder := range r.holders {
@@ -117,8 +127,12 @@ func (r closeRefusals) leftToReferTo() []string {
 	return left
 }
 
-// alreadyTheOwners reports whether the row already waits on the owner, which is
-// where a row nobody holds goes. A refer there has nobody left to reach: the
-// row widened once already, and what the human has instead is a reject whose
+// nobodyLeftToReferTo reports whether this refer has nobody to reach: no holder
+// of the duty who has not referred it, on a row that already waits on the owner.
+// A refer by the last holder is not that case — it re-fires to the owner, the
+// one widening every unheld row takes — and a refer at the widened row is,
+// because the row cannot widen twice. What that human has left is a reject whose
 // reason says what they could not read.
-func (r closeRefusals) alreadyTheOwners() bool { return len(r.holders) == 0 }
+func (r closeRefusals) nobodyLeftToReferTo() bool {
+	return len(r.leftToReferTo()) == 0 && r.waitsOnTheOwner
+}

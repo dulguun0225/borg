@@ -17,7 +17,7 @@ import (
 // counted there, master is never created, and the close event carries the
 // feedback.
 func TestARejectStopsThePath(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\nreject not what I asked for\n")
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvalsBeforeMerge+"reject not what I asked for\n")
 
 	res, err := run(ctx, d, of(theStatement))
 	if err != nil {
@@ -42,9 +42,9 @@ func TestARejectStopsThePath(t *testing.T) {
 
 	// The item is at implementation with one attempt there: an attempt is
 	// counted when a stage is entered to author, and Dispatch.ReturnTo — what a
-	// reject sends the item back with — counts nothing itself. A second attempt
-	// is counted only when something re-enters the stage to author again, which
-	// no component built at this milestone does.
+	// reject sends the item back with — counts nothing itself. The entry that
+	// would count a second is the next dispatch onto the stage, and this run
+	// ends at the reject.
 	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item: %v", err)
@@ -78,11 +78,14 @@ func TestARejectStopsThePath(t *testing.T) {
 	}
 
 	// The close event carries the feedback.
+	// Six decisions and twelve rows: the four rows of the item's own artifacts,
+	// the candidate deploy row, and the merge row the reject closed. The
+	// production deploy row never fires.
 	rows := decisionRows(readLog(t, ctx, d))
-	if len(rows) != 4 {
-		t.Fatalf("the log holds %d decision rows, and a reject at the merge row is two decisions: the production row never fires", len(rows))
+	if len(rows) != 12 {
+		t.Fatalf("the log holds %d decision rows, and a reject at the merge row is six decisions: the production row never fires", len(rows))
 	}
-	payload := closingPayload(t, rows[3])
+	payload := closingPayload(t, rows[11])
 	if payload.Verdict != string(gate.VerdictReject) {
 		t.Errorf("the closing carries verdict %q, the human rejected", payload.Verdict)
 	}
@@ -101,7 +104,7 @@ func TestARejectStopsThePath(t *testing.T) {
 // in it, which is what lets a candidate decomposed in parallel with another one build at
 // all. What it ships is release number 1, the reject having minted none.
 func TestARejectThenASecondRunShips(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, "approve\nreject not what I asked for\n", approvals)
+	ctx, d, first, second := twoRunsOnOneService(t, approvalsBeforeMerge+"reject not what I asked for\n", approvals)
 
 	if !first.rejected {
 		t.Fatal("the first run's scripted verdict was a reject and the run does not say so")

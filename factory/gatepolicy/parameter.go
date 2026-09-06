@@ -95,6 +95,19 @@ const (
 	// Nothing authors it: it exists as a safeguard and only as one, so it is listed
 	// in [SafeguardOnly] rather than in [Definitions].
 	SafeguardPredicate Parameter = "safeguard_predicate"
+	// DriftDetectorLastCheckMaxAge is how old the drift detector's own last check
+	// may be before the production deploy row holds. Nothing authors it either:
+	// the detector supplies its own interval, so what an owner may add is a
+	// safeguard on that record and nothing else, and it is listed in
+	// [SafeguardOnly] for that reason.
+	DriftDetectorLastCheckMaxAge Parameter = "drift_detector_last_check_max_age"
+	// ExplicitThreshold is the absolute number a service's quantity is read
+	// against beside the comparison, with [ExplicitThresholdSize] as the smallest
+	// change from it worth catching. Both are fields of the service record, and
+	// neither is one of gate policy's eleven rows.
+	ExplicitThreshold Parameter = "explicit_threshold"
+	// ExplicitThresholdSize is the size an owner sets when they set the number.
+	ExplicitThresholdSize Parameter = "explicit_threshold_size"
 )
 
 // Kind is what a parameter's value is, which decides how a safeguard clamps it and

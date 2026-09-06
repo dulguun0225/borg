@@ -47,7 +47,7 @@ func TestADropOfADeprecatedStoreElementWaitsOnItsBackfill(t *testing.T) {
 	}
 
 	// A deploy record marking the backfill complete is what clears it.
-	g.backfills.mark(g.producer.ID, theStore, "ID", "dep_backfilled")
+	markBackfill(t, ctx, g, g.producer, theStore, "ID", "ID_new")
 	again := candidateOf(t, ctx, g, g.producer, []contract.Form{stored()}, nil, nil)
 	checked, err = g.check.Enforce(ctx, again, g.production)
 	if err != nil {
@@ -95,7 +95,7 @@ func TestAMoveOfReadsToAStoresNewFormWaitsOnItsBackfill(t *testing.T) {
 		t.Fatalf("the migration found is %+v, want New waiting and moving", checked.Migrations)
 	}
 
-	g.backfills.mark(g.producer.ID, theStore, "New", "dep_backfilled")
+	markBackfill(t, ctx, g, g.producer, theStore, "New", "Old")
 	again := candidateOf(t, ctx, g, g.producer,
 		[]contract.Form{stored(element("Old", "string", true, true), element("New", "string", false, false))},
 		[]consumercontract.Draft{draft(g.producer, theStore, "New", gatepolicy.PredicateRead, "")}, nil)
@@ -190,7 +190,7 @@ func TestADestructiveChangeIsRejectedWithNoSnapshot(t *testing.T) {
 	ctx, g := newGraph(t)
 
 	ship(t, ctx, g, g.producer, []contract.Form{stored(element("ID", "string", true, true))}, nil, window.ExitTimedOut)
-	g.backfills.mark(g.producer.ID, theStore, "ID", "dep_backfilled")
+	markBackfill(t, ctx, g, g.producer, theStore, "ID", "ID_new")
 
 	dropping := candidateOf(t, ctx, g, g.producer, []contract.Form{stored()}, nil, nil)
 	g.storeState.snapshot[dropping.ItemID] = contractcheck.Snapshot{Taken: true, Verified: false, Why: "the disk was full"}

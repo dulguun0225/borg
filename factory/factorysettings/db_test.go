@@ -233,10 +233,10 @@ func TestReAuthoringALimitIsOneRow(t *testing.T) {
 	}
 }
 
-// TestTheCatalogAndTheRolePromptThreshold: both are fields of this record and neither
-// is read by anything at this milestone, which is what makes storing them the
-// whole of what can be demonstrated about them.
-func TestTheCatalogAndTheRolePromptThreshold(t *testing.T) {
+// TestTheAllowedPredicateKindsAndTheRolePromptThreshold: both are fields of this
+// record and neither is read by anything at this milestone, which is what makes
+// storing them the whole of what can be demonstrated about them.
+func TestTheAllowedPredicateKindsAndTheRolePromptThreshold(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
 	policy, err := w.Ensure(ctx, owner)

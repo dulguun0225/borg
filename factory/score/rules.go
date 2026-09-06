@@ -3,7 +3,7 @@ package score
 // LearningVersion names the published rules by which a supplied value moves. It
 // moves when a rule changes, the way [FormulaVersion] moves when the formula
 // does, and a version naming it is readable against the rules that were in force.
-const LearningVersion = "outcomes-2"
+const LearningVersion = "outcomes-3"
 
 // Rules is the published rules, in the words the score version stores and an
 // owner disagreeing with a moved value reads. A learned value nobody can argue
@@ -50,7 +50,9 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       re-authored version approved and differing by content digest in what the
                       rejection named, approval without differing there, a second rejection, or the
                       item reaching the attempt limit. The first, third and fourth are read as a gate
-                      the factory needed and move the threshold down; the second is a false alarm,
+                      the factory needed: each lowers the threshold of the row the human was at by one
+                      band (0.05), floored at 0.05, and it is that row and no other, the item never
+                      having been auto-passed at a row a human decided. The second is a false alarm,
                       moves nothing, and is published per human.
 
   attempt limit       per stage, both ways, once 3 items have reported at that stage. One above the
@@ -83,7 +85,10 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       in force to one, ceilinged at 0.99. It falls one step of 0.05, floored at 0.50,
                       where 3 windows of that service in a row timed out on traffic that reached the size
                       in force: that is volume a lower power would have closed passed within, which is the
-                      power's own observable and not the size's. The two are read apart because they are
+                      power's own observable and not the size's. The size in force is one value per
+                      quantity, so the run is read per quantity against that quantity's own size, off the
+                      finest size each window reports its traffic reached on it, and the fall moves that
+                      quantity's power alone. The two are read apart because they are
                       read off the same windows, and reading one event as both ends at once would move two
                       values against a single piece of evidence.
 

@@ -4,7 +4,12 @@
 // # The code
 //
 // postgres.go holds [Open], [URL], which reads [URLEnv] and falls back to
-// [DefaultURL], and [Apply]. There is no ORM and no migration framework:
+// [DefaultURL], and [Apply]. history.go holds the store's account of itself:
+// [HistoryTable] and [HistoryDDL], [Version], [Change] with [Effect] and
+// [Effects], [Changes] — every change to this store the version this source
+// ships as declares — [History], the read of what the store holds, and
+// [Start], which reads the history, refuses the four disagreements the forward
+// promise names, applies the schema and records what this version declares. There is no ORM and no migration framework:
 // [Apply] is the list, naming each package that owns a table and running the
 // DDL that package exported, in the order written there. Learning the whole
 // schema is reading that function and following it to each package's DDL —
@@ -25,9 +30,18 @@
 //
 // CREATE TABLE IF NOT EXISTS does not alter a table that is already there, so
 // a database written under an earlier schema is not brought forward by running
-// against it; it is dropped and applied again. Nothing here detects that: the
-// first write against a table missing a column fails on the column, which is
-// not the same as a store that knows what version it is at.
+// against it; it is dropped and applied again. What says which version the
+// store is at is the schema history [Start] reads and writes — one row per
+// change, naming the version that shipped it, the change's identity, a
+// checksum of its text, and whether it widened the store or removed something
+// from it — and what a version's first start refuses is stated there. Applying
+// a change is still [Apply]'s flat list: a declared change names the text it
+// stands for and the history records what that text was.
+//
+// Which caller is not built: the install's first-start step, which is what
+// calls [Start], writes the install event naming the changes it applied, and
+// takes and verifies the snapshot a removal is applied after. The
+// command-line interface calls [Apply] and reads no history.
 //
 // Who may write what: this package creates the schema and writes no record. It
 // imports the packages that own tables; they do not import it, because that
@@ -38,7 +52,9 @@
 // What defines it: the store is where the five seams of "Security comes last"
 // are written, ../../end-goal/deferred.md#security-comes-last. PostgreSQL from
 // the first record with no migration framework is
-// ../../roadmap.md#m0--the-graph-and-the-log, and the forward promise this
-// store does not have is due where ../../end-goal/one-process.md states the
-// schema history that promise is the shape of.
+// ../../roadmap.md#m0--the-graph-and-the-log. The schema history, the forward
+// promise it carries, and what a version's first start refuses are
+// ../../end-goal/one-process.md; the shape that promise takes for a service's
+// own store is
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
 package postgres

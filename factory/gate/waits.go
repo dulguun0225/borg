@@ -35,10 +35,11 @@ const (
 type RoutedTo struct {
 	// Duty is the duty the record routes to, and is zero where it names none.
 	Duty people.Duty
-	// Human is the named human the record routes to, and is empty where it
-	// names none.
+	// Human is the per-person key of the named human the record routes to, and
+	// is empty where it names none.
 	Human string
-	// NotHuman is a human this row may not route to and may not be closed by:
+	// NotHuman is the per-person key of a human this row may not route to and
+	// may not be closed by:
 	// the actor on a withdrawal is never the human its row waits on, and the
 	// human who authored a shorter retention value is not the one who decides
 	// it.
@@ -53,15 +54,16 @@ type Waits struct {
 	// Duty is the duty a human at the row is performing, and is zero where the
 	// design names none for it.
 	Duty people.Duty
-	// Human is the named human a safeguard's routing field gives, and is empty
-	// where none is named.
+	// Human is the per-person key of the named human a safeguard's routing field
+	// gives, and is empty where none is named.
 	Human string
 	// Holders is who the People declaration recorded as holding the duty at the
-	// firing, by the name that declaration holds. It is empty where the row
+	// firing, by the per-person key that declaration holds. It is empty where the row
 	// names no duty and where nobody holds the one it names, and an empty list
 	// is what widens the row to the owner.
 	Holders []string
-	// NotHuman is the human this row may not be closed by, carried from
+	// NotHuman is the per-person key of the human this row may not be closed by,
+	// carried from
 	// [RoutedTo] so that a reader of the row sees the separation the record
 	// makes between the actor and the decider.
 	NotHuman string
@@ -111,7 +113,7 @@ func (g *Gate) waitsOn(ctx context.Context, row Row, holds []string, routed Rout
 }
 
 // holdersOf is who the People declaration records as holding one duty, by the
-// name that declaration holds. It is read at the firing for what the open event
+// per-person key that declaration holds. It is read at the firing for what the open event
 // says and again at the close for the two refusals that turn on who holds the
 // row's duty.
 func (g *Gate) holdersOf(ctx context.Context, duty people.Duty) ([]string, error) {

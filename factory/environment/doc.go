@@ -6,7 +6,7 @@
 // environment.go is [Environment] with [Environment.Live], [Environment.Addresses]
 // and [Environment.EveryTargetServesAShare], [Kind] with [Kinds] and
 // [ProductionName], [Target], [Platform] and [Spec], and the reads [Get], [ByName],
-// [Production], [ForItem] and [CountLiveCandidates]. writer.go is the persistent
+// [Production], [ForItem], [CountLiveCandidates] and [TornDownCandidates]. writer.go is the persistent
 // kinds' writer: [Writer] and [NewWriter] with [Writer.Create], [Writer.Withdraw],
 // [Writer.AddTarget] and [Writer.RemoveTarget], the transaction-taking functions
 // beside each ([Insert], [Withdraw], [AddTarget], [RemoveTarget]), and
@@ -112,7 +112,10 @@
 // [CountLiveCandidates] is read against a ceiling that is not gate policy and
 // no parameter of an owner's own, so the number it is compared against belongs
 // to whatever composes the deployer and not to this package and not to package
-// gatepolicy.
+// gatepolicy. [TornDownCandidates] is the other half of the deployer's pass over
+// a platform: what the records mark torn down, compared against what the
+// platform reports holding, is where a teardown that failed is found. Neither
+// caller is built — the pass is the deployer's, in the command-line interface.
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md,

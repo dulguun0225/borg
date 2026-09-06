@@ -150,18 +150,22 @@ func (g *Gate) artifactUnderDecision(ctx context.Context, f Firing) (id, digest 
 	return version.ID, version.ContentDigest, version.Actor, nil
 }
 
-// authorOf is the author named on the artifact version an open event names,
+// authorOf is the actor that wrote the artifact version an open event names,
 // which is what the refusal of a close by that version's own author compares
-// against. An open event naming no version has no author to refuse.
-func (g *Gate) authorOf(ctx context.Context, artifactID string) (string, error) {
+// against. It is the version's actor and not its author field: the actor is the
+// per-person key of whoever wrote it, which is what the close event and the
+// People declaration are both written with, where the author field is a model
+// version or a person's name kept for the score's per-author prior. An open
+// event naming no version has no author to refuse.
+func (g *Gate) authorOf(ctx context.Context, artifactID string) (record.Actor, error) {
 	if artifactID == "" {
-		return "", nil
+		return record.Actor{}, nil
 	}
 	version, err := artifact.Get(ctx, g.pool, artifactID)
 	if err != nil {
-		return "", fmt.Errorf("gate: reading the author of %s: %w", artifactID, err)
+		return record.Actor{}, fmt.Errorf("gate: reading who wrote %s: %w", artifactID, err)
 	}
-	return version.Author, nil
+	return version.Actor, nil
 }
 
 // mismatch is the drift detector's own store, read at a deploy to production row
@@ -186,6 +190,11 @@ func (g *Gate) mismatch(ctx context.Context, f Firing) (string, error) {
 // standingHolds is every hold standing at this firing: what the composition
 // computes, plus the halt, which this package reads itself because the refusal
 // it carries is the gate's — no approve passes one.
+//
+// A halt takes the two exceptions the exhausted error budget hold takes, a
+// revert and an item the health monitor raised on that service, so the hold is
+// not appended for either: a halt stops the factory acting forward and never
+// stops it undoing what it did.
 func (g *Gate) standingHolds(ctx context.Context, s Subjects) ([]string, error) {
 	if !s.Row.Deploys() {
 		return nil, nil
@@ -200,10 +209,37 @@ func (g *Gate) standingHolds(ctx context.Context, s Subjects) ([]string, error) 
 			return nil, fmt.Errorf("gate: reading whether a halt stands: %w", err)
 		}
 		if len(halts) > 0 && !slices.Contains(standing, HoldHalt) {
-			standing = append(standing, HoldHalt)
+			excepted, err := g.passesAHalt(ctx, s.ItemID)
+			if err != nil {
+				return nil, err
+			}
+			if !excepted {
+				standing = append(standing, HoldHalt)
+			}
 		}
 	}
 	return checkHolds(s.Row, standing)
+}
+
+// passesAHalt reports whether this item is one of the two a halt lets through: a
+// revert, and an item the health monitor raised on that service. Both are read
+// as one question of the item's intent, a revert being an item of the intent the
+// health monitor raised at the rollback, which is the reading the merge queue's
+// own stop makes.
+//
+// A gate composed with no reader of it excepts nothing, so every item holds
+// while a halt stands, and the row outside every item — a halt's own withdrawal
+// among them — names no item and reaches no read.
+func (g *Gate) passesAHalt(ctx context.Context, itemID string) (bool, error) {
+	if itemID == "" || g.raisedByTheHealthMonitor == nil {
+		return false, nil
+	}
+	raised, err := g.raisedByTheHealthMonitor(ctx, itemID)
+	if err != nil {
+		return false, fmt.Errorf("gate: reading whether the health monitor raised the intent %s answers: %w",
+			itemID, err)
+	}
+	return raised, nil
 }
 
 // unmeasured is which of the deployer's four fields the service is missing, in

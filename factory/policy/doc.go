@@ -25,7 +25,10 @@
 // event, [Factory.CreateEnvironment], [Factory.WithdrawEnvironment],
 // [Factory.SetMaxConcurrentCandidateEnvironments] and [Factory.DeclareArea].
 // parameters.go is the thirteen parameters of gate policy's eleven rows, one
-// Author call each. settings.go is what an owner authors on the factory-wide
+// Author call each, with [Factory.ConfirmGateThreshold] beside the two threshold
+// writes: a threshold write names the score version in force at it, and the
+// confirmation names one without moving the number. Both are what
+// [score.InForceAt] reads back. settings.go is what an owner authors on the factory-wide
 // settings record beside them — the retentions, the report channel's rates, the
 // remediation period, the harm mark's cap, and seam 5 — with
 // [Factory.AuthorDecisionLogRetention] refusing a shortening
@@ -55,7 +58,11 @@
 // predicate kinds, the one parameter with a fourth read under the other three.
 //
 // gate.go is [Reader.AtGate] and [Applied], what a gate firing writes onto its
-// open event, carrying both the threshold and whether a safeguard adds a human;
+// open event, carrying the threshold, whether a safeguard adds a human, and the
+// score version in force at that row — the newest where nobody authored a
+// threshold there, and the last one confirmed at the scope where somebody did.
+// A firing computes its vector under [Applied.ScoreVersion]; what passes it to
+// the score is package gate's own composition, which does not yet;
 // gatereads.go is the three parameters a gate reads beside it,
 // [Reader.HeldOutSampleRate], [Reader.ReviewSampleRate] and
 // [Reader.ExposureBound].

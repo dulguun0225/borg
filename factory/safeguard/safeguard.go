@@ -62,9 +62,13 @@ const (
 	// SubjectReportStore is the report store. Nothing derives a safeguard
 	// reading it yet: the report store is not built.
 	SubjectReportStore SubjectKind = "report_store"
-	// SubjectDriftDetectorLastCheck is the drift detector's last check.
-	// Nothing derives a safeguard reading it yet: the drift detector's store is
-	// outside this module.
+	// SubjectDriftDetectorLastCheck is the drift detector's last check, which a
+	// safeguard binds a maximum age on through
+	// [gatepolicy.DriftDetectorLastCheckMaxAge]: the detector supplies its own
+	// interval, so what an owner may add is a bound on that record and nothing
+	// else. The store it names is the detector's own and outside the factory's,
+	// which is why the value is read against [driftdetector.LastChecks] by
+	// whoever holds both pools and never through a writer here.
 	SubjectDriftDetectorLastCheck SubjectKind = "drift_detector_last_check"
 )
 

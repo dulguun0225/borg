@@ -16,8 +16,8 @@
 // prefixes, the three format versions, and [DDL]. errors.go holds every
 // sentinel this package returns.
 //
-// intake.go holds [Intake], [NewIntake], [Arrival], [Intake.TakeIn] and
-// [Intake.SetDeadline]. interview.go holds [Intake.OpenRound], [Intake.Ask]
+// intake.go holds [Intake], [NewIntake], [Arrival], [Intake.TakeIn],
+// [Intake.SetDeadline] and [Intake.SetProject]. interview.go holds [Intake.OpenRound], [Intake.Ask]
 // and [Intake.Answer]. confirm.go holds [Confirmation], [Intake.Confirm],
 // [Correction] and [Intake.Correct]. state.go holds [Intake.SendBack],
 // [Intake.MarkReDecomposing], [Intake.ClearReDecomposing], [Intake.Escalate]
@@ -34,6 +34,13 @@
 // where the confirmation carries one, so the tier the arrival wrote for a
 // detector's intent stays where it is.
 //
+// The project is the one field written once after the arrival and refused a
+// second write: [Arrival.ProjectID] writes it where a source supplies one, and
+// [Intake.SetProject] fills it where decomposition has to place a service the
+// work creates and nothing else answers. A second call is
+// [ErrProjectAlreadyWritten], the refusal being the writer's because a column
+// cannot see what stood in it before an update.
+//
 // A question is a record written twice: it is asked and the answer is written
 // onto it, and a reader tells the two apart by the answered_at field, which
 // [Question.Answered] reads. The answer is write-once — answering an answered
@@ -44,7 +51,10 @@
 // counts rounds and counting the questions would count a round that asked
 // three as three. The interview's rounds and decomposition's re-decompositions
 // are two fields and never one, so an interview's rounds are not spent out of
-// decomposition's budget.
+// decomposition's budget. A human's [Intake.Answer] on a question of an
+// escalated intent clears the escalation and starts the round count again,
+// which is the interview's counterpart to package item's clearing of a stage's
+// escalation; a component's answer clears nothing.
 //
 // A requirement's id is opaque, stable and never reused. A statement fitting
 // none of the six patterns is admitted with a tagged escape reason and no
@@ -68,7 +78,7 @@
 // [Intake.Confirm], [Intake.Correct] and [Intake.AcceptanceRound]; Work at
 // [Intake.Answer], [Intake.Delivered], [Intake.CorrectAcceptance] and
 // [Intake.Drop]; decomposition at [Intake.MarkReDecomposing],
-// [Intake.ClearReDecomposing], [Intake.DeriveForItem] and
+// [Intake.ClearReDecomposing], [Intake.SetProject], [Intake.DeriveForItem] and
 // [Intake.MarkUnanswerable]; and a named human at Ops through [Intake.TakeIn]
 // when they ask for a rollback's revert.
 //

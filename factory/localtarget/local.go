@@ -237,15 +237,20 @@ func gone(err error) bool {
 // It ends the process outright rather than draining it. Stop is the operation
 // that ends every instance — a mitigation, a removal, a teardown — and none of
 // the three is replacing what it ends with something that would serve the
-// requests it holds.
-func (l *Local) Stop(_ context.Context, p principal.Principal, service string, credential secretref.Ref) error {
+// requests it holds. So it reports a cut and never a drain: the deploy record of
+// a removal names what this reported, and a record naming a drain here would
+// assert a drain nothing performed.
+func (l *Local) Stop(_ context.Context, p principal.Principal, service string, credential secretref.Ref) (targetseam.Placement, error) {
 	if err := targetseam.CheckPrincipal(p); err != nil {
-		return err
+		return targetseam.Placement{}, err
 	}
 	if err := check(service, credential); err != nil {
-		return err
+		return targetseam.Placement{}, err
 	}
-	return l.stop(service)
+	if err := l.stop(service); err != nil {
+		return targetseam.Placement{}, err
+	}
+	return targetseam.Placement{Replacement: targetseam.ReplacementCut}, nil
 }
 
 func (l *Local) stop(service string) error {

@@ -11,7 +11,8 @@
 // write; [Writer] and [NewWriter], which wrap those three in their own
 // transaction for a caller — a test, today — that holds none of its own; and
 // [Reaching], whether a hold stands over one subject, a hold on the whole
-// factory reaching every subject asked about.
+// factory reaching every subject asked about; and [Standing], every hold in
+// force, which is what a truncation of the decision log is refused against.
 //
 // A withdrawal is written pending and is not in force until a second write
 // approves it: it ends only at a gate row of its own, held by a human always
@@ -20,12 +21,13 @@
 // combines the two writes into one call — a caller wanting that composes
 // [InsertWithdrawal] and [ApproveWithdrawal] itself.
 //
-// Who may write what: [Writer] is Factory. Nothing here refuses a truncation,
-// a report's expiry, or a People mapping's deletion while a hold reaches
-// them — [Reaching] is what such a caller will read, none of which is built.
-// Nothing here appends a policy version either; setting a hold and
-// withdrawing it each call for one, and package policy does not import this
-// package yet.
+// Who may write what: [Writer] is Factory, and package policy's own writes —
+// SetLegalHold, WriteLegalHoldWithdrawal and ApproveLegalHoldWithdrawal — call
+// the tx-taking writes here and append the policy version each of them calls
+// for in the same transaction. The refusals a standing hold carries are the
+// callers': the decision log's truncation takes [Standing] and refuses the cut
+// where any stands, People refuses the deletion of a mapping a hold reaches
+// through [Reaching], and a report's expiry and a redaction are not built.
 //
 // What defines it: the hold itself, what it suspends, and its withdrawal are
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md.

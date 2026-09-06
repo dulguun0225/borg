@@ -88,17 +88,23 @@ func (f *Fake) Deploy(_ context.Context, p principal.Principal, d Deployment) (P
 	return Placement{Replacement: ReplacementCut}, nil
 }
 
-// Stop records the call and forgets what was running for that service.
-func (f *Fake) Stop(_ context.Context, p principal.Principal, service string, credential secretref.Ref) error {
+// Stop records the call, forgets what was running for that service, and reports
+// how those instances ended — the same [Fake.Drains] a deploy's replacement is
+// reported by, a fake platform that cuts being what the deploy record's
+// per-target replacement field is read against.
+func (f *Fake) Stop(_ context.Context, p principal.Principal, service string, credential secretref.Ref) (Placement, error) {
 	if err := CheckPrincipal(p); err != nil {
-		return err
+		return Placement{}, err
 	}
 	if err := check(service, credential); err != nil {
-		return err
+		return Placement{}, err
 	}
 	f.calls = append(f.calls, Call{Op: OpStop, Principal: p, Service: service, Credential: credential})
 	delete(f.running, service)
-	return nil
+	if f.Drains {
+		return Placement{Replacement: ReplacementDrained}, nil
+	}
+	return Placement{Replacement: ReplacementCut}, nil
 }
 
 // ReadRunning records the call and answers with what Deploy last left for that
@@ -155,7 +161,9 @@ func (f *Fake) SetInstanceCount(_ context.Context, p principal.Principal, c Inst
 }
 
 // ApplySchemaChange records the call and appends the change to the service's
-// schema history, which is what [Fake.ReadRunning] then reports.
+// schema history, which is what [Fake.ReadRunning] then reports. A change marked
+// found applied is written into the history and performed on nothing, which is
+// what the deploy of an adopted service's first release asks for.
 func (f *Fake) ApplySchemaChange(_ context.Context, p principal.Principal, c SchemaChange) error {
 	if err := CheckPrincipal(p); err != nil {
 		return err
@@ -168,7 +176,8 @@ func (f *Fake) ApplySchemaChange(_ context.Context, p principal.Principal, c Sch
 		Change: c.Change, Credential: c.Credential,
 	})
 	f.SchemaHistory[c.Service] = append(f.SchemaHistory[c.Service], SchemaChangeApplied{
-		Change: c.Change, Checksum: fmt.Sprintf("%x", len(c.Text)), Widened: !c.Destroys,
+		Release: c.Release, Change: c.Change, Checksum: fmt.Sprintf("%x", len(c.Text)),
+		Widened: !c.Destroys, FoundApplied: c.FoundApplied,
 	})
 	return nil
 }

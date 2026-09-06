@@ -13,16 +13,18 @@
 // A withdrawal is written pending and is not in force until a second write
 // approves it, the way the gate row A halt's withdrawal decides one, held by
 // a human always and routed to the owner, the halt's subject being the
-// factory. That row is not built, so nothing here combines the two writes
-// into one call the way package safeguard stands in for its own withdrawal's
-// gate row — a caller wanting that composes [InsertWithdrawal] and
-// [ApproveWithdrawal] itself.
+// factory. Nothing here combines the two writes into one call the way package
+// safeguard stands in for its own withdrawal's gate row: the gate row is
+// gate.KindHaltWithdrawal, and what it calls at its close is package policy's
+// ApproveHaltWithdrawal.
 //
-// Who may write what: [Writer] is Factory. Nothing here fires the deploy to
-// production hold or stops the merge queue's fast-forward that a standing
-// halt calls for; [Standing] is what such a caller will read. Nothing here
-// appends a policy version either — setting a halt and withdrawing it each
-// call for one, and package policy does not import this package yet.
+// Who may write what: [Writer] is Factory, and package policy's own writes —
+// SetHalt, WriteHaltWithdrawal and ApproveHaltWithdrawal — call the tx-taking
+// writes here and append the policy version each of them calls for in the same
+// transaction. Nothing here fires the deploy to production hold or stops the
+// merge queue's fast-forward that a standing halt calls for: [Standing] is what
+// the gate component reads at that row and the merge queue at its stop, each
+// applying the refusal or the stop itself.
 //
 // What defines it: the halt itself is
 // ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.

@@ -31,7 +31,9 @@
 // intervals a window needs to close early, the second at a stated power;
 // [Boundary.IntervalsToFailed] is the other exit, and [Boundary.FinestSize] is
 // the finest size the intervals actually read could rule out, which is what a
-// window records at its close. [Boundary.UnitsToPassed] and
+// window records at its close; [Boundary.AtPower] reads a recorded one at
+// another power, which is how a caller holding what the traffic reached asks
+// whether it supports the power in force. [Boundary.UnitsToPassed] and
 // [Boundary.UnitsToFailed] are the second bound, in units of work inside an
 // interval, and the stricter of the two governs. [Coarsest] is the size in force
 // out of the size asked for and the floors under it. [ErrNoCrossing] is a
@@ -40,7 +42,10 @@
 // available to it.
 //
 // [Reading.Unavailable] is neither exit being reachable, for one of four
-// reasons: [NoVolume], no interval read on both arms; [NoBaseline], a release
+// reasons: [NoVolume], no interval read on both arms — except on a
+// [WorseLower] boundary, where an interval the other arm served and the release
+// arm counted no units in is read as the release arm having received nothing,
+// which is what fails a silent release beside a serving control; [NoBaseline], a release
 // with no arm to be compared against; [NoSpread], fewer intervals read than a
 // spread between them can be read from — the interval bound stated the other
 // way, so a burst of traffic inside one interval buys nothing the next
@@ -49,6 +54,10 @@
 // then read as known, and each is smoothed by half an occurrence in one unit,
 // because an arm that counted nothing would otherwise have no sampling
 // variance at all.
+//
+// The tests are boundary_test.go, the reading itself, and reach_test.go, the
+// same arithmetic read forwards; both are arithmetic alone, this package
+// reaching no database.
 //
 // Who may write what: this package owns no table, reaches no database, and
 // imports nothing but the standard library. It is arithmetic over numbers its

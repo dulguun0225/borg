@@ -55,8 +55,8 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 		IntentID:      "in_0000000000000000000000000000000a",
 		EnvironmentID: "env_000000000000000000000000000000a",
 		Members: []gate.SetMember{
-			{ItemID: "it_a", ServiceID: "svc_a", AreaID: "ar_a"},
-			{ItemID: "it_b", ServiceID: "svc_b", AreaID: "ar_a", WaitsOn: []string{"it_a"}},
+			{ItemID: "it_a", ServiceID: "svc_a", AreaID: "ar_a", Requirements: 2},
+			{ItemID: "it_b", ServiceID: "svc_b", AreaID: "ar_a", Requirements: 5, WaitsOn: []string{"it_a"}},
 		},
 	})
 	if err != nil {
@@ -99,10 +99,23 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 	if opening.HeldOut {
 		t.Error("the Decomposition row says the score held something out, and the sample does not reach a set")
 	}
-	// The diff factors are unavailable at decomposition, which the vector says rather
-	// than leaving a gap a reader has to interpret.
-	if s.asked.Measurement.Unavailable != gate.NoBuildAtDecomposition {
+	// The change group here is computed from the set decomposition proposed: the
+	// requirements the member answers and the services the set spans. Nothing is
+	// unavailable — a factor this row was never going to have, treated as
+	// missing, would put a human at every decomposition forever.
+	if s.asked.Measurement.Unavailable != "" {
 		t.Errorf("the score was asked with measurement %+v", s.asked.Measurement)
+	}
+	if !s.asked.Measurement.FromProposedSet() {
+		t.Errorf("the measurement is not the set proposed: %+v", s.asked.Measurement)
+	}
+	if s.asked.Measurement.RequirementsProposed != 5 || s.asked.Measurement.ServicesProposed != 2 {
+		t.Errorf("the last member was assessed at %d requirement(s) over %d service(s), want 5 over 2",
+			s.asked.Measurement.RequirementsProposed, s.asked.Measurement.ServicesProposed)
+	}
+	if payload.Set[1].Requirements != 5 {
+		t.Errorf("the open event records %d requirement(s) for the riskier member, want 5",
+			payload.Set[1].Requirements)
 	}
 
 	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove})
@@ -127,7 +140,8 @@ func TestARejectAtDecompositionNamesNoStage(t *testing.T) {
 		IntentID:      "in_0000000000000000000000000000000a",
 		EnvironmentID: "env_000000000000000000000000000000a",
 		Members: []gate.SetMember{
-			{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b"},
+			{ItemID: "it_a", ServiceID: "svc_a", Requirements: 1},
+			{ItemID: "it_b", ServiceID: "svc_b", Requirements: 1},
 		},
 	})
 	if err != nil {
@@ -152,13 +166,18 @@ func TestASetFiringMissingSomethingIsRefused(t *testing.T) {
 	s, p := &varyingScore{by: map[string]float64{}}, &fakePolicy{applied: applied(0.5)}
 	ctx, _, _, g := newGate(t, s, p)
 
-	two := []gate.SetMember{{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b"}}
+	two := []gate.SetMember{
+		{ItemID: "it_a", ServiceID: "svc_a", Requirements: 1},
+		{ItemID: "it_b", ServiceID: "svc_b", Requirements: 1},
+	}
 	for name, firing := range map[string]gate.SetFiring{
 		"no intent":      {EnvironmentID: "env_a", Members: two},
 		"no environment": {IntentID: "in_a", Members: two},
 		"one member":     {IntentID: "in_a", EnvironmentID: "env_a", Members: two[:1]},
 		"a member with no service": {IntentID: "in_a", EnvironmentID: "env_a",
-			Members: []gate.SetMember{{ItemID: "it_a"}, {ItemID: "it_b", ServiceID: "svc_b"}}},
+			Members: []gate.SetMember{{ItemID: "it_a", Requirements: 1}, {ItemID: "it_b", ServiceID: "svc_b", Requirements: 1}}},
+		"a member answering no requirement": {IntentID: "in_a", EnvironmentID: "env_a",
+			Members: []gate.SetMember{{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b", Requirements: 1}}},
 	} {
 		if _, err := g.FireSet(ctx, firing); !errors.Is(err, gate.ErrSetIncomplete) {
 			t.Errorf("a set firing with %s = %v, want ErrSetIncomplete", name, err)
@@ -194,7 +213,8 @@ func TestEditInPlaceAtDecompositionIsRefusedWithItsReason(t *testing.T) {
 		IntentID:      "in_0000000000000000000000000000000a",
 		EnvironmentID: "env_000000000000000000000000000000a",
 		Members: []gate.SetMember{
-			{ItemID: "it_a", ServiceID: "svc_a"}, {ItemID: "it_b", ServiceID: "svc_b"},
+			{ItemID: "it_a", ServiceID: "svc_a", Requirements: 1},
+			{ItemID: "it_b", ServiceID: "svc_b", Requirements: 1},
 		},
 	})
 	if err != nil {

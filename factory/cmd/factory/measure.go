@@ -166,7 +166,12 @@ func factorExposure(e exposure.Evidence, read bool) score.ExposureEvidence {
 			Unavailable: "the build record holds no exposure list: no extractor ran for this build's toolchain",
 		}
 	}
+	// Derived says a list was read for this build, which is what tells an
+	// empty list from no list: a build that reaches nothing new is the lowest
+	// reading there is, and a build nobody derived a list for is not read as
+	// one.
 	return score.ExposureEvidence{
+		Derived:             true,
 		OutboundCalls:       e.OutboundCalls,
 		Credentials:         e.Credentials,
 		AuthorizationChecks: e.AuthorizationChecks,

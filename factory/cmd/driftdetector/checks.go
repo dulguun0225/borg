@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/dulguun0225/borg/factory/driftdetector"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/lastcheck"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // chainCheck is the second comparison: the log's chain against the head
@@ -42,15 +44,16 @@ func chainCheck(ctx context.Context, s stores, out io.Writer) error {
 }
 
 // staleCheck is the third comparison: the factory's own last check records,
-// which is what makes a stopped factory component reach a human. The
-// notifier's own staleness, and every factory last check stale at once, have
-// no carrier inside the factory — the detector delivers to its own address
-// itself, naming what it found, rather than raising a mismatch nothing
-// inside the stopped process could ever answer. Every other stale component
-// is folded into the same chain-shaped mismatch [chainCheck] raises,
-// because this package does not carry a per-service mismatch for a last
-// check the way it does for a target that disagrees — an open point this
-// dispatch's report names.
+// which is what makes a stopped factory component reach a human. A last check
+// past the interval it names with a further pass owed is a mismatch of the shape
+// the two above have, holding what the stopped component reaches — the health
+// monitor's that service's production deploys, the deployer's that
+// environment's, which is one row per service in it.
+//
+// The notifier's own staleness, and every factory last check stale at once, have
+// no carrier inside the factory — a mismatch about the notifier would be
+// delivered by the notifier — so for those two the detector delivers to its own
+// address instead, naming what it found.
 func staleCheck(ctx context.Context, s stores, out io.Writer) error {
 	all, err := lastcheck.All(ctx, s.factory)
 	if err != nil {
@@ -79,14 +82,12 @@ func staleCheck(ctx context.Context, s stores, out io.Writer) error {
 	everyStale := len(stale) == len(all)
 
 	writer := driftdetector.NewWriter(s.own)
-	if len(others) > 0 {
-		why := fmt.Sprintf("%s's own last check is stale", others[0].Component)
-		raised, err := writer.RaiseChainMismatch(ctx, why)
-		if err != nil {
+	for _, c := range others {
+		// Every stale component is raised, not the first of them: a second one
+		// behind the first would otherwise be invisible until the first is
+		// cleared, and each holds what it reaches rather than what the others do.
+		if err := raiseStale(ctx, s, writer, c, out); err != nil {
 			return err
-		}
-		if raised != "" {
-			fmt.Fprintf(out, "STALE COMPONENT %s — %s\n", raised, why)
 		}
 	}
 
@@ -108,4 +109,68 @@ func staleCheck(ctx context.Context, s stores, out io.Writer) error {
 		fmt.Fprintf(out, "DELIVERED to %s — %s\n", address, why)
 	}
 	return nil
+}
+
+// raiseStale writes the mismatch one stale last check calls for, over the
+// services its component's stopping holds. The health monitor keeps one record
+// per service, so its subject is the service. The deployer keeps one per target
+// of a persistent environment, so its subject is a target and what it holds is
+// every service in the environment that names that target. A component whose
+// record is per neither holds every service the factory has, which is the
+// widest reading of "what the stopped component reaches" and the safe one.
+func raiseStale(ctx context.Context, s stores, writer *driftdetector.Writer,
+	c lastcheck.LastCheck, out io.Writer) error {
+	why := fmt.Sprintf("%s's own last check is stale: it named an interval of %s and owes a further pass",
+		c.Component, c.Interval)
+	for _, held := range holdsWhat(ctx, s, c) {
+		raised, err := writer.RaiseStaleComponent(ctx, driftdetector.StaleComponent{
+			Component: c.Component, ServiceID: held.serviceID, Target: held.target, Why: why,
+		})
+		if err != nil {
+			return err
+		}
+		if raised != "" {
+			fmt.Fprintf(out, "STALE COMPONENT %s — %s, holding %s's production deploys\n",
+				raised, why, held.serviceID)
+		}
+	}
+	return nil
+}
+
+// held is one service a stopped component's mismatch holds, and the target where
+// the record that stopped is kept per target.
+type held struct {
+	serviceID string
+	target    string
+}
+
+func holdsWhat(ctx context.Context, s stores, c lastcheck.LastCheck) []held {
+	if c.Component == lastcheck.ComponentHealthMonitor && c.Subject != "" {
+		return []held{{serviceID: c.Subject}}
+	}
+	services, err := service.All(ctx, s.factory)
+	if err != nil {
+		return nil
+	}
+	var holding []held
+	for _, svc := range services {
+		if svc.Retired() {
+			continue
+		}
+		if c.Component != lastcheck.ComponentDeployer || c.Subject == "" {
+			holding = append(holding, held{serviceID: svc.ID})
+			continue
+		}
+		production, found, err := environment.Production(ctx, s.factory, svc.ProjectID)
+		if err != nil || !found {
+			continue
+		}
+		for _, t := range production.Targets {
+			if t.Address == c.Subject {
+				holding = append(holding, held{serviceID: svc.ID, target: c.Subject})
+				break
+			}
+		}
+	}
+	return holding
 }

@@ -70,6 +70,9 @@ const (
 	// ActionWithdrawn is a record an owner withdrew that no gate row decides:
 	// an environment a customer defined.
 	ActionWithdrawn Action = "withdrawn"
+	// ActionConfirmed is an owner confirming the threshold as it stands against
+	// the score version in force, which authors no value and moves no field.
+	ActionConfirmed Action = "confirmed"
 )
 
 // Scope is the record an authored value is a field of, and the value of the
@@ -77,9 +80,9 @@ const (
 // threshold, the stage for an attempt limit, the quantity for the window's size
 // and power, the duty for the review sample rate.
 type Scope struct {
-	Kind string
-	ID   string
-	Key  string
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	Key  string `json:"key"`
 }
 
 // The record kinds a scope names.
@@ -177,6 +180,13 @@ type Version struct {
 	// set, one per factor set, and is empty on every version that set none. It
 	// is the one field a later version does not restate.
 	AutoPassRates []AutoPassRate
+	// ConfirmsScoreVersion is the score version this write confirmed or
+	// re-authored the threshold on this scope against, and is empty on every
+	// version that confirmed none. A version that changed the published formula,
+	// the factor set or the weights does not decide a gate an authored threshold
+	// binds until a version here names it at that scope, which is what
+	// [score.InForceAt] reads.
+	ConfirmsScoreVersion string
 }
 
 // payload is the version as it is serialised into the log row. The actor, the
@@ -199,6 +209,11 @@ type payload struct {
 	LegalHolds    []string             `json:"legal_holds,omitempty"`
 	Declaration   DeclarationSnapshot  `json:"declaration"`
 	AutoPassRates []AutoPassRate       `json:"auto_pass_rates,omitempty"`
+	// ConfirmsScoreVersion and Scope above are the two fields package score
+	// reads off this row. It cannot be imported here, importing this package
+	// itself, so the spellings are declared in both and
+	// TestThePolicyVersionFieldsTheScoreReads is what holds them together.
+	ConfirmsScoreVersion string `json:"confirms_score_version,omitempty"`
 }
 
 func (v Version) marshal() (string, error) {
@@ -208,6 +223,7 @@ func (v Version) marshal() (string, error) {
 		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, Key: v.Key,
 		Authored: v.Authored, Safeguards: v.Safeguards, Halts: v.Halts, LegalHolds: v.LegalHolds,
 		Declaration: v.Declaration, AutoPassRates: v.AutoPassRates,
+		ConfirmsScoreVersion: v.ConfirmsScoreVersion,
 	})
 	if err != nil {
 		return "", fmt.Errorf("policy: serialising the version of %s: %w", v.Scope, err)
@@ -232,6 +248,7 @@ func versionOf(row decisionlog.Row) (Version, error) {
 		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, Key: p.Key,
 		Authored: p.Authored, Safeguards: p.Safeguards, Halts: p.Halts, LegalHolds: p.LegalHolds,
 		Declaration: p.Declaration, AutoPassRates: p.AutoPassRates,
+		ConfirmsScoreVersion: p.ConfirmsScoreVersion,
 	}, nil
 }
 

@@ -253,3 +253,36 @@ func driftTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	}
 	return pool
 }
+
+// TestAStoppedHealthMonitorPagesTheWindowCapCondition is the fourth page
+// condition reaching a human: the component that would have raised it is the one
+// that stopped, so the drift detector's third comparison is what fires it and
+// the notifier is what delivers it.
+func TestAStoppedHealthMonitorPagesTheWindowCapCondition(t *testing.T) {
+	ctx, pool, token, n, _ := newNotifier(t)
+	if _, err := peopleWriter(pool, token).Declare(ctx, theHumanOwner, "hk_sre",
+		people.OfObligation(people.ObligationDriftDetector)); err != nil {
+		t.Fatalf("declaring who installed the drift detector: %v", err)
+	}
+
+	drift := driftTestPool(t, ctx)
+	raised, err := driftdetector.NewWriter(drift).RaiseStaleComponent(ctx, driftdetector.StaleComponent{
+		Component: "health_monitor", ServiceID: "svc_quiet",
+		Why: "the health monitor's own last check for this service is stale",
+	})
+	if err != nil || raised == "" {
+		t.Fatalf("RaiseStaleComponent = %q, %v", raised, err)
+	}
+
+	if err := n.SweepDriftDetector(ctx, drift); err != nil {
+		t.Fatalf("SweepDriftDetector: %v", err)
+	}
+	events, err := n.EventsFor(ctx, raised)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	if len(events) != 1 || notifier.Kind(events[0].WaitKind) != notifier.KindWindowCapUnevaluated {
+		t.Errorf("the page for a stopped health monitor is %+v, want one %s event",
+			events, notifier.KindWindowCapUnevaluated)
+	}
+}

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/score"
@@ -69,8 +71,21 @@ type candidate struct {
 	// svc is the service record this item changes, and repo is that service's
 	// repository — the record's own field, so the run reads where the work is
 	// rather than being told twice.
-	svc            service.Service
-	branch         string
+	svc    service.Service
+	branch string
+	// specArtifactID, planArtifactID and tasksArtifactID are the versions the
+	// three stages above implementation authored, and spec, plan and tasks the
+	// text of each — what the stage below is handed, and what a reject hands
+	// back to the stage that re-authors.
+	specArtifactID  string
+	planArtifactID  string
+	tasksArtifactID string
+	spec            string
+	plan            string
+	tasks           string
+	// screenStates is the states the spec's machine declares, which the
+	// implementation stage authors what drives the screen into.
+	screenStates   []string
 	implArtifactID string
 	// consumerContractArtifactID is the consumer contract version derived from the
 	// same build, and is empty where the build declares nothing about another
@@ -79,6 +94,10 @@ type candidate struct {
 	criterionIDs               []string
 	buildID                    string
 	commit                     string
+	// basedOnMaster is whether the item's branch was cut from master, which is
+	// what the build's diff is taken against: a candidate decomposed before the
+	// first release has no master and is diffed against the empty tree.
+	basedOnMaster bool
 	// measurement is the build's diff, taken where the repository is and handed to
 	// every firing over that build. It is re-taken after the re-verification,
 	// because that produced a different build against a master that had moved.
@@ -90,6 +109,16 @@ type candidate struct {
 	// written by decomposition; the command-line interface derives one per intent, so
 	// this is empty or one long today.
 	requirementIDs []string
+	// statement is the intent's statement and requirements the requirements
+	// this item answers, both as the spec author is told them: a criterion
+	// names the requirement it answers, so the ids reach the role that writes
+	// them.
+	statement    string
+	requirements []agent.Requirement
+	// promised is the criteria the service already has in force, which the
+	// spec author authors against — a criterion it restates would be a second
+	// promise under a second id.
+	promised []criterion.Criterion
 
 	// The candidate's own environment and what happened on it.
 	environmentID  string
@@ -105,11 +134,15 @@ type candidate struct {
 	criteria            []gate.CriterionResult
 	tornDown            bool
 
-	// The three firings, each as it was decided. The Decomposition row is not
+	// The seven firings, each as it was decided. The Decomposition row is not
 	// among them: it decides a set and is on the [decompositionSet].
-	candidateGate fired
-	mergeGate     fired
-	deployGate    fired
+	specGate           fired
+	planGate           fired
+	tasksGate          fired
+	implementationGate fired
+	candidateGate      fired
+	mergeGate          fired
+	deployGate         fired
 
 	// checked is what enforcement found about this candidate's contracts at its
 	// merge row, and published is what the fast-forward wrote for each contract its

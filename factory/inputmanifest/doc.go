@@ -17,7 +17,10 @@
 // manifest at every dispatch, ahead of the run; nothing in this wave performs
 // a dispatch, so the caller that would be context assembly — the component
 // that dispatches an agent — holds [Writer] and calls [Writer.Write] itself
-// until context assembly exists. read_at_once_bound is nullable and
+// until context assembly exists. That caller is the command-line interface,
+// and the id [Writer.Write] returns is what it hands the artifact store's
+// submission and package agentrun's writer: the version a run authored names
+// the manifest it was authored from, and so does the run's own record. read_at_once_bound is nullable and
 // selection_rule_version may be empty for the matching reason: the fleet
 // entry and the selection rule are records later work adds, so a manifest
 // written today carries neither.

@@ -131,6 +131,53 @@ func TestASilentReleaseArmBesideAServingControlFails(t *testing.T) {
 	}
 }
 
+// TestAReleaseArmWithNoUnitsAtAllStillCrosses is the same reading where the
+// emission counted the release arm's own arrivals rather than both arms': the
+// arm has no units in any interval, which every other quantity reads as an
+// interval not observed, and the request rate reads as the arm having received
+// nothing beside a control that was served.
+func TestAReleaseArmWithNoUnitsAtAllStillCrosses(t *testing.T) {
+	requestRate := boundary.Boundary{
+		Size: 0.1, Confidence: 0.95, Comparisons: 3, Worse: boundary.WorseLower,
+	}
+	var o boundary.Observed
+	for i := 0; i < 3; i++ {
+		o.Intervals = append(o.Intervals, boundary.Counts{
+			Units: 0, Count: 0, BaselineUnits: 100, BaselineCount: 100,
+		})
+	}
+	reading, err := requestRate.Evaluate(o)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if !reading.Failed {
+		t.Errorf("a release arm with no units at all did not cross the request rate (log %v against %v, unavailable %q)",
+			reading.Log, reading.Crossing, reading.Unavailable)
+	}
+}
+
+// TestAQuantityARegressionRaisesStillSkipsAnUnservedInterval is the other half
+// of that rule: on an error rate, an interval the release arm has no units in is
+// no observation, because a release that served nothing failed nothing.
+func TestAQuantityARegressionRaisesStillSkipsAnUnservedInterval(t *testing.T) {
+	var o boundary.Observed
+	for i := 0; i < 4; i++ {
+		o.Intervals = append(o.Intervals, boundary.Counts{
+			Units: 0, Count: 0, BaselineUnits: 100, BaselineCount: 1,
+		})
+	}
+	reading, err := theBoundary.Evaluate(o)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if reading.Failed || reading.Passed {
+		t.Errorf("an error rate over intervals the release arm served nothing in reached an exit (log %v)", reading.Log)
+	}
+	if reading.Unavailable != boundary.NoVolume {
+		t.Errorf("Unavailable = %q, want %q", reading.Unavailable, boundary.NoVolume)
+	}
+}
+
 // TestAnArmTakingItsShareOfTrafficDoesNotCross is the other side of the same
 // reading: two arms splitting the traffic evenly rule the shortfall out.
 func TestAnArmTakingItsShareOfTrafficDoesNotCross(t *testing.T) {
@@ -226,117 +273,6 @@ func TestTheSpreadBetweenIntervalsIsWhatTheStatisticIsScaledBy(t *testing.T) {
 	if -swingingReading.Log >= -steadyReading.Log {
 		t.Errorf("the swinging service ruled the change out at %v, no slower than the steady one's %v",
 			swingingReading.Log, steadyReading.Log)
-	}
-}
-
-// TestTheIntervalsNeededScaleAsTheInverseSquareOfTheSize is the design's claim
-// about how traffic scales, checked as arithmetic: a size three times finer
-// costs about nine times the intervals.
-func TestTheIntervalsNeededScaleAsTheInverseSquareOfTheSize(t *testing.T) {
-	coarse := boundary.Boundary{Size: 0.09, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher}
-	fine := coarse
-	fine.Size = 0.03
-
-	coarseIntervals, err := coarse.IntervalsToPassed(0.02)
-	if err != nil {
-		t.Fatalf("IntervalsToPassed: %v", err)
-	}
-	fineIntervals, err := fine.IntervalsToPassed(0.02)
-	if err != nil {
-		t.Fatalf("IntervalsToPassed: %v", err)
-	}
-	if ratio := fineIntervals / coarseIntervals; math.Abs(ratio-9) > 0.001 {
-		t.Errorf("a size three times finer cost %v times the intervals, want 9", ratio)
-	}
-}
-
-// TestThePowerCostsMoreIntervalsThanEvenOdds is what the power is for: reaching
-// passed reliably costs more than reaching it half the time, and the two agree
-// at even odds.
-func TestThePowerCostsMoreIntervalsThanEvenOdds(t *testing.T) {
-	even, err := theBoundary.IntervalsForPassed(0.02, 0.5)
-	if err != nil {
-		t.Fatalf("IntervalsForPassed: %v", err)
-	}
-	toPassed, err := theBoundary.IntervalsToPassed(0.02)
-	if err != nil {
-		t.Fatalf("IntervalsToPassed: %v", err)
-	}
-	if math.Abs(even-toPassed) > 1e-9 {
-		t.Errorf("IntervalsForPassed at even odds = %v, want IntervalsToPassed's %v", even, toPassed)
-	}
-	reliable, err := theBoundary.IntervalsForPassed(0.02, 0.9)
-	if err != nil {
-		t.Fatalf("IntervalsForPassed: %v", err)
-	}
-	if reliable <= even {
-		t.Errorf("a power of nine in ten cost %v intervals, no more than even odds' %v", reliable, even)
-	}
-}
-
-// TestTheFinestSizeIsTheIntervalsReadTheOtherWayRound is what a window records
-// at its close: the size the traffic actually reached, which is the size that
-// would have needed exactly the intervals it read.
-func TestTheFinestSizeIsTheIntervalsReadTheOtherWayRound(t *testing.T) {
-	fine := boundary.Boundary{Size: 0.02, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher}
-	needed, err := fine.IntervalsForPassed(0.05, 0.8)
-	if err != nil {
-		t.Fatalf("IntervalsForPassed: %v", err)
-	}
-	finest, err := fine.FinestSize(0.05, 0.8, int(math.Ceil(needed)))
-	if err != nil {
-		t.Fatalf("FinestSize: %v", err)
-	}
-	if math.Abs(finest-fine.Size) > 0.001 {
-		t.Errorf("FinestSize over the intervals that size needs = %v, want about %v", finest, fine.Size)
-	}
-	coarser, err := fine.FinestSize(0.05, 0.8, 4)
-	if err != nil {
-		t.Fatalf("FinestSize: %v", err)
-	}
-	if coarser <= finest {
-		t.Errorf("four intervals reached %v, no coarser than the %v the full count reached", coarser, finest)
-	}
-}
-
-func TestIntervalsToFailedRefusesADifferenceThatDriftsTheOtherWay(t *testing.T) {
-	if _, err := theBoundary.IntervalsToFailed(0.02, 0.01); !errors.Is(err, boundary.ErrNoCrossing) {
-		t.Errorf("IntervalsToFailed at a difference under half the size = %v, want ErrNoCrossing", err)
-	}
-	crossing, err := theBoundary.IntervalsToFailed(0.02, 0.2)
-	if err != nil {
-		t.Fatalf("IntervalsToFailed: %v", err)
-	}
-	if crossing <= 0 {
-		t.Errorf("IntervalsToFailed = %v at a difference twice the size", crossing)
-	}
-}
-
-// TestTheUnitsNeededAreTheOtherBound is the within-interval bound: it reads a
-// rate rather than a series, and it scales the same way.
-func TestTheUnitsNeededAreTheOtherBound(t *testing.T) {
-	coarse := boundary.Boundary{Size: 0.03, Confidence: 0.95, Comparisons: 1, Worse: boundary.WorseHigher}
-	fine := coarse
-	fine.Size = 0.01
-	coarseUnits, err := coarse.UnitsToPassed(0.5)
-	if err != nil {
-		t.Fatalf("UnitsToPassed: %v", err)
-	}
-	fineUnits, err := fine.UnitsToPassed(0.5)
-	if err != nil {
-		t.Fatalf("UnitsToPassed: %v", err)
-	}
-	if ratio := fineUnits / coarseUnits; ratio < 8 || ratio > 10 {
-		t.Errorf("a size three times finer cost %v times the units, want about 9", ratio)
-	}
-	if _, err := coarse.UnitsToFailed(0.5, 0.5); !errors.Is(err, boundary.ErrNoCrossing) {
-		t.Errorf("UnitsToFailed at the baseline rate = %v, want ErrNoCrossing", err)
-	}
-}
-
-func TestCoarsestIsTheSizeInForce(t *testing.T) {
-	if got := boundary.Coarsest(0.01, 0.04, 0.02); got != 0.04 {
-		t.Errorf("Coarsest = %v, want the coarsest floor 0.04", got)
 	}
 }
 

@@ -170,7 +170,7 @@ func TestAFailedRecordNamesTheStepAndMovesNoReader(t *testing.T) {
 			ServiceID: serviceID, EnvironmentID: productionID,
 			What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
 			IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
-			SchemaChange: "0003-drop-the-old-column",
+			SchemaChanges: []string{"0003-drop-the-old-column"},
 		})
 		if err != nil {
 			t.Fatalf("Start: %v", err)

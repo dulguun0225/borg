@@ -11,14 +11,14 @@ func TestImplementParsesFileBlocks(t *testing.T) {
 	model := &fakeModel{
 		text: "=== FILE health.go ===\npackage main\n\nfunc health() int { return 200 }\n=== END ===\n\n" +
 			"=== FILE health_test.go ===\npackage main\n\n// cr_0123 is encoded here.\n=== END ===\n",
-		tokens: 9,
+		units: map[string]int64{UnitsInput: 8, UnitsOutput: 1},
 	}
 	implementing := Implementing{
 		Criteria: []Criterion{{ID: "cr_0123", Sentence: "When /healthz is requested, the system shall answer 200."}},
 		Spec:     "The service exposes /healthz.",
 		Files:    []File{{Path: "main.go", Content: "package main\n"}},
 	}
-	change, err := Implementer{Model: model}.Implement(context.Background(), implementing)
+	change, err := Implementer{Model: model, Prompt: ShippedImplementerPrompt}.Implement(context.Background(), as(), implementing)
 	if err != nil {
 		t.Fatalf("Implement: %v", err)
 	}
@@ -32,11 +32,11 @@ func TestImplementParsesFileBlocks(t *testing.T) {
 	if change.Files[0].Content != "package main\n\nfunc health() int { return 200 }" {
 		t.Errorf("Content = %q, want the block's lines", change.Files[0].Content)
 	}
-	if change.Tokens != 9 {
-		t.Errorf("Tokens = %d, want the reply's 9", change.Tokens)
+	if change.Units[UnitsInput] != 8 || change.Units[UnitsOutput] != 1 {
+		t.Errorf("Units = %v, want the reply's units per kind", change.Units)
 	}
-	if model.system != ImplementerSystemPrompt {
-		t.Error("the system prompt sent is not ImplementerSystemPrompt")
+	if model.system != ShippedImplementerPrompt {
+		t.Error("the prompt sent is not the one the role was handed")
 	}
 	for _, want := range []string{"cr_0123", implementing.Criteria[0].Sentence, implementing.Spec, "=== FILE main.go ===", "package main"} {
 		if !strings.Contains(model.user, want) {
@@ -55,7 +55,7 @@ func TestImplementNamesEveryCriterionInForce(t *testing.T) {
 		{ID: "cr_0000000000000000000000000000000a", Sentence: "The system shall answer."},
 		{ID: "cr_0000000000000000000000000000000b", Sentence: "The system shall log every answer."},
 	}}
-	if _, err := (Implementer{Model: model}).Implement(context.Background(), implementing); err != nil {
+	if _, err := (Implementer{Model: model, Prompt: ShippedImplementerPrompt}).Implement(context.Background(), as(), implementing); err != nil {
 		t.Fatalf("Implement: %v", err)
 	}
 	for _, c := range implementing.Criteria {
@@ -80,7 +80,8 @@ func TestImplementRefusesAReplyOutsideTheProtocol(t *testing.T) {
 	}
 	for name, text := range replies {
 		t.Run(name, func(t *testing.T) {
-			_, err := Implementer{Model: &fakeModel{text: text}}.Implement(context.Background(), Implementing{})
+			_, err := Implementer{Model: &fakeModel{text: text}, Prompt: ShippedImplementerPrompt}.
+				Implement(context.Background(), as(), Implementing{})
 			if !errors.Is(err, ErrReply) {
 				t.Fatalf("Implement = %v, want ErrReply", err)
 			}
@@ -93,7 +94,7 @@ func TestImplementRefusesAReplyOutsideTheProtocol(t *testing.T) {
 // own text and nothing is opened by it.
 func TestImplementKeepsAFileMarkerInsideABlockAsContent(t *testing.T) {
 	model := &fakeModel{text: "=== FILE readme.md ===\nThe protocol uses lines like\n=== FILE <path> ===\nto open a block.\n=== END ==="}
-	change, err := Implementer{Model: model}.Implement(context.Background(), Implementing{})
+	change, err := Implementer{Model: model, Prompt: ShippedImplementerPrompt}.Implement(context.Background(), as(), Implementing{})
 	if err != nil {
 		t.Fatalf("Implement: %v", err)
 	}
@@ -102,5 +103,57 @@ func TestImplementKeepsAFileMarkerInsideABlockAsContent(t *testing.T) {
 	}
 	if !strings.Contains(change.Files[0].Content, "=== FILE <path> ===") {
 		t.Errorf("Content = %q, want it to keep the marker-shaped line", change.Files[0].Content)
+	}
+}
+
+// TestImplementCarriesThePlanTheTasksAndTheHazard: the implementer works from
+// the approved plan and the approved tasks as well as the spec, and where the
+// item's area names a hazardous operation the role is told which, so its
+// emission can count it.
+func TestImplementCarriesThePlanTheTasksAndTheHazard(t *testing.T) {
+	model := &fakeModel{text: "=== FILE a.go ===\npackage a\n=== END ==="}
+	_, err := Implementer{Model: model, Prompt: ShippedImplementerPrompt}.Implement(context.Background(), as(), Implementing{
+		Spec:     "the spec",
+		Plan:     "the approved plan",
+		Tasks:    "the approved tasks",
+		Hazard:   "charging a card",
+		Screen:   []string{"loading", "ready"},
+		Returned: Returned{Reason: "the build did not compile", Version: "abc123"},
+	})
+	if err != nil {
+		t.Fatalf("Implement: %v", err)
+	}
+	for _, want := range []string{
+		"the approved plan", "the approved tasks", "charging a card", "loading, ready",
+		"the build did not compile", "abc123",
+	} {
+		if !strings.Contains(model.user, want) {
+			t.Errorf("the user message does not carry %q:\n%s", want, model.user)
+		}
+	}
+}
+
+// TestImplementRefusesARoleWithNoPromptInForce is [SpecAuthor]'s refusal on
+// the implementation stage's role: no version in force, no call.
+func TestImplementRefusesARoleWithNoPromptInForce(t *testing.T) {
+	model := &fakeModel{text: "=== FILE a.go ===\npackage a\n=== END ==="}
+	_, err := Implementer{Model: model}.Implement(context.Background(), as(), Implementing{})
+	if !errors.Is(err, ErrNoPrompt) {
+		t.Fatalf("Implement = %v, want ErrNoPrompt", err)
+	}
+	if model.system != "" {
+		t.Error("the model was called at all")
+	}
+}
+
+// TestTheImplementerPromptNamesTheEncodingsPlace: an encoding declares which
+// of two places decides it, and the prompt names both forms the extractor
+// matches — the prompt and the parser are changed together or the build reads
+// an encoding that declares nothing.
+func TestTheImplementerPromptNamesTheEncodingsPlace(t *testing.T) {
+	for _, form := range []string{"_build", "_candidate_environment"} {
+		if !strings.Contains(ShippedImplementerPrompt, form) {
+			t.Errorf("ShippedImplementerPrompt does not name the place suffix %q", form)
+		}
 	}
 }

@@ -17,12 +17,12 @@ import (
 // its author is the author the prior is read on.
 func NewestOfKind(ctx context.Context, pool *pgxpool.Pool, itemID string, kind Kind) (Artifact, bool, error) {
 	var a Artifact
-	var storedKind, authorship, actorKind, actorBasis string
+	var storedKind, authorship, actorKind, actorBasis, enteredBy string
 	err := pool.QueryRow(ctx, selectArtifact+`
 		where item_id = $1 and kind = $2 order by version desc limit 1`, itemID, string(kind)).
 		Scan(&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID, &a.Role, &a.Subject, &storedKind,
 			&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content, &a.ContentDigest,
-			&a.ShippedBundleIdentity, &a.InputManifestID)
+			&a.ShippedBundleIdentity, &enteredBy, &a.InputManifestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Artifact{}, false, nil
 	} else if err != nil {
@@ -32,6 +32,7 @@ func NewestOfKind(ctx context.Context, pool *pgxpool.Pool, itemID string, kind K
 	a.Actor.Basis = record.Basis(actorBasis)
 	a.Kind = Kind(storedKind)
 	a.Authorship = Authorship(authorship)
+	a.EnteredBy = EnteredBy(enteredBy)
 	return a, true, nil
 }
 
@@ -66,19 +67,24 @@ func IDsByAuthor(ctx context.Context, pool *pgxpool.Pool, author string) ([]stri
 	return ids, nil
 }
 
-// ItemsByAuthor is every item this author wrote a version of, once each, in the
-// order the versions were written. The prior needs both this and [IDsByAuthor]
-// and they are not the same question: a human's verdict is given on an artifact
-// version, and a analysis window's exit is an outcome on an item — the release, the
-// deploy, and the window all hang off the item and none of them names a version.
+// ItemsByAuthor is every item this author wrote a version of, once each, in
+// the order the versions were written: an item stands where the author's first
+// version of it stands, and a second version of the same item moves it
+// nowhere. The prior needs both this and [IDsByAuthor] and they are not the
+// same question: a human's verdict is given on an artifact version, and an
+// analysis window's exit is an outcome on an item — the release, the deploy,
+// and the window all hang off the item and none of them names a version.
+//
+// A version of a fleet kind names no item and is not one of these, its chain
+// being a role, a subject, or the factory as a whole.
 //
 // An empty author is no items and no error, for the reason [IDsByAuthor] gives.
 func ItemsByAuthor(ctx context.Context, pool *pgxpool.Pool, author string) ([]string, error) {
 	if author == "" {
 		return nil, nil
 	}
-	rows, err := pool.Query(ctx, `select distinct on (item_id) item_id, at from `+Table+`
-		where author = $1 order by item_id, at`, author)
+	rows, err := pool.Query(ctx, `select item_id, min(at) as first_at from `+Table+`
+		where author = $1 and item_id <> '' group by item_id order by first_at, item_id`, author)
 	if err != nil {
 		return nil, fmt.Errorf("artifact: reading the items %s wrote a version of: %w", author, err)
 	}
@@ -86,8 +92,8 @@ func ItemsByAuthor(ctx context.Context, pool *pgxpool.Pool, author string) ([]st
 
 	var items []string
 	for rows.Next() {
-		var id, at string
-		if err := rows.Scan(&id, &at); err != nil {
+		var id, firstAt string
+		if err := rows.Scan(&id, &firstAt); err != nil {
 			return nil, fmt.Errorf("artifact: reading an item %s wrote a version of: %w", author, err)
 		}
 		items = append(items, id)

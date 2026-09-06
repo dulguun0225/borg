@@ -19,11 +19,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
-	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/policy"
@@ -153,7 +151,7 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	t.Cleanup(func() {
 		for dir, target := range targets.made {
 			for _, name := range services {
-				if err := target.Stop(context.Background(), deployerPrincipal, name, credential); err != nil {
+				if _, err := target.Stop(context.Background(), deployerPrincipal, name, credential); err != nil {
 					t.Errorf("stopping the %s service on %s: %v", name, dir, err)
 				}
 			}
@@ -355,6 +353,14 @@ func only(t *testing.T, s shipped) *candidate {
 // an author nobody has approved, an area with no history, which is what the
 // supplied threshold is calibrated to — and the items after it auto-pass, so
 // most of these lines are consumed by the first item of each service.
+// approvalsBeforeMerge is the verdicts a first item on a fresh service needs
+// before its Merge to master row is reached: Spec, Implementation plan and
+// Tasks put a human there because the change's reach cannot be computed before
+// anything is built, and Implementation and Deploy to candidate environment do
+// because a service's first release reads over the threshold. A test that
+// scripts a verdict at the merge row types these first.
+const approvalsBeforeMerge = "approve\napprove\napprove\napprove\napprove\n"
+
 const approvals = "approve\napprove\napprove\napprove\napprove\napprove\n" +
 	"approve\napprove\napprove\napprove\napprove\napprove\n" +
 	"approve\napprove\napprove\napprove\napprove\napprove\n"
@@ -416,59 +422,6 @@ func theServiceRecord(t *testing.T, ctx context.Context, p *path) service.Servic
 		t.Fatalf("no service is named %q", p.d.services[0].name)
 	}
 	return svc
-}
-
-// spendOn is what the agentrun records say one item's stage cost, summed over
-// the units recorded under kind "total" — package agentrun's own read, spend
-// no longer being a field of the item.
-func spendOn(t *testing.T, ctx context.Context, d deps, itemID string, stage item.Stage) int64 {
-	t.Helper()
-	runs, err := agentrun.ForItem(ctx, d.pool, itemID)
-	if err != nil {
-		t.Fatalf("reading the agent runs of %s: %v", itemID, err)
-	}
-	var total int64
-	for _, r := range runs {
-		if r.Stage != string(stage) {
-			continue
-		}
-		total += r.UnitsByKind["total"]
-	}
-	return total
-}
-
-// spendCallsOn is how many agentrun records name one item's stage — the number
-// of model calls made there, refused ones included, which is what a retry's
-// own count is now read from rather than from the item's per-stage attempts.
-func spendCallsOn(t *testing.T, ctx context.Context, d deps, itemID string, stage item.Stage) int {
-	t.Helper()
-	runs, err := agentrun.ForItem(ctx, d.pool, itemID)
-	if err != nil {
-		t.Fatalf("reading the agent runs of %s: %v", itemID, err)
-	}
-	var calls int
-	for _, r := range runs {
-		if r.Stage == string(stage) {
-			calls++
-		}
-	}
-	return calls
-}
-
-// spendOnIntent is [spendOn] scoped to the intent rather than to an item: the
-// interview's own model calls are recorded there, since they happen before
-// the first item exists.
-func spendOnIntent(t *testing.T, ctx context.Context, d deps, intentID string) int64 {
-	t.Helper()
-	runs, err := agentrun.ForIntent(ctx, d.pool, intentID)
-	if err != nil {
-		t.Fatalf("reading the agent runs of %s: %v", intentID, err)
-	}
-	var total int64
-	for _, r := range runs {
-		total += r.UnitsByKind["total"]
-	}
-	return total
 }
 
 // authorOne is one intent decomposed into one item on the install's one service, for a

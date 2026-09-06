@@ -235,8 +235,8 @@ type erroringTarget struct{ err error }
 func (erroringTarget) Deploy(context.Context, principal.Principal, targetseam.Deployment) (targetseam.Placement, error) {
 	return targetseam.Placement{}, nil
 }
-func (erroringTarget) Stop(context.Context, principal.Principal, string, secretref.Ref) error {
-	return nil
+func (erroringTarget) Stop(context.Context, principal.Principal, string, secretref.Ref) (targetseam.Placement, error) {
+	return targetseam.Placement{}, nil
 }
 func (e erroringTarget) ReadRunning(context.Context, principal.Principal, string, secretref.Ref) (targetseam.Running, error) {
 	return targetseam.Running{}, e.err

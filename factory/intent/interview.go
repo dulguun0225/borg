@@ -112,6 +112,17 @@ func insertQuestion(ctx context.Context, tx pgx.Tx, actor record.Actor, intentID
 // [DDL] refuses it again: the answer is the one write-once field a human
 // types, so an empty one stamps the question answered, spends the interview's
 // round, and leaves the stage that asked proceeding on nothing.
+//
+// A human's answer to a question of an escalated intent clears the escalation
+// in the same call: the intent is unrefined again and the round count starts
+// again at zero, because the escalation is what put the human there and
+// answering it is a decision to spend more. A component's answer clears
+// nothing — the escalation is the factory saying it cannot refine this one,
+// and the factory answering itself is not the decision the clearing records.
+// The re-decomposition count is left where it is, the two counts being two
+// stretches of work, and sent_back_by is left where it is too: the four causes
+// are what writes unrefined over a later state, and a cleared escalation is
+// none of them.
 func (i *Intake) Answer(ctx context.Context, actor record.Actor, questionID, answer string) (Question, error) {
 	if err := actor.Validate(); err != nil {
 		return Question{}, err
@@ -132,10 +143,36 @@ func (i *Intake) Answer(ctx context.Context, actor record.Actor, questionID, ans
 	if err != nil {
 		return Question{}, err
 	}
+	if actor.Kind == record.KindHuman {
+		if err := clearEscalation(ctx, tx, answered.IntentID); err != nil {
+			return Question{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Question{}, fmt.Errorf("intent: committing the answer to %s: %w", answered.ID, err)
 	}
 	return answered, nil
+}
+
+// clearEscalation writes unrefined and zero rounds over an escalated intent,
+// and does nothing to an intent in any other state. It is the interview's
+// counterpart to package item's clearing of a stage's escalation, and the
+// count starts again rather than being marked, because what the limit counts
+// here is the rounds of one interview and the human answering has started it
+// over.
+func clearEscalation(ctx context.Context, tx pgx.Tx, intentID string) error {
+	in, err := lockIntent(ctx, tx, intentID)
+	if err != nil {
+		return err
+	}
+	if in.State != StateEscalated {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `update `+Table+` set state = $1, rounds = 0 where id = $2`,
+		string(StateUnrefined), in.ID); err != nil {
+		return fmt.Errorf("intent: clearing the escalation of %s: %w", in.ID, err)
+	}
+	return nil
 }
 
 // answerQuestion is the write every round's answer goes through — the

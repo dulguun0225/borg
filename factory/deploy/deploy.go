@@ -136,12 +136,25 @@ type Deploy struct {
 	// FailedStep is the step the deployer stopped at, on a failed record and
 	// nowhere else.
 	FailedStep string
-	// SchemaChange is the change this deploy's build carries, and empty where it
-	// carries none. Which changes the store carries is read from the store's own
-	// history; this is what this deploy did.
-	SchemaChange string
-	// SchemaChangeCompleted is whether that change completed.
-	SchemaChangeCompleted bool
+	// SchemaChanges are the changes this deploy's build carries, in the order
+	// they apply, and empty where it carries none. There is more than one on a
+	// revert's deploy, which is the one deploy that can carry more: it delivers
+	// releases that never deployed on their own and applies each of their
+	// changes that no deploy applied. Which changes the store carries is read
+	// from the store's own history; this is what this deploy did.
+	SchemaChanges []string
+	// SchemaChangesCompleted is whether they completed. It is true where the
+	// deploy applied every change the store's history lacked, the case where the
+	// history already held all of them included: a record naming a change and
+	// saying it did not complete would otherwise be read as a change that failed
+	// to apply.
+	SchemaChangesCompleted bool
+	// Backfill is the pair of elements this deploy's release copies between,
+	// where it is a backfill item's release, and empty on every other deploy.
+	// The record marks it complete by completing: enforcement reads a complete
+	// record naming the element before it admits the item that moves reads to it
+	// and the drop after that.
+	Backfill Backfill
 	// Snapshot is the copy taken and verified before a change that destroys
 	// stored data, and the deletion written when it is deleted.
 	Snapshot Snapshot
@@ -154,13 +167,32 @@ type Deploy struct {
 	// are not built.
 	WayInTokenDigest string
 	// ControlTarget is the target a control ran on, and is empty on every deploy
-	// without one.
-	ControlTarget string
+	// without one. ControlReleaseID is the release that control runs — the
+	// release a rollback of this deploy would return to, which is what defines a
+	// control — and the two are empty together.
+	ControlTarget    string
+	ControlReleaseID string
 	// Undoing is what a rollback's own deploy record names beside the deploy it
 	// is, and is empty on every other record. [Undoing.Any] is what tells the
 	// two apart.
 	Undoing Undoing
 }
+
+// Backfill is what a backfill item's release copies between: the store contract
+// it is over, the element it fills, and the element it fills from. A backfill
+// declares no schema diff and opens no contract version, so this pair is the
+// whole of what its deploy record names about it, and the record marks the
+// backfill complete by being marked complete — the deployer completes it only
+// once every row the old form holds is present in the new.
+type Backfill struct {
+	Contract    string
+	Element     string
+	FromElement string
+}
+
+// Any reports whether the deploy is a backfill's. All three fields arrive
+// together or none does, which the store's own constraint holds too.
+func (b Backfill) Any() bool { return b.Element != "" }
 
 // Snapshot is the copy of the service's store a deploy took before a change
 // that destroys stored data, and what became of it. A record with no name took
@@ -175,7 +207,7 @@ type Snapshot struct {
 }
 
 // Target is one target's row of the deploy record: whether it has the release
-// yet, what the deploy did there, and the kept fleet's span.
+// yet, what the deploy did there, and the three fleets' spans.
 type Target struct {
 	DeployID string
 	// Position is the target's place in the environment's order, which is the
@@ -183,11 +215,8 @@ type Target struct {
 	Position   int
 	Address    string
 	Completion Completion
-	// KeptInstances is how many instances of the release a rollback of this one
-	// would return to the deployer is keeping here: the capacity that release
-	// had, times the fraction its owner authored. It is written when the deploy
-	// starts, which is when the window opens over it.
-	KeptInstances int
+	// Fleets is the three sets of instances this deploy's record dates here.
+	Fleets Fleets
 	// Replacement is what the seam reported when it replaced the instances here:
 	// a drain, or a cut where the platform could not hold a request open across
 	// the replacement.
@@ -196,19 +225,52 @@ type Target struct {
 	// after, both carrying the fencing token.
 	ReachedAt  string
 	CompleteAt string
-	// ReplacedAt is when the kept fleet here was torn down, which closes the
-	// span the instance-hours are summed over.
-	ReplacedAt string
-	// InstanceHours is the kept instances times the hours between CompleteAt and
-	// ReplacedAt, and Priced is what that converted to at the rate in force at
-	// the write, fixed there and never repriced.
+	// InstanceHours is the three fleets' hours added up, and Priced is what they
+	// converted to: each fleet's own span converted at the rate in force when
+	// that fleet was torn down, added together, never repriced.
 	InstanceHours float64
 	Priced        Priced
+}
+
+// Fleet is one of the three sets of instances a production deploy runs on one
+// target: how many there are, when they were torn down, and the hours they ran.
+// The span starts when the deploy started and the window opened over it, which
+// is the deploy record's own timestamp, and ends at TornDownAt.
+type Fleet struct {
+	// Instances is how many instances of that build run here, written when the
+	// deploy starts.
+	Instances int
+	// TornDownAt is when they ended, and empty while they still run. Hours is
+	// what the deployer computed for the span when it wrote that date.
+	TornDownAt string
+	Hours      float64
+}
+
+// Fleets is the three sets of instances the design names on a production deploy
+// record: the release's own, the control's, and the instances of the release a
+// rollback of this one would return to, kept here while any open window could
+// return to it.
+//
+// Release is the deploy's own fleet, torn down when the release that replaces it
+// completes here. Control is the fleet the comparison is made against, sized for
+// the release's share, and is nothing on a deploy without a control. Kept is the
+// capacity the replaced release had times the fraction its owner authored, and
+// is what a rollback shifts production onto — without it those kept instances
+// are an assertion and the drift detector has nothing to read what runs against.
+type Fleets struct {
+	Release Fleet
+	Control Fleet
+	Kept    Fleet
 }
 
 // Priced is an amount in the currency the owner's rates are authored in, and
 // the rate it was converted at. InForce is false where the service record
 // carried no instance-hour rate, which is not an amount of zero.
+//
+// Amount accumulates as each fleet is torn down: every span is converted at the
+// rate in force at its own write and added, so no span is ever repriced by a
+// rate corrected later. Rate is the rate in force at the last of those writes,
+// and the record keeps no rate per span.
 type Priced struct {
 	Amount  float64
 	Rate    float64

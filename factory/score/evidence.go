@@ -3,12 +3,14 @@ package score
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
@@ -88,7 +90,12 @@ type Evidence struct {
 	failed          map[string]bool
 	skipped         map[string]bool
 	incidentOn      map[string]bool
-	rejectedNeeded  map[string]bool
+	// crossedOn is the quantities the incidents on one release named, and is
+	// empty for a release whose incidents named none. Which quantity's size a
+	// miss moves is the incident's own reading, and an incident naming none
+	// moves every quantity.
+	crossedOn      map[string][]gatepolicy.Quantity
+	rejectedNeeded map[string]bool
 }
 
 // ReadEvidence reads every outcome the score learns from. It reads the log
@@ -118,7 +125,7 @@ func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token, ma
 		})
 	}
 
-	if e.windows, err = window.Closed(ctx, pool); err != nil {
+	if e.windows, err = window.ClosedAtTheVersionInForce(ctx, pool); err != nil {
 		return nil, err
 	}
 	if e.rollbacks, err = deploy.Rollbacks(ctx, pool); err != nil {
@@ -159,6 +166,7 @@ func newEvidence() *Evidence {
 		failed:          map[string]bool{},
 		skipped:         map[string]bool{},
 		incidentOn:      map[string]bool{},
+		crossedOn:       map[string][]gatepolicy.Quantity{},
 		rejectedNeeded:  map[string]bool{},
 	}
 }
@@ -214,6 +222,16 @@ func (e *Evidence) index() {
 	}
 	for _, i := range e.incidents {
 		e.incidentOn[i.ReleaseID] = true
+		quantity, err := gatepolicy.DecidableQuantity(i.Quantity)
+		if err != nil {
+			// An incident naming no quantity, or naming one the health monitor
+			// does not read, names none: the miss moves every quantity, which is
+			// the reading a human's undo already gets.
+			continue
+		}
+		if !slices.Contains(e.crossedOn[i.ReleaseID], quantity) {
+			e.crossedOn[i.ReleaseID] = append(e.crossedOn[i.ReleaseID], quantity)
+		}
 	}
 	for _, r := range e.resolvedRejections() {
 		if r.MovesTheThreshold() {
@@ -271,18 +289,38 @@ func (e *Evidence) falsePasses(serviceID string) []window.Window {
 	return missed
 }
 
+// miss is one window that ruled nothing out over a release an incident was
+// raised against, with the quantities whose size it moves: the ones the
+// incident's reading crossed on, or every quantity where it named none.
+type miss struct {
+	window     window.Window
+	quantities []gatepolicy.Quantity
+}
+
 // missesOnATimedOutWindow is every window of one service that timed out over a
 // release an incident was later raised against. Nothing was ruled out at all
 // there, so the event is evidence about the size and never about the power.
-func (e *Evidence) missesOnATimedOutWindow(serviceID string) []window.Window {
-	var missed []window.Window
+//
+// Each carries the quantities it moves. A rollback's incident names the quantity
+// the reading crossed on, and a human's undo names none, so a miss with no
+// quantity behind it moves the size of every quantity.
+func (e *Evidence) missesOnATimedOutWindow(serviceID string) []miss {
+	var missed []miss
 	for _, w := range e.windows {
 		if w.ServiceID == serviceID && w.Exit == window.ExitTimedOut &&
 			e.incidentOn[w.ReleaseID] && !e.marked[w.ReleaseID] {
-			missed = append(missed, w)
+			missed = append(missed, miss{window: w, quantities: e.quantitiesMissed(w.ReleaseID)})
 		}
 	}
 	return missed
+}
+
+// quantitiesMissed is which quantities a miss on one release moves the size of.
+func (e *Evidence) quantitiesMissed(releaseID string) []gatepolicy.Quantity {
+	if named := e.crossedOn[releaseID]; len(named) > 0 {
+		return named
+	}
+	return gatepolicy.Quantities
 }
 
 // Services is every service any evidence names, ordered so that two passes over

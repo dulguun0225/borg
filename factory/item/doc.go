@@ -13,7 +13,8 @@
 // [Decomposition.Repoint] and [Decomposition.RepointTx]. graph.go holds [Edge],
 // the read of what waits on what, and the cycle check behind
 // [ErrWouldCloseACycle]. dispatch.go holds [Dispatch] and [NewDispatch] with
-// [Dispatch.Advance], [Dispatch.ReturnTo], [Dispatch.End], [Dispatch.Escalate],
+// [Dispatch.Advance], [Dispatch.Enter], [Dispatch.ReturnTo], [Dispatch.End],
+// [Dispatch.Escalate],
 // [Dispatch.ClearEscalation], [Dispatch.Drop], and [Dispatch.SetPriority].
 // read.go holds [Get], [ForIntent], [AtStage], [IDsInArea], [All], [Stages],
 // [AllStages], and [PartlyDelivered]. schema.go holds [Table], [StageTable],
@@ -34,10 +35,12 @@
 // arrives is a schema edit.
 //
 // An attempt is counted when a stage is entered to author:
-// [Decomposition.Create] counts the item's first entry to spec, and
-// [Dispatch.Advance] counts the entry into each authoring stage after.
-// [Dispatch.ReturnTo] counts nothing — a reject and a rework request send the
-// item back to be entered again rather than increment anything themselves.
+// [Decomposition.Create] counts the item's first entry to spec,
+// [Dispatch.Advance] counts the entry into each authoring stage after, and
+// [Dispatch.Enter] counts a second entry to the stage the item already stands
+// at, which is what another attempt at one stage is. [Dispatch.ReturnTo]
+// counts nothing — a reject and a rework request send the item back to be
+// entered again rather than increment anything themselves.
 // [Dispatch.ClearEscalation] writes the count the stage stood at when a human
 // took the item over, and what the attempt limit is compared against is the
 // attempts since that mark.
@@ -50,15 +53,12 @@
 // field of this package: package agentrun owns it, and the query that answers
 // what a stage cost is over the run records naming the item and the stage.
 //
-// Which caller is not built: dispatch as a component. Nothing here re-enters a
-// stage an item was returned to, so the second attempt at a stage is counted by
-// the component that puts an agent on it, which does not exist —
-// [Dispatch.Advance] and [Decomposition.Create] are the two entries that are
-// built. The requirements an item answers are ids of a record package intent
-// does not write yet, so the field is empty on every item today. The projects
-// [Decomposition.Create] compares are read by the caller for the same reason:
-// a project is not a record yet, and where both are empty the comparison
-// passes.
+// The requirements an item answers are ids of package intent's requirement
+// record, which intake writes; the field is empty on an item that answers
+// none. The projects [Decomposition.Create] compares are package project's
+// record, read by the caller — an area chain is package area's to walk and a
+// service's project is package service's field, and this package imports
+// neither — and where the item names no area there is nothing to compare.
 //
 // intent_id, service_id, area_id, the ids in waits_on, requirements_answered
 // and superseded_by, and item_stage.item_id are id fields and not foreign keys,

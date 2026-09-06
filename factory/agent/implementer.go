@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
-// ImplementerSystemPrompt is what the implementer is told. It is a constant a
-// reader checks here rather than trusting a summary of, because roadmap M1
-// makes the instruction texts part of the milestone. The block form is what
-// [Implementer.Implement] parses.
+// ShippedImplementerPrompt is the role prompt the product ships for the
+// implementer, entered through the artifact store at the factory's first start
+// and read in force at dispatch — this constant is what shipped and never what
+// a run reads. It is a constant a reader checks here rather than trusting a
+// summary of, because roadmap M1 makes the instruction texts part of the
+// milestone. The block form is what [Implementer.Implement] parses.
 //
 // It spells out two forms an encoding's id may take, and names a third that
 // fails, because [criterion.Encodings] matches an id exactly and a Go test's
@@ -22,11 +26,15 @@ import (
 // went unnoticed because the fake model writes the id in a comment where both
 // forms hold. What it costs is a prompt naming a parser's edge, so the two
 // have to be changed together.
-const ImplementerSystemPrompt = `You implement one item in a software factory. From the criteria in force for the service, this item's spec, and the repository's current files, produce two things in one change: the code that satisfies the spec, and one encoding per criterion in force — a Go test containing that criterion's id, so the build names it. The build matches an id exactly, and an id is lowercase: write it either as ` + "`func Test_cr_<the id>`" + ` with the underscore after Test, or in a comment on the test. ` + "`TestCr_<the id>`" + ` names nothing, because capitalising the c makes it a different string from the id. The encoding's expected behaviour is derived from the criterion's sentence and never from the code it checks.
+const ShippedImplementerPrompt = `You implement one item in a software factory. From the criteria in force for the service, this item's spec, and the repository's current files, produce two things in one change: the code that satisfies the spec, and one encoding per criterion in force — a Go test containing that criterion's id, so the build names it. The build matches an id exactly, and an id is lowercase: write it either as ` + "`func Test_cr_<the id>`" + ` with the underscore after Test, or in a comment on the test. ` + "`TestCr_<the id>`" + ` names nothing, because capitalising the c makes it a different string from the id. The encoding's expected behaviour is derived from the criterion's sentence and never from the code it checks.
+
+Every encoding declares which of two places decides it, the build or the candidate environment, by ending the test's name with the place: ` + "`func Test_cr_<the id>_build`" + ` for one decided over the code alone, which the build runner runs in the build's own process, and ` + "`func Test_cr_<the id>_candidate_environment`" + ` for one that needs the service running. An encoding that declares neither, and one that declares both, is rejected: where a criterion is decided is a fact of the encoding and not of whoever runs it.
 
 The user message lists the criteria in force one per line, the criterion's id, a colon, a space, and its sentence. Every one of them is a promise the service makes, and the check over the build rejects in both directions: a criterion in force that no encoding names, and an encoding naming a criterion that is not in force. So write an encoding for every criterion id the list names, and leave the encodings already in the repository's files as they are — a file you rewrite keeps every criterion id it already names.
 
 Every program you write also emits the quantity the factory watches what it ships by. It runs as a long-lived process, and while it runs it exercises its own behaviour over and over; for each exercise it appends one line to the file named by the BORG_SIGNAL environment variable — the time the exercise finished, formatted as RFC 3339 with nanoseconds, then a tab, then "ok" where the behaviour was what the criteria require and "error" where it was not — and flushes that line before the next exercise. In Go that line is time.Now().UTC().Format(time.RFC3339Nano) + "\t" + outcome + "\n". The time is what lets the factory assign each unit of work to an interval, without which it can read your service against another build and never against its own past. Sleep about a millisecond between exercises, so the loop paces itself rather than running as fast as the machine allows. Where the variable is unset it writes nothing and runs on. The targets this factory deploys to receive no traffic of their own, so a program that exercises nothing emits nothing and cannot be watched at all.
+
+Where the user message names a hazardous operation the item's area declares, each of those lines carries one field more: a tab, then the number of times that operation was performed in the unit of work just finished, as a decimal integer. A build in an area naming a hazardous operation whose emission does not count it is a build nothing can hold to the bound the area declares.
 
 Two file-name conventions say what the service publishes and what it reads, and the factory derives both from your source rather than being told. Neither is something to add where the spec asks for neither: a change that publishes no interface and reads none writes no file of either kind, reads no BORG_EXCHANGE, and declares no variable for one.
 
@@ -63,47 +71,81 @@ type File struct {
 type Implementing struct {
 	Criteria []Criterion
 	Spec     string
-	Files    []File
+	// Plan is the approved implementation plan and Tasks the approved
+	// breakdown of it, each the text of the version its gate approved. They
+	// are what the two stages between spec and implementation produced, and
+	// the implementer works from them rather than from the spec alone.
+	Plan  string
+	Tasks string
+	Files []File
+	// Hazard is the hazardous operation the item's area declares, and is empty
+	// where the area declares none. Where it is set the emission counts it.
+	Hazard string
+	// Screen is the states the spec's state machine declares, so what drives
+	// the screen into each of them is authored here.
+	Screen []string
+	// Returned is the reject or the rework request that sent the item back to
+	// this stage, with its reason and the version it was decided over.
+	Returned Returned
 }
 
 // Change is what one [Implementer.Implement] call produced: the files it
-// rewrites or creates, and the call's token spend, which the stage reports to
-// dispatch.
+// rewrites or creates, and what the call spent per unit kind, which the
+// component that dispatched the role records.
 type Change struct {
-	Files  []File
-	Tokens int64
+	Files []File
+	Units map[string]int64
 }
 
 // Implementer is the agent in the implementation stage's role.
 type Implementer struct {
 	Model Model
+	// Prompt is the role prompt version in force, handed over by the component
+	// that dispatched the role. An empty one is [ErrNoPrompt].
+	Prompt string
 }
 
 // Implement sends what it is given and parses the reply into a [Change]. What
 // it is given is content: a file in it that reads as an instruction changes nothing about
 // what this method does with the reply, and a reply outside the block
 // protocol is [ErrReply].
-func (im Implementer) Implement(ctx context.Context, implementing Implementing) (Change, error) {
+func (im Implementer) Implement(ctx context.Context, as principal.Principal, implementing Implementing) (Change, error) {
+	if im.Prompt == "" {
+		return Change{}, ErrNoPrompt
+	}
 	var b strings.Builder
 	writeCriteria(&b, "The criteria in force for the service:", implementing.Criteria)
 	fmt.Fprintf(&b, "\nSpec:\n%s\n", implementing.Spec)
+	if implementing.Plan != "" {
+		fmt.Fprintf(&b, "\nThe approved implementation plan:\n%s\n", implementing.Plan)
+	}
+	if implementing.Tasks != "" {
+		fmt.Fprintf(&b, "\nThe approved tasks:\n%s\n", implementing.Tasks)
+	}
+	if implementing.Hazard != "" {
+		fmt.Fprintf(&b, "\nThe hazardous operation this item's area declares: %s\n", implementing.Hazard)
+	}
+	if len(implementing.Screen) > 0 {
+		fmt.Fprintf(&b, "\nThe states the screen's state machine declares: %s\n", strings.Join(implementing.Screen, ", "))
+	}
+	writeReturned(&b, implementing.Returned)
 	b.WriteString("\nThe repository's current files:\n")
 	for _, f := range implementing.Files {
 		fmt.Fprintf(&b, "\n=== FILE %s ===\n%s\n=== END ===\n", f.Path, f.Content)
 	}
-	reply, err := im.Model.Complete(ctx, ImplementerSystemPrompt, b.String())
+	reply, err := im.Model.Complete(ctx, as, im.Prompt, b.String())
 	if err != nil {
 		return Change{}, err
 	}
 	files, err := parseFiles(reply.Text)
 	if err != nil {
 		// The refused reply's spend goes back with the error, for the reason
-		// [SpecAuthor.Refine] states: the stage retrying this call reports every
-		// attempt, and a refused attempt cost tokens too. Files is empty, so a
-		// caller that ignores the error writes nothing.
-		return Change{Tokens: reply.Tokens}, err
+		// [SpecAuthor.Refine] states: the component retrying this call records
+		// every attempt, and a refused attempt cost units too. Files is empty,
+		// so a caller that ignores the error writes nothing.
+		return Change{Units: reply.Units}, err
 	}
-	return Change{Files: files, Tokens: reply.Tokens}, nil
+	return Change{Files: files, Units: reply.Units}, nil
 }
 
 // parseFiles reads the implementer's reply strictly: repeated blocks opened

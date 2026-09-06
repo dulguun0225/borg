@@ -15,8 +15,9 @@ import (
 
 const selectDeploy = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, number,
 	release_id, build_id, delivered_release_ids, strategy_picked, strategy_performed, status, failed_step,
-	schema_change, schema_change_completed, snapshot_name, snapshot_digest, snapshot_deleted_at,
-	configuration_digest, way_in_token_digest, control_target,
+	schema_changes, schema_changes_completed, snapshot_name, snapshot_digest, snapshot_deleted_at,
+	configuration_digest, way_in_token_digest, control_target, control_release_id,
+	backfill_contract, backfill_element, backfill_from_element,
 	failed_release_id, skipped_release_ids, source
 	from ` + Table
 
@@ -38,8 +39,11 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 // Every reader of what is running reads a target marked complete, so this is
 // what a reader of one deploy reads beside the record.
 func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target, error) {
-	rows, err := pool.Query(ctx, `select deploy_id, position, address, completion, kept_instances,
-		replacement, reached_at, complete_at, replaced_at, instance_hours, amount, rate
+	rows, err := pool.Query(ctx, `select deploy_id, position, address, completion,
+		release_instances, control_instances, kept_instances, replacement, reached_at, complete_at,
+		release_torn_down_at, control_torn_down_at, kept_torn_down_at,
+		release_instance_hours, control_instance_hours, kept_instance_hours,
+		instance_hours, amount, rate
 		from `+TargetTable+` where deploy_id = $1 order by position`, deployID)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: reading the targets of %s: %w", deployID, err)
@@ -51,8 +55,12 @@ func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target
 		var t Target
 		var completion, replacement string
 		var amount, rate *float64
-		err := rows.Scan(&t.DeployID, &t.Position, &t.Address, &completion, &t.KeptInstances,
-			&replacement, &t.ReachedAt, &t.CompleteAt, &t.ReplacedAt, &t.InstanceHours, &amount, &rate)
+		err := rows.Scan(&t.DeployID, &t.Position, &t.Address, &completion,
+			&t.Fleets.Release.Instances, &t.Fleets.Control.Instances, &t.Fleets.Kept.Instances,
+			&replacement, &t.ReachedAt, &t.CompleteAt,
+			&t.Fleets.Release.TornDownAt, &t.Fleets.Control.TornDownAt, &t.Fleets.Kept.TornDownAt,
+			&t.Fleets.Release.Hours, &t.Fleets.Control.Hours, &t.Fleets.Kept.Hours,
+			&t.InstanceHours, &amount, &rate)
 		if err != nil {
 			return nil, fmt.Errorf("deploy: reading a target of %s: %w", deployID, err)
 		}
@@ -142,6 +150,36 @@ func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID s
 	return current, true, nil
 }
 
+// BackfillComplete is the deploy record that marks the backfill for one element
+// of one store contract complete, and false where none does. The element is
+// either side of the pair a backfill fills: the one it filled and the one it
+// filled from are one backfill, and the deployer's record names both.
+//
+// A backfill's deploy record is marked complete only once every row the old form
+// holds is present in the new, so a complete record naming the element is the
+// fact enforcement reads before it admits the item that moves reads to that
+// element and the drop after it. A started record is not one: the copy is still
+// running, and a release reading the new form while it runs reads every row it
+// has not reached as absent.
+func BackfillComplete(ctx context.Context, pool *pgxpool.Pool, serviceID, contractName, element string) (string, bool, error) {
+	if serviceID == "" || contractName == "" || element == "" {
+		return "", false, nil
+	}
+	var id string
+	err := pool.QueryRow(ctx, `select id from `+Table+`
+		where service_id = $1 and status = $2 and backfill_contract = $3
+		and (backfill_element = $4 or backfill_from_element = $4)
+		order by number desc limit 1`,
+		serviceID, string(StatusComplete), contractName, element).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	} else if err != nil {
+		return "", false, fmt.Errorf("deploy: reading whether %s of %s is backfilled: %w",
+			element, contractName, err)
+	}
+	return id, true, nil
+}
+
 // ByRelease is every deploy of one release into one environment, oldest first. It
 // is what a rollback advances to rolled back — the failed release's own deploys
 // and those of every release it skips — and there is more than one where a release
@@ -223,20 +261,22 @@ func query(ctx context.Context, pool *pgxpool.Pool, reading, statement string, a
 
 func scan(row pgx.Row) (Deploy, error) {
 	var d Deploy
-	var kind, basis, picked, performed, status, delivered, skipped string
+	var kind, basis, picked, performed, status, delivered, skipped, changes string
 	if err := row.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.ServiceID, &d.EnvironmentID, &d.Number,
 		&d.ReleaseID, &d.BuildID, &delivered, &picked, &performed, &status, &d.FailedStep,
-		&d.SchemaChange, &d.SchemaChangeCompleted, &d.Snapshot.Name, &d.Snapshot.Digest, &d.Snapshot.DeletedAt,
-		&d.ConfigurationDigest, &d.WayInTokenDigest, &d.ControlTarget,
+		&changes, &d.SchemaChangesCompleted, &d.Snapshot.Name, &d.Snapshot.Digest, &d.Snapshot.DeletedAt,
+		&d.ConfigurationDigest, &d.WayInTokenDigest, &d.ControlTarget, &d.ControlReleaseID,
+		&d.Backfill.Contract, &d.Backfill.Element, &d.Backfill.FromElement,
 		&d.Undoing.FailedReleaseID, &skipped, &d.Undoing.Source); err != nil {
 		return Deploy{}, err
 	}
+	d.SchemaChanges = splitLines(changes)
 	d.Actor.Kind = record.Kind(kind)
 	d.Actor.Basis = record.Basis(basis)
 	d.StrategyPicked = Strategy(picked)
 	d.StrategyPerformed = Strategy(performed)
 	d.Status = Status(status)
-	d.DeliveredReleaseIDs = splitReleases(delivered)
-	d.Undoing.SkippedReleaseIDs = splitReleases(skipped)
+	d.DeliveredReleaseIDs = splitLines(delivered)
+	d.Undoing.SkippedReleaseIDs = splitLines(skipped)
 	return d, nil
 }

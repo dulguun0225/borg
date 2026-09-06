@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -19,6 +21,11 @@ import (
 // environment. Where a rate reader is composed, the realized auto-pass rate at
 // that threshold is computed in this same call, one per factor set, and frozen
 // on the version.
+//
+// The version names the score version in force at the write, which is what the
+// owner authored against: under a changed formula the same change gets a
+// different number, so a threshold authored under one version is not a threshold
+// authored under the next.
 func (f *Factory) AuthorGateThreshold(ctx context.Context, actor record.Actor,
 	environmentID, gateRow string, threshold float64) (Version, error) {
 	scope := Scope{Kind: ScopeEnvironment, ID: environmentID, Key: gateRow}
@@ -26,12 +33,48 @@ func (f *Factory) AuthorGateThreshold(ctx context.Context, actor record.Actor,
 	if err != nil {
 		return Version{}, err
 	}
+	confirms, err := f.scoreVersionInForce(ctx)
+	if err != nil {
+		return Version{}, err
+	}
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
 		parameter: gatepolicy.RiskThreshold, scope: scope, number: threshold, authored: true, rates: rates,
+		confirmsScoreVersion: confirms,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return environment.SetGateThreshold(ctx, tx, f.token, actor, environmentID, gateRow, threshold)
 		},
+	})
+}
+
+// ConfirmGateThreshold is the owner's confirmation that the threshold standing
+// on this row and this environment is the threshold they mean under the score
+// version in force now. It authors no value and writes no field: what it appends
+// is a version naming the scope and that score version, which is what puts a
+// version that changed the published formula, the factor set or the weights into
+// force at a gate an authored threshold binds.
+//
+// An owner who disagrees re-authors the number instead, through
+// [Factory.AuthorGateThreshold], which confirms the same way. Confirming the
+// same score version twice appends nothing, the key being the same.
+//
+// Nothing in the factory calls it yet: the screen the threshold is authored
+// from is not built, so the caller is the command-line interface.
+func (f *Factory) ConfirmGateThreshold(ctx context.Context, actor record.Actor,
+	environmentID, gateRow string) (Version, error) {
+	confirms, err := f.scoreVersionInForce(ctx)
+	if err != nil {
+		return Version{}, err
+	}
+	if confirms == "" {
+		return Version{}, fmt.Errorf("%w: there is no score version to confirm the threshold on %s against",
+			score.ErrNoVersion, gateRow)
+	}
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionConfirmed,
+		parameter:            gatepolicy.RiskThreshold,
+		scope:                Scope{Kind: ScopeEnvironment, ID: environmentID, Key: gateRow},
+		confirmsScoreVersion: confirms,
 	})
 }
 
@@ -51,9 +94,14 @@ func (f *Factory) AuthorRolePromptOrSkillThreshold(ctx context.Context, actor re
 	if err != nil {
 		return Version{}, err
 	}
+	confirms, err := f.scoreVersionInForce(ctx)
+	if err != nil {
+		return Version{}, err
+	}
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
 		parameter: gatepolicy.RiskThreshold, scope: scope, number: threshold, authored: true, rates: rates,
+		confirmsScoreVersion: confirms,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return factorysettings.SetRolePromptOrSkillThreshold(ctx, tx, settings.ID, threshold)
 		},

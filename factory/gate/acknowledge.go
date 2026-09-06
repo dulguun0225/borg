@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
@@ -10,6 +11,12 @@ import (
 
 // The third kind of row a decision may carry between its open event and the row
 // that ends it.
+
+// acknowledgementPayload is what the acknowledgement row says: the open event
+// the human has. Every payload in this package goes through the marshaller.
+type acknowledgementPayload struct {
+	Acknowledged string `json:"acknowledged"`
+}
 
 // Acknowledge appends the acknowledgement: a holder of the row's duty saying at
 // Work that they have the row. It decides nothing, ends no wait, and excludes
@@ -28,9 +35,14 @@ func (g *Gate) Acknowledge(ctx context.Context, opened Opened, human record.Acto
 		return decisionlog.Row{}, fmt.Errorf("%w: actor kind %q",
 			decisionlog.ErrAcknowledgementNotHuman, human.Kind)
 	}
+	payload, err := json.Marshal(acknowledgementPayload{Acknowledged: opened.Row.ID})
+	if err != nil {
+		return decisionlog.Row{}, fmt.Errorf("gate: marshalling the acknowledgement of %s: %w",
+			opened.Row.ID, err)
+	}
 	row, err := g.log.AppendDecisionAcknowledgement(ctx, decisionlog.Entry{
 		Actor:         human,
-		Payload:       `{"acknowledged":"` + opened.Row.ID + `"}`,
+		Payload:       string(payload),
 		FormatVersion: decisionFormatVersion,
 		Closes:        opened.Row.ID,
 	})

@@ -160,3 +160,130 @@ func TestDropEndsAnIntentForGood(t *testing.T) {
 		t.Errorf("Drop on a missing intent = %v, want ErrIntentNotFound", err)
 	}
 }
+
+// TestAHumansAnswerClearsAnEscalatedInterview: the escalation is the factory
+// saying it cannot refine this one, and a human who answers clears it and
+// starts the round count again — the decision to spend more. A component's
+// answer clears nothing, and the re-decomposition count is left where it is.
+func TestAHumansAnswerClearsAnEscalatedInterview(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+	taken := requested(t, ctx, in, "checkout should retry")
+
+	var asked []intent.Question
+	for range 3 {
+		if _, err := in.OpenRound(ctx, intake, taken.ID); err != nil {
+			t.Fatalf("OpenRound: %v", err)
+		}
+		question, err := in.Ask(ctx, intake, taken.ID, "Against which provider?")
+		if err != nil {
+			t.Fatalf("Ask: %v", err)
+		}
+		asked = append(asked, question)
+	}
+	if _, err := in.Escalate(ctx, intake, taken.ID, 2); err != nil {
+		t.Fatalf("Escalate: %v", err)
+	}
+
+	// A component answering is the factory answering itself, which is not the
+	// decision the clearing records.
+	if _, err := in.Answer(ctx, intake, asked[0].ID, "the same provider"); err != nil {
+		t.Fatalf("Answer as a component: %v", err)
+	}
+	read, err := intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.State != intent.StateEscalated || read.Rounds != 3 {
+		t.Errorf("after a component's answer the intent is %s at %d rounds, want escalated at 3",
+			read.State, read.Rounds)
+	}
+
+	if _, err := in.Answer(ctx, owner, asked[1].ID, "once per charge"); err != nil {
+		t.Fatalf("Answer as a human: %v", err)
+	}
+	read, err = intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.State != intent.StateUnrefined || read.Rounds != 0 {
+		t.Errorf("after a human's answer the intent is %s at %d rounds, want unrefined at 0",
+			read.State, read.Rounds)
+	}
+	if read.ReDecompositions != 0 {
+		t.Errorf("the clearing moved the re-decomposition count to %d, want it left alone", read.ReDecompositions)
+	}
+
+	// The interview goes on from zero: the round count starts again, so the
+	// same limit is compared against the rounds asked since the clearing.
+	round, err := in.OpenRound(ctx, intake, taken.ID)
+	if err != nil {
+		t.Fatalf("OpenRound after the clearing: %v", err)
+	}
+	if round != 1 {
+		t.Errorf("the first round after the clearing is %d, want 1", round)
+	}
+
+	// A human's answer on an intent that is not escalated moves no state.
+	if _, err := in.Answer(ctx, owner, asked[2].ID, "a day"); err != nil {
+		t.Fatalf("Answer on an unrefined intent: %v", err)
+	}
+	read, err = intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.State != intent.StateUnrefined || read.Rounds != 1 {
+		t.Errorf("an answer on an unrefined intent left it %s at %d rounds, want unrefined at 1",
+			read.State, read.Rounds)
+	}
+}
+
+// TestTheProjectIsFilledOnceAndNeverRewritten: intake fills the project where
+// decomposition has to place a created service and nothing else answers, and
+// the field is never rewritten, so an approval keeps pointing at what was
+// approved.
+func TestTheProjectIsFilledOnceAndNeverRewritten(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+	taken := requested(t, ctx, in, "a shop needs a basket service")
+	if taken.ProjectID != "" {
+		t.Fatalf("the intent arrived naming project %q, want none", taken.ProjectID)
+	}
+
+	if err := in.SetProject(ctx, intake, taken.ID, ""); !errors.Is(err, intent.ErrProjectIDEmpty) {
+		t.Errorf("SetProject naming no project = %v, want ErrProjectIDEmpty", err)
+	}
+	if err := in.SetProject(ctx, intake, taken.ID, "pr_shop"); err != nil {
+		t.Fatalf("SetProject: %v", err)
+	}
+	read, err := intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.ProjectID != "pr_shop" {
+		t.Errorf("the intent names project %q, want pr_shop", read.ProjectID)
+	}
+
+	for _, again := range []string{"pr_shop", "pr_other"} {
+		if err := in.SetProject(ctx, intake, taken.ID, again); !errors.Is(err, intent.ErrProjectAlreadyWritten) {
+			t.Errorf("SetProject a second time with %s = %v, want ErrProjectAlreadyWritten", again, err)
+		}
+	}
+	read, err = intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.ProjectID != "pr_shop" {
+		t.Errorf("after the refused rewrites the intent names %q, want pr_shop", read.ProjectID)
+	}
+
+	// A project supplied at the arrival is written already, so decomposition's
+	// fill is refused there too.
+	supplied, err := in.TakeIn(ctx, owner, intent.Arrival{
+		Source: intent.SourceOwner, Statement: "another shop", ProjectID: "pr_arrived",
+	})
+	if err != nil {
+		t.Fatalf("TakeIn: %v", err)
+	}
+	if err := in.SetProject(ctx, intake, supplied.ID, "pr_elsewhere"); !errors.Is(err, intent.ErrProjectAlreadyWritten) {
+		t.Errorf("SetProject on an intent that arrived with one = %v, want ErrProjectAlreadyWritten", err)
+	}
+}

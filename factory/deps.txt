@@ -48,7 +48,9 @@
 # run, a candidate's store, and a backfill's completion — that a package test
 # has no repository, no process, and no deploy target for. It also names
 # targetseam, because completing a deploy target the way the deployer would is
-# what its fixtures ship a release through.
+# what its fixtures ship a release through. postgres names record for one call
+# and no table: the schema history it keeps of itself writes its rows with the
+# same timestamp every record in the store is written with.
 #
 # The edges whose reason the list does not make obvious have it stated here.
 #
@@ -211,7 +213,9 @@
 # from. gatepolicy is the vocabulary the size and the power are keyed by, one per
 # quantity. lastcheck is its own last check per service, a writer among the
 # seven records.md names, and decisionlog is for [decisionlog.Row], the shape the
-# notifier's own delivery reads back. service is the four fields the deployer
+# notifier's own delivery reads back. people is the one duty a page of this
+# component names — an open incident with no open window reaches whoever holds
+# (2) — and nothing else here reads that declaration. service is the four fields the deployer
 # populates, without which a window opens recording only that it measures
 # nothing, and the objective an explicit threshold is read against. boundary is
 # the one import that is arithmetic rather than a record: the window's size and
@@ -226,7 +230,11 @@
 # policy already exposes for this direction. Policy does not import people
 # back: the declaration policy's version carries is supplied to it by the
 # composition, never read from this package, which is why the edge runs one
-# way.
+# way. It imports legalhold for the half of a mapping's deletion this package
+# can decide on its own: a hold on the whole install reaches every mapping
+# there is, where a hold on one service or one project reaches one only
+# through the records that key is written on, which is the erasure list's walk
+# and is the caller's check.
 #
 # notifier imports people because routing is a read of that declaration, and
 # decisionlog because a page event is a row of the log. It imports lastcheck
@@ -272,11 +280,12 @@
 # implements, and so is the run it observes and the store state and the backfill's
 # completion it reads. That is the arrangement healthmonitor already has.
 #
-# driftdetector imports record and nothing else. Its store is not the factory's — no
-# factory component may write it — so it brings its own opener and its own
-# applier rather than reaching for package postgres, and postgres does not name
-# it. What it shares with the factory is the column conventions, which are about
-# who wrote a row and not about which store it is in.
+# driftdetector's store is not the factory's — no factory component may write
+# it — so it brings its own opener and its own applier rather than reaching for
+# package postgres, and postgres does not name it. What it shares with the
+# factory is the column conventions, which are about who wrote a row and not
+# about which store it is in. Its three edges — record, decisionlog for the
+# second comparison and lastcheck for the third — are the paragraph above.
 #
 # Every package that writes to the factory's own store imports lease, to call
 # Fence inside its own write transaction before the write it guards —
@@ -316,23 +325,25 @@ halt -> record lease
 legalhold -> record lease
 window -> boundary gatepolicy record lease
 incident -> record lease
-people -> record lease policy
+people -> record lease legalhold policy
 driftdetector -> record decisionlog lastcheck
 score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease release window
 policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold project safeguard score secretref service
+dispatch -> agent agentrun artifact decisionlog inputmanifest intent item lease policy principal record
 gate -> area artifact criterion decisionlog environment halt intent item lease people policy record score service
 mergequeue -> build contract decisionlog environment gate halt intent item lease record release
 notifier -> decisionlog driftdetector factorysettings lastcheck lease people record service
-healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier policy record release service window
+healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy record release service window
 contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item policy record release service window
 agent -> secretref principal
 localtarget -> principal secretref targetseam
-postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease notifier people project release safeguard screenstatemachine service window
+postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record release safeguard screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy environment exposure factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release safeguard score secretref service targetseam window
+cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release safeguard score screenstatemachine secretref service targetseam window
 cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
+test dispatch -> postgres
 test decisionlog -> secretref principal
 test intent -> postgres lease
 test project -> postgres lease
@@ -358,9 +369,9 @@ test halt -> postgres lease
 test legalhold -> postgres lease
 test window -> postgres lease
 test incident -> postgres lease
-test people -> postgres lease policy score
+test people -> postgres lease legalhold policy score
 test notifier -> postgres decisionlog driftdetector factorysettings lastcheck lease people policy record service
-test healthmonitor -> postgres boundary build deploy item lease record release targetseam window
+test healthmonitor -> postgres boundary build deploy item lease notifier people record release targetseam window
 test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lease policy record release safeguard secretref service targetseam window
 test score -> postgres area artifact decisionlog intent item lease record release window
 test policy -> postgres area decisionlog environment factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service

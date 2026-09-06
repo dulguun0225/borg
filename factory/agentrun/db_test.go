@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +113,12 @@ func TestRecordWritesTheRunAndGetReadsItBack(t *testing.T) {
 	if _, err := time.Parse(record.TimeLayout, recorded.At); err != nil {
 		t.Errorf("the run has timestamp %q: %v", recorded.At, err)
 	}
+	// The prefix names the record kind and is the only part of an id a reader
+	// may interpret, so it is this kind's alone: "ar" is package area's.
+	if agentrun.IDPrefix != "agr" || !strings.HasPrefix(recorded.ID, "agr_") {
+		t.Errorf("the run has id %q under prefix %q, want an id of the agent run's own prefix agr",
+			recorded.ID, agentrun.IDPrefix)
+	}
 
 	read, err := agentrun.Get(ctx, pool, recorded.ID)
 	if err != nil {
@@ -126,7 +133,7 @@ func TestRecordWritesTheRunAndGetReadsItBack(t *testing.T) {
 
 func TestGetOnAnUnknownIDIsNotFound(t *testing.T) {
 	ctx, pool, _ := newTable(t)
-	if _, err := agentrun.Get(ctx, pool, "ar_00000000000000000000000000000000"); !errors.Is(err, agentrun.ErrNotFound) {
+	if _, err := agentrun.Get(ctx, pool, "agr_00000000000000000000000000000000"); !errors.Is(err, agentrun.ErrNotFound) {
 		t.Errorf("Get on an unknown id = %v, want ErrNotFound", err)
 	}
 }

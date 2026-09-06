@@ -1,15 +1,16 @@
 // Command factory is the command-line interface: one binary on a terminal, standing in
 // for the four screens that are not built yet.
 //
-// Twelve subcommands. "run" walks the whole path once — the install, intake,
-// the interview, decomposition, Decomposition where decomposition yielded more
-// than one item, the spec and implementation stages per item, the consumer
-// contract derived from the same build, the build, the criteria in force
-// checked in both directions, the Merge to master gate with the two contract
-// checks, the fast-forward, the release and the contract versions it publishes,
-// the Deploy to production gate, a deploy without a control, the watch, and the
-// deprecation detector — stopping with the first error, and asking a human for
-// a verdict at each row the score or a safeguard puts one at.
+// Twenty subcommands. "run" walks the whole path once — the install, every
+// component's restart, intake, the interview, decomposition, Decomposition
+// where decomposition yielded more than one item, the four authoring stages per
+// item with the gate row of each, the consumer contract derived from the same
+// build, the build, the criteria in force checked in both directions, the Merge
+// to master gate with the two contract checks, the fast-forward, the release and
+// the contract versions it publishes, the Deploy to production gate, a deploy
+// without a control, the watch, and the deprecation detector — stopping with the
+// first error, and asking a human for a verdict at each row the score or a
+// safeguard puts one at.
 //
 // It knows more than one service. "-service name=path" is given once per
 // service, and an intent that changes several names them before its statement —
@@ -28,6 +29,19 @@
 // contracts in force per service with the release range they were derived over,
 // the deprecation list per marked element, and — with "-breaks <item-id>" —
 // what one candidate would break and whom.
+//
+// Six more are what a human does to something already running. "rollback
+// <service>" is duty 10: the deployer returns production to the release below
+// the one running, with the human as the actor, and "-revert" raises the revert
+// intent instead, which is the same duty once the build a rollback would return
+// to is gone. "drop <item|intent>" ends work for good. "accept-commit <service>
+// <commit>" is a human accepting a commit the queue did not make, which is what
+// ends the stop that commit leaves. "mark-rollback <deploy-id>" is a named human
+// at Ops saying a rollback was not caused by the release, which the score and
+// its learning pass then exclude. "mitigate <deploy-id>" is the deployer
+// performing one of the three operations on a target on a human's instruction,
+// and "-end" ends one standing. "truncate" is the decision log's retention pass,
+// refused while a legal hold stands.
 //
 // The other eight are duty 8, duty 9, the priority an owner reorders a queue
 // with, and the People declaration a page routes on, none of which has a screen
@@ -52,10 +66,14 @@
 //
 // The entry point and dispatch:
 //
-//   - main.go — the entry point, the switch on the subcommand name,
+//   - main.go — the entry point, chosen, which is the switch on the subcommand
+//     name — not called dispatch, that being the component that puts an agent
+//     on a stage —
 //     provider-to-model selection, the secrets and deploy-credential helpers,
-//     the -service/-intent flag types, and runCommand/walkCommand, which
-//     parse those two subcommands' flags.
+//     the lease this process holds, and runCommand/walkCommand, which parse
+//     those two subcommands' flags.
+//   - flags.go — serviceFlag and statements, the two repeated flags "run"
+//     takes, with namesService beneath them.
 //
 // The run's composition and configuration:
 //
@@ -74,12 +92,15 @@
 //
 // The path a run walks stage by stage:
 //
-//   - path.go — the component actors, the path struct (a run's collaborators,
-//     and the deployer mergequeue, healthmonitor and contractcheck reach
-//     through), the seams it satisfies and the three small ones composed
-//     beside it — intentState, nameOfKey and gateNotifier — and run, which
-//     walks the whole path once per intent over the install's dependency
-//     layers, plus layer, one dependency layer's own walk below decomposition.
+//   - path.go — the component actors, the four authoring roles' actors, the
+//     path struct (a run's collaborators, and the deployer mergequeue,
+//     healthmonitor and contractcheck reach through), the seams it satisfies,
+//     and run, which walks the whole path once per intent over the install's
+//     dependency layers, plus layer, one dependency layer's own walk below
+//     decomposition.
+//   - seams.go — the three small values the composition supplies a component
+//     that decides events: intentState, raisedByTheHealthMonitor, and
+//     gateNotifier, which is how a gate reaches a human.
 //   - holds.go — Standing, the factory's own holds at a deploy row, and the
 //     four reads enforcement makes of a candidate's own store and of a
 //     backfill's completion, each saying which records it cannot reach.
@@ -94,10 +115,11 @@
 //     where it yielded more than one, and decompositionAttemptLimit, the limit
 //     its re-decompositions are read against.
 //   - authorintent.go — take, the intent a decomposition is authored from;
-//     authorIntent, intake through the item stages for one intent; interview,
-//     the one round or none with the spec author plus the confirming round
-//     every requester owes; and defaultTier, the interview's own placeholder
-//     for a tier value gate policy does not yet author.
+//     authorIntent, intake through the four item stages for one intent;
+//     interview, the one round or none with the spec author plus the confirming
+//     round every requester owes, with sentencesOf, the criteria the intent's
+//     requirements are written from; and defaultTier, the interview's own
+//     placeholder for a tier value gate policy does not yet author.
 //   - candidate.go — asked, shipped, decompositionSet, and candidate: the
 //     run's own data shapes for one intent, what it did, one decomposition,
 //     and one item's build in progress. asked.resumeIntentID names an intent
@@ -109,11 +131,26 @@
 //     decideCriteria, checkEncodings, compositionFor, dependencyHold,
 //     describeComposition, recordCriterionRun, and nextCriterionRun, which two
 //     runs of the encodings are recorded as on a build's criterion results.
-//   - author.go — specStage, implementationStage, and consumerContractStage,
-//     the three authoring stages against the model; Publishes, Declares,
+//   - authorstages.go — specStage with submitSpec and screenMachine, planStage
+//     and tasksStage: the three stages above the build, each dispatching its
+//     role, submitting what it authored, firing its own gate row, and
+//     re-authoring against a reject; itemGate, the firing the four item rows
+//     share; and on, specMaterial, refining and requirementFor, what a dispatch
+//     is given.
+//   - author.go — implementationStage with startBranch, commitAndBuild and
+//     hazardOf, and consumerContractStage; Publishes, Declares,
 //     DeclaresSchemaChange, repoOfItem, the deployer's side of contractcheck;
-//     and writeManifest and filesSize, the input manifest a dispatch writes
-//     before the agent runs.
+//     and filesSize and rolePromptCriteria, what a stage hands a role.
+//   - fleet.go — oneModelFleet, the [dispatch.Fleet] this interface is composed
+//     with; rolePrompts, the role prompt version in force per role;
+//     shippedPromptFor and enterShippedPrompts, the install's first-start step
+//     for what an agent is told; and gateEscalation, which is what performs an
+//     escalation dispatch decided.
+//   - restart.go — restart, every component's restart run once at every start:
+//     the merge queue's master read, the deployer's unfinished deploys, the
+//     health monitor's open windows, the notifier's waiting rows, Factory's and
+//     People's re-derivation from the newest policy version, and dispatch's
+//     re-match of its open holds.
 //   - repo.go — the git and filesystem operations a stage needs: masterHead,
 //     compiles, buildInto, runEncodings, repoFiles, copyFile; and createBuild,
 //     resolvedGoModules and readGoModule, the build record with its resolved
@@ -125,12 +162,10 @@
 //     checkout — the exposure list package exposure derives, and whether the
 //     checkout ships a schema change — and factorExposure and path.exposureOf,
 //     which read that list off the build record and hand it to the score.
-//   - attempt.go — stageAttempts and attempt, the per-stage attempt limit and
-//     spend a call to the model is wrapped in; and recordAgentRun and
-//     recordIntentRun, the agentrun record each call writes.
 //   - gateio.go — fired, and the gate mechanics every row shares: report,
-//     settle, reading a human's typed verdict, and recording what a firing
-//     closed as.
+//     settle — which offers refer, acknowledge and Edit in place beside the
+//     row's own verdicts — editInPlace, reading a human's typed verdict, and
+//     recording what a firing closed as.
 //
 // The merge queue and production deploy:
 //
@@ -163,6 +198,16 @@
 //   - ops.go — peopleCommand, watchCommand, approveCommand: the three
 //     subcommands downstream of a deploy; and pathFlags/withPath, composing a
 //     path for one of them with no model.
+//
+// What a human does to something already running:
+//
+//   - undo.go — rollbackCommand with rollBackNow and revertIntent, which is
+//     duty 10 in its two forms, and markRollbackCommand, the mark that a
+//     rollback was not caused by the release.
+//   - ending.go — dropCommand, acceptCommitCommand, mitigateCommand and
+//     truncateCommand: an item or an intent ended for good, a commit the queue
+//     did not make accepted, the deployer acting on a human's instruction, and
+//     the log's retention pass.
 //
 // The authoring subcommands:
 //
@@ -238,7 +283,25 @@
 // carries. A held lease is a start failure, printed on stderr naming the
 // holder, with a non-zero exit.
 //
+// What is not built here: the fleet entry is not a record, so oneModelFleet
+// answers for every role over the whole factory and no dispatch of this
+// interface holds on a stage no entry covers. The gate every role prompt
+// version fires is not fired, so a version an upgrade entered stays out of
+// force with the install's in force below it. A refer at the Decomposition row
+// is refused by the gate, [gate.Gate.Refer] re-firing through
+// [gate.Gate.Fire], which decides one item and not a set. The mechanical
+// rejection of a build whose emission does not count the area's hazardous
+// operation is not built: the implementer is told the operation and nothing
+// reads the count back off the build.
+//
 // What defines it: the command-line interface in place of the four screens is
 // ../../../roadmap.md#m1--one-change-ships; more than one service and the
-// contract queries are ../../../roadmap.md#m5--contracts-bind-services.
+// contract queries are ../../../roadmap.md#m5--contracts-bind-services. The
+// path it composes is ../../../end-goal/how-the-factory-works/01-one-pipeline.md;
+// the component that puts an agent on a stage is
+// ../../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md;
+// every component's restart and the lease is ../../../end-goal/one-process.md;
+// the duties the subcommands give a way in to are
+// ../../../end-goal/what-humans-do.md; and what each component may call is
+// ../../../end-goal/components.md.
 package main

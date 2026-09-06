@@ -28,10 +28,25 @@ import (
 func DataDir(dir, service string) string { return filepath.Join(dir, service+".data") }
 
 // HistoryFile is the schema history the deployer keeps in the service's store:
-// one line per change applied, the change's identity, a space, its checksum, a
-// space, and `widened` or `removed`. Which changes a store carries is read from
+// one line per change applied, five fields separated by spaces — the change's
+// identity, its checksum, `widened` or `removed`, the release that shipped it,
+// and `applied` or `found_applied`. Which changes a store carries is read from
 // here and never from a deploy record.
+//
+// A deploy that names no release writes [noRelease] in the fourth field, a line
+// being read by its fields and an empty one leaving four where there are five.
 func HistoryFile(dir, service string) string { return filepath.Join(dir, service+".schema") }
+
+// noRelease is the fourth field of a history line written by a deploy that names
+// no release — a candidate's own environment, and a build the search called for.
+const noRelease = "-"
+
+// The fifth field: what the deployer did with the change. A found-applied row is
+// the adoption's word that the store arrived carrying the change.
+const (
+	fieldApplied      = "applied"
+	fieldFoundApplied = "found_applied"
+)
 
 // SchemaScript is the script the service ships for one change, run by
 // [Local.ApplySchemaChange] with the store's directory as its one argument. A
@@ -73,6 +88,13 @@ var (
 //
 // A script that fails leaves the history alone, so a change that failed to apply
 // is a change the next read of the history still lacks.
+//
+// A change marked found applied is written into the history and run on nothing:
+// an adopted service's store arrives at the schema its head declares, so the
+// deploy of the adoption item's release writes one row per change the build
+// declares and applies none. The script is still read, the checksum being over
+// its text either way, so a change the service ships no script for is
+// [ErrNoSchemaScript] there too.
 func (l *Local) ApplySchemaChange(ctx context.Context, p principal.Principal, c targetseam.SchemaChange) error {
 	if err := targetseam.CheckPrincipal(p); err != nil {
 		return err
@@ -94,13 +116,15 @@ func (l *Local) ApplySchemaChange(ctx context.Context, p principal.Principal, c 
 		return fmt.Errorf("localtarget: reading the script for %s of service %q: %w", c.Change, c.Service, err)
 	}
 
-	store := DataDir(l.dir, c.Service)
-	if err := os.MkdirAll(store, 0o755); err != nil {
-		return fmt.Errorf("localtarget: making the store of service %q: %w", c.Service, err)
-	}
-	if output, err := exec.CommandContext(ctx, script, store).CombinedOutput(); err != nil {
-		return fmt.Errorf("localtarget: applying %s to the store of service %q: %w: %s",
-			c.Change, c.Service, err, strings.TrimSpace(string(output)))
+	if !c.FoundApplied {
+		store := DataDir(l.dir, c.Service)
+		if err := os.MkdirAll(store, 0o755); err != nil {
+			return fmt.Errorf("localtarget: making the store of service %q: %w", c.Service, err)
+		}
+		if output, err := exec.CommandContext(ctx, script, store).CombinedOutput(); err != nil {
+			return fmt.Errorf("localtarget: applying %s to the store of service %q: %w: %s",
+				c.Change, c.Service, err, strings.TrimSpace(string(output)))
+		}
 	}
 
 	text, err := os.ReadFile(script)
@@ -112,7 +136,15 @@ func (l *Local) ApplySchemaChange(ctx context.Context, p principal.Principal, c 
 	if c.Destroys {
 		widened = "removed"
 	}
-	line := c.Change + " " + hex.EncodeToString(sum[:]) + " " + widened + "\n"
+	release := c.Release
+	if release == "" {
+		release = noRelease
+	}
+	did := fieldApplied
+	if c.FoundApplied {
+		did = fieldFoundApplied
+	}
+	line := strings.Join([]string{c.Change, hex.EncodeToString(sum[:]), widened, release, did}, " ") + "\n"
 
 	file, err := os.OpenFile(HistoryFile(l.dir, c.Service), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -140,13 +172,18 @@ func (l *Local) history(service string) ([]targetseam.SchemaChangeApplied, error
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) != 3 {
-			return nil, fmt.Errorf("localtarget: the schema history of service %q reads %q, not a change, a checksum and what it did",
+		if len(fields) != 5 {
+			return nil, fmt.Errorf("localtarget: the schema history of service %q reads %q, not a change, a checksum, what it did, its release and whether it was found applied",
 				service, line)
 		}
-		applied = append(applied, targetseam.SchemaChangeApplied{
+		row := targetseam.SchemaChangeApplied{
 			Change: fields[0], Checksum: fields[1], Widened: fields[2] == "widened",
-		})
+			Release: fields[3], FoundApplied: fields[4] == fieldFoundApplied,
+		}
+		if row.Release == noRelease {
+			row.Release = ""
+		}
+		applied = append(applied, row)
 	}
 	return applied, nil
 }

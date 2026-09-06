@@ -38,7 +38,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	opened, err := p.gate.Fire(ctx, gate.Firing{
+	firing := gate.Firing{
 		Row:             gate.MergeToMaster,
 		ItemID:          c.itemID,
 		BuildID:         c.buildID,
@@ -49,7 +49,8 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		Criteria:        c.criteria,
 		Measurement:     c.measurement,
 		Exposure:        reached,
-	})
+	}
+	opened, err := p.gate.Fire(ctx, firing)
 	if err != nil {
 		return err
 	}
@@ -64,7 +65,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		}
 		c.mergeGate = recordFiring(opened, closing)
 		c.autoRejected, c.autoRejectedBy = true, check
-		if _, err := p.dispatch.ReturnTo(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.items.ReturnTo(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, checked.Why())
@@ -73,14 +74,14 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		return nil
 	}
 
-	verdict, feedback, closing, err := p.settle(ctx, opened)
+	verdict, feedback, closing, err := p.settle(ctx, opened, firing)
 	if err != nil {
 		return err
 	}
 	c.mergeGate = recordFiring(opened, closing)
 	if verdict == gate.VerdictReject {
 		c.rejected = true
-		if _, err := p.dispatch.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
+		if _, err := p.items.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there, and keeps its environment\n",
@@ -88,7 +89,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		return nil
 	}
 
-	if _, err := p.dispatch.Advance(ctx, dispatchActor, c.itemID, item.StageQueued); err != nil {
+	if _, err := p.items.Advance(ctx, dispatchActor, c.itemID, item.StageQueued); err != nil {
 		return err
 	}
 	c.queued = true

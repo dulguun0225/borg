@@ -124,7 +124,10 @@ func Mitigate(ctx context.Context, w *Writer, m Mitigating) (Mitigation, error) 
 			Service: m.ServiceName, Build: m.Build, Count: m.Count, Credential: m.Credential,
 		})
 	case OperationEndEveryInstance:
-		err = m.Target.Stop(ctx, m.Principal, m.ServiceName, m.Credential)
+		// What the seam reports about how those instances ended is not written
+		// here: a mitigation is not a deploy, and the replacement field it would
+		// go on is the deploy record's own row per target.
+		_, err = m.Target.Stop(ctx, m.Principal, m.ServiceName, m.Credential)
 	default:
 		err = fmt.Errorf("%w: %q", ErrOperationUnknown, m.Operation)
 	}

@@ -323,3 +323,68 @@ func TestStaleIsPastTheIntervalWithAFurtherPassOwed(t *testing.T) {
 		t.Errorf("ForComponent = %d rows, want the two the health monitor wrote", len(forComponent))
 	}
 }
+
+// TestTheDeployersPlatformRecordCarriesTheThreeCounts: how much room a platform
+// has is read rather than modelled, so the deployer's pass over a platform
+// writes what the records hold, what the platform reports holding, and the room
+// the platform reports where it reports one.
+func TestTheDeployersPlatformRecordCarriesTheThreeCounts(t *testing.T) {
+	ctx, pool, w := newTable(t)
+
+	written, err := w.RecordPlatformPass(ctx, deployer, "acme-cloud", time.Hour, lastcheck.PlatformPass{
+		StandingByTheRecords: 3,
+		HeldByThePlatform:    5,
+		Room:                 8,
+		RoomReported:         true,
+	})
+	if err != nil {
+		t.Fatalf("RecordPlatformPass: %v", err)
+	}
+	if written.Component != lastcheck.ComponentDeployer || written.Subject != "acme-cloud" {
+		t.Fatalf("the pass was written as %s over %q", written.Component, written.Subject)
+	}
+
+	read, found, err := lastcheck.Get(ctx, pool, lastcheck.ComponentDeployer, "acme-cloud")
+	if err != nil || !found {
+		t.Fatalf("Get: %v, found %v", err, found)
+	}
+	pass, err := lastcheck.PlatformPassOf(read)
+	if err != nil {
+		t.Fatalf("PlatformPassOf: %v", err)
+	}
+	if pass.StandingByTheRecords != 3 || pass.HeldByThePlatform != 5 || pass.Room != 8 || !pass.RoomReported {
+		t.Errorf("the record reports %+v", pass)
+	}
+	// What the platform holds beyond what the records say stands is a teardown
+	// that failed, which the deployer tears down again on its next pass.
+	if pass.Leaked() != 2 {
+		t.Errorf("the pass reports %d leaked, want 2", pass.Leaked())
+	}
+
+	// Where the platform reports no room figure, the two counts are what a
+	// reader shows and nothing computes a third.
+	if _, err := w.RecordPlatformPass(ctx, deployer, "acme-cloud", time.Hour, lastcheck.PlatformPass{
+		StandingByTheRecords: 3,
+		HeldByThePlatform:    3,
+	}); err != nil {
+		t.Fatalf("RecordPlatformPass without a room figure: %v", err)
+	}
+	read, _, err = lastcheck.Get(ctx, pool, lastcheck.ComponentDeployer, "acme-cloud")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	pass, err = lastcheck.PlatformPassOf(read)
+	if err != nil {
+		t.Fatalf("PlatformPassOf: %v", err)
+	}
+	if pass.RoomReported || pass.Room != 0 || pass.Leaked() != 0 {
+		t.Errorf("a platform that reported no room reads as %+v", pass)
+	}
+
+	// The platform's name is what the record is keyed on, so a pass naming none
+	// is refused rather than overwriting the record the deployer keeps for
+	// itself — which is a record it does not keep.
+	if _, err := w.RecordPlatformPass(ctx, deployer, "", time.Hour, lastcheck.PlatformPass{}); err == nil {
+		t.Error("a pass naming no platform was written")
+	}
+}

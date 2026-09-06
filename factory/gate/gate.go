@@ -127,17 +127,18 @@ func (NoDriftDetector) Mismatch(context.Context, string) (bool, string, error) {
 // following records from one to the next.
 type IntentState func(ctx context.Context, itemID string) (intent.State, error)
 
-// HumanName resolves a human actor's per-person key to the name the People
-// declaration records for it. The gate needs it for one comparison and no other:
-// the author on an artifact version is the person's name, and the actor on a
-// close event is the per-person key, so the refusal of a close by the version's
-// own author is a comparison across the mapping People keeps outside the chain.
+// RaisedByTheHealthMonitor reports whether the intent the item was decomposed
+// from is one the health monitor raised, which is what a halt's two exceptions
+// come to: a revert is an item of the intent the health monitor raised at the
+// rollback, and an item it raised on the service is an item of such an intent
+// too. The reading is the intent's source and the component that called intake,
+// and it is the same one the merge queue's own stop makes.
 //
-// It is a function the composition supplies because that mapping is the one part
-// of the declaration deliberately outside the chain, so that an erasure deletes
-// it alone. A nil value compares the key against the author unresolved, which
-// refuses a self-approval only where the two are spelled the same.
-type HumanName func(ctx context.Context, key string) (string, error)
+// It is a function the composition supplies for the reason [IntentState] is: what
+// it takes is the item's intent, and this package decides events rather than
+// following records from one to the next. A nil value excepts nothing, so every
+// item holds while a halt stands.
+type RaisedByTheHealthMonitor func(ctx context.Context, itemID string) (bool, error)
 
 // Notifier is the two calls a gate makes on the component that reaches humans:
 // the acknowledged event of a page a row already fired, and the wait an
@@ -189,9 +190,10 @@ type Composition struct {
 	// IntentState is the read every firing on an item performs first. A nil
 	// value fires no row on an item.
 	IntentState IntentState
-	// HumanName resolves a close event's actor to the name an artifact version
-	// records as its author. A nil value compares the two unresolved.
-	HumanName HumanName
+	// RaisedByTheHealthMonitor is the read of whether the item's intent is one
+	// the health monitor raised, which is a halt's two exceptions. A nil value
+	// excepts nothing.
+	RaisedByTheHealthMonitor RaisedByTheHealthMonitor
 	// Draw is where the review sample's randomness comes from. A nil value is
 	// [NeverDraw], which is a factory that runs no review sample.
 	Draw Draw
@@ -216,10 +218,12 @@ type Gate struct {
 	holds         Holds
 	driftdetector DriftDetector
 	intentState   IntentState
-	humanName     HumanName
-	draw          Draw
-	notifier      Notifier
-	dispatch      *item.Dispatch
+	// raisedByTheHealthMonitor is the read a halt's two exceptions are made
+	// with, and is nil in a factory composed without one.
+	raisedByTheHealthMonitor RaisedByTheHealthMonitor
+	draw                     Draw
+	notifier                 Notifier
+	dispatch                 *item.Dispatch
 }
 
 // New returns the gate over one composition, with the three optional components
@@ -241,7 +245,10 @@ func New(c Composition) *Gate {
 		pool: c.Pool, token: c.Token, log: c.Log,
 		score: c.Score, policy: c.Policy, holds: c.Holds,
 		driftdetector: c.DriftDetector, intentState: c.IntentState,
-		humanName: c.HumanName, draw: c.Draw, notifier: c.Notifier, dispatch: c.Dispatch,
+		raisedByTheHealthMonitor: c.RaisedByTheHealthMonitor,
+		draw:                     c.Draw,
+		notifier:                 c.Notifier,
+		dispatch:                 c.Dispatch,
 	}
 }
 

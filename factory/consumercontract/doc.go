@@ -17,11 +17,14 @@
 // what the consumer's own source does with a mirror. read.go is [Querier] and the
 // reads [Get], [ForArtifact], [ForItems], [AgainstProducer], [AgainstInterface],
 // [NamingElement], [ItemsOf], [ConsumerServicesEver], [DerivationFor],
-// [NewestDerivation] and [DerivationsForItems]. schema.go is [Table],
+// [NewestDerivation], [DerivationsForItems] and [StandingCouldNotDerive].
+// schema.go is [Table],
 // [DerivationTable], the two id prefixes and [DDL].
 //
-// db_test.go is the tests against the database, and derive_test.go is the
-// extractor, which needs a checkout and no database.
+// db_test.go is the tests against the database and holds the helpers the file
+// beside it shares; derivation_db_test.go is the derivation record's own; and
+// derive_test.go is the extractor and decide_test.go what deciding a predicate
+// means, neither of which needs a database.
 //
 // A [Predicate] is drawn from the list of allowed predicate kinds, which is
 // package gatepolicy's rather than this package's — the list is a parameter of

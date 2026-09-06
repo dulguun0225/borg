@@ -9,13 +9,17 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// MarkSchemaChangeComplete records that the change this deploy's build carries
+// MarkSchemaChangesComplete records that the changes this deploy's build carries
 // completed, which is what puts a schema change on the trail an incident's links
-// walk.
-func (w *Writer) MarkSchemaChangeComplete(ctx context.Context, id string) error {
-	return w.inTransaction(ctx, "completing the schema change of "+id, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `update `+Table+` set schema_change_completed = true
-			where id = $1 and schema_change <> ''`, id)
+// walk. It runs on the deploy that applied them, on the deploy that applied none
+// because the store's history already held every one, and on an adoption's
+// deploy, which wrote them into the history as found applied — in all three the
+// store carries what the build declares, and only a change that failed to apply
+// leaves a record naming changes that did not complete.
+func (w *Writer) MarkSchemaChangesComplete(ctx context.Context, id string) error {
+	return w.inTransaction(ctx, "completing the schema changes of "+id, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `update `+Table+` set schema_changes_completed = true
+			where id = $1 and schema_changes <> ''`, id)
 		if err != nil {
 			return err
 		}

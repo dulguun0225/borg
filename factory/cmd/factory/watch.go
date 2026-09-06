@@ -195,38 +195,6 @@ func (p *path) driftDetectorPages(ctx context.Context) error {
 	return p.notifier.RecordOwnLastCheck(ctx, atLeastASecond(p.d.watchEvery))
 }
 
-// escalated is the page a stage out of attempts fires, and the one place the
-// page's condition is read off a record rather than settled by the kind of wait. An
-// item whose intent an owner typed has nothing live that is worse, so the factory
-// giving up on it waits in Work; one whose intent a detector wrote or end-user
-// reports were grouped into is a defect that is live, so giving up on it is
-// production staying worse until a human takes it over.
-//
-// That is the whole of the test, and it is not which of intake's three sources the
-// intent came from — it is whether something live is worse, which the source is
-// evidence about.
-func (p *path) escalated(ctx context.Context, intentID, itemID, why string) error {
-	if p.notifier == nil {
-		return nil
-	}
-	in, err := intent.Get(ctx, p.d.pool, intentID)
-	if err != nil {
-		return err
-	}
-	row, kind := intentID, notifier.KindIntentEscalated
-	if itemID != "" {
-		row, kind = itemID, notifier.KindItemEscalated
-	}
-	_, err = p.notifier.Notify(ctx, notifier.Wait{
-		Row:     row,
-		Kind:    kind,
-		Waiting: fmt.Sprintf("the factory gave up on %s: %s (its intent came from %s)", row, why, in.Source),
-		Holding: people.OfDuty(takeOverIssues),
-		Worse:   liveIsWorse(in.Source),
-	})
-	return err
-}
-
 // takeOverIssues is duty 12 — taking over issues the factory cannot fix on its
 // own — which is the duty an escalation belongs to and so the duty a page about one
 // routes by. The number is what people holds and the design cites; the words are in
@@ -276,7 +244,7 @@ func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.V
 	}
 	fmt.Fprintf(p.d.out, "The factory holds the production deploy of item %s: %s\n", itemID, held)
 
-	opened, err := p.fireProduction(ctx, c)
+	opened, _, err := p.fireProduction(ctx, c)
 	if err != nil {
 		return err
 	}

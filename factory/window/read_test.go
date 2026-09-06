@@ -157,8 +157,11 @@ func TestAHeldOutWindowIsToldFromOneWithNoControl(t *testing.T) {
 
 // TestClosedReadsEveryClosedWindowAndNoOpenOne: the read the score learns from,
 // which is the one here that is not per service — the subjects it learns about
-// are the services the windows name.
-func TestClosedReadsEveryClosedWindowAndNoOpenOne(t *testing.T) {
+// are the services the windows name. It reads them at one boundary version:
+// passed and failed under two constructions are not one currency, so a window
+// closed under another version is not evidence a mechanism that learns may
+// fold in.
+func TestClosedReadsEveryClosedWindowAtTheVersionInForceAndNoOpenOne(t *testing.T) {
 	ctx, pool, w, _ := newTable(t)
 
 	var closedIDs []string
@@ -177,9 +180,29 @@ func TestClosedReadsEveryClosedWindowAndNoOpenOne(t *testing.T) {
 		t.Fatalf("Open one more: %v", err)
 	}
 
-	closed, err := window.Closed(ctx, pool)
+	// One more closed window under a boundary version this factory no longer
+	// ships, written directly: nothing in this package opens a window at another
+	// version, the construction being the factory's own.
+	underAnotherVersion, err := w.Open(ctx, healthMonitor, opening())
 	if err != nil {
-		t.Fatalf("Closed: %v", err)
+		t.Fatalf("Open one more: %v", err)
+	}
+	if _, err := w.Close(ctx, underAnotherVersion.ID, window.ExitPassed, closingFor(window.ExitPassed)); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `update `+window.Table+`
+		set boundary_version = 'interval-paired-difference/v0' where id = $1`, underAnotherVersion.ID); err != nil {
+		t.Fatalf("writing an older boundary version onto %s: %v", underAnotherVersion.ID, err)
+	}
+
+	closed, err := window.ClosedAtTheVersionInForce(ctx, pool)
+	if err != nil {
+		t.Fatalf("ClosedAtTheVersionInForce: %v", err)
+	}
+	for _, c := range closed {
+		if c.ID == underAnotherVersion.ID {
+			t.Error("a window closed under another boundary version was read as evidence")
+		}
 	}
 	if len(closed) != len(closedIDs) {
 		t.Fatalf("Closed read %d windows, want the %d that closed", len(closed), len(closedIDs))

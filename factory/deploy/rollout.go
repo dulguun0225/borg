@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/dulguun0225/borg/factory/principal"
@@ -22,8 +21,15 @@ import (
 // share. The slice is in the environment's order, which is the order a rollout
 // reaches them in.
 type Reach struct {
-	Address       string
-	Target        targetseam.Target
+	Address string
+	Target  targetseam.Target
+	// ReleaseInstances is how many instances of this deploy's own build run
+	// here, and ControlInstances how many the control runs, which is nothing on
+	// every target but the one the control runs on.
+	ReleaseInstances int
+	ControlInstances int
+	// KeptInstances is the capacity the release being replaced had, times the
+	// fraction its owner authored.
 	KeptInstances int
 	// ServesAShare is what the environment record declares per target. A target
 	// declared as serving one that then refuses the shift is what makes the
@@ -99,8 +105,23 @@ type Performance struct {
 	// only place a strategy attaches.
 	IntoProduction bool
 	StrategyPicked Strategy
+	// ControlReleaseID is the release the control runs, under a strategy with
+	// one: the newest release below this one whose window closed without failing
+	// it, which is the release a rollback of this deploy would return to. A
+	// control is defined by which release it runs, so a deploy with a control and
+	// no release here is refused at the start.
+	ControlReleaseID string
 	// DeliveredReleaseIDs is a revert's deploy listing the releases it delivers.
 	DeliveredReleaseIDs []string
+	// Backfill is what a backfill item's release copies between, and is empty on
+	// every other deploy. The record marks the backfill complete by being marked
+	// complete.
+	Backfill Backfill
+	// UndoneDeployIDs are the deploys this deploy undoes — a rollback's, being
+	// the failed release's own and those of every release it skipped — each
+	// advanced to rolled back target by target as this deploy completes on each.
+	// It is empty on every deploy that undoes nothing.
+	UndoneDeployIDs []string
 
 	// Credential is the environment record's, resolved on the far side of the
 	// seam and never here.
@@ -111,7 +132,16 @@ type Performance struct {
 	// SchemaChanges are the changes the build declares, in the order they apply.
 	// The deployer applies the ones the store's history lacks, before the build
 	// takes traffic, and takes a snapshot before any that destroys stored data.
+	// The record names every one of them, a revert's deploy being the one deploy
+	// that carries more than one.
 	SchemaChanges []targetseam.SchemaChange
+	// Adoption is whether this is the deploy of the adoption item's release. An
+	// adopted service's store arrives at the schema its head declares, so this
+	// deploy writes one row per declared change into the store's schema history,
+	// naming this release and marked as found applied, and applies none of them.
+	// The next release's deploy then applies exactly what its build declares that
+	// the history does not hold, as any deploy does.
+	Adoption bool
 	// SnapshotName is what a snapshot taken before a destructive change is
 	// called, and is required where one of the changes destroys stored data.
 	SnapshotName string
@@ -122,9 +152,9 @@ type Performance struct {
 	// no hold.
 	Bake Bake
 	// BakeVolume is the traffic the targets already reached serve before the
-	// next is reached. It is a field on the service record in the design; that
-	// record does not carry it yet, so the caller supplies it and doc.go says
-	// which caller is not built.
+	// next is reached. It is a field on the service record beside the window
+	// limit, read from there by the caller and passed here, and where an owner
+	// authored none it is what the score supplies.
 	BakeVolume int64
 	// BakePoll is how often the hold asks. A zero value is [DefaultBakePoll].
 	BakePoll time.Duration
@@ -201,10 +231,17 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 		}
 
 		if p.What.Removal() {
-			if err := reach.Target.Stop(ctx, p.Principal, p.ServiceName, p.Credential); err != nil {
+			// What goes on the record is what the seam reported: a platform that
+			// ends instances outright reports a cut, and a record naming a drain
+			// there would assert a drain nothing performed.
+			ended, err := reach.Target.Stop(ctx, p.Principal, p.ServiceName, p.Credential)
+			if err != nil {
 				return d, refused(ctx, w, p, d, n, reach, err)
 			}
-			if err := w.CompleteTarget(ctx, d.ID, reach.Address, targetseam.ReplacementDrained); err != nil {
+			if err := w.CompleteTarget(ctx, d.ID, reach.Address, ended.Replacement); err != nil {
+				return d, err
+			}
+			if err := undoTarget(ctx, w, p, d, reach.Address); err != nil {
 				return d, err
 			}
 			continue
@@ -218,12 +255,23 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 			return d, err
 		}
 
-		if p.StrategyPicked == StrategyWithControl && d.StrategyPerformed == StrategyWithControl {
-			shifted, err := shift(ctx, w, p, d, reach)
+		// The strategy performed is written once something has been performed
+		// and never at the start: on the row with a control it is what the shift
+		// returned, and on the row without one it is these instances replaced
+		// with none of the build they replace left running.
+		if p.IntoProduction {
+			performed, err := performed(ctx, w, p, d, reach)
 			if err != nil {
 				return d, err
 			}
-			d.StrategyPerformed = shifted
+			d.StrategyPerformed = performed
+		}
+
+		// Each deploy this one undoes is advanced on this target as this deploy
+		// completes on it, so a rollback that stopped undoes nothing on the
+		// record beyond the targets it reached.
+		if err := undoTarget(ctx, w, p, d, reach.Address); err != nil {
+			return d, err
 		}
 	}
 
@@ -239,14 +287,19 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 // this deploy is.
 func (p Performance) beginning(wayInDigest string) Beginning {
 	targets := make([]Reaching, 0, len(p.Reaches))
-	control := ""
+	control, controlRelease := "", ""
 	for _, reach := range p.Reaches {
-		targets = append(targets, Reaching{Address: reach.Address, KeptInstances: reach.KeptInstances})
+		targets = append(targets, Reaching{
+			Address:          reach.Address,
+			ReleaseInstances: reach.ReleaseInstances,
+			ControlInstances: reach.ControlInstances,
+			KeptInstances:    reach.KeptInstances,
+		})
 	}
 	if p.IntoProduction && p.StrategyPicked == StrategyWithControl && len(p.Reaches) > 0 {
 		// A control runs the release a rollback would return to, beside the
 		// release itself, and it starts on the first target the rollout reaches.
-		control = p.Reaches[0].Address
+		control, controlRelease = p.Reaches[0].Address, p.ControlReleaseID
 	}
 	return Beginning{
 		ServiceID:           p.ServiceID,
@@ -256,97 +309,72 @@ func (p Performance) beginning(wayInDigest string) Beginning {
 		IntoProduction:      p.IntoProduction,
 		StrategyPicked:      p.StrategyPicked,
 		DeliveredReleaseIDs: p.DeliveredReleaseIDs,
-		SchemaChange:        p.schemaChange(),
+		SchemaChanges:       p.schemaChanges(),
+		Backfill:            p.Backfill,
 		ConfigurationDigest: DigestConfiguration(p.Configuration),
 		WayInTokenDigest:    wayInDigest,
 		ControlTarget:       control,
+		ControlReleaseID:    controlRelease,
 	}
 }
 
-// schemaChange is what the record names as the change this deploy carries: the
-// one the build declares, or the last of them on a revert's deploy, which is the
-// one deploy that can carry more than one.
-func (p Performance) schemaChange() string {
-	if len(p.SchemaChanges) == 0 {
-		return ""
-	}
-	return p.SchemaChanges[len(p.SchemaChanges)-1].Change
-}
-
-// applyToTheStore is every step before traffic: the snapshot before a change
-// that destroys stored data, and the changes the store's history lacks, applied
-// in order through the environment's credential. The store is one per service
-// per environment, so the changes are applied once — through the first target,
-// every target of the environment holding the same credential and reaching the
-// same store.
-func applyToTheStore(ctx context.Context, w *Writer, p Performance, d Deploy) error {
-	if len(p.SchemaChanges) == 0 || len(p.Reaches) == 0 {
-		return nil
-	}
-	through := p.Reaches[0]
-
-	running, err := through.Target.ReadRunning(ctx, p.Principal, p.ServiceName, p.Credential)
-	if err != nil {
-		return fail(ctx, w, p, d, StepSchemaChange, fmt.Errorf("%w: reading the schema history: %w",
-			ErrSchemaChangeRefused, err))
-	}
-	carried := make([]string, 0, len(running.SchemaHistory))
-	for _, applied := range running.SchemaHistory {
-		carried = append(carried, applied.Change)
-	}
-
-	var owed []targetseam.SchemaChange
-	destructive := false
+// schemaChanges is what the record names as the changes this deploy carries:
+// every change the build declares, in the order they apply. A revert's deploy is
+// the one deploy that carries more than one, delivering releases that never
+// deployed on their own, and a record naming one of several would report a
+// deploy that did less than it did.
+func (p Performance) schemaChanges() []string {
+	named := make([]string, 0, len(p.SchemaChanges))
 	for _, change := range p.SchemaChanges {
-		if slices.Contains(carried, change.Change) {
-			continue
-		}
-		owed = append(owed, change)
-		destructive = destructive || change.Destroys
+		named = append(named, change.Change)
 	}
-	if len(owed) == 0 {
-		return nil
-	}
-
-	if destructive {
-		if p.SnapshotName == "" {
-			return fail(ctx, w, p, d, StepSnapshot, fmt.Errorf("%w: it names no copy", ErrSnapshotRefused))
-		}
-		taken, err := through.Target.Snapshot(ctx, p.Principal, targetseam.SnapshotRequest{
-			Service: p.ServiceName, Name: p.SnapshotName, Credential: p.Credential,
-		})
-		if err != nil {
-			return fail(ctx, w, p, d, StepSnapshot, fmt.Errorf("%w: %w", ErrSnapshotRefused, err))
-		}
-		if err := w.NameSnapshot(ctx, d.ID, taken.Name, taken.Digest); err != nil {
-			return err
-		}
-	}
-
-	for _, change := range owed {
-		if err := through.Target.ApplySchemaChange(ctx, p.Principal, change); err != nil {
-			return fail(ctx, w, p, d, StepSchemaChange, fmt.Errorf("%w: %s: %w",
-				ErrSchemaChangeRefused, change.Change, err))
-		}
-	}
-	return w.MarkSchemaChangeComplete(ctx, d.ID)
+	return named
 }
 
-// shift is the control's own share, asked of a target the environment declared
-// as serving one. A target that refuses it is the deployer performing the row
-// without a control on this deploy and writing so, and a rollout that ran no
-// comparison is on the record as one.
-func shift(ctx context.Context, w *Writer, p Performance, d Deploy, reach Reach) (Strategy, error) {
+// performed is what the deployer performed on one target, written when it has
+// performed it. On the row without a control the instances have just been
+// replaced with none of the build they replace left running, which is that row
+// performed. On the row with one it is the control's own share, asked of a
+// target the environment declared as serving one: a target that refuses it — or
+// one that was never declared as serving a share — is the deployer performing
+// the row without a control on this deploy and writing so, and a rollout that
+// ran no comparison is on the record as one.
+func performed(ctx context.Context, w *Writer, p Performance, d Deploy, reach Reach) (Strategy, error) {
+	if p.StrategyPicked != StrategyWithControl {
+		return StrategyWithoutControl, w.PerformedWithoutControl(ctx, d.ID)
+	}
 	if !reach.ServesAShare {
 		return StrategyWithoutControl, w.PerformedWithoutControl(ctx, d.ID)
 	}
 	err := reach.Target.ShiftTraffic(ctx, p.Principal, targetseam.Shift{
 		Service: p.ServiceName, Build: p.What.BuildID, Share: reach.Share, Credential: p.Credential,
 	})
-	if err == nil {
-		return StrategyWithControl, nil
+	if err != nil {
+		return StrategyWithoutControl, w.PerformedWithoutControl(ctx, d.ID)
 	}
-	return StrategyWithoutControl, w.PerformedWithoutControl(ctx, d.ID)
+	if d.StrategyPerformed == StrategyWithoutControl {
+		// An earlier target refused the shift, so the deploy as a whole ran
+		// without a control whatever this one did.
+		return StrategyWithoutControl, nil
+	}
+	return StrategyWithControl, w.PerformedWithControl(ctx, d.ID)
+}
+
+// undoTarget advances every deploy this one undoes on the target this one has
+// just completed on, which is what the design means by written target by target
+// as the record of the rollback that undid it completes on each. A deploy with
+// no row for that address never reached it, and there is nothing there to undo.
+func undoTarget(ctx context.Context, w *Writer, p Performance, d Deploy, address string) error {
+	for _, undone := range p.UndoneDeployIDs {
+		if undone == d.ID {
+			continue
+		}
+		err := w.UndoTarget(ctx, undone, address)
+		if err != nil && !errors.Is(err, ErrTargetNotFound) {
+			return err
+		}
+	}
+	return nil
 }
 
 // hold is the bake volume between one target and the next. It returns as soon as

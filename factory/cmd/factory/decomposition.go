@@ -128,7 +128,12 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	members := make([]gate.SetMember, 0, len(candidates))
 	for _, c := range candidates {
 		members = append(members, gate.SetMember{
-			ItemID: c.itemID, ServiceID: c.svc.ID, AreaID: p.areaID, WaitsOn: c.waitsOn,
+			ItemID: c.itemID, ServiceID: c.svc.ID, AreaID: p.areaID,
+			// How many of the intent's requirements this item answers, which
+			// is what the change group is computed from at this row: there is
+			// no build and no diff, so the set's own size is the reading.
+			Requirements: len(c.requirementIDs),
+			WaitsOn:      c.waitsOn,
 		})
 	}
 	opened, err := p.gate.FireSet(ctx, gate.SetFiring{
@@ -142,7 +147,12 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	fmt.Fprintf(p.d.out, "  the set is %d item(s): %v\n", len(set.itemIDs), set.itemIDs)
 	fmt.Fprintln(p.d.out, "  the diff factors are unavailable here, decomposition happening before anything is built, so this row is scored on a vector with holes in it")
 
-	verdict, feedback, closing, err := p.settle(ctx, opened)
+	// The firing a refer would re-fire with is the set's, and [gate.Gate.Refer]
+	// re-fires through [gate.Gate.Fire], which refuses the Decomposition row
+	// because that row decides a set. So a refer here is refused by the gate
+	// and the human is asked again — the one row of the four this interface
+	// fires where the action the design puts on every row is not reachable.
+	verdict, feedback, closing, err := p.settle(ctx, opened, gate.Firing{Row: gate.Decomposition})
 	if err != nil {
 		return false, err
 	}

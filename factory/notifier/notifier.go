@@ -85,7 +85,16 @@ func New(pool *pgxpool.Pool, log *decisionlog.Writer, token lease.Token, deliver
 // page channel — hours.go says why that alone does not deliver it later —
 // and still reaches mail and chat at once. A [KindHarmMarkedReport] wait is
 // refused with no delivery at all where the factory-wide settings' off
-// switch is set.
+// switch is set, and past that service's cap its own page channel is skipped
+// and one page per interval goes out instead, naming the service and how many
+// marked intents arrived past the cap.
+//
+// A channel that refuses the send does not stop the channels after it. The
+// page is the narrow channel that carries what mail and chat cannot, and a
+// chat integration that stopped would otherwise suppress every page in the
+// factory; each refusal is recorded on its own delivery record, every
+// remaining channel is still attempted, and the refusals are returned
+// together once the page has been tried.
 //
 // It returns the page events it appended, which is empty for a wait that does not
 // qualify — that wait went out on mail and chat, and neither writes a page event,
@@ -95,6 +104,7 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 	if err != nil {
 		return nil, err
 	}
+	overTheCap, past := false, 0
 	if pages && w.Kind == KindHarmMarkedReport {
 		off, err := harmMarkPagesOff(ctx, n.pool)
 		if err != nil {
@@ -102,6 +112,9 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 		}
 		if off {
 			return nil, nil
+		}
+		if overTheCap, past, err = n.overHarmMarkCap(ctx, w, time.Now()); err != nil {
+			return nil, err
 		}
 	}
 	reach, err := n.routeTo(ctx, w)
@@ -117,8 +130,9 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 	}
 
 	var appended []decisionlog.Row
+	var refused []error
 	for _, channel := range Channels {
-		if channel == ChannelPage && (!pages || deferred) {
+		if channel == ChannelPage && (!pages || deferred || overTheCap) {
 			continue
 		}
 		for _, human := range reach {
@@ -128,14 +142,20 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 			}
 			row, err := n.deliver(ctx, Delivery{Channel: channel, To: human, Wait: w, Event: event})
 			if err != nil {
-				return appended, err
+				refused = append(refused, err)
+				continue
 			}
 			if channel == ChannelPage {
 				appended = append(appended, row)
 			}
 		}
 	}
-	return appended, nil
+	if overTheCap {
+		if err := n.pageOverTheCap(ctx, w, past); err != nil {
+			refused = append(refused, err)
+		}
+	}
+	return appended, errors.Join(refused...)
 }
 
 // Widen is the one widening: to the owner, once. A wait no page reached anybody

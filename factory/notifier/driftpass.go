@@ -36,9 +36,18 @@ func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Po
 		return err
 	}
 	for _, m := range all {
+		// A target mismatch names the service it holds, so its page is a wait
+		// of the second kind on that service and waits for the hours the
+		// service allows. A chain mismatch names none and pages at any hour,
+		// holding every service's production deploys at once.
 		w := Wait{
-			Row: m.ID, Kind: KindDriftMismatch, Waiting: m.Why(),
-			Holding: driftObligation, Worse: true,
+			Row: m.ID, Kind: kindOfMismatch(m), Waiting: m.Why(),
+			Holding: driftObligation, Worse: true, ServiceID: m.ServiceID,
+			// A stopped health monitor leaves the release under watch
+			// unmeasured and the rollback that would undo it not going to
+			// happen, which is production worse now and worse for every hour of
+			// the wait.
+			RollbackOutstanding: m.Component == lastcheck.ComponentHealthMonitor,
 		}
 		events, err := n.EventsFor(ctx, m.ID)
 		if err != nil {
@@ -72,6 +81,20 @@ func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Po
 		}
 	}
 	return nil
+}
+
+// kindOfMismatch is which page a mismatch fires. The third comparison finding
+// the health monitor's own last check stale is the fourth page condition and
+// not a mismatch about a record: a window past its cap that nothing has
+// evaluated is what a stopped health monitor looks like from outside, and the
+// component that would have raised that page is the one that stopped. Every
+// other mismatch — a target that disagrees, the log's chain, any other stopped
+// component — is the mismatch page.
+func kindOfMismatch(m driftdetector.Mismatch) Kind {
+	if m.Component == lastcheck.ComponentHealthMonitor {
+		return KindWindowCapUnevaluated
+	}
+	return KindDriftMismatch
 }
 
 // driftDetectorStaleRow is the fixed row [SweepDriftDetectorStale] pages,
@@ -194,7 +217,7 @@ func (n *Notifier) CatchUpDriftDetectorDelivery(ctx context.Context, driftPool *
 // an attempt this process never made.
 func (n *Notifier) appendCaughtUpEvent(ctx context.Context, d driftdetector.OwnDelivery, reached string) error {
 	payload, err := json.Marshal(Payload{
-		Kind: PageEventKind, Row: d.ID, WaitKind: "drift_detector_own_delivery",
+		Kind: PageEventKind, Row: d.ID, WaitKind: string(KindDriftDetectorOwnDelivery),
 		Waiting: d.Why, Event: string(EventReached), Reached: reached, At: d.At,
 	})
 	if err != nil {

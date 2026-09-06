@@ -46,6 +46,14 @@ var (
 	// version it was in force under are written together.
 	ErrTierIncomplete = errors.New("intent: a tier is a value and the policy version it is in force under")
 
+	// ErrProjectIDEmpty is returned by [Intake.SetProject] for a fill naming
+	// no project.
+	ErrProjectIDEmpty = errors.New("intent: the project id is empty")
+	// ErrProjectAlreadyWritten is returned by [Intake.SetProject] for an
+	// intent that already names a project. The field is filled once and never
+	// rewritten, so an approval keeps pointing at what was approved.
+	ErrProjectAlreadyWritten = errors.New("intent: the project is written once, and this intent has one")
+
 	// ErrNoOpenRound is returned by [Intake.Ask] where no round has been
 	// opened. A question attaches to the open round, and the round is what
 	// the attempt limit counts.

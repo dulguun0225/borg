@@ -372,6 +372,14 @@ func versions(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]Ver
 	if err != nil {
 		return nil, err
 	}
+	return versionsIn(rows)
+}
+
+// versionsIn is every score version among rows already read, oldest first. It is
+// separate from [versions] so that a caller reading the log for two shapes at
+// once — [InForceAt], which also reads the confirmations off the policy version
+// rows — reads it once and appends one read event.
+func versionsIn(rows []decisionlog.Row) ([]Version, error) {
 	var read []Version
 	for _, row := range rows {
 		if row.Shape != decisionlog.ShapeScoreVersion {
@@ -424,61 +432,4 @@ func Get(ctx context.Context, pool *pgxpool.Pool, token lease.Token, id string) 
 // every decision naming the version it was decided under.
 func All(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]Version, error) {
 	return versions(ctx, pool, token)
-}
-
-// policyVersionEvent is the part of a policy version row this package reads
-// back: which scope the owner wrote on, and the score version that write
-// confirmed or re-authored a threshold against. Package policy composes the row
-// and cannot be imported here, importing this package itself, so these two field
-// names are declared here and TestThePolicyVersionFieldsTheScoreReads in that
-// package is what holds the two spellings together.
-type policyVersionEvent struct {
-	Scope                string `json:"scope"`
-	ConfirmsScoreVersion string `json:"confirms_score_version"`
-}
-
-// InForceAt is the version that decides a gate an authored threshold binds at
-// one scope: the newest version, where every version that changed the published
-// formula or the factor set since has been confirmed at that scope, and the last
-// version confirmed there otherwise. A version differing in a supplied value
-// takes effect as it is appended and is never what this waits on.
-//
-// The caller is package policy, and it asks only where a threshold is authored
-// at the scope: where nobody authored one, the newest version is in force and
-// [Newest] is the read. Which scope a gate row reads is that package's, so the
-// scope arrives here as the string an owner authored on.
-func InForceAt(ctx context.Context, pool *pgxpool.Pool, token lease.Token, scope string) (Version, bool, error) {
-	read, err := versions(ctx, pool, token)
-	if err != nil || len(read) == 0 {
-		return Version{}, false, err
-	}
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, component)
-	if err != nil {
-		return Version{}, false, err
-	}
-	confirmed := map[string]bool{}
-	for _, row := range rows {
-		if row.Shape != decisionlog.ShapePolicyVersion {
-			continue
-		}
-		var event policyVersionEvent
-		if json.Unmarshal([]byte(row.Payload), &event) != nil {
-			continue
-		}
-		if event.Scope == scope && event.ConfirmsScoreVersion != "" {
-			confirmed[event.ConfirmsScoreVersion] = true
-		}
-	}
-
-	inForce := read[0]
-	for _, v := range read[1:] {
-		if v.Branch != BranchSupplied && !confirmed[v.ID] {
-			// A version that redefined the number waits on the owner, and every
-			// version above it was computed under that redefinition, so the
-			// sequence stops here rather than skipping to the newest.
-			break
-		}
-		inForce = v
-	}
-	return inForce, true, nil
 }

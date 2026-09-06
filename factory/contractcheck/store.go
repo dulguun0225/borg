@@ -7,6 +7,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 )
 
@@ -237,9 +238,12 @@ func (c *Check) readsMoved(candidate Candidate, drafts []consumercontract.Draft,
 }
 
 // backfilled is whether a deploy record marks the backfill for one element
-// complete.
+// complete: a backfill item's release names the element it fills and the element
+// it fills from, and the deployer completes that record only once every row the
+// old form holds is present in the new. Either side of the pair reads the same
+// record, the one it filled and the one it filled from being one backfill.
 func (c *Check) backfilled(ctx context.Context, candidate Candidate, storeName, element string) (bool, error) {
-	_, complete, err := c.backfills.Complete(ctx, candidate.ServiceID, storeName, element)
+	_, complete, err := deploy.BackfillComplete(ctx, c.pool, candidate.ServiceID, storeName, element)
 	return complete, err
 }
 

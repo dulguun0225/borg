@@ -168,10 +168,13 @@ func (w *Writer) AppendDecisionAbandonment(ctx context.Context, e Entry) (Row, e
 
 // AppendDecisionAcknowledgement appends a human's acknowledgement of a
 // decision's opening: they have the row, at Work. It fails with
-// [ErrNotAnOpening] when the named row is not a decision's opening, and with
-// [ErrAlreadyAcknowledged], wrapping the constraint the store refuses a
-// second acknowledgement from the same human with, whether that comes
-// through the method or around it.
+// [ErrNotAnOpening] when the named row is not a decision's opening, with
+// [ErrAlreadyEnded] when a closing or an abandonment already ends it — an
+// acknowledgement sits between the opening and the row that ends it, and one
+// after that row would report a shared duty's time on a decision nobody was
+// deciding — and with [ErrAlreadyAcknowledged], wrapping the constraint the
+// store refuses a second acknowledgement from the same human with, whether
+// that comes through the method or around it.
 func (w *Writer) AppendDecisionAcknowledgement(ctx context.Context, e Entry) (Row, error) {
 	if err := expectShape(e, ShapeDecision); err != nil {
 		return Row{}, err
@@ -188,7 +191,17 @@ func (w *Writer) AppendDecisionAcknowledgement(ctx context.Context, e Entry) (Ro
 
 	return commitAppend(ctx, w.pool, w.token, ShapeDecision, PartAcknowledgement, e,
 		func(ctx context.Context, tx pgx.Tx) error {
-			return requireDecisionOpening(ctx, tx, e.Closes)
+			if err := requireDecisionOpening(ctx, tx, e.Closes); err != nil {
+				return err
+			}
+			ended, err := alreadyEnded(ctx, tx, e.Closes)
+			if err != nil {
+				return err
+			}
+			if ended {
+				return fmt.Errorf("%w: %q", ErrAlreadyEnded, e.Closes)
+			}
+			return nil
 		})
 }
 

@@ -46,7 +46,8 @@ func newAnthropic(t *testing.T, srv *httptest.Server) Anthropic {
 // Authorization header carries the resolved value as a bearer token, the OAuth
 // beta and version headers are present, no x-api-key header is sent, the body
 // carries the model, the system prompt, and the user message, and a canned
-// answer parses into a Reply whose Tokens is input plus output.
+// answer parses into a Reply whose Units carry the input and output counts
+// apart, which is what the agent run record stores.
 func TestCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	var gotAuth, gotBeta, gotAPIKey, gotVersion string
 	var gotBody []byte
@@ -61,15 +62,15 @@ func TestCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reply, err := newAnthropic(t, srv).Complete(context.Background(), "the system prompt", "the user message")
+	reply, err := newAnthropic(t, srv).Complete(context.Background(), as(), "the system prompt", "the user message")
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
 	if reply.Text != "QUESTION: which port?" {
 		t.Errorf("Text = %q, want the content block's text", reply.Text)
 	}
-	if reply.Tokens != 107 {
-		t.Errorf("Tokens = %d, want input+output = 107", reply.Tokens)
+	if reply.Units[UnitsInput] != 100 || reply.Units[UnitsOutput] != 7 {
+		t.Errorf("Units = %v, want input 100 and output 7 counted apart", reply.Units)
 	}
 	if gotAuth != "Bearer "+keyValue {
 		t.Errorf("authorization = %q, want the resolved value as a bearer token", gotAuth)
@@ -106,7 +107,7 @@ func TestCompleteReturnsStatusAndBodyAndNoKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newAnthropic(t, srv).Complete(context.Background(), "s", "u")
+	_, err := newAnthropic(t, srv).Complete(context.Background(), as(), "s", "u")
 	var status *StatusError
 	if !errors.As(err, &status) {
 		t.Fatalf("Complete = %v, want a StatusError", err)
@@ -135,7 +136,7 @@ func TestCompleteReadsPastABlockThatIsNotText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reply, err := newAnthropic(t, srv).Complete(context.Background(), "s", "u")
+	reply, err := newAnthropic(t, srv).Complete(context.Background(), as(), "s", "u")
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
@@ -158,7 +159,7 @@ func TestCompleteRefusesAnUnreadableAnswer(t *testing.T) {
 				fmt.Fprint(w, body)
 			}))
 			defer srv.Close()
-			_, err := newAnthropic(t, srv).Complete(context.Background(), "s", "u")
+			_, err := newAnthropic(t, srv).Complete(context.Background(), as(), "s", "u")
 			if !errors.Is(err, ErrAnswer) {
 				t.Fatalf("Complete = %v, want ErrAnswer", err)
 			}

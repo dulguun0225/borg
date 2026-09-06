@@ -150,30 +150,38 @@ const (
 	// its interval, read by the notifier itself: each of the two processes
 	// watches the other, and this is the notifier's half.
 	KindDriftDetectorStale Kind = "drift_detector_stale"
+	// KindDriftDetectorOwnDelivery is a delivery the detector made to its
+	// own address while the factory's process was down, caught up at the
+	// factory's next start. The delivery already happened, so what the
+	// factory writes is the page event the log missed — and the kind is
+	// here because a page event carries a kind and a kind is a line in
+	// [Kinds].
+	KindDriftDetectorOwnDelivery Kind = "drift_detector_own_delivery"
 )
 
 // Kinds is every kind of wait, with what the page's condition answers for each.
 // A kind is added by writing a line here, which is where the question "does the
 // deployed software stay worse until a human ends this?" has to be answered.
 var Kinds = map[Kind]Pages{
-	KindGateDecision:          PagesNever,
-	KindGateRevertDecision:    PagesIfWorse,
-	KindInterview:             PagesNever,
-	KindRollbackPerformed:     PagesNever,
-	KindDriftMismatch:         PagesAlways,
-	KindOwnerFired:            PagesAlways,
-	KindIntentEscalated:       PagesIfWorse,
-	KindItemEscalated:         PagesIfWorse,
-	KindCredentialUnreachable: PagesIfWorse,
-	KindFailedWithNoRollback:  PagesAlways,
-	KindWindowCapUnevaluated:  PagesAlways,
-	KindRollbackIncomplete:    PagesAlways,
-	KindIncidentNoOpenWindow:  PagesAlways,
-	KindConstraintDeadline:    PagesAlways,
-	KindAdvisoryRemediation:   PagesAlways,
-	KindHarmMarkedReport:      PagesAlways,
-	KindIncidentBoundExceeded: PagesAlways,
-	KindDriftDetectorStale:    PagesAlways,
+	KindGateDecision:             PagesNever,
+	KindGateRevertDecision:       PagesIfWorse,
+	KindInterview:                PagesNever,
+	KindRollbackPerformed:        PagesNever,
+	KindDriftMismatch:            PagesAlways,
+	KindOwnerFired:               PagesAlways,
+	KindIntentEscalated:          PagesIfWorse,
+	KindItemEscalated:            PagesIfWorse,
+	KindCredentialUnreachable:    PagesIfWorse,
+	KindFailedWithNoRollback:     PagesAlways,
+	KindWindowCapUnevaluated:     PagesAlways,
+	KindRollbackIncomplete:       PagesAlways,
+	KindIncidentNoOpenWindow:     PagesAlways,
+	KindConstraintDeadline:       PagesAlways,
+	KindAdvisoryRemediation:      PagesAlways,
+	KindHarmMarkedReport:         PagesAlways,
+	KindIncidentBoundExceeded:    PagesAlways,
+	KindDriftDetectorStale:       PagesAlways,
+	KindDriftDetectorOwnDelivery: PagesAlways,
 }
 
 // anyHour is every kind admitted beside the ordinary condition rather than
@@ -242,6 +250,20 @@ type Wait struct {
 	// hours by; empty is a wait that pages at any hour, the same as a
 	// service authoring none.
 	ServiceID string
+	// RollbackOutstanding is whether production serves a release the health
+	// monitor has called for a rollback on and that rollback has not run. It
+	// is the design's own test for which of the two kinds a wait is: where it
+	// holds, the software is worse now and worse for every hour of the wait,
+	// so the page fires at whatever hour the condition arose and is never
+	// deferred to the service's paging hours; where it does not, the software
+	// is no worse for the hour a human ends the wait at.
+	//
+	// It is the caller's answer for the reason [Wait.Worse] is: the two facts
+	// it is computed from — the release the production deploy record names,
+	// and whether a rollback the health monitor called for on it has run —
+	// are deploy records this package does not read. doc.go names the callers
+	// that answer it.
+	RollbackOutstanding bool
 }
 
 // pages reports whether this wait fires a page, and refuses a caller that

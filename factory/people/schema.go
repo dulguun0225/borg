@@ -80,19 +80,15 @@ var DDL = []string{
 	// an erasure deletes, and it is deleted in place rather than kept
 	// withdrawn, unlike the holding table above.
 	//
-	// hours_start, hours_end and zone are the hours a service pages within,
-	// per ../../end-goal/how-the-factory-works/08-operations/07-pages.md, read against the human who installed
-	// the drift detector or holds an obligation with no reachable hours of
-	// its own — unbuilt today the way credential_account above is: nothing
-	// writes them yet, and they are the empty-string sentinel until
-	// something does.
+	// A key and a name are the whole row. The hours a service pages within are
+	// a field of the service record, per
+	// ../../end-goal/how-the-factory-works/08-operations/07-pages.md, and a
+	// wait naming no service pages at any hour, so no hours are held per
+	// human here.
 	`create table if not exists ` + MappingTable + ` (
 	` + record.Columns + `,
 	person_key text not null,
 	name text not null,
-	hours_start text not null,
-	hours_end text not null,
-	zone text not null,
 	` + record.Constraints + `,
 	constraint mapping_person_key_present check (person_key <> ''),
 	constraint mapping_name_present check (name <> ''),

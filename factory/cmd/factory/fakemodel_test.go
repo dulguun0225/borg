@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/principal"
 )
 
 // The statements the tests give the run, and the spec and the criterion the fake
@@ -66,18 +67,18 @@ type fakeModel struct {
 	failEvery int
 }
 
-func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Reply, error) {
+func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, system, user string) (agent.Reply, error) {
 	switch system {
-	case agent.SpecAuthorSystemPrompt:
+	case agent.ShippedSpecAuthorPrompt:
 		m.specCalls++
 		if m.specCalls == 1 {
-			return agent.Reply{Text: "QUESTION: " + theQuestion, Tokens: 11}, nil
+			return agent.Reply{Text: "QUESTION: " + theQuestion, Units: map[string]int64{agent.UnitsOutput: 11}}, nil
 		}
 		for statement, authored := range theSpecs {
 			if strings.Contains(user, statement) {
 				return agent.Reply{
-					Text:   "SPEC:\n" + authored.spec + "\nCRITERION: " + authored.criterion,
-					Tokens: 23,
+					Text:  "SPEC:\n" + authored.spec + "\nCRITERION: " + authored.criterion,
+					Units: map[string]int64{agent.UnitsOutput: 23},
 				}, nil
 			}
 		}
@@ -93,11 +94,25 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 			return agent.Reply{
 				Text: "SPEC:\nRestore the behaviour the failed release changed, leaving every criterion in force as it is.\n" +
 					"CRITERION: When asked what it was restored from, the system shall respond harm.",
-				Tokens: 19,
+				Units: map[string]int64{agent.UnitsOutput: 19},
 			}, nil
 		}
 		return agent.Reply{}, fmt.Errorf("fake model: the spec author's prompt names no statement this fake authors for")
-	case agent.ImplementerSystemPrompt:
+	case agent.ShippedPlannerPrompt:
+		// The plan is prose and the gate over it takes Edit in place, so what
+		// this fake writes is one paragraph naming what the implementer will
+		// do — enough for the version to exist and be decided, which is what
+		// the row demonstrates.
+		return agent.Reply{
+			Text:  "PLAN:\nWrite one file per criterion in force and one encoding beside each, and a main that emits the quantity the factory watches.",
+			Units: map[string]int64{agent.UnitsOutput: 13},
+		}, nil
+	case agent.ShippedTaskAuthorPrompt:
+		return agent.Reply{
+			Text:  "TASKS:\nWrite the module file.\nWrite one file and one encoding per criterion in force.\nWrite the main that emits the quantity.",
+			Units: map[string]int64{agent.UnitsOutput: 17},
+		}, nil
+	case agent.ShippedImplementerPrompt:
 		named := rolePromptCriterion.FindAllStringSubmatch(user, -1)
 		if len(named) == 0 {
 			return agent.Reply{}, fmt.Errorf("fake model: the implementer's prompt names no criterion")
@@ -106,7 +121,7 @@ func (m *fakeModel) Complete(_ context.Context, system, user string) (agent.Repl
 		if err != nil {
 			return agent.Reply{}, err
 		}
-		return agent.Reply{Text: text, Tokens: 37}, nil
+		return agent.Reply{Text: text, Units: map[string]int64{agent.UnitsOutput: 37}}, nil
 	}
 	return agent.Reply{}, fmt.Errorf("fake model: the system prompt is neither role's")
 }
@@ -225,9 +240,9 @@ func mainGo(failEvery int) []string {
 // merits and the merge queue rejecting it.
 type conflictingModel struct{ inner agent.Model }
 
-func (m *conflictingModel) Complete(ctx context.Context, system, user string) (agent.Reply, error) {
-	reply, err := m.inner.Complete(ctx, system, user)
-	if err != nil || system != agent.ImplementerSystemPrompt {
+func (m *conflictingModel) Complete(ctx context.Context, as principal.Principal, system, user string) (agent.Reply, error) {
+	reply, err := m.inner.Complete(ctx, as, system, user)
+	if err != nil || system != agent.ShippedImplementerPrompt {
 		return reply, err
 	}
 	named := rolePromptCriterion.FindAllStringSubmatch(user, -1)
@@ -247,13 +262,13 @@ type refusingModel struct {
 	callsMade int
 }
 
-func (m *refusingModel) Complete(ctx context.Context, system, user string) (agent.Reply, error) {
-	if system == agent.ImplementerSystemPrompt {
+func (m *refusingModel) Complete(ctx context.Context, as principal.Principal, system, user string) (agent.Reply, error) {
+	if system == agent.ShippedImplementerPrompt {
 		m.callsMade++
 		if m.refused < m.refusals {
 			m.refused++
-			return agent.Reply{Text: "Sure! Here are the files you asked for:\n\n=== FILE main.go ===\npackage main\n=== END ===", Tokens: 5}, nil
+			return agent.Reply{Text: "Sure! Here are the files you asked for:\n\n=== FILE main.go ===\npackage main\n=== END ===", Units: map[string]int64{agent.UnitsOutput: 5}}, nil
 		}
 	}
-	return m.inner.Complete(ctx, system, user)
+	return m.inner.Complete(ctx, as, system, user)
 }

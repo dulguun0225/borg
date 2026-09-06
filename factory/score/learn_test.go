@@ -404,13 +404,58 @@ func TestThePowerFallsWhereWindowsRunToTheCapOnTrafficThatReachedTheSize(t *test
 	}
 
 	// Two are not enough, and a service whose traffic did not reach the size in
-	// force is telling the score about its size and not about its power.
+	// force is telling the score about its size and not about its power. The size
+	// in force is the coarser of what the evidence asks for and what the newest
+	// window reports the traffic reached, so what breaks the run is a window whose
+	// own traffic was coarser than that — a window with less traffic behind it
+	// than the service has now.
 	if got := valueOf(t, withFinestSize(evidenceFor("svc_a", closes(2, window.ExitTimedOut), nil), size.Value/2),
 		gatepolicy.WindowPower, subject); got != power.Value {
 		t.Errorf("two windows at the cap supply a power of %v, want the starting %v", got, power.Value)
 	}
-	if got := valueOf(t, withFinestSize(evidenceFor("svc_a", closes(3, window.ExitTimedOut), nil), size.Value*4),
-		gatepolicy.WindowPower, subject); got != power.Value {
-		t.Errorf("windows at the cap on traffic coarser than the size supply a power of %v, want the starting %v", got, power.Value)
+	fell := withFinestSizePerWindow(evidenceFor("svc_a", closes(3, window.ExitTimedOut), nil), []map[gatepolicy.Quantity]float64{
+		everyQuantityAt(size.Value * 4),
+		everyQuantityAt(size.Value / 2),
+		everyQuantityAt(size.Value / 2),
+	})
+	if got := valueOf(t, fell, gatepolicy.WindowPower, subject); got != power.Value {
+		t.Errorf("a run broken by a window whose traffic was coarser than the size in force supplies a power of %v, want the starting %v", got, power.Value)
+	}
+}
+
+// TestAResolvedRejectionLowersTheRowTheHumanWasAt: a rejection is read as a gate
+// the factory needed, and the row it says that about is the one the human
+// decided at. The item was never auto-passed there, so nothing in the auto-pass
+// half of the rule can carry it.
+func TestAResolvedRejectionLowersTheRowTheHumanWasAt(t *testing.T) {
+	start, _ := Starting(gatepolicy.RiskThreshold)
+
+	e := newEvidence()
+	e.firings = []Firing{
+		rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
+		approvedBy("it_a", "av_2", "2026-08-20T01:00:00Z"),
+	}
+	e.digests = map[string]string{"av_1": "digest-one", "av_2": "digest-two"}
+	e.index()
+
+	// "implementation" is the row rejected and approvedBy both fire at.
+	if got := valueOf(t, e, gatepolicy.RiskThreshold, "implementation"); !near(got, start.Value-thresholdBand) {
+		t.Errorf("the threshold of the row the human was at reads %v, want one band below the starting %v", got, start.Value)
+	}
+	row := rowFor(t, e, gatepolicy.RiskThreshold, "implementation")
+	if row == nil || !strings.Contains(row.Why, "resolved as a gate the factory needed") {
+		t.Errorf("the row does not say what moved it: %+v", row)
+	}
+
+	// A rejection that resolved as a false alarm moves nothing.
+	alarm := newEvidence()
+	alarm.firings = []Firing{
+		rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
+		approvedBy("it_a", "av_1", "2026-08-20T01:00:00Z"),
+	}
+	alarm.digests = map[string]string{"av_1": "digest-one"}
+	alarm.index()
+	if got := rowFor(t, alarm, gatepolicy.RiskThreshold, "implementation"); got != nil {
+		t.Errorf("a false alarm moved the threshold to %v", got.Value)
 	}
 }

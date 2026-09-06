@@ -213,3 +213,78 @@ func TestFieldsAuthoredLikeGatePolicyButNotItsRows(t *testing.T) {
 		t.Errorf("SetIncidentItemBound(0) = %v, want ErrNotPositive", err)
 	}
 }
+
+// TestTheBakeVolumeTheBacklogCapAndTheRateAreAuthoredBesideTheWindowLimit: three
+// values that are not gate policy's eleven rows, each absent until an owner
+// writes one — a bake volume the score supplies where nothing is authored, a
+// backlog cap that is the window limit where nothing is, and a rate the deployer
+// prices a fleet's span at, where an absent rate is no amount at all and not an
+// amount of zero.
+func TestTheBakeVolumeTheBacklogCapAndTheRateAreAuthoredBesideTheWindowLimit(t *testing.T) {
+	ctx, pool, w := newWriter(t)
+
+	created, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout", aProject)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	read, err := service.Get(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	for _, absent := range []struct {
+		what  string
+		value gatepolicy.Authored
+	}{
+		{"the bake volume", read.BakeVolume},
+		{"the backlog cap", read.BacklogCap},
+		{"the instance-hour rate", read.InstanceHourRate},
+	} {
+		if absent.value.Present {
+			t.Errorf("%s of a service nobody authored one on = %+v, want absent", absent.what, absent.value)
+		}
+	}
+
+	tx := begin(ctx, t, pool)
+	if err := service.SetBakeVolume(ctx, tx, created.ID, 5000); err != nil {
+		t.Fatalf("SetBakeVolume: %v", err)
+	}
+	if err := service.SetBacklogCap(ctx, tx, created.ID, 4); err != nil {
+		t.Fatalf("SetBacklogCap: %v", err)
+	}
+	if err := service.SetInstanceHourRate(ctx, tx, created.ID, 0.12); err != nil {
+		t.Fatalf("SetInstanceHourRate: %v", err)
+	}
+	commit(ctx, t, tx)
+
+	read, err = service.Get(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !read.BakeVolume.Present || read.BakeVolume.Number != 5000 {
+		t.Errorf("BakeVolume = %+v, want 5000 present", read.BakeVolume)
+	}
+	if !read.BacklogCap.Present || read.BacklogCap.Number != 4 {
+		t.Errorf("BacklogCap = %+v, want 4 present", read.BacklogCap)
+	}
+	if !read.InstanceHourRate.Present || read.InstanceHourRate.Number != 0.12 {
+		t.Errorf("InstanceHourRate = %+v, want 0.12 present", read.InstanceHourRate)
+	}
+
+	// A rate of nothing is a real value, where a negative one is refused: an
+	// instance-hour that converts to nothing is free, and one that converts to
+	// less than nothing is money earned by running.
+	tx = begin(ctx, t, pool)
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := service.SetInstanceHourRate(ctx, tx, created.ID, 0); err != nil {
+		t.Errorf("SetInstanceHourRate(0) = %v, want a rate of nothing admitted", err)
+	}
+	if err := service.SetInstanceHourRate(ctx, tx, created.ID, -1); !errors.Is(err, service.ErrRateNegative) {
+		t.Errorf("SetInstanceHourRate(-1) = %v, want ErrRateNegative", err)
+	}
+	if err := service.SetBakeVolume(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
+		t.Errorf("SetBakeVolume(0) = %v, want ErrNotPositive", err)
+	}
+	if err := service.SetBacklogCap(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
+		t.Errorf("SetBacklogCap(0) = %v, want ErrNotPositive", err)
+	}
+}

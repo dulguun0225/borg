@@ -178,6 +178,13 @@ type SearchDeploy struct {
 	// rollback's target — the release traffic returns to and the search never
 	// tears down.
 	ControlBuildID string
+	// OntoReleaseID is the release the revert's change was applied onto to make
+	// this build. The deployer writes it as the one release this deploy names as
+	// delivered: a search deploy delivers no release to production, so that
+	// field carries what the next step of the search reads to resume the
+	// bisection, and nothing else on the record says which release a build that
+	// is on no branch was made from.
+	OntoReleaseID string
 }
 
 // Deployer performs what reaches a deploy target. It is an interface because

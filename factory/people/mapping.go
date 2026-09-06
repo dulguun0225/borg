@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -26,28 +27,25 @@ var (
 
 // Mapping is the one place a per-person key maps to a name, kept outside
 // the chain: what deferred.md's seam 1 calls the record an erasure reaches.
-// It also carries the hours a service pages within where the human holds no
-// hours of their own — both unbuilt, schema.go says why.
+// A name and a key are the whole of it — the hours a service pages within are
+// a field of the service record, and a wait naming no service pages at any
+// hour, so there is nothing per human for this row to carry.
 type Mapping struct {
 	ID    string
 	Actor record.Actor
 	At    string
 	Key   string
 	Name  string
-	// HoursStart, HoursEnd and Zone are unbuilt: nothing writes them yet.
-	HoursStart string
-	HoursEnd   string
-	Zone       string
 }
 
-// WriteMapping sets or replaces the name and the hours a key maps to. It is
+// WriteMapping sets or replaces the name a key maps to. It is
 // an upsert on the key, so writing it twice for one key updates the one row
 // rather than adding a second, and it is the one People write that appends
 // no policy version: the mapping stays outside the chain so it can be
 // changed independently of it, and so that erasing it later deletes the
 // mapping and nothing else.
 func WriteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, actor record.Actor,
-	key, name, hoursStart, hoursEnd, zone string) (Mapping, error) {
+	key, name string) (Mapping, error) {
 	if err := actor.Validate(); err != nil {
 		return Mapping{}, err
 	}
@@ -63,7 +61,7 @@ func WriteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, ac
 
 	m := Mapping{
 		ID: record.NewID(MappingIDPrefix), Actor: actor, At: record.Now(),
-		Key: key, Name: name, HoursStart: hoursStart, HoursEnd: hoursEnd, Zone: zone,
+		Key: key, Name: name,
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -74,12 +72,11 @@ func WriteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, ac
 		return Mapping{}, err
 	}
 	_, err = tx.Exec(ctx, `insert into `+MappingTable+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, name, hours_start, hours_end, zone)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		on conflict (person_key) do update set
-			name = excluded.name, hours_start = excluded.hours_start, hours_end = excluded.hours_end, zone = excluded.zone`,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, name)
+		values ($1, $2, $3, $4, $5, $6, $7, $8)
+		on conflict (person_key) do update set name = excluded.name`,
 		m.ID, MappingFormatVersion, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At,
-		m.Key, m.Name, m.HoursStart, m.HoursEnd, m.Zone,
+		m.Key, m.Name,
 	)
 	if err != nil {
 		return Mapping{}, fmt.Errorf("people: mapping %s to %q: %w", key, name, err)
@@ -92,16 +89,28 @@ func WriteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, ac
 
 // DeleteMapping is the one record an erasure reaches: it deletes the mapping
 // for key and leaves every record that key is written on standing, the key
-// itself included. reaches is called first and, where it reports true, the
-// deletion is refused with [ErrLegalHoldReaches]: what a hold over a
-// decision preserves is who approved it, and the mapping is the only thing
-// that says so. reaches is the caller's own check — this package holds no
-// join from a key to the records it names, which is the erasure list's walk
-// and is not built — and a nil reaches never refuses.
+// itself included. It is refused with [ErrLegalHoldReaches] where a hold
+// stands: what a hold over a decision preserves is who approved it, and the
+// mapping is the only thing that says so.
+//
+// Two checks make that refusal, because a legal hold's subject is a service, a
+// project, or the whole install and never a person. A hold on the whole
+// install reaches every mapping there is, and this package reads that one
+// itself through [legalhold.Reaching]. A hold on one service or one project
+// reaches a mapping only through the records that key is written on, which is
+// the erasure list's walk and is not built — so that half is reaches, the
+// caller's own check, and a nil reaches never refuses.
 func DeleteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, key string,
 	reaches func(ctx context.Context) (bool, error)) error {
 	if key == "" {
 		return ErrKeyEmpty
+	}
+	held, err := legalhold.Reaching(ctx, pool, legalhold.Subject{Kind: legalhold.SubjectFactory})
+	if err != nil {
+		return fmt.Errorf("people: reading whether a legal hold stands over the install: %w", err)
+	}
+	if held {
+		return fmt.Errorf("%w: %s, under a hold on the whole install", ErrLegalHoldReaches, key)
 	}
 	if reaches != nil {
 		held, err := reaches(ctx)
@@ -134,9 +143,9 @@ func DeleteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, k
 func GetMapping(ctx context.Context, pool *pgxpool.Pool, key string) (Mapping, error) {
 	var m Mapping
 	var kind, basis string
-	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, person_key, name,
-		hours_start, hours_end, zone from `+MappingTable+` where person_key = $1`, key).
-		Scan(&m.ID, &kind, &m.Actor.Key, &basis, &m.At, &m.Key, &m.Name, &m.HoursStart, &m.HoursEnd, &m.Zone)
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, person_key, name
+		from `+MappingTable+` where person_key = $1`, key).
+		Scan(&m.ID, &kind, &m.Actor.Key, &basis, &m.At, &m.Key, &m.Name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Mapping{}, fmt.Errorf("%w: %s", ErrMappingNotFound, key)
 	} else if err != nil {

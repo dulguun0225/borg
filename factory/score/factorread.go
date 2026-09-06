@@ -203,6 +203,15 @@ func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
 // says it is a release's is a release naming the same item. And this service's
 // own consumer contracts are left out, because a service declaring against its
 // own store contract is its own past and not a sibling.
+//
+// A consumer nobody could read makes this unknowable rather than zero: the
+// derivation records that it could not run, nothing bounds what such a consumer
+// consumes, and a count that left it out would score a service whose consumers
+// cannot be read as one nothing consumes — the reading that made the changes most
+// likely to break a consumer the ones most likely to auto-pass. So one standing
+// could-not-derive record anywhere in the install resolves this factor for every
+// candidate whose service publishes a contract, and the resolution names the
+// consumer nobody could read.
 func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 	published, err := contract.OfService(ctx, s.pool, c.ServiceID)
 	if err != nil {
@@ -212,6 +221,17 @@ func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 		return reading{
 			level: level(0, consumersBreakpoints, 1.0),
 			words: "this service publishes no contract, so nothing declares it consumes one",
+		}, nil
+	}
+
+	unreadable, err := consumercontract.StandingCouldNotDerive(ctx, s.pool)
+	if err != nil {
+		return reading{}, err
+	}
+	if len(unreadable) > 0 {
+		return reading{unavailable: fmt.Sprintf(
+			"%d consumer(s) could not be derived, the first being item %s of service %s: %s",
+			len(unreadable), unreadable[0].ItemID, unreadable[0].ServiceID, unreadable[0].Describe()),
 		}, nil
 	}
 
@@ -254,6 +274,9 @@ func (s *Score) fleetShare(_ context.Context, c Change) (reading, error) {
 	if c.Fleet.Unavailable != "" {
 		return reading{unavailable: c.Fleet.Unavailable}, nil
 	}
+	if !c.Fleet.Derived {
+		return reading{unavailable: fleetUnread}, nil
+	}
 	return reading{
 		level: c.Fleet.ShareWorkingFromIt,
 		words: fmt.Sprintf("%.0f%% of the factory works from the version this one replaces", c.Fleet.ShareWorkingFromIt*100),
@@ -264,11 +287,18 @@ func (s *Score) fleetDeparture(_ context.Context, c Change) (reading, error) {
 	if c.Fleet.Unavailable != "" {
 		return reading{unavailable: c.Fleet.Unavailable}, nil
 	}
+	if !c.Fleet.Derived {
+		return reading{unavailable: fleetUnread}, nil
+	}
 	return reading{
 		level: c.Fleet.Departure,
 		words: fmt.Sprintf("%.0f%% of this version differs from the version in force", c.Fleet.Departure*100),
 	}, nil
 }
+
+// fleetUnread is why both fleet readings resolve where nothing read the fleet's
+// records: no component writes one yet, and a share of nothing is not a reading.
+const fleetUnread = "nothing read the fleet's records for this firing, so what works from the version this one replaces and how far it departs are unknown"
 
 func (s *Score) fleetReversibility(_ context.Context, _ Change) (reading, error) {
 	return reading{

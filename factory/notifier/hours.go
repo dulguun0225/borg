@@ -2,18 +2,22 @@ package notifier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/dulguun0225/borg/factory/service"
 )
 
-// deferredToHours reports whether a wait of the second kind — one that
-// pages, names a service, and is not one of [anyHour] — arrives outside that
-// service's authored paging hours. Where an owner authors none, or the wait
-// names no service, it is never deferred: pages.md's "where an owner
-// authors none, it pages at any hour, which is what every service did
-// before there was anything to author."
+// deferredToHours reports whether a wait of the second kind arrives outside
+// its service's authored paging hours. A wait is of the second kind where it
+// pages, names a service, is not one of [anyHour], and does not carry
+// [Wait.RollbackOutstanding] — production serving a release the health
+// monitor called for a rollback on, with the rollback not run, being the
+// whole of the first kind. Where an owner authors none, or the wait names no
+// service, it is never deferred: pages.md's "where an owner authors none, it
+// pages at any hour, which is what every service did before there was
+// anything to author."
 //
 // What it costs, stated in doc.go: this only decides whether tonight's page
 // goes out now. Delivering it at "the next hour the service allows" needs a
@@ -22,11 +26,17 @@ import (
 // channel is skipped here and reached only by a later call naming the same
 // wait, which nothing yet makes on its own.
 func (n *Notifier) deferredToHours(ctx context.Context, w Wait, now time.Time) (bool, error) {
-	if w.ServiceID == "" || anyHour[w.Kind] {
+	if w.ServiceID == "" || anyHour[w.Kind] || w.RollbackOutstanding {
 		return false, nil
 	}
 	svc, err := service.Get(ctx, n.pool, w.ServiceID)
-	if err != nil {
+	if errors.Is(err, service.ErrNotFound) {
+		// A wait naming a service this factory holds no record of pages at any
+		// hour, the same as one naming none. A missing record is not authored
+		// hours, and refusing to deliver on it would let the narrow channel be
+		// stopped by a row that is not there.
+		return false, nil
+	} else if err != nil {
 		return false, fmt.Errorf("notifier: reading %s's paging hours: %w", w.ServiceID, err)
 	}
 	if !svc.PagingHours.Authored() {

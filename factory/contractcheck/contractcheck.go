@@ -132,23 +132,6 @@ type Snapshot struct {
 	Why  string
 }
 
-// Backfills is which backfills a deploy record marks complete. The item that
-// moves reads to a store's new form and the removal after it are each rejected at
-// Merge to master while no deploy record marks the backfill for that element
-// complete: a new form filled only by writes made after it reads every earlier row
-// as absent, and the drop then destroys the only copy.
-//
-// It is a seam and not a read of the deploy record here, because the field the
-// deployer writes it on is not built. Its caller implements this against the
-// deploy records once it is.
-type Backfills interface {
-	// Complete is the deploy record that marks the backfill for one element of
-	// one store contract complete, and false where none does. The element is
-	// either side of the pair a backfill fills: the one it filled and the one it
-	// filled from are one backfill, and the deployer's row names both.
-	Complete(ctx context.Context, serviceID, contractName, element string) (string, bool, error)
-}
-
 var (
 	// ErrCandidateIncomplete is returned for a candidate this component was not
 	// told enough about.
@@ -166,10 +149,6 @@ var (
 	// store to read. A store migration's middle items have an empty diff by
 	// construction, so a component without this would pass them unconditionally.
 	ErrNoStoreState = errors.New("contractcheck: a check with no candidate store to read cannot decide a store migration")
-	// ErrNoBackfills is returned by [New] for a component that cannot read which
-	// backfills are complete. Without it the item that moves reads and the
-	// removal after it would ship over rows the copy never reached.
-	ErrNoBackfills = errors.New("contractcheck: a check that cannot read a backfill's completion cannot decide a drop")
 )
 
 // Check is enforcement over one factory: the producer's own diff, every consumer
@@ -187,20 +166,23 @@ type Check struct {
 	checkout  Checkout
 	exchanges Exchanges
 	store     StoreState
-	backfills Backfills
 }
 
 // New returns the check over pool, reading what is in force through the policy,
 // taking an intent in through intake, and reading a candidate through the
-// checkout, its run through exchanges, its environment's store through store, and
-// a backfill's completion through backfills.
+// checkout, its run through exchanges, and its environment's store through
+// store.
 //
-// A nil intake is allowed and the four seams are not. A factory that cannot take
+// A nil intake is allowed and the three seams are not. A factory that cannot take
 // an intent in still enforces — the diff and the consumer contracts are most of
 // what enforcement does — and what it loses is the detector, which is the one thing
 // here that writes.
+//
+// Which backfills a deploy record marks complete is no seam: it is a read of the
+// deploy records this component already reads what is running from, and a seam
+// there would be a second answer able to disagree with the record.
 func New(pool *pgxpool.Pool, p *policy.Reader, intake *intent.Intake,
-	checkout Checkout, exchanges Exchanges, store StoreState, backfills Backfills) (*Check, error) {
+	checkout Checkout, exchanges Exchanges, store StoreState) (*Check, error) {
 	if checkout == nil {
 		return nil, ErrNoCheckout
 	}
@@ -210,11 +192,8 @@ func New(pool *pgxpool.Pool, p *policy.Reader, intake *intent.Intake,
 	if store == nil {
 		return nil, ErrNoStoreState
 	}
-	if backfills == nil {
-		return nil, ErrNoBackfills
-	}
 	return &Check{
 		pool: pool, policy: p, intake: intake, checkout: checkout,
-		exchanges: exchanges, store: store, backfills: backfills,
+		exchanges: exchanges, store: store,
 	}, nil
 }

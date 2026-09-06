@@ -120,15 +120,21 @@ func TestASecondChangeShips(t *testing.T) {
 }
 
 // TestTheSecondChangeShipsWithNoHumanAtAnyGate is M2's demonstration: the second
-// item on the service reads under the threshold at every row, so the factory gives
-// every verdict itself and nobody is asked anything — the second run's scripted
-// input is empty, so a run that stopped to ask would fail on a reader with nothing
-// in it.
+// item on the service reads under the threshold at every row that decides over a
+// build, so the factory gives those verdicts itself.
 //
 // What made the difference is the first run: a human approved its implementation,
 // which narrowed the prior on the model that wrote it and the history of the area
 // it was in, and its release gave the service something to return to. The factory
 // earns the autonomy rather than starting with it.
+//
+// The four rows above a build are not among them, and cannot be: the factor set
+// those rows read holds the change's reach, which is computed from a diff, and
+// nothing is built when Spec, Implementation plan and Tasks fire. A factor that
+// cannot be computed is resolved and a human decides whatever the formula
+// returns, so a human is at those three rows on every item. Which factors a row
+// above a build reads is the factor set's own question and not this
+// interface's.
 func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 	ctx, d, first, second := twoRunsOnOneService(t, approvals, approvals)
 
@@ -162,15 +168,19 @@ func TestTheSecondChangeShipsWithNoHumanAtAnyGate(t *testing.T) {
 			second.mergeGate.number, first.mergeGate.number)
 	}
 
-	// Every one of the second run's decisions was closed by the gate component and
-	// says what auto-passed it, and every open event of an auto-pass waits on
-	// nobody — which is how a reader of the log tells a decision nobody was asked
-	// to make from a pending one.
+	// Every one of the second run's decisions over a build was closed by the gate
+	// component and says what auto-passed it, and every open event of an
+	// auto-pass waits on nobody — which is how a reader of the log tells a
+	// decision nobody was asked to make from a pending one. The four rows the
+	// second run opened above a build are skipped: a human decided each, for the
+	// reason this test's own comment gives.
 	rows := decisionRows(readLog(t, ctx, d))
-	if len(rows) != 12 {
-		t.Fatalf("the log holds %d decision rows, two runs of three decisions are twelve", len(rows))
+	// Seven decisions per run — the four rows of the item's own artifacts and
+	// the three event rows — and two rows per decision.
+	if len(rows) != 28 {
+		t.Fatalf("the log holds %d decision rows, two runs of seven decisions are twenty-eight", len(rows))
 	}
-	for _, row := range rows[6:] {
+	for _, row := range rows[14+8:] {
 		if row.Part == decisionlog.PartOpen {
 			payload := openingPayload(t, row)
 			if payload.WaitsOn.Duty != 0 || payload.WaitsOn.Human != "" || len(payload.WaitsOn.Holders) > 0 {
@@ -214,11 +224,13 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 		t.Fatalf("placing the safeguard: %v", err)
 	}
 
-	// One verdict and not three: the third item on this service reads under the
-	// threshold at every row and every factor over a build is valued, so the two
-	// rows above production auto-pass and the safeguard is the only thing putting
-	// a human anywhere.
-	d.in = strings.NewReader("hold the window before this one is still open\n")
+	// Six approvals and then the hold: every row of this item's path puts a human
+	// there — the three above a build because the change's reach cannot be
+	// computed before anything is built, and the three over a build because the
+	// score's calibration found two factors drifted and resolves them until a
+	// recalibration is in force — and the seventh row, production, is where the
+	// safeguard puts one and where the verdict is hold.
+	d.in = strings.NewReader(strings.Repeat("approve\n", 6) + "hold the window before this one is still open\n")
 	res, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
 		t.Fatalf("the third run stopped, and a hold is not an error: %v", err)

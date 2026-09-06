@@ -36,7 +36,11 @@ func (alwaysDraw) Fraction() float64 { return 0 }
 // whatever the score computed. That is the gate's own rule and not the score's,
 // which is why this asserts it per row rather than over all three.
 func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\napprove\n")
+	// Four verdicts: the three rows above a build, where a human is because the
+	// change's reach cannot be computed before anything is built, and the
+	// production deploy row. Every row the sample decides auto-passes and
+	// consumes none.
+	ctx, d, out := newPath(t, theAnswer+"\napprove\napprove\napprove\napprove\n")
 	d.draw = alwaysDraw{}
 
 	res, err := run(ctx, d, of(theStatement))
@@ -74,13 +78,19 @@ func TestTheScoreHoldsAnItemOutOfTheGateItWouldHaveGated(t *testing.T) {
 		t.Errorf("the production row names nothing unmeasured, and a first release has no reachability recorded yet")
 	}
 
-	// The first row was selected here and the ones below it were selected earlier:
-	// the sample selects an item and not a firing.
-	if c.candidateGate.whyHeldOut != score.SelectedHere {
-		t.Errorf("the first row reads held out because %q", c.candidateGate.whyHeldOut)
+	// The first row the sample could select was selected here and the ones below
+	// it were selected earlier: the sample selects an item and not a firing. The
+	// three rows above a build are not among them — the sample selects among the
+	// rows the score would have auto-passed, and a row a resolved vector already
+	// sent a human to is not one the factory judged fine — so the first is the
+	// Implementation row.
+	if c.implementationGate.whyHeldOut != score.SelectedHere {
+		t.Errorf("the first row the sample could select reads held out because %q", c.implementationGate.whyHeldOut)
 	}
-	if c.mergeGate.whyHeldOut != score.SelectedEarlier {
-		t.Errorf("the merge row reads held out because %q, want the earlier selection", c.mergeGate.whyHeldOut)
+	for _, later := range []fired{c.candidateGate, c.mergeGate} {
+		if later.whyHeldOut != score.SelectedEarlier {
+			t.Errorf("the %s row reads held out because %q, want the earlier selection", later.row, later.whyHeldOut)
+		}
 	}
 	if !strings.Contains(out.String(), "Auto-passed by the score's held-out sample") {
 		t.Errorf("no row reports the sample as what passed it:\n%s", out)

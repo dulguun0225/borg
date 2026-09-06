@@ -89,6 +89,14 @@ func (p *path) masterHead(ctx context.Context, svc service.Service) (string, err
 // committed with no base, which is what would drop the tree the items already
 // merged left.
 func masterCommit(repo string) (string, error) {
+	// A repository the factory has not created yet reads as no master, which
+	// is what a service before its first item's implementation is: the
+	// directory is made by the stage that commits the first candidate branch,
+	// and every reading before that — a start's own master read among them —
+	// asks about a service that has merged nothing.
+	if _, err := os.Stat(repo); errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
 	out, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/master")
 	if err == nil {
 		return out, nil

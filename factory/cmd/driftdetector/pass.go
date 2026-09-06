@@ -99,7 +99,7 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 				p.Reached = true
 				p.RunningBuild = running.Build
 				p.RunningDigest = running.ArtifactDigest
-				p.Excused = running.Build != "" && excused[running.Build] &&
+				p.Excused = running.Build != "" && excused[target.Address][running.Build] &&
 					!deployerLastCheckStale(ctx, s.factory, target.Address)
 			}
 
@@ -135,33 +135,76 @@ func recordedFor(ctx context.Context, pool *pgxpool.Pool, serviceID, environment
 	return current, nil
 }
 
-// excusedBuilds is every build an open analysis window accounts for: the build of
-// the release under watch, and — where a platform keeps one — the build of the
-// control that window's deploy record names. A build running beside the current
-// release is a mismatch only where no open window names it, or the independent
-// driftdetector would page on every rollout it sees.
+// excusedBuilds is every build an open analysis window accounts for, per target:
+// the build of the release under watch, the build of the control that window's
+// deploy record names, and the build of the release a rollback of it would
+// return to, which is the same release the control runs. A build running beside
+// the current release is a mismatch only where no open window names it, or the
+// independent driftdetector would page on every rollout it sees.
 //
-// On this platform the set is never the reason a pass agrees. One directory runs one
-// process, so what a target reports is either the current release's build or a
-// disagreement, and a release under watch is the current release. The read is here
-// because the rule is the design's and not the platform's, and because a control
-// running after its window closed is meant to be a mismatch like any other — which
-// is how a failed teardown is caught.
-func excusedBuilds(ctx context.Context, pool *pgxpool.Pool, serviceID string) (map[string]bool, error) {
+// It is per target because the exemption is: it is never granted on a target the
+// deploy record marks complete, that target being meant to run the release under
+// watch, so an old build on it is a mismatch whatever window is open. The
+// exemption covers the targets the rollout has not reached yet and nothing else.
+//
+// It is bounded by the window's own cap as well: a window open past it excuses
+// nothing, because the record that suppresses the check is written by the
+// component whose failure the check exists to survive, and an exemption that
+// outlives the thing it describes is one a stopped health monitor holds open
+// forever.
+func excusedBuilds(ctx context.Context, pool *pgxpool.Pool, serviceID string) (map[string]map[string]bool, error) {
 	open, err := window.AllOpen(ctx, pool, serviceID)
 	if err != nil {
 		return nil, err
 	}
-	excused := map[string]bool{}
+	excused := map[string]map[string]bool{}
 	for _, w := range open {
-		rel, err := release.Get(ctx, pool, w.ReleaseID)
+		past, err := w.PastCap(time.Now())
+		if err != nil || past {
+			continue
+		}
+		builds := map[string]bool{}
+		if w.ReleaseID != "" {
+			rel, err := release.Get(ctx, pool, w.ReleaseID)
+			if err != nil {
+				return nil, err
+			}
+			builds[rel.BuildID] = true
+		} else if w.BuildID != "" {
+			// A window the search opened names a build and no release, and that
+			// build is running beside the current release for as long as the
+			// window is open.
+			builds[w.BuildID] = true
+		}
+		dep, err := deploy.Get(ctx, pool, w.DeployID)
 		if err != nil {
 			return nil, err
 		}
-		excused[rel.BuildID] = true
-		// The control the window's deploy record names would be added here. There are
-		// no columns for one, because this platform starts none, as package deploy's
-		// doc.go states.
+		if dep.ControlReleaseID != "" {
+			control, err := release.Get(ctx, pool, dep.ControlReleaseID)
+			if err != nil {
+				return nil, err
+			}
+			// One release covers two of the three: the control runs the build of
+			// the release a rollback of this deploy would return to.
+			builds[control.BuildID] = true
+		}
+
+		targets, err := deploy.Targets(ctx, pool, dep.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range targets {
+			if t.Completion == deploy.CompletionComplete {
+				continue
+			}
+			if excused[t.Address] == nil {
+				excused[t.Address] = map[string]bool{}
+			}
+			for build := range builds {
+				excused[t.Address][build] = true
+			}
+		}
 	}
 	return excused, nil
 }

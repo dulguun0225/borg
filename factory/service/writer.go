@@ -53,8 +53,37 @@ type Service struct {
 	// Parameters is the gate-policy values an owner authored here.
 	Parameters Parameters
 
+	// ExplicitThreshold is the absolute number a safeguard set per quantity, with
+	// the size it is read at, and is empty where no safeguard set one. It applies
+	// in addition to the comparison rather than instead of it, so it can only add
+	// a check.
+	ExplicitThreshold map[gatepolicy.Quantity]Threshold
+
 	// The authored values that are not gate policy's, each absent where the
 	// owner authored none.
+	//
+	// BakeVolume is the traffic the targets a rollout has already reached serve
+	// before the next is reached, and BacklogCap how many releases may wait
+	// behind a rollback hold before the merge queue stops fast-forwarding this
+	// service's candidates. Both are beside the window limit and neither is one
+	// of gate policy's eleven rows; where an owner authors no bake volume the
+	// score supplies it, and where they author no cap it is the window limit.
+	// InstanceHourRate is what an instance-hour converts to, in the currency the
+	// owner's rates are authored in, and a deploy record whose target carried no
+	// rate names no amount at all.
+	// EnvironmentHourRate is the same for an environment-hour, the second of the
+	// two rates that price hosting outside the factory. OperationCap is how many
+	// operations one release may hold open per interval and OverflowOperation the
+	// name the excess lands in; SearchBudgetBuilds and SearchBudgetSeconds are
+	// what a search may spend before it stops.
+	BakeVolume               gatepolicy.Authored
+	BacklogCap               gatepolicy.Authored
+	InstanceHourRate         gatepolicy.Authored
+	EnvironmentHourRate      gatepolicy.Authored
+	OperationCap             gatepolicy.Authored
+	OverflowOperation        string
+	SearchBudgetBuilds       gatepolicy.Authored
+	SearchBudgetSeconds      gatepolicy.Authored
 	MutantCap                gatepolicy.Authored
 	FailureRecordKeyCap      gatepolicy.Authored
 	UnreliableBound          gatepolicy.Authored
@@ -117,6 +146,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 			WindowSize:  map[gatepolicy.Quantity]gatepolicy.Authored{},
 			WindowPower: map[gatepolicy.Quantity]gatepolicy.Authored{},
 		},
+		ExplicitThreshold: map[gatepolicy.Quantity]Threshold{},
 	}
 
 	tx, err := w.pool.Begin(ctx)
@@ -133,6 +163,8 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 		provisioned_at, repository_credential_shape, repository_credential_branch, repository_credential_master,
 		retired_at, targets,
 		window_confidence, window_cap_seconds, window_limit, exposure_bound,
+		bake_volume, backlog_cap, instance_hour_rate, environment_hour_rate,
+		operation_cap, overflow_operation, search_budget_builds, search_budget_seconds,
 		mutant_cap, failure_record_key_cap, unreliable_bound, incident_item_bound_seconds,
 		snapshot_retention_seconds, objective, objective_period_seconds,
 		paging_hours_start, paging_hours_end, paging_hours_zone, product_licence,
@@ -141,6 +173,8 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 		'', '', '', '',
 		'', '',
 		null, null, null, null,
+		null, null, null, null,
+		null, '', null, null,
 		null, null, null, null,
 		null, null, null,
 		'', '', '', '',
@@ -161,6 +195,8 @@ const selectService = `select id, actor_kind, actor_key, actor_key_basis, at, na
 	provisioned_at, repository_credential_shape, repository_credential_branch, repository_credential_master,
 	retired_at, targets,
 	window_confidence, window_cap_seconds, window_limit, exposure_bound,
+	bake_volume, backlog_cap, instance_hour_rate, environment_hour_rate,
+	operation_cap, overflow_operation, search_budget_builds, search_budget_seconds,
 	mutant_cap, failure_record_key_cap, unreliable_bound, incident_item_bound_seconds,
 	snapshot_retention_seconds, objective, objective_period_seconds,
 	paging_hours_start, paging_hours_end, paging_hours_zone, product_licence,
@@ -248,12 +284,16 @@ func scan(row pgx.Row, named string) (Service, error) {
 	var kind, basis, targets string
 	var shape, branch, master string
 	var confidence, capSeconds, limit, exposure *float64
+	var bakeVolume, backlogCap, instanceHourRate, environmentHourRate *float64
+	var operationCap, searchBudgetBuilds, searchBudgetSeconds *float64
 	var mutantCap, keyCap, unreliable, incidentBound, snapshotRetention *float64
 	var objective, objectivePeriod *float64
 	err := row.Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &s.Name, &s.Repository, &s.ProjectID,
 		&s.Provisioned.At, &shape, &branch, &master,
 		&s.RetiredAt, &targets,
 		&confidence, &capSeconds, &limit, &exposure,
+		&bakeVolume, &backlogCap, &instanceHourRate, &environmentHourRate,
+		&operationCap, &s.OverflowOperation, &searchBudgetBuilds, &searchBudgetSeconds,
 		&mutantCap, &keyCap, &unreliable, &incidentBound,
 		&snapshotRetention, &objective, &objectivePeriod,
 		&s.PagingHours.Start, &s.PagingHours.End, &s.PagingHours.Zone, &s.ProductLicence,
@@ -282,6 +322,13 @@ func scan(row pgx.Row, named string) (Service, error) {
 		WindowLimit:      authored(limit),
 		ExposureBound:    authored(exposure),
 	}
+	s.BakeVolume = authored(bakeVolume)
+	s.BacklogCap = authored(backlogCap)
+	s.InstanceHourRate = authored(instanceHourRate)
+	s.EnvironmentHourRate = authored(environmentHourRate)
+	s.OperationCap = authored(operationCap)
+	s.SearchBudgetBuilds = authored(searchBudgetBuilds)
+	s.SearchBudgetSeconds = authored(searchBudgetSeconds)
 	s.MutantCap = authored(mutantCap)
 	s.FailureRecordKeyCap = authored(keyCap)
 	s.UnreliableBound = authored(unreliable)
