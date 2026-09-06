@@ -95,30 +95,45 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 	return standing, nil
 }
 
+// The three [contractcheck.StoreState] readings below are all of one thing this
+// composition does not have: a candidate environment with a store in it. This
+// platform's environment is a directory the deployer copies a binary into, and
+// the target seam it reaches that directory through applies a schema change and
+// takes a snapshot against nothing. So each answers with what it has, which is
+// nothing, and none of them answers by claiming the candidate had no change.
+//
+// What that costs is that a candidate whose build declares a store change cannot
+// merge here: the store rule rejects a declared schema change and a declared
+// backfill the candidate environment did not exercise, and this is the seam that
+// would have exercised them. That is the reading the design gives — an exercise
+// nothing performed is not one that passed — and what lifts it is a candidate
+// environment with a store, not a value here.
+
 // Rows is [contractcheck.StoreState]: what the candidate's run left in its
-// environment's own store for one store contract. Nothing in this interface
-// writes a store contract and no build here declares one, so there is nothing to
-// read and the answer is none — which enforcement reads as undecided, the way no
-// exchange document is.
+// environment's own store for one store contract. There is no store on this
+// platform's candidate environment, so there is nothing to read and the answer
+// is none — which enforcement reads as undecided, the way no exchange document
+// is.
 func (p *path) Rows(context.Context, contractcheck.Candidate, string) ([]consumercontract.Document, error) {
 	return nil, nil
 }
 
 // AppliedTwice is [contractcheck.StoreState]: what a second application of the
-// candidate's schema change changed on its environment. No build on this path
-// declares a schema change — nothing here derives one from a build — so the
-// second application did not run, which is what Ran false says.
+// candidate's change changed on its environment. Nothing applied it here, there
+// being no store on this platform's candidate environment to apply it to, which
+// is what Ran false says — and a candidate that declares a schema change or a
+// backfill is rejected at Merge to master on the strength of it.
 func (p *path) AppliedTwice(context.Context, contractcheck.Candidate) (contractcheck.SecondApplication, error) {
 	return contractcheck.SecondApplication{}, nil
 }
 
 // Snapshot is [contractcheck.StoreState]: the snapshot the candidate environment
-// took and verified before a change that destroys stored data. There is no such
-// change to take one before, for the reason [path.AppliedTwice] gives, so this
-// reports one neither taken nor verified with the reason on it — and enforcement
-// asks it only where the candidate declares a change that destroys data.
+// took and verified before a change that destroys stored data. There is no store
+// on this platform's candidate environment to snapshot, so this reports one
+// neither taken nor verified with the reason on it — and enforcement asks it only
+// where the candidate declares a change that destroys data.
 func (p *path) Snapshot(context.Context, contractcheck.Candidate) (contractcheck.Snapshot, error) {
 	return contractcheck.Snapshot{
-		Why: "no build on this path declares a schema change, so no candidate environment has taken a snapshot",
+		Why: "this platform's candidate environment has no store, so nothing snapshotted one",
 	}, nil
 }

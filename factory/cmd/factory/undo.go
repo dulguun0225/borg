@@ -75,7 +75,8 @@ func rollbackCommand(args []string) error {
 // every record is the human who asked, the deploy being performed on their
 // instruction and not on the health monitor's reading.
 func (p *path) rollBackNow(ctx context.Context, svc service.Service, reason string) error {
-	live, running, err := deploy.Current(ctx, p.d.pool, svc.ID, p.production.ID, p.productionAddresses())
+	live, running, err := deploy.Current(ctx, p.d.pool, svc.ID, p.production.ID,
+		serviceAddresses(p.production, svc))
 	if err != nil {
 		return err
 	}
@@ -117,7 +118,8 @@ func (p *path) rollBackNow(ctx context.Context, svc service.Service, reason stri
 // whole path. It is what duty 10 comes to once the build the rollback would
 // return to is gone.
 func (p *path) revertIntent(ctx context.Context, svc service.Service, reason string) error {
-	live, running, err := deploy.Current(ctx, p.d.pool, svc.ID, p.production.ID, p.productionAddresses())
+	live, running, err := deploy.Current(ctx, p.d.pool, svc.ID, p.production.ID,
+		serviceAddresses(p.production, svc))
 	if err != nil {
 		return err
 	}

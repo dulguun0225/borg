@@ -132,7 +132,7 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	// fields on the service record. The last check is what says the deployer
 	// reached that target and when, which is what a drift-detection exemption
 	// standing on a rollout that is not advancing is refused against.
-	if err := p.recordTargetChecks(ctx, dep); err != nil {
+	if err := p.recordTargetChecks(ctx, c.svc, dep); err != nil {
 		return err
 	}
 	if err := p.adopt(ctx, c.svc, dep); err != nil {
@@ -167,26 +167,27 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	fmt.Fprintf(d.out, "Analysis window %s opened over deploy %s: size %v, confidence %v, cap %vs; %s\n",
 		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, passed)
 
-	// A brownout's window is not an ordinary one: it runs to the cap rather than
-	// stopping where the boundary would allow, and any service crossing the
-	// reading against its own recent history while it is open fails it. Which
-	// release is a brownout is package contractcheck's to answer and the health
-	// monitor is not told it yet, so the run reports the reading here; that
-	// package's doc.go names what the health monitor still needs.
+	// Which release is a brownout is package contractcheck's to answer, and the
+	// health monitor is not told it: the window just opened is an ordinary one.
+	// So the run reports the reading and says what the window is, rather than
+	// what a brownout's window would be — a line claiming the cap and the
+	// reading over other services would describe behaviour nothing here
+	// performs. That package's doc.go names what the health monitor still needs.
 	of, isBrownout, err := p.contracts.IsBrownout(ctx, c.releaseID)
 	if err != nil {
 		return err
 	}
 	if isBrownout {
-		fmt.Fprintf(d.out, "Release %s is the brownout of %s: its window is the one that runs to the cap whatever the boundary allows, and that any service breaking in the install fails\n",
-			c.releaseID, of.Element)
+		fmt.Fprintf(d.out, "Release %s is the brownout of %s, and window %s over it is an ordinary one: the health monitor is not told which release is a brownout, so this window can still end at the boundary and reads this service's numbers alone\n",
+			c.releaseID, of.Element, opened.ID)
 	}
 	return nil
 }
 
 // recordTargetChecks is the deployer's own last check over each target the
 // deploy reached, written after the deploy completed. There is one per target of
-// a persistent environment, and the interval it promises the next pass within is
+// a persistent environment the service runs on — the deploy reached that set and
+// no other — and the interval it promises the next pass within is
 // how often this interface deploys — which is once per run, so the interval is
 // the watch's own, the longest thing a run does after a deploy.
 //
@@ -194,8 +195,8 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 // keeps: this interface deploys when a run reaches the row rather than on a pass
 // of its own, so a target whose check is older than the interval means the run
 // ended and not that the deployer stopped.
-func (p *path) recordTargetChecks(ctx context.Context, dep deploy.Deploy) error {
-	for _, target := range p.production.Targets {
+func (p *path) recordTargetChecks(ctx context.Context, svc service.Service, dep deploy.Deploy) error {
+	for _, target := range serviceTargets(p.production, svc) {
 		payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q}`, dep.ID, dep.BuildID)
 		if err := deploy.RecordTargetCheck(ctx, p.checks, deployActor,
 			target.Address, atLeastASecond(p.d.watchFor), false, payload); err != nil {

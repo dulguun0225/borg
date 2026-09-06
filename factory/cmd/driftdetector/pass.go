@@ -33,9 +33,9 @@ const passInterval = 5 * time.Minute
 // nothing on it — populated, self-asserted, enforced by nothing.
 var callerPrincipal = principal.OfComponent("driftdetector")
 
-// pass is the first comparison of every service on every production target:
-// the target's build and, where it answers, its digest, against the release
-// the factory recorded.
+// pass is the first comparison of every service on every production target it
+// runs on: the target's build and, where it answers, its digest, against the
+// release the factory recorded.
 func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref,
 	targetAt func(dir string) targetseam.Target) error {
 	services, err := service.All(ctx, s.factory)
@@ -62,10 +62,12 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 			continue
 		}
 		checkedAny = true
-		addresses := make([]string, len(production.Targets))
-		for n, t := range production.Targets {
-			addresses[n] = t.Address
-		}
+		// The detector reads the targets the service runs on and no other for
+		// that service: the service record's own field, and every target of the
+		// environment where it names none, which is what an unwritten field
+		// means. A target of the environment the service does not run on runs
+		// somebody else's software and is that service's mismatch of nothing.
+		addresses := runsOn(production, svc)
 		recorded, err := recordedFor(ctx, s.factory, svc.ID, production.ID, addresses)
 		if err != nil {
 			return err
@@ -80,16 +82,16 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 		if err != nil {
 			return err
 		}
-		for _, target := range production.Targets {
+		for _, address := range addresses {
 			p := driftdetector.Pass{
 				ServiceID:         svc.ID,
-				Target:            target.Address,
+				Target:            address,
 				RecordedReleaseID: recorded.ReleaseID,
 				RecordedBuildID:   recorded.BuildID,
 				RecordedDigest:    recordedDigest,
 				Interval:          passInterval,
 			}
-			running, err := targetAt(target.Address).ReadRunning(ctx, callerPrincipal, svc.Name, credential)
+			running, err := targetAt(address).ReadRunning(ctx, callerPrincipal, svc.Name, credential)
 			if err != nil {
 				// Failing to reach a target is not a mismatch: a network blip would
 				// otherwise hold every production deploy, which is why the last check
@@ -99,8 +101,8 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 				p.Reached = true
 				p.RunningBuild = running.Build
 				p.RunningDigest = running.ArtifactDigest
-				p.Excused = running.Build != "" && excused[target.Address][running.Build] &&
-					!deployerLastCheckStale(ctx, s.factory, target.Address)
+				p.Excused = running.Build != "" && excused[address][running.Build] &&
+					!deployerLastCheckStale(ctx, s.factory, address)
 			}
 
 			written, err := writer.Record(ctx, p)
@@ -116,12 +118,22 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 	return nil
 }
 
+// runsOn is which of a production environment's targets one service runs on: the
+// service record's own field, and every target of the environment where the
+// record names none, which is what an unwritten field means.
+func runsOn(production environment.Environment, svc service.Service) []string {
+	if len(svc.Targets) == 0 {
+		return production.Addresses()
+	}
+	return svc.Targets
+}
+
 // recordedFor is what the factory recorded as the service's current release in
 // production: the release and the build its production deploy record names, and
 // nothing where no deploy of it has completed on every one of addresses.
 //
-// It reads the newest deploy complete on every address the environment
-// names rather than a true per-target reading with the previous-release
+// It reads the newest deploy complete on every address the service runs on
+// rather than a true per-target reading with the previous-release
 // and removal fallbacks 08-drift-detection.md:6-10 states — deploy does not
 // yet expose a per-target walk back through a service's deploys, so a
 // rollout in progress on one target while another is already current reads

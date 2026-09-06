@@ -92,8 +92,9 @@
 //     settings record, the project, and production's environment for it —
 //     created where deps says this composition installs and read and refused
 //     where it does not; runsOnProduction, which authors production's addresses
-//     on a service naming none; and productionAddresses, what every read of
-//     what is running is performed against.
+//     on a service naming none; and serviceTargets, serviceAddresses and
+//     addressesOf, the service's own set of an environment's targets, which is
+//     what every reader of targets here reads.
 //
 // The path a run walks stage by stage:
 //
@@ -111,8 +112,8 @@
 //     leaves, and intakeNotifier, a round of the interview and an intent
 //     escalated.
 //   - holds.go — Standing, the factory's own holds at a deploy row, and the
-//     three reads enforcement makes of a candidate's own store, each saying
-//     which records it cannot reach.
+//     three reads enforcement makes of a candidate's own store, each answering
+//     with nothing because this platform's candidate environment has no store.
 //   - marks.go — marks, the releases a named human at Ops marked as not caused
 //     by the release, which the score and its learning pass exclude.
 //   - withdrawals.go — withdrawals, what a spec version under decision removes,
@@ -166,6 +167,9 @@
 //     DeclaresSchemaChange, DeclaresBackfill, repoOfItem, the deployer's side of
 //     contractcheck;
 //     and filesSize and rolePromptCriteria, what a stage hands a role.
+//   - backfill.go — declaresBackfill with backfillStore and backfillIn, the
+//     pair a backfill item's checkout declares it copies between, and the file
+//     name and directive that convention is, which DeclaresBackfill reads.
 //   - fleet.go — oneModelFleet, the [dispatch.Fleet] this interface is composed
 //     with; rolePrompts, the role prompt version in force per role;
 //     shippedPromptFor and enterShippedPrompts, the install's first-start step

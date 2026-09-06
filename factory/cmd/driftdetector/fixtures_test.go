@@ -140,16 +140,28 @@ func inSchema(t *testing.T, base, schema string) string {
 // and the credential every operation on the target requires.
 func setUp(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, dir string) (environment.Environment, service.Service, secretref.Ref) {
 	t.Helper()
+	return setUpOn(ctx, t, pool, token, dir)
+}
+
+// setUpOn is [setUp] over more than one target, which is what a service that
+// runs on a subset of an environment needs: a project is not one placement, so
+// an environment's targets and a service's are two sets.
+func setUpOn(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, dirs ...string) (environment.Environment, service.Service, secretref.Ref) {
+	t.Helper()
 	credential := secretref.MustNew("deploy.local")
 	prj, err := project.NewWriter(pool, token).Create(ctx, testActor, "default")
 	if err != nil {
 		t.Fatalf("creating the project: %v", err)
 	}
+	targets := make([]environment.Target, 0, len(dirs))
+	for _, dir := range dirs {
+		targets = append(targets, environment.Target{Address: dir})
+	}
 	env, err := environment.NewWriter(pool, token).Create(ctx, testActor, environment.Spec{
 		Kind:       environment.KindProduction,
 		ProjectID:  prj.ID,
 		Name:       environment.ProductionName,
-		Targets:    []environment.Target{{Address: dir}},
+		Targets:    targets,
 		Credential: credential,
 		Platform:   environment.Platform{Name: "local", Credential: credential, CanComposeOnDemand: true},
 	})

@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // Broken, Blocking, Unsatisfied, Unmet and Checked — what enforcement found
@@ -67,8 +70,12 @@ func (c *Check) Enforce(ctx context.Context, candidate Candidate, production str
 	if err != nil {
 		return Checked{}, err
 	}
+	addresses, err := serviceAddresses(ctx, c.pool, candidate.ServiceID, prodEnv)
+	if err != nil {
+		return Checked{}, err
+	}
 	var currentNumber int64
-	current, running, err := deploy.Current(ctx, c.pool, candidate.ServiceID, production, prodEnv.Addresses())
+	current, running, err := deploy.Current(ctx, c.pool, candidate.ServiceID, production, addresses)
 	if err != nil {
 		return Checked{}, err
 	}
@@ -120,6 +127,24 @@ func (c *Check) Enforce(ctx context.Context, candidate Candidate, production str
 		return Checked{}, err
 	}
 	return checked, nil
+}
+
+// serviceAddresses is the set every reader of targets reads: the targets of that
+// environment the service record says it runs on, and every target of the
+// environment where the record names none, which is what an unwritten field
+// means. What is running is completion on that set and on no other, so a
+// producer that runs on two targets of four is current once its deploy is
+// complete on its own two.
+func serviceAddresses(ctx context.Context, pool *pgxpool.Pool, serviceID string,
+	env environment.Environment) ([]string, error) {
+	svc, err := service.Get(ctx, pool, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	if len(svc.Targets) == 0 {
+		return env.Addresses(), nil
+	}
+	return svc.Targets, nil
 }
 
 // decideConsumers decides every consumer contract in force naming something this
@@ -214,25 +239,29 @@ func (c *Check) diff(ctx context.Context, candidate Candidate, form contract.For
 	}
 	broken.Change = contract.Diff(before, form)
 	broken.Next = contract.FirstVersion
-	if broken.Had {
-		broken.Next = broken.From.Next(len(broken.Change.Breaking) > 0)
-	}
 
-	// The deprecation list for each breaking element: the consumer contracts in
-	// force naming it, and any safeguard's predicate naming it. Empty is the
-	// migration having shipped ahead of the change, which is exactly what this
-	// check is for.
-	subjects := make([]string, 0, len(broken.Change.Breaking))
-	for _, element := range broken.Change.Breaking {
+	// The elements whose change the promise may not allow: the ones the diff
+	// calls breaking whatever any declaration says, and the store's addable pair
+	// — a not-null constraint and a domain check — which the diff leaves to this,
+	// the declarations being what decides them.
+	asked := atRisk(existing.Kind, broken.Change, before, form)
+
+	// The deprecation list for each of them: the consumer contracts in force
+	// naming it, and any safeguard's predicate naming it. Empty is the migration
+	// having shipped ahead of the change, which is exactly what this check is
+	// for.
+	subjects := make([]string, 0, len(asked))
+	for _, element := range asked {
 		subjects = append(subjects, contract.ElementSubject(existing.ID, element))
 	}
 	safeguards, err := c.policy.SafeguardPredicatesOn(ctx, subjects)
 	if err != nil {
 		return Broken{}, err
 	}
-	for _, element := range broken.Change.Breaking {
+	for _, element := range asked {
 		naming := consumercontract.NamingElement(binding, candidate.ServiceID, existing.Name, element)
-		if ordinaryConstraint(existing.Kind, broken.Change, before, form, element) {
+		ordinary := ordinaryConstraint(existing.Kind, broken.Change, before, form, element)
+		if ordinary {
 			// The store rule's ordinary path: a not-null constraint or a domain
 			// check on the new form is addable where every declaration in force
 			// writes the form populated and inside the constraint's domain. So
@@ -240,6 +269,14 @@ func (c *Check) diff(ctx context.Context, candidate Candidate, form contract.For
 			// existence of one — the backfill's completion is the other half and
 			// is the store rule's.
 			naming = rejectedBy(naming, form)
+		}
+		// What actually breaks. An element the diff called breaking breaks
+		// whatever is declared; an addable constraint breaks only where a
+		// declaration in force writes what the new form rejects, and one nothing
+		// rejects mints a minor rather than promising a break that does not
+		// happen.
+		if !ordinary || len(naming) > 0 {
+			broken.Breaks = append(broken.Breaks, element)
 		}
 		blocking := Blocking{Element: element, Predicates: naming}
 		for _, p := range safeguards {
@@ -258,16 +295,40 @@ func (c *Check) diff(ctx context.Context, candidate Candidate, form contract.For
 			broken.Blocking = append(broken.Blocking, blocking)
 		}
 	}
+	if broken.Had {
+		broken.Next = broken.From.Next(len(broken.Breaks) > 0)
+	}
 	return broken, nil
 }
 
-// ordinaryConstraint reports whether a store element breaks for the one reason
-// the design gives an ordinary path: a not-null constraint or a domain check
-// added to the form. Everything else a store element can do — a removal, a
-// retype, a weakening, an element added and always populated — is destructive
-// against any declaration in force, and so is a uniqueness rule, which is not on
-// the design's addable list because no predicate can say a write would not
-// collide with another.
+// atRisk is every element whose change the contract's promise may not allow: the
+// diff's own breaking list, which is what breaks whatever any declaration says,
+// and — on a store — an element whose only change is the addable pair, a
+// not-null constraint or a domain check. The diff reports the second in
+// Constrained and Narrowed and puts neither in Breaking, the declarations in
+// force being what decides them and not something a diff of two forms sees.
+func atRisk(kind contract.Kind, change contract.Change, before, after contract.Form) []string {
+	elements := slices.Clone(change.Breaking)
+	for _, element := range append(slices.Clone(change.Constrained), change.Narrowed...) {
+		if slices.Contains(elements, element) {
+			continue
+		}
+		if ordinaryConstraint(kind, change, before, after, element) {
+			elements = append(elements, element)
+		}
+	}
+	slices.Sort(elements)
+	return elements
+}
+
+// ordinaryConstraint reports whether a store element is on the one path the
+// design gives an ordinary answer: a not-null constraint or a domain check added
+// to the form, addable where every declaration in force writes the form
+// populated and inside the constraint's domain. Everything else a store element
+// can do — a removal, a retype, a weakening, an element added and always
+// populated — is destructive against any declaration in force, and so is a
+// uniqueness rule, which is not on the design's addable list because no
+// predicate can say a write would not collide with another.
 func ordinaryConstraint(kind contract.Kind, change contract.Change, before, after contract.Form, element string) bool {
 	if kind != contract.KindStore {
 		return false

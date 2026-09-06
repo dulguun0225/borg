@@ -146,7 +146,10 @@ type Performance struct {
 	// called, and is required where one of the changes destroys stored data.
 	SnapshotName string
 
-	// Reaches are the environment's targets in the environment's order.
+	// Reaches are the targets of the environment the service runs on, in that
+	// set's order. It is the service's set and not the environment's whole list:
+	// completion per target and the rollout's order are both over the targets
+	// the service record says it runs on, and the caller reads that field.
 	Reaches []Reach
 	// Bake is the hold between one target and the next, and may be nil, which is
 	// no hold.

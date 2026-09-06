@@ -26,7 +26,9 @@
 //
 // main.go is the switch on the subcommand name, the two stores opened
 // together, and each subcommand's own flags. pass.go is the first
-// comparison: [pass] itself, [recordedFor] — the recorded release, read the
+// comparison: [pass] itself, [runsOn] — which of a production environment's
+// targets one service runs on, which is the set this pass reads and no other
+// for that service — [recordedFor] — the recorded release, read the
 // way [deploy.Current] already reads a service's current release rather
 // than with the per-target fallback 08-drift-detection.md states, an open
 // point the report names — [excusedBuilds], which is the rollout exemption

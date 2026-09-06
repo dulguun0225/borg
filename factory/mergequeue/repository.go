@@ -157,10 +157,10 @@ func (EveryMoveDiffers) Differs(context.Context, string, string, string) (bool, 
 // Backlog is the reading the backlog cap's stop is decided against. It is an
 // interface because what it counts is a walk the queue does not make: the
 // service's newest rollback, whether its revert has shipped, the releases that
-// rollback skipped, and the releases merged while it stands. The backlog cap
-// itself is a field of the service record beside the window limit, which is not
-// built, so the cap in force arrives here with the count rather than being read
-// from a parameter.
+// rollback skipped, and the releases merged while it stands. The cap in force
+// arrives here with the count, read by whoever makes that walk off the service
+// record's own field beside the window limit, rather than being read here from
+// a parameter.
 type Backlog interface {
 	// Behind is that reading for one service.
 	Behind(ctx context.Context, serviceID string) (Waiting, error)

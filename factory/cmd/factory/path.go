@@ -240,7 +240,8 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		return s, nil
 	}
 	if c := p.byItem[itemOfDeploy(ctx, d.pool, deployed)]; c != nil && c.svc.ID != "" {
-		if live, running, err := deploy.Current(ctx, d.pool, c.svc.ID, p.production.ID, p.productionAddresses()); err == nil && running {
+		if live, running, err := deploy.Current(ctx, d.pool, c.svc.ID, p.production.ID,
+			serviceAddresses(p.production, c.svc)); err == nil && running {
 			deployed = live.ID
 		}
 	}

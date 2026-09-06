@@ -148,18 +148,33 @@ func TestAStoreBreaksOnAPopulatedAdditionAndOnAConstraint(t *testing.T) {
 			asInterface.Breaking)
 	}
 
+	// A not-null constraint and a domain check are the store rule's addable
+	// pair: whether either breaks turns on the declarations in force, which this
+	// does not see, so it reports them and leaves Breaking to what breaks
+	// whatever is declared. A caller that minted a major from Breaking alone
+	// would otherwise promise a break an addable constraint does not cause.
 	constrained := form(contract.KindStore, element("Ledger.ID", "string", true, false))
 	constrained.Elements[0].NotNull = true
 	change := contract.Diff(before, constrained)
-	if !slices.Equal(change.Constrained, []string{"Ledger.ID"}) || len(change.Breaking) == 0 {
-		t.Fatalf("a not-null constraint added to a store element is %s and breaks %v, and a write declared inside the old range violates it",
+	if !slices.Equal(change.Constrained, []string{"Ledger.ID"}) || len(change.Breaking) != 0 {
+		t.Fatalf("a not-null constraint added to a store element is %s and breaks %v, and whether it breaks is the declarations' to say",
 			change.Describe(), change.Breaking)
 	}
 
 	narrowed := form(contract.KindStore, element("Ledger.ID", "string", true, false))
 	narrowed.Elements[0].Domain = []string{"ok"}
-	if len(contract.Diff(before, narrowed).Breaking) == 0 {
-		t.Fatal("a domain check added to a store element breaks nothing, and the rows a rollback restores need not fit it")
+	domainCheck := contract.Diff(before, narrowed)
+	if !slices.Equal(domainCheck.Narrowed, []string{"Ledger.ID"}) || len(domainCheck.Breaking) != 0 {
+		t.Fatalf("a domain check added to a store element is %s and breaks %v, and whether it breaks is the declarations' to say",
+			domainCheck.Describe(), domainCheck.Breaking)
+	}
+
+	// A uniqueness rule is the one constraint that is not addable: no
+	// declaration can say a write would not collide with another's.
+	unique := form(contract.KindStore, element("Ledger.ID", "string", true, false))
+	unique.Elements[0].Unique = true
+	if !slices.Equal(contract.Diff(before, unique).Breaking, []string{"Ledger.ID"}) {
+		t.Fatal("a uniqueness rule added to a store element breaks nothing, and no declaration can say a write would not collide")
 	}
 }
 

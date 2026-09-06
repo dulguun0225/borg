@@ -268,12 +268,21 @@ func (p *path) DeclaresSchemaChange(ctx context.Context, c contractcheck.Candida
 }
 
 // DeclaresBackfill is [contractcheck.Checkout]: the store contract and the pair
-// of elements a backfill item's build declares it copies between. Nothing on
-// this path derives a backfill from a build, so no candidate here is one and the
-// answer is none — which is what an item whose change is form and not data reads
-// as, and it leaves the double run asked of a declared schema change alone.
-func (p *path) DeclaresBackfill(context.Context, contractcheck.Candidate) (deploy.Backfill, error) {
-	return deploy.Backfill{}, nil
+// of elements a backfill item's build declares it copies between, read out of
+// the checkout the candidate's branch is on by [declaresBackfill], which states
+// the convention. It is empty for every item whose change is form and not data,
+// which is every item that declares no such file.
+//
+// It is read here rather than off the build record, which is where
+// [path.DeclaresSchemaChange] reads its own answer: the pair is a declaration in
+// the checkout and not a reading of a diff, so it is the same kind of thing as
+// [path.Publishes] and [path.Declares] and is taken the same way.
+func (p *path) DeclaresBackfill(ctx context.Context, c contractcheck.Candidate) (deploy.Backfill, error) {
+	repo, err := p.repoOfItem(ctx, c)
+	if err != nil {
+		return deploy.Backfill{}, err
+	}
+	return declaresBackfill(repo)
 }
 
 // Publishes is [contractcheck.Checkout]: what the candidate's build publishes, read

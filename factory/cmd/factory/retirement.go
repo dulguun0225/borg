@@ -16,8 +16,8 @@ import (
 // service's current release nothing wherever it ran.
 //
 // The environments this install knows are production's alone — a customer's is a
-// record nothing here creates — so the removal reaches production's targets and
-// says so by reaching no other.
+// record nothing here creates — so the removal reaches the production targets
+// the service runs on and says so by reaching no other.
 func (p *path) removeService(ctx context.Context, serviceID string) error {
 	svc, err := p.serviceOf(ctx, serviceID)
 	if err != nil {
@@ -31,7 +31,7 @@ func (p *path) removeService(ctx context.Context, serviceID string) error {
 		From: []deploy.Environment{{
 			EnvironmentID: p.production.ID,
 			Credential:    p.d.credential,
-			Reaches:       p.reaches(p.production),
+			Reaches:       p.reaches(p.production, svc),
 		}},
 	})
 	return err

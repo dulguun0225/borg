@@ -192,7 +192,11 @@ func packagesOf(entries []build.ResolvedEntry) []exposure.Package {
 // which the rows over the build read as a wider exposure and never as a
 // narrower one.
 func (p *path) currentReleaseResolved(ctx context.Context, serviceID string) []build.ResolvedEntry {
-	current, running, err := deploy.Current(ctx, p.d.pool, serviceID, p.production.ID, p.productionAddresses())
+	addresses, err := p.addressesOf(ctx, serviceID)
+	if err != nil {
+		return nil
+	}
+	current, running, err := deploy.Current(ctx, p.d.pool, serviceID, p.production.ID, addresses)
 	if err != nil || !running || current.BuildID == "" {
 		return nil
 	}

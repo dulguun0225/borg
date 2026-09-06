@@ -165,8 +165,10 @@ func holdsWhat(ctx context.Context, s stores, c lastcheck.LastCheck) []held {
 		if err != nil || !found {
 			continue
 		}
-		for _, t := range production.Targets {
-			if t.Address == c.Subject {
+		// The service's own set and no other: a stopped deployer on a target
+		// this service does not run on holds nothing of this service.
+		for _, address := range runsOn(production, svc) {
+			if address == c.Subject {
 				holding = append(holding, held{serviceID: svc.ID, target: c.Subject})
 				break
 			}
