@@ -88,6 +88,7 @@ type fakeDeployer struct {
 	rolledTo  string
 	controls  []healthmonitor.Control
 	rollbacks []healthmonitor.Rollback
+	kept      []healthmonitor.Kept
 }
 
 func (d *fakeDeployer) StartControl(_ context.Context, c healthmonitor.Control) error {
@@ -98,6 +99,12 @@ func (d *fakeDeployer) StartControl(_ context.Context, c healthmonitor.Control) 
 
 func (d *fakeDeployer) TearDownControl(_ context.Context, c healthmonitor.Control) error {
 	d.calls = append(d.calls, "tear down control on "+c.Target)
+	return nil
+}
+
+func (d *fakeDeployer) TearDownKept(_ context.Context, k healthmonitor.Kept) error {
+	d.calls = append(d.calls, "tear down the fleet kept for release "+k.OfReleaseID+" on "+k.Target)
+	d.kept = append(d.kept, k)
 	return nil
 }
 
@@ -238,8 +245,14 @@ func TestAWindowThatRulesTheRegressionOutClosesPassedWithTheControlTornDownFirst
 	if len(watched) != 1 || watched[0].Exit != window.ExitPassed {
 		t.Fatalf("Watch = exit %q, want passed: the comparison ruled the size out", watched[0].Exit)
 	}
-	if len(deployer.calls) != 1 || deployer.calls[0] != "tear down control on "+theTarget {
-		t.Errorf("the deployer was asked for %v, want the control torn down", deployer.calls)
+	// The control ends before the window closes and the fleet kept for a
+	// rollback ends after it, that fleet being torn down when the last window
+	// that could return to it closes and never at an exit of its own.
+	if len(deployer.calls) != 2 || deployer.calls[0] != "tear down control on "+theTarget {
+		t.Fatalf("the deployer was asked for %v, want the control torn down and then the kept fleet", deployer.calls)
+	}
+	if len(deployer.kept) != 1 || deployer.kept[0].Target != theTarget {
+		t.Errorf("the kept fleets torn down are %+v, want the one on %s", deployer.kept, theTarget)
 	}
 	closed, found, err := window.ForRelease(ctx, g.pool, under.ID)
 	if err != nil || !found {

@@ -43,6 +43,14 @@ func (p *path) StartControl(context.Context, healthmonitor.Control) error {
 // deploy that never had one.
 func (p *path) TearDownControl(context.Context, healthmonitor.Control) error { return nil }
 
+// TearDownKept ends nothing either, there being no kept fleet on this platform:
+// [path.reaches] keeps no instances, because this platform moves a process
+// rather than traffic and a rollback here is a redeploy of a binary still on
+// disk. It answers rather than refusing, for the reason [path.TearDownControl]
+// does: the health monitor asks at the close of the last window that could
+// return to a release, and a refusal there would stop that close.
+func (p *path) TearDownKept(context.Context, healthmonitor.Kept) error { return nil }
+
 // RollBack is the slow rollback the health monitor called for: the build of the
 // release it returns to put back on production's targets, the rollback's own
 // deploy record written, and the deploys it undid advanced to rolled back.

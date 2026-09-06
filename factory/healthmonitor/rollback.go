@@ -23,6 +23,17 @@ import (
 // revert intent, a page where nothing was rolled back, and this window closed
 // failed last.
 func (h *HealthMonitor) failed(ctx context.Context, w Watching, one Watched) (Watched, error) {
+	if one.Window.ReleaseID == "" {
+		// A search's deploy is measured by a window of its own and ends with
+		// that window, whatever the exit: the exit is the answer, and traffic
+		// returns to the instances of the rollback's target, which the search
+		// never tears down. So nothing is rolled back, no incident is raised —
+		// the release running there is the rollback's target and this crossing
+		// is not about it — and no page fires, a search meeting no page
+		// condition.
+		one.WhyNoRollback = "this window is a search's, and a search's exit is the answer rather than a rollback"
+		return h.close(ctx, w, one.Window, window.ExitFailed, one)
+	}
 	one.WhyNoRollback = h.whyNoRollback(ctx, w, one)
 	if one.WhyNoRollback == "" {
 		if err := h.rollBack(ctx, w, &one); err != nil {
@@ -134,7 +145,8 @@ func (h *HealthMonitor) releasesSkippedBy(ctx context.Context, w Watching, targe
 // intent it raises where it raises one — the revert, keyed on this service and
 // this release the way every crossing after the close is.
 func (h *HealthMonitor) raiseCrossing(ctx context.Context, w Watching, one Watched) (Crossed, error) {
-	failureRecords, err := h.failureRecordsJSON(ctx, w, one.Window, one.Evaluated.Crossed)
+	failureRecords, err := h.failureRecordsJSON(ctx, w,
+		Arm{BuildID: one.Window.BuildID, DeployID: one.Window.DeployID}, one.Evaluated.Crossed)
 	if err != nil {
 		return Crossed{}, err
 	}
@@ -150,14 +162,17 @@ func (h *HealthMonitor) raiseCrossing(ctx context.Context, w Watching, one Watch
 
 // failureRecordsJSON is the failure records for the crossing's own service,
 // release and target, encoded the way the incident stores them: a field of it
-// rather than a link to the store.
-func (h *HealthMonitor) failureRecordsJSON(ctx context.Context, w Watching, win window.Window, cross *Crossing) (string, error) {
+// rather than a link to the store. Every crossing that raises an incident reads
+// them — inside the window against the arm the window names, and after it has
+// closed against the arm the completed deploy names — because the incident
+// carries them whenever it is written and the item raised from it works off
+// them.
+func (h *HealthMonitor) failureRecordsJSON(ctx context.Context, w Watching, of Arm, cross *Crossing) (string, error) {
 	if cross == nil {
 		return "", nil
 	}
 	records, err := h.emission.FailureRecords(ctx, Reading{
-		ServiceName: w.Name, Target: cross.Target,
-		Release: Arm{BuildID: win.BuildID, DeployID: win.DeployID},
+		ServiceName: w.Name, Target: cross.Target, Release: of,
 	})
 	if err != nil {
 		return "", fmt.Errorf("healthmonitor: reading the failure records for %s: %w", w.Name, err)

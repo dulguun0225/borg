@@ -19,7 +19,10 @@
 // on the page a failed exit with no rollback fires, and the command-line
 // interface answers it for the waits it creates. hours.go is
 // [Notifier.deferredToHours] and [withinHours], a wait of the second kind held
-// to a service's own authored paging hours rather than paging at any hour.
+// to a service's own authored paging hours rather than paging at any hour, and
+// [Notifier.PageDeferred] with [Notifier.deferredDeliveries] and
+// [Notifier.endedRows], the pass that delivers such a page at the next hour the
+// service allows.
 //
 // notifier.go is [Notifier] and [New], composed with the log, a fencing token, a
 // [Deliverer], and the owner's identifier — the owner is composed in rather than
@@ -37,7 +40,9 @@
 // cannot; [Notifier.Widen] writes one
 // widened row to the owner and refuses a second with [ErrAlreadyWidened] or one
 // over an acknowledged wait with [ErrAcknowledged]; [Notifier.Acknowledge] writes
-// the fourth event, stopping only the widening; and [Notifier.Answered] is called
+// the fourth event, stopping only the widening, under the kind the page it
+// acknowledges was reached under and writing nothing where the row pages
+// nobody; and [Notifier.Answered] is called
 // by whatever ends the wait, at the same write it ends it with. [Payload] of
 // [PageEventKind] is a page event's shape and [Notifier.EventsFor] reads them
 // back, appending a read event naming [Actor] as the principal. delivery.go is
@@ -57,7 +62,9 @@
 // which is a wait of a kind that pages never — the delivery record alone does
 // not say what it was waiting for.
 // driftpass.go is [Notifier.SweepDriftDetector] — the notifier reading the drift
-// detector's store itself, since that store calls nothing, with [kindOfMismatch]:
+// detector's store itself, since that store calls nothing, widening a mismatch
+// nobody has acknowledged and going on to the next one where a human has, with
+// [kindOfMismatch]:
 // a mismatch the detector raised because the health monitor's own last check is
 // stale is the fourth page condition, a window past its cap that nothing has
 // evaluated, and every other mismatch is [KindDriftMismatch] — [Notifier.SweepDriftDetectorStale],

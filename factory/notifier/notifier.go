@@ -189,15 +189,23 @@ func (n *Notifier) Widen(ctx context.Context, w Wait) (decisionlog.Row, error) {
 }
 
 // Acknowledge is a human saying they have the row: it stops only the
-// widening. It fails with [ErrNothingReached] over a wait no page ever
-// reached anybody about, and with [ErrAlreadyAnswered] over one already
-// answered. by is the acknowledging human's per-person key.
+// widening. It fails with [ErrAlreadyAnswered] over a wait already answered.
+// by is the acknowledging human's per-person key.
 //
 // The same act on a row that is a decision appends an acknowledgement to
 // the decision as well — [decisionlog.Writer.AppendDecisionAcknowledgement],
 // which package gate calls — one act writing both; this package writes only
 // its own half, the page-event side, because neither package imports the
-// other.
+// other. A row that pages nobody still takes the acknowledgement, and the
+// half written here is nothing: with no page to acknowledge this writes no
+// event and returns an empty row, rather than the [ErrNothingReached] the
+// widening and the answer refuse a page that never started with.
+//
+// What the event carries is read off the reached event it acknowledges and
+// not off the wait the caller composed. A page is the sequence of events on
+// one row, so which kind of wait it was and what it said are already on that
+// sequence, and a caller that only has the row — the gate component, which
+// hands over what a human acknowledged at Work — cannot know them.
 func (n *Notifier) Acknowledge(ctx context.Context, w Wait, by string) (decisionlog.Row, error) {
 	if _, err := prepare(w); err != nil {
 		return decisionlog.Row{}, err
@@ -206,15 +214,16 @@ func (n *Notifier) Acknowledge(ctx context.Context, w Wait, by string) (decision
 	if err != nil {
 		return decisionlog.Row{}, err
 	}
-	if err := reached(events, w.Row); err != nil {
-		return decisionlog.Row{}, err
+	acknowledging, paged := reachedWait(events, w)
+	if !paged {
+		return decisionlog.Row{}, nil
 	}
 	for _, e := range events {
 		if Event(e.Event) == EventAnswered {
 			return decisionlog.Row{}, fmt.Errorf("%w: %s", ErrAlreadyAnswered, w.Row)
 		}
 	}
-	return n.deliver(ctx, Delivery{Channel: ChannelPage, To: by, Wait: w, Event: EventAcknowledged})
+	return n.deliver(ctx, Delivery{Channel: ChannelPage, To: by, Wait: acknowledging, Event: EventAcknowledged})
 }
 
 // Answered is written when the wait stops waiting, naming who ended it. Its
@@ -342,8 +351,7 @@ func (n *Notifier) EventsFor(ctx context.Context, row string) ([]Payload, error)
 	return events, nil
 }
 
-// reached refuses a widening, an acknowledgement or an answer over a wait no
-// page ever started.
+// reached refuses a widening or an answer over a wait no page ever started.
 func reached(events []Payload, row string) error {
 	for _, e := range events {
 		if Event(e.Event) == EventReached {
@@ -351,4 +359,23 @@ func reached(events []Payload, row string) error {
 		}
 	}
 	return fmt.Errorf("%w: %s", ErrNothingReached, row)
+}
+
+// reachedWait is the wait a page already reached somebody about, rebuilt from
+// its reached event, and false where no page ever started on that row. The
+// caller's own wait supplies whose it is, so a kind the caller could not know
+// is the recorded one and the routing stays the caller's. A reached event
+// exists only for a wait that paged, so what the page's condition answers for
+// that kind is what the rebuilt wait carries.
+func reachedWait(events []Payload, w Wait) (Wait, bool) {
+	for _, e := range events {
+		if Event(e.Event) != EventReached || e.WaitKind == "" {
+			continue
+		}
+		found := w
+		found.Kind, found.Waiting = Kind(e.WaitKind), e.Waiting
+		found.Worse = Kinds[found.Kind] != PagesNever
+		return found, true
+	}
+	return Wait{}, false
 }

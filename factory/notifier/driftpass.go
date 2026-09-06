@@ -30,6 +30,11 @@ var driftObligation = people.OfObligation(people.ObligationDriftDetector)
 // a later pass widens, once, to the owner. One a human has cleared is
 // answered — here, at the pass that finds it cleared, because clearing it
 // happened where nothing calls.
+//
+// An acknowledged mismatch stops only the widening: the row still waits and
+// the sweep goes on to every mismatch after it, the stale sweep and the
+// catch-up. Reaching the widening for one and taking the refusal as the pass's
+// own error would let one human saying they have a row stop the whole channel.
 func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Pool) error {
 	all, err := driftdetector.All(ctx, driftPool)
 	if err != nil {
@@ -53,13 +58,15 @@ func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Po
 		if err != nil {
 			return err
 		}
-		var reachedIt, widened, answered bool
+		var reachedIt, widened, acknowledged, answered bool
 		for _, e := range events {
 			switch Event(e.Event) {
 			case EventReached:
 				reachedIt = true
 			case EventWidened:
 				widened = true
+			case EventAcknowledged:
+				acknowledged = true
 			case EventAnswered:
 				answered = true
 			}
@@ -74,7 +81,7 @@ func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Po
 			if _, err := n.Answered(ctx, w, m.ClearedBy); err != nil {
 				return err
 			}
-		case !m.Cleared() && !widened:
+		case !m.Cleared() && !widened && !acknowledged:
 			if _, err := n.Widen(ctx, w); err != nil {
 				return err
 			}
@@ -145,22 +152,27 @@ func (n *Notifier) SweepDriftDetectorStale(ctx context.Context, driftPool *pgxpo
 			events = events[i+1:]
 		}
 	}
-	var reachedIt, widened, answered bool
+	var reachedIt, widened, acknowledged, answered bool
 	for _, e := range events {
 		switch Event(e.Event) {
 		case EventReached:
 			reachedIt = true
 		case EventWidened:
 			widened = true
+		case EventAcknowledged:
+			acknowledged = true
 		case EventAnswered:
 			answered = true
 		}
 	}
 
+	// Acknowledged stops the widening here too, and nothing else: the row still
+	// waits and this pass still answers it once the detector's passes are
+	// current again.
 	switch {
 	case stale && !reachedIt:
 		_, err = n.Notify(ctx, w)
-	case stale && !widened:
+	case stale && !widened && !acknowledged:
 		_, err = n.Widen(ctx, w)
 	case !stale && reachedIt && !answered:
 		_, err = n.Answered(ctx, w, "")

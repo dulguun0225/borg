@@ -178,6 +178,71 @@ func backdate(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table strin
 	}
 }
 
+// TestAnAcknowledgedMismatchStopsOnlyItsOwnWidening is what an acknowledgement
+// does and all it does: it ends no wait and decides nothing, so the sweep goes
+// on past it to every mismatch after it rather than stopping the whole pass on
+// the widening it refuses.
+func TestAnAcknowledgedMismatchStopsOnlyItsOwnWidening(t *testing.T) {
+	ctx, pool, token, n, _ := newNotifier(t)
+	if _, err := peopleWriter(pool, token).Declare(ctx, theHumanOwner, "hk_sre",
+		people.OfObligation(people.ObligationDriftDetector)); err != nil {
+		t.Fatalf("declaring who installed the drift detector: %v", err)
+	}
+
+	drift := driftTestPool(t, ctx)
+	dw := driftdetector.NewWriter(drift)
+	var raised []string
+	for _, target := range []string{"t1", "t2"} {
+		recorded, err := dw.Record(ctx, driftdetector.Pass{
+			ServiceID: "svc_1", Target: target, Reached: true, RunningBuild: "b_running",
+			RecordedBuildID: "b_recorded", Interval: time.Minute,
+		})
+		if err != nil || recorded.Raised == "" {
+			t.Fatalf("recording a mismatch on %s: raised %q, %v", target, recorded.Raised, err)
+		}
+		raised = append(raised, recorded.Raised)
+	}
+	if err := n.SweepDriftDetector(ctx, drift); err != nil {
+		t.Fatalf("SweepDriftDetector (page): %v", err)
+	}
+
+	// A human says they have the first row. It still waits and is still
+	// uncleared; what the acknowledgement stops is its own widening.
+	acknowledged := notifier.Wait{
+		Row: raised[0], Kind: notifier.KindDriftMismatch,
+		Waiting: "a record disagrees with what runs", Worse: true, ServiceID: "svc_1",
+	}
+	if _, err := n.Acknowledge(ctx, acknowledged, "hk_sre"); err != nil {
+		t.Fatalf("Acknowledge: %v", err)
+	}
+
+	if err := n.SweepDriftDetector(ctx, drift); err != nil {
+		t.Fatalf("SweepDriftDetector after an acknowledgement: %v", err)
+	}
+	first, err := n.EventsFor(ctx, raised[0])
+	if err != nil {
+		t.Fatalf("EventsFor the acknowledged mismatch: %v", err)
+	}
+	for _, e := range first {
+		if notifier.Event(e.Event) == notifier.EventWidened {
+			t.Errorf("the acknowledged mismatch widened: %+v", first)
+		}
+	}
+	second, err := n.EventsFor(ctx, raised[1])
+	if err != nil {
+		t.Fatalf("EventsFor the mismatch after it: %v", err)
+	}
+	widened := false
+	for _, e := range second {
+		if notifier.Event(e.Event) == notifier.EventWidened {
+			widened = true
+		}
+	}
+	if !widened {
+		t.Errorf("the mismatch after the acknowledged one is %+v, want it widened by the same pass", second)
+	}
+}
+
 // TestCatchUpDriftDetectorDeliveryCarriesTheDetectorsTime is the page event
 // for the detector's own delivery, appended at the factory's next start —
 // this test's own call to it — carrying the detector's time and not the

@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -19,7 +20,7 @@ const DeliveryTable = "notifier_delivery"
 const DeliveryIDPrefix = "ndl"
 
 // FormatVersionDelivery is written into format_version on every insert.
-const FormatVersionDelivery = "notifier_delivery/1"
+const FormatVersionDelivery = "notifier_delivery/2"
 
 // DeliveryDDL is this package's schema. [record.Columns] and
 // [record.Constraints] are composed rather than restated. The unique
@@ -31,10 +32,13 @@ const FormatVersionDelivery = "notifier_delivery/1"
 // delivery was ever accepted for is a fault of the channel and against
 // nobody" indistinguishable from one holder of two having been reached.
 //
-// wait_kind and service_id are the wait's own two fields the record keeps, so
-// that a count of what this channel delivered for one service and one kind of
-// wait is a query here rather than a walk of the log. The harm mark's cap is
-// the one reader.
+// wait_kind, service_id, waiting, holding and worse are the wait's own fields
+// the record keeps. The first two make a count of what this channel delivered
+// for one service and one kind of wait a query here rather than a walk of the
+// log, which the harm mark's cap reads. The other three are what a page a
+// service's paging hours held back is delivered from when those hours come
+// round: mail and chat went out, and the log holds no page event to rebuild
+// the wait from, so it is rebuilt from here.
 var DeliveryDDL = []string{
 	`create table if not exists ` + DeliveryTable + ` (
 	` + record.Columns + `,
@@ -44,6 +48,9 @@ var DeliveryDDL = []string{
 	transport_accepted boolean not null,
 	wait_kind text not null,
 	service_id text not null,
+	waiting text not null default '',
+	holding text not null default '',
+	worse boolean not null default false,
 	` + record.Constraints + `,
 	constraint actor_is_the_notifier check (actor_kind = 'component'),
 	constraint row_id_present check (row_id <> ''),
@@ -63,9 +70,14 @@ type DeliveryRecord struct {
 	TransportAccepted bool
 	// WaitKind and ServiceID are the wait's own two, kept here so that what
 	// this channel delivered for one service and one kind is a count and not a
-	// walk of the log.
+	// walk of the log. Waiting, Holding and Worse are the rest of the wait,
+	// kept so that a page a service's hours held back can go out when those
+	// hours come round.
 	WaitKind  Kind
 	ServiceID string
+	Waiting   string
+	Holding   string
+	Worse     bool
 }
 
 // recordDelivery upserts the delivery record for one attempt: the row, the
@@ -74,10 +86,15 @@ type DeliveryRecord struct {
 // a refused send — and not only the page, which is the one channel that
 // also appends a log row.
 func (n *Notifier) recordDelivery(ctx context.Context, d Delivery, accepted bool) error {
+	holding := ""
+	if d.Wait.Holding != (people.Holding{}) {
+		holding = d.Wait.Holding.String()
+	}
 	rec := DeliveryRecord{
 		ID: record.NewID(DeliveryIDPrefix), Actor: Actor, At: record.Now(),
 		RowID: d.Wait.Row, Channel: d.Channel, RecipientKey: d.To, TransportAccepted: accepted,
 		WaitKind: d.Wait.Kind, ServiceID: d.Wait.ServiceID,
+		Waiting: d.Wait.Waiting, Holding: holding, Worse: d.Wait.Worse,
 	}
 	tx, err := n.pool.Begin(ctx)
 	if err != nil {
@@ -89,14 +106,15 @@ func (n *Notifier) recordDelivery(ctx context.Context, d Delivery, accepted bool
 	}
 	_, err = tx.Exec(ctx, `insert into `+DeliveryTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, row_id, channel, recipient_key,
-		 transport_accepted, wait_kind, service_id)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		 transport_accepted, wait_kind, service_id, waiting, holding, worse)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		on conflict (row_id, channel, recipient_key) do update set
 			at = excluded.at, transport_accepted = excluded.transport_accepted,
-			wait_kind = excluded.wait_kind, service_id = excluded.service_id`,
+			wait_kind = excluded.wait_kind, service_id = excluded.service_id,
+			waiting = excluded.waiting, holding = excluded.holding, worse = excluded.worse`,
 		rec.ID, FormatVersionDelivery, string(rec.Actor.Kind), rec.Actor.Key, string(rec.Actor.Basis), rec.At,
 		rec.RowID, string(rec.Channel), rec.RecipientKey, rec.TransportAccepted,
-		string(rec.WaitKind), rec.ServiceID,
+		string(rec.WaitKind), rec.ServiceID, rec.Waiting, rec.Holding, rec.Worse,
 	)
 	if err != nil {
 		return fmt.Errorf("notifier: recording the delivery of %s on %s: %w", d.Wait.Row, d.Channel, err)

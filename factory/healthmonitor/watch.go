@@ -229,6 +229,11 @@ func targetsOrDefault(targets []string, w Watching) []string {
 // monitor calls the deployer to tear the control down and then closes the
 // window. Teardown is ordered by what a rollback needs and not by the exit
 // alone, and the window's close is the last durable step of it.
+//
+// The kept fleet is the other half of that ordering and comes after the close,
+// not before it: those instances are torn down when the last window that could
+// return to them closes, and whether this was the last one is a question the
+// close answers. kept.go is what asks it.
 func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window,
 	exit window.Exit, one Watched) (Watched, error) {
 	if err := h.tearDownControls(ctx, w, win); err != nil {
@@ -242,6 +247,9 @@ func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window
 		return one, err
 	}
 	one.Window, one.Exit = closed, exit
+	if err := h.tearDownKept(ctx, w); err != nil {
+		return one, err
+	}
 	return one, nil
 }
 
@@ -255,8 +263,12 @@ func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window
 // It reads the record rather than the window because the record is what the
 // design says names each control: which targets carry one, the build it runs,
 // and how many instances are running it.
+//
+// A search's window tears nothing down at any exit. What its deploy was
+// compared against is the instances of the rollback's target, which the search
+// never tears down, and traffic returns to them when the window ends.
 func (h *HealthMonitor) tearDownControls(ctx context.Context, w Watching, win window.Window) error {
-	if h.deployer == nil {
+	if h.deployer == nil || win.ReleaseID == "" {
 		return nil
 	}
 	buildID := ""

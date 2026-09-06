@@ -31,16 +31,17 @@
 // in package driftdetector's own store, which no factory component may write —
 // so [Components] does not list it and the CHECK refuses it.
 //
-// Of the six, none is wired yet: every writer here is called by the deployer,
-// the health monitor, the notifier or a pass of the command-line interface, and
-// none of those calls is composed. The health monitor writes one per service, the
-// deployer one per target of a persistent environment and one per platform a
-// production environment record declares — [Writer.RecordPlatformPass], which
-// the command-line interface owes one call of per production environment
-// declaring a platform, per pass — the notifier a single one for itself,
-// and the pass over the constraints in force, the pass over the advisory feed
-// and dispatch's pass over a fleet proposal a single one each — the last three
-// being passes this milestone does not build. Each is wired by the dispatch that
+// Of the six, three are wired. The health monitor writes one per service on
+// every pass it makes over that service's windows; the notifier writes its
+// single one for itself on the pass that reads the drift detector's store; and
+// the deployer writes one per target of a persistent environment after a
+// production deploy completes there. The other three are not: the deployer's
+// one per platform a production environment record declares —
+// [Writer.RecordPlatformPass], which the command-line interface owes one call
+// of per production environment declaring a platform, per pass — and a single
+// one each for the pass over the constraints in force, the pass over the
+// advisory feed and dispatch's pass over a fleet proposal, the last three being
+// passes this milestone does not build. Each is wired by the dispatch that
 // builds its writer.
 //
 // What defines it:
