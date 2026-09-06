@@ -107,6 +107,7 @@ func (i Interviewer) Interview(ctx context.Context, as principal.Principal, of I
 		for _, q := range of.Answered {
 			fmt.Fprintf(&b, "Q: %s\nA: %s\n", q.Question, q.Answer)
 		}
+		b.WriteString("The interview's one round is spent: reply with a READING and not a QUESTION.\n")
 	}
 	writeReturned(&b, of.Returned)
 	reply, err := i.Model.Complete(ctx, as, Call{System: i.Prompt, User: b.String(), Effort: i.Effort})
@@ -114,6 +115,12 @@ func (i Interviewer) Interview(ctx context.Context, as principal.Principal, of I
 		return Reading{}, err
 	}
 	read, err := parseReading(reply.Text)
+	// A second question is outside the protocol once the round is spent — the
+	// interview is one round or none — and refusing it here is what lets the
+	// stage try again inside its attempt limit rather than stop the run.
+	if err == nil && read.Question != "" && len(of.Answered) > 0 {
+		err = fmt.Errorf("%w: the interviewer asked a second question, and the interview is one round or none", ErrReply)
+	}
 	if err != nil {
 		// The refused reply's spend goes back with the error: the units were
 		// spent whether or not the reply was usable, and the component

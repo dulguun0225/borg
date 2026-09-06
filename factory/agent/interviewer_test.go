@@ -81,6 +81,25 @@ func TestAReplyOutsideTheTwoFormsIsRefused(t *testing.T) {
 // TestInterviewCarriesWhatSentTheIntentBack: a rework request naming the intent
 // reopens the interview, and the round that follows is told what was found
 // wrong with the reading it decided over.
+// TestASecondQuestionIsRefusedOnceTheRoundIsSpent: the interview is one round
+// or none, so with a question answered the reply is a reading, the user
+// message says so, and a second question is refused for the stage to retry.
+func TestASecondQuestionIsRefusedOnceTheRoundIsSpent(t *testing.T) {
+	model := &fakeModel{text: "QUESTION: and which port?"}
+	answered := Interviewing{Statement: "s", Answered: []Question{{Question: "which file?", Answer: "main.go"}}}
+	_, err := Interviewer{Model: model, Prompt: ShippedInterviewerPrompt}.Interview(context.Background(), as(), answered)
+	if !errors.Is(err, ErrReply) {
+		t.Fatalf("Interview = %v, want ErrReply", err)
+	}
+	if !strings.Contains(model.user, "one round is spent") {
+		t.Errorf("the user message does not say the round is spent:\n%s", model.user)
+	}
+	first := Interviewing{Statement: "s"}
+	if _, err := (Interviewer{Model: model, Prompt: ShippedInterviewerPrompt}).Interview(context.Background(), as(), first); err != nil {
+		t.Errorf("a first question is refused: %v", err)
+	}
+}
+
 func TestInterviewCarriesWhatSentTheIntentBack(t *testing.T) {
 	model := &fakeModel{text: "READING:\nREQUIREMENT: The system shall answer.\n"}
 	if _, err := (Interviewer{Model: model, Prompt: ShippedInterviewerPrompt}).Interview(
