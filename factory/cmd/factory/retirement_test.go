@@ -41,7 +41,7 @@ func TestRetiringAServiceRemovesItAndEndsTheProject(t *testing.T) {
 	// The run's item merged, so nothing unmerged names the service and the
 	// three counts are nothing. A retirement while one stood is what the write
 	// is refused on, which the counts carry to package service.
-	if _, found, err := deploy.Current(ctx, d.pool, svc.ID, p.production.ID, p.productionAddresses()); err != nil || !found {
+	if _, found, err := deploy.Current(ctx, d.pool, svc.ID, p.production.ID, serviceAddresses(p.production, svc)); err != nil || !found {
 		t.Fatalf("the service has no current release before it is retired = found %v, %v", found, err)
 	}
 	if err := p.retire(ctx, svc); err != nil {
@@ -57,7 +57,7 @@ func TestRetiringAServiceRemovesItAndEndsTheProject(t *testing.T) {
 	}
 	// The removal is what changes what every reader reads: current release is
 	// the newest complete deploy record, and a removal's names none.
-	if _, found, err := deploy.Current(ctx, d.pool, svc.ID, p.production.ID, p.productionAddresses()); err != nil || found {
+	if _, found, err := deploy.Current(ctx, d.pool, svc.ID, p.production.ID, serviceAddresses(p.production, svc)); err != nil || found {
 		t.Errorf("the retired service still has a current release = found %v, %v", found, err)
 	}
 

@@ -234,13 +234,13 @@ func servicesWithACurrentRelease(ctx context.Context, p *path) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	addresses := p.productionAddresses()
 	running := 0
 	for _, svc := range services {
 		if svc.ProjectID != p.projectID {
 			continue
 		}
-		_, found, err := deploy.Current(ctx, p.d.pool, svc.ID, p.production.ID, addresses)
+		_, found, err := deploy.Current(ctx, p.d.pool, svc.ID, p.production.ID,
+			serviceAddresses(p.production, svc))
 		if err != nil {
 			return 0, err
 		}
