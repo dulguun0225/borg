@@ -3,9 +3,10 @@
 // artifact digest, the shipped-bundle identity of the release of the product
 // that made it, the resolved set of third-party packages, the notice file
 // derived from that set, the design system constraint in force where the
-// project has screens, and what the build's own process decided about the
-// criteria whose encodings declare it. Written once, when the build is
-// performed, and never written again.
+// project has screens, the exposure list the build runner derived from its own
+// checkout, whether that checkout declares a schema change, and what the
+// build's own process decided about the criteria whose encodings declare it.
+// Written once, when the build is performed, and never written again.
 //
 // The record exists to be pointed at — the encoding of each criterion runs
 // against a checkout of it, the gate's open event names it, and the release
@@ -15,8 +16,8 @@
 // make the same build again.
 //
 // writer.go is [ResolvedEntry], [Draft], [Build], [Writer] and [NewWriter]
-// with [Writer.Create], the one write, and the reads [Get], [ForCommit] and
-// [Newest] and [Resolved]; schema.go is [Table], [ResolvedTable], the two id prefixes, the
+// with [Writer.Create], the one write, and the reads [Get], [ForCommit],
+// [Newest], [Resolved] and [Exposure]; schema.go is [Table], [ResolvedTable], the two id prefixes, the
 // two format versions, and [DDL]. The tests are db_test.go, every one of them
 // against the database.
 //
@@ -50,6 +51,16 @@
 // vulnerable was resolved" and "nothing resolved was visible" call for
 // opposite responses. [Draft.NoticeFile] is produced from the same set in the
 // same write.
+//
+// # What the build read of its own checkout
+//
+// [Draft.Exposure] is the exposure list package exposure derived from the diff
+// between the base and this build's commit, and nil where no extractor ran for
+// the toolchain; [Exposure] is the read of it, a read of its own rather than a
+// field of [Build], and it answers false for a build the record holds none for.
+// [Draft.DeclaresSchemaChange] is whether that checkout ships a schema change,
+// which is what enforcement's store rule asks before it requires the candidate
+// environment to have applied the change twice; [Build] carries it as a field.
 //
 // # What the build's own process decided
 //

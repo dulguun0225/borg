@@ -32,6 +32,13 @@ type Broken struct {
 	// read off it: the candidate's own form no longer has that element.
 	Before contract.Form
 	Change contract.Change
+	// Breaks is the elements this candidate actually breaks on, which is what
+	// mints Next: [contract.Change.Breaking], which is what breaks whatever any
+	// declaration says, plus a store element whose newly added not-null
+	// constraint or domain check a declaration in force writes outside. Major
+	// means a consumer breaks, so an addable constraint no declaration violates
+	// is not here and mints a minor.
+	Breaks []string
 	// Blocking is what still names each breaking element, one entry per element
 	// that anything names. An element nothing names is not here.
 	Blocking []Blocking

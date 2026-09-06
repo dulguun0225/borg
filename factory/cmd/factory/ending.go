@@ -175,9 +175,11 @@ func mitigateCommand(args []string) error {
 			if err != nil {
 				return err
 			}
+			// The target the mitigation is performed on is one this service
+			// runs on, that being the set every reader of targets reads.
 			address := p.d.dir
-			if len(p.productionAddresses()) > 0 {
-				address = p.productionAddresses()[0]
+			if addresses := serviceAddresses(p.production, svc); len(addresses) > 0 {
+				address = addresses[0]
 			}
 			performed, err := deploy.Mitigate(ctx, p.deploys, deploy.Mitigating{
 				Actor:       p.human,

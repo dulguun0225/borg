@@ -228,6 +228,18 @@ func TestAStoreConstraintIsAddableWhereEveryDeclarationInForceFitsIt(t *testing.
 	if len(checked.Broken[0].Blocking) != 0 {
 		t.Errorf("the constraint is blocked by %+v, want nothing", checked.Broken[0].Blocking)
 	}
+	// Major means a consumer breaks. The ordinary path is the one where none
+	// does, so it mints a minor: a major here would publish a promise the check
+	// that let it through says is not true.
+	if len(checked.Broken[0].Breaks) != 0 {
+		t.Errorf("the constraint breaks %v, and no declaration in force violates it", checked.Broken[0].Breaks)
+	}
+	if next := checked.Broken[0].Next; next != (contract.Semver{Major: 1, Minor: 1}) {
+		t.Errorf("an addable constraint would mint %s, want a minor", next)
+	}
+	if checked.Migrations[0].Destroys {
+		t.Error("an addable constraint is read as destroying stored data, and it destroys none")
+	}
 }
 
 // TestAStoreConstraintADeclarationInForceViolatesIsRefused: the other side of

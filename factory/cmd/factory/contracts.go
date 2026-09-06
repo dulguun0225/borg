@@ -133,7 +133,11 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 		}
 		// What is running, which is what a producer's own diff is against. Newest
 		// and current are different facts and this is where an owner sees it.
-		current, running, err := deploy.Current(ctx, p.d.pool, con.ServiceID, p.production.ID, p.productionAddresses())
+		addresses, err := p.addressesOf(ctx, con.ServiceID)
+		if err != nil {
+			return err
+		}
+		current, running, err := deploy.Current(ctx, p.d.pool, con.ServiceID, p.production.ID, addresses)
 		if err != nil {
 			return err
 		}

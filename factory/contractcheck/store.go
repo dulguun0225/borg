@@ -146,7 +146,12 @@ func (c *Check) storeRule(ctx context.Context, candidate Candidate, checked *Che
 			continue
 		}
 		migration := Migration{Contract: broken.Contract.Name, Moved: broken.Change.Moved()}
-		migration.Destroys = len(broken.Change.Removed) > 0 || len(broken.Change.Breaking) > 0
+		// A change destroys stored data where it removes an element or where it
+		// does something the store rule forbids without one. Which is
+		// [Broken.Breaks] and not the diff's own list: an addable constraint no
+		// declaration in force violates destroys nothing, and asking a snapshot
+		// of it would refuse a change the design admits.
+		migration.Destroys = len(broken.Change.Removed) > 0 || len(broken.Breaks) > 0
 		form, published := formNamed(checked.Publishes, broken.Contract.Name)
 		waiting, err := c.waiting(ctx, candidate, broken, checked.Declares.Drafts, binding, form, published)
 		if err != nil {

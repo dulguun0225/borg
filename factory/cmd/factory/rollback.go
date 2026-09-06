@@ -66,6 +66,12 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	if err != nil {
 		return err
 	}
+	// The rollback reaches the targets the service runs on, which is the set the
+	// deploy it undoes reached.
+	svc, err := p.serviceOf(ctx, r.ServiceID)
+	if err != nil {
+		return err
+	}
 	undone, err := p.undoneBy(ctx, r)
 	if err != nil {
 		return err
@@ -81,7 +87,7 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 			IntoProduction:  true,
 			StrategyPicked:  deploy.StrategyWithoutControl,
 			Credential:      p.d.credential,
-			Reaches:         p.reaches(p.production),
+			Reaches:         p.reaches(p.production, svc),
 			UndoneDeployIDs: undone,
 		},
 		Undoing: deploy.Undoing{

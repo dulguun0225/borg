@@ -48,10 +48,10 @@
 // Four readings the design gives the queue have no writer in the factory yet,
 // so each arrives through the composition and says so on its type: the health
 // monitor's store, which [Numbers] reads the second number from; the design
-// system constraint records, which [DesignSystem] compares; the backlog cap
-// with what waits behind a rollback hold, which [Backlog] reads — the cap is a
-// field of the service record beside the window limit and that field does not
-// exist; and which item is a revert, which [Reverts] answers — nothing on the
+// system constraint records, which [DesignSystem] compares; what waits behind a
+// rollback hold, which [Backlog] reads — the cap in force arrives with the
+// count rather than being read here, the walk that produces the count being one
+// the queue does not make; and which item is a revert, which [Reverts] answers — nothing on the
 // item says it is one, and the record that links a revert a named human at Ops
 // asked for to the release it undoes does not exist.
 // mint.go states one departure of its own: the log holds ten shapes and

@@ -342,3 +342,69 @@ func TestATargetTheDeployRecordMarksCompleteIsNeverExempt(t *testing.T) {
 		t.Error("a target the deploy record marks complete was exempted")
 	}
 }
+
+// TestThePassReadsTheTargetsTheServiceRunsOnAndNoOther: a project is not one
+// placement — an edge-hosted front end, a batch host and a regional backend are
+// three services on three subsets of one environment's targets — so the detector
+// reads each service's own set. A target of the environment this service does
+// not run on runs somebody else's software, and reading it here would raise a
+// mismatch against a release that was never meant to be there.
+func TestThePassReadsTheTargetsTheServiceRunsOnAndNoOther(t *testing.T) {
+	ctx, s, token := newStores(t)
+	runsOnDir, elsewhere := t.TempDir(), t.TempDir()
+	env, svc, credential := setUpOn(ctx, t, s.factory, token, runsOnDir, elsewhere)
+	svc = withTargets(ctx, t, s.factory, svc, env, runsOnDir)
+
+	// The deploy reaches the service's own set, which is what makes its release
+	// current: completion is read over that set and no other.
+	own := env
+	own.Targets = env.Targets[:1]
+	current := shipRelease(ctx, t, s.factory, token, svc, own, "c1")
+	recordRunning(t, runsOnDir, testServiceName, current.BuildID)
+	recordRunning(t, elsewhere, testServiceName, "bl_anotherservices")
+
+	out := &strings.Builder{}
+	targetAt := func(dir string) targetseam.Target { return localtarget.New(dir) }
+	if err := pass(ctx, s, out, credential, targetAt); err != nil {
+		t.Fatalf("pass: %v", err)
+	}
+
+	if strings.Contains(out.String(), elsewhere) {
+		t.Errorf("the pass read %s, which the service does not run on:\n%s", elsewhere, out)
+	}
+	if !strings.Contains(out.String(), "agrees") {
+		t.Errorf("the report does not say the target the service runs on agrees:\n%s", out)
+	}
+	held, why, err := driftdetector.NewStore(s.own).Mismatch(ctx, svc.ID)
+	if err != nil || held {
+		t.Errorf("Mismatch = %v %q, %v; a target the service does not run on raises none", held, why, err)
+	}
+	checks, err := driftdetector.LastChecks(ctx, s.own, svc.ID)
+	if err != nil || len(checks) != 1 || checks[0].Target != runsOnDir {
+		t.Errorf("LastChecks = %+v, %v, want one check, on %s", checks, err, runsOnDir)
+	}
+}
+
+// withTargets writes which of the environment's targets the service runs on,
+// which is an owner's write at Factory and the field every reader of targets
+// joins through.
+func withTargets(ctx context.Context, t *testing.T, pool *pgxpool.Pool,
+	svc service.Service, env environment.Environment, addresses ...string) service.Service {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning the transaction: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := service.SetTargets(ctx, tx, svc.ID, addresses, env.Addresses()); err != nil {
+		t.Fatalf("SetTargets: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("committing the targets: %v", err)
+	}
+	read, err := service.Get(ctx, pool, svc.ID)
+	if err != nil {
+		t.Fatalf("reading the service back: %v", err)
+	}
+	return read
+}

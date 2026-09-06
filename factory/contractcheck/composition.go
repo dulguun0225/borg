@@ -65,7 +65,6 @@ func (c *Check) ComposedFrom(ctx context.Context, itemID, serviceID, production 
 	if err != nil {
 		return nil, err
 	}
-	addresses := prodEnv.Addresses()
 
 	declared, err := consumercontract.ForItems(ctx, c.pool, []string{itemID})
 	if err != nil {
@@ -81,6 +80,13 @@ func (c *Check) ComposedFrom(ctx context.Context, itemID, serviceID, production 
 			for _, producer := range producersOf(one.predicates, reached) {
 				reached[producer.ServiceID] = true
 				producer.Through = one.through
+				// Each producer's current release is completion on the targets
+				// that producer runs on, which is its own set and not the
+				// environment's whole list.
+				addresses, err := serviceAddresses(ctx, c.pool, producer.ServiceID, prodEnv)
+				if err != nil {
+					return nil, err
+				}
 				current, running, err := deploy.Current(ctx, c.pool, producer.ServiceID, production, addresses)
 				if err != nil {
 					return nil, err

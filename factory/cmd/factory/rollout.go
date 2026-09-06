@@ -24,16 +24,20 @@ import (
 // seam.
 var deployerPrincipal = principal.OfComponent("deployer")
 
-// reaches is one environment's targets as the deployer reaches them: the
-// addresses in the environment's own order, each with the target this platform
-// reaches that address through and what the record declares about it.
+// reaches is the targets of one environment the service runs on, as the
+// deployer reaches them: [serviceTargets] in that set's own order, each with the
+// target this platform reaches that address through and what the record
+// declares about it. The rollout's order is over the service's set and not over
+// the environment's whole list, so a project whose services sit on three subsets
+// of one environment rolls each out over its own.
 //
 // No instances are kept: this platform moves a process rather than traffic, so
 // there is no second fleet to keep and a rollback is a redeploy of a binary
 // still on disk.
-func (p *path) reaches(env environment.Environment) []deploy.Reach {
-	reaching := make([]deploy.Reach, 0, len(env.Targets))
-	for _, target := range env.Targets {
+func (p *path) reaches(env environment.Environment, svc service.Service) []deploy.Reach {
+	targets := serviceTargets(env, svc)
+	reaching := make([]deploy.Reach, 0, len(targets))
+	for _, target := range targets {
 		reaching = append(reaching, deploy.Reach{
 			Address:      target.Address,
 			Target:       p.d.targets.at(target.Address),
@@ -69,12 +73,12 @@ func (p *path) intoCandidate(ctx context.Context, c *candidate, buildID string) 
 	})
 }
 
-// intoProduction puts the release on production's targets in the environment's
-// order, one at a time, under the strategy the production deploy row picked. The
-// bake volume between one target and the next is zero and no [deploy.Bake] is
-// supplied, so the deployer holds nowhere: what could answer it is the health
-// monitor reading the window this deploy has not opened yet, and package
-// deploy's doc.go says that caller is not built.
+// intoProduction puts the release on the production targets the service runs on,
+// in that set's order, one at a time, under the strategy the production deploy
+// row picked. The bake volume between one target and the next is zero and no
+// [deploy.Bake] is supplied, so the deployer holds nowhere: what could answer it
+// is the health monitor reading the window this deploy has not opened yet, and
+// package deploy's doc.go says that caller is not built.
 func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick) (deploy.Deploy, error) {
 	return deploy.Perform(ctx, p.deploys, deploy.Performance{
 		Actor:          deployActor,
@@ -86,7 +90,7 @@ func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick)
 		IntoProduction: true,
 		StrategyPicked: strategyOf(pick),
 		Credential:     p.d.credential,
-		Reaches:        p.reaches(p.production),
+		Reaches:        p.reaches(p.production, c.svc),
 	})
 }
 
@@ -114,10 +118,11 @@ func strategyOf(pick gate.Pick) deploy.Strategy {
 // build deployed a moment ago has written nothing yet, so a first release reads
 // as no emission and the next deploy of that service writes the field again.
 func (p *path) adopt(ctx context.Context, svc service.Service, dep deploy.Deploy) error {
-	if len(p.production.Targets) == 0 {
+	targets := serviceTargets(p.production, svc)
+	if len(targets) == 0 {
 		return nil
 	}
-	address := p.production.Targets[0].Address
+	address := targets[0].Address
 	running, err := p.d.targets.at(address).ReadRunning(ctx, deployerPrincipal, svc.Name, p.d.credential)
 	if err != nil {
 		return err

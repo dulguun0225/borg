@@ -22,9 +22,12 @@
 // against the version its producer's newest release publishes. Neither baseline
 // is written down and neither produces a record — both are computed at the
 // moment the gate fires, and the merge queue calls this again at
-// re-verification with [Actor] as the actor. [Checked], in checked.go, is what
-// it found, [Broken] the producer's side and [Unmet] and [Unsatisfied] the
-// consumers'.
+// re-verification with [Actor] as the actor. What is running is read through
+// check.go's serviceAddresses, which composition.go uses per producer too: the
+// targets of the production environment a service record says it runs on, and
+// every target of the environment where it names none. [Checked], in checked.go,
+// is what it found, [Broken] the producer's side and [Unmet] and [Unsatisfied]
+// the consumers'.
 //
 // [Check.Deprecated], in deprecation.go, is the deprecation list: a [Marked]
 // per marked element, naming the consumer contracts and safeguards' predicates
@@ -93,7 +96,10 @@
 // the constraint rule is in check.go: a not-null constraint or a domain check on
 // a store's form is held by a declaration in force the new form rejects and not
 // by the existence of one, which is what makes the design's ordinary path
-// reachable.
+// reachable. [contract.Diff] leaves both out of its breaking list for that
+// reason, so check.go's atRisk adds them to what it asks about, and
+// [Broken.Breaks] is what it found actually breaks — which is what mints
+// [Broken.Next] and what says whether the change destroys stored data.
 //
 // Who may write what: this component owns no table. It writes two records —
 // the brownout intent and the removal intent, both through [intent.Intake] —

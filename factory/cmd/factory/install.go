@@ -1,6 +1,7 @@
 // The install's three records and the targets a service runs on: what a
-// composition creates or reads before anything else, and which of production's
-// addresses every read of what is running is performed against.
+// composition creates or reads before anything else, and which addresses every
+// read of what is running is performed against — the service's own set, and
+// production's whole list where the service record names none.
 package main
 
 import (
@@ -84,15 +85,51 @@ func (p *path) runsOnProduction(ctx context.Context, svc service.Service) (servi
 	return read, nil
 }
 
-// productionAddresses is the addresses of production's targets, in the
-// environment's order. It is what every read of what is running is performed
-// against: a release is current when its deploy is marked complete on every one
-// of them, so a producer deployed to three targets of four is not current and
-// holds its consumer until the fourth lands.
-func (p *path) productionAddresses() []string {
-	addresses := make([]string, 0, len(p.production.Targets))
-	for _, target := range p.production.Targets {
+// serviceTargets is the set every reader of targets reads: the targets of this
+// environment the service record says it runs on, in the order that record
+// names them, and every target of the environment where it names none — which
+// is what an unwritten field means. An address the record names that the
+// environment does not hold is carried as a target serving no share, which is
+// the safe direction of the two and the reading
+// [environment.Environment.EveryTargetServesAShare] already gives it.
+func serviceTargets(env environment.Environment, svc service.Service) []environment.Target {
+	if len(svc.Targets) == 0 {
+		return env.Targets
+	}
+	set := make([]environment.Target, 0, len(svc.Targets))
+	for _, address := range svc.Targets {
+		target := environment.Target{Address: address}
+		for _, held := range env.Targets {
+			if held.Address == address {
+				target = held
+				break
+			}
+		}
+		set = append(set, target)
+	}
+	return set
+}
+
+// serviceAddresses is [serviceTargets]' addresses. It is what every read of
+// what is running is performed against: a release is current when its deploy is
+// marked complete on every target the service runs on, so a producer deployed
+// to three of the four it runs on is not current and holds its consumer until
+// the fourth lands.
+func serviceAddresses(env environment.Environment, svc service.Service) []string {
+	targets := serviceTargets(env, svc)
+	addresses := make([]string, 0, len(targets))
+	for _, target := range targets {
 		addresses = append(addresses, target.Address)
 	}
 	return addresses
+}
+
+// addressesOf is [serviceAddresses] for a caller holding a service's id and not
+// its record.
+func (p *path) addressesOf(ctx context.Context, serviceID string) ([]string, error) {
+	svc, err := p.serviceOf(ctx, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	return serviceAddresses(p.production, svc), nil
 }

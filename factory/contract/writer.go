@@ -119,6 +119,12 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 		return published, nil
 	}
 	if hadOne {
+		// Major means a consumer breaks, and [Change.Breaking] is what breaks
+		// whatever any declaration says: the store rule's addable pair — a
+		// not-null constraint and a domain check — is not in it, and one that
+		// reached this write is one enforcement found no declaration in force
+		// violates. So a release that only constrains mints a minor here, which
+		// is the version enforcement reported it would mint.
 		next = inForce.Semver.Next(len(change.Breaking) > 0)
 	}
 

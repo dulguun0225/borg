@@ -147,8 +147,10 @@
 //
 // [Performance.Bake] takes an interface nothing implements: the health monitor
 // is what could answer it, and a rollout given none holds nowhere between
-// targets. [Performance.BakeVolume] is a field on the service record in the
-// design that record does not carry yet, so the caller supplies it here.
+// targets. [Performance.BakeVolume] is the value of the service record's own
+// field, which the caller reads and supplies here — this package reaches no
+// service record for a parameter, and a rollout with no [Performance.Bake] to
+// ask holds nowhere whatever the volume is.
 // way_in_token_digest is written at every deploy and read by nothing: the way
 // in that would send the token to the deployed service, and the report store
 // that would digest it, are not built. [Mitigating.Principal] is the deployer's

@@ -396,7 +396,11 @@ func (p *path) dependencyHold(ctx context.Context, it item.Item) (string, error)
 		if err != nil {
 			return "", err
 		}
-		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID, p.productionAddresses())
+		addresses, err := p.addressesOf(ctx, dependency.ServiceID)
+		if err != nil {
+			return "", err
+		}
+		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID, addresses)
 		if err != nil {
 			return "", err
 		}
