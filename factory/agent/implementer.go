@@ -52,6 +52,12 @@ Reply as complete files — every file the change creates or rewrites, whole —
 <the file's entire content>
 === END ===
 
+Where the change removes a file — a revert of an addition included — name it instead on a line of its own, with no === END === after it and nothing else on the line:
+
+=== DELETE <path> ===
+
+A path may not be both written and deleted in the same reply.
+
 ` + Rules
 
 // File is one file, whole: its path inside the repository and its entire
@@ -95,11 +101,12 @@ type Implementing struct {
 }
 
 // Change is what one [Implementer.Implement] call produced: the files it
-// rewrites or creates, and what the call spent per unit kind, which the
-// component that dispatched the role records.
+// rewrites or creates, the paths of the files it removes, and what the call
+// spent per unit kind, which the component that dispatched the role records.
 type Change struct {
-	Files []File
-	Units map[string]int64
+	Files   []File
+	Deleted []string
+	Units   map[string]int64
 }
 
 // Implementer is the agent in the implementation stage's role.
@@ -152,7 +159,7 @@ func (im Implementer) Implement(ctx context.Context, as principal.Principal, imp
 	if err != nil {
 		return Change{}, err
 	}
-	files, err := parseFiles(reply.Text)
+	files, deleted, err := parseFiles(reply.Text)
 	if err != nil {
 		// The refused reply's spend goes back with the error, for the reason
 		// [SpecAuthor.Refine] states: the component retrying this call records
@@ -160,38 +167,53 @@ func (im Implementer) Implement(ctx context.Context, as principal.Principal, imp
 		// so a caller that ignores the error writes nothing.
 		return Change{Units: reply.Units}, err
 	}
-	return Change{Files: files, Units: reply.Units}, nil
+	return Change{Files: files, Deleted: deleted, Units: reply.Units}, nil
 }
 
 // parseFiles reads the implementer's reply strictly: repeated blocks opened
 // by a FILE marker and closed by an END marker, blank lines between blocks
-// allowed, and nothing else outside them. A block without its END, a
-// non-blank line outside a block, a path opened twice, and a reply with no
-// block at all are each [ErrReply]. Inside a block only the END marker ends
-// it, so a FILE marker there is content — and a file that needs the literal
-// END marker on a line of its own cannot be carried, which is the protocol's
-// cost.
-func parseFiles(text string) ([]File, error) {
+// allowed, and nothing else outside them. A DELETE marker stands on a line of
+// its own instead, naming a path removed, and carries no END. A block without
+// its END, a non-blank line outside a block or a DELETE line, a path opened
+// twice, a DELETE naming no path, a path both written and deleted, and a
+// reply with no block or DELETE line at all are each [ErrReply]. Inside a
+// block only the END marker ends it, so a FILE or DELETE marker there is
+// content — and a file that needs the literal END marker on a line of its own
+// cannot be carried, which is the protocol's cost.
+func parseFiles(text string) ([]File, []string, error) {
 	lines := protocolLines(text)
 	var files []File
+	var deleted []string
 	opened := make(map[string]bool)
+	removed := make(map[string]bool)
 	for i := 0; i < len(lines); {
 		line := lines[i]
 		if strings.TrimSpace(line) == "" {
 			i++
 			continue
 		}
+		if inner, found := strings.CutPrefix(line, "=== DELETE "); found {
+			path, found := strings.CutSuffix(inner, " ===")
+			if !found || strings.TrimSpace(path) == "" {
+				return nil, nil, fmt.Errorf("%w: implementer line %d deletes with no path", ErrReply, i+1)
+			}
+			path = strings.TrimSpace(path)
+			deleted = append(deleted, path)
+			removed[path] = true
+			i++
+			continue
+		}
 		inner, found := strings.CutPrefix(line, "=== FILE ")
 		if !found {
-			return nil, fmt.Errorf("%w: implementer line %d is outside a block", ErrReply, i+1)
+			return nil, nil, fmt.Errorf("%w: implementer line %d is outside a block", ErrReply, i+1)
 		}
 		path, found := strings.CutSuffix(inner, " ===")
 		if !found || strings.TrimSpace(path) == "" {
-			return nil, fmt.Errorf("%w: implementer line %d opens a block with no path", ErrReply, i+1)
+			return nil, nil, fmt.Errorf("%w: implementer line %d opens a block with no path", ErrReply, i+1)
 		}
 		path = strings.TrimSpace(path)
 		if opened[path] {
-			return nil, fmt.Errorf("%w: the implementer opened a second block for %q", ErrReply, path)
+			return nil, nil, fmt.Errorf("%w: the implementer opened a second block for %q", ErrReply, path)
 		}
 		opened[path] = true
 		i++
@@ -207,12 +229,17 @@ func parseFiles(text string) ([]File, error) {
 			i++
 		}
 		if !closed {
-			return nil, fmt.Errorf("%w: the block for %q has no === END === marker", ErrReply, path)
+			return nil, nil, fmt.Errorf("%w: the block for %q has no === END === marker", ErrReply, path)
 		}
 		files = append(files, File{Path: path, Content: strings.Join(content, "\n")})
 	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("%w: the implementer's reply has no file block", ErrReply)
+	for _, f := range files {
+		if removed[f.Path] {
+			return nil, nil, fmt.Errorf("%w: the implementer both writes and deletes %q", ErrReply, f.Path)
+		}
 	}
-	return files, nil
+	if len(files) == 0 && len(deleted) == 0 {
+		return nil, nil, fmt.Errorf("%w: the implementer's reply has no file block and no delete line", ErrReply)
+	}
+	return files, deleted, nil
 }

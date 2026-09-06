@@ -157,7 +157,7 @@ func (p *path) startBranch(ctx context.Context, c *candidate) error {
 func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Change, manifestID string) error {
 	d := p.d
 	repo := c.svc.Repository
-	if err := writeFiles(repo, change.Files); err != nil {
+	if err := applyChange(repo, change); err != nil {
 		return err
 	}
 	if _, err := git(repo, "add", "-A"); err != nil {
@@ -373,10 +373,17 @@ func (p *path) repoOfItem(ctx context.Context, c contractcheck.Candidate) (strin
 	return svc.Repository, nil
 }
 
-// writeFiles puts what the implementer authored into the repository, refusing a
-// path that leaves it.
-func writeFiles(repo string, files []agent.File) error {
-	for _, f := range files {
+// applyChange puts what the implementer authored into the repository: it
+// writes every file whole, refusing a path that leaves the repository, and
+// then removes every path change.Deleted names the same way — the order a
+// revert of an addition needs where a reply both rewrites a file it keeps
+// and deletes one it does not. git add -A after this call is what stages
+// both a write and a removal in the one commit; git add named paths alone
+// would not see a path this call removed. A deleted path already absent is
+// not an error: the removal already holds, which is the state a revert
+// asks for.
+func applyChange(repo string, change agent.Change) error {
+	for _, f := range change.Files {
 		if !filepath.IsLocal(f.Path) {
 			return fmt.Errorf("factory: the implementer's file path %q leaves the repository", f.Path)
 		}
@@ -386,6 +393,14 @@ func writeFiles(repo string, files []agent.File) error {
 		}
 		if err := os.WriteFile(path, []byte(f.Content), 0o644); err != nil {
 			return fmt.Errorf("factory: writing %s: %w", f.Path, err)
+		}
+	}
+	for _, p := range change.Deleted {
+		if !filepath.IsLocal(p) {
+			return fmt.Errorf("factory: the implementer's deleted path %q leaves the repository", p)
+		}
+		if err := os.Remove(filepath.Join(repo, p)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("factory: deleting %s: %w", p, err)
 		}
 	}
 	return nil

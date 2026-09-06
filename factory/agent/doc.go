@@ -33,8 +33,8 @@
 // the tasks share. taskauthor.go is [ShippedTaskAuthorPrompt], [TaskAuthor],
 // the [Dividing] it takes and the [Tasks] it returns. implementer.go is
 // [ShippedImplementerPrompt], [Implementer], the [Implementing] it takes, and
-// the [Change] of [File] values it returns, with the parse of the reply beside
-// it.
+// the [Change] it returns — the [File] values it writes and the paths it
+// deletes — with the parse of the reply beside it.
 //
 // openrouter.go is [OpenRouter], the chat completions request and response it
 // is written against, [ErrUpstream] and [ErrRefused]. anthropic.go is
@@ -113,7 +113,9 @@
 // contract is derived from: a published interface is one exported struct type
 // in a file named for it, an interface this service reads is a mirror in a file
 // named for its producer, and the unit goes in a field's own name rather than
-// in a tag.
+// in a tag. It also carries the removal form — a DELETE line naming a path
+// with no closing marker — for a file the change removes, a revert of an
+// addition included, which [File]'s write-only block form cannot carry.
 //
 // # Which callers are not built
 //
