@@ -134,8 +134,8 @@ func TestAComponentActorIsRefused(t *testing.T) {
 	// Around the writer, the CHECK constraint refuses the same thing.
 	_, err := pool.Exec(ctx, `insert into `+people.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-		 credential_account, spend_ceiling, withdrawn_at)
-		values ($1, $2, 'component', 'dispatch', 'claimed', $3, 'hk_alice', 1, '', '', 0, '')`,
+		 withdrawn_at)
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, 'hk_alice', 1, '', '')`,
 		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now())
 	if err == nil {
 		t.Error("the store accepted a declaration written by a component")
@@ -291,8 +291,8 @@ func TestDDLHoldsEveryDuty(t *testing.T) {
 	for _, duty := range people.Duties {
 		_, err := pool.Exec(ctx, `insert into `+people.Table+`
 			(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-			 credential_account, spend_ceiling, withdrawn_at)
-			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, $5, '', '', 0, '')`,
+			 withdrawn_at)
+			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, $5, '', '')`,
 			record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now(), "hk_for_duty", int(duty))
 		if err != nil {
 			t.Errorf("inserting duty %d, one of people.Duties, was refused: %v", duty, err)
@@ -301,15 +301,15 @@ func TestDDLHoldsEveryDuty(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-		 credential_account, spend_ceiling, withdrawn_at)
-		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 0, '', '', 0, '')`,
+		 withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 0, '', '')`,
 		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted duty 0 with no obligation")
 	}
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-		 credential_account, spend_ceiling, withdrawn_at)
-		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 13, '', '', 0, '')`,
+		 withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 13, '', '')`,
 		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted duty 13, which is outside the twelve")
 	}
@@ -324,8 +324,8 @@ func TestDDLListsEveryObligation(t *testing.T) {
 	for _, obligation := range people.Obligations {
 		_, err := pool.Exec(ctx, `insert into `+people.Table+`
 			(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-			 credential_account, spend_ceiling, withdrawn_at)
-			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, 0, $5, '', 0, '')`,
+			 withdrawn_at)
+			values ($1, $2, 'human', 'person:owner', 'claimed', $3, $4, 0, $5, '')`,
 			record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now(), "hk_for_obligation", string(obligation))
 		if err != nil {
 			t.Errorf("inserting obligation %q, one of people.Obligations, was refused: %v", obligation, err)
@@ -334,8 +334,8 @@ func TestDDLListsEveryObligation(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `insert into `+people.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-		 credential_account, spend_ceiling, withdrawn_at)
-		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 0, 'catering', '', 0, '')`,
+		 withdrawn_at)
+		values ($1, $2, 'human', 'person:owner', 'claimed', $3, 'hk_nobody', 0, 'catering', '')`,
 		record.NewID(people.HoldingIDPrefix), people.FormatVersion, record.Now()); err == nil {
 		t.Error("the store accepted an obligation outside people.Obligations")
 	}

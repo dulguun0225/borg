@@ -17,11 +17,31 @@ const (
 	MappingIDPrefix = "pplmap"
 )
 
-// FormatVersion and MappingFormatVersion are written into format_version on
-// every insert into [Table] and [MappingTable] respectively.
+// CredentialTable is the lent credential: who lent it, whether the account
+// behind it is a person's own or an organisation's, and the spend ceiling
+// authored on it. CredentialIDPrefix is what [record.NewID] is called with
+// for a row of it.
 const (
-	FormatVersion        = "people_holding/1"
-	MappingFormatVersion = "people_mapping/1"
+	CredentialTable    = "people_credential"
+	CredentialIDPrefix = "pplcred"
+)
+
+// RateTable is the rate an owner authored per kind of unit a provider
+// returns, per model version and effort, on one lent credential.
+// RateIDPrefix is what [record.NewID] is called with for a row of it.
+const (
+	RateTable    = "people_rate"
+	RateIDPrefix = "pplrate"
+)
+
+// FormatVersion, MappingFormatVersion, CredentialFormatVersion and
+// RateFormatVersion are written into format_version on every insert into
+// [Table], [MappingTable], [CredentialTable] and [RateTable] respectively.
+const (
+	FormatVersion           = "people_holding/1"
+	MappingFormatVersion    = "people_mapping/1"
+	CredentialFormatVersion = "people_credential/1"
+	RateFormatVersion       = "people_rate/1"
 )
 
 // DDL is this package's schema, in the order the statements are applied.
@@ -33,18 +53,6 @@ const (
 // is zero exactly where obligation is set. The duty range is one to twelve,
 // which is the twelve of what-humans-do.md and is why nothing here may write
 // a thirteenth.
-//
-// credential_account and spend_ceiling are the lent credential's account and
-// ceiling — ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md's "the account is a
-// person's own or an organisation's" and "the spend ceiling an owner may
-// author beside a lent credential". Both are here as the empty-string and
-// zero sentinels the rest of this package's columns already use rather than
-// SQL NULL, because nothing in this milestone writes them: the fleet that
-// would lend a credential is not built, so there is no caller to hand a
-// value to these columns and no writer method that sets them yet. A rate per
-// kind of unit is not a column at all for the same reason and is a bigger
-// gap than a scalar: what it costs is that this table cannot yet carry what
-// [policy.PersonDeclaration]'s Rates field already has room for.
 //
 // The unique constraint is over the key plus both holding columns rather
 // than the key and one of them, so declaring the same holding twice is one
@@ -60,13 +68,10 @@ var DDL = []string{
 	person_key text not null,
 	duty int not null,
 	obligation text not null,
-	credential_account text not null,
-	spend_ceiling double precision not null,
 	withdrawn_at text not null,
 	` + record.Constraints + `,
 	constraint actor_is_a_human check (actor_kind = 'human'),
 	constraint person_key_present check (person_key <> ''),
-	constraint spend_ceiling_not_negative check (spend_ceiling >= 0),
 	constraint one_holding check (
 		(duty between 1 and 12 and obligation = '')
 		or (duty = 0 and obligation in ('hosting', 'driftdetector', 'fleet'))
@@ -93,5 +98,73 @@ var DDL = []string{
 	constraint mapping_person_key_present check (person_key <> ''),
 	constraint mapping_name_present check (name <> ''),
 	constraint one_row_per_key unique (person_key)
+)`,
+
+	// The lent credential. The scope is the credential name: one credential
+	// is one account at one provider and one invoice, so the row is unique on
+	// the name and a key may lend more than one.
+	//
+	// account_kind is whether the account behind it is a person's own or an
+	// organisation's, and it is required — the declaration holds it, and
+	// [AccountKinds] lists the same two this CHECK does.
+	//
+	// ceiling_amount is nullable: where no ceiling is authored the credential
+	// is unbounded. currency is the currency the owner's rates on this
+	// credential are authored in and the one a ceiling is in. period_length
+	// with period_unit is the length an owner authored, and
+	// period_start_date with period_start_zone the start date and the zone it
+	// was authored in, a period ending at that zone's midnight.
+	// ceiling_authored_whole is what keeps a ceiling from standing without
+	// the currency and the period it is compared over.
+	`create table if not exists ` + CredentialTable + ` (
+	` + record.Columns + `,
+	person_key text not null,
+	credential_name text not null,
+	account_kind text not null,
+	currency text not null,
+	ceiling_amount numeric,
+	period_length int not null,
+	period_unit text not null,
+	period_start_date text not null,
+	period_start_zone text not null,
+	withdrawn_at text not null,
+	` + record.Constraints + `,
+	constraint credential_actor_is_a_human check (actor_kind = 'human'),
+	constraint credential_person_key_present check (person_key <> ''),
+	constraint credential_name_present check (credential_name <> ''),
+	constraint account_kind_known check (account_kind in ('person', 'organisation')),
+	constraint period_unit_known check (period_unit in ('', 'day', 'month')),
+	constraint period_length_not_negative check (period_length >= 0),
+	constraint ceiling_amount_positive check (ceiling_amount is null or ceiling_amount > 0),
+	constraint ceiling_authored_whole check (
+		(ceiling_amount is null and currency = '' and period_length = 0
+			and period_unit = '' and period_start_date = '' and period_start_zone = '')
+		or (ceiling_amount is not null and currency <> '' and period_length > 0
+			and period_unit <> '' and period_start_date <> '' and period_start_zone <> '')
+		or (ceiling_amount is null and currency <> '' and period_length = 0
+			and period_unit = '' and period_start_date = '' and period_start_zone = '')
+	),
+	constraint one_row_per_credential unique (credential_name),
+	constraint credential_withdrawn_at_is_time_layout check (withdrawn_at = '' or withdrawn_at ~ '` + record.TimePattern + `')
+)`,
+
+	// The rate, per kind of unit the provider returns, per model version and
+	// effort, on one lent credential. effort is empty where the provider
+	// offers none, which is why it is in the unique constraint as a column
+	// and not as a required value.
+	`create table if not exists ` + RateTable + ` (
+	` + record.Columns + `,
+	credential_name text not null,
+	unit text not null,
+	model_version text not null,
+	effort text not null,
+	rate double precision not null,
+	` + record.Constraints + `,
+	constraint rate_actor_is_a_human check (actor_kind = 'human'),
+	constraint rate_credential_name_present check (credential_name <> ''),
+	constraint rate_unit_present check (unit <> ''),
+	constraint rate_model_version_present check (model_version <> ''),
+	constraint rate_not_negative check (rate >= 0),
+	constraint one_row_per_rate unique (credential_name, unit, model_version, effort)
 )`,
 }

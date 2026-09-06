@@ -46,22 +46,21 @@ func (f oneModelFleet) EntryFor(_ context.Context, role dispatch.Role, on dispat
 
 // rolePrompts is [dispatch.Prompts]: the role prompt version in force per
 // role. An install's entry is in force ungated and the store's own in-force
-// read finds it by the event that entered it; the ids this holds are what an
-// upgrade's entry would need once a human approved one, which is the row this
-// interface never fires.
+// read finds it by the event that entered it. Every other version is in force
+// only once the gate every version fires has approved it, and this interface
+// fires no such row, so it names no approved version to the store's read.
 //
 // So a chain whose head an upgrade entered reads as the version below it in
-// force until that row is decided, which is what the design says of an
-// unapproved version, and this interface has no way to decide it.
+// force until that row is decided, and a chain an upgrade started reads as
+// nothing in force, which is what the design says of an unapproved version.
 type rolePrompts struct {
-	pool     *pgxpool.Pool
-	approved map[dispatch.Role][]string
+	pool *pgxpool.Pool
 }
 
 // InForce is the version in force for the role, read through the store's own
-// in-force query with the approved ids this composition supplies.
+// in-force query, which this composition names no approved version to.
 func (r rolePrompts) InForce(ctx context.Context, role dispatch.Role) (artifact.Artifact, bool, error) {
-	return artifact.InForce(ctx, r.pool, artifact.KindRolePrompt, string(role), "", r.approved[role])
+	return artifact.InForce(ctx, r.pool, artifact.KindRolePrompt, string(role), "", nil)
 }
 
 // shippedPromptFor is the words the product ships for one role. It is the one
@@ -90,12 +89,12 @@ func shippedPromptFor(role dispatch.Role) (string, error) {
 //
 // A chain whose head already holds the same words is left alone: an upgrade
 // that changed nothing moves nothing. A chain whose head holds different words
-// gets a version — which the design has awaiting the gate every version fires,
-// and this interface fires none, so what it enters is what this composition
-// then treats as in force. That is the departure, and it is stated in doc.go.
+// gets a version awaiting the gate every version fires, and nothing here puts
+// it in force: the words the install ran on stand until that row is decided,
+// and this interface fires none.
 func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpool.Pool,
 	actor record.Actor, bundle string) (rolePrompts, []string, error) {
-	prompts := rolePrompts{pool: pool, approved: map[dispatch.Role][]string{}}
+	prompts := rolePrompts{pool: pool}
 	var entered []string
 	for _, role := range dispatch.Roles {
 		shipped, err := shippedPromptFor(role)
@@ -107,7 +106,6 @@ func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpo
 			return rolePrompts{}, nil, err
 		}
 		if found && head.Content == shipped {
-			prompts.approved[role] = []string{head.ID}
 			continue
 		}
 		// The chain being empty is an install and its entry is in force
@@ -117,12 +115,10 @@ func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpo
 		if found {
 			enteredBy = artifact.EnteredByUpgradeFirstStart
 		}
-		version, err := store.EnterShipped(ctx, actor, artifact.KindRolePrompt, string(role), "",
-			shipped, enteredBy, bundle)
-		if err != nil {
+		if _, err := store.EnterShipped(ctx, actor, artifact.KindRolePrompt, string(role), "",
+			shipped, enteredBy, bundle); err != nil {
 			return rolePrompts{}, nil, err
 		}
-		prompts.approved[role] = []string{version.ID}
 		entered = append(entered, string(role))
 	}
 	return prompts, entered, nil
