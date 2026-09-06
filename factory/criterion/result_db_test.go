@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // deployer is who writes what a run on a candidate environment produced: the
@@ -241,7 +243,11 @@ func TestUndecidedIsNeverRecorded(t *testing.T) {
 // TestUnreliableIsTheDisagreementRateAcrossBuilds: a criterion carries an
 // outcome history, derived and never authored, and above a bound it is
 // unreliable. Undecided reads a disagreement inside one build's own repeated
-// run; this reads one across builds that repeated nothing.
+// run; this reads one across builds that repeated nothing. The bound itself is
+// [service.UnreliableBoundInForce]: an authored one, or, where an owner
+// authored none, [service.ShippedUnreliableBound] — which the flapping
+// criterion's rate crosses, the shipped default doing the work an authored
+// bound would otherwise have to.
 func TestUnreliableIsTheDisagreementRateAcrossBuilds(t *testing.T) {
 	ctx, pool, token := newSet(t)
 	steady := "cr_" + strings.Repeat("a", 32)
@@ -261,7 +267,10 @@ func TestUnreliableIsTheDisagreementRateAcrossBuilds(t *testing.T) {
 		}
 	}
 
-	steadiness, err := criterion.Unreliable(ctx, pool, steady, builds, 0.2)
+	authored := gatepolicy.Authored{Number: 0.2, Present: true}
+	unauthored := gatepolicy.Authored{}
+
+	steadiness, err := criterion.Unreliable(ctx, pool, steady, builds, authored)
 	if err != nil {
 		t.Fatalf("Unreliable: %v", err)
 	}
@@ -269,20 +278,25 @@ func TestUnreliableIsTheDisagreementRateAcrossBuilds(t *testing.T) {
 		t.Errorf("the steady criterion reads %+v, want four builds and no disagreement", steadiness)
 	}
 
-	flakiness, err := criterion.Unreliable(ctx, pool, flapping, builds, 0.2)
+	// No owner authored a bound, so this crosses the shipped default rather
+	// than a number the test picked.
+	flakiness, err := criterion.Unreliable(ctx, pool, flapping, builds, unauthored)
 	if err != nil {
 		t.Fatalf("Unreliable: %v", err)
 	}
 	if flakiness.Disagreements != 1 || flakiness.Rate != 0.25 || !flakiness.Unreliable {
-		t.Errorf("the flapping criterion reads %+v, want one disagreement in four and above a bound of 0.2", flakiness)
+		t.Errorf("the flapping criterion reads %+v, want one disagreement in four and above the shipped bound of %v",
+			flakiness, service.ShippedUnreliableBound)
 	}
-	// The bound is the service record's and a safeguard may raise it, which is
-	// what takes a criterion back out of the gate's way.
-	if raised, err := criterion.Unreliable(ctx, pool, flapping, builds, 0.5); err != nil || raised.Unreliable {
+	// An authored bound reads what was authored rather than the shipped
+	// default, and a safeguard may only raise it, which is what takes a
+	// criterion back out of the gate's way.
+	raisedBound := gatepolicy.Authored{Number: 0.5, Present: true}
+	if raised, err := criterion.Unreliable(ctx, pool, flapping, builds, raisedBound); err != nil || raised.Unreliable {
 		t.Errorf("Unreliable against a raised bound = %+v, %v, want not unreliable", raised, err)
 	}
 	// One build is nothing for an outcome to disagree with.
-	if one, err := criterion.Unreliable(ctx, pool, flapping, builds[:1], 0.2); err != nil || one.Unreliable {
+	if one, err := criterion.Unreliable(ctx, pool, flapping, builds[:1], authored); err != nil || one.Unreliable {
 		t.Errorf("Unreliable over one build = %+v, %v, want not unreliable", one, err)
 	}
 }

@@ -126,6 +126,15 @@
 # policy — the parameters, what each value means, and the direction a safeguard on it
 # points — which two packages would otherwise each keep a copy of.
 #
+# criterion imports gatepolicy for the Authored type and service for the value
+# service supplies where an owner authored none — the shipped default of the
+# unreliable bound Unreliable is read against. That is the arrangement policy
+# -> score already has for a supplied value; here the value is a constant
+# rather than a computed one, and it is service's rather than criterion's own
+# because the design fixes it beside the other three fields the service
+# record authors outright with a fixed default, and a second copy of the
+# number here would be two able to disagree.
+#
 # score reads the graph, so it imports the record packages the factors are
 # computed from: the artifacts an author wrote, the closed decisions in the
 # log, the items in an area and the intents they answer, the areas whose hazard
@@ -302,8 +311,10 @@
 # the policy for the list of allowed predicate kinds and the safeguards' predicates,
 # the service for the name a removal statement is written with, item and intent for
 # the walk from a release back to the intent whose evidence a brownout is keyed by
-# and the removal it raises through, and gate for the vocabulary of which
-# mechanical check rejected. What it does not import is a repository or a deploy
+# and the removal it raises through, gate for the vocabulary of which
+# mechanical check rejected, and lastcheck for the pass over the deprecation
+# list's own last check, the shape the constraints pass and the advisory pass
+# already write theirs in. What it does not import is a repository or a deploy
 # target — a form and a consumer contract are derived behind an interface its caller
 # implements, and so is the run it observes and the store state and the backfill's
 # completion it reads. That is the arrangement healthmonitor already has.
@@ -346,7 +357,7 @@ item -> record lease
 agentrun -> record lease
 inputmanifest -> record lease
 lastcheck -> record lease
-criterion -> lease record
+criterion -> gatepolicy lease record service
 contract -> record
 consumercontract -> contract gatepolicy record
 screenstatemachine -> lease record
@@ -371,7 +382,7 @@ gate -> area artifact criterion decisionlog environment halt intent item lease p
 mergequeue -> build contract decisionlog environment gate halt intent item lease principal record release
 notifier -> decisionlog driftdetector factorysettings lastcheck lease people principal record service
 healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy principal record release service window
-contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item policy record release service window
+contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item lastcheck policy record release service window
 agent -> secretref principal
 localtarget -> principal secretref targetseam
 postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record release safeguard screenstatemachine service window
@@ -409,7 +420,7 @@ test incident -> postgres lease
 test people -> postgres lease legalhold policy score
 test notifier -> postgres decisionlog driftdetector factorysettings lastcheck lease people policy record service
 test healthmonitor -> postgres boundary build deploy item lease notifier people record release targetseam window
-test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lease policy record release safeguard secretref service targetseam window
+test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lastcheck lease policy record release safeguard secretref service targetseam window
 test score -> postgres area artifact decisionlog intent item lease record release window
 test policy -> postgres area decisionlog environment factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service
 test gate -> postgres area artifact criterion decisionlog environment factorysettings halt intent item lease people policy project record safeguard score secretref service

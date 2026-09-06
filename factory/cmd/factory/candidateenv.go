@@ -267,6 +267,9 @@ func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 		}
 		results = append(results, gate.CriterionResult{CriterionID: cr.ID, Outcome: outcome})
 	}
+	if err := p.markUnreliable(ctx, c, buildID, results); err != nil {
+		return nil, err
+	}
 	return results, nil
 }
 

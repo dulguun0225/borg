@@ -5,6 +5,9 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // Reliability is a criterion's outcome history read against a bound: how many
@@ -41,13 +44,18 @@ type Reliability struct {
 // criterion likeliest to catch such a regression is the one likeliest marked
 // unreliable, and the gate rests on the others while it is.
 //
-// The bound is a field of the service record, which this package does not
-// import; the caller reads it and hands it over. The intent this raises when a
-// criterion becomes unreliable is not built, and doc.go names that caller.
-func Unreliable(ctx context.Context, pool *pgxpool.Pool, criterionID string, buildIDs []string, bound float64) (Reliability, error) {
+// The bound is a field of the service record: bound is what the caller read
+// off it, authored or not, and this reads it back through
+// [service.UnreliableBoundInForce] rather than trusting a raw number — an
+// unauthored field read as its zero value would mark a criterion unreliable
+// at its first disagreement, which is not what "nothing authored" means for
+// this field. The intent becoming unreliable raises is the caller's to raise,
+// which doc.go names and the command-line interface now does.
+func Unreliable(ctx context.Context, pool *pgxpool.Pool, criterionID string, buildIDs []string, bound gatepolicy.Authored) (Reliability, error) {
 	if criterionID == "" || len(buildIDs) == 0 {
 		return Reliability{}, nil
 	}
+	inForce := service.UnreliableBoundInForce(bound)
 	rows, err := pool.Query(ctx, `select distinct on (build_id) build_id, outcome
 		from `+ResultTable+` where criterion_id = $1 and build_id = any($2)
 		order by build_id, run desc`, criterionID, buildIDs)
@@ -81,6 +89,6 @@ func Unreliable(ctx context.Context, pool *pgxpool.Pool, criterionID string, bui
 	}
 	r := Reliability{Builds: total, Disagreements: total - most}
 	r.Rate = float64(r.Disagreements) / float64(total)
-	r.Unreliable = r.Rate > bound
+	r.Unreliable = r.Rate > inForce
 	return r, nil
 }

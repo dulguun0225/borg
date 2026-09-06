@@ -81,7 +81,10 @@
 // derived at the read, never stored, and read at a gate the way a failure is.
 //
 // [Unreliable] reads a criterion's outcome history over builds the caller
-// chose against a bound the caller read off the service record.
+// chose against a bound the caller read off the service record, authored or
+// not: [service.UnreliableBoundInForce] is what resolves it, reading the
+// shipped default where an owner authored none rather than the field's zero
+// value, which would mark a criterion unreliable at its first disagreement.
 //
 // # The mutation score
 //
@@ -104,17 +107,27 @@
 //
 // # What is not built here
 //
-// Four callers this package is written for do not exist yet, and no substitute
-// stands in for them: Factory's two constraint listings, which are
-// [ForConstraint] and [UnderWithdrawnConstraints]; the intent raised when a
-// criterion becomes unreliable, keyed by the criterion; whatever reads the
-// service record's unreliable bound back into [Unreliable] and onto the gate's
-// own criterion result, the bound itself being a field service.SetUnreliableBound
-// writes and policy.Factory.AuthorUnreliableBound authors; and whatever reports
-// what a service promises that a human confirmed, which is [HumanConfirmed].
-// The deployer's mutation pass at the candidate run is not one of them:
+// Three callers this package is written for do not exist yet, and no
+// substitute stands in for them: Factory's two constraint listings, which are
+// [ForConstraint] and [UnderWithdrawnConstraints]; and whatever reports what a
+// service promises that a human confirmed, which is [HumanConfirmed]. The
+// deployer's mutation pass at the candidate run is not one of them:
 // [DeriveMutation] and [RecordMutation] are what it calls, and the
 // command-line interface composes it.
+//
+// [Unreliable] itself now resolves the bound through
+// [service.UnreliableBoundInForce], the field being service.SetUnreliableBound's
+// to write and policy.Factory.AuthorUnreliableBound's to author, and the
+// command-line interface calls it where the candidate run's criterion results
+// are recorded, writing what it read onto the gate's own criterion result so
+// Merge to master reads the same reading the run took. Becoming unreliable
+// raises the intent this package's own doc names, keyed by the criterion
+// through [intent.Evidence.CriterionID], with the command-line interface's
+// own dedup over [intent.OnEvidence] standing in for the design's "a second
+// raise while that intent is open joins it" — the two narrowings the design
+// puts on the outcome history, one seed version and a diff reaching the
+// requirement, are not derived anywhere yet, so the caller reads every build
+// of the candidate rather than that filtered set.
 //
 // [WithdrawalsWithAnAuthority] is read by the score, through the reader the
 // command-line interface composes for it: each withdrawal is a resolved factor

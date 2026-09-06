@@ -33,7 +33,8 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Intent, error) {
 // than reopening a closed one.
 //
 // The evidence is what keys it: this service, this consumer, this contract and
-// element, this release, this constraint, this objective's period. Keyed too
+// element, this release, this constraint, this objective's period, this
+// criterion. Keyed too
 // finely it raises an intent per observation; too coarsely it attaches two
 // problems to one intent, which decomposition then has to split. An empty
 // evidence keys nothing and matches nothing.

@@ -125,6 +125,10 @@ type Evidence struct {
 	ReleaseID       string `json:"release_id,omitempty"`
 	ConstraintID    string `json:"constraint_id,omitempty"`
 	ObjectivePeriod string `json:"objective_period,omitempty"`
+	// CriterionID is the criterion a package criterion caller keys the intent
+	// becoming unreliable raises by, so a second crossing while that intent is
+	// open joins it rather than raising a second one.
+	CriterionID string `json:"criterion_id,omitempty"`
 }
 
 // Empty reports whether the evidence names nothing at all.

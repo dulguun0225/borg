@@ -141,6 +141,15 @@ type candidate struct {
 	candidateDeployID   string
 	criteria            []gate.CriterionResult
 	tornDown            bool
+	// buildHistory is every build this item's own criteria have been decided
+	// against on the candidate environment, oldest first, appended once per
+	// [path.decideCriteria] call. It is what a criterion's own outcome history
+	// is read over: the design narrows that history to builds composed from
+	// one seed version and whose diffs reach the requirement the criterion
+	// names, and neither narrowing is read here yet, so this is every build of
+	// this candidate rather than that filtered set — the caller [criterion.Unreliable]
+	// asks for, kept the smallest way this run can supply it.
+	buildHistory []string
 
 	// The seven firings, each as it was decided. The Decomposition row is not
 	// among them: it decides a set and is on the [decompositionSet].

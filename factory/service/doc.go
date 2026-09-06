@@ -31,9 +31,17 @@
 // and [Frozen], the read a gate row asks at every firing.
 // deployer.go is [Reachability] and [Adopt]. versions.go is
 // [Version] with [AuthorSeed], [AuthorValueSet], [SeedInForce], [ValueSetInForce]
-// and the two lists beside them. The tests are one file per subject above —
+// and the two lists beside them. shipped.go is the shipped default of each of
+// the four fields the design fixes rather than gives a number for —
+// [ShippedMutantCap], [ShippedFailureRecordKeyCap], [ShippedUnreliableBound]
+// and [ShippedIncidentItemBoundSeconds] — and the reader beside each,
+// [MutantCapInForce], [FailureRecordKeyCapInForce], [UnreliableBoundInForce]
+// and [IncidentItemBoundSecondsInForce], which every caller of the matching
+// field goes through rather than reading the column and falling back to its
+// zero value. The tests are one file per subject above —
 // db_test.go, parameters_test.go, provisioning_test.go, operations_test.go,
-// deployer_test.go, threshold_test.go, freeze_test.go and versions_test.go —
+// deployer_test.go, threshold_test.go, freeze_test.go, versions_test.go and
+// shipped_test.go —
 // sharing the newWriter, acquire, begin
 // and commit helpers of db_test.go and helpers_test.go, every one of them against
 // the database.
@@ -80,15 +88,27 @@
 // through, and the removal the deployer performs when the write lands is what
 // package policy calls through what its composition supplies.
 //
-// Two numbers the design fixes and does not give. The bound above which a
-// criterion is unreliable has a fixed default rather than a supplied value, and
-// the design states no number, so nothing here holds one: the column is null
-// until an owner authors a bound, and the reader — package criterion's own read
-// — takes the bound as an argument, so a service with none authored has none to
-// give. The proof test rate is the other: the design says how often the rollback
-// path is exercised and never what the rate is counted per, so the field holds
-// the number an owner authored and the component that would run a proof test is
-// not built.
+// Four fields have a fixed default rather than a supplied value, and the
+// design states no number for any of them: the mutant cap, the failure-record
+// key cap, the bound above which a criterion is unreliable, and the
+// incident-raised item bound. The column is null until an owner authors one,
+// and shipped.go is the one place a number is chosen where the design leaves
+// it unstated — [ShippedMutantCap], [ShippedFailureRecordKeyCap],
+// [ShippedUnreliableBound] and [ShippedIncidentItemBoundSeconds] — with the
+// reader beside each that returns the authored value or the shipped one. A
+// caller elsewhere in the factory that holds a [Service] reads the field
+// unauthored where the design gives no number, so a reader of a decision
+// taken under one reaches the number through the release that shipped it and
+// not through this document. Package criterion's [criterion.Unreliable] is
+// the one built caller so far, resolving the bound this way rather than
+// taking a raw number that would read an unauthored field as its zero value.
+//
+// The proof test rate is a fifth field the design fixes without giving a
+// number, and it has no shipped default: the design says how often the
+// rollback path is exercised and never what the rate is counted per, so a
+// default chosen without that unit would be a number nothing can use. The
+// field holds the number an owner authored and the component that would run a
+// proof test is not built.
 //
 // # What defines it
 //
@@ -138,5 +158,7 @@
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md,
 // the mutant cap is
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md,
-// and the repository credential pair is seam 3 of ../../end-goal/deferred.md.
+// a fixed default being a value the product ships is
+// ../../end-goal/deferred.md#the-products-release-channel, and the repository
+// credential pair is seam 3 of ../../end-goal/deferred.md.
 package service
