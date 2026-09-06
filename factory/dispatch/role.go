@@ -9,11 +9,12 @@ import (
 )
 
 // Role is what an agent is put on: one stage of the path and the artifact that
-// stage writes about the item. The set is closed — an owner composing a fleet
-// entry chooses among these and never invents one — and it is closed at four
-// here because the four authoring stages are the roles this factory dispatches
-// to. The roles put on an intent, the grouper, and the role that argues a
-// fleet proposal are not built.
+// stage writes about the item, or one of the two roles put on an intent, which
+// run before there is an item to match against. The set is closed — an owner
+// composing a fleet entry chooses among these and never invents one — and it is
+// closed at six here: the four authoring stages and the two on an intent. The
+// grouper, which runs before an intent exists, and the role that argues a fleet
+// proposal are not built.
 type Role string
 
 const (
@@ -26,16 +27,31 @@ const (
 	RoleTaskAuthor Role = "task_author"
 	// RoleImplementer authors the code, the encodings, and the emission.
 	RoleImplementer Role = "implementer"
+	// RoleInterviewer asks the interview's rounds and states the reading the
+	// requester confirms. It is put on an intent, the interview happening
+	// before there is an item to match against.
+	RoleInterviewer Role = "interviewer"
+	// RoleDecomposer cuts one intent into the items that answer it. It is put
+	// on an intent for the reason [RoleInterviewer] is.
+	RoleDecomposer Role = "decomposer"
 )
 
-// Roles is every role, in the order the path reaches their stages.
-var Roles = []Role{RoleSpecAuthor, RoleImplementationPlanner, RoleTaskAuthor, RoleImplementer}
+// Roles is every role, in the order the path reaches them: the two put on an
+// intent, and then the four whose stages an item passes through.
+var Roles = []Role{RoleInterviewer, RoleDecomposer,
+	RoleSpecAuthor, RoleImplementationPlanner, RoleTaskAuthor, RoleImplementer}
 
 // ErrRoleUnknown is returned for a role outside [Roles].
 var ErrRoleUnknown = fmt.Errorf("dispatch: not a role")
 
-// Stage is the stage the role names. A dispatch is the match of an item's
-// stage against this.
+// ErrRoleNamesNoStage is returned by [Role.Stage] for a role put on an intent.
+// Neither names a stage: an intent has none until decomposition writes the
+// items, which is why the two are matched on the intent's project alone.
+var ErrRoleNamesNoStage = fmt.Errorf("dispatch: this role is put on an intent and names no stage")
+
+// Stage is the stage the role names. A dispatch on an item is the match of the
+// item's stage against this, and a role put on an intent is
+// [ErrRoleNamesNoStage].
 func (r Role) Stage() (item.Stage, error) {
 	switch r {
 	case RoleSpecAuthor:
@@ -46,14 +62,21 @@ func (r Role) Stage() (item.Stage, error) {
 		return item.StageTasks, nil
 	case RoleImplementer:
 		return item.StageImplementation, nil
+	case RoleInterviewer, RoleDecomposer:
+		return "", fmt.Errorf("%w: %q", ErrRoleNamesNoStage, r)
 	default:
 		return "", fmt.Errorf("%w: %q", ErrRoleUnknown, r)
 	}
 }
 
+// OnAnIntent reports whether the role is one of the two put on an intent. It is
+// what a dispatch reads before it looks for a stage, and what a fleet answers
+// an entry for with no item to match on.
+func (r Role) OnAnIntent() bool { return r == RoleInterviewer || r == RoleDecomposer }
+
 // RoleAt is the role whose stage is this one, and false for a stage no role is
-// put on — queued and merged, where nothing authors, and the three values that
-// end an item.
+// put on — queued and merged, where nothing authors, the three values that end
+// an item, and the two roles put on an intent, which name no stage at all.
 func RoleAt(stage item.Stage) (Role, bool) {
 	for _, role := range Roles {
 		at, err := role.Stage()
@@ -88,8 +111,15 @@ const (
 
 // Operations is what a role may do. A role's list is the factory's, so this is
 // a function of the role and of nothing an owner writes.
+//
+// The two roles put on an intent read and never write: neither authors an
+// artifact version — the interview's questions and the items decomposition
+// writes are records with writers of their own — so neither carries
+// [OperationSubmitAVersion].
 func (r Role) Operations() ([]string, error) {
 	switch r {
+	case RoleInterviewer, RoleDecomposer:
+		return []string{OperationReadTheRepository}, nil
 	case RoleSpecAuthor, RoleImplementationPlanner, RoleTaskAuthor:
 		return []string{OperationReadTheRepository, OperationSubmitAVersion}, nil
 	case RoleImplementer:

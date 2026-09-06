@@ -23,12 +23,20 @@ import (
 // It opens a round of its own and the round count advances, because the count
 // is what the attempt limit reads and this is a round. A correction to it then
 // costs that one round and no second.
+//
+// The round is what waits on the requester, so the notifier is told once it is
+// written, the way [Intake.Ask] tells it about a round of the interview: the
+// write is committed first, and a delivery that failed is returned with the
+// round already asked.
 func (i *Intake) AcceptanceRound(ctx context.Context, actor record.Actor, intentID, question string) (Question, error) {
 	if err := actor.Validate(); err != nil {
 		return Question{}, err
 	}
 	if question == "" {
 		return Question{}, ErrQuestionEmpty
+	}
+	if i.notifier == nil {
+		return Question{}, fmt.Errorf("%w: asking the acceptance round of %s", ErrNotifierNotComposed, intentID)
 	}
 	var asked Question
 	err := i.write(ctx, intentID, "asking the acceptance round of", func(ctx context.Context, tx pgx.Tx, in Intent) error {
@@ -48,6 +56,9 @@ func (i *Intake) AcceptanceRound(ctx context.Context, actor record.Actor, intent
 	})
 	if err != nil {
 		return Question{}, err
+	}
+	if err := i.notifier.AcceptanceRound(ctx, asked.IntentID, asked.ID, asked.Question); err != nil {
+		return asked, fmt.Errorf("intent: telling a human about the acceptance round %s: %w", asked.ID, err)
 	}
 	return asked, nil
 }

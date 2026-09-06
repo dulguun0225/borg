@@ -51,12 +51,18 @@
 // round it was asked in: [Intake.OpenRound] advances the round count and
 // [Intake.Ask] attaches to the round already open, because the attempt limit
 // counts rounds and counting the questions would count a round that asked
-// three as three. The interview's rounds and decomposition's re-decompositions
-// are two fields and never one, so an interview's rounds are not spent out of
-// decomposition's budget. A human's [Intake.Answer] on a question of an
-// escalated intent clears the escalation and starts the round count again,
-// which is the interview's counterpart to package item's clearing of a stage's
-// escalation; a component's answer clears nothing.
+// three as three. [Intake.Ask] takes an unrefined intent and no other, the
+// interview being the state an intent is in; the acceptance round is asked by
+// [Intake.AcceptanceRound] instead, which takes a refined one.
+//
+// The interview's rounds and decomposition's re-decompositions are two fields
+// and never one, so an interview's rounds are not spent out of decomposition's
+// budget. A human's [Intake.Answer] on a question of an intent the interview
+// escalated clears the escalation and starts the round count again, which is
+// the interview's counterpart to package item's clearing of a stage's
+// escalation; a component's answer clears nothing, and neither does any answer
+// on an intent decomposition escalated. Which of the two an escalation is, is
+// read off the counts against the limit the caller passes [Intake.Answer].
 //
 // A requirement's id is opaque, stable and never reused. A statement fitting
 // none of the six patterns is admitted with a tagged escape reason and no
@@ -84,9 +90,10 @@
 // [Intake.MarkUnanswerable]; and a named human at Ops through [Intake.TakeIn]
 // when they ask for a rollback's revert.
 //
-// [Intake] calls one component and it is the notifier, at the two writes that
-// leave something waiting on a human: [Intake.Ask] and [Intake.Escalate]. It
-// is [Notifier], an interface the composition supplies.
+// [Intake] calls one component and it is the notifier, at the three writes that
+// leave something waiting on a human: [Intake.Ask], [Intake.Escalate] and
+// [Intake.AcceptanceRound]. It is [Notifier], an interface the composition
+// supplies.
 //
 // A write to an existing row validates its caller's actor and stores it
 // nowhere: the row keeps the actor that created it, so the record does not say
@@ -95,15 +102,25 @@
 // human at Work is what ends an intent for good.
 //
 // The attempt limit is nowhere in this package. [Intake.OpenRound] and
-// [Intake.MarkReDecomposing] return the count they reached and
-// [Intake.Escalate] takes the limit as an argument, because the limit is
-// authored with gate policy, and a value in force is package policy's read.
+// [Intake.MarkReDecomposing] return the count they reached, and
+// [Intake.Escalate] and [Intake.Answer] take the limit as an argument, because
+// the limit is authored with gate policy, and a value in force is package
+// policy's read.
 //
 // intent_question.intent_id and requirement.intent_id are id fields and not
 // foreign keys, like every link between records; record's doc.go states that
 // rule and its cost once. Every write through this writer reads the intent in
 // the same transaction, so a question or a requirement written through it
 // names an intent that exists and a row inserted around it may not.
+//
+// What waits on Work, which is not built: the answering half of the acceptance
+// round. This package writes the round at [Intake.AcceptanceRound], called by
+// the factory once every item of the intent is live, and the notifier delivers
+// it; the verdict on it is a human's, and [Intake.Delivered] and
+// [Intake.CorrectAcceptance] are what that human's screen would call. Until
+// there is one, the caller that composes this package makes those two calls at
+// a terminal. The same holds for [Intake.Answer] and [Intake.Drop], which Work
+// owns in the design and a terminal performs here.
 //
 // What is not built and is a parameter here rather than a substitute: the
 // report store, so an intent grouped from reports has no outcome this package

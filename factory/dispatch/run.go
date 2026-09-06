@@ -7,14 +7,33 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// The four dispatches, one per role. Each is the same sequence — the match,
-// the transition, the manifest, the run, the record, the limit — around one
-// role's own call, and each is written out rather than reached through a
-// dispatch on a name, so a reader of one knows what the other three do.
+// The five dispatches, one per role a run is made in. Each is the same
+// sequence — the match, the transition, the manifest, the run, the record, the
+// limit — around one role's own call, and each is written out rather than
+// reached through a dispatch on a name, so a reader of one knows what the
+// others do. The sixth role, the decomposer, has no method here: doc.go says
+// what would call it.
+
+// Interviewer puts an agent on an intent and returns the reading or the
+// question it replied with. It names no stage and no item: the interview runs
+// while the intent is unrefined and is what refines it.
+func (d *Dispatch) Interviewer(ctx context.Context, on On, material []inputmanifest.Material,
+	of agent.Interviewing) (agent.Reading, Run, error) {
+	var read agent.Reading
+	run, err := d.put(ctx, RoleInterviewer, on, material,
+		func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error) {
+			reading, err := agent.Interviewer{Model: entry.Model, Prompt: prompt, Effort: entry.Effort}.
+				Interview(ctx, as, of)
+			read = reading
+			return reading.Units, err
+		})
+	return read, run, err
+}
 
 // SpecAuthor puts an agent on the spec stage and returns what it authored.
 func (d *Dispatch) SpecAuthor(ctx context.Context, on On, material []inputmanifest.Material,
@@ -68,10 +87,12 @@ func (d *Dispatch) Implementer(ctx context.Context, on On, material []inputmanif
 	return authored, run, err
 }
 
-// put is the whole of one dispatch, and the four methods above differ only in
+// put is the whole of one dispatch, and the five methods above differ only in
 // the call they pass:
 //
-//  1. the intent's state, read before an agent is put on a stage;
+//  1. the intent's state, read before an agent is put on a stage — and not
+//     before a role put on the intent itself, the interview being what refines
+//     an unrefined intent;
 //  2. the match — the item's stage against the role, its service and area
 //     against the scope, and the role prompt version in force;
 //  3. the transition onto the item, which counts the entry;
@@ -86,9 +107,15 @@ func (d *Dispatch) Implementer(ctx context.Context, on On, material []inputmanif
 func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputmanifest.Material,
 	call func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error)) (Run, error) {
 	run := Run{ID: record.NewID("dsp"), Role: role}
-	stage, err := role.Stage()
-	if err != nil {
-		return run, err
+	var stage item.Stage
+	if !role.OnAnIntent() {
+		named, err := role.Stage()
+		if err != nil {
+			return run, err
+		}
+		stage = named
+	} else if on.ItemID != "" {
+		return run, fmt.Errorf("%w: %s was put on item %s", ErrRoleNamesNoStage, role, on.ItemID)
 	}
 	if on.ItemID != "" && on.Stage != stage {
 		return run, fmt.Errorf("dispatch: %s names the stage %s and this dispatch is for %s",
@@ -163,11 +190,23 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 	}
 	run.InputManifestID = manifest.ID
 
-	limit, err := d.limitFor(ctx, stage)
+	limit, err := d.limitFor(ctx, role, stage)
 	if err != nil {
 		return run, err
 	}
-	return d.attempts(ctx, run, on, told, limit, call)
+	return d.attempts(ctx, run, on, told, sourcesOf(material), limit, call)
+}
+
+// sourcesOf is the sources handed over, as the agent run record names them:
+// the reference of each material the manifest was written from, in the order
+// the stage handed them over. The manifest names what was withheld and the run
+// record names what was sent, and both name a source by reference.
+func sourcesOf(material []inputmanifest.Material) []string {
+	sources := make([]string, 0, len(material))
+	for _, one := range material {
+		sources = append(sources, one.Reference)
+	}
+	return sources
 }
 
 // attempts is (5) to (7): the calls, one agent run record each, and the limit
@@ -179,7 +218,7 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 // account is not an attempt at the work, and what the design does with an
 // account that has run out is a hold, so those return on the first failure
 // rather than spending the limit on a refusal that will not change.
-func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, limit int,
+func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, sources []string, limit int,
 	call func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error)) (Run, error) {
 	as := principal.OfAgent(run.Entry.ModelVersion, run.ID, run.Entry.Scope.String())
 	if err := as.Validate(); err != nil {
@@ -211,7 +250,7 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, li
 
 		startedAt := record.Now()
 		units, callErr := call(run.Entry, told, as)
-		recorded, err := d.recordRun(ctx, run, on, units, startedAt, record.Now(), outcomeOf(callErr))
+		recorded, err := d.recordRun(ctx, run, on, sources, units, startedAt, record.Now(), outcomeOf(callErr))
 		if err != nil {
 			return run, err
 		}

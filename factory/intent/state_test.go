@@ -293,7 +293,7 @@ func TestAHumansAnswerClearsAnEscalatedInterview(t *testing.T) {
 
 	// A component answering is the factory answering itself, which is not the
 	// decision the clearing records.
-	if _, err := in.Answer(ctx, intake, asked[0].ID, "the same provider"); err != nil {
+	if _, err := in.Answer(ctx, intake, asked[0].ID, "the same provider", 2); err != nil {
 		t.Fatalf("Answer as a component: %v", err)
 	}
 	read, err := intent.Get(ctx, pool, taken.ID)
@@ -305,7 +305,7 @@ func TestAHumansAnswerClearsAnEscalatedInterview(t *testing.T) {
 			read.State, read.Rounds)
 	}
 
-	if _, err := in.Answer(ctx, owner, asked[1].ID, "once per charge"); err != nil {
+	if _, err := in.Answer(ctx, owner, asked[1].ID, "once per charge", 2); err != nil {
 		t.Fatalf("Answer as a human: %v", err)
 	}
 	read, err = intent.Get(ctx, pool, taken.ID)
@@ -331,7 +331,7 @@ func TestAHumansAnswerClearsAnEscalatedInterview(t *testing.T) {
 	}
 
 	// A human's answer on an intent that is not escalated moves no state.
-	if _, err := in.Answer(ctx, owner, asked[2].ID, "a day"); err != nil {
+	if _, err := in.Answer(ctx, owner, asked[2].ID, "a day", 2); err != nil {
 		t.Fatalf("Answer on an unrefined intent: %v", err)
 	}
 	read, err = intent.Get(ctx, pool, taken.ID)
@@ -392,5 +392,78 @@ func TestTheProjectIsFilledOnceAndNeverRewritten(t *testing.T) {
 	}
 	if err := in.SetProject(ctx, intake, supplied.ID, "pr_elsewhere"); !errors.Is(err, intent.ErrProjectAlreadyWritten) {
 		t.Errorf("SetProject on an intent that arrived with one = %v, want ErrProjectAlreadyWritten", err)
+	}
+}
+
+// TestAnAnswerDoesNotClearAnEscalatedDecomposition: the two escalations are
+// told apart by which of the intent's counts exceeded the limit, and answering
+// an interview question clears only the one the rounds caused. An intent whose
+// re-decompositions exceeded the limit stops there — its items appear in Work
+// under it until a human takes one over or drops them — so an outstanding
+// question answered on it moves neither the state nor either count.
+func TestAnAnswerDoesNotClearAnEscalatedDecomposition(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+	taken := requested(t, ctx, in, "checkout should retry")
+
+	// One round, one question left unanswered, and the confirming round
+	// answered: the outstanding question is the interview's and the escalation
+	// below is decomposition's.
+	if _, err := in.OpenRound(ctx, intake, taken.ID); err != nil {
+		t.Fatalf("OpenRound: %v", err)
+	}
+	outstanding, err := in.Ask(ctx, intake, taken.ID, "Against which provider?")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	confirming, err := in.Ask(ctx, intake, taken.ID, "Is this what you asked for?")
+	if err != nil {
+		t.Fatalf("Ask the confirming round: %v", err)
+	}
+	if _, err := in.Confirm(ctx, intake, intent.Confirmation{
+		IntentID:       taken.ID,
+		QuestionID:     confirming.ID,
+		Answer:         "Yes.",
+		IntendedEffect: "A shopper whose card fails once still completes the order.",
+		Tier:           intent.Tier{Value: 2, PolicyVersion: "pv_1"},
+		Requirements: []intent.NewRequirement{
+			{Statement: "When the charge fails, the system shall retry it once."},
+		},
+	}); err != nil {
+		t.Fatalf("Confirm: %v", err)
+	}
+
+	// Three re-decompositions against a limit of two, which is the second of
+	// the two things that write escalated.
+	for range 3 {
+		if _, err := in.MarkReDecomposing(ctx, intake, taken.ID); err != nil {
+			t.Fatalf("MarkReDecomposing: %v", err)
+		}
+		if err := in.ClearReDecomposing(ctx, intake, taken.ID); err != nil {
+			t.Fatalf("ClearReDecomposing: %v", err)
+		}
+	}
+	if _, err := in.Escalate(ctx, intake, taken.ID, 2); err != nil {
+		t.Fatalf("Escalate: %v", err)
+	}
+
+	if _, err := in.Answer(ctx, owner, outstanding.ID, "the same provider", 2); err != nil {
+		t.Fatalf("Answer as a human: %v", err)
+	}
+	read, err := intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.State != intent.StateEscalated {
+		t.Errorf("the answer left the intent %s, want it escalated: the rounds did not exceed the limit", read.State)
+	}
+	if read.Rounds != 1 || read.ReDecompositions != 3 {
+		t.Errorf("the answer left %d round(s) and %d re-decomposition(s), want 1 and 3 — neither count moved",
+			read.Rounds, read.ReDecompositions)
+	}
+
+	// Nothing is asked on it either: the interview is the state an intent is
+	// in, and this one is not in it.
+	if _, err := in.Ask(ctx, intake, taken.ID, "Another question?"); !errors.Is(err, intent.ErrNotUnrefined) {
+		t.Errorf("Ask on an escalated intent = %v, want ErrNotUnrefined", err)
 	}
 }

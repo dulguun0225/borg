@@ -222,7 +222,16 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		}
 	}
 
-	// 3. The detector: every deprecation-marked element whose derived consumer
+	// 3. The acceptance round, per intent every item of which is live: the one
+	// round that follows production, asked by intake and delivered by the
+	// notifier, and the intent delivered where the factory raised it and there
+	// is nobody to ask. It runs after the layers because what makes an intent
+	// ready for it is its last item going live.
+	if err := p.acceptanceRounds(ctx, s.decompositions); err != nil {
+		return s, err
+	}
+
+	// 4. The detector: every deprecation-marked element whose derived consumer
 	// contracts are gone gets a removal intent, so nobody has to remember step three
 	// of a migration. It runs once at the end of a run rather than per layer, because
 	// what empties a list is a release deploying and the layers above are where those
@@ -231,7 +240,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		return s, err
 	}
 
-	// 4. The walk, the demonstration's direction: from the last deploy back to
+	// 5. The walk, the demonstration's direction: from the last deploy back to
 	// the intent, every step a field and none reconstructed. A run whose release was
 	// failed walks the rollback's own deploy record, which is the deploy that is
 	// live at the end of it.

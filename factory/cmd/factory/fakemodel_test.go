@@ -60,12 +60,14 @@ var theResponse = regexp.MustCompile(`shall respond (.+)\.$`)
 
 // fakeModel answers by role, told apart by the system prompt — the same
 // constant each real role sends, so a prompt this switch does not know is a
-// wiring defect and an error. The first spec-author call asks the one question,
-// and every call after it delivers the spec [theSpecs] holds for the statement in
-// the prompt; the implementer call returns whole files with one encoding per
-// criterion the prompt names.
+// wiring defect and an error. The first interviewer call asks the one question
+// and every call after it states the reading; every spec-author call delivers
+// the spec [theSpecs] holds for the statement in the prompt; the implementer
+// call returns whole files with one encoding per criterion the prompt names.
 type fakeModel struct {
-	specCalls int
+	// interviewCalls is how many times the role put on the intent has been
+	// called, the first of which asks the interview's one question.
+	interviewCalls int
 	// failEvery is how often the program this fake writes emits a failure rather
 	// than an ok: nothing at zero, every unit at one, every other unit at two. It is
 	// what a deliberately bad deploy is — an implementation that passes every
@@ -77,11 +79,34 @@ type fakeModel struct {
 func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agent.Call) (agent.Reply, error) {
 	system, user := call.System, call.User
 	switch system {
-	case agent.ShippedSpecAuthorPrompt:
-		m.specCalls++
-		if m.specCalls == 1 {
+	case agent.ShippedInterviewerPrompt:
+		m.interviewCalls++
+		if m.interviewCalls == 1 {
 			return agent.Reply{Text: "QUESTION: " + theQuestion, Units: map[string]int64{agent.UnitsOutput: 11}}, nil
 		}
+		// The reading is one statement, and it is the sentence the spec author
+		// will answer with a criterion: this fake states the reading in the
+		// form a criterion takes, so a run's requirement and its criterion say
+		// the same thing and the Spec row's check over what answers what has
+		// something to read.
+		for statement, authored := range theSpecs {
+			if strings.Contains(user, statement) {
+				return agent.Reply{
+					Text:  "READING:\nREQUIREMENT: " + authored.criterion,
+					Units: map[string]int64{agent.UnitsOutput: 7},
+				}, nil
+			}
+		}
+		// A revert, whose intent the health monitor wrote at a rollback. The
+		// interviewer reads the statement, which is all it ever has.
+		if strings.Contains(user, "failed its analysis window and was rolled back") {
+			return agent.Reply{
+				Text:  "READING:\nREQUIREMENT: When asked what it was restored from, the system shall respond harm.",
+				Units: map[string]int64{agent.UnitsOutput: 9},
+			}, nil
+		}
+		return agent.Reply{}, fmt.Errorf("fake model: the interviewer's prompt names no statement this fake reads")
+	case agent.ShippedSpecAuthorPrompt:
 		for statement, authored := range theSpecs {
 			if strings.Contains(user, statement) {
 				return agent.Reply{
@@ -196,7 +221,9 @@ func implementerReply(named [][]string, failEvery int) (string, error) {
 // what a test swapping the model in mid-way needs: the interview is one round or none
 // per intent, and a fresh fake would ask its question again to a reader with nothing in
 // it.
-func interviewed(failEvery int) *fakeModel { return &fakeModel{specCalls: 1, failEvery: failEvery} }
+func interviewed(failEvery int) *fakeModel {
+	return &fakeModel{interviewCalls: 1, failEvery: failEvery}
+}
 
 // mainGo is the program every one of these fakes writes, and it is the one place
 // this test does what the implementer's standing instruction asks: the program runs

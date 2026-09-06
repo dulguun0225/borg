@@ -195,10 +195,11 @@ func (g dispatchNotifier) Escalated(ctx context.Context, itemID string, stage it
 	return err
 }
 
-// intakeNotifier is [intent.Notifier]: the two calls intake makes on the
-// component that reaches humans — a round of interview questions, and an intent
-// escalated. It is a type of its own for the reason [gateNotifier] is: intake
-// hands over an intent and a question, and the wait is composed here.
+// intakeNotifier is [intent.Notifier]: the three calls intake makes on the
+// component that reaches humans — a round of interview questions, an intent
+// escalated, and the acceptance round that follows production. It is a type of
+// its own for the reason [gateNotifier] is: intake hands over an intent and a
+// question, and the wait is composed here.
 type intakeNotifier struct {
 	notifier *notifier.Notifier
 	// path is what reads the intent an escalation is about, which is what
@@ -218,6 +219,24 @@ func (n intakeNotifier) Interviewed(ctx context.Context, intentID, questionID, q
 		Row:     questionID,
 		Kind:    notifier.KindInterview,
 		Waiting: fmt.Sprintf("the factory asks about intent %s: %s", intentID, question),
+		Holding: people.OfDuty(answerTheInterview),
+	})
+	return err
+}
+
+// AcceptanceRound is the wait the round that follows production leaves. It
+// routes where a round of the interview does, which is the routing the design
+// gives it, and it pages nobody: everything the intent asked for is live and
+// nothing about the software is wrong, so what waits is a verdict and not a
+// repair.
+func (n intakeNotifier) AcceptanceRound(ctx context.Context, intentID, questionID, question string) error {
+	if n.notifier == nil {
+		return nil
+	}
+	_, err := n.notifier.Notify(ctx, notifier.Wait{
+		Row:     questionID,
+		Kind:    notifier.KindInterview,
+		Waiting: fmt.Sprintf("the factory asks whether intent %s had the effect it was for: %s", intentID, question),
 		Holding: people.OfDuty(answerTheInterview),
 	})
 	return err

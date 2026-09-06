@@ -273,15 +273,25 @@ func contractMainGo(exchange string) []agent.File {
 // prompt names because an item names one service and an intent may produce several.
 var theServiceOfPrompt = regexp.MustCompile(`(?m)^The service this item changes: (.+)$`)
 
-// contractModel is the fake model of these episodes: a spec author whose spec is
-// keyed by the statement and the service, and an implementer whose files are keyed by
-// the spec it was given. It asks no question — the interview is M1's demonstration and
-// these episodes are about what follows decomposition.
+// contractModel is the fake model of these episodes: an interviewer that states
+// one reading, a spec author whose spec is keyed by the statement and the
+// service, and an implementer whose files are keyed by the spec it was given. It
+// asks no question — the interview is M1's demonstration and these episodes are
+// about what follows decomposition.
 type contractModel struct{}
 
 func (m *contractModel) Complete(_ context.Context, _ principal.Principal, call agent.Call) (agent.Reply, error) {
 	system, user := call.System, call.User
 	switch system {
+	case agent.ShippedInterviewerPrompt:
+		// One requirement per intent, which the split spreads over the items of
+		// the pair as a share each. It restates no shape: what each service
+		// promises is the spec author's, and the reading is the request.
+		return agent.Reply{
+			Text: "READING:\nREQUIREMENT: When the interface changes, the system shall publish the new form " +
+				"and read it where it is consumed.",
+			Units: map[string]int64{agent.UnitsOutput: 7},
+		}, nil
 	case agent.ShippedSpecAuthorPrompt:
 		named := theServiceOfPrompt.FindStringSubmatch(user)
 		if named == nil {

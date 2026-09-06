@@ -321,7 +321,7 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	fmt.Fprintf(p.d.out, "  every item of the set is superseded and re-decomposition %d is counted on intent %s\n", reDecompositions, in.ID)
 	fmt.Fprintln(p.d.out, "  the re-decomposition itself is not built: this interface is told what to decompose, so a bad decomposition is stopped here and not repaired")
 
-	limit, err := decompositionAttemptLimit(ctx, p.d.pool)
+	limit, err := intentAttemptLimit(ctx, p.d.pool, factorysettings.SubjectDecomposition)
 	if err != nil {
 		return false, err
 	}
@@ -340,18 +340,20 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	return false, nil
 }
 
-// decompositionAttemptLimit is the attempt limit in force for decomposition's
+// intentAttemptLimit is the attempt limit in force for one of the two counts an
+// intent keeps: [factorysettings.SubjectInterview] for the interview's rounds
+// and [factorysettings.SubjectDecomposition] for decomposition's
 // re-decompositions. Package policy's reader answers an item's stage alone —
-// [factorysettings.OfStage] refuses "decomposition", which is the intent's and
-// not an item's — so this reads the authored value directly and falls back to
-// what the score supplies where an owner authored none, which is the number
+// [factorysettings.OfStage] refuses both, which are the intent's and not an
+// item's — so this reads the authored value directly and falls back to what the
+// score supplies where an owner authored none, which is the number
 // [policy.Reader] would resolve to with no safeguard clamping it.
-func decompositionAttemptLimit(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+func intentAttemptLimit(ctx context.Context, pool *pgxpool.Pool, subject factorysettings.AttemptLimitSubject) (int, error) {
 	settings, err := factorysettings.Get(ctx, pool)
 	if err != nil {
 		return 0, err
 	}
-	authored, err := factorysettings.AttemptLimit(ctx, pool, settings.ID, factorysettings.SubjectDecomposition)
+	authored, err := factorysettings.AttemptLimit(ctx, pool, settings.ID, subject)
 	if err != nil {
 		return 0, err
 	}

@@ -10,9 +10,12 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // TestAnIntentThatStopsWorkIsAHoldAndNotARun: dispatch reads the intent's
@@ -236,5 +239,66 @@ func TestAStageEnteredAgainAfterARejectCountsAndEscalatesAtTheLimit(t *testing.T
 	}
 	if c.model.calls != 1 {
 		t.Errorf("%d calls, want no agent put on the stage after the limit was spent", c.model.calls)
+	}
+}
+
+// TestARolePutOnAnIntentRunsWhileTheIntentIsUnrefined: the interview is one of
+// the two roles put on an intent rather than an item. It names no stage, it is
+// matched on the intent's project alone, the state that stops every dispatch on
+// an item does not stop it — the interview is what refines an unrefined intent —
+// and the run record it writes names the intent and no stage.
+func TestARolePutOnAnIntentRunsWhileTheIntentIsUnrefined(t *testing.T) {
+	c := newDispatch(t, []agent.Reply{{
+		Text:  "READING:\nREQUIREMENT: When the charge fails, the system shall retry it once.",
+		Units: map[string]int64{agent.UnitsOutput: 4},
+	}}, nil, 3)
+	in, err := c.intake.TakeIn(c.ctx, record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed},
+		intent.Arrival{Source: intent.SourceOwner, Statement: "checkout should retry", ProjectID: oneProject})
+	if err != nil {
+		t.Fatalf("TakeIn: %v", err)
+	}
+
+	on := dispatch.On{IntentID: in.ID, ProjectID: oneProject, CountedSoFar: 1}
+	read, run, err := c.dispatch.Interviewer(c.ctx, on,
+		[]inputmanifest.Material{{Class: "intent", Reference: in.ID, Bytes: 21}},
+		agent.Interviewing{Statement: in.Statement})
+	if err != nil {
+		t.Fatalf("Interviewer on an unrefined intent: %v", err)
+	}
+	if len(read.Requirements) != 1 {
+		t.Fatalf("the interviewer stated %v, want the one requirement the reply carries", read.Requirements)
+	}
+	if run.Role != dispatch.RoleInterviewer || run.Held != "" {
+		t.Errorf("the run is %+v, want the interviewer with nothing holding it", run)
+	}
+
+	runs, err := agentrun.ForIntent(c.ctx, c.pool, in.ID)
+	if err != nil {
+		t.Fatalf("ForIntent: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("%d agent run records, want one per call", len(runs))
+	}
+	if runs[0].Role != string(dispatch.RoleInterviewer) || runs[0].ItemID != "" || runs[0].Stage != "" {
+		t.Errorf("the run record is %+v, want the interviewer on the intent and no item or stage", runs[0])
+	}
+	if len(runs[0].Sources) != 1 || runs[0].Sources[0] != in.ID {
+		t.Errorf("the run names sources %v, want the reference of the material handed over", runs[0].Sources)
+	}
+
+	// The two roles put on an intent name no stage, and neither is put on an
+	// item.
+	for _, role := range []dispatch.Role{dispatch.RoleInterviewer, dispatch.RoleDecomposer} {
+		if _, err := role.Stage(); !errors.Is(err, dispatch.ErrRoleNamesNoStage) {
+			t.Errorf("%s.Stage() = %v, want ErrRoleNamesNoStage", role, err)
+		}
+		if !role.OnAnIntent() {
+			t.Errorf("%s is not read as a role put on an intent", role)
+		}
+	}
+	it := c.oneItem(t, intent.StateRefined)
+	onAnItem := dispatch.On{ItemID: it.ID, IntentID: it.IntentID, ProjectID: oneProject}
+	if _, _, err := c.dispatch.Interviewer(c.ctx, onAnItem, nil, agent.Interviewing{Statement: "s"}); !errors.Is(err, dispatch.ErrRoleNamesNoStage) {
+		t.Errorf("the interviewer put on an item = %v, want ErrRoleNamesNoStage", err)
 	}
 }

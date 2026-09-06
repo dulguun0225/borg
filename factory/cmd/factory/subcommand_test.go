@@ -1,6 +1,7 @@
 // Tests of the switch on the subcommand name: a subcommand outside the set is
-// refused with the list of them, and each of the six a human uses on something
-// already running refuses an invocation that names too little to act on.
+// refused with the list of them, and each of the seven a human uses on
+// something already running refuses an invocation that names too little to act
+// on.
 package main
 
 import (
@@ -26,7 +27,7 @@ func TestASubcommandOutsideTheSetIsRefused(t *testing.T) {
 	}
 }
 
-// TestTheSubcommandsOnSomethingRunningRefuseAnEmptyInvocation: each of the six
+// TestTheSubcommandsOnSomethingRunningRefuseAnEmptyInvocation: each of the seven
 // names what it acts on and what it is for, and refuses before it opens the
 // store where either is missing — a rollback with no reason and a truncation
 // with no boundary are the two the design itself refuses.
@@ -34,6 +35,7 @@ func TestTheSubcommandsOnSomethingRunningRefuseAnEmptyInvocation(t *testing.T) {
 	refusals := map[string]func([]string) error{
 		"rollback":      rollbackCommand,
 		"drop":          dropCommand,
+		"accept":        acceptCommand,
 		"accept-commit": acceptCommitCommand,
 		"mark-rollback": markRollbackCommand,
 		"mitigate":      mitigateCommand,
@@ -58,7 +60,7 @@ func TestTheSubcommandsOnSomethingRunningRefuseAnEmptyInvocation(t *testing.T) {
 	if err := acceptCommitCommand([]string{"demo"}); err == nil || !strings.Contains(err.Error(), "two arguments") {
 		t.Errorf("accept-commit with one argument = %v, want both named", err)
 	}
-	// Every one of the six is reachable by name: a subcommand the switch does
+	// Every one of the seven is reachable by name: a subcommand the switch does
 	// not know is refused with the list, so an error that is not that one is a
 	// subcommand the switch answers.
 	for name := range refusals {

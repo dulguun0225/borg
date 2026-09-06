@@ -1,16 +1,17 @@
 // Command factory is the command-line interface: one binary on a terminal, standing in
 // for the four screens that are not built yet.
 //
-// Twenty-two subcommands. "run" walks the whole path once — the install, every
-// component's restart, intake, the interview, decomposition, Decomposition
-// where decomposition yielded more than one item, the four authoring stages per
-// item with the gate row of each, the consumer contract derived from the same
-// build, the build, the criteria in force checked in both directions, the Merge
-// to master gate with the two contract checks, the fast-forward, the release and
-// the contract versions it publishes, the Deploy to production gate, a deploy
-// without a control, the watch, and the deprecation detector — stopping with the
-// first error, and asking a human for a verdict at each row the score or a
-// safeguard puts one at.
+// Twenty-three subcommands. "run" walks the whole path once — the install,
+// every component's restart, intake, the interview, decomposition,
+// Decomposition where decomposition yielded more than one item, the four
+// authoring stages per item with the gate row of each, the consumer contract
+// derived from the same build, the build, the criteria in force checked in both
+// directions, the Merge to master gate with the two contract checks, the
+// fast-forward, the release and the contract versions it publishes, the Deploy
+// to production gate, a deploy without a control, the watch, the acceptance
+// round of every intent whose items are all live, and the deprecation detector —
+// stopping with the first error, and asking a human for a verdict at each row
+// the score or a safeguard puts one at.
 //
 // It knows more than one service. "-service name=path" is given once per
 // service, and an intent that changes several names them before its statement —
@@ -120,8 +121,8 @@
 //     decided while the rollback holds — with whoTheRowWaitsOn, the duty that
 //     page routes on, gateNotifier, which is
 //     how a gate reaches a human, dispatchNotifier, the wait an item escalated
-//     leaves, and intakeNotifier, a round of the interview and an intent
-//     escalated.
+//     leaves, and intakeNotifier, a round of the interview, an intent escalated,
+//     and the acceptance round.
 //   - holds.go — Standing, the factory's own holds at a deploy row, and the
 //     three reads enforcement makes of a candidate's own store, each answering
 //     with nothing because this platform's candidate environment has no store.
@@ -146,8 +147,8 @@
 //     changes with what each item answers written on its record, deriveShares
 //     and shareOf, one item's share of a requirement the split spreads over
 //     several, decompositionGate, the Decomposition row fired over the set
-//     where it yielded more than one, and decompositionAttemptLimit, the limit
-//     its re-decompositions are read against.
+//     where it yielded more than one, and intentAttemptLimit, the limit each
+//     of the intent's two counts is read against.
 //   - setcompleteness.go — setRejection and derivedFrom, the Decomposition
 //     row's two checks over what the set answers, which reject mechanically
 //     before a human is asked and name which of gate.DecompositionChecks
@@ -157,10 +158,14 @@
 //     directions over the requirement a criterion names.
 //   - authorintent.go — take, the intent a decomposition is authored from;
 //     authorIntent, intake through the four item stages for one intent;
-//     interview, the one round or none with the spec author plus the confirming
-//     round every requester owes, with sentencesOf, the criteria the intent's
+//     interview, the one round or none with the role put on the intent plus the
+//     confirming round every requester owes, whose reading is what the intent's
 //     requirements are written from; and defaultTier, the interview's own
 //     placeholder for a tier value gate policy does not yet author.
+//   - acceptance.go — acceptanceRounds with acceptanceQuestion and liveItems,
+//     the round the run asks of every intent whose items are all live and the
+//     delivery of one the factory raised; acceptCommand and outstandingRound,
+//     the answer a requester gives at this terminal in place of the screen.
 //   - candidate.go — asked, shipped, decompositionSet, and candidate: the
 //     run's own data shapes for one intent, what it did, one decomposition,
 //     and one item's build in progress. asked.resumeIntentID names an intent
@@ -189,7 +194,9 @@
 //   - fleet.go — oneModelFleet, the [dispatch.Fleet] this interface is composed
 //     with; rolePrompts, the role prompt version in force per role;
 //     shippedPromptFor and enterShippedPrompts, the install's first-start step
-//     for what an agent is told; and gateEscalation, which is what performs an
+//     for what an agent is told; intentLimits, the [dispatch.Limits] that reads
+//     a stage's limit through package policy and an intent's rounds through
+//     intentAttemptLimit; and gateEscalation, which is what performs an
 //     escalation dispatch decided.
 //   - restart.go — restart, every component's restart run once by compose and
 //     so by the subcommands that compose a path and by no other: the merge
@@ -271,7 +278,8 @@
 //   - ending.go — dropCommand, acceptCommitCommand, mitigateCommand and
 //     truncateCommand: an item or an intent ended for good, a commit the queue
 //     did not make accepted, the deployer acting on a human's instruction, and
-//     the log's retention pass.
+//     the log's retention pass. The acceptance round's own answer is
+//     acceptance.go's acceptCommand.
 //   - retirement.go — removeService, the [policy.Factory.Removal] this
 //     composition supplies; retireCommand with path.retire and
 //     path.removeFromEnvironment, the owner's write that ends a service and the

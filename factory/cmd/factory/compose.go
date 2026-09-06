@@ -176,7 +176,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			effort: d.effort, credential: d.modelCredentialName},
 		Prompts:    p.prompts,
 		Items:      p.items,
-		Policy:     p.policy,
+		Policy:     intentLimits{reader: p.policy, pool: d.pool},
 		Log:        p.log,
 		Reader:     decisionlog.NewReader(d.pool, d.token),
 		Manifests:  inputmanifest.NewWriter(d.pool, d.token),

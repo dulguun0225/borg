@@ -28,13 +28,21 @@ var Actor = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: rec
 var componentPrincipal = principal.OfComponent("dispatch")
 
 // Limits is the one value this component reads out of gate policy: the
-// attempt limit in force at a stage, which an owner authored or the score
-// supplied. It is an interface for the reason the gate component's own reads
-// are: the reader is composed with the score version in force, and a test of
-// the match is not a test of that composition. [policy.Reader] is what a run
-// supplies.
+// attempt limit in force, which an owner authored or the score supplied. It is
+// an interface for the reason the gate component's own reads are: the reader is
+// composed with the score version in force, and a test of the match is not a
+// test of that composition.
+//
+// It has a method per subject because the two subjects are read apart. A stage
+// is named in [policy.Subjects] and safeguards clamp it per area; the rounds of
+// an intent name no stage — a role put on an intent runs before there is an
+// item — so the limit its rounds are counted against is authored under a
+// subject of its own and the composition reads it.
 type Limits interface {
 	AttemptLimit(ctx context.Context, s policy.Subjects) (policy.Effective, error)
+	// RoundsOnAnIntent is the limit the rounds of a role put on an intent are
+	// counted against, which is the interview's own count of rounds.
+	RoundsOnAnIntent(ctx context.Context) (policy.Effective, error)
 }
 
 // Escalation is what performs the first two of the three things an escalation
@@ -230,19 +238,25 @@ func stops(state string) string {
 	}
 }
 
-// limitFor is the attempt limit in force at the stage. It is read once per
-// dispatch rather than once per attempt: an owner re-authoring the limit while
-// a stage is retrying would otherwise change the number the stage is being held
-// to half way through it.
-func (d *Dispatch) limitFor(ctx context.Context, stage item.Stage) (int, error) {
+// limitFor is the attempt limit in force for this dispatch: the stage's where
+// the role names one, and the intent's rounds where the role is put on an
+// intent. It is read once per dispatch rather than once per attempt: an owner
+// re-authoring the limit while a stage is retrying would otherwise change the
+// number the stage is being held to half way through it.
+func (d *Dispatch) limitFor(ctx context.Context, role Role, stage item.Stage) (int, error) {
+	at := string(stage)
 	effective, err := d.c.Policy.AttemptLimit(ctx, policy.Subjects{Stage: stage})
+	if role.OnAnIntent() {
+		at = "the rounds of an intent"
+		effective, err = d.c.Policy.RoundsOnAnIntent(ctx)
+	}
 	if err != nil {
-		return 0, fmt.Errorf("dispatch: reading the attempt limit at %s: %w", stage, err)
+		return 0, fmt.Errorf("dispatch: reading the attempt limit at %s: %w", at, err)
 	}
 	limit := int(effective.Number)
 	if limit < 1 {
-		return 0, fmt.Errorf("dispatch: the attempt limit in force at %s is %v, and a stage gets at least one attempt",
-			stage, effective.Number)
+		return 0, fmt.Errorf("dispatch: the attempt limit in force at %s is %v, and a run gets at least one attempt",
+			at, effective.Number)
 	}
 	return limit, nil
 }
@@ -316,8 +330,10 @@ func (d *Dispatch) escalate(ctx context.Context, on On) error {
 
 // recordRun writes one agent run record: what ran, what it ran on, what it
 // served, and what it spent. One per call the run made, refused replies
-// included — a refused attempt cost units too.
-func (d *Dispatch) recordRun(ctx context.Context, run Run, on On, units map[string]int64,
+// included — a refused attempt cost units too. The sources are the ones the
+// manifest was written from, so every call of one run names the material that
+// run was handed.
+func (d *Dispatch) recordRun(ctx context.Context, run Run, on On, sources []string, units map[string]int64,
 	startedAt, finishedAt, outcome string) (string, error) {
 	recorded, err := d.c.Runs.Record(ctx, Actor, agentrun.New{
 		Role:                string(run.Role),
@@ -330,6 +346,7 @@ func (d *Dispatch) recordRun(ctx context.Context, run Run, on On, units map[stri
 		IntentID:            intentOf(on),
 		InputManifestID:     run.InputManifestID,
 		UnitsByKind:         units,
+		Sources:             sources,
 		StartedAt:           startedAt,
 		FinishedAt:          finishedAt,
 		Outcome:             outcome,

@@ -128,3 +128,26 @@ func TestCorrectAcceptanceSendsBackAndCountsTheRound(t *testing.T) {
 		t.Errorf("CorrectAcceptance on the factory's own = %v, want ErrNoRequester", err)
 	}
 }
+
+// TestTheAcceptanceRoundIsDelivered: the round that follows production waits on
+// the requester, so the notifier is told about it the way it is told about a
+// round of the interview — by mail and chat and never a page, nothing being
+// wrong with the software.
+func TestTheAcceptanceRoundIsDelivered(t *testing.T) {
+	ctx, _, in, told := newIntakeTold(t)
+	intentID := confirmed(t, ctx, in, "checkout should retry",
+		intent.NewRequirement{Statement: "The system shall retry a failed charge."},
+	)
+	before := len(told.interviewed)
+
+	asked, err := in.AcceptanceRound(ctx, intake, intentID, "Did the retry fix it?")
+	if err != nil {
+		t.Fatalf("AcceptanceRound: %v", err)
+	}
+	if len(told.accepted) != 1 || told.accepted[0] != asked.ID {
+		t.Errorf("the acceptance round told a human about %v, want the one question %s", told.accepted, asked.ID)
+	}
+	if len(told.interviewed) != before {
+		t.Errorf("the acceptance round was delivered as a round of the interview: %v", told.interviewed)
+	}
+}

@@ -168,9 +168,11 @@ func main() {
 // is the score's own pass over the outcomes; approve is the emergency action at
 // the production deploy row; contracts is every query contracts make.
 //
-// The six after those are the duties a human performs on something already
+// The seven after those are the duties a human performs on something already
 // running: rollback and its -revert are duty 10, drop ends an item or an intent
-// for good, accept-commit ends the queue's stop over a commit it did not make,
+// for good, accept answers the acceptance round the run asked once every item
+// of an intent went live, accept-commit ends the queue's stop over a commit it
+// did not make,
 // mark-rollback says a rollback was not caused by the release, mitigate is the
 // deployer acting on a human's instruction, and truncate is the log's retention
 // pass. Two more end things for good rather than for now: retire is the owner's
@@ -180,7 +182,7 @@ func main() {
 // queue with, and the People declaration a page routes on — none of which has a
 // screen yet.
 const subcommands = "run, walk <deploy-id>, watch <service>, learn, approve <item-id>, contracts, " +
-	"rollback <service>, drop <item|intent>, accept-commit <service> <commit>, mark-rollback <deploy-id>, " +
+	"rollback <service>, drop <item|intent>, accept <intent-id>, accept-commit <service> <commit>, mark-rollback <deploy-id>, " +
 	"mitigate <deploy-id>, truncate, retire <service>, end-project, " +
 	"area <name>, author, safeguard, halt, legal-hold, policy, priority <item-id>, people [<human>]"
 
@@ -208,6 +210,8 @@ func chosen(args []string) error {
 		return rollbackCommand(args[1:])
 	case "drop":
 		return dropCommand(args[1:])
+	case "accept":
+		return acceptCommand(args[1:])
 	case "accept-commit":
 		return acceptCommitCommand(args[1:])
 	case "mark-rollback":

@@ -6,8 +6,9 @@ import (
 )
 
 // Notifier is the component that delivers what waits on a human, as intake
-// reaches it. Intake makes two calls on it and no third: at each round of the
-// interview, and at an intent escalated.
+// reaches it. Intake makes three calls on it and no fourth: at each round of
+// the interview, at an intent escalated, and at the acceptance round that
+// follows production.
 //
 // It is an interface the composition supplies rather than an import. What a
 // wait is — its kind, whom it routes to, and whether anything live is worse
@@ -21,6 +22,11 @@ type Notifier interface {
 	// Escalated is an intent whose rounds or re-decompositions exceeded the
 	// attempt limit.
 	Escalated(ctx context.Context, intentID string) error
+	// AcceptanceRound is the round that follows production: the intent, the
+	// question record, and what it asks. It is a call of its own rather than
+	// [Notifier.Interviewed] with other words, because what waits is a verdict
+	// on what shipped and not a question the factory cannot author without.
+	AcceptanceRound(ctx context.Context, intentID, questionID, question string) error
 }
 
 // NoNotifier is what an intake that reaches no human is composed with: nothing
@@ -34,6 +40,9 @@ func (NoNotifier) Interviewed(context.Context, string, string, string) error { r
 
 // Escalated delivers nothing.
 func (NoNotifier) Escalated(context.Context, string) error { return nil }
+
+// AcceptanceRound delivers nothing.
+func (NoNotifier) AcceptanceRound(context.Context, string, string, string) error { return nil }
 
 // ErrNotifierNotComposed is returned where a write that creates a wait is made
 // on an intake composed with no notifier. [NoNotifier] is what says a
