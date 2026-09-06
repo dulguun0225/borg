@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/service"
@@ -98,14 +102,11 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 		if spent != "" {
 			standing = append(standing, gate.HoldErrorBudgetExhausted)
 		}
-		// The change freeze is read at the moment of the firing, which is what
-		// makes the hold lift itself: the next firing reads a moment outside
-		// every period the owner authored and finds none.
-		frozen, _, err := service.Frozen(ctx, p.d.pool, svc.ID, record.Now())
+		frozen, err := p.changeFreezeHold(ctx, svc, it)
 		if err != nil {
 			return nil, err
 		}
-		if frozen {
+		if frozen != "" {
 			standing = append(standing, gate.HoldChangeFreeze)
 		}
 	}
@@ -153,4 +154,61 @@ func (p *path) Snapshot(context.Context, contractcheck.Candidate) (contractcheck
 	return contractcheck.Snapshot{
 		Why: "this platform's candidate environment has no store, so nothing snapshotted one",
 	}, nil
+}
+
+// changeFreezeHold is the change freeze at the moment of the firing, read the
+// way every hold here is: whether the service names a period covering now, and
+// the condition where it does — empty where either it does not or the item
+// passes the same two exceptions a halt takes. The hold lifts itself: the next
+// firing reads a moment outside every period the owner authored and finds
+// none, so nothing here writes anything.
+func (p *path) changeFreezeHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
+	frozen, period, err := service.Frozen(ctx, p.d.pool, svc.ID, record.Now())
+	if err != nil || !frozen {
+		return "", err
+	}
+	excepted, err := p.passesAFreeze(ctx, it)
+	if err != nil || excepted {
+		return "", err
+	}
+	return fmt.Sprintf("%s — %s freezes changes from %s to %s", gate.HoldChangeFreeze, svc.ID, period.StartsAt, period.EndsAt), nil
+}
+
+// passesAFreeze is the two items a change freeze lets through, the same two a
+// halt does: a revert, which passes the halt's own exception for the same
+// reason, and an item whose intent's source is the factory's own with the
+// health monitor as the detector. Without either a freeze would hold the fix
+// for what the freeze made worse — a rollback's own revert, or the item a
+// crossing raised while the freeze already stood.
+func (p *path) passesAFreeze(ctx context.Context, it item.Item) (bool, error) {
+	revert, err := p.IsARevert(ctx, it)
+	if err != nil || revert {
+		return revert, err
+	}
+	return p.raisedByTheHealthMonitor(ctx, it.ID)
+}
+
+// IsARevert is [mergequeue.Reverts]: whether an item is a revert, read from
+// the intent it was decomposed from. Nothing on the item says it is one — the
+// release it undoes is reachable through the intent's evidence instead,
+// written the same way whichever of the two sources raised it: the health
+// monitor at a failed exit, or a named human at Ops naming the release. A
+// halt or freeze passes a revert by reading that link, so this reads the
+// evidence and never the intent's source.
+func (p *path) IsARevert(ctx context.Context, it item.Item) (bool, error) {
+	if it.IntentID == "" {
+		return false, nil
+	}
+	raised, err := intent.Get(ctx, p.d.pool, it.IntentID)
+	if err != nil {
+		return false, err
+	}
+	if raised.Evidence == "" {
+		return false, nil
+	}
+	var evidence intent.Evidence
+	if err := json.Unmarshal([]byte(raised.Evidence), &evidence); err != nil {
+		return false, fmt.Errorf("factory: reading the evidence on intent %s: %w", raised.ID, err)
+	}
+	return evidence.ReleaseID != "", nil
 }
