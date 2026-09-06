@@ -89,6 +89,12 @@ type OpeningPayload struct {
 	// ReviewSampleRate is the rate in force for the duty this row waits on, and
 	// what [MarkReviewSample] was drawn against.
 	ReviewSampleRate float64 `json:"review_sample_rate"`
+	// PriorsRestarted is every author whose per-author prior stands drifted and
+	// whose held-out decisions the cut this shortening permits would remove. It
+	// is written at the row that decides a shortening of decision-log retention
+	// and nowhere else: what the human deciding it is told is whose evidence
+	// goes.
+	PriorsRestarted []string `json:"priors_restarted,omitempty"`
 	// Holds is every hold standing at this firing, in the order [HoldsAt] lists
 	// them. The row stays open while one stands, and an approve names the set.
 	Holds []string `json:"holds,omitempty"`
@@ -142,6 +148,10 @@ type Opened struct {
 	// Holds is every hold standing at the firing, in the order [HoldsAt] lists
 	// them. An approve names this set.
 	Holds []string
+	// PriorsRestarted is every author the cut this row decides would restart the
+	// per-author prior of, and is empty at every row but the one that decides a
+	// shortening of decision-log retention.
+	PriorsRestarted []string
 	// Strategy is the rollout strategy the row picked, and is empty at every row
 	// but a deploy to production.
 	Strategy Pick
@@ -213,15 +223,16 @@ func openedFrom(row decisionlog.Row) (Opened, error) {
 			ThresholdFrom: policy.Source(opening.ThresholdFrom),
 			Safeguards:    opening.Safeguards,
 		},
-		HumanDecides: opening.HumanDecides,
-		Marks:        opening.Marks,
-		HeldOut:      opening.HeldOut,
-		WhyHeldOut:   opening.WhyHeldOut,
-		Holds:        opening.Holds,
-		Strategy:     opening.Strategy,
-		WaitsOn:      opening.WaitsOn,
-		Mismatch:     opening.Mismatch,
-		ArtifactID:   opening.ArtifactID,
-		Referrers:    opening.Referrers,
+		HumanDecides:    opening.HumanDecides,
+		Marks:           opening.Marks,
+		HeldOut:         opening.HeldOut,
+		WhyHeldOut:      opening.WhyHeldOut,
+		Holds:           opening.Holds,
+		PriorsRestarted: opening.PriorsRestarted,
+		Strategy:        opening.Strategy,
+		WaitsOn:         opening.WaitsOn,
+		Mismatch:        opening.Mismatch,
+		ArtifactID:      opening.ArtifactID,
+		Referrers:       opening.Referrers,
 	}, nil
 }

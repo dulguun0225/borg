@@ -41,7 +41,8 @@
 // its learning pass then exclude. "mitigate <deploy-id>" is the deployer
 // performing one of the class's two operations on a target on a human's instruction,
 // and "-end" ends one standing. "truncate" is the decision log's retention pass,
-// refused while a legal hold stands.
+// refused while a legal hold stands, where nothing is authored, and where the
+// boundary is inside the value in force.
 //
 // The other eight are duty 8, duty 9, the priority an owner reorders a queue
 // with, and the People declaration a page routes on, none of which has a screen
@@ -253,11 +254,16 @@
 //     is new, and withPool, opening the database and applying the schema for
 //     the first command an owner reaches.
 //   - parameter.go — authorCommand, authoring one parameter on the record its
-//     scope names, and authored, printing what was authored.
+//     scope names; authored, printing what was authored; and writeShortening,
+//     which is where a shorter decision-log retention value goes instead, that
+//     one being decided at a row rather than authored.
 //   - withdrawal.go — approveWithdrawal, the four rows outside every item a
 //     human closes here: a safeguard's withdrawal, a halt's withdrawal, a legal
 //     hold's withdrawal, and a shortening of decision-log retention. Each names
-//     the record it decides, which is what one such row is pending per.
+//     the record it decides, which is what one such row is pending per, and each
+//     is routed away from the actor that record names. priorsRestartedBy is what
+//     the shortening's row names beside it: the authors whose per-author prior
+//     stands drifted and whose held-out decisions the cut would remove.
 //   - safeguard.go — safeguardCommand, placing a safeguard or writing its
 //     withdrawal, and safeguardSubject, resolving -subject to what it binds — "gate_row:" is
 //     drawn on -service, keyed by the row, because package policy's own reader

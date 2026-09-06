@@ -8,6 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -51,6 +52,13 @@ type SetFiring struct {
 	// [Gate.EditSetInPlace] and by nothing else: a caller cannot supersede a row
 	// by composing a set firing, which is the rule [Firing] keeps one level down.
 	supersedes string
+	// editedBy is the per-person key of the human whose edit fired this row,
+	// set by [Gate.EditSetInPlace] and by nothing else. This row decides a set
+	// and names no artifact version, so the actor that wrote what is under
+	// decision is not readable from the artifact store the way it is at the four
+	// other gates the close-by-the-author refusal applies at: the editor is
+	// carried here instead, and the row bars them from closing it.
+	editedBy string
 }
 
 // SetMemberPayload is one member as the open event stores it.
@@ -194,7 +202,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 	overThreshold := applied.Number >= policyApplied.Threshold
 	resolved := len(applied.Resolved) > 0
 	marks := marksOn(overThreshold, resolved, policyApplied.HumanBySafeguard, f.supersedes != "", false, false)
-	waits, err := g.waitsOn(ctx, Decomposition, nil, RoutedTo{})
+	waits, err := g.waitsOn(ctx, Decomposition, nil, RoutedTo{NotHuman: f.editedBy})
 	if err != nil {
 		return Opened{}, err
 	}
@@ -257,15 +265,28 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 // it — and the new row carries [MarkEditInPlace], so it waits on a holder other
 // than the editor however the recomputed number moves.
 //
+// editor is the human who made the edit, required and human always: the new row
+// bars them from closing it, so the edit costs a second person wherever one
+// exists and carries the self-approval field where none does. The four other
+// gates that refusal applies at read the actor off the artifact version under
+// decision; this row decides a set and has no version to read, which is why the
+// editor is named here.
+//
 // What the human edited is the set of items, which decomposition's own writer
 // wrote before this is called: this package decides over records that already
 // exist, so the caller supersedes items and writes the new ones and then fires
 // the row again over what it produced.
-func (g *Gate) EditSetInPlace(ctx context.Context, superseded Opened, f SetFiring) (Opened, error) {
+func (g *Gate) EditSetInPlace(ctx context.Context, superseded Opened, f SetFiring,
+	editor record.Actor) (Opened, error) {
 	if superseded.Gate.Kind != KindDecomposition {
 		return Opened{}, fmt.Errorf("%w: %s decides no set", ErrEditInPlaceRefused, superseded.Gate)
 	}
+	if editor.Kind != record.KindHuman || editor.Key == "" {
+		return Opened{}, fmt.Errorf("%w: an edit in place is a human's, and this one names %s %q",
+			ErrEditInPlaceRefused, editor.Kind, editor.Key)
+	}
 	f.supersedes = superseded.Row.ID
+	f.editedBy = editor.Key
 	opened, err := g.FireSet(ctx, f)
 	if err != nil {
 		return Opened{}, err

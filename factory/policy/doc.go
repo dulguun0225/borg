@@ -35,8 +35,9 @@
 // settings record beside them — the retentions, the report channel's rates, the
 // remediation period, the harm mark's cap, and seam 5 — with
 // [Factory.AuthorDecisionLogRetention] refusing a shortening
-// ([ErrShorteningIsDecided]) that [Factory.ApproveRetentionShortening] is what
-// writes. service.go is what an owner writes on a service record beside the
+// ([ErrShorteningIsDecided]), [Factory.WriteRetentionShortening] writing that
+// value pending, and [Factory.ApproveRetentionShortening] putting the pending
+// one in force at the close of the row that decided it. service.go is what an owner writes on a service record beside the
 // eleven — [Factory.MarkServiceProvisioned] and [Factory.RetireService], and an
 // Author call for each of the twelve the design names there and the values
 // authored beside them. safeguards.go is [Factory.AddSafeguard], which is also
@@ -74,8 +75,10 @@
 // [FromSupplied], [FromNothing], and [FromFactory] for the list of allowed
 // predicate kinds, the one parameter with a fourth read under the other three.
 //
-// gate.go is [Reader.AtGate] and [Applied], what a gate firing writes onto its
-// open event, carrying the threshold, whether a safeguard adds a human, and the
+// gate.go is [Reader.AtGate], [RolePromptOrSkillRow] and [Applied], what a gate
+// firing writes onto its open event, carrying the threshold — read from the
+// environment record per row, or from the factory-wide settings record at the
+// one row with no environment — whether a safeguard adds a human, and the
 // score version in force at that row — the newest where nobody authored a
 // threshold there, and the last one confirmed at the scope where somebody did.
 // A firing computes its vector under [Applied.ScoreVersion], package gate

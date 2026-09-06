@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // Versions is every policy version, oldest first, read as p. Reading the log
@@ -55,6 +57,48 @@ func (r *Reader) Version(ctx context.Context, p principal.Principal, id string) 
 		}
 	}
 	return Version{}, fmt.Errorf("%w: %s", ErrNoVersion, id)
+}
+
+// AuthoredBy is who authored the value one parameter holds at one scope, and
+// false where no version authored it there. It is a walk back through the
+// versions because a later version restates the value and not who wrote it:
+// what a version's own actor says is who made that write, and the write that
+// put a value in force is the one this finds.
+//
+// A write a gate row decided names two humans, and the one this answers is the
+// author: the version's own actor is the human who closed the row, and the
+// record that row decided carries whoever wrote the value. Decision-log
+// retention is the one such parameter, and the record is the shortening.
+//
+// Its reader is the decision log's truncation, whose row names who authored the
+// retention value it enforced rather than whoever ran the pass or approved it.
+func (r *Reader) AuthoredBy(ctx context.Context, p principal.Principal,
+	parameter gatepolicy.Parameter, scope Scope) (record.Actor, bool, error) {
+	versions, err := r.Versions(ctx, p)
+	if err != nil {
+		return record.Actor{}, false, err
+	}
+	for n := len(versions) - 1; n >= 0; n-- {
+		v := versions[n]
+		if v.Action != ActionAuthored || v.Parameter != parameter {
+			continue
+		}
+		if v.Scope.Kind != scope.Kind || v.Scope.Key != scope.Key {
+			continue
+		}
+		if scope.ID != "" && v.Scope.ID != scope.ID {
+			continue
+		}
+		if v.ShorteningID != "" {
+			written, err := factorysettings.GetShortening(ctx, r.pool, v.ShorteningID)
+			if err != nil {
+				return record.Actor{}, false, err
+			}
+			return written.Actor, true, nil
+		}
+		return v.Actor, true, nil
+	}
+	return record.Actor{}, false, nil
 }
 
 // AuthoredAutoPassRate is the realized auto-pass rate frozen on the newest

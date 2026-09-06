@@ -9,6 +9,7 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -118,7 +119,7 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "risk_threshold", "-value", "0.15", "-gate", "role_prompt_or_skill"}, 0.15,
+			[]string{"-parameter", "risk_threshold", "-value", "0.15", "-gate", gate.RolePromptOrSkill.String()}, 0.15,
 			func() (float64, bool) {
 				fp, err := factorysettings.Get(ctx, pool)
 				if err != nil {

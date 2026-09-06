@@ -36,7 +36,9 @@
 // with its [Draw], [RandomDraw] and [NeverDraw].
 //
 // The decision is two rows, and may carry two more. fire.go appends the open
-// event: [Gate.Fire] takes a [Firing] and returns [Opened], and [Gate.EditInPlace]
+// event: [Gate.Fire] takes a [Firing] — whose [Firing.PriorsRestarted] is the
+// one field only the row that decides a shortening of decision-log retention
+// carries — and returns [Opened], and [Gate.EditInPlace]
 // is the one firing that supersedes a pending row. checks.go is everything a
 // firing reads first — the intent's state, the rows already pending
 // ([Gate.Pending]), the version under decision, the drift detector's store, the
@@ -46,7 +48,8 @@
 // [SetMember]s — each naming how many of the intent's requirements its item
 // answers, which is what the change group is computed from at that row — and
 // [SetOpeningPayload], with [Gate.EditSetInPlace] beside it, the Decomposition
-// row's own Edit in place. strategysafeguard.go is the production deploy row's
+// row's own Edit in place, which takes the human who edited the set and bars
+// them from closing the row it fires. strategysafeguard.go is the production deploy row's
 // fourth action: [StrategySafeguard], which places the safeguard
 // and answers whether one stands, [Gate.SafeguardTheStrategy], and its three
 // refusals [ErrStrategyNotPickedHere], [ErrPlatformServesNoShare] and
@@ -56,10 +59,10 @@
 // [Gate.AutoPass] is the factory approving, [Gate.AutoReject] is the factory
 // rejecting on one of [ChecksAt], and [ClosingPayload] is that event's
 // shape. refer.go is [Gate.Refer], the one verdict that closes a row and re-fires
-// it. refuse.go is the two refusals the log's writer cannot evaluate on its own,
-// supplied to it per close and compared as per-person keys: the People
+// it. refuse.go is the three refusals the log's writer cannot evaluate on its
+// own, supplied to it per close and compared as per-person keys: the People
 // declaration holds a duty by key, an artifact version records the actor that
-// wrote it by key, and a safeguard's routing names one. acknowledge.go is
+// wrote it by key, and a record's own routing names the human it bars. acknowledge.go is
 // [Gate.Acknowledge]. abandon.go is
 // [Gate.Abandon] with the three reasons a decision is ended, and
 // [Gate.EnforceAttemptLimit] with [Escalated]. reevaluate.go is [Gate.Reevaluate]
@@ -84,9 +87,9 @@
 // read of that intent, which is what a halt's two exceptions come to; a gate
 // composed without it excepts nothing, so every item holds while a halt stands.
 // [Holds] is the composition's,
-// and four of the holds this package names read records that do not exist yet:
-// a change freeze, a service's maximum concurrent kept fleets, an advisory
-// match, and the producing release of a contract migration. [Notifier] reaches
+// and three of the holds this package names read records that do not exist yet:
+// a service's maximum concurrent kept fleets, an advisory match, and the
+// producing release of a contract migration. [Notifier] reaches
 // a human, and the one call made on it is the page's acknowledged event.
 // [SpecRejection] is computed here and read by the caller: what the two lists
 // it compares are read from is the requirement record and the criterion
@@ -94,13 +97,16 @@
 // [ScreenRejection] is the same arrangement at the Implementation row, over the
 // machines in force and the two derivations from the build.
 //
-// [Firing.CouldNotDerive] and [Firing.Exposure] are what the component that
-// built hands the gate; neither derivation is built. The four rows outside
+// [Firing.Exposure] is what the component that built hands the gate, derived by
+// package exposure and read off the build record at the three firing sites
+// below a build. [Firing.CouldNotDerive] is the same arrangement at the merge
+// row, and no firing site hands one over, so a derivation that produced no
+// result puts no human there yet. The four rows outside
 // every item and the row that decides a shortening of decision-log retention
-// fire like any other, and what would fire them — the artifact store's fleet
+// fire like any other, and what fires them — the artifact store's fleet
 // versions, a safeguard's withdrawal, a halt's withdrawal, a legal hold's
-// withdrawal, and an owner's shorter retention value — reaches them from the
-// composition.
+// withdrawal, and a shortening of decision-log retention written pending —
+// reaches them from the composition.
 //
 // [StrategySafeguard] is the writer and the reader of the safeguard the
 // production deploy row's fourth action places, and it is the composition's: a

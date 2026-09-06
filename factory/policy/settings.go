@@ -17,6 +17,7 @@ import (
 // is decided rather than written: it takes a human at a gate row of its own,
 // routed to a human other than the one who authored the shorter value, and the
 // shorter value is not in force until that row approves it —
+// [Factory.WriteRetentionShortening] writes the value pending and
 // [Factory.ApproveRetentionShortening] is what the row's approval calls.
 var ErrShorteningIsDecided = errors.New("policy: shortening decision-log retention is decided at a gate row")
 
@@ -54,27 +55,87 @@ func (f *Factory) AuthorDecisionLogRetention(ctx context.Context, actor record.A
 	return f.setDecisionLogRetention(ctx, actor, settings.ID, seconds, "")
 }
 
-// ApproveRetentionShortening writes the shorter value the gate row that decides
-// a shortening approved. Its caller is that row's close, the row naming each
-// author whose per-author prior the cut would remove; this package does not
-// fire it. decision is that close event, required with [ErrNotDecidedAtARow]. A
-// value that is not shorter is refused: that path is the ungated one above.
-// Where nothing is authored, every finite value is shorter than the life of the
-// install, so the first authoring comes through here.
+// WriteRetentionShortening writes a shorter decision-log retention value
+// pending, which is what the gate row that decides a shortening then decides.
+// The value is not in force until [Factory.ApproveRetentionShortening]: what is
+// written here is a record of its own naming who authored the value, so the row
+// can be routed away from them — a row that decided a value no record carried
+// an author for could only be closed by whoever proposed it.
+//
+// A value that is not shorter than the one in force is refused with
+// [ErrNotAShortening]: lengthening adds protection and is in force on write,
+// through [Factory.AuthorDecisionLogRetention]. Where nothing is authored the
+// log is kept for the life of the install, so every finite value is shorter and
+// the first authoring comes through here.
+func (f *Factory) WriteRetentionShortening(ctx context.Context, actor record.Actor,
+	seconds int64) (factorysettings.Shortening, Version, error) {
+	settings, err := factorysettings.Get(ctx, f.pool)
+	if err != nil {
+		return factorysettings.Shortening{}, Version{}, err
+	}
+	held := settings.DecisionLogRetentionSeconds
+	if held.Present && float64(seconds) >= held.Number {
+		return factorysettings.Shortening{}, Version{},
+			fmt.Errorf("%w: %d against the %v in force", ErrNotAShortening, seconds, held.Number)
+	}
+	var written factorysettings.Shortening
+	version, err := f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionShorteningWritten,
+		parameter: gatepolicy.DecisionLogRetention,
+		scope:     Scope{Kind: ScopeFactorySettings, ID: settings.ID},
+		number:    float64(seconds),
+		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
+			written, err = factorysettings.InsertShortening(ctx, tx, f.token, actor, seconds)
+			if err != nil {
+				return Created{}, err
+			}
+			return Created{ShorteningID: written.ID}, nil
+		},
+	})
+	return written, version, err
+}
+
+// ApproveRetentionShortening puts one pending shortening in force. Its caller is
+// the close of the gate row that decides it, the row naming each author whose
+// per-author prior the cut would remove; this package does not fire it.
+// decision is that close event, required with [ErrNotDecidedAtARow], and
+// shorteningID is the record the row decided, which is where the value comes
+// from: the approval carries no value of its own, so what is put in force is
+// what the row was fired over and not what the approving call says.
+//
+// A shortening whose value is no longer shorter than the one in force is
+// refused, which is the state a lengthening between the two writes leaves.
 func (f *Factory) ApproveRetentionShortening(ctx context.Context, actor record.Actor,
-	seconds int64, decision string) (Version, error) {
+	shorteningID, decision string) (Version, error) {
 	if decision == "" {
-		return Version{}, fmt.Errorf("%w: the shortening to %d second(s)", ErrNotDecidedAtARow, seconds)
+		return Version{}, fmt.Errorf("%w: the shortening %s", ErrNotDecidedAtARow, shorteningID)
+	}
+	proposed, err := factorysettings.GetShortening(ctx, f.pool, shorteningID)
+	if err != nil {
+		return Version{}, err
 	}
 	settings, err := factorysettings.Get(ctx, f.pool)
 	if err != nil {
 		return Version{}, err
 	}
 	held := settings.DecisionLogRetentionSeconds
-	if held.Present && float64(seconds) >= held.Number {
-		return Version{}, fmt.Errorf("%w: %d against the %v in force", ErrNotAShortening, seconds, held.Number)
+	if held.Present && float64(proposed.Seconds) >= held.Number {
+		return Version{}, fmt.Errorf("%w: %d against the %v in force",
+			ErrNotAShortening, proposed.Seconds, held.Number)
 	}
-	return f.setDecisionLogRetention(ctx, actor, settings.ID, seconds, decision)
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionAuthored,
+		parameter: gatepolicy.DecisionLogRetention,
+		scope:     Scope{Kind: ScopeFactorySettings, ID: settings.ID},
+		number:    float64(proposed.Seconds), authored: true,
+		shortening: shorteningID, decision: decision,
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			if err := factorysettings.ApproveShortening(ctx, tx, f.token, shorteningID); err != nil {
+				return err
+			}
+			return factorysettings.SetDecisionLogRetention(ctx, tx, settings.ID, proposed.Seconds)
+		},
+	})
 }
 
 func (f *Factory) setDecisionLogRetention(ctx context.Context, actor record.Actor,

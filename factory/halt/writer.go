@@ -115,9 +115,8 @@ func (w *Writer) ApproveWithdrawal(ctx context.Context, withdrawalID string) err
 	return nil
 }
 
-// Insert writes one halt inside tx. Its caller is package policy, appending
-// the policy version in the same transaction, once policy wires this in —
-// see doc.go for what is not built yet.
+// Insert writes one halt inside tx. Its caller is package policy's SetHalt,
+// which appends the policy version in the same transaction.
 func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, reason string) (Halt, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Halt{}, err
@@ -145,8 +144,9 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 // withdrawal decides it, held by a human always and routed to the owner, the
 // halt's subject being the factory. That row is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/11-a-halts-withdrawal.md,
-// which is not built, so this and [ApproveWithdrawal] are the two writes it
-// will call, in two separate transactions around the human's decision.
+// and this and [ApproveWithdrawal] are the two writes it makes, in two separate
+// transactions around the human's decision, through package policy's
+// WriteHaltWithdrawal and ApproveHaltWithdrawal.
 func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
 	haltID string) (Withdrawal, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {

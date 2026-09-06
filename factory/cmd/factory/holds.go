@@ -22,14 +22,13 @@ import (
 // record for it would be a decision where nothing is decided, and re-testing
 // would append one every time the gate re-fired.
 //
-// Six of the fourteen holds this answers, and eight it does not. The halt is
+// Seven of the fourteen holds this answers, and seven it does not. The halt is
 // package gate's own read; the drift mismatch is a firing's own read of that
-// store; and the six left — a contract migration not shipped, a service not
-// provisioned, an error budget exhausted, the maximum concurrent kept fleets, an
-// advisory match, and the maximum concurrent candidate environments authored on
-// the production environment record — each read a record or a field that is not
-// built, so this reports none of them and a deploy they should have held goes to
-// a verdict.
+// store; and the five left — a contract migration not shipped, an error budget
+// exhausted, the maximum concurrent kept fleets, an advisory match, and the
+// maximum concurrent candidate environments authored on the production
+// environment record — each read a record or a field that is not built, so this
+// reports none of them and a deploy they should have held goes to a verdict.
 func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) {
 	if !s.Row.Deploys() || s.ItemID == "" {
 		return nil, nil
@@ -38,7 +37,18 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
+	svc, err := p.serviceOf(ctx, s.ServiceID)
+	if err != nil {
+		return nil, err
+	}
 	var standing []string
+	// A service its owner has not marked provisioned holds at both deploy rows:
+	// the repository, or the store on a persistent environment, is not written
+	// as existing, so what the deploy reaches for is not there. It lifts when
+	// the owner writes the field and holds nothing else meanwhile.
+	if !svc.Provisioned.Written() {
+		standing = append(standing, gate.HoldServiceNotProvisioned)
+	}
 	switch s.Row.Kind {
 	case gate.KindDeployToCandidateEnvironment:
 		held, err := p.dependencyHold(ctx, it)
@@ -56,10 +66,6 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 			standing = append(standing, gate.HoldNoRoomOnThePlatform)
 		}
 	default:
-		svc, err := p.serviceOf(ctx, s.ServiceID)
-		if err != nil {
-			return nil, err
-		}
 		held, err := p.dependencyHold(ctx, it)
 		if err != nil {
 			return nil, err

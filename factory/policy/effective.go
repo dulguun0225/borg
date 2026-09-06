@@ -75,10 +75,10 @@ func suppliedSubject(d gatepolicy.Definition, s Subjects) string {
 func (r *Reader) authored(ctx context.Context, d gatepolicy.Definition, s Subjects) (gatepolicy.Authored, []string, error) {
 	switch d.Parameter {
 	case gatepolicy.RiskThreshold:
-		if s.EnvironmentID == "" || s.GateRow == "" {
-			return gatepolicy.Authored{}, nil, nil
-		}
-		authored, err := environment.GateThreshold(ctx, r.pool, s.EnvironmentID, s.GateRow)
+		// Two scopes and no third, which [Reader.authoredThreshold] answers
+		// over: the environment record per row, and the factory-wide settings
+		// record for the one row with no environment.
+		authored, _, err := r.authoredThreshold(ctx, s)
 		return authored, nil, err
 	case gatepolicy.AttemptLimit:
 		settings, err := factorysettings.Get(ctx, r.pool)

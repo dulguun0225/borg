@@ -230,7 +230,8 @@ func approveCommand(args []string) error {
 	safeguardWithdrawal := flags.String("safeguard-withdrawal", "", "approve this safeguard's withdrawal instead, which is where a safeguard leaves force")
 	haltWithdrawal := flags.String("halt-withdrawal", "", "approve this halt's withdrawal instead, which is where a halt ends")
 	legalHoldWithdrawal := flags.String("legal-hold-withdrawal", "", "approve this legal hold's withdrawal instead, which is where a hold lifts")
-	retention := flags.Int64("retention", 0, "approve this shortening of decision-log retention, in seconds")
+	retentionShortening := flags.String("retention-shortening", "",
+		"approve this pending shortening of decision-log retention, which `factory author -parameter decision_log_retention` wrote")
 
 	id := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -242,11 +243,12 @@ func approveCommand(args []string) error {
 	// The four rows outside every item take no item and no target: what they
 	// decide is a record, so they neither reach a deploy target nor read a
 	// secret, and withdrawal.go fires and closes them without composing the path.
-	if *safeguardWithdrawal != "" || *haltWithdrawal != "" || *legalHoldWithdrawal != "" || *retention > 0 {
+	if *safeguardWithdrawal != "" || *haltWithdrawal != "" || *legalHoldWithdrawal != "" || *retentionShortening != "" {
 		if id != "" {
 			return errors.New("factory approve: a withdrawal and a shortening decide a record and not an item, so neither takes one")
 		}
-		return approveWithdrawal(*safeguardWithdrawal, *haltWithdrawal, *legalHoldWithdrawal, *retention, *human)
+		return approveWithdrawal(*safeguardWithdrawal, *haltWithdrawal, *legalHoldWithdrawal,
+			*retentionShortening, *human)
 	}
 	if id == "" || flags.NArg() != 0 {
 		return errors.New("factory approve: one argument, the item's id, and then any flags")

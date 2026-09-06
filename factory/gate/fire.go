@@ -73,6 +73,14 @@ type Firing struct {
 	// the design's: a safeguard's withdrawal, and the shortening of
 	// decision-log retention.
 	RoutedTo RoutedTo
+	// PriorsRestarted is every author whose per-author prior stands drifted and
+	// whose held-out decisions the cut a shorter retention value permits would
+	// remove, which is the prior the score restarts when those decisions go. It
+	// is named at the row that decides a shortening of decision-log retention
+	// and refused at every other, and the composition computes it: what it is
+	// read from is the log's own rows and the author of the version each names,
+	// which this package does not walk.
+	PriorsRestarted []string
 
 	// supersedes is the open event an Edit in place supersedes, set by
 	// [Gate.EditInPlace] and by nothing else: a caller cannot supersede a row by
@@ -204,14 +212,15 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		// what says the measurement those fields exist for cannot be read.
 		HumanDecides: len(marks) > 0 || mismatch != "" ||
 			len(f.CouldNotDerive) > 0 || unmeasured != "",
-		Marks:      marks,
-		HeldOut:    selection.HeldOut,
-		WhyHeldOut: selection.Why,
-		Holds:      holds,
-		WaitsOn:    waits,
-		Mismatch:   mismatch,
-		ArtifactID: version,
-		Referrers:  f.referrers,
+		Marks:           marks,
+		HeldOut:         selection.HeldOut,
+		WhyHeldOut:      selection.Why,
+		Holds:           holds,
+		PriorsRestarted: f.PriorsRestarted,
+		WaitsOn:         waits,
+		Mismatch:        mismatch,
+		ArtifactID:      version,
+		Referrers:       f.referrers,
 	}
 	if !opened.HumanDecides {
 		opened.WaitsOn = Waits{}
@@ -258,6 +267,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		WhyHeldOut:       opened.WhyHeldOut,
 		ReviewSampleRate: reviewRate,
 		Holds:            opened.Holds,
+		PriorsRestarted:  f.PriorsRestarted,
 		Strategy:         opened.Strategy,
 		WaitsOn:          opened.WaitsOn,
 		Mismatch:         opened.Mismatch,

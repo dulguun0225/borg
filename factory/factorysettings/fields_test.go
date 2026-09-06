@@ -17,7 +17,7 @@ import (
 // being one formula's and no service's, and the review sample rate is per duty,
 // a duty being the factory's own the way a stage is.
 func TestTheTwoSampleRates(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 	settings, err := w.Ensure(ctx, owner)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -68,7 +68,7 @@ func TestTheTwoSampleRates(t *testing.T) {
 // the record, one pass over one feed reaching every project at once, and the
 // period is per severity and authored outright.
 func TestTheAdvisorySeverityAndItsRemediationPeriod(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 	settings, err := w.Ensure(ctx, owner)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -109,7 +109,7 @@ func TestTheAdvisorySeverityAndItsRemediationPeriod(t *testing.T) {
 // bounds decision-log retention, and the refusal is in the writer and in the
 // store around it. The other three retentions are fields with no floor.
 func TestNeitherAnAuthoredValueNorASafeguardGoesUnderTheRetentionFloor(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 	settings, err := w.Ensure(ctx, owner)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -157,7 +157,7 @@ func TestNeitherAnAuthoredValueNorASafeguardGoesUnderTheRetentionFloor(t *testin
 // with a default; and the field an owner who will not be woken by a stranger
 // turns off.
 func TestTheReportChannelsRatesAndTheHarmMarksPageCap(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 	settings, err := w.Ensure(ctx, owner)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -226,7 +226,7 @@ func TestTheReportChannelsRatesAndTheHarmMarksPageCap(t *testing.T) {
 // TestSeam5IsTurnedOnOnceAndNeverOff: it is off at install, an owner turns it on,
 // and the writer refuses turning it off again.
 func TestSeam5IsTurnedOnOnceAndNeverOff(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 	settings, err := w.Ensure(ctx, owner)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)

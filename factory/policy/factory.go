@@ -75,13 +75,15 @@ func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory {
 
 // Created is what a write that creates a record hands back to the version that
 // names it: the scope the record is, and the id where the record is a
-// safeguard, a halt, a legal hold or a withdrawal of one.
+// safeguard, a halt, a legal hold, a withdrawal of one, or a shortening of
+// decision-log retention written pending.
 type Created struct {
 	Scope        Scope
 	SafeguardID  string
 	HaltID       string
 	LegalHoldID  string
 	WithdrawalID string
+	ShorteningID string
 }
 
 // write is one owner write: what the version says, what it does to the state
@@ -113,6 +115,12 @@ type write struct {
 	dropSafeguard string
 	dropHalt      string
 	dropLegalHold string
+
+	// shortening is the pending shortening of decision-log retention this write
+	// approves, and is empty on every write that approves none. The write that
+	// wrote the shortening names it through [Created] instead, its id being one
+	// this package does not have until the record is minted.
+	shortening string
 
 	// decision is the close event of the gate row that decided this write, on the
 	// four writes a row decides and empty on every other.
@@ -156,7 +164,8 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 	}
 
 	key := writeKey(w.caller, w.actor, w.action, w.parameter, w.scope, w.number, w.list,
-		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold+w.confirmsScoreVersion+w.decision)
+		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold+w.shortening+
+			w.confirmsScoreVersion+w.decision)
 	if w.mint == nil && previous.Key != "" && previous.Key == key {
 		return previous, nil
 	}
@@ -207,6 +216,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		}
 		version.SafeguardID, version.HaltID = created.SafeguardID, created.HaltID
 		version.LegalHoldID, version.WithdrawalID = created.LegalHoldID, created.WithdrawalID
+		version.ShorteningID = created.ShorteningID
 		version.Safeguards = withID(version.Safeguards, created.SafeguardID)
 		version.Halts = withID(version.Halts, created.HaltID)
 		version.LegalHolds = withID(version.LegalHolds, created.LegalHoldID)
@@ -216,6 +226,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 			Parameter: w.parameter, Scope: w.scope, Number: w.number, List: w.list,
 		})
 	}
+	version.ShorteningID = firstOf(version.ShorteningID, w.shortening)
 	version.SafeguardID = firstOf(version.SafeguardID, w.dropSafeguard)
 	version.HaltID = firstOf(version.HaltID, w.dropHalt)
 	version.LegalHoldID = firstOf(version.LegalHoldID, w.dropLegalHold)

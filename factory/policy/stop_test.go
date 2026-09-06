@@ -159,7 +159,7 @@ func TestNoneOfTheFourApprovalsIsWrittenWithoutTheCloseThatDecidedIt(t *testing.
 		"a legal hold's withdrawal": firstError(
 			in.factory.ApproveLegalHoldWithdrawal(ctx, approver, holdWithdrawal.ID, "")),
 		"a shortening of decision-log retention": firstError(
-			in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600, "")),
+			in.factory.ApproveRetentionShortening(ctx, approver, shortenTo(t, ctx, in, 30*24*3600), "")),
 	} {
 		if !errors.Is(refused, policy.ErrNotDecidedAtARow) {
 			t.Errorf("approving %s with no close event = %v, want ErrNotDecidedAtARow", name, refused)

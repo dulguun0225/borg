@@ -43,6 +43,10 @@ func complete(f Firing) error {
 		return fmt.Errorf("%w: %s decides no build, so no screen was derived for it",
 			ErrFiringIncomplete, f.Row)
 	}
+	if f.Row.Kind != KindDecisionLogRetentionShortening && len(f.PriorsRestarted) > 0 {
+		return fmt.Errorf("%w: %s removes no evidence, so no per-author prior restarts with it",
+			ErrFiringIncomplete, f.Row)
+	}
 	if f.Row.DecidesARecord() && f.RecordID == "" {
 		return fmt.Errorf("%w: %s names no record under decision", ErrFiringIncomplete, f.Row)
 	}
