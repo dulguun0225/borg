@@ -37,7 +37,9 @@ const (
 	// unwritten to match.
 	WaitAReleaseNamesACommitMasterDoesNotHold WaitKind = "a release names a commit master does not hold"
 	// WaitHalt is the one authored record whose subject is the factory. While one
-	// stands the queue fast-forwards no candidate, the two exceptions apart.
+	// stands the queue fast-forwards no candidate, the two exceptions apart: a
+	// revert, whatever raised it, and an item the health monitor raised on that
+	// service.
 	WaitHalt WaitKind = "a halt stands, and the factory is stopped"
 	// WaitBacklogCap is as many releases waiting behind a rollback hold as the
 	// backlog cap allows. It ends when the rollback hold lifts, which is when the
@@ -196,12 +198,14 @@ func (q *Queue) halted(ctx context.Context) (bool, error) {
 // stopFor is the condition that holds one candidate, and is empty where none
 // does.
 //
-// The halt passes two candidates: a revert item and an item the health monitor
-// raised. The backlog cap passes one, the revert's own candidate, because the
+// The halt passes two candidates, and they are two readings and not one: a
+// revert, whatever raised it, which is [Reverts]'s answer; and an item the
+// health monitor raised on that service, which is the intent's own source and
+// actor. The backlog cap passes one, the revert's own candidate, because the
 // rollback hold lifts only when the revert ships and a stop that held it would
 // never end.
-func stopFor(it item.Item, in intent.Intent, halted, capped bool, waiting Waiting) WaitKind {
-	if halted && !raisedByTheHealthMonitor(in) {
+func stopFor(it item.Item, in intent.Intent, halted, capped, revert bool, waiting Waiting) WaitKind {
+	if halted && !revert && !raisedByTheHealthMonitor(in) {
 		return WaitHalt
 	}
 	if capped && (waiting.RevertItemID == "" || waiting.RevertItemID != it.ID) {
@@ -211,11 +215,11 @@ func stopFor(it item.Item, in intent.Intent, halted, capped bool, waiting Waitin
 }
 
 // raisedByTheHealthMonitor reports whether the item's intent is one the health
-// monitor raised, which covers both items the halt's stop passes: a revert is an
-// item of the intent the health monitor raised at the rollback, and an item the
-// health monitor raised on the service is an item of such an intent too. The
-// reading is the intent's source and its actor, the two fields that say which of
-// the three sources wrote it and which component called intake.
+// monitor raised, which is the second of the two items the halt's stop passes.
+// The reading is the intent's source and its actor, the two fields that say
+// which of the three sources wrote it and which component called intake. It is
+// not the first: a revert passes whatever raised it, and one a named human at
+// Ops asked for carries that human's actor and the owner's source.
 func raisedByTheHealthMonitor(in intent.Intent) bool {
 	return in.Source == intent.SourceDetector &&
 		in.Actor.Kind == record.KindComponent && in.Actor.Key == healthMonitorActorKey

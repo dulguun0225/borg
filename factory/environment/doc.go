@@ -34,6 +34,11 @@
 // [DDL] list the same three, so a kind is added by widening a CHECK — the
 // arrangement package item's stage column already has.
 //
+// [Environment.EveryTargetServesAShare] takes the service's own set of this
+// environment's targets — the service record's field — and reads the whole list
+// where that set is empty, which is what an unwritten field means. No caller in
+// this module passes a set yet.
+//
 // The targets are an ordered list of an address and whether the platform behind
 // it serves a share, and they are a field rather than records of their own:
 // nothing holds a reference to a target that has to survive an address change,

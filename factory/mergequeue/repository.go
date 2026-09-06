@@ -183,6 +183,33 @@ type Waiting struct {
 	RevertItemID string
 }
 
+// Reverts is whether one item is a revert. The queue does not read it itself:
+// nothing on the item says it is one, and the release a revert undoes is
+// reachable through the intent the item was decomposed from rather than through
+// any field the queue holds, so the walk from a rollback to the item that undoes
+// it is the caller's.
+//
+// It is one of the two exceptions a halt takes, and it is a reading of its own
+// because a revert passes whatever raised it: the health monitor at a failed
+// exit, or a named human at Ops asking for one.
+type Reverts interface {
+	// IsARevert is that reading for one item.
+	IsARevert(ctx context.Context, it item.Item) (bool, error)
+}
+
+// NoRevertKnown is what a factory composed with no reader of the reverts uses:
+// no item is known to be one. It is a value rather than a nil interface so that
+// a factory composed without one says so.
+//
+// What it costs is the part of the halt's first exception no other reading
+// covers: a revert whose intent a named human at Ops raised is stopped while a
+// halt stands, where one the health monitor raised passes under the second
+// exception.
+type NoRevertKnown struct{}
+
+// IsARevert is never so.
+func (NoRevertKnown) IsARevert(context.Context, item.Item) (bool, error) { return false, nil }
+
 // NoBacklog is what a factory composed with no reader of the rollbacks uses:
 // nothing waits behind anything, so the stop never stands. It is a value rather
 // than a nil interface so that a factory composed without one says so.

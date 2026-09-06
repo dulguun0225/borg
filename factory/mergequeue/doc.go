@@ -14,8 +14,8 @@
 // [Reading], [Rejection], [RejectionPayload] and [Moved]. stop.go is [WaitKind],
 // [WaitPayload] and the four conditions that stop a fast-forward. repository.go
 // is the seams: [Repository], [Verified], [Confirmation], [Numbers],
-// [DesignSystem] and [Backlog], each with the value a factory composed without
-// it uses.
+// [DesignSystem], [Backlog] and [Reverts], each with the value a factory
+// composed without it uses.
 //
 // The tests are fixtures_test.go and four files by subject: db_test.go for the
 // two outcomes, the order and the lock; master_test.go for the readings of
@@ -45,13 +45,16 @@
 //
 // # What is not built
 //
-// Three readings the design gives the queue have no writer in the factory yet,
+// Four readings the design gives the queue have no writer in the factory yet,
 // so each arrives through the composition and says so on its type: the health
 // monitor's store, which [Numbers] reads the second number from; the design
-// system constraint records, which [DesignSystem] compares; and the backlog cap
+// system constraint records, which [DesignSystem] compares; the backlog cap
 // with what waits behind a rollback hold, which [Backlog] reads — the cap is a
 // field of the service record beside the window limit and that field does not
-// exist. mint.go states one departure of its own: the log holds ten shapes and
+// exist; and which item is a revert, which [Reverts] answers — nothing on the
+// item says it is one, and the record that links a revert a named human at Ops
+// asked for to the release it undoes does not exist.
+// mint.go states one departure of its own: the log holds ten shapes and
 // none of them is a skipped-number row, so the numbers a mint passes over are
 // written under the install event's shape with a payload kind of this package's.
 //

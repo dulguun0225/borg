@@ -174,6 +174,7 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 		services:            known,
 		area:                theArea,
 		project:             defaultProjectName,
+		install:             true,
 		candidateCeiling:    theCeiling,
 		watchFor:            theWatchFor,
 		watchEvery:          theWatchEvery,

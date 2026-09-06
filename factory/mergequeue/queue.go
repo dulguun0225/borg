@@ -69,11 +69,11 @@ var (
 	ErrNoWaitStanding = errors.New("mergequeue: no wait of the queue's stands over that commit")
 )
 
-// Composition is what the queue is built from. It is a struct rather than eight
+// Composition is what the queue is built from. It is a struct rather than nine
 // arguments so that every one is named where the queue is composed, and so that
 // a factory composed without a reader of the health monitor's store, of the
-// design system constraint records, or of the rollbacks says which of them it is
-// without.
+// design system constraint records, of the rollbacks, or of which item is a
+// revert says which of them it is without.
 type Composition struct {
 	Pool     *pgxpool.Pool
 	Token    lease.Token
@@ -90,6 +90,9 @@ type Composition struct {
 	// Backlog is how many releases wait behind a rollback hold. A nil value is
 	// [NoBacklog].
 	Backlog Backlog
+	// Reverts is whether one item is a revert, which is one of the two
+	// exceptions a halt takes. A nil value is [NoRevertKnown].
+	Reverts Reverts
 }
 
 // Queue is the merge queue over one factory.
@@ -102,9 +105,10 @@ type Queue struct {
 	numbers      Numbers
 	designSystem DesignSystem
 	backlog      Backlog
+	reverts      Reverts
 }
 
-// New returns the queue over one composition, with the three optional readings
+// New returns the queue over one composition, with the four optional readings
 // replaced by the value that says a factory was composed without them.
 func New(c Composition) *Queue {
 	if c.Numbers == nil {
@@ -116,9 +120,12 @@ func New(c Composition) *Queue {
 	if c.Backlog == nil {
 		c.Backlog = NoBacklog{}
 	}
+	if c.Reverts == nil {
+		c.Reverts = NoRevertKnown{}
+	}
 	return &Queue{
 		pool: c.Pool, token: c.Token, log: c.Log, releases: c.Releases, repo: c.Repository,
-		numbers: c.Numbers, designSystem: c.DesignSystem, backlog: c.Backlog,
+		numbers: c.Numbers, designSystem: c.DesignSystem, backlog: c.Backlog, reverts: c.Reverts,
 	}
 }
 

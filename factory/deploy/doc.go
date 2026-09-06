@@ -34,7 +34,8 @@
 // traffic — the store brought to what the build declares, the snapshot before a
 // destructive change, and the adoption's changes written as found applied — with
 // [ErrSchemaChangeRefused]. restore.go is the slow rollback: [Artifacts],
-// [ErrDigestDiffers], [Restoration] and [Restore]. resume.go is the restart: [Resume] and
+// [ErrDigestDiffers], [ErrSchemaChangeAtARollback], [Restoration] and
+// [Restore]. resume.go is the restart: [Resume] and
 // [Partial]. mitigation.go is what Ops asks for outside a rollout:
 // [Operation] with [Operations], [Mitigation] and [Mitigating], [Mitigate],
 // [Writer.BeginMitigation] and [Writer.EndMitigation], [Mitigations] and
@@ -114,7 +115,8 @@
 // leaves. It verifies the artifact the host holds now against the digest the
 // build record holds, before deploying anything and before asking any target
 // what it runs, so a redeploy by name never restores bytes other than the ones
-// that were verified.
+// that were verified. It applies no schema change and refuses a [Restoration]
+// naming one with [ErrSchemaChangeAtARollback].
 //
 // [Resume] is the restart: it completes a record every target of which
 // finished, marks a record no target reached failed at [StepStopped], and

@@ -251,16 +251,27 @@ func truncateCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		inForce, err := policy.NewReader(pool, token, version).
-			InForce(ctx, gatepolicy.DecisionLogRetention, policy.Subjects{})
+		reader := policy.NewReader(pool, token, version)
+		inForce, err := reader.InForce(ctx, gatepolicy.DecisionLogRetention, policy.Subjects{})
 		if err != nil {
 			return err
 		}
 		retention := inForce.Number
+
+		// The two versions in force at the cut, which the truncation row names
+		// beside the value and the boundary: a decision after the cut naming a
+		// version before it is read against what it was decided under, and the
+		// log refuses a truncation that names neither.
+		inForceNow, err := reader.Newest(ctx, asPrincipal(actor))
+		if err != nil {
+			return err
+		}
 		row, err := decisionlog.NewWriter(pool, token).Truncate(ctx, decisionlog.Cut{
-			Actor:     actor,
-			Retention: fmt.Sprintf("%.0f second(s)", retention),
-			Boundary:  *boundary,
+			Actor:         actor,
+			Retention:     fmt.Sprintf("%.0f second(s)", retention),
+			Boundary:      *boundary,
+			PolicyVersion: inForceNow.ID,
+			ScoreVersion:  version.ID,
 		}, holds)
 		if err != nil {
 			return err

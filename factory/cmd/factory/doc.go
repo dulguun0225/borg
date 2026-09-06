@@ -52,10 +52,12 @@
 // sets a legal hold, or withdraws one; "policy" prints every parameter as it is
 // in force, where its value came from, and what reads it; "priority" writes the
 // one field that orders a queue; "people" declares who holds a duty. -project,
-// on run/author/area/policy and safeguard's row-scoped subject, names the
-// project a subcommand works in and defaults to "default"; run creates it
-// where it does not exist, in the same event as production's environment for
-// it, and every other one of these reads it and refuses where it does not.
+// on "run", "author", "area" and "policy", names the project a subcommand works
+// in and defaults to "default"; run creates it where it does not exist, in the
+// same event as production's environment for it, and every other subcommand
+// reads the project of that name and refuses where it does not exist.
+// "safeguard" names a project as one of its subject kinds, "project:<name>",
+// and takes no -project of its own.
 //
 // Every subcommand but "run" reads the services out of the store rather than taking
 // a name and a repository: both are the service record's own fields, a flag naming
@@ -82,13 +84,16 @@
 //     targetSet, one target per environment.
 //   - compose.go — compose, which builds the path from deps: the score
 //     version ensured first, then the collaborators, the install's three
-//     records — the factory-wide settings record, the project, and
-//     production's environment for it — and the two versions in force; plus
-//     runsOnProduction, which authors production's addresses on a service
-//     naming none, ownHistorySize and ownHistoryRunLength, what the reading
-//     against a service's own recent past is read at, and serviceOf,
-//     subjectsFor, deployOrder, itemsInBuild, and inForceFor, which the stages
-//     below read from the path it built.
+//     records and the two versions in force; plus ownHistorySize and
+//     ownHistoryRunLength, what the reading against a service's own recent past
+//     is read at, and serviceOf, subjectsFor, deployOrder, itemsInBuild, and
+//     inForceFor, which the stages below read from the path it built.
+//   - install.go — installed, the install's three records — the factory-wide
+//     settings record, the project, and production's environment for it —
+//     created where deps says this composition installs and read and refused
+//     where it does not; runsOnProduction, which authors production's addresses
+//     on a service naming none; and productionAddresses, what every read of
+//     what is running is performed against.
 //
 // The path a run walks stage by stage:
 //
@@ -153,8 +158,9 @@
 //     shippedPromptFor and enterShippedPrompts, the install's first-start step
 //     for what an agent is told; and gateEscalation, which is what performs an
 //     escalation dispatch decided.
-//   - restart.go — restart, every component's restart run once at every start:
-//     the merge queue's master read, the deployer's unfinished deploys, the
+//   - restart.go — restart, every component's restart run once by compose and
+//     so by the subcommands that compose a path and by no other: the merge
+//     queue's master read, the deployer's unfinished deploys, the
 //     health monitor's open windows, the notifier's waiting rows, Factory's and
 //     People's re-derivation from the newest policy version, and dispatch's
 //     re-match of its open holds.
@@ -180,7 +186,8 @@
 //     versions of the role prompt and the skills.
 //   - gateio.go — fired, and the gate mechanics every row shares: report,
 //     settle — which offers refer, acknowledge and Edit in place beside the
-//     row's own verdicts — editInPlace, reading a human's typed verdict, and
+//     row's own verdicts — editInPlace with authoredAtTheGate, who a version a
+//     human typed there is recorded as, reading a human's typed verdict, and
 //     recording what a firing closed as.
 //
 // The merge queue and production deploy:
@@ -290,8 +297,8 @@
 //
 // Every subcommand acquires the lease before it touches the store, whether it
 // writes or only reads: a read still appends a read event, which is itself a
-// write of the log, so the one-process rule holds for the command-line interface's
-// twelve subcommands and not only for "run". acquireLease in main.go applies
+// write of the log, so the one-process rule holds for all twenty subcommands
+// and not only for "run". acquireLease in main.go applies
 // package lease's own table — the one thing created before the lease, since a
 // lease cannot be taken in a store whose lease table does not exist — takes the
 // lease under this process's own instance, the machine's hostname and this

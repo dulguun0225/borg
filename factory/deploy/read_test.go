@@ -111,6 +111,53 @@ func TestARolloutOnSomeTargetsIsNotCurrent(t *testing.T) {
 	}
 }
 
+// TestCurrentIsCompletionOnTheServicesOwnTargets: a service's current release is
+// the one its deploy record marks complete on every production target the
+// service runs on. Which of the environment's targets that is is a field of the
+// service record, so a service running on a subset is current once its own
+// targets are complete, with the record itself still started because a target
+// it does not run on is not.
+func TestCurrentIsCompletionOnTheServicesOwnTargets(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	runsOn := []string{"/srv/one"}
+	r := mintRelease(t, ctx, pool, token, serviceID)
+
+	d, err := w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	completeOn(t, ctx, w, d.ID, runsOn...)
+
+	read, err := deploy.Get(ctx, pool, d.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Status != deploy.StatusStarted {
+		t.Fatalf("the record is %s, and the reading below is the one that must not depend on it", read.Status)
+	}
+
+	current, found, err := deploy.Current(ctx, pool, serviceID, productionID, runsOn)
+	if err != nil || !found {
+		t.Fatalf("Current over the service's own targets = found %v, %v", found, err)
+	}
+	if current.ID != d.ID {
+		t.Errorf("Current names %s, want the record complete on every target the service runs on, %s",
+			current.ID, d.ID)
+	}
+
+	// Over the environment's whole list the same record is not current: the
+	// second target is not complete, and the rule is completion on every target
+	// read.
+	if _, found, err := deploy.Current(ctx, pool, serviceID, productionID, addressesOf(twoTargets)); err != nil || found {
+		t.Errorf("Current over both targets = found %v, %v, want none", found, err)
+	}
+}
+
 // TestARemovalClearsTheCurrentRelease: a removal names no release at all, and
 // the service's current release is none once its record is complete on every
 // target.
