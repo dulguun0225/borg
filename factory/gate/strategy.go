@@ -80,6 +80,10 @@ const (
 	// WhyHeldOut is the score's own sample, which takes a strategy that keeps a
 	// control wherever there is a build to start one from.
 	WhyHeldOut = score.WhyHeldOut
+	// WhySafeguarded is a safeguard on this service's strategy default keeping a
+	// control, which is what the production deploy row's fourth action places
+	// and what every deploy of that service picks under from then on.
+	WhySafeguarded = score.WhySafeguarded
 )
 
 var (

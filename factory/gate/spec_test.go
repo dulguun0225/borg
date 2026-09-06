@@ -1,5 +1,6 @@
-// Tests of the Spec row's own mechanical rejection: both directions over the
-// requirement a criterion names, and the row a check belongs to.
+// Tests of the Spec row's own mechanical rejection — both directions over the
+// requirement a criterion names, and the row a check belongs to — and of who
+// the row waits on when the version under decision withdraws a protection.
 package gate_test
 
 import (
@@ -8,7 +9,50 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/score"
 )
+
+// TestAWithdrawnProtectionRoutesTheRowToTheHumanItsProvenanceNames: withdrawing
+// a criterion whose provenance names an authority is a resolved factor at this
+// row, and the decision goes to that human rather than to the duty's holders by
+// default.
+func TestAWithdrawnProtectionRoutesTheRowToTheHumanItsProvenanceNames(t *testing.T) {
+	assessment := assessed(0.1)
+	assessment.Resolved = []score.Resolution{{
+		Factor: "context.protection_withdrawn", Cause: score.CauseProtectionWithdrawn,
+		Why:      "the version under decision withdraws a criterion whose provenance names an authority",
+		RoutedTo: "person:the-confirmer",
+	}}
+	s, p := &fakeScore{assessment: assessment}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, token, g := newGate(t, s, p)
+	// Somebody else holds the row's duty, so a row that read the duty alone
+	// would wait on them and not on the human the provenance names.
+	declares(t, ctx, pool, token, owner, second.Key, gate.DutyConfirmTheCriteria)
+
+	opened, err := g.Fire(ctx, specBy(t, ctx, pool, token, author, "it_0000000000000000000000000000000a"))
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if !opened.HumanDecides {
+		t.Fatalf("the row auto-passed, and a resolved factor puts a human there whatever the number")
+	}
+	if opened.WaitsOn.Human != "person:the-confirmer" {
+		t.Errorf("the row waits on %+v, want the human the provenance names", opened.WaitsOn)
+	}
+
+	// A firing whose vector resolved nothing waits on the duty the design names
+	// for the row, which is what every other Spec firing already does.
+	plain := &fakeScore{assessment: assessed(0.1)}
+	ctx, pool, token, g = newGate(t, plain, p)
+	declares(t, ctx, pool, token, owner, second.Key, gate.DutyConfirmTheCriteria)
+	opened, err = g.Fire(ctx, specBy(t, ctx, pool, token, author, "it_0000000000000000000000000000000a"))
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if opened.WaitsOn.Human != "" {
+		t.Errorf("a firing that resolved nothing waits on %+v, want the row's own duty", opened.WaitsOn)
+	}
+}
 
 // TestSpecRejectsInBothDirectionsOverTheRequirementNamed: a requirement
 // assigned to the item that no criterion in force for it names, and a criterion

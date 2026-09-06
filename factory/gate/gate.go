@@ -39,9 +39,10 @@ var (
 	// score learns nothing.
 	ErrIntentStops = errors.New("gate: the item's intent stops every component that could move it")
 	// ErrRowPending is returned by [Gate.Fire] where an open event on that row
-	// and that item is already pending. The one exception is the open event Edit
-	// in place appends naming the row it supersedes.
-	ErrRowPending = errors.New("gate: an open event on this row and this item is pending")
+	// and that subject is already pending — the item, the version under
+	// decision, or the record the row decides. The one exception is the open
+	// event Edit in place appends naming the row it supersedes.
+	ErrRowPending = errors.New("gate: an open event on this row and this subject is pending")
 	// ErrIntentStateNotComposed is returned where a firing on an item is asked
 	// of a gate composed with no reader of the intent's state. The state is read
 	// before every such firing, so a gate that cannot read it fires nothing
@@ -72,7 +73,7 @@ type Score interface {
 	HoldOut(ctx context.Context, itemID string, rate float64,
 		wouldGate, bySafeguard bool, resolved []score.Resolution) (score.Selection, error)
 	// Version is the score version every decision this gate opens names. It is
-	// asked of the score rather than read off an assessment because three rows
+	// asked of the score rather than read off an assessment because four rows
 	// read no factor set at all, and a decision still names the version in
 	// force at its firing.
 	Version() score.Version

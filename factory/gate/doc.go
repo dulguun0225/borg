@@ -7,7 +7,8 @@
 // row.go is the vocabulary of a row: [Kind] with [Kinds], [Row] with [Of],
 // [DeployTo], [Row.String], [RowFrom] and [Row.Validate], the eight rows of the
 // default path and the five outside every item as values, [Row.ArtifactGate],
-// [Row.DecidesAnItem], [Row.ReadsAThreshold], [Row.Deploys], [FactorSetAt],
+// [Row.DecidesAnItem], [Row.DecidesARecord], [Row.ReadsAThreshold],
+// [Row.Deploys], [FactorSetAt],
 // [Verdict] with its four values, [Actions], [ReturnsTo] with
 // [ReturnsToTargets] and [DefaultReturnsTo], and [ErrEditInPlaceRefused].
 //
@@ -18,7 +19,10 @@
 // human at a row. merge.go is the Merge to master row's own vocabulary:
 // [MechanicalChecks] and [Derivations]. spec.go is the Spec row's:
 // [SpecChecks], [SpecRejection] over the requirement a criterion names, and
-// [ChecksAt], the checks a row rejects on. strategy.go is [Strategy], [Schedule]
+// [ChecksAt], the checks a row rejects on. implementation.go is the
+// Implementation row's: [ImplementationChecks] and [ScreenRejection], the
+// rejection made from what the transition check and the drivers derived over the
+// build. strategy.go is [Strategy], [Schedule]
 // and [Pick] with [Pick.Validate], the shape the pick is stored in; the score
 // picks it. waits.go is [Waits],
 // [RoutedTo], and the three duties the design names for a row.
@@ -43,9 +47,10 @@
 // answers, which is what the change group is computed from at that row — and
 // [SetOpeningPayload], with [Gate.EditSetInPlace] beside it, the Decomposition
 // row's own Edit in place. strategysafeguard.go is the production deploy row's
-// fourth action: [StrategySafeguard], [Gate.SafeguardTheStrategy] with
-// [WhySafeguarded], and its three refusals [ErrStrategyNotPickedHere],
-// [ErrPlatformServesNoShare] and [ErrStrategySafeguardNotComposed].
+// fourth action: [StrategySafeguard], which places the safeguard
+// and answers whether one stands, [Gate.SafeguardTheStrategy], and its three
+// refusals [ErrStrategyNotPickedHere], [ErrPlatformServesNoShare] and
+// [ErrStrategySafeguardNotComposed].
 //
 // verdict.go appends the close event: [Gate.Decide] takes a [Given],
 // [Gate.AutoPass] is the factory approving, [Gate.AutoReject] is the factory
@@ -86,6 +91,8 @@
 // [SpecRejection] is computed here and read by the caller: what the two lists
 // it compares are read from is the requirement record and the criterion
 // record, and the Spec row's firing path is what hands them over.
+// [ScreenRejection] is the same arrangement at the Implementation row, over the
+// machines in force and the two derivations from the build.
 //
 // [Firing.CouldNotDerive] and [Firing.Exposure] are what the component that
 // built hands the gate; neither derivation is built. The four rows outside
@@ -95,18 +102,17 @@
 // withdrawal, and an owner's shorter retention value — reaches them from the
 // composition.
 //
-// [StrategySafeguard] is the writer of the safeguard the production deploy row's
-// fourth action places. There is no [gatepolicy] parameter for a rollout
-// strategy that keeps a control, so nothing composes one yet and
-// [Gate.SafeguardTheStrategy] refuses with [ErrStrategySafeguardNotComposed] —
-// a second refusal beside the platform's, which is the one the design allows.
+// [StrategySafeguard] is the writer and the reader of the safeguard the
+// production deploy row's fourth action places, and it is the composition's: a
+// safeguard is package policy's write at Factory and this package writes no
+// record of its own. A gate composed without one refuses that action with
+// [ErrStrategySafeguardNotComposed] — a second refusal beside the platform's,
+// which is the one the design allows — and reads no such safeguard when it picks.
 //
-// [Gate.Fire]'s check that nothing is already pending is per subject at every
-// row that decides an item and at A role prompt or a skill, whose subject is the
-// version under decision and is on the open event. At the four rows that decide
-// a record the subject is that record and it is not on the open event, so two
-// firings over two different records are refused as one there: what would carry
-// it is a field of [OpeningPayload], and adding one is what that check waits on.
+// [Firing.Screens] is what the transition check derived over the build, and the
+// drivers' derivation reaches [ScreenRejection] the same way: both run where the
+// checkout is, and the component that builds is what hands them over. Neither
+// derivation is composed at the Implementation row yet.
 //
 // # What defines it
 //
@@ -131,6 +137,10 @@
 // each with a file of its own there: the Spec row's rejection in both
 // directions over the requirement a criterion names is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md,
+// the Implementation row's rejection over the screens is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/01-the-transition-check.md
+// and
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md,
 // the candidate deploy row's holds are
 // 06-deploy-to-candidate-environment.md, the merge row's mechanical rejections
 // and its derivations are 07-merge-to-master.md, the production deploy row's

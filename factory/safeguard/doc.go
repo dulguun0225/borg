@@ -27,7 +27,10 @@
 // parameter takes — a number, a list of names, or a [Predicate] — one struct
 // rather than three arguments, so that a caller cannot pass one shape where
 // another belongs and the store's CHECK of at most one filled column has one
-// place in the code that decides which. [Routing] is the duty or the named
+// place in the code that decides which. Two parameters take no bound at all: a
+// safeguard on the risk threshold adds a human, and one on the rollout
+// strategy's default keeps a control, which of the two strategies is the only
+// one that adds anything. [Routing] is the duty or the named
 // human a safeguard's rows route to, meaningful only where the direction adds
 // a human at a gate; at most one of its two fields is set. [Safeguard] is the
 // record as stored, and [Insert] reads the direction off the parameter's

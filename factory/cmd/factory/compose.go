@@ -133,9 +133,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Score: score.New(score.Composition{
 			Pool: d.pool, Version: scoreVersion, Draw: d.draw, Marks: marks,
 			Authorship: authorship{pool: d.pool}, Token: d.token,
-			// Withdrawals is not composed: what one spec version withdraws and
-			// which transitions two screen state machines declare are queries no
-			// package answers yet, so the score reads no withdrawal here.
+			Withdrawals: withdrawals{pool: d.pool, token: d.token},
 		}),
 		Policy:                   p.policy,
 		Holds:                    p,
@@ -144,6 +142,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		RaisedByTheHealthMonitor: p.raisedByTheHealthMonitor,
 		Draw:                     d.draw,
 		Notifier:                 gateNotifier{notifier: p.notifier},
+		StrategySafeguard:        strategySafeguard{pool: d.pool, factory: p.factory},
 		Dispatch:                 p.items,
 	})
 

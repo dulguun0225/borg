@@ -59,6 +59,11 @@ const (
 	// impact half would have picked: the sample exists to produce outcome
 	// evidence, and a deploy without a control leaves only the weak fallback.
 	WhyHeldOut = "the score held this item out, and a held-out release keeps a control wherever one can run"
+	// WhySafeguarded is a safeguard on the strategy default keeping a control on
+	// this service. It adds the control rather than clamping a number, so it
+	// bounds the pick wherever a control can run at all and whatever the number
+	// preferred.
+	WhySafeguarded = "a safeguard on this service keeps a control"
 )
 
 // ShippedControlBound is the impact discounted by reversibility at or above
@@ -95,6 +100,14 @@ type Rollout struct {
 	EveryTargetServesAShare bool
 	HeldOut                 bool
 	Irreversible            bool
+	// Default is the rollout strategy an owner authored on production's
+	// environment record, and is empty where they authored none. It is what
+	// production takes where nothing else narrows the pick.
+	Default Strategy
+	// KeepsAControl is whether a safeguard on the strategy default stands on
+	// this service. A safeguard there adds a control rather than clamping a
+	// number, so it picks the row with a control wherever one can run.
+	KeepsAControl bool
 }
 
 // PickStrategy is the score picking the rollout strategy: the row with a control
@@ -103,9 +116,14 @@ type Rollout struct {
 //
 // Order: a service with no build being replaced has no control to run, and a
 // platform that serves no share cannot run one either, so neither reaches the
-// number at all. A held-out release keeps a control wherever one can run,
-// whatever the number preferred. An irreversible area bounds the schedule and
-// never the row.
+// number at all. A safeguard keeping a control on the service is next: it adds
+// rather than clamps, so it picks the row with a control wherever one can run
+// and whatever the number preferred. A held-out release does the same, for the
+// sample's own reason. Where neither applies, the pick starts from the strategy
+// default an owner authored on production's environment record and falls to the
+// row without a control where they authored none — a default nobody chose is
+// still a decision, and Why names no bound for it, nothing having bounded the
+// pick. An irreversible area bounds the schedule and never the row.
 //
 // The schedule is always the widening one. The other two are in the vocabulary
 // because the design names three and the deployer performs whichever is on the
@@ -121,7 +139,12 @@ func PickStrategy(a Assessment, r Rollout) Pick {
 		return Pick{Strategy: StrategyWithoutControl, Why: WhyPlatformServesNoShare}
 	}
 	pick := Pick{Strategy: StrategyWithoutControl}
+	if r.Default == StrategyWithControl {
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened}
+	}
 	switch {
+	case r.KeepsAControl:
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhySafeguarded}
 	case r.HeldOut:
 		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhyHeldOut}
 	case a.DiscountedImpact >= boundOf(a):
@@ -139,7 +162,7 @@ func PickStrategy(a Assessment, r Rollout) Pick {
 
 // boundOf is the bound the assessment was computed under, falling back to the
 // shipped one for an assessment produced before the bound was a field of a
-// version and for the three rows that read no factor set at all.
+// version and for the four rows that read no factor set at all.
 func boundOf(a Assessment) float64 {
 	if a.ControlBound <= 0 {
 		return ShippedControlBound

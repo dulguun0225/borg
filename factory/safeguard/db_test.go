@@ -256,6 +256,8 @@ func TestABoundOfTheWrongShapeIsRefused(t *testing.T) {
 			safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead, Argument: "millis"}}, safeguard.ErrBoundRefused},
 		{"a kind whose argument is missing", gatepolicy.SafeguardPredicate,
 			safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateUnit}}, safeguard.ErrBoundRefused},
+		{"a number on the strategy default, which keeps a control and bounds no value",
+			gatepolicy.StrategyDefault, safeguard.Bound{Number: 1}, safeguard.ErrBoundRefused},
 	}
 	for _, c := range cases {
 		subject := onAService
@@ -281,6 +283,32 @@ func TestABoundOfTheWrongShapeIsRefused(t *testing.T) {
 	}
 	if _, err := safeguard.Insert(ctx, tx, token, record.Actor{}, gatepolicy.WindowLimit, onAService, two, safeguard.Routing{}); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("a safeguard with no actor = %v, want ErrKindUnknown", err)
+	}
+}
+
+// TestASafeguardOnTheStrategyDefaultKeepsAControlAndBoundsNoValue: it is one of
+// the three that add rather than clamp, and of the two strategies only the one
+// with a control adds anything — so the parameter fixes what the safeguard is
+// and the record carries no bound.
+func TestASafeguardOnTheStrategyDefaultKeepsAControlAndBoundsNoValue(t *testing.T) {
+	ctx, pool, token := newTable(t)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	placed, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.StrategyDefault,
+		onAService, safeguard.Bound{}, safeguard.Routing{})
+	if err != nil {
+		t.Fatalf("placing the safeguard that keeps a control: %v", err)
+	}
+	if placed.Direction != gatepolicy.DirectionAdds {
+		t.Errorf("the safeguard points %q, want the direction that adds a check", placed.Direction)
+	}
+	if placed.Bound.Number != 0 || len(placed.Bound.List) > 0 || !placed.Bound.Predicate.IsZero() {
+		t.Errorf("the safeguard bounds %+v, want nothing", placed.Bound)
 	}
 }
 

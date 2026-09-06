@@ -51,6 +51,47 @@ func TestARolePromptRowIsPendingPerVersion(t *testing.T) {
 	}
 }
 
+// TestARowThatDecidesARecordIsPendingPerRecord: one gate on one subject has at
+// most one pending row, and the subject of a row that decides a record is that
+// record — so a withdrawal of one safeguard does not stop a second safeguard's
+// being decided, and a second firing over the one already pending is refused.
+func TestARowThatDecidesARecordIsPendingPerRecord(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0)}, &fakePolicy{applied: applied(0.3)}
+	ctx, _, _, g := newGate(t, s, p)
+
+	first := "sfg_0000000000000000000000000000000a"
+	second := "sfg_0000000000000000000000000000000b"
+	opened, err := g.Fire(ctx, gate.Firing{Row: gate.SafeguardWithdrawal, RecordID: first})
+	if err != nil {
+		t.Fatalf("firing the row over the first safeguard: %v", err)
+	}
+	if opened.Subject.RecordID != first {
+		t.Errorf("the open event names record %q, want the safeguard under decision", opened.Subject.RecordID)
+	}
+	if _, err := g.Fire(ctx, gate.Firing{Row: gate.SafeguardWithdrawal, RecordID: second}); err != nil {
+		t.Fatalf("firing the row over a second safeguard while the first is pending: %v", err)
+	}
+	if _, err := g.Fire(ctx, gate.Firing{
+		Row: gate.SafeguardWithdrawal, RecordID: first,
+	}); !errors.Is(err, gate.ErrRowPending) {
+		t.Errorf("firing the row a second time over one safeguard = %v, want ErrRowPending", err)
+	}
+
+	// The row names the record it decides and no other row does: a firing at a
+	// row on an item's path that named one is refused before anything is
+	// appended.
+	if _, err := g.Fire(ctx, gate.Firing{
+		Row: gate.HaltWithdrawal,
+	}); !errors.Is(err, gate.ErrFiringIncomplete) {
+		t.Errorf("a halt's withdrawal naming no halt = %v, want ErrFiringIncomplete", err)
+	}
+	named := mergeFiring
+	named.RecordID = first
+	if _, err := g.Fire(ctx, named); !errors.Is(err, gate.ErrFiringIncomplete) {
+		t.Errorf("a merge row naming a record = %v, want ErrFiringIncomplete", err)
+	}
+}
+
 // TestAWithdrawalRowDoesNotRouteToTheHumanWhoWroteIt: the actor on a withdrawal
 // is never the human its row waits on, so a close by them is refused where
 // another decider exists.
@@ -64,7 +105,8 @@ func TestAWithdrawalRowDoesNotRouteToTheHumanWhoWroteIt(t *testing.T) {
 	declares(t, ctx, pool, token, owner, second.Key, gate.DutyConfirmTheCriteria)
 
 	opened, err := g.Fire(ctx, gate.Firing{
-		Row: gate.SafeguardWithdrawal,
+		Row:      gate.SafeguardWithdrawal,
+		RecordID: "sfg_0000000000000000000000000000000a",
 		RoutedTo: gate.RoutedTo{
 			Duty: gate.DutyConfirmTheCriteria, NotHuman: author.Key,
 		},
@@ -104,6 +146,7 @@ func TestAWithdrawalRowStillFiresWhereTheTwoAreOnePerson(t *testing.T) {
 	// the owner — who is also the human who wrote the withdrawal.
 	opened, err := g.Fire(ctx, gate.Firing{
 		Row:      gate.HaltWithdrawal,
+		RecordID: "hlt_0000000000000000000000000000000a",
 		RoutedTo: gate.RoutedTo{NotHuman: owner.Key},
 	})
 	if err != nil {
@@ -146,6 +189,7 @@ func TestALegalHoldsWithdrawalIsARowOfItsOwn(t *testing.T) {
 
 	opened, err := g.Fire(ctx, gate.Firing{
 		Row:      gate.LegalHoldWithdrawal,
+		RecordID: "lgh_0000000000000000000000000000000a",
 		RoutedTo: gate.RoutedTo{Duty: gate.DutyConfirmTheCriteria, NotHuman: author.Key},
 	})
 	if err != nil {

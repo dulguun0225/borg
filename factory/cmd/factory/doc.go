@@ -109,6 +109,17 @@
 //     backfill's completion, each saying which records it cannot reach.
 //   - marks.go — marks, the releases a named human at Ops marked as not caused
 //     by the release, which the score and its learning pass exclude.
+//   - withdrawals.go — withdrawals, what a spec version under decision removes,
+//     which the score resolves the Spec row on: the criteria whose provenance
+//     names an authority it withdraws and the screen state machines it
+//     supersedes, with humanConfirmedSpecVersions, the versions a human decided
+//     read off the log, which both queries take. A constraint-derived or
+//     hazard-derived provenance resolves no named human here: who holds a duty
+//     over one constraint or one area is a narrowing the People declaration does
+//     not carry, so those rows route to the duty the row already names.
+//   - strategysafeguard.go — strategySafeguard, the safeguard that keeps a
+//     control: the write the production deploy row's fourth action makes, and
+//     the read the score's strategy pick is made against.
 //   - rollout.go — how a deploy is performed on this platform: the deployer's
 //     principal, the targets in the environment's order, intoCandidate and
 //     intoProduction, strategyOf, and adopt, the deployer's four fields on the
@@ -235,9 +246,10 @@
 //     the first command an owner reaches.
 //   - parameter.go — authorCommand, authoring one parameter on the record its
 //     scope names, and authored, printing what was authored.
-//   - withdrawal.go — approveWithdrawal, the three rows outside every item a
-//     human closes here: a safeguard's withdrawal, a halt's withdrawal, and a
-//     shortening of decision-log retention.
+//   - withdrawal.go — approveWithdrawal, the four rows outside every item a
+//     human closes here: a safeguard's withdrawal, a halt's withdrawal, a legal
+//     hold's withdrawal, and a shortening of decision-log retention. Each names
+//     the record it decides, which is what one such row is pending per.
 //   - safeguard.go — safeguardCommand, placing a safeguard or writing its
 //     withdrawal, and safeguardSubject, resolving -subject to what it binds — "gate_row:" is
 //     drawn on -service, keyed by the row, because package policy's own reader

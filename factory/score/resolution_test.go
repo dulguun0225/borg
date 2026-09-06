@@ -8,10 +8,11 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 )
 
-// The three resolutions this package reads without a record: what a spec version
-// withdraws, a diff nothing could read for what it destroys, and an irreversible
-// area whose production deploy has no control to run. Each is a rule over what
-// the caller handed in, so each is tested as one.
+// The four resolutions this package reads without a record: what a spec version
+// withdraws, a screen the transition check could not derive, a diff nothing
+// could read for what it destroys, and an irreversible area whose production
+// deploy has no control to run. Each is a rule over what the caller handed in,
+// so each is tested as one.
 
 // fakeWithdrawals answers with what one artifact removes, which is the shape the
 // composition supplies and no package answers yet.
@@ -44,6 +45,9 @@ func TestWithdrawingAProtectedCriterionResolvesAtSpec(t *testing.T) {
 		!strings.Contains(r.evidence[0], "hum_a") {
 		t.Errorf("the evidence is %v, want the criterion, its provenance and the human it routes to", r.evidence)
 	}
+	if r.routedTo != "hum_a" {
+		t.Errorf("the reading routes to %q, want the human the provenance names", r.routedTo)
+	}
 
 	// A superseding machine that admits what a human-confirmed one forbade takes
 	// the same treatment, which is what the design says of it.
@@ -68,6 +72,39 @@ func TestWithdrawingAProtectedCriterionResolvesAtSpec(t *testing.T) {
 	}
 	if r.resolved != "" || r.unavailable != "" || r.level != 0 {
 		t.Errorf("a version withdrawing nothing reads %+v, want nothing", r)
+	}
+}
+
+// TestAScreenTheTransitionCheckCouldNotDeriveResolvesAtImplementation: a screen
+// nobody could read makes the machine's enforcement unknowable rather than
+// clean, so the factor is unavailable and a human decides whatever the formula
+// returns, with the vector naming the screen and the constructs that defeated
+// the analysis.
+func TestAScreenTheTransitionCheckCouldNotDeriveResolvesAtImplementation(t *testing.T) {
+	ctx := t.Context()
+	s := &Score{withdrawals: NoWithdrawals{}}
+	notDerived := "could not derive for ssm_a: 1 construct(s) the analysis could not follow: [screen.ssm_a.go:9 — a dispatch through a table]"
+
+	r, err := s.protectionWithdrawn(ctx, Change{AtImplementation: true, ScreensNotDerived: []string{notDerived}})
+	if err != nil {
+		t.Fatalf("protectionWithdrawn: %v", err)
+	}
+	if r.unavailable == "" || r.level != 0 {
+		t.Fatalf("a screen nothing could derive reads %+v, want the factor unavailable", r)
+	}
+	if len(r.evidence) != 1 || r.evidence[0] != notDerived {
+		t.Errorf("the evidence is %v, want the screen and the constructs that defeated the analysis", r.evidence)
+	}
+
+	// A build every screen derived from reads as nothing removed, which is the
+	// reading at every other row: could not derive and nothing to derive are
+	// opposite answers.
+	r, err = s.protectionWithdrawn(ctx, Change{AtImplementation: true})
+	if err != nil {
+		t.Fatalf("protectionWithdrawn over a build that derived: %v", err)
+	}
+	if r.unavailable != "" || r.resolved != "" {
+		t.Errorf("a build every screen derived reads %+v, want nothing resolved", r)
 	}
 }
 

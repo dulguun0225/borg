@@ -84,6 +84,13 @@
 # is — belongs to the package that owns the criterion, so the gate names it rather
 # than keeping a second spelling of it.
 #
+# gate imports screenstatemachine for the same reason one level along: the
+# Implementation row rejects an implementation that admits a transition the
+# screen's machine forbids, and rejects in both directions over the drivers, so
+# the row's rejection is made from what that package derived over the build. The
+# derivations run where the checkout is and reach the gate as the firing's own,
+# the way the diff and the exposure list already do.
+#
 # The gate's other edges are the reads the design puts at the moment of firing
 # and at no other, one per thing a firing has to know. artifact is the version
 # under decision: its content digest goes on the open event beside its
@@ -344,7 +351,7 @@ driftdetector -> record decisionlog lastcheck
 score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease principal release window
 policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold principal project safeguard score secretref service
 dispatch -> agent agentrun artifact decisionlog inputmanifest intent item lease policy principal record
-gate -> area artifact criterion decisionlog environment halt intent item lease people policy principal record score service
+gate -> area artifact criterion decisionlog environment halt intent item lease people policy principal record score screenstatemachine service
 mergequeue -> build contract decisionlog environment gate halt intent item lease principal record release
 notifier -> decisionlog driftdetector factorysettings lastcheck lease people principal record service
 healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy principal record release service window

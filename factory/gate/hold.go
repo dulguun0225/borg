@@ -139,6 +139,12 @@ var (
 // and not the firing that wrote it.
 type Subjects struct {
 	Row Row
+	// RecordID is the record a row that decides no item decides: the safeguard,
+	// the halt, the legal hold, or the factory-wide settings record whose
+	// retention a shortening moves. It is empty at every row on an item's path
+	// and at A role prompt or a skill, whose subject is the version under
+	// decision.
+	RecordID string
 	// IntentID is the intent the Decomposition row decided over, and is empty at
 	// every row below it, which decides over one item.
 	IntentID      string

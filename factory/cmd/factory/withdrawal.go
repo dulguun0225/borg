@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/halt"
 	"github.com/dulguun0225/borg/factory/lease"
@@ -37,6 +38,11 @@ import (
 // shortening of decision-log retention routes away from the human who authored
 // the shorter value; nothing writes a shorter value before the row decides it,
 // so there is no such actor to route away from and that row names none.
+//
+// Each row names the record it decides — the safeguard, the halt, the legal
+// hold, and the factory-wide settings record whose retention a shortening moves
+// — because that is the subject one such row is pending per: a withdrawal of one
+// safeguard does not stop a second safeguard's being decided beside it.
 
 // approveWithdrawal is the four approvals, in the order the flags name them.
 // Exactly one is given: an approve that named two would be one command deciding
@@ -68,11 +74,11 @@ func approveWithdrawal(safeguardWithdrawal, haltWithdrawal, legalHoldWithdrawal 
 		factory := policy.NewFactory(pool, token)
 		switch {
 		case safeguardWithdrawal != "":
-			routed, err := safeguardWithdrawalRouting(ctx, pool, safeguardWithdrawal)
+			routed, safeguardID, err := safeguardWithdrawalRouting(ctx, pool, safeguardWithdrawal)
 			if err != nil {
 				return err
 			}
-			closed, err := decideOutsideEveryItem(ctx, g, gate.SafeguardWithdrawal, routed, actor)
+			closed, err := decideOutsideEveryItem(ctx, g, gate.SafeguardWithdrawal, safeguardID, routed, actor)
 			if err != nil {
 				return err
 			}
@@ -88,7 +94,7 @@ func approveWithdrawal(safeguardWithdrawal, haltWithdrawal, legalHoldWithdrawal 
 				return err
 			}
 			routed := gate.RoutedTo{NotHuman: written.Actor.Key}
-			closed, err := decideOutsideEveryItem(ctx, g, gate.HaltWithdrawal, routed, actor)
+			closed, err := decideOutsideEveryItem(ctx, g, gate.HaltWithdrawal, written.HaltID, routed, actor)
 			if err != nil {
 				return err
 			}
@@ -104,7 +110,7 @@ func approveWithdrawal(safeguardWithdrawal, haltWithdrawal, legalHoldWithdrawal 
 				return err
 			}
 			routed := gate.RoutedTo{NotHuman: written.Actor.Key}
-			closed, err := decideOutsideEveryItem(ctx, g, gate.LegalHoldWithdrawal, routed, actor)
+			closed, err := decideOutsideEveryItem(ctx, g, gate.LegalHoldWithdrawal, written.HoldID, routed, actor)
 			if err != nil {
 				return err
 			}
@@ -115,8 +121,12 @@ func approveWithdrawal(safeguardWithdrawal, haltWithdrawal, legalHoldWithdrawal 
 			fmt.Printf("Withdrawal %s approved at %s by close event %s; the legal hold is lifted, policy version %s\n",
 				legalHoldWithdrawal, gate.LegalHoldWithdrawal, closed.ID, version.ID)
 		default:
+			settings, err := factorysettings.Get(ctx, pool)
+			if err != nil {
+				return err
+			}
 			closed, err := decideOutsideEveryItem(ctx, g, gate.DecisionLogRetentionShortening,
-				gate.RoutedTo{}, actor)
+				settings.ID, gate.RoutedTo{}, actor)
 			if err != nil {
 				return err
 			}
@@ -133,16 +143,17 @@ func approveWithdrawal(safeguardWithdrawal, haltWithdrawal, legalHoldWithdrawal 
 }
 
 // decideOutsideEveryItem fires one row that belongs to no item and takes the
-// human's approve at it. Two appends: the open event, which names who the row
-// waits on and the human it may not be closed by, and the close event, which is
-// what the record's own approval is then written from.
+// human's approve at it. Two appends: the open event, which names the record
+// under decision, who the row waits on and the human it may not be closed by,
+// and the close event, which is what the record's own approval is then written
+// from.
 //
 // There is no verdict to choose here. Approve and reject are what these rows
 // offer, and a reject leaves the record standing — which is what not running
 // this command already does, so the command that is run is the approval.
 func decideOutsideEveryItem(ctx context.Context, g *gate.Gate, row gate.Row,
-	routed gate.RoutedTo, actor record.Actor) (decisionlog.Row, error) {
-	opened, err := g.Fire(ctx, gate.Firing{Row: row, RoutedTo: routed})
+	recordID string, routed gate.RoutedTo, actor record.Actor) (decisionlog.Row, error) {
+	opened, err := g.Fire(ctx, gate.Firing{Row: row, RecordID: recordID, RoutedTo: routed})
 	if err != nil {
 		return decisionlog.Row{}, err
 	}
@@ -160,15 +171,16 @@ func decideOutsideEveryItem(ctx context.Context, g *gate.Gate, row gate.Row,
 // safeguardWithdrawalRouting is who the row that decides one safeguard's
 // withdrawal waits on: the duty or the named human the safeguard's own routing
 // field gives, and the owner where it names neither — and never the actor on the
-// withdrawal.
-func safeguardWithdrawalRouting(ctx context.Context, pool *pgxpool.Pool, withdrawalID string) (gate.RoutedTo, error) {
+// withdrawal. It answers with the safeguard beside it, which is the record that
+// row decides and what its open event names.
+func safeguardWithdrawalRouting(ctx context.Context, pool *pgxpool.Pool, withdrawalID string) (gate.RoutedTo, string, error) {
 	written, err := safeguard.GetWithdrawal(ctx, pool, withdrawalID)
 	if err != nil {
-		return gate.RoutedTo{}, err
+		return gate.RoutedTo{}, "", err
 	}
 	placed, err := safeguard.All(ctx, pool)
 	if err != nil {
-		return gate.RoutedTo{}, err
+		return gate.RoutedTo{}, "", err
 	}
 	routed := gate.RoutedTo{NotHuman: written.Actor.Key}
 	for _, one := range placed {
@@ -177,9 +189,9 @@ func safeguardWithdrawalRouting(ctx context.Context, pool *pgxpool.Pool, withdra
 		}
 		routed.Duty = people.Duty(one.Routing.Duty)
 		routed.Human = one.Routing.HumanKey
-		return routed, nil
+		return routed, one.ID, nil
 	}
-	return gate.RoutedTo{}, fmt.Errorf("%w: %s", safeguard.ErrNotFound, written.SafeguardID)
+	return gate.RoutedTo{}, "", fmt.Errorf("%w: %s", safeguard.ErrNotFound, written.SafeguardID)
 }
 
 // rowGate is the gate a row outside every item is fired through: the log, the

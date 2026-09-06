@@ -110,13 +110,17 @@
 // Factory's two constraint listings, which are [ForConstraint] and
 // [UnderWithdrawnConstraints]; the intent raised when a criterion becomes
 // unreliable, keyed by the criterion; the service record's unreliability
-// bound, which [Unreliable] takes as an argument; and the score, which reads
-// [HumanConfirmed] and [WithdrawalsWithAnAuthority] to resolve the factor a
-// withdrawal with an authority is at the Spec row. That last pair takes the
-// spec versions a human decided as an argument, the decision being the
-// decision log's fact and not this table's. The deployer's mutation pass
-// at the candidate run is a sixth: [DeriveMutation] and [RecordMutation] are
-// what it calls, and the command-line interface composes it.
+// bound, which [Unreliable] takes as an argument; and whatever reports what a
+// service promises that a human confirmed, which is [HumanConfirmed]. The
+// deployer's mutation pass at the candidate run is a sixth: [DeriveMutation]
+// and [RecordMutation] are what it calls, and the command-line interface
+// composes it.
+//
+// [WithdrawalsWithAnAuthority] is read by the score, through the reader the
+// command-line interface composes for it: each withdrawal is a resolved factor
+// at the Spec row, routed to the human that provenance names. It takes the spec
+// versions a human decided as an argument, the decision being the decision log's
+// fact and not this table's, and that caller walks the log for them.
 //
 // Who may write what: [Insert], [Withdraw], [InsertResults],
 // [RecordResults] and [RecordMutation] insert, and nothing here updates or

@@ -39,6 +39,16 @@ func complete(f Firing) error {
 	if err := checkDerivations(f.Row, f.CouldNotDerive); err != nil {
 		return err
 	}
+	if f.Row.Kind != KindImplementation && len(f.Screens.Screens) > 0 {
+		return fmt.Errorf("%w: %s decides no build, so no screen was derived for it",
+			ErrFiringIncomplete, f.Row)
+	}
+	if f.Row.DecidesARecord() && f.RecordID == "" {
+		return fmt.Errorf("%w: %s names no record under decision", ErrFiringIncomplete, f.Row)
+	}
+	if !f.Row.DecidesARecord() && f.RecordID != "" {
+		return fmt.Errorf("%w: %s decides no record and named %q", ErrFiringIncomplete, f.Row, f.RecordID)
+	}
 	if f.Row.ArtifactGate() && f.ArtifactID == "" {
 		return fmt.Errorf("%w: %s names no artifact version under decision", ErrFiringIncomplete, f.Row)
 	}
@@ -71,7 +81,7 @@ func complete(f Firing) error {
 // that could move it. No open event is appended, so nothing is decided, no
 // attempt is counted, and the score learns nothing.
 //
-// The four rows outside every item take no such read: they belong to no
+// The five rows outside every item take no such read: they belong to no
 // timeline, so there is no intent to have a state.
 func (g *Gate) intentPermits(ctx context.Context, f Firing) error {
 	if !f.Row.DecidesAnItem() || f.ItemID == "" {
@@ -95,11 +105,10 @@ func (g *Gate) intentPermits(ctx context.Context, f Firing) error {
 // The one exception is the open event Edit in place appends naming the row it
 // supersedes, and the one a refer re-fires.
 //
-// The subject is the item at every row on an item's path, and the version under
+// The subject is the item at every row on an item's path, the version under
 // decision at A role prompt or a skill, which names a version and no item at
-// all. At the four rows that decide a record the subject is that record, and it
-// is not on the open event, so the match there is the row's kind alone: doc.go
-// says what that costs and what it is waiting on.
+// all, and the record itself at the four rows that decide one — so one pending
+// withdrawal is the subject of its own row and not of every row of that kind.
 func (g *Gate) nothingPending(ctx context.Context, f Firing) error {
 	if f.supersedes != "" || f.referredFrom != "" {
 		return nil
@@ -112,12 +121,19 @@ func (g *Gate) nothingPending(ctx context.Context, f Firing) error {
 		if open.Gate != f.Row {
 			continue
 		}
-		if f.Row.DecidesAnItem() {
+		switch {
+		case f.Row.DecidesAnItem():
 			if open.Subject.ItemID != f.ItemID {
 				continue
 			}
-		} else if open.ArtifactID != f.ArtifactID {
-			continue
+		case f.Row.DecidesARecord():
+			if open.Subject.RecordID != f.RecordID {
+				continue
+			}
+		default:
+			if open.ArtifactID != f.ArtifactID {
+				continue
+			}
 		}
 		return fmt.Errorf("%w: %s on %s is open as %s",
 			ErrRowPending, f.Row, pendingSubjectOf(f), open.Row.ID)
@@ -126,16 +142,15 @@ func (g *Gate) nothingPending(ctx context.Context, f Firing) error {
 }
 
 // pendingSubjectOf is the subject the refusal above names, in the words a reader
-// of the error reads: the item, the version under decision, or the row itself
-// where the record it decides is not on the open event.
+// of the error reads: the item, the record under decision, or the version.
 func pendingSubjectOf(f Firing) string {
 	switch {
 	case f.Row.DecidesAnItem():
 		return f.ItemID
-	case f.ArtifactID != "":
-		return f.ArtifactID
+	case f.Row.DecidesARecord():
+		return f.RecordID
 	default:
-		return "the record this row decides"
+		return f.ArtifactID
 	}
 }
 
@@ -306,8 +321,9 @@ func (g *Gate) unmeasured(ctx context.Context, f Firing) (string, error) {
 
 // rollout is what the score picks the strategy over besides the vector, read at
 // the moment of firing like every other read a gate makes: whether every target
-// of the environment serves a share, and whether the item's area is graded
-// irreversible.
+// of the environment serves a share, the strategy default an owner authored on
+// production's environment record, whether a safeguard on that default keeps a
+// control on this service, and whether the item's area is graded irreversible.
 // It is read at a deploy to production row and at no other: a strategy decides
 // whether a control runs, and a control is a comparison against organic traffic,
 // which only production has. Whether the sample selected the item is set on the
@@ -321,6 +337,14 @@ func (g *Gate) rollout(ctx context.Context, f Firing) (score.Rollout, error) {
 		return score.Rollout{}, fmt.Errorf("gate: reading whether every target of %s serves a share: %w",
 			f.EnvironmentID, err)
 	}
+	keepsAControl := false
+	if g.strategySafeguard != nil {
+		keepsAControl, err = g.strategySafeguard.KeepsAControl(ctx, f.ServiceID)
+		if err != nil {
+			return score.Rollout{}, fmt.Errorf("gate: reading whether a safeguard keeps a control on %s: %w",
+				f.ServiceID, err)
+		}
+	}
 	irreversible := false
 	if f.AreaID != "" {
 		grade, err := area.SeverityInForce(ctx, g.pool, f.AreaID)
@@ -333,6 +357,8 @@ func (g *Gate) rollout(ctx context.Context, f Firing) (score.Rollout, error) {
 		ReplacesReleaseID:       f.ReplacesReleaseID,
 		EveryTargetServesAShare: env.EveryTargetServesAShare(),
 		Irreversible:            irreversible,
+		Default:                 score.Strategy(env.StrategyDefault),
+		KeepsAControl:           keepsAControl,
 	}, nil
 }
 

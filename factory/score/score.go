@@ -167,9 +167,15 @@ type Change struct {
 	// through package policy: the score supplies a value for that row and may
 	// not read what an owner authored.
 	ExposureBound float64
-	Measurement   Measurement
-	Exposure      ExposureEvidence
-	Fleet         FleetChange
+	// ScreensNotDerived is every screen the transition check could not derive
+	// from the build, in the words the check describes one by. Each names the
+	// screen and the constructs that defeated the analysis, and any of them
+	// leaves the factor over what a machine forbids unreadable at
+	// Implementation.
+	ScreensNotDerived []string
+	Measurement       Measurement
+	Exposure          ExposureEvidence
+	Fleet             FleetChange
 }
 
 // OpenEvent is the part of a decision's open event this package reads back: the
@@ -348,12 +354,12 @@ func (s *Score) AssessUnder(ctx context.Context, version Version, c Change) (Ass
 		}
 		switch {
 		case r.unavailable != "":
-			resolve(&f, &resolutions, CauseUnavailable, r.unavailable)
+			resolve(&f, &resolutions, CauseUnavailable, r.unavailable, r.routedTo)
 		case r.resolved != "":
-			resolve(&f, &resolutions, r.cause, r.resolved)
+			resolve(&f, &resolutions, r.cause, r.resolved, r.routedTo)
 		case version.Drifted(d.name):
 			resolve(&f, &resolutions, CauseDrifted,
-				"calibration found this factor drifted, so it is resolved until a recalibration is in force at this gate")
+				"calibration found this factor drifted, so it is resolved until a recalibration is in force at this gate", "")
 		}
 		vector = append(vector, f)
 	}

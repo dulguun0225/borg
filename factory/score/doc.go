@@ -63,7 +63,9 @@
 // [Withdrawals] that reads it, what a spec version under decision withdraws.
 // Both are interfaces because each joins records this package does not read, and
 // [NoAuthorship] and [NoWithdrawals] are what a composition supplying neither
-// hands in.
+// hands in. What a withdrawal's provenance names is carried on
+// [Resolution.RoutedTo], which is what routes the Spec row to that human rather
+// than to the owner by default.
 //
 // Two inputs arrive as parameters because nothing writes them yet:
 // [ExposureEvidence], which the component that built the change derives per
@@ -75,18 +77,20 @@
 //
 // # What the design does not decide
 //
-// Three things here the design names without fixing, each stated where it is
+// Four things here the design names without fixing, each stated where it is
 // made rather than invented as though it were the document's. The weight
 // context.protection_withdrawn ships at is nothing: the design names the factor's
 // resolution and no weight for it, and a recalibration fits one like every other.
 // Where the line falls for [ShippedControlBound] is the code's: the design states
-// which half of the vector the strategy reads and not the bound. And what makes a
+// which half of the vector the strategy reads and not the bound. What makes a
 // diff destroy stored data is a reading per toolchain the design does not
-// describe, derived by the caller that takes the diff.
-//
-// [Withdrawals] is supplied by no composition yet, so the score reads no
-// withdrawal: what one spec version withdraws and which transitions two screen
-// state machines declare are queries no package answers.
+// describe, derived by the caller that takes the diff. And which factor carries
+// a screen the transition check could not derive is this package's:
+// the design fixes that outcome as a resolution the way an unavailable factor
+// resolves, with the vector naming the screen and the constructs, and names no
+// factor for it, so [Change.ScreensNotDerived] reads through
+// context.protection_withdrawn — the factor whose other reading is whether what
+// is under decision admits what a human-confirmed machine forbade.
 //
 // # The shape
 //

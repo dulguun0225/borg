@@ -77,16 +77,20 @@
 //
 // # What is not built here
 //
-// The gate that fires [Validate], [CheckTransitionTargets],
-// [CheckTransitions] and [CheckDrivers] over a build, and the reader that
-// assembles screensInForce from the item's own service and the current release
-// of every service it declares a dependency on, are not built. The score is
-// the caller of [Derivation.Unavailable] and of
-// [SupersessionsRemovingProtection] — the first resolves a factor at the
-// Implementation row, the second is a resolved factor at the Spec row routed to
-// the actor of the superseded machine's introducing decision — and it is not
-// built either; both take what the caller read rather than reaching for the
-// decision log. The design system's content — the appearance, viewport width,
+// [CheckTransitions] and [CheckDrivers] are the Implementation row's rejection,
+// made through gate.ScreenRejection, and [Derivation.Unavailable] is what that
+// row hands the score as an input it could not read.
+// [SupersessionsRemovingProtection] is read by the score at the Spec row,
+// through the reader the command-line interface composes for it — a resolved
+// factor routed to the actor of the superseded machine's introducing decision —
+// and it takes the spec versions a human decided rather than reaching for the
+// decision log.
+//
+// What is not built is what derives either reading from a checkout at the
+// Implementation stage, and the reader that assembles screensInForce for
+// [CheckTransitionTargets] from the item's own service and the current release
+// of every service it declares a dependency on. [Validate] runs where a machine
+// is written; nothing fires [CheckTransitionTargets] yet. The design system's content — the appearance, viewport width,
 // text scale and text direction each declared state is decided in — is a
 // separate record this package does not read.
 //

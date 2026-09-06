@@ -10,16 +10,56 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// keepsAControl records the one call the action makes on the composition.
+// keepsAControl records the call the action makes on the composition, and
+// answers the read a firing makes with what was placed on it.
 type keepsAControl struct {
 	forService string
 	by         string
 	err        error
+	// standing is what the read answers, which a test sets to stand for a
+	// safeguard placed before this firing.
+	standing bool
+	// asked is the service the read was performed for.
+	asked string
 }
 
 func (k *keepsAControl) KeepAControl(_ context.Context, actor record.Actor, serviceID string) error {
 	k.forService, k.by = serviceID, actor.Key
 	return k.err
+}
+
+func (k *keepsAControl) KeepsAControl(_ context.Context, serviceID string) (bool, error) {
+	k.asked = serviceID
+	return k.standing, nil
+}
+
+// TestASafeguardOnTheStrategyKeepsAControlAtEveryFiringAfterIt: the safeguard is
+// a record and the pick is read against it at the moment of firing, so a deploy
+// the number would have run without a control runs with one for as long as the
+// safeguard stands.
+func TestASafeguardOnTheStrategyKeepsAControlAtEveryFiringAfterIt(t *testing.T) {
+	standing := &keepsAControl{standing: true}
+	s, p := &fakeScore{assessment: assessed(0.2)}, &fakePolicy{applied: applied(0.9)}
+	ctx, pool, token, g := newGateWith(t, s, p, func(c *gate.Composition) {
+		c.StrategySafeguard = standing
+	})
+
+	f := deployFiring(t, ctx, pool, token)
+	f.ReplacesReleaseID = "rel_000000000000000000000000000000b"
+	opened, err := g.Fire(ctx, f)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if standing.asked != f.ServiceID {
+		t.Errorf("the safeguard was read for %q, want the service this deploy is of", standing.asked)
+	}
+	if opened.Strategy.Strategy != gate.StrategyWithControl ||
+		opened.Strategy.Schedule != gate.ScheduleWidened {
+		t.Fatalf("the pick under a standing safeguard is %+v, want the row with a control", opened.Strategy)
+	}
+	if opened.Strategy.Why != gate.WhySafeguarded {
+		t.Errorf("the pick says %q, want the safeguard's own reason", opened.Strategy.Why)
+	}
 }
 
 // TestSafeguardTheStrategyPlacesTheSafeguardAndKeepsAControl: a human at the

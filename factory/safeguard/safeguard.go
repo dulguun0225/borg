@@ -284,7 +284,8 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 	}
 	var storedBound *float64
 	if definition.Direction != gatepolicy.DirectionAddsAHuman &&
-		definition.Kind != gatepolicy.KindList && definition.Kind != gatepolicy.KindPredicate {
+		definition.Kind != gatepolicy.KindList && definition.Kind != gatepolicy.KindPredicate &&
+		definition.Kind != gatepolicy.KindStrategy {
 		storedBound = &p.Bound.Number
 	}
 	var storedDuty *int
@@ -309,11 +310,21 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 // checkBound refuses a bound of the wrong shape for the parameter: a bound on a
 // safeguard that adds a human, one shape where another belongs, and a missing
 // bound where one is required.
+//
+// A safeguard on the rollout strategy's default bounds no value either, for a
+// reason of its own: a safeguard can only add, and of the two strategies only
+// the one with a control adds anything, so what such a safeguard is is fixed by
+// the parameter and there is nothing left to choose.
 func checkBound(d gatepolicy.Definition, bound Bound) error {
 	switch {
 	case d.Direction == gatepolicy.DirectionAddsAHuman:
 		if bound.Number != 0 || len(bound.List) > 0 || !bound.Predicate.IsZero() {
 			return fmt.Errorf("%w: a safeguard on %s adds a human and bounds no value", ErrBoundRefused, d.Parameter)
+		}
+	case d.Kind == gatepolicy.KindStrategy:
+		if bound.Number != 0 || len(bound.List) > 0 || !bound.Predicate.IsZero() {
+			return fmt.Errorf("%w: a safeguard on %s keeps a control and bounds no value",
+				ErrBoundRefused, d.Parameter)
 		}
 	case d.Kind == gatepolicy.KindList:
 		if bound.Number != 0 || !bound.Predicate.IsZero() {

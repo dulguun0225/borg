@@ -56,6 +56,11 @@ type Resolution struct {
 	Factor string `json:"factor"`
 	Cause  Cause  `json:"cause"`
 	Why    string `json:"why"`
+	// RoutedTo is the per-person key the fact behind this resolution names, and
+	// is empty where it names nobody. One resolution carries one: a protection
+	// withdrawn is routed to the human its provenance names rather than to the
+	// owner by default, and the row the gate fires reads it off here.
+	RoutedTo string `json:"routed_to,omitempty"`
 }
 
 func (r Resolution) String() string {
@@ -68,7 +73,8 @@ func (r Resolution) String() string {
 // top of the scale: valuing it would make the number say what the resolution
 // says, and the number is recorded beside the resolution so that calibration
 // keeps the reading it would otherwise lose on every resolved decision.
-func resolve(f *Factor, resolutions *[]Resolution, cause Cause, why string) {
+func resolve(f *Factor, resolutions *[]Resolution, cause Cause, why, routedTo string) {
 	f.Resolved = why
-	*resolutions = append(*resolutions, Resolution{Factor: f.Name, Cause: cause, Why: why})
+	*resolutions = append(*resolutions,
+		Resolution{Factor: f.Name, Cause: cause, Why: why, RoutedTo: routedTo})
 }

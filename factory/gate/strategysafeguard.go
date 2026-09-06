@@ -22,6 +22,12 @@ type StrategySafeguard interface {
 	// KeepAControl places the safeguard that keeps a control on one service, as
 	// the human who asked for it at the row.
 	KeepAControl(ctx context.Context, actor record.Actor, serviceID string) error
+	// KeepsAControl is whether such a safeguard stands on the service, read at
+	// every production deploy firing the way every other check a gate makes is
+	// read at the moment of firing. It is on this interface and not a second one
+	// because the record is one record: what places it and what reads it are the
+	// same seam.
+	KeepsAControl(ctx context.Context, serviceID string) (bool, error)
 }
 
 var (
@@ -68,7 +74,3 @@ func (g *Gate) SafeguardTheStrategy(ctx context.Context, opened Opened, actor re
 	}
 	return Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhySafeguarded}, nil
 }
-
-// WhySafeguarded is what the pick says where an owner put the control there at
-// the row, beside the reasons the score's own pick names.
-const WhySafeguarded = "a human at the row placed the safeguard that keeps a control"

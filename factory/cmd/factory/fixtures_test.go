@@ -106,9 +106,16 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	}
 	schema := "factory_" + hex.EncodeToString(suffix[:])
 
-	pool, err := postgres.Open(ctx, inSchema(t, postgres.URL(), schema))
+	url := inSchema(t, postgres.URL(), schema)
+	// The subcommands read the environment for the database they open, so this
+	// is how a test that drives one hands it the schema of its own the rest of
+	// this fixture writes into. Without it a subcommand called from one of these
+	// tests would act on the default database.
+	t.Setenv(postgres.URLEnv, url)
+
+	pool, err := postgres.Open(ctx, url)
 	if err != nil {
-		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", postgres.URL(), err)
+		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", url, err)
 	}
 	t.Cleanup(func() {
 		// t.Context is already cancelled by the time cleanup runs.
@@ -270,11 +277,31 @@ func owner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.To
 	return actor
 }
 
-// closedAtItsRow stands for the close event of the gate row that decided a
-// safeguard's withdrawal, for a test that drives the write rather than the row:
-// the approval names that close and refuses a call with none, and what fires
-// the row is `factory approve`.
-const closedAtItsRow = "dl_0000000000000000000000000000001"
+// throughASubcommand runs one subcommand inside a test that also drives the path
+// directly, and takes the lease back for the fixture afterwards.
+//
+// One process holds the lease at a time, so the fixture hands it over and takes
+// it back: the lease it holds is released here, the subcommand opens its own
+// pool from the environment — which points at this test's own schema — and
+// acquires the lease for itself, and it releases the lease when it returns. The
+// fixture then takes a new one, which fences the token it held before, and every
+// write it makes after this is fenced by the new one. The deps are taken by
+// pointer for that reason: the token is a field of the value every later step
+// composes from.
+func throughASubcommand(t *testing.T, ctx context.Context, d *deps, run func() error) {
+	t.Helper()
+	if err := lease.Release(ctx, d.pool, d.token); err != nil {
+		t.Fatalf("handing the lease to the subcommand: %v", err)
+	}
+	if err := run(); err != nil {
+		t.Fatalf("the subcommand: %v", err)
+	}
+	token, err := lease.Acquire(ctx, d.pool, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("taking the lease back after the subcommand: %v", err)
+	}
+	d.token = token
+}
 
 // inSchema points a connection URL at one schema and nothing else, so every
 // unqualified name in the DDL and in the writers' statements resolves there.

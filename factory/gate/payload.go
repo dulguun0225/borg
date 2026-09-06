@@ -40,6 +40,11 @@ type OpeningPayload struct {
 	// and the digest says what it said, so the chain covers the text and not
 	// only the name.
 	ArtifactDigest string `json:"artifact_digest,omitempty"`
+	// RecordID is the record a row that decides no item decided: the safeguard,
+	// the halt, the legal hold, or the factory-wide settings record. It is what
+	// makes one pending withdrawal the subject of its own row rather than of
+	// every row of that kind, and it is empty at every row on an item's path.
+	RecordID string `json:"record_id,omitempty"`
 	// IntentID is the intent the Decomposition row decided over, written by
 	// [Gate.FireSet] into its own payload and read back here so that a pending
 	// set reads as the intent's.
@@ -185,7 +190,7 @@ func openedFrom(row decisionlog.Row) (Opened, error) {
 	return Opened{
 		Gate: gateRow,
 		Subject: Subjects{
-			Row: gateRow, IntentID: opening.IntentID,
+			Row: gateRow, RecordID: opening.RecordID, IntentID: opening.IntentID,
 			ItemID: opening.ItemID, BuildID: opening.BuildID,
 			ServiceID: opening.ServiceID, AreaID: opening.AreaID,
 			EnvironmentID: opening.EnvironmentID, ReleaseID: opening.ReleaseID,

@@ -8,6 +8,7 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/screenstatemachine"
 )
 
 // [Gate.Fire], one item's build against one row: what fires it, what it reads
@@ -19,7 +20,14 @@ import (
 // could not derive, and the build's measurement, which the component that built
 // took and the score cannot read.
 type Firing struct {
-	Row           Row
+	Row Row
+	// RecordID is the record this row decides where it decides one rather than
+	// an item: the safeguard whose withdrawal is under decision, the halt, the
+	// legal hold, or the factory-wide settings record a shortening of
+	// decision-log retention moves. It is required at those four rows and
+	// refused at every other, and it is what the check that nothing is already
+	// pending matches on there.
+	RecordID      string
 	ItemID        string
 	BuildID       string
 	ArtifactID    string
@@ -55,6 +63,12 @@ type Firing struct {
 	// change group cannot be computed, and is empty at every row but a role
 	// prompt or a skill.
 	Fleet score.FleetChange
+	// Screens is what the transition check derived from the build, per screen in
+	// force: the transitions the extractor can show the implementation admits,
+	// or the cause it could not derive them. It is read at the Implementation
+	// row and at no other. A screen it could not derive resolves a factor rather
+	// than rejecting, and [ScreenRejection] is what rejects over the rest.
+	Screens screenstatemachine.Derivation
 	// RoutedTo is the routing a record carries for the rows whose routing is not
 	// the design's: a safeguard's withdrawal, and the shortening of
 	// decision-log retention.
@@ -72,7 +86,8 @@ type Firing struct {
 // Subjects is what the firing's holds are computed against.
 func (f Firing) Subjects() Subjects {
 	return Subjects{
-		Row: f.Row, ItemID: f.ItemID, BuildID: f.BuildID, ServiceID: f.ServiceID,
+		Row: f.Row, RecordID: f.RecordID,
+		ItemID: f.ItemID, BuildID: f.BuildID, ServiceID: f.ServiceID,
 		AreaID: f.AreaID, EnvironmentID: f.EnvironmentID, ReleaseID: f.ReleaseID,
 	}
 }
@@ -141,8 +156,14 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 
 	// The row's own routing is read before the samples, because the review
 	// sample's rate is per duty and the duty is what the holds and the row
-	// decide together.
-	waits, err := g.waitsOn(ctx, f.Row, holds, f.RoutedTo)
+	// decide together. A resolution naming a human is what routes it where the
+	// record the firing carries names none: a withdrawn protection goes to the
+	// human its provenance names rather than to the owner by default.
+	routed := f.RoutedTo
+	if routed.Human == "" {
+		routed.Human = routedByAResolution(assessment.Resolved)
+	}
+	waits, err := g.waitsOn(ctx, f.Row, holds, routed)
 	if err != nil {
 		return Opened{}, err
 	}
@@ -215,6 +236,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 			Authored:    assessment.Authored,
 		},
 		ArtifactDigest:   digest,
+		RecordID:         f.RecordID,
 		BuildID:          f.BuildID,
 		ServiceID:        f.ServiceID,
 		AreaID:           f.AreaID,
@@ -329,6 +351,7 @@ func (g *Gate) assess(ctx context.Context, f Firing, subjects policy.Subjects, v
 		ReplacesReleaseID:       rollout.ReplacesReleaseID,
 		EveryTargetServesAShare: rollout.EveryTargetServesAShare,
 		ExposureBound:           bound.Number,
+		ScreensNotDerived:       screensNotDerived(f),
 		Measurement:             f.Measurement,
 		Exposure:                f.Exposure,
 		Fleet:                   f.Fleet,

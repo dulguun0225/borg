@@ -93,6 +93,10 @@ func safeguardCommand(args []string) error {
 		switch {
 		case definition.Direction == gatepolicy.DirectionAddsAHuman:
 			// A safeguard on the risk threshold adds a human and bounds no value.
+		case definition.Kind == gatepolicy.KindStrategy:
+			// A safeguard on the strategy default keeps a control and bounds no
+			// value: of the two strategies only the one with a control adds
+			// anything, so the parameter is the whole of what it says.
 		case definition.Kind == gatepolicy.KindList:
 			of.List = strings.Split(*bound, ",")
 		case definition.Kind == gatepolicy.KindPredicate:

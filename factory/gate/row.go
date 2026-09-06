@@ -92,7 +92,7 @@ func DeployTo(environmentID string) Row {
 	return Row{Kind: KindDeployToEnvironment, EnvironmentID: environmentID}
 }
 
-// The rows of the default path and the four outside it, as values, so that a
+// The rows of the default path and the five outside it, as values, so that a
 // caller names a row rather than composing one.
 var (
 	Decomposition                  = Of(KindDecomposition)
@@ -201,6 +201,22 @@ func (r Row) DecidesAnItem() bool {
 		return false
 	default:
 		return true
+	}
+}
+
+// DecidesARecord reports whether what the row decides is a record rather than
+// an item or a version: a safeguard's withdrawal, a halt's withdrawal, a legal
+// hold's withdrawal, and the shortening of decision-log retention. Each names
+// that record on its open event, which is what one such row is pending per — one
+// safeguard's withdrawal under decision does not stop a second safeguard's being
+// decided.
+func (r Row) DecidesARecord() bool {
+	switch r.Kind {
+	case KindSafeguardWithdrawal, KindHaltWithdrawal, KindLegalHoldWithdrawal,
+		KindDecisionLogRetentionShortening:
+		return true
+	default:
+		return false
 	}
 }
 

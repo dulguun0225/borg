@@ -74,11 +74,9 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writing the withdrawal: %v", err)
 	}
-	decider := owner(t, ctx, d.pool, d.token, "reviewer")
-	if _, err := policy.NewFactory(d.pool, d.token).ApproveSafeguardWithdrawal(ctx,
-		decider, written.ID, closedAtItsRow); err != nil {
-		t.Fatalf("approving the withdrawal: %v", err)
-	}
+	throughASubcommand(t, ctx, &d, func() error {
+		return approveCommand([]string{"-safeguard-withdrawal", written.ID, "-human", "reviewer"})
+	})
 	through := only(t, runOne(t, ctx, d, out, removeStatement, theService))
 	if !through.merged {
 		t.Fatalf("the removal is still refused after the safeguard was withdrawn:\n%s", out)

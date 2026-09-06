@@ -24,13 +24,16 @@ const (
 // the order the design names them.
 var SpecChecks = []string{AutoRejectedByRequirementUnanswered, AutoRejectedByCriterionElsewhere}
 
-// ChecksAt is the checks a row rejects on its own terms. Two rows have any: the
-// Spec row over the requirement a criterion names, and the Merge to master row
-// over the candidate's run. Every other row rejects only on a verdict.
+// ChecksAt is the checks a row rejects on its own terms. Three rows have any:
+// the Spec row over the requirement a criterion names, the Implementation row
+// over the screens, and the Merge to master row over the candidate's run. Every
+// other row rejects only on a verdict.
 func ChecksAt(row Row) []string {
 	switch row.Kind {
 	case KindSpec:
 		return SpecChecks
+	case KindImplementation:
+		return ImplementationChecks
 	case KindMergeToMaster:
 		return MechanicalChecks
 	default:

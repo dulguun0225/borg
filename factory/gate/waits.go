@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/score"
 )
 
 // Who a row waits on: the duty the design names for the row, the named human a
@@ -112,6 +113,24 @@ func (g *Gate) waitsOn(ctx context.Context, row Row, holds []string, routed Rout
 	}
 	waits.Holders = holders
 	return waits, nil
+}
+
+// routedByAResolution is the human a resolution's own provenance names, and is
+// empty where none does — a firing that resolved nothing, and one whose
+// resolutions name nobody the factory can resolve, both leave the row on the
+// duty the design names for it.
+//
+// It is what routes the Spec row to the human a withdrawn protection's
+// provenance names rather than to the owner by default. The first is taken: a
+// version withdrawing two protections is one decision and goes to one human, and
+// the vector names every one of them beside the factor.
+func routedByAResolution(resolved []score.Resolution) string {
+	for _, r := range resolved {
+		if r.RoutedTo != "" {
+			return r.RoutedTo
+		}
+	}
+	return ""
 }
 
 // holdersOf is who the People declaration records as holding one duty, by the

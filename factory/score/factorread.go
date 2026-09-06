@@ -27,6 +27,9 @@ type reading struct {
 	cause       Cause
 	// evidence is the exposure list, and empty on every other factor.
 	evidence []string
+	// routedTo is the per-person key this reading's own fact names, and is
+	// empty on every factor that names nobody.
+	routedTo string
 	// width, closes, claimed and verified are the per-author prior's, and are
 	// nothing on every other factor.
 	width    float64
@@ -234,7 +237,21 @@ func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
 // decides no spec version: the withdrawal is a fact of the version under
 // decision, and a row deciding another kind of version removes nothing by
 // having none.
+//
+// At Implementation the same factor is what the transition check reads: whether
+// the implementation admits a transition a machine forbids. A screen the check
+// could not derive leaves that unreadable, so the factor is unavailable there
+// and the vector names the screen and the constructs that defeated the
+// analysis. Which factor carries that reading is this package's and not the
+// design's, and doc.go says so.
 func (s *Score) protectionWithdrawn(ctx context.Context, c Change) (reading, error) {
+	if c.AtImplementation && len(c.ScreensNotDerived) > 0 {
+		return reading{
+			unavailable: "the transition check could not derive " +
+				fmt.Sprintf("%d screen(s) of this build", len(c.ScreensNotDerived)),
+			evidence: slices.Clone(c.ScreensNotDerived),
+		}, nil
+	}
 	removed, err := s.withdrawals.ProtectionRemovedBy(ctx, c.ArtifactID)
 	if err != nil {
 		return reading{}, err
@@ -243,10 +260,14 @@ func (s *Score) protectionWithdrawn(ctx context.Context, c Change) (reading, err
 		return reading{level: 0, words: "the version under decision withdraws no criterion and removes no declared transition"}, nil
 	}
 	var evidence []string
+	routedTo := ""
 	for _, r := range removed {
 		routed := "the owner, its provenance naming nobody the factory can resolve"
 		if r.RoutedTo != "" {
 			routed = r.RoutedTo
+			if routedTo == "" {
+				routedTo = r.RoutedTo
+			}
 		}
 		evidence = append(evidence, fmt.Sprintf("%s: %s (%s), routed to %s", r.What, r.SubjectID, r.Provenance, routed))
 	}
@@ -259,6 +280,7 @@ func (s *Score) protectionWithdrawn(ctx context.Context, c Change) (reading, err
 		cause:    CauseProtectionWithdrawn,
 		words:    words,
 		evidence: evidence,
+		routedTo: routedTo,
 	}, nil
 }
 
