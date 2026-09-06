@@ -2,9 +2,12 @@ package driftdetector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/record"
@@ -101,7 +104,22 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 // Apply creates the drift detector's schema. It is called by the
 // drift detector's own process and by nothing in the factory.
+//
+// The schema itself is created first, named by the connection's search path,
+// because a fresh store has none: the URL names a schema the DDL's unqualified
+// names resolve in, and nothing but this process ever makes it exist.
 func Apply(ctx context.Context, pool *pgxpool.Pool) error {
+	var path string
+	if err := pool.QueryRow(ctx, "show search_path").Scan(&path); err != nil {
+		return fmt.Errorf("driftdetector: reading the search path: %w", err)
+	}
+	schema := strings.Trim(strings.TrimSpace(strings.Split(path, ",")[0]), `"`)
+	if schema == "" {
+		return errors.New("driftdetector: the connection names no schema to create in")
+	}
+	if _, err := pool.Exec(ctx, `create schema if not exists `+pgx.Identifier{schema}.Sanitize()); err != nil {
+		return fmt.Errorf("driftdetector: creating schema %s: %w", schema, err)
+	}
 	for n, statement := range DDL {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			return fmt.Errorf("driftdetector: applying statement %d: %w", n+1, err)

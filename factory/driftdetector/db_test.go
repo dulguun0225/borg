@@ -49,9 +49,8 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *driftdetector.Writ
 		}
 		pool.Close()
 	})
-	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
-		t.Fatalf("creating schema %s: %v", schema, err)
-	}
+	// The schema is not created here: a fresh store has none, and Apply is
+	// what makes it exist, the way the drift detector's first pass does.
 	if err := driftdetector.Apply(ctx, pool); err != nil {
 		t.Fatalf("applying the schema: %v", err)
 	}
