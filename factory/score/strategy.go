@@ -39,7 +39,7 @@ const (
 	ScheduleAllAtOnce Schedule = "all of it at once, to a second complete copy running beside the one it replaces"
 )
 
-// The reasons a pick was bounded by something other than the number, in the
+// The reasons a pick was decided by something other than the number, in the
 // words the open event stores.
 const (
 	// WhyFirstRelease is a service's first release, which has no control whatever
@@ -64,6 +64,11 @@ const (
 	// bounds the pick wherever a control can run at all and whatever the number
 	// preferred.
 	WhySafeguarded = "a safeguard on this service keeps a control"
+	// WhyAuthored is a strategy default an owner authored on production's
+	// environment record. The score supplies a strategy where an owner authored
+	// none and never over one, so an authored default is the value in force and
+	// the number decided nothing.
+	WhyAuthored = "an owner authored this environment's strategy default"
 )
 
 // ShippedControlBound is the impact discounted by reversibility at or above
@@ -84,9 +89,10 @@ type Pick struct {
 	Strategy Strategy
 	// Schedule is empty on the row without a control, which has none.
 	Schedule Schedule
-	// Why is what bounded the pick where something did, in words a human reads
-	// beside the strategy: no build to keep serving, a platform that serves no
-	// share, an irreversible area, or the held-out sample.
+	// Why is what decided the pick where something other than the number did, in
+	// words a human reads beside the strategy: no build to keep serving, a
+	// platform that serves no share, an irreversible area, the held-out sample,
+	// a safeguard, or the default an owner authored.
 	Why string
 }
 
@@ -101,8 +107,9 @@ type Rollout struct {
 	HeldOut                 bool
 	Irreversible            bool
 	// Default is the rollout strategy an owner authored on production's
-	// environment record, and is empty where they authored none. It is what
-	// production takes where nothing else narrows the pick.
+	// environment record, and is empty where they authored none. Where it names
+	// a row that row is the value in force and the number supplies nothing over
+	// it; where it is empty the score supplies the strategy.
 	Default Strategy
 	// KeepsAControl is whether a safeguard on the strategy default stands on
 	// this service. A safeguard there adds a control rather than clamping a
@@ -119,11 +126,12 @@ type Rollout struct {
 // number at all. A safeguard keeping a control on the service is next: it adds
 // rather than clamps, so it picks the row with a control wherever one can run
 // and whatever the number preferred. A held-out release does the same, for the
-// sample's own reason. Where neither applies, the pick starts from the strategy
-// default an owner authored on production's environment record and falls to the
-// row without a control where they authored none — a default nobody chose is
-// still a decision, and Why names no bound for it, nothing having bounded the
-// pick. An irreversible area bounds the schedule and never the row.
+// sample's own reason. The strategy default an owner authored on production's
+// environment record comes next and the number last: the value in force is what
+// an owner authored where they authored one and what the score supplies
+// otherwise, so an authored row is taken whichever way it points and the number
+// reaches only a service whose default is empty. An irreversible area bounds the
+// schedule and never the row.
 //
 // The schedule is always the widening one. The other two are in the vocabulary
 // because the design names three and the deployer performs whichever is on the
@@ -139,21 +147,22 @@ func PickStrategy(a Assessment, r Rollout) Pick {
 		return Pick{Strategy: StrategyWithoutControl, Why: WhyPlatformServesNoShare}
 	}
 	pick := Pick{Strategy: StrategyWithoutControl}
-	if r.Default == StrategyWithControl {
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened}
-	}
 	switch {
 	case r.KeepsAControl:
 		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhySafeguarded}
 	case r.HeldOut:
 		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhyHeldOut}
+	case r.Default == StrategyWithControl:
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhyAuthored}
+	case r.Default == StrategyWithoutControl:
+		pick = Pick{Strategy: StrategyWithoutControl, Why: WhyAuthored}
 	case a.DiscountedImpact >= boundOf(a):
 		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened}
 	}
-	// Why names the one bound that applied, so a bound already named is not
-	// overwritten: a held-out release in an irreversible area was bounded by the
-	// sample, and the schedule an irreversible area holds it to is the one every
-	// controlled rollout already takes.
+	// Why names the one thing that decided the row, so a reason already named is
+	// not overwritten: a held-out release in an irreversible area was decided by
+	// the sample, and the schedule an irreversible area holds it to is the one
+	// every controlled rollout already takes.
 	if r.Irreversible && pick.Strategy == StrategyWithControl && pick.Why == "" {
 		pick.Why = WhyIrreversible
 	}

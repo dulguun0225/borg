@@ -184,7 +184,9 @@ func (e *HazardUncontrolledError) Error() string {
 // not a rejection: the derivation and the rejection are the irreversible
 // grade's alone.
 //
-// Its caller is the gate component at the Spec row, and it is not built.
+// Its caller is whatever fires the Spec row, which computes the rejection over
+// the requirement field there. This one is not computed beside it yet, and
+// doc.go says what stands in the way.
 func CheckHazardControlled(ctx context.Context, pool *pgxpool.Pool,
 	serviceID string, itemIDs []string, areaID string, irreversible bool,
 ) error {
