@@ -11,6 +11,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
@@ -31,9 +32,17 @@ import (
 // above it; Ops ends a revert item a mark made unnecessary. The value is
 // written by dispatch on an item and by intake on an intent, each being the
 // component that owns the record.
+//
+// A dropped item's candidate environment ends with it: the design has the
+// environment stay the item's until it merges, is dropped, or is superseded, so
+// an item is dropped through the deployer — `-secrets` and `-targets` — which
+// stops what runs there and tears the environment down with the reason. An
+// intent holds no environment and is dropped over the pool alone.
 func dropCommand(args []string) error {
 	flags := flag.NewFlagSet("drop", flag.ContinueOnError)
 	human := flags.String("human", "owner", "the human ending the work")
+	secrets := flags.String("secrets", "", "path of the secrets file (required for an item, whose environment is torn down)")
+	targets := flags.String("targets", "", "the directory the local target runs releases from (required for an item)")
 
 	id := ""
 	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
@@ -46,20 +55,65 @@ func dropCommand(args []string) error {
 		return errors.New("factory drop: one argument, the item or the intent, and then any flags")
 	}
 
+	if strings.HasPrefix(id, item.IDPrefix+"_") {
+		for _, required := range []struct{ name, value string }{{"secrets", *secrets}, {"targets", *targets}} {
+			if required.value == "" {
+				return fmt.Errorf("factory drop: -%s is required to drop an item, whose candidate environment is torn down with it", required.name)
+			}
+		}
+		return withPath(pathFlags{secrets: *secrets, targets: *targets, human: *human}, func(ctx context.Context, p *path) error {
+			actor, err := humanNamed(ctx, p.d.pool, p.d.token, *human)
+			if err != nil {
+				return err
+			}
+			dropped, err := item.NewDispatch(p.d.pool, p.d.token).Drop(ctx, actor, id)
+			if errors.Is(err, item.ErrEnded) {
+				// An item already dropped is not dropped twice, and its
+				// environment may still stand from a drop that could not reach
+				// the deployer; what follows tears that down.
+				if dropped, err = item.Get(ctx, p.d.pool, id); err != nil {
+					return err
+				}
+				if dropped.Stage != item.StageDropped {
+					return fmt.Errorf("factory drop: %s is %s, and only work still open or already dropped is dropped", id, dropped.Stage)
+				}
+				fmt.Printf("Item %s is already dropped\n", dropped.ID)
+			} else if err != nil {
+				return err
+			} else {
+				fmt.Printf("Item %s is dropped: work on it ends for good, and its branch is not merged\n", dropped.ID)
+				fmt.Println("Every row of its own the gate left open is abandoned by the next firing that reads them")
+			}
+			env, found, err := environment.ForItem(ctx, p.d.pool, dropped.ID)
+			if err != nil {
+				return err
+			}
+			if !found || !env.Live() || len(env.Targets) == 0 {
+				return nil
+			}
+			svc, err := p.serviceOf(ctx, dropped.ServiceID)
+			if err != nil {
+				return err
+			}
+			// Stopping comes first, so a record saying torn down never stands
+			// over a process still running — the order the merge's teardown keeps.
+			if _, err := p.d.targets.at(env.Targets[0].Address).Stop(ctx, deployerPrincipal, svc.Name, p.d.credential); err != nil {
+				return err
+			}
+			if err := p.candidates.TearDown(ctx, deployActor, env.ID, environment.ReasonDropped, environment.Rate{}); err != nil {
+				return err
+			}
+			fmt.Printf("Candidate environment %s torn down as dropped; the record is kept\n", env.ID)
+			return nil
+		})
+	}
+
 	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
 		actor, err := humanNamed(ctx, pool, token, *human)
 		if err != nil {
 			return err
 		}
 		switch {
-		case strings.HasPrefix(id, item.IDPrefix+"_"):
-			dropped, err := item.NewDispatch(pool, token).Drop(ctx, actor, id)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Item %s is dropped: work on it ends for good, and its branch is not merged\n", dropped.ID)
-			fmt.Println("Every row of its own the gate left open is abandoned by the next firing that reads them")
-			return nil
 		case strings.HasPrefix(id, intent.IDPrefix+"_"):
 			// Dropping leaves nothing waiting on a human, so this intake
 			// reaches none: the two calls intake makes are at a round of the
