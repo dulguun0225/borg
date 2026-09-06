@@ -158,10 +158,18 @@ func watchCommand(args []string) error {
 	human := flags.String("human", "owner", "the owner a page widens to")
 	forHow := flags.Duration("for", time.Minute, "how long to keep reading before leaving what is open, open")
 	every := flags.Duration("every", time.Second, "how often to read the quantity")
+
+	// The service's name is taken off the front before the flags are parsed, the
+	// way `priority <item-id>` is: it is what a person types first, and the flag
+	// package stops at the first argument that is not a flag.
+	name := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		name, args = args[0], args[1:]
+	}
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 1 {
+	if name == "" || flags.NArg() != 0 {
 		return errors.New("factory watch: one argument, the service's name, and then any flags")
 	}
 	for _, required := range []struct{ name, value string }{
@@ -175,12 +183,12 @@ func watchCommand(args []string) error {
 	return withPath(pathFlags{
 		secrets: *secrets, targets: *targets, human: *human,
 	}, func(ctx context.Context, p *path) error {
-		svc, found, err := service.ByName(ctx, p.d.pool, flags.Arg(0))
+		svc, found, err := service.ByName(ctx, p.d.pool, name)
 		if err != nil {
 			return err
 		}
 		if !found {
-			return fmt.Errorf("factory watch: no service is named %q", flags.Arg(0))
+			return fmt.Errorf("factory watch: no service is named %q", name)
 		}
 		if err := p.watchTo(ctx, svc, time.Now().Add(*forHow), *every); err != nil {
 			return err

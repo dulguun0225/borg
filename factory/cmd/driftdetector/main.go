@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -172,11 +173,19 @@ func show(ctx context.Context, s stores, out io.Writer) error {
 func clearCommand(args []string) error {
 	flags := flag.NewFlagSet("clear", flag.ContinueOnError)
 	human := flags.String("human", "", "the human clearing it (required; the record says whose act it was)")
+
+	// The mismatch id is taken off the front before the flags are parsed: it is
+	// what a person types first, and the flag package stops at the first
+	// argument that is not a flag.
+	id := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		id, args = args[0], args[1:]
+	}
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 1 {
-		return errors.New("driftdetector clear: one argument, the mismatch id")
+	if id == "" || flags.NArg() != 0 {
+		return errors.New("driftdetector clear: one argument, the mismatch id, and then any flags")
 	}
 	if *human == "" {
 		return errors.New("driftdetector clear: -human is required")
@@ -189,7 +198,7 @@ func clearCommand(args []string) error {
 	}
 	defer shut()
 
-	cleared, err := driftdetector.NewWriter(s.own).Clear(ctx, flags.Arg(0), *human)
+	cleared, err := driftdetector.NewWriter(s.own).Clear(ctx, id, *human)
 	if err != nil {
 		return err
 	}
