@@ -46,12 +46,13 @@ const FormatVersionRequirement = "requirement/1"
 // time in any other format, and an empty answer stamped with a valid time,
 // which would read as answered while saying nothing.
 //
-// The constraints on the intent row that name the source are the design's
-// three asymmetries between an intent somebody asked for and one the factory
-// raised, refused in the store as well as in the writer: the factory's own
-// carries the evidence that raised it and no other source does, it has no
-// intended effect because its evidence stands where the statement would, and
-// it has no outcome because no acceptance round gives it one.
+// The constraints on the intent row that name the source are two asymmetries
+// between an intent somebody asked for and one the factory raised, refused in
+// the store as well as in the writer: the factory's own has no intended
+// effect because its evidence stands where the statement would, and it has no
+// outcome because no acceptance round gives it one. Evidence is required on
+// the factory's own and optional on the other two, a request carrying it only
+// where the request is a revert naming the release it undoes.
 //
 // A requirement's pattern is one of the six or empty, and empty is admitted
 // only with an escape reason, which is what [Escaped] counts. superseded_at
@@ -83,7 +84,7 @@ var DDL = []string{
 	constraint re_decompositions_not_negative check (re_decompositions >= 0),
 	constraint tier_not_negative check (tier >= 0),
 	constraint tier_and_its_policy_version_together check ((tier = 0) = (tier_policy_version = '')),
-	constraint evidence_on_the_factorys_own check ((source = 'detector') = (evidence <> '')),
+	constraint evidence_required_for_the_factorys_own check (source <> 'detector' or evidence <> ''),
 	constraint intended_effect_not_on_the_factorys_own check (source <> 'detector' or intended_effect = ''),
 	constraint outcome_not_on_the_factorys_own check (source <> 'detector' or outcome = ''),
 	constraint deadline_is_time_layout check (deadline = '' or deadline ~ '` + record.TimePattern + `'),

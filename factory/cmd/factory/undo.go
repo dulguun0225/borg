@@ -40,6 +40,7 @@ func rollbackCommand(args []string) error {
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
 	human := flags.String("human", "owner", "the named human at Ops asking for the undo")
 	revert := flags.Bool("revert", false, "raise a revert intent instead, which is the undo after the build is gone")
+	release := flags.String("release", "", "the failed release the revert undoes (required with -revert)")
 	reason := flags.String("reason", "", "why the change is being undone, which the record carries")
 
 	name := ""
@@ -55,6 +56,9 @@ func rollbackCommand(args []string) error {
 	if *reason == "" {
 		return errors.New("factory rollback: -reason is what the record says the undo was for")
 	}
+	if *revert && *release == "" {
+		return errors.New("factory rollback: -revert names the release it undoes with -release")
+	}
 
 	return withPath(pathFlags{secrets: *secrets, targets: *targets, human: *human},
 		func(ctx context.Context, p *path) error {
@@ -66,7 +70,7 @@ func rollbackCommand(args []string) error {
 				return fmt.Errorf("factory rollback: no service named %q", name)
 			}
 			if *revert {
-				return p.revertIntent(ctx, svc, *reason)
+				return p.revertIntent(ctx, svc, *release, *reason)
 			}
 			return p.rollBackNow(ctx, svc, *reason)
 		})
@@ -119,18 +123,24 @@ func (p *path) rollBackNow(ctx context.Context, svc service.Service, reason stri
 // in as the named human at Ops, which decomposes into an item and takes the
 // whole path. It is what duty 10 comes to once the build the rollback would
 // return to is gone.
-func (p *path) revertIntent(ctx context.Context, svc service.Service, reason string) error {
-	live, running, err := deploy.Current(ctx, p.d.pool, svc.ID, p.production.ID,
-		serviceAddresses(p.production, svc))
+//
+// The named human names the failed release, and intake writes it as the
+// intent's evidence — the same link a detector's own revert carries, written
+// the same way regardless of which of the two raised it. A halt or freeze
+// passes a revert by reading that link and never by reading the source, which
+// is what makes the link required here rather than optional.
+func (p *path) revertIntent(ctx context.Context, svc service.Service, releaseID, reason string) error {
+	failed, err := release.Get(ctx, p.d.pool, releaseID)
 	if err != nil {
 		return err
 	}
-	statement := fmt.Sprintf("%s: revert what release %s shipped — %s", svc.Name, live.ReleaseID, reason)
-	if !running {
-		statement = fmt.Sprintf("%s: revert what shipped — %s", svc.Name, reason)
+	if failed.ServiceID != svc.ID {
+		return fmt.Errorf("factory rollback: release %s is not a release of %s", releaseID, svc.Name)
 	}
+	statement := fmt.Sprintf("%s: revert what release %d shipped — %s", svc.Name, failed.Number, reason)
 	in, err := p.intake.TakeIn(ctx, p.human, intent.Arrival{
 		Source: intent.SourceOwner, Statement: statement, ProjectID: p.projectID,
+		Evidence: intent.Evidence{ServiceID: svc.ID, ReleaseID: failed.ID},
 	})
 	if err != nil {
 		return err

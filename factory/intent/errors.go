@@ -38,9 +38,6 @@ var (
 	// with no evidence. A detector raises an intent for a condition and not
 	// for an observation, and the evidence is what keys it.
 	ErrEvidenceEmpty = errors.New("intent: an intent the factory raised carries the evidence that raised it")
-	// ErrEvidenceOnARequest is returned by [Intake.TakeIn] for evidence on an
-	// intent somebody asked for.
-	ErrEvidenceOnARequest = errors.New("intent: only an intent the factory raised carries evidence")
 	// ErrTierIncomplete is returned for a tier with a value and no policy
 	// version, or a policy version and no value: an authored value and the
 	// version it was in force under are written together.

@@ -85,8 +85,10 @@ type Arrival struct {
 	// supplies one. It is where decomposition places a service the work
 	// creates, and it is not a claim about where the work is.
 	ProjectID string
-	// Evidence is what raised an intent the factory raised. It is required on
-	// [SourceDetector] and refused on the other two.
+	// Evidence is what raised an intent the factory raised, required on
+	// [SourceDetector]. A request may carry it too: a revert a named human at
+	// Ops asks for names the release it undoes here, the same field a
+	// detector's own revert carries.
 	Evidence Evidence
 	// ConstraintID is whatever constraint arrived with the request and binds
 	// only what is decomposed from it.
@@ -103,11 +105,15 @@ type Arrival struct {
 // TakeIn writes an intent as it arrives: unrefined, zero rounds, zero
 // re-decompositions, and judged by nothing on the way in.
 //
-// The three asymmetries between an intent somebody asked for and one the
-// factory raised are refused here and again by [DDL]: the factory's own
-// carries evidence and the other two do not, the factory's own arrives with
+// Two asymmetries between an intent somebody asked for and one the factory
+// raised are refused here and again by [DDL]: the factory's own arrives with
 // its tier and the other two are given one at the confirming round, and only
-// the factory's own may be attached to by [OnEvidence].
+// the factory's own may be attached to by [OnEvidence]. Evidence is not a
+// third: it is required on the factory's own and optional on the other two,
+// carried by a request only where the request is a revert a named human at
+// Ops asked for, naming the release it undoes — the same link a detector's
+// own revert carries, so a halt or freeze passes either by reading it and
+// never by reading the source.
 func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, arrival Arrival) (Intent, error) {
 	if err := actor.Validate(); err != nil {
 		return Intent{}, err
@@ -124,9 +130,6 @@ func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, arrival Arrival
 	}
 	if arrival.Source == SourceDetector && evidence == "" {
 		return Intent{}, ErrEvidenceEmpty
-	}
-	if arrival.Source != SourceDetector && evidence != "" {
-		return Intent{}, fmt.Errorf("%w: source %q", ErrEvidenceOnARequest, arrival.Source)
 	}
 	if (arrival.Tier.Value == 0) != (arrival.Tier.PolicyVersion == "") {
 		return Intent{}, fmt.Errorf("%w: %+v", ErrTierIncomplete, arrival.Tier)

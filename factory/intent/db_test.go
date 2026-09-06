@@ -212,9 +212,6 @@ func TestTakeInRefusals(t *testing.T) {
 			intent.Arrival{Source: intent.SourceOwner, Statement: "anything"}, record.ErrKindUnknown},
 		{"a detector's intent with no evidence", intake,
 			intent.Arrival{Source: intent.SourceDetector, Statement: "anything"}, intent.ErrEvidenceEmpty},
-		{"evidence on a request", owner,
-			intent.Arrival{Source: intent.SourceOwner, Statement: "anything", Evidence: crossing},
-			intent.ErrEvidenceOnARequest},
 		{"a tier with no policy version", intake,
 			intent.Arrival{Source: intent.SourceDetector, Statement: "anything", Evidence: crossing,
 				Tier: intent.Tier{Value: 2}}, intent.ErrTierIncomplete},
@@ -225,6 +222,38 @@ func TestTakeInRefusals(t *testing.T) {
 		if _, err := in.TakeIn(ctx, refused.actor, refused.arrival); !errors.Is(err, refused.want) {
 			t.Errorf("TakeIn with %s = %v, want %v", refused.name, err, refused.want)
 		}
+	}
+}
+
+// TestARequestMayCarryEvidence is a human-source revert: the named human at
+// Ops asks for one naming the failed release, and intake writes that link the
+// same way it does for a detector's own revert — the request is not refused
+// for carrying evidence, and the evidence read back is the release named.
+func TestARequestMayCarryEvidence(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+
+	taken, err := in.TakeIn(ctx, owner, intent.Arrival{
+		Source: intent.SourceOwner, Statement: "revert what release rl_9 of checkout shipped", Evidence: crossing,
+	})
+	if err != nil {
+		t.Fatalf("TakeIn a request with evidence: %v", err)
+	}
+	if taken.Source != intent.SourceOwner {
+		t.Errorf("the intent's source is %s, want owner", taken.Source)
+	}
+	key, err := crossing.Key()
+	if err != nil {
+		t.Fatalf("crossing.Key: %v", err)
+	}
+	if taken.Evidence != key {
+		t.Errorf("the intent's evidence is %q, want %q", taken.Evidence, key)
+	}
+	read, err := intent.Get(ctx, pool, taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Evidence != key {
+		t.Errorf("Get's evidence is %q, want %q", read.Evidence, key)
 	}
 }
 
@@ -347,9 +376,7 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		{"a tier with no policy version", "owner", "anything", "unrefined", 0, 2, "", "", "", "", "", "",
 			"tier_and_its_policy_version_together"},
 		{"a detector's intent with no evidence", "detector", "anything", "unrefined", 0, 0, "", "", "", "", "", "",
-			"evidence_on_the_factorys_own"},
-		{"evidence on a request", "owner", "anything", "unrefined", 0, 0, "", "", `{"service_id":"sv_1"}`, "", "", "",
-			"evidence_on_the_factorys_own"},
+			"evidence_required_for_the_factorys_own"},
 		{"an intended effect on the factory's own", "detector", "anything", "unrefined", 0, 0, "", "who it is for",
 			`{"service_id":"sv_1"}`, "", "", "", "intended_effect_not_on_the_factorys_own"},
 		{"an outcome on the factory's own", "detector", "anything", "unrefined", 0, 0, "", "",
