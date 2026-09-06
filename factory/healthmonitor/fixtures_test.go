@@ -241,6 +241,7 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 	}
 	bl, err := g.builds.Create(ctx, theActor, build.Draft{
 		ItemID: it.ID, ServiceID: g.serviceID, CommitHash: "commit-" + intentID, ArtifactDigest: "digest-" + intentID,
+		ShippedBundleIdentity: "bundle-test",
 	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)

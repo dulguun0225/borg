@@ -188,10 +188,11 @@ func startRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token l
 	t.Helper()
 	itemID := record.NewID("it")
 	b, err := build.NewWriter(pool, token).Create(ctx, testActor, build.Draft{
-		ItemID:         itemID,
-		ServiceID:      svc.ID,
-		CommitHash:     commitHash,
-		ArtifactDigest: "sha256:" + commitHash,
+		ItemID:                itemID,
+		ServiceID:             svc.ID,
+		CommitHash:            commitHash,
+		ArtifactDigest:        "sha256:" + commitHash,
+		ShippedBundleIdentity: "bundle-test",
 	})
 	if err != nil {
 		t.Fatalf("creating the build: %v", err)

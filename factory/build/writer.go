@@ -25,6 +25,10 @@ var (
 	// ErrArtifactDigestEmpty is returned by [Writer.Create] for a build
 	// naming no artifact digest.
 	ErrArtifactDigestEmpty = errors.New("build: the artifact digest is empty")
+	// ErrShippedBundleIdentityEmpty is returned by [Writer.Create] for a build
+	// naming no release of the product. Every build names one, which is what
+	// says which way in the build carries.
+	ErrShippedBundleIdentityEmpty = errors.New("build: the shipped bundle identity is empty")
 	// ErrNotFound is returned where the named build does not exist.
 	ErrNotFound = errors.New("build: no build has that id")
 )
@@ -67,7 +71,7 @@ type Draft struct {
 	// interface.
 	DesignSystemConstraintID string
 	// ShippedBundleIdentity names the release of the product that made this
-	// build, present on a search build and empty otherwise.
+	// build, on every build and never empty.
 	ShippedBundleIdentity string
 	// Exposure is the exposure list the build runner derived from the diff
 	// between the base and this build's commit, and nil where no extractor ran
@@ -145,6 +149,9 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 	}
 	if draft.ArtifactDigest == "" {
 		return Build{}, ErrArtifactDigestEmpty
+	}
+	if draft.ShippedBundleIdentity == "" {
+		return Build{}, ErrShippedBundleIdentityEmpty
 	}
 
 	coverage, err := json.Marshal(draft.ResolvedSetCoverage)

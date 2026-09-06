@@ -6,11 +6,12 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// Kind is what an artifact is a version of. The first three belong to an
-// item, one per stage; the other three are the fleet's, and belong to a role,
-// a subject, or the factory as a whole rather than to an item — [ItemKinds]
-// and [FleetKinds] split them, and the DDL's chain_key_matches_kind CHECK is
-// the same split enforced on every write.
+// Kind is what an artifact is a version of. The first five belong to an item —
+// the four authored at a stage of the path and the consumer contract derived at
+// the last of them; the other three are the fleet's, and belong to a role, a
+// subject, or the factory as a whole rather than to an item — [ItemKinds] and
+// [FleetKinds] split them, and the DDL's chain_key_matches_kind CHECK is the
+// same split enforced on every write.
 type Kind string
 
 const (

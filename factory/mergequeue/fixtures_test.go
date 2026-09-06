@@ -343,6 +343,7 @@ func built(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.To
 		CommitHash:               commit,
 		ArtifactDigest:           "sha256:" + commit,
 		DesignSystemConstraintID: designSystemRecord,
+		ShippedBundleIdentity:    "bundle-test",
 		Resolved:                 resolved,
 	})
 	if err != nil {

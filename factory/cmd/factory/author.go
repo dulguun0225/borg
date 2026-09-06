@@ -66,7 +66,7 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 				Tasks:    c.tasks,
 				Files:    current,
 				Hazard:   hazard,
-				Screen:   c.screenStates,
+				Screen:   c.screens,
 				Returned: returned,
 			})
 		p.reportAttempts(dispatch.RoleImplementer, run)

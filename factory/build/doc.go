@@ -1,6 +1,7 @@
 // Package build owns the build record: one per commit built, naming the
 // service it was built for, the item where it has one, the commit, the
-// artifact digest, the resolved set of third-party packages, the notice file
+// artifact digest, the shipped-bundle identity of the release of the product
+// that made it, the resolved set of third-party packages, the notice file
 // derived from that set, the design system constraint in force where the
 // project has screens, and what the build's own process decided about the
 // criteria whose encodings declare it. Written once, when the build is
@@ -66,9 +67,10 @@
 // the change factors from; the candidate deploy, where a rebuild is needed;
 // the merge queue at re-verification, which builds the candidate branch onto
 // the master it will actually merge into; and the search, whose builds are of
-// commits on no branch and name the shipped-bundle identity of the release
-// that made them rather than an item. None of the four is built yet; this
-// package is written for all four callers to reach.
+// commits on no branch and name no item. The first is built — the
+// command-line interface calls [Writer.Create] when the implementation stage
+// finishes — and the other three are not; this package is written for all four
+// callers to reach.
 //
 // Who may write what: [Writer.Create] inserts into [Table] and
 // [ResolvedTable], and updates and deletes nothing. The record has no update

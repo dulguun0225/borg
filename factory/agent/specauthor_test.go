@@ -114,44 +114,6 @@ func TestRefineParsesSeveralCriteriaAndAWithdrawal(t *testing.T) {
 	}
 }
 
-// TestRefineParsesAScreenStateMachine: where the item has a user interface the
-// spec version declares the screen's machine, and the states, events,
-// transitions and terminal states come back on the value.
-func TestRefineParsesAScreenStateMachine(t *testing.T) {
-	model := &fakeModel{
-		text: "SPEC:\nThe screen lists health.\n" +
-			"CRITERION rq_a: The system shall answer.\n" +
-			"SCREEN loading: loading, ready, failed\n" +
-			"TRANSITION loading loaded: ready\n" +
-			"TRANSITION loading errored: failed\n" +
-			"TERMINAL: ready, failed\n",
-	}
-	refined, err := SpecAuthor{Model: model, Prompt: ShippedSpecAuthorPrompt}.Refine(context.Background(), as(), Refining{
-		Statement: "a health screen", UserInterface: true,
-	})
-	if err != nil {
-		t.Fatalf("Refine: %v", err)
-	}
-	if refined.Screen == nil {
-		t.Fatal("Screen is nil, want the machine the reply declared")
-	}
-	if refined.Screen.Initial != "loading" || len(refined.Screen.States) != 3 {
-		t.Errorf("Screen = %+v, want the initial state and the three declared states", refined.Screen)
-	}
-	if len(refined.Screen.Transitions) != 2 || refined.Screen.Transitions[0].To != "ready" {
-		t.Errorf("Transitions = %+v, want the two the reply declared", refined.Screen.Transitions)
-	}
-	if len(refined.Screen.Events) != 2 {
-		t.Errorf("Events = %v, want one per event the transitions name", refined.Screen.Events)
-	}
-	if len(refined.Screen.Terminal) != 2 {
-		t.Errorf("Terminal = %v, want the two terminal states", refined.Screen.Terminal)
-	}
-	if !strings.Contains(model.user, "user interface") {
-		t.Errorf("the user message does not say the item has a user interface: %q", model.user)
-	}
-}
-
 // TestRefineCarriesWhatSentTheItemBack: a reject or a rework request is
 // material like the rest, with its reason and the version it was decided over,
 // so an attempt re-authors against what was found wrong rather than blind.
@@ -231,6 +193,75 @@ func TestRefineRefusesAReplyOutsideTheProtocol(t *testing.T) {
 	}
 }
 
+// TestRefineParsesTheProvenanceOfACriterion: a criterion's constraint-derived
+// and hazard-derived provenance is read at introduction, so the reply names
+// which constraints a criterion was drafted under and which area's hazardous
+// operation it bounds, and each line attaches to the criterion above it.
+func TestRefineParsesTheProvenanceOfACriterion(t *testing.T) {
+	model := &fakeModel{text: strings.Join([]string{
+		"SPEC:",
+		"the service pays out",
+		"CRITERION rq_1: The system shall log every payout.",
+		"CONSTRAINT: cst_a",
+		"CONSTRAINT: cst_b",
+		"CRITERION rq_1: If a payout exceeds the bound, then the system shall refuse it.",
+		"HAZARD: ar_payments",
+		"CRITERION rq_1: The system shall answer /healthz.",
+	}, "\n")}
+	refined, err := SpecAuthor{Model: model, Prompt: ShippedSpecAuthorPrompt}.Refine(context.Background(), as(),
+		Refining{
+			Statement:   "pay out",
+			Constraints: []Constraint{{ID: "cst_a", Statement: "payouts are logged"}, {ID: "cst_b"}},
+			Hazard:      Hazard{AreaID: "ar_payments", Operation: "payout"},
+		})
+	if err != nil {
+		t.Fatalf("Refine: %v", err)
+	}
+	if len(refined.Criteria) != 3 {
+		t.Fatalf("Criteria = %d, want 3", len(refined.Criteria))
+	}
+	if got := refined.Criteria[0].ConstraintDerived; len(got) != 2 || got[0] != "cst_a" || got[1] != "cst_b" {
+		t.Errorf("the first criterion's constraints are %v, want cst_a and cst_b", got)
+	}
+	if refined.Criteria[0].HazardDerived != "" {
+		t.Errorf("the first criterion names area %q, want none", refined.Criteria[0].HazardDerived)
+	}
+	if refined.Criteria[1].HazardDerived != "ar_payments" {
+		t.Errorf("the second criterion's area is %q, want ar_payments", refined.Criteria[1].HazardDerived)
+	}
+	if len(refined.Criteria[2].ConstraintDerived) != 0 || refined.Criteria[2].HazardDerived != "" {
+		t.Errorf("the third criterion carries provenance it was not given: %+v", refined.Criteria[2])
+	}
+	for _, want := range []string{
+		"cst_a: payouts are logged", "cst_b",
+		"area ar_payments is graded irreversible", "hazardous operation payout",
+		"No criterion in force bounds that operation.",
+	} {
+		if !strings.Contains(model.user, want) {
+			t.Errorf("the user message does not carry %q:\n%s", want, model.user)
+		}
+	}
+}
+
+// TestRefineRefusesProvenanceWithNoCriterion: the provenance lines attach to the
+// criterion above them, so one arriving first names a criterion that is not
+// there and is refused rather than dropped.
+func TestRefineRefusesProvenanceWithNoCriterion(t *testing.T) {
+	for _, reply := range []string{
+		"SPEC:\nthe spec\nCONSTRAINT: cst_a\nCRITERION rq_1: The system shall answer.",
+		"SPEC:\nthe spec\nHAZARD: ar_a\nCRITERION rq_1: The system shall answer.",
+		"SPEC:\nthe spec\nCRITERION rq_1: The system shall answer.\nHAZARD: ar_a\nHAZARD: ar_b",
+		"SPEC:\nthe spec\nCRITERION rq_1: The system shall answer.\nCONSTRAINT: ",
+	} {
+		model := &fakeModel{text: reply}
+		_, err := SpecAuthor{Model: model, Prompt: ShippedSpecAuthorPrompt}.Refine(context.Background(), as(),
+			Refining{Statement: "x"})
+		if !errors.Is(err, ErrReply) {
+			t.Errorf("Refine of %q = %v, want ErrReply", reply, err)
+		}
+	}
+}
+
 // TestPromptsCarryTheRulesAndThePatterns fails if a shipped prompt drifts from
 // what the milestone makes part of it: the one Rules constant in all four, and
 // the six EARS pattern names with their sentence forms in the spec author's.
@@ -247,7 +278,7 @@ func TestPromptsCarryTheRulesAndThePatterns(t *testing.T) {
 		}
 	}
 	for _, pattern := range []string{
-		"always_true", "event", "state", "state_with_event", "unwanted_condition", "optional_feature",
+		"always_true", "event", "state", "state_with_an_event_inside_it", "unwanted_condition", "optional_feature",
 	} {
 		if !strings.Contains(ShippedSpecAuthorPrompt, pattern) {
 			t.Errorf("ShippedSpecAuthorPrompt does not name the pattern %s", pattern)

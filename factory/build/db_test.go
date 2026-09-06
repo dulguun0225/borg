@@ -93,9 +93,49 @@ func inSchema(t *testing.T, base, schema string) string {
 var dispatch = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 
 // draftOf is one draft naming itemID, serviceID and commit, with an artifact
-// digest every draft this file writes needs and does not otherwise care about.
+// digest and a shipped-bundle identity every draft this file writes needs and
+// does not otherwise care about.
 func draftOf(itemID, serviceID, commit string) build.Draft {
-	return build.Draft{ItemID: itemID, ServiceID: serviceID, CommitHash: commit, ArtifactDigest: "sha256:" + commit}
+	return build.Draft{
+		ItemID: itemID, ServiceID: serviceID, CommitHash: commit,
+		ArtifactDigest: "sha256:" + commit, ShippedBundleIdentity: "bundle-2026.1",
+	}
+}
+
+// TestEveryBuildNamesTheShippedBundleIdentity: the field is on every build and
+// not on a search build alone, because it is what says which way in the build
+// carries. It is refused by the writer and by the store, the way every other
+// required field is.
+func TestEveryBuildNamesTheShippedBundleIdentity(t *testing.T) {
+	ctx, pool, w := newTable(t)
+	itemID, serviceID := record.NewID("it"), record.NewID("svc")
+
+	created, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "aaaa"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.ShippedBundleIdentity != "bundle-2026.1" {
+		t.Errorf("the record names bundle %q, want bundle-2026.1", created.ShippedBundleIdentity)
+	}
+
+	// A search build names a service and no item, and names one too.
+	search := draftOf("", serviceID, "bbbb")
+	if made, err := w.Create(ctx, dispatch, search); err != nil || made.ShippedBundleIdentity == "" {
+		t.Errorf("a search build = %+v, %v", made, err)
+	}
+
+	nameless := draftOf(itemID, serviceID, "cccc")
+	nameless.ShippedBundleIdentity = ""
+	if _, err := w.Create(ctx, dispatch, nameless); !errors.Is(err, build.ErrShippedBundleIdentityEmpty) {
+		t.Errorf("Create = %v, want %v", err, build.ErrShippedBundleIdentityEmpty)
+	}
+
+	_, err = pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, declares_schema_change)
+		values ($1, $2, 'component', 'dispatch', '', $3, $4, $5, 'dddd', 'sha256:x', '', '', '', '', '', false)`,
+		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), itemID, serviceID)
+	if err == nil || !strings.Contains(err.Error(), "shipped_bundle_identity_present") {
+		t.Errorf("inserting a build naming no bundle = %v, want a violation of shipped_bundle_identity_present", err)
+	}
 }
 
 func TestCreateWritesTheRecordOnce(t *testing.T) {
@@ -149,7 +189,7 @@ func TestAnEmptyCommitHashIsRefusedTwice(t *testing.T) {
 
 	// Around the writer, the CHECK constraint is what refuses it.
 	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity)
-		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, '', 'sha256:x', '', '', '', '', '')`,
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, '', 'sha256:x', '', '', '', '', 'bundle-2026.1')`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"), record.NewID("svc"))
 	if err == nil {
 		t.Error("the store accepted a build with no commit hash")
@@ -169,7 +209,7 @@ func TestAnEmptyServiceIDIsRefusedTwice(t *testing.T) {
 	}
 
 	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, declares_schema_change)
-		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', '', false)`,
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', 'bundle-2026.1', false)`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a build naming no service = %v, want a violation of service_id_present", err)

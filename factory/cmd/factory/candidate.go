@@ -83,9 +83,11 @@ type candidate struct {
 	spec            string
 	plan            string
 	tasks           string
-	// screenStates is the states the spec's machine declares, which the
-	// implementation stage authors what drives the screen into.
-	screenStates   []string
+	// screens is the machines the spec introduced — the screen's id, its
+	// declared states and its transitions — which the implementation stage
+	// authors what drives the screen into each state, and the screen's own
+	// transition function, against.
+	screens        []agent.ScreenInForce
 	implArtifactID string
 	// consumerContractArtifactID is the consumer contract version derived from the
 	// same build, and is empty where the build declares nothing about another
@@ -119,6 +121,12 @@ type candidate struct {
 	// spec author authors against — a criterion it restates would be a second
 	// promise under a second id.
 	promised []criterion.Criterion
+	// constraints is the constraints in force the drafting stage holds, and
+	// hazard the item's area where it is graded irreversible. They are what a
+	// criterion's constraint-derived and hazard-derived provenance is written
+	// from, and the stage names neither unless the role was told it.
+	constraints []agent.Constraint
+	hazard      agent.Hazard
 
 	// The candidate's own environment and what happened on it.
 	environmentID  string

@@ -7,11 +7,13 @@ import (
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/screenstatemachine"
 )
@@ -92,9 +94,11 @@ func (p *path) submitSpec(ctx context.Context, c *candidate, authored agent.Refi
 			reason = "not classified by the command-line interface"
 		}
 		drafts = append(drafts, criterion.Draft{
-			Sentence:        one.Sentence,
-			NoPatternReason: reason,
-			RequirementID:   p.requirementFor(c, one.RequirementID, one.Sentence),
+			Sentence:          one.Sentence,
+			NoPatternReason:   reason,
+			RequirementID:     p.requirementFor(c, one.RequirementID, one.Sentence),
+			ConstraintDerived: constraintsFor(c, one.ConstraintDerived),
+			HazardDerived:     hazardFor(c, one.HazardDerived),
 		})
 	}
 	var machines []screenstatemachine.Draft
@@ -115,9 +119,15 @@ func (p *path) submitSpec(ctx context.Context, c *candidate, authored agent.Refi
 	for _, id := range authored.Withdrawn {
 		fmt.Fprintf(p.d.out, "  spec %s withdraws criterion %s\n", version.ID, id)
 	}
-	c.screenStates = nil
+	c.screens = nil
 	for _, m := range written {
-		c.screenStates = append(c.screenStates, m.States...)
+		screen := agent.ScreenInForce{ID: m.Screen, States: m.States}
+		for _, t := range m.Transitions {
+			screen.Transitions = append(screen.Transitions, agent.ScreenTransition{
+				From: t.From, Event: t.Event, To: t.To, Screen: t.Screen,
+			})
+		}
+		c.screens = append(c.screens, screen)
 		fmt.Fprintf(p.d.out, "  spec %s declares screen %s: %d state(s), initial %s\n",
 			version.ID, m.Screen, len(m.States), m.Initial)
 	}
@@ -139,10 +149,37 @@ func screenMachine(declared agent.ScreenMachine) screenstatemachine.Draft {
 	}
 	for _, t := range declared.Transitions {
 		draft.Transitions = append(draft.Transitions, screenstatemachine.Transition{
-			From: t.From, Event: t.Event, To: t.To,
+			From: t.From, Event: t.Event, To: t.To, Screen: t.Screen,
 		})
 	}
 	return draft
+}
+
+// constraintsFor is the constraint ids a criterion derives from, narrowed to the
+// constraints the stage was handed: a criterion is constraint-derived only where
+// the drafting stage named a constraint it held as evidence, so an id nothing
+// handed it is not evidence and is dropped.
+func constraintsFor(c *candidate, named []string) []string {
+	var held []string
+	for _, id := range named {
+		for _, one := range c.constraints {
+			if one.ID == id {
+				held = append(held, id)
+				break
+			}
+		}
+	}
+	return held
+}
+
+// hazardFor is the area a criterion bounds the hazardous operation of, and is
+// empty unless the criterion names the one area the stage was handed: the
+// derivation and the field are the irreversible grade's alone.
+func hazardFor(c *candidate, named string) string {
+	if named != "" && named == c.hazard.AreaID {
+		return named
+	}
+	return ""
 }
 
 // planStage is the item's implementation plan version and the Implementation
@@ -322,15 +359,62 @@ func (p *path) specMaterial(c *candidate) []inputmanifest.Material {
 
 // refining is what the spec author is given: the intent's statement, the
 // service, the requirements this item answers, the criteria the service
-// already promises, and what sent the item back here.
+// already promises, the constraints in force, the item's area where it is
+// graded irreversible, and what sent the item back here. The last two are what
+// a criterion's constraint-derived and hazard-derived provenance is written
+// from, which the stage cannot name unless the role was told them.
 func (p *path) refining(c *candidate, returned agent.Returned) agent.Refining {
 	return agent.Refining{
 		Statement:    c.statement,
 		Service:      c.svc.Name,
 		Requirements: c.requirements,
 		InForce:      rolePromptCriteria(c.promised),
+		Constraints:  c.constraints,
+		Hazard:       c.hazard,
 		Returned:     returned,
 	}
+}
+
+// constraintsInForce is the constraints the drafting stage holds. There is no
+// constraint record in this factory, so the only constraint it can name is
+// whatever arrived with the request, which the intent carries by id and with no
+// text; agent's doc.go names that as what the composition does not supply.
+func constraintsInForce(in intent.Intent) []agent.Constraint {
+	if in.ConstraintID == "" {
+		return nil
+	}
+	return []agent.Constraint{{ID: in.ConstraintID}}
+}
+
+// hazardInForce is the item's area as the spec author is told it, where the
+// grade in force for that area is irreversible and the area itself names the
+// hazardous operation. Anything else is the zero value: the derivation and the
+// hazard-derived field are the irreversible grade's alone.
+//
+// promised is the service's criteria in force, read for whether one already
+// bounds the operation — the stage derives one only where none does.
+func (p *path) hazardInForce(ctx context.Context, promised []criterion.Criterion) (agent.Hazard, error) {
+	if p.areaID == "" {
+		return agent.Hazard{}, nil
+	}
+	grade, err := area.SeverityInForce(ctx, p.d.pool, p.areaID)
+	if err != nil {
+		return agent.Hazard{}, err
+	}
+	if grade != area.GradeIrreversible {
+		return agent.Hazard{}, nil
+	}
+	ar, err := area.Get(ctx, p.d.pool, p.areaID)
+	if err != nil {
+		return agent.Hazard{}, err
+	}
+	h := agent.Hazard{AreaID: p.areaID, Operation: ar.Hazard.Operation}
+	for _, one := range promised {
+		if one.HazardDerived == p.areaID {
+			h.Controlled = true
+		}
+	}
+	return h, nil
 }
 
 // requirementFor is the requirement id a criterion names: the one the role's
@@ -352,6 +436,7 @@ func (p *path) requirementFor(c *candidate, named, sentence string) string {
 	for _, r := range c.requirements {
 		if r.Statement == sentence {
 			return r.ID
+
 		}
 	}
 	return ""

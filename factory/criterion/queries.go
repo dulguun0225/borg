@@ -6,6 +6,107 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Provenance is one of the three sources that name an authority a withdrawal is
+// routed to. Everything else is factory-drafted, which names none and is not a
+// value here: the fourth source is the absence of these three.
+type Provenance string
+
+const (
+	// ProvenanceHumanConfirmed is a criterion whose introducing spec version a
+	// human decided. It is no field of this table: it is a query over that
+	// version's decision, which carries the actor and the resolved vector.
+	ProvenanceHumanConfirmed Provenance = "human_confirmed"
+	// ProvenanceConstraintDerived is a criterion the drafting stage named a
+	// constraint as its evidence for.
+	ProvenanceConstraintDerived Provenance = "constraint_derived"
+	// ProvenanceHazardDerived is a criterion that bounds the hazardous
+	// operation of a named area.
+	ProvenanceHazardDerived Provenance = "hazard_derived"
+)
+
+// Provenances is the three sources that name an authority.
+var Provenances = []Provenance{
+	ProvenanceHumanConfirmed, ProvenanceConstraintDerived, ProvenanceHazardDerived,
+}
+
+// HumanConfirmed is every criterion in force for the build whose introducing
+// spec version a human decided. Human-confirmed is not a field: it is a query
+// over that version's decision, the way in force is already a query, and the
+// decision is the decision log's fact and not this table's — so the caller
+// reads which spec versions a human decided and passes what it read, the way
+// [CheckHazardControlled] takes the grade.
+//
+// A criterion whose introducing decision the log's retention cut removed is not
+// in the set the caller assembled and reads here as unknown provenance, which
+// is the cost the design states.
+func HumanConfirmed(ctx context.Context, pool *pgxpool.Pool, serviceID string,
+	itemIDs, humanConfirmedSpecVersions []string) ([]Criterion, error) {
+	if len(itemIDs) == 0 || len(humanConfirmedSpecVersions) == 0 {
+		return nil, nil
+	}
+	return query(ctx, pool, serviceID,
+		selectCriterion+` where service_id = $1 and item_id = any($2) and spec_artifact_id = any($3)`+
+			notWithdrawn+` order by at`,
+		serviceID, itemIDs, humanConfirmedSpecVersions)
+}
+
+// WithdrawalWithAnAuthority is one criterion a spec version withdraws whose
+// provenance names an authority: the criterion, and which of the three sources
+// it has. A criterion may have more than one, and the routing is per source.
+type WithdrawalWithAnAuthority struct {
+	Criterion   Criterion
+	Provenances []Provenance
+}
+
+// WithdrawalsWithAnAuthority is every criterion the spec version withdraws
+// whose provenance names an authority. The score reads it: each is a resolved
+// factor at the Spec row, routed to the human that provenance names — the actor
+// of the introducing decision for a human-confirmed one, whoever holds the duty
+// over the constraint the field names for a constraint-derived one, and whoever
+// holds it over the area for a hazard-derived one. Which human that is, the
+// score's own reading, is not this package's; doc.go names the caller.
+//
+// humanConfirmedSpecVersions is the spec versions a human decided, assembled by
+// the caller for the reason [HumanConfirmed] gives. A withdrawn criterion whose
+// provenance names no authority is not returned: it is factory-drafted, and its
+// withdrawal is silent.
+func WithdrawalsWithAnAuthority(ctx context.Context, pool *pgxpool.Pool,
+	specArtifactID string, humanConfirmedSpecVersions []string) ([]WithdrawalWithAnAuthority, error) {
+	if specArtifactID == "" {
+		return nil, nil
+	}
+	withdrawn, err := query(ctx, pool, "",
+		selectCriterion+` where exists (select 1 from `+WithdrawalTable+` w
+			where w.criterion_id = `+Table+`.id and w.spec_artifact_id = $1) order by at`,
+		specArtifactID)
+	if err != nil {
+		return nil, err
+	}
+
+	var withAnAuthority []WithdrawalWithAnAuthority
+	for _, c := range withdrawn {
+		var sources []Provenance
+		for _, one := range humanConfirmedSpecVersions {
+			if c.SpecArtifactID == one {
+				sources = append(sources, ProvenanceHumanConfirmed)
+				break
+			}
+		}
+		if len(c.ConstraintDerived) > 0 {
+			sources = append(sources, ProvenanceConstraintDerived)
+		}
+		if c.HazardDerived != "" {
+			sources = append(sources, ProvenanceHazardDerived)
+		}
+		if len(sources) == 0 {
+			continue
+		}
+		withAnAuthority = append(withAnAuthority,
+			WithdrawalWithAnAuthority{Criterion: c, Provenances: sources})
+	}
+	return withAnAuthority, nil
+}
+
 // ForConstraint is every criterion in force for the build that stands for the
 // named constraint: the first of the two questions the constraint-derived link
 // is a link for. Factory lists it so that what a rule in force is actually

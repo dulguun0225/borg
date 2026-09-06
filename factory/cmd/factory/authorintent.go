@@ -119,6 +119,10 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 			return nil, nil, err
 		}
 		c.promised = itsPromised
+		c.constraints = constraintsInForce(in)
+		if c.hazard, err = p.hazardInForce(ctx, itsPromised); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	// 4. Decomposition, where decomposition yielded more than one item. One verdict

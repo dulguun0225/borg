@@ -36,6 +36,10 @@ Every program you write also emits the quantity the factory watches what it ship
 
 Where the user message names a hazardous operation the item's area declares, each of those lines carries one field more: a tab, then the number of times that operation was performed in the unit of work just finished, as a decimal integer. A build in an area naming a hazardous operation whose emission does not count it is a build nothing can hold to the bound the area declares.
 
+Where the user message lists the screens the item's state machines declare — one per line, the screen's id, a colon, a space, and its declared states separated by commas — write what drives the screen into each of those states, code in this change like the encoding. A driver names the screen and the state it drives, written as the screen's id, a colon, and the state, either in the driver's own name or in a comment on it: ` + "`// drives ssm_<the screen id>:<the state>`" + `. The check over the build rejects in both directions here too: a state the machine declares that no driver names, and a driver naming a state no machine in force declares.
+
+Where a screen's line carries transitions, write the screen's own transition function in a file named ` + "`screen.<the screen id>.go`" + ` at the root of the repository: ` + "`func Transition(from, event string) string`" + `, a switch on from whose cases are the states written as string literals, each holding a switch on event whose cases are the events written as string literals, each of those returning the destination as a string literal — the state it moves to, or the id of the screen it leaves to. Anything else in that function — a value read from a map, a state returned by a call, a handler assigned at run time — is a construct the factory cannot follow, and a screen with one puts a human at the gate rather than passing.
+
 Two file-name conventions say what the service publishes and what it reads, and the factory derives both from your source rather than being told. Neither is something to add where the spec asks for neither: a change that publishes no interface and reads none writes no file of either kind, reads no BORG_EXCHANGE, and declares no variable for one.
 
 A published interface is one exported struct type in a file named ` + "`contract.<name>.go`" + ` at the root of the repository; a store is the same in ` + "`store.<name>.go`" + `. The type's exported fields are the interface's elements. Put the unit in the field's own name — SendTimeMillis and never a note beside SendTime — because a change of units has to read as a rename. Tag a field ` + "`borg:\"populated\"`" + ` where it is always there and ` + "`borg:\"deprecated\"`" + ` where it is the old form of a pair being migrated away from; a field with no tag is optional and unmarked. A program that publishes an interface also appends, once per exercise, one JSON object to the file named by the BORG_EXCHANGE environment variable — keyed by exactly those field names, one object per line, marshalled from that same type so there is one spelling of every name. That object is what the factory decides a consumer's assumptions against, so a program that publishes an interface and writes none has shown nothing.
@@ -81,9 +85,10 @@ type Implementing struct {
 	// Hazard is the hazardous operation the item's area declares, and is empty
 	// where the area declares none. Where it is set the emission counts it.
 	Hazard string
-	// Screen is the states the spec's state machine declares, so what drives
-	// the screen into each of them is authored here.
-	Screen []string
+	// Screen is the machines in force for the build, so what drives each
+	// screen into each of its declared states, and the screen's own transition
+	// function, are authored here.
+	Screen []ScreenInForce
 	// Returned is the reject or the rework request that sent the item back to
 	// this stage, with its reason and the version it was decided over.
 	Returned Returned
@@ -130,7 +135,13 @@ func (im Implementer) Implement(ctx context.Context, as principal.Principal, imp
 		fmt.Fprintf(&b, "\nThe hazardous operation this item's area declares: %s\n", implementing.Hazard)
 	}
 	if len(implementing.Screen) > 0 {
-		fmt.Fprintf(&b, "\nThe states the screen's state machine declares: %s\n", strings.Join(implementing.Screen, ", "))
+		b.WriteString("\nThe screens in force for this build:\n")
+		for _, s := range implementing.Screen {
+			fmt.Fprintf(&b, "%s: %s\n", s.ID, strings.Join(s.States, ", "))
+			for _, t := range s.Transitions {
+				fmt.Fprintf(&b, "  %s on %s goes to %s\n", t.From, t.Event, t.Destination())
+			}
+		}
 	}
 	writeReturned(&b, implementing.Returned)
 	b.WriteString("\nThe repository's current files:\n")
