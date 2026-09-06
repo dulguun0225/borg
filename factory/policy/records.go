@@ -216,11 +216,53 @@ func (f *Factory) CreateEnvironment(ctx context.Context, actor record.Actor,
 	return created, version, err
 }
 
+// RemoveFromEnvironment is the deployer's removal performed for one
+// environment, which is what an owner has done before [Factory.WithdrawEnvironment]
+// will take an environment other than production: the removal ends every
+// instance of the service on every target of that environment and writes a
+// deploy record for it naming no release, which is what makes the count
+// [Factory.WithdrawEnvironment] is refused on nothing.
+//
+// It is the same removal [Factory.RetireService] calls and not a second one,
+// bounded to the environment named — a retirement passes no environment and
+// reaches every persistent one. A factory composed with no deployer refuses it
+// with [ErrNoDeployer], for the reason a retirement does.
+//
+// It appends no version. Every owner write at Factory that authors a value or
+// changes a record of this package's does; this authors nothing and writes no
+// record here — what it writes is a deploy record, whose writer is the
+// deployer — so a version naming it would name no change to the authored state.
+func (f *Factory) RemoveFromEnvironment(ctx context.Context, actor record.Actor,
+	serviceID, environmentID string) error {
+	if err := ownerOnly(actor); err != nil {
+		return err
+	}
+	if f.Removal == nil {
+		return fmt.Errorf("%w: %s", ErrNoDeployer, serviceID)
+	}
+	if environmentID == "" {
+		return ErrEnvironmentIDEmpty
+	}
+	if err := f.Removal(ctx, serviceID, environmentID); err != nil {
+		return fmt.Errorf("policy: removing %s from environment %s: %w", serviceID, environmentID, err)
+	}
+	return nil
+}
+
+// ErrEnvironmentIDEmpty is returned by [Factory.RemoveFromEnvironment] for a
+// call naming no environment. The removal it performs is the one bounded to a
+// single environment, and a call naming none would reach every persistent one,
+// which is a retirement's removal and not this.
+var ErrEnvironmentIDEmpty = errors.New("policy: the environment the removal is performed for is empty")
+
 // WithdrawEnvironment ends one a customer defined, and production's as part of
 // a project ending. completeDeployRecords is the count of deploy records on it
 // marking a target complete for a release, which the caller read: package
 // environment refuses the withdrawal where it is not nothing, and this package
-// may not count them.
+// may not count them. [Factory.RemoveFromEnvironment] is what makes that count
+// nothing, and it is a second act of the owner's rather than something this
+// performs: the order is remove and then withdraw, and the refusal here is what
+// says the first has not happened.
 //
 // It takes no gate row: what a gate row decides is a withdrawal that removes a
 // human from a gate, and this removes an environment.

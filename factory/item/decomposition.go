@@ -41,10 +41,21 @@ func NewDecomposition(pool *pgxpool.Pool, token lease.Token) *Decomposition {
 	return &Decomposition{pool: pool, token: token}
 }
 
+// NewID mints an item id, which is what [New.ID] takes. It is exported so that
+// a caller writing a record that names the item before the item exists mints
+// the id under this package's own prefix rather than composing one of its own.
+func NewID() string { return record.NewID(IDPrefix) }
+
 // New is what decomposition knows about an item when it creates one. It is a struct
 // and not six arguments because most of them are strings and three of them are
 // ids: a caller that swapped two would compile.
 type New struct {
+	// ID is the id the item is written under, minted with [NewID] by a caller
+	// that has to write a record naming the item before the item exists, and
+	// minted here where it is empty. Decomposition mints one for the shares it
+	// derives: a derived requirement names the item that answers it and the item
+	// answers the share, so one of the two ids exists before either row does.
+	ID        string
 	IntentID  string
 	ServiceID string
 	// AreaID is the narrowest area whose declaration covers the work, and is empty
@@ -139,8 +150,12 @@ func (c *Decomposition) CreateTx(ctx context.Context, tx pgx.Tx, actor record.Ac
 		return Item{}, err
 	}
 
+	id := n.ID
+	if id == "" {
+		id = NewID()
+	}
 	it := Item{
-		ID:                   record.NewID(IDPrefix),
+		ID:                   id,
 		Actor:                actor,
 		At:                   record.Now(),
 		IntentID:             n.IntentID,

@@ -24,8 +24,14 @@ import (
 // stage no fleet entry covers". A composition that answered for fewer would
 // hold the rest, and dispatch's own tests are where that is demonstrated.
 type oneModelFleet struct {
-	model      agent.Model
-	modelName  string
+	model     agent.Model
+	modelName string
+	// effort is how long the model works before it answers, as -effort names it,
+	// and is empty where the run names none — which is an entry asking the
+	// provider for no effort at all. The factory does not check that the
+	// provider offers what is named: an entry asking for an effort nobody offers
+	// fails at the provider's own answer.
+	effort     string
 	credential string
 }
 
@@ -39,7 +45,7 @@ func (f oneModelFleet) EntryFor(_ context.Context, role dispatch.Role, on dispat
 		return dispatch.Entry{}, false, nil
 	}
 	return dispatch.Entry{
-		Role: role, Scope: scope, Model: f.model,
+		Role: role, Scope: scope, Model: f.model, Effort: f.effort,
 		ModelVersion: f.modelName, CredentialName: f.credential,
 	}, true, nil
 }
@@ -82,16 +88,21 @@ func shippedPromptFor(role dispatch.Role) (string, error) {
 }
 
 // enterShippedPrompts is the install's first-start step for what an agent is
-// told: at install, and at a first start on an upgrade that changed the
-// shipped words, the factory itself calls the artifact store to enter what
-// shipped, with the factory's own start as the actor and the author pair
-// empty.
+// told: at install, and at the factory's first start on a new version of the
+// product, the factory itself calls the artifact store to enter what shipped,
+// with the factory's own start as the actor and the author pair empty.
 //
-// A chain whose head already holds the same words is left alone: an upgrade
-// that changed nothing moves nothing. A chain whose head holds different words
-// gets a version awaiting the gate every version fires, and nothing here puts
-// it in force: the words the install ran on stand until that row is decided,
-// and this interface fires none.
+// What says whether this is a first start is the version's identity and not the
+// words: the newest entry a start wrote carries the shipped-bundle identity it
+// entered under, so a start under that same identity enters nothing, however
+// many versions an agent has authored over it since. Keyed on the words instead,
+// every start after the first authored version would re-enter what shipped.
+//
+// A version whose shipped words are the ones the last entry carried enters
+// nothing either: an upgrade that changed nothing moves nothing. A version whose
+// words differ gets an entry awaiting the gate every version fires, and nothing
+// here puts it in force — the words the install ran on stand until that row is
+// decided, and this interface fires none.
 func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpool.Pool,
 	actor record.Actor, bundle string) (rolePrompts, []string, error) {
 	prompts := rolePrompts{pool: pool}
@@ -101,16 +112,17 @@ func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpo
 		if err != nil {
 			return rolePrompts{}, nil, err
 		}
-		head, found, err := artifact.Newest(ctx, pool, artifact.KindRolePrompt, string(role), "")
+		last, found, err := artifact.NewestShipped(ctx, pool, artifact.KindRolePrompt, string(role), "")
 		if err != nil {
 			return rolePrompts{}, nil, err
 		}
-		if found && head.Content == shipped {
+		if found && (last.ShippedBundleIdentity == bundle || last.Content == shipped) {
 			continue
 		}
-		// The chain being empty is an install and its entry is in force
-		// ungated; a chain whose head holds other words is an upgrade that
-		// changed them, and its entry awaits the gate every version fires.
+		// No entry of a start at all is an install, and its entry is in force
+		// ungated; an entry under another identity carrying other words is an
+		// upgrade that changed them, and its entry awaits the gate every
+		// version fires.
 		enteredBy := artifact.EnteredByInstall
 		if found {
 			enteredBy = artifact.EnteredByUpgradeFirstStart
@@ -126,9 +138,9 @@ func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpo
 
 // gateEscalation is [dispatch.Escalation]: dispatch decides that the stage has
 // spent its limit and this performs it, which is the gate component's
-// enforcement — the escalated value onto the item, every pending row of the
-// item abandoned naming the limit, and the wait to the notifier, in that
-// order.
+// enforcement — the escalated value onto the item and every pending row of the
+// item abandoned naming the limit. Telling the notifier is dispatch's own call
+// and not part of this one.
 //
 // It is composed here because ../../../end-goal/components.md's row for
 // dispatch names no gate: the two meet in the composition and not in either

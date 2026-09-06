@@ -8,6 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // TestAnUpgradesShippedPromptIsNotInForceUntilItsGate is
@@ -54,6 +55,66 @@ func TestAnUpgradesShippedPromptIsNotInForceUntilItsGate(t *testing.T) {
 	if inForce.ID != installed.ID {
 		t.Errorf("what is in force is %s, the version an upgrade entered; want %s, the words the install ran on",
 			inForce.ID, installed.ID)
+	}
+}
+
+// TestTheComposedEntryNamesTheEffort: -effort is the field a fleet entry has
+// for how long the model works before it answers, and the one entry this
+// interface composes names it for every role — so what dispatch hands the role,
+// what the role sends the provider, and what the agent run record carries all
+// come from the same value. Empty is an entry naming none.
+func TestTheComposedEntryNamesTheEffort(t *testing.T) {
+	for _, effort := range []string{"", "high"} {
+		fleet := oneModelFleet{modelName: "a-model", effort: effort, credential: "model.openrouter"}
+		for _, role := range dispatch.Roles {
+			entry, matched, err := fleet.EntryFor(t.Context(), role, dispatch.On{})
+			if err != nil || !matched {
+				t.Fatalf("EntryFor(%s) = %v, %v; the composed fleet answers for every role", role, matched, err)
+			}
+			if entry.Effort != effort {
+				t.Errorf("the entry for %s names effort %q, want %q", role, entry.Effort, effort)
+			}
+		}
+	}
+}
+
+// TestASecondStartOnOneVersionEntersNothing is
+// ../../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md's
+// "at the factory's first start on the new version, what shipped enters the
+// chain": the trigger is the version's identity, so once an agent has authored
+// a version over what shipped, a later start under the same identity enters
+// nothing — the words differing from the head of the chain is not an upgrade.
+func TestASecondStartOnOneVersionEntersNothing(t *testing.T) {
+	ctx, d, _ := newPath(t, "")
+	store := artifact.NewStore(d.pool, d.token)
+	role := dispatch.RoleSpecAuthor
+
+	if _, _, err := enterShippedPrompts(ctx, store, d.pool, installActor, "bundle-1"); err != nil {
+		t.Fatalf("the install's own entry: %v", err)
+	}
+	// An agent authors a version over what shipped, which is what leaves the
+	// head of the chain holding words the shipped constant does not.
+	author := record.Actor{Kind: record.KindAgent, Key: "a-model-version", Basis: record.BasisClaimed}
+	if _, err := store.SubmitFleet(ctx, author, artifact.By{
+		Authorship: artifact.AuthorshipAgent, Author: "a-model-version",
+	}, artifact.KindRolePrompt, string(role), "", "the words an agent authored", ""); err != nil {
+		t.Fatalf("authoring a version over what shipped: %v", err)
+	}
+
+	_, entered, err := enterShippedPrompts(ctx, store, d.pool, installActor, "bundle-1")
+	if err != nil {
+		t.Fatalf("enterShippedPrompts: %v", err)
+	}
+	if len(entered) != 0 {
+		t.Errorf("a second start on one version entered %v, and the version's own entry is already in the chain", entered)
+	}
+
+	head, found, err := artifact.Newest(ctx, d.pool, artifact.KindRolePrompt, string(role), "")
+	if err != nil || !found {
+		t.Fatalf("Newest = %v, %v", found, err)
+	}
+	if head.Authorship != artifact.AuthorshipAgent {
+		t.Errorf("the head of the chain is %+v, want the version the agent authored", head)
 	}
 }
 

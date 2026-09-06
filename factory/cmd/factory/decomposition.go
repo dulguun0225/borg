@@ -9,6 +9,7 @@ import (
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
@@ -32,14 +33,21 @@ import (
 // rather than deducing a graph: the services are given in order, and each item waits
 // on the one before it.
 //
-// What each item answers is assigned here too. A decomposition yielding one item
-// assigns every requirement of the intent to it whole, which is what a set of one
-// answers by construction. One yielding several assigns none of them whole: the split
-// spreads each requirement over the items, so a share per item is derived from it and
-// written by intake, and the item answers the shares rather than the whole. What
+// What each item answers is assigned here too, and it is on the item's record
+// either way. A decomposition yielding one item assigns every requirement of the
+// intent to it whole, which is what a set of one answers by construction. One
+// yielding several assigns none of them whole: the split spreads each requirement
+// over the items, so a share per item is derived from it and written by intake,
+// and the item answers the shares rather than the whole. What
 // states a share is the one thing this interface cannot supply — it is told which
 // services the work changes and never which part of a requirement each item answers —
 // so [shareOf] restates the requirement and doc.go says what that costs.
+//
+// The item's id is minted here, before either record is written, because the two
+// name each other: a derived requirement names the item that answers it, and the
+// item answers the share. Decomposition writes an item again only to supersede it
+// and to repoint what waits on it, so the field cannot be filled in a second
+// write.
 func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []string,
 	requirements []agent.Requirement) ([]*candidate, error) {
 	d := p.d
@@ -85,13 +93,21 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 		}
 		// A requirement one item answers alone is assigned to it whole; one the
 		// split spreads over several is assigned to none of them, and the item
-		// answers the share derived below instead.
-		var answered []string
-		if len(services) == 1 {
-			answered = make([]string, len(requirements))
-			for n, r := range requirements {
-				answered[n] = r.ID
+		// answers the share derived against its id instead. Either way the ids
+		// go on the item at its one creating write, which is what the item-size
+		// target's unit is read off.
+		itemID := item.NewID()
+		answers := requirements
+		answered := make([]string, 0, len(requirements))
+		if len(services) > 1 {
+			shares, err := p.deriveShares(ctx, in, itemID, requirements)
+			if err != nil {
+				return nil, err
 			}
+			answers = shares
+		}
+		for _, r := range answers {
+			answered = append(answered, r.ID)
 		}
 		// The branch is the intent's for the first item and the intent's plus the
 		// service's for the rest. Two items of one intent are on two repositories, so
@@ -103,6 +119,7 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			branch = "item/" + in.ID + "/" + name
 		}
 		it, err := p.decomposition.Create(ctx, decompositionActor, item.New{
+			ID:                   itemID,
 			IntentID:             in.ID,
 			ServiceID:            svc.ID,
 			AreaID:               p.areaID,
@@ -120,17 +137,7 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			branch:         branch,
 			waitsOn:        waitsOn,
 			requirementIDs: it.RequirementsAnswered,
-			requirements:   requirements,
-		}
-		if len(services) > 1 {
-			shares, err := p.deriveShares(ctx, in, it.ID, requirements)
-			if err != nil {
-				return nil, err
-			}
-			c.requirements = shares
-			for _, share := range shares {
-				c.requirementIDs = append(c.requirementIDs, share.ID)
-			}
+			requirements:   answers,
 		}
 		candidates = append(candidates, c)
 		previous = it.ID
@@ -203,7 +210,24 @@ func shareOf(statement string) string { return statement }
 // It does not re-decompose: that needs a stage which decides the decomposition
 // rather than one told what to produce, and this interface is told. What that leaves is a gate that
 // can stop a bad decomposition and cannot repair one.
+//
+// What the set answers is decided here too, and mechanically: [setRejection]
+// reads the intent's requirements in force against what the set's items answer,
+// and where it finds one the row is closed as the factory's own reject before a
+// human is asked, the way a build that does not compile is rejected at
+// Implementation. It is computed before the row fires because the composition
+// holds the set: package gate imports neither the requirements nor the items.
 func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *decompositionSet, candidates []*candidate) (bool, error) {
+	inForce, err := intent.Requirements(ctx, p.d.pool, in.ID)
+	if err != nil {
+		return false, err
+	}
+	answered := make([]string, 0, len(inForce))
+	for _, c := range candidates {
+		answered = append(answered, c.requirementIDs...)
+	}
+	incomplete, rejects := setRejection(inForce, answered)
+
 	members := make([]gate.SetMember, 0, len(candidates))
 	for _, c := range candidates {
 		members = append(members, gate.SetMember{
@@ -226,14 +250,32 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	fmt.Fprintf(p.d.out, "  the set is %d item(s): %v\n", len(set.itemIDs), set.itemIDs)
 	fmt.Fprintln(p.d.out, "  the diff factors are unavailable here, decomposition happening before anything is built, so this row is scored on a vector with holes in it")
 
-	// The firing a refer would re-fire with is the set's, and [gate.Gate.Refer]
-	// re-fires through [gate.Gate.Fire], which refuses the Decomposition row
-	// because that row decides a set. So a refer here is refused by the gate
-	// and the human is asked again — the one row of the four this interface
-	// fires where the action the design puts on every row is not reachable.
-	verdict, feedback, closing, err := p.settle(ctx, opened, gate.Firing{Row: gate.Decomposition})
-	if err != nil {
-		return false, err
+	verdict, feedback := gate.VerdictReject, incomplete
+	var closing decisionlog.Row
+	if rejects {
+		// The factory's own reject, closed as the gate component and before a
+		// human is asked, because a mechanical check rejects on its own terms.
+		// It goes through [gate.Gate.Decide] and not [gate.Gate.AutoReject]:
+		// that call refuses a check name the row does not offer, and package
+		// gate offers none at this row.
+		closing, err = p.gate.Decide(ctx, opened, gate.Given{
+			Actor: gate.Component(gate.Decomposition), Verdict: gate.VerdictReject, Reason: incomplete,
+		})
+		if err != nil {
+			return false, err
+		}
+		fmt.Fprintf(p.d.out, "The set is incomplete, so the row rejects before a human is asked: %s\n", incomplete)
+	} else {
+		// The firing a refer would re-fire with is the set's, and
+		// [gate.Gate.Refer] re-fires through [gate.Gate.Fire], which refuses the
+		// Decomposition row because that row decides a set. So a refer here is
+		// refused by the gate and the human is asked again — the one row of the
+		// four this interface fires where the action the design puts on every
+		// row is not reachable.
+		verdict, feedback, closing, err = p.settle(ctx, opened, gate.Firing{Row: gate.Decomposition})
+		if err != nil {
+			return false, err
+		}
 	}
 	set.fired = recordFiring(opened, closing)
 	if verdict != gate.VerdictReject {

@@ -167,12 +167,15 @@ func main() {
 // for good, accept-commit ends the queue's stop over a commit it did not make,
 // mark-rollback says a rollback was not caused by the release, mitigate is the
 // deployer acting on a human's instruction, and truncate is the log's retention
-// pass. The last eight are duty 8, duty 9, the priority an owner reorders a
+// pass. Two more end things for good rather than for now: retire is the owner's
+// write on a service record, which is the one thing that ends a service, and
+// end-project ends a project once every service in it is retired. The last eight
+// are duty 8, duty 9, the priority an owner reorders a
 // queue with, and the People declaration a page routes on — none of which has a
 // screen yet.
 const subcommands = "run, walk <deploy-id>, watch <service>, learn, approve <item-id>, contracts, " +
 	"rollback <service>, drop <item|intent>, accept-commit <service> <commit>, mark-rollback <deploy-id>, " +
-	"mitigate <deploy-id>, truncate, " +
+	"mitigate <deploy-id>, truncate, retire <service>, end-project, " +
 	"area <name>, author, safeguard, halt, legal-hold, policy, priority <item-id>, people [<human>]"
 
 // chosen is the switch on the subcommand name. It is not called dispatch:
@@ -207,6 +210,10 @@ func chosen(args []string) error {
 		return mitigateCommand(args[1:])
 	case "truncate":
 		return truncateCommand(args[1:])
+	case "retire":
+		return retireCommand(args[1:])
+	case "end-project":
+		return endProjectCommand(args[1:])
 	case "area":
 		return areaCommand(args[1:])
 	case "author":
@@ -278,6 +285,7 @@ func runCommand(args []string) error {
 	secrets := flags.String("secrets", "", "path of the secrets file (required)")
 	model := flags.String("model", "", "the provider's model id (required; the roadmap names the model in configuration)")
 	provider := flags.String("provider", "openrouter", "which provider answers the model — "+providers+"; each reads its own credential from the secrets file")
+	effort := flags.String("effort", "", "how long the model works before it answers, the field a fleet entry has for it; empty asks for none, and a value the provider does not offer fails at its own answer")
 	var services serviceFlag
 	flags.Var(&services, "service", "a service as name=path, the path being its git repository (created when absent); given once per service, and at least once")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
@@ -361,6 +369,9 @@ func runCommand(args []string) error {
 		// per-author prior being kept per model version.
 		modelName:           *model,
 		modelCredentialName: modelCredentialNameFor(*provider),
+		// The effort the one composed fleet entry names, sent to the provider on
+		// every call and recorded on every agent run.
+		effort: *effort,
 		// Paced around the provider client, so every call a stage makes —
 		// including a retry after a refused reply, which would otherwise follow
 		// the refusal with nothing in between — waits out the interval.

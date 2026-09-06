@@ -52,12 +52,16 @@ type Factory struct {
 	// Removal is what the deployer performs when a service is retired: it ends
 	// every instance of the service on every target of every persistent
 	// environment and writes a deploy record per environment naming no release.
+	// environmentID bounds it to one environment, which is the same removal
+	// performed for that one and what an owner has done before an environment
+	// may be withdrawn; empty is every persistent environment, which is what a
+	// retirement reaches.
 	// It is supplied by whatever composes the factory, this package reaching no
 	// deploy target and importing nothing that does. A nil value refuses the
 	// retirement with [ErrNoDeployer]: the design has the write call the
 	// deployer, so retiring through a factory with none composed would write
 	// retired and leave the service running.
-	Removal func(ctx context.Context, serviceID string) error
+	Removal func(ctx context.Context, serviceID, environmentID string) error
 
 	// AutoPassRates is the realized auto-pass rate at a threshold, one per
 	// factor set, computed in the same call that appends the version and frozen

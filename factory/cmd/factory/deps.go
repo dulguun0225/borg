@@ -43,6 +43,11 @@ type deps struct {
 	// through — model.openrouter or model.anthropic — carried so that every
 	// agentrun record this run writes names the credential it was served on.
 	modelCredentialName string
+	// effort is how long the model works before it answers, the field a fleet
+	// entry has for it, sent to the provider on every call and recorded on every
+	// agentrun record. Empty is an entry naming none, which asks the provider for
+	// no effort at all.
+	effort string
 	// project is the name of the project this composition works in, resolved to
 	// the record by [policy.Factory.Install] where install is set and read by
 	// name where it is not.

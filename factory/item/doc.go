@@ -8,7 +8,8 @@
 // item.go holds [Item], [StageTotals] with [StageTotals.AttemptsSinceCleared],
 // [Stage], the ordered [StageOrder], the [AuthoringStages] an attempt is
 // counted at, and the [EveryStage] the CHECK in [DDL] lists. decomposition.go
-// holds [Decomposition] and [NewDecomposition] with [Decomposition.Create] and
+// holds [Decomposition], [NewDecomposition] and [NewID] with
+// [Decomposition.Create] and
 // [Decomposition.CreateTx], which take a [New], [Decomposition.Supersede], and
 // [Decomposition.Repoint] and [Decomposition.RepointTx]. graph.go holds [Edge],
 // the read of what waits on what, and the cycle check behind
@@ -55,7 +56,10 @@
 //
 // The requirements an item answers are ids of package intent's requirement
 // record, which intake writes; the field is empty on an item that answers
-// none. The projects [Decomposition.Create] compares are package project's
+// none. Where those requirements are the shares a split derived, each names the
+// item back, so the caller mints the item's id with [NewID] and passes it as
+// [New.ID] rather than writing the item twice. The projects
+// [Decomposition.Create] compares are package project's
 // record, read by the caller — an area chain is package area's to walk and a
 // service's project is package service's field, and this package imports
 // neither — and where the item names no area there is nothing to compare.

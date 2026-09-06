@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/criterion"
@@ -52,9 +53,10 @@ func TestOneItemAnswersTheIntentsRequirementsWhole(t *testing.T) {
 
 // TestASplitAcrossTwoItemsDerivesAShareEach: a requirement the split spreads
 // over several items is assigned to none of them, decomposition derives one
-// requirement per item pointing at the one it came from, and each item's
-// criteria name its own share — which is what the Spec row rejects in both
-// directions over.
+// requirement per item pointing at the one it came from, the item's own record
+// says it answers those shares — which is the unit the item-size target is read
+// in — and each item's criteria name them, which is what the Spec row rejects in
+// both directions over.
 func TestASplitAcrossTwoItemsDerivesAShareEach(t *testing.T) {
 	ctx, d, out := newContractPath(t)
 	res := pair(t, ctx, d, out)
@@ -81,10 +83,6 @@ func TestASplitAcrossTwoItemsDerivesAShareEach(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading item %s: %v", c.itemID, err)
 		}
-		if len(it.RequirementsAnswered) != 0 {
-			t.Errorf("item %s answers %v whole, and a requirement the split spreads is assigned to none of them",
-				c.itemID, it.RequirementsAnswered)
-		}
 		shares, err := intent.ForItem(ctx, d.pool, c.itemID)
 		if err != nil {
 			t.Fatalf("reading the shares of %s: %v", c.itemID, err)
@@ -98,6 +96,14 @@ func TestASplitAcrossTwoItemsDerivesAShareEach(t *testing.T) {
 				t.Errorf("the share is %+v, want a derived requirement of this item pointing at what it came from", share)
 			}
 			ids = append(ids, share.ID)
+			if !slices.Contains(it.RequirementsAnswered, share.ID) {
+				t.Errorf("item %s answers %v and not share %s, which is the field the item-size target's unit is counted off",
+					c.itemID, it.RequirementsAnswered, share.ID)
+			}
+		}
+		if len(it.RequirementsAnswered) != len(shares) {
+			t.Errorf("item %s answers %v, want exactly the shares derived for it, no requirement of the intent whole",
+				c.itemID, it.RequirementsAnswered)
 		}
 		assertCriteriaNameWhatTheItemAnswers(t, ctx, d, c.svc.ID, c.itemID, ids)
 	}

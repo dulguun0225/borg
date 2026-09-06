@@ -61,7 +61,8 @@ func (f *Factory) RetireService(ctx context.Context, actor record.Actor, service
 	if err != nil {
 		return Version{}, err
 	}
-	if err := f.Removal(ctx, serviceID); err != nil {
+	// No environment is named, which is the removal over every persistent one.
+	if err := f.Removal(ctx, serviceID, ""); err != nil {
 		return version, fmt.Errorf("policy: removing %s from every persistent environment: %w", serviceID, err)
 	}
 	return version, nil

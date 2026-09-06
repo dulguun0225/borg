@@ -1,7 +1,7 @@
 // Command factory is the command-line interface: one binary on a terminal, standing in
 // for the four screens that are not built yet.
 //
-// Twenty subcommands. "run" walks the whole path once — the install, every
+// Twenty-two subcommands. "run" walks the whole path once — the install, every
 // component's restart, intake, the interview, decomposition, Decomposition
 // where decomposition yielded more than one item, the four authoring stages per
 // item with the gate row of each, the consumer contract derived from the same
@@ -42,6 +42,13 @@
 // performing one of the class's two operations on a target on a human's instruction,
 // and "-end" ends one standing. "truncate" is the decision log's retention pass,
 // refused while a legal hold stands.
+//
+// Two end something for good. "retire <service>" is the owner's write of retired
+// on the service record, which is the one thing that ends a service and what
+// calls the deployer's removal; with "-environment" it performs that removal for
+// one environment and writes nothing on the record, which is the step before an
+// environment is withdrawn. "end-project" ends the project once every service in
+// it is retired and withdraws production's environment for it in the same write.
 //
 // The other eight are duty 8, duty 9, the priority an owner reorders a queue
 // with, and the People declaration a page routes on, none of which has a screen
@@ -132,11 +139,14 @@
 //     intoProduction, strategyOf, and adopt, the deployer's four fields on the
 //     service record.
 //   - decomposition.go — decomposeItems, one item per service an intent
-//     changes with what each item answers assigned to it, deriveShares and
-//     shareOf, one item's share of a requirement the split spreads over
+//     changes with what each item answers written on its record, deriveShares
+//     and shareOf, one item's share of a requirement the split spreads over
 //     several, decompositionGate, the Decomposition row fired over the set
 //     where it yielded more than one, and decompositionAttemptLimit, the limit
 //     its re-decompositions are read against.
+//   - setcompleteness.go — setRejection and derivedFrom, the Decomposition
+//     row's check over what the set answers, which rejects mechanically before a
+//     human is asked.
 //   - authorintent.go — take, the intent a decomposition is authored from;
 //     authorIntent, intake through the four item stages for one intent;
 //     interview, the one round or none with the spec author plus the confirming
@@ -248,6 +258,12 @@
 //     truncateCommand: an item or an intent ended for good, a commit the queue
 //     did not make accepted, the deployer acting on a human's instruction, and
 //     the log's retention pass.
+//   - retirement.go — removeService, the [policy.Factory.Removal] this
+//     composition supplies; retireCommand with path.retire and
+//     path.removeFromEnvironment, the owner's write that ends a service and the
+//     removal performed for one environment; endProjectCommand, the project
+//     ended once every service in it is retired; and unmergedItemsNaming and
+//     servicesWithACurrentRelease, the counts each write is refused on.
 //
 // The authoring subcommands:
 //
@@ -315,7 +331,7 @@
 //
 // Every subcommand acquires the lease before it touches the store, whether it
 // writes or only reads: a read still appends a read event, which is itself a
-// write of the log, so the one-process rule holds for all twenty subcommands
+// write of the log, so the one-process rule holds for every subcommand
 // and not only for "run". acquireLease in main.go applies
 // package lease's own table — the one thing created before the lease, since a
 // lease cannot be taken in a store whose lease table does not exist — takes the
@@ -336,10 +352,16 @@
 // version fires is not fired, so a version an upgrade entered stays out of
 // force with the install's in force below it. A refer at the Decomposition row
 // is refused by the gate, [gate.Gate.Refer] re-firing through
-// [gate.Gate.Fire], which decides one item and not a set. The mechanical
+// [gate.Gate.Fire], which decides one item and not a set. The Decomposition
+// row's rejection over what the set answers is closed through [gate.Gate.Decide]
+// as the gate component rather than [gate.Gate.AutoReject], which refuses a
+// check name that row does not offer, and package gate offers none there. The
+// mechanical
 // rejection of a build whose emission does not count the area's hazardous
 // operation is not built: the implementer is told the operation and nothing
-// reads the count back off the build.
+// reads the count back off the build. [policy.Factory.WithdrawEnvironment] has
+// no subcommand: production's is the only persistent environment this interface
+// composes, and it is withdrawn with the project by "end-project".
 //
 // What defines it: the command-line interface in place of the four screens is
 // ../../../roadmap.md#m1--one-change-ships; more than one service and the
@@ -348,6 +370,8 @@
 // the component that puts an agent on a stage is
 // ../../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md;
 // every component's restart and the lease is ../../../end-goal/one-process.md;
+// what ends a service, an environment, or a project is
+// ../../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md;
 // the duties the subcommands give a way in to are
 // ../../../end-goal/what-humans-do.md; and what each component may call is
 // ../../../end-goal/components.md.
