@@ -50,8 +50,9 @@ const FormatVersionResolved = "build_resolved_entry/1"
 // set is a record rather than an empty file.
 //
 // design_system_constraint_id is empty on a build in a project with no user
-// interface. shipped_bundle_identity is empty except on a search build,
-// which names the release of the product that made it.
+// interface. shipped_bundle_identity is on every build and names the release
+// of the product that made it, which is what says which way in the build
+// carries.
 //
 // exposure is the exposure list the build runner derived from its own checkout,
 // as JSON, and it is the one nullable column here: null is a build no extractor
@@ -79,6 +80,7 @@ var DDL = []string{
 	constraint service_id_present check (service_id <> ''),
 	constraint commit_hash_present check (commit_hash <> ''),
 	constraint artifact_digest_present check (artifact_digest <> ''),
+	constraint shipped_bundle_identity_present check (shipped_bundle_identity <> ''),
 	constraint one_build_per_commit unique (item_id, service_id, commit_hash)
 )`,
 

@@ -36,18 +36,24 @@ An item names exactly one service, and the user message names which. One request
 
 Each criterion is one sentence in one of the six EARS patterns:
 
-  always_true:        The system shall <response>.
-  event:              When <trigger>, the system shall <response>.
-  state:              While <state>, the system shall <response>.
-  state_with_event:   While <state>, when <trigger>, the system shall <response>.
-  unwanted_condition: If <condition>, then the system shall <response>.
-  optional_feature:   Where <feature>, the system shall <response>.
+  always_true:                   The system shall <response>.
+  event:                         When <trigger>, the system shall <response>.
+  state:                         While <state>, the system shall <response>.
+  state_with_an_event_inside_it: While <state>, when <trigger>, the system shall <response>.
+  unwanted_condition:            If <condition>, then the system shall <response>.
+  optional_feature:              Where <feature>, the system shall <response>.
 
 Every criterion names the requirement it answers. The user message lists this item's requirements one per line, the requirement's id, a colon, a space, and its statement; write that id on the criterion's line, after the word CRITERION and before the colon. Every requirement listed is named by at least one criterion, and a criterion answering no listed requirement is not authored. Where the user message lists no requirement at all, the criteria are what the requirements will be written from, so write the criterion line with no id, as CRITERION followed straight by the colon.
+
+Where the user message lists the constraints in force — one per line, the constraint's id, a colon, a space, and what the constraint requires — a constraint you held as your evidence for a criterion is named on a CONSTRAINT line under that criterion, one line per constraint, by the id the list gives. A criterion drafted under no constraint carries no such line, and a constraint you read and did not cite is not evidence for anything.
+
+Where the user message names an area graded irreversible, it names that area's id, the hazardous operation the area declares, and whether a criterion in force already bounds that operation. Where none does, author one criterion that bounds it and put a HAZARD line naming that area's id under that criterion.
 
 Where the user message lists the criteria already in force for the service — one per line, the criterion's id, a colon, a space, and its sentence — each is a promise the service already makes. A criterion you author is not among them and restates none of them. Where the change replaces a promise the service already makes, withdraw the old criterion by its id in the same spec: a restatement without a withdrawal leaves the service promising the same thing twice, under two ids that both have to be encoded.
 
 Where the user message says the item has a user interface, the spec also declares that screen's state machine: its states, the initial one, the events, and one transition per state and event. A machine is well formed — no two transitions on one event from one state, every declared state reachable from the initial one, and every state either terminal or answering an event — and the implementation is rejected where it admits a transition the machine does not declare.
+
+A transition may leave the screen instead of moving to a state of this machine. Its destination is then another screen, named by the id the user message lists for it, and written as SCREEN followed by that id in place of a state. A transition leaves the screen or it stays, never both, and one naming a screen no machine in force declares is rejected.
 
 The spec is what the implementation stage is given in place of the statement, which that stage never sees. So it restates every constraint the statement makes rather than summarising the behaviour: what the change is named — a module, a package, a file path, a port — what it may and may not use, and every file the change must contain. A constraint the statement makes and the spec leaves out is one nothing downstream can meet, because the stage that would meet it is not told of it.
 
@@ -66,9 +72,12 @@ To deliver the spec, reply with a SPEC: header, the spec's text, and then the cr
 SPEC:
 <the spec, free text>
 CRITERION <requirement id>: <the criterion sentence>
+CONSTRAINT: <the id of a constraint the criterion above was drafted under>
+HAZARD: <the id of the area whose hazardous operation the criterion above bounds>
 WITHDRAW: <the id of a criterion in force this spec replaces>
 SCREEN <initial state>: <state>, <state>, ...
 TRANSITION <from state> <event>: <to state>
+TRANSITION <from state> <event>: SCREEN <the id of another screen>
 TERMINAL: <state>, <state>, ...
 
 ` + Rules
@@ -103,30 +112,42 @@ type Returned struct {
 // Empty reports whether nothing sent the item back here.
 func (r Returned) Empty() bool { return r.Reason == "" && r.Version == "" }
 
-// DraftCriterion is one criterion the spec author authored: the sentence, and
-// the id of the requirement it answers.
+// Constraint is one constraint in force as a role is told it: the id a
+// criterion's provenance names and what the constraint requires.
+type Constraint struct {
+	ID        string
+	Statement string
+}
+
+// Hazard is the item's area as a role is told it, where that area is graded
+// irreversible: the area's id, the hazardous operation it declares, and whether
+// a criterion in force already bounds that operation. The zero value is an area
+// of any other grade, which the drafting stage derives nothing for.
+type Hazard struct {
+	AreaID    string
+	Operation string
+	// Controlled is whether a criterion in force already bounds the operation.
+	// Where it is false the stage derives one, which is the whole of when a
+	// hazard-derived criterion is written.
+	Controlled bool
+}
+
+// Graded reports whether the item's area is graded irreversible.
+func (h Hazard) Graded() bool { return h.AreaID != "" && h.Operation != "" }
+
+// DraftCriterion is one criterion the spec author authored: the sentence, the
+// id of the requirement it answers, and the provenance it names — each
+// constraint held as evidence for it, and the area whose hazardous operation it
+// bounds.
 type DraftCriterion struct {
 	Sentence      string
 	RequirementID string
-}
-
-// ScreenMachine is the state machine a spec version declares for a screen: the
-// states, the initial one, the transitions between them, and the states that
-// are terminal. It is what [screenstatemachine.Draft] is composed from by the
-// stage that submits the version.
-type ScreenMachine struct {
-	Initial     string
-	States      []string
-	Events      []string
-	Transitions []ScreenTransition
-	Terminal    []string
-}
-
-// ScreenTransition is one transition of a [ScreenMachine].
-type ScreenTransition struct {
-	From  string
-	Event string
-	To    string
+	// ConstraintDerived is each constraint the author named as its evidence, in
+	// the order the reply named them, and is empty on a factory-drafted one.
+	ConstraintDerived []string
+	// HazardDerived is the area whose hazardous operation the criterion bounds,
+	// and is empty on a criterion that bounds none.
+	HazardDerived string
 }
 
 // Refined is what one [SpecAuthor.Refine] call produced. Exactly one of
@@ -160,8 +181,9 @@ type SpecAuthor struct {
 // Refining is what one [SpecAuthor.Refine] call is given: the intent's
 // statement, the service the item changes, the answers so far, the
 // requirements this item answers, the criteria already in force for that
-// service, whether the item has a user interface, and what sent the item back
-// here.
+// service, the constraints in force, the item's area where it is graded
+// irreversible, whether the item has a user interface, and what sent the item
+// back here.
 //
 // The service is named because an item names one and an intent may produce
 // several: a change that crosses a published interface is three items over two
@@ -173,6 +195,14 @@ type Refining struct {
 	Answered     []Question
 	Requirements []Requirement
 	InForce      []Criterion
+	// Constraints is the constraints in force the drafting stage holds. A
+	// criterion is constraint-derived only where the stage named one of these as
+	// its evidence, so a stage handed none authors no constraint-derived
+	// criterion.
+	Constraints []Constraint
+	// Hazard is the item's area where it is graded irreversible, and the zero
+	// value otherwise.
+	Hazard Hazard
 	// UserInterface is whether the item has a screen, which is what makes the
 	// state machine part of the version rather than an extra.
 	UserInterface bool
@@ -215,6 +245,28 @@ func (s SpecAuthor) Refine(ctx context.Context, as principal.Principal, of Refin
 	if len(of.InForce) > 0 {
 		b.WriteString("\n")
 		writeCriteria(&b, "The criteria already in force for the service:", of.InForce)
+	}
+	if len(of.Constraints) > 0 {
+		b.WriteString("\nThe constraints in force:\n")
+		for _, c := range of.Constraints {
+			// A constraint whose text the caller does not hold is listed by id
+			// alone, which is enough to cite it as evidence and not enough to
+			// draft under it.
+			if c.Statement == "" {
+				fmt.Fprintf(&b, "%s\n", c.ID)
+				continue
+			}
+			fmt.Fprintf(&b, "%s: %s\n", c.ID, c.Statement)
+		}
+	}
+	if of.Hazard.Graded() {
+		fmt.Fprintf(&b, "\nThis item's area %s is graded irreversible and declares the hazardous operation %s.\n",
+			of.Hazard.AreaID, of.Hazard.Operation)
+		if of.Hazard.Controlled {
+			b.WriteString("A criterion in force already bounds that operation.\n")
+		} else {
+			b.WriteString("No criterion in force bounds that operation.\n")
+		}
 	}
 	if of.UserInterface {
 		b.WriteString("\nThis item has a user interface, so the spec declares its screen's state machine.\n")
@@ -305,7 +357,8 @@ func parseRefined(text string) (Refined, error) {
 
 // declares reports whether a line opens one of the spec author's declarations.
 func declares(line string) bool {
-	for _, keyword := range []string{"CRITERION ", "CRITERION: ", "WITHDRAW: ", "SCREEN ", "TRANSITION ", "TERMINAL: "} {
+	for _, keyword := range []string{"CRITERION ", "CRITERION: ", "CONSTRAINT: ", "HAZARD: ",
+		"WITHDRAW: ", "SCREEN ", "TRANSITION ", "TERMINAL: "} {
 		if strings.HasPrefix(line, keyword) {
 			return true
 		}
@@ -330,6 +383,34 @@ func parseDeclaration(refined *Refined, line string) error {
 			Sentence: strings.TrimSpace(sentence), RequirementID: strings.TrimSpace(requirement),
 		})
 		return nil
+	case strings.HasPrefix(line, "CONSTRAINT: "):
+		// The provenance lines attach to the criterion just declared, the way a
+		// transition attaches to the screen just declared, so a reply that opens
+		// with one names a criterion that is not there.
+		if len(refined.Criteria) == 0 {
+			return fmt.Errorf("%w: a constraint arrived before the criterion it is evidence for", ErrReply)
+		}
+		id := strings.TrimSpace(strings.TrimPrefix(line, "CONSTRAINT: "))
+		if id == "" {
+			return fmt.Errorf("%w: a constraint line names the constraint by id", ErrReply)
+		}
+		last := &refined.Criteria[len(refined.Criteria)-1]
+		last.ConstraintDerived = append(last.ConstraintDerived, id)
+		return nil
+	case strings.HasPrefix(line, "HAZARD: "):
+		if len(refined.Criteria) == 0 {
+			return fmt.Errorf("%w: a hazard arrived before the criterion that bounds it", ErrReply)
+		}
+		id := strings.TrimSpace(strings.TrimPrefix(line, "HAZARD: "))
+		if id == "" {
+			return fmt.Errorf("%w: a hazard line names the area by id", ErrReply)
+		}
+		last := &refined.Criteria[len(refined.Criteria)-1]
+		if last.HazardDerived != "" {
+			return fmt.Errorf("%w: a criterion bounds the hazardous operation of one area", ErrReply)
+		}
+		last.HazardDerived = id
+		return nil
 	case strings.HasPrefix(line, "WITHDRAW: "):
 		id := strings.TrimSpace(strings.TrimPrefix(line, "WITHDRAW: "))
 		if id == "" {
@@ -337,65 +418,12 @@ func parseDeclaration(refined *Refined, line string) error {
 		}
 		refined.Withdrawn = append(refined.Withdrawn, id)
 		return nil
-	case strings.HasPrefix(line, "SCREEN "):
-		rest := strings.TrimPrefix(line, "SCREEN ")
-		initial, states, found := strings.Cut(rest, ": ")
-		if !found || strings.TrimSpace(initial) == "" {
-			return fmt.Errorf("%w: a screen line is SCREEN <initial state>: <states>, and this is %q", ErrReply, line)
-		}
-		if refined.Screen != nil {
-			return fmt.Errorf("%w: the spec author declared a second screen, and an item's spec declares one", ErrReply)
-		}
-		refined.Screen = &ScreenMachine{Initial: strings.TrimSpace(initial), States: commaList(states)}
-		return nil
-	case strings.HasPrefix(line, "TRANSITION "):
-		rest := strings.TrimPrefix(line, "TRANSITION ")
-		head, to, found := strings.Cut(rest, ": ")
-		from, event, split := strings.Cut(strings.TrimSpace(head), " ")
-		if !found || !split || strings.TrimSpace(to) == "" || from == "" || strings.TrimSpace(event) == "" {
-			return fmt.Errorf("%w: a transition line is TRANSITION <from> <event>: <to>, and this is %q", ErrReply, line)
-		}
-		if refined.Screen == nil {
-			return fmt.Errorf("%w: a transition arrived before the screen it belongs to", ErrReply)
-		}
-		refined.Screen.Transitions = append(refined.Screen.Transitions, ScreenTransition{
-			From: from, Event: strings.TrimSpace(event), To: strings.TrimSpace(to),
-		})
-		if !contains(refined.Screen.Events, strings.TrimSpace(event)) {
-			refined.Screen.Events = append(refined.Screen.Events, strings.TrimSpace(event))
-		}
-		return nil
-	case strings.HasPrefix(line, "TERMINAL: "):
-		if refined.Screen == nil {
-			return fmt.Errorf("%w: a terminal state arrived before the screen it belongs to", ErrReply)
-		}
-		refined.Screen.Terminal = commaList(strings.TrimPrefix(line, "TERMINAL: "))
-		return nil
+	case strings.HasPrefix(line, "SCREEN "), strings.HasPrefix(line, "TRANSITION "),
+		strings.HasPrefix(line, "TERMINAL: "):
+		return parseScreenDeclaration(refined, line)
 	default:
 		return fmt.Errorf("%w: the spec author's line %q is none of its declarations", ErrReply, line)
 	}
-}
-
-// commaList is one comma-separated list of names, each trimmed, empty entries
-// dropped.
-func commaList(text string) []string {
-	var out []string
-	for _, part := range strings.Split(text, ",") {
-		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
-// contains reports whether the list already holds the value.
-func contains(list []string, value string) bool {
-	for _, one := range list {
-		if one == value {
-			return true
-		}
-	}
-	return false
 }
 
 // protocolLines is a reply cut into lines for a protocol parse: blank space

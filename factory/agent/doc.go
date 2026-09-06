@@ -15,9 +15,12 @@
 // [Criterion] and the writer that puts the criteria in force into a prompt.
 //
 // specauthor.go is [ShippedSpecAuthorPrompt], [SpecAuthor], the [Refining] it
-// takes with its [Question], [Requirement] and [Returned] values, the
-// [Refined] it returns with its [DraftCriterion] and [ScreenMachine] of
-// [ScreenTransition] values, [ErrNoPrompt], and the parse of the reply.
+// takes with its [Question], [Requirement], [Constraint], [Hazard] and
+// [Returned] values, the [Refined] it returns with its [DraftCriterion] values,
+// [ErrNoPrompt], and the parse of the reply. specauthorscreen.go is the screen
+// half of that reply — [ScreenMachine], [ScreenTransition], [ScreenInForce] and
+// the parse of the three lines that carry a machine — split out so that neither
+// file passes the length a file is held to.
 // planner.go is [ShippedPlannerPrompt], [Planner], the [Planning] it takes,
 // the [Plan] it returns, and parseBlock, the one-header protocol the plan and
 // the tasks share. taskauthor.go is [ShippedTaskAuthorPrompt], [TaskAuthor],
@@ -45,9 +48,13 @@
 // a hold dispatch writes and a run it does not make.
 //
 // [SpecAuthor.Refine] takes a [Refining] and returns a [Refined] — the spec,
-// the criteria it introduces each naming the requirement it answers, the
-// criteria it withdraws, and the screen's state machine where the item has a
-// user interface. [Planner.Plan] takes a [Planning] and returns a [Plan];
+// the criteria it introduces each naming the requirement it answers and the
+// provenance it was drafted under, the criteria it withdraws, and the screen's
+// state machine where the item has a user interface. The provenance is read at
+// introduction and written by the artifact store in the same call, so the role
+// is handed the constraints in force and the item's area where it is graded
+// irreversible; a role handed neither names neither, and every criterion it
+// authors is factory-drafted. [Planner.Plan] takes a [Planning] and returns a [Plan];
 // [TaskAuthor.Divide] takes a [Dividing] and returns [Tasks];
 // [Implementer.Implement] takes an [Implementing] and returns a [Change] of
 // [File] values. Every role takes a [Returned] — the reject or the rework
@@ -87,18 +94,27 @@
 // suffix package criterion's extractor matches — the standing instruction that
 // the program appends one line per unit of work to the file its environment
 // names, with the count of the area's hazardous operation where one is named,
-// and the file-name conventions a contract is derived from: a published
-// interface is one exported struct type in a file named for it, an interface
-// this service reads is a mirror in a file named for its producer, and the unit
-// goes in a field's own name rather than in a tag.
+// the marker a driver names its screen and state by and the file a screen's own
+// transition function is written in, both of which package
+// screenstatemachine's extractor matches, and the file-name conventions a
+// contract is derived from: a published interface is one exported struct type
+// in a file named for it, an interface this service reads is a mirror in a file
+// named for its producer, and the unit goes in a field's own name rather than
+// in a tag.
 //
 // # Which callers are not built
 //
 // The gate's mechanical rejection of a build whose emission does not count the
 // area's hazardous operation is not built: the prompt asks for the count and
-// nothing reads it back off the build. What drives each screen into its
-// declared states is asked for in the same way, and the rejection in both
-// directions over it is not built either.
+// nothing reads it back off the build. The drivers and the screen's transition
+// function are asked for and read back — package screenstatemachine derives
+// both from the build and rejects in both directions over them — but the gate
+// that fires those checks is not built either.
+//
+// There is no constraint record in the factory, so what a caller can put in
+// [Refining.Constraints] is whatever constraint arrived with the request, by id
+// and with no text. The field is the seam, and a fuller list arrives when that
+// record does.
 //
 // Who may write what: this package writes no record. The units a reply
 // carries, and the artifact the role produced, are recorded and submitted by
@@ -117,8 +133,11 @@
 // ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md.
 // What the spec author authors — several criteria, the withdrawals, and the
 // requirement each answers — is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/README.md,
-// and the screen's state machine is 04-the-screen-state-machine.md beside it.
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/README.md;
+// a criterion's provenance, which the drafting stage names and the artifact
+// store writes in the same call, is 01-the-record.md beside it; and the screen's
+// state machine, with the transition that leaves the screen, is
+// 04-the-screen-state-machine.md.
 // The plan is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/03-implementation-plan.md
 // and the tasks are 04-tasks.md. The encoding's place, the emission, and the

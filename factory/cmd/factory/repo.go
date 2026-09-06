@@ -203,17 +203,20 @@ func repoFiles(repo string) ([]agent.File, error) {
 // createBuild writes the build record for one commit: the artifact digest —
 // sha256 of the commit hash, this platform never producing a binary digest
 // of its own, the local target running the checked-out commit directly rather
-// than a built artifact of its own — and, for a Go module, its go.sum
+// than a built artifact of its own — the shipped-bundle identity, which is
+// factoryVersion, this binary being the release of the product that made the
+// build — and, for a Go module, its go.sum
 // resolved into entries with licence "unknown", this milestone having no
 // licence resolver. Criterion results of the build's own process are none:
 // nothing in this command-line interface decides a criterion at that place yet.
 func (p *path) createBuild(ctx context.Context, repo, itemID, serviceID, commit string) (build.Build, error) {
 	sum := sha256.Sum256([]byte(commit))
 	draft := build.Draft{
-		ItemID:         itemID,
-		ServiceID:      serviceID,
-		CommitHash:     commit,
-		ArtifactDigest: "sha256:" + hex.EncodeToString(sum[:]),
+		ItemID:                itemID,
+		ServiceID:             serviceID,
+		CommitHash:            commit,
+		ArtifactDigest:        "sha256:" + hex.EncodeToString(sum[:]),
+		ShippedBundleIdentity: factoryVersion,
 	}
 	resolved, coverage, couldNotDerive := resolvedGoModules(repo)
 	draft.Resolved = resolved

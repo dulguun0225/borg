@@ -8,9 +8,11 @@
 // # The files
 //
 // writer.go is [Of], [Draft], [Criterion], [Insert], [Withdraw], [InForce] and
-// [Withdrawn]. queries.go is the three provenance queries — [ForConstraint],
-// [UnderWithdrawnConstraints] and [ControllingHazard] — and the rejection made
-// from the third, [CheckHazardControlled] with [HazardUncontrolledError].
+// [Withdrawn]. queries.go is [Provenance] with [Provenances], the five
+// provenance queries — [HumanConfirmed], [WithdrawalsWithAnAuthority] with
+// [WithdrawalWithAnAuthority], [ForConstraint], [UnderWithdrawnConstraints] and
+// [ControllingHazard] — and the rejection made from the last,
+// [CheckHazardControlled] with [HazardUncontrolledError].
 // mutation.go is [Mutation] with [Mutation.Score], [Mutation.Derived] and
 // [Mutation.Blocks], and [DeriveMutation] with [MutationTools].
 // mutationwrite.go is [MutationReading], [RecordMutation], [LatestMutation]
@@ -24,9 +26,9 @@
 // [Encoding], [Derivation], [Derive], [Encodings], [CheckEncodings], and the
 // five errors it rejects with.
 //
-// db_test.go, result_db_test.go, hazard_db_test.go and mutation_db_test.go are
-// the tests against the database; encoding_test.go, pattern_test.go and
-// mutation_test.go are the three subjects that need none.
+// db_test.go, result_db_test.go, hazard_db_test.go, provenance_db_test.go and
+// mutation_db_test.go are the tests against the database; encoding_test.go,
+// pattern_test.go and mutation_test.go are the three subjects that need none.
 //
 // # Who writes what
 //
@@ -102,14 +104,18 @@
 //
 // # What is not built here
 //
-// Four callers this package is written for do not exist yet, and no substitute
+// Five callers this package is written for do not exist yet, and no substitute
 // stands in for them: the gate component at the Spec row, which calls
 // [CheckHazardControlled] with the grade in force for the item's area;
 // Factory's two constraint listings, which are [ForConstraint] and
 // [UnderWithdrawnConstraints]; the intent raised when a criterion becomes
-// unreliable, keyed by the criterion; and the service record's unreliability
-// bound, which [Unreliable] takes as an argument. The deployer's mutation pass
-// at the candidate run is a fifth: [DeriveMutation] and [RecordMutation] are
+// unreliable, keyed by the criterion; the service record's unreliability
+// bound, which [Unreliable] takes as an argument; and the score, which reads
+// [HumanConfirmed] and [WithdrawalsWithAnAuthority] to resolve the factor a
+// withdrawal with an authority is at the Spec row. That last pair takes the
+// spec versions a human decided as an argument, the decision being the
+// decision log's fact and not this table's. The deployer's mutation pass
+// at the candidate run is a sixth: [DeriveMutation] and [RecordMutation] are
 // what it calls, and the command-line interface composes it.
 //
 // Who may write what: [Insert], [Withdraw], [InsertResults],
@@ -123,7 +129,8 @@
 //
 // What defines it: the criterion, its provenance and its stable id are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md;
-// in force, withdrawal, the outcome history and the unreliable bound are
+// in force, withdrawal, the withdrawal of a criterion whose provenance names an
+// authority, the outcome history and the unreliable bound are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md;
 // the six patterns, the requirement field and the sentence fitting no pattern are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md;

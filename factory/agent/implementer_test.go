@@ -109,26 +109,50 @@ func TestImplementKeepsAFileMarkerInsideABlockAsContent(t *testing.T) {
 // TestImplementCarriesThePlanTheTasksAndTheHazard: the implementer works from
 // the approved plan and the approved tasks as well as the spec, and where the
 // item's area names a hazardous operation the role is told which, so its
-// emission can count it.
+// emission can count it. The screens arrive by id with their states and their
+// transitions, which is what the drivers and the transition function are
+// authored against.
 func TestImplementCarriesThePlanTheTasksAndTheHazard(t *testing.T) {
 	model := &fakeModel{text: "=== FILE a.go ===\npackage a\n=== END ==="}
 	_, err := Implementer{Model: model, Prompt: ShippedImplementerPrompt}.Implement(context.Background(), as(), Implementing{
-		Spec:     "the spec",
-		Plan:     "the approved plan",
-		Tasks:    "the approved tasks",
-		Hazard:   "charging a card",
-		Screen:   []string{"loading", "ready"},
+		Spec:   "the spec",
+		Plan:   "the approved plan",
+		Tasks:  "the approved tasks",
+		Hazard: "charging a card",
+		Screen: []ScreenInForce{{
+			ID:     "ssm_0123456789abcdef0123456789abcdef",
+			States: []string{"loading", "ready"},
+			Transitions: []ScreenTransition{
+				{From: "loading", Event: "loaded", To: "ready"},
+				{From: "ready", Event: "paid", Screen: "ssm_ffffffffffffffffffffffffffffffff"},
+			},
+		}},
 		Returned: Returned{Reason: "the build did not compile", Version: "abc123"},
 	})
 	if err != nil {
 		t.Fatalf("Implement: %v", err)
 	}
 	for _, want := range []string{
-		"the approved plan", "the approved tasks", "charging a card", "loading, ready",
+		"the approved plan", "the approved tasks", "charging a card",
+		"ssm_0123456789abcdef0123456789abcdef: loading, ready",
+		"loading on loaded goes to ready",
+		"ready on paid goes to ssm_ffffffffffffffffffffffffffffffff",
 		"the build did not compile", "abc123",
 	} {
 		if !strings.Contains(model.user, want) {
 			t.Errorf("the user message does not carry %q:\n%s", want, model.user)
+		}
+	}
+}
+
+// TestTheImplementerPromptAsksForTheDrivers: the drivers are authored here on
+// the same terms as the encoding, so the prompt states the marker the extractor
+// matches and the file the transition function is written in — the prompt and
+// the extractor are changed together or the build reads no driver at all.
+func TestTheImplementerPromptAsksForTheDrivers(t *testing.T) {
+	for _, form := range []string{"drives ssm_", "screen.<the screen id>.go", "func Transition(from, event string) string"} {
+		if !strings.Contains(ShippedImplementerPrompt, form) {
+			t.Errorf("ShippedImplementerPrompt does not name %q", form)
 		}
 	}
 }
