@@ -10,9 +10,11 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // Installed is what [Factory.Install] found or created.
@@ -134,6 +136,64 @@ func (f *Factory) CreateProject(ctx context.Context, actor record.Actor, name st
 		},
 	})
 	return created, version, err
+}
+
+// EndProject ends one project and withdraws its production environment in the
+// same write, which is the pairing that created the two. A project is ended
+// once every service in it is retired: the services in it are counted here,
+// this package being a reader of that record already, and package project
+// refuses the write where the count is not nothing.
+//
+// completeDeployRecords is the count of deploy records on production's
+// environment marking a target complete for a release, which the caller read:
+// package environment refuses the withdrawal where it is not nothing, and this
+// package may not count them. Every service's removal is what makes it nothing.
+func (f *Factory) EndProject(ctx context.Context, actor record.Actor,
+	projectID string, completeDeployRecords int) (Version, error) {
+	services, err := service.All(ctx, f.pool)
+	if err != nil {
+		return Version{}, err
+	}
+	standing := 0
+	for _, svc := range services {
+		if svc.ProjectID == projectID && !svc.Retired() {
+			standing++
+		}
+	}
+	production, found, err := environment.Production(ctx, f.pool, projectID)
+	if err != nil {
+		return Version{}, err
+	}
+	if !found {
+		return Version{}, fmt.Errorf("policy: project %s has no production environment", projectID)
+	}
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionWithdrawn,
+		scope: Scope{Kind: ScopeProject, ID: projectID},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			if err := project.End(ctx, tx, f.token, actor, projectID, standing); err != nil {
+				return err
+			}
+			return environment.Withdraw(ctx, tx, f.token, actor, production.ID, completeDeployRecords)
+		},
+	})
+}
+
+// AuthorStrategyDefault authors the rollout strategy production takes where
+// nothing narrows the pick. It is production's environment record alone: a
+// strategy decides whether a control runs, and a control is a comparison
+// against organic traffic, which no other kind has.
+func (f *Factory) AuthorStrategyDefault(ctx context.Context, actor record.Actor,
+	productionID string, strategy gatepolicy.Strategy) (Version, error) {
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionAuthored,
+		parameter: gatepolicy.StrategyDefault,
+		scope:     Scope{Kind: ScopeEnvironment, ID: productionID},
+		list:      []string{string(strategy)}, authored: true,
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			return environment.SetStrategyDefault(ctx, tx, f.token, actor, productionID, strategy)
+		},
+	})
 }
 
 // CreateEnvironment writes an environment a customer defines. Production's is

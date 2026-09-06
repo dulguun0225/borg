@@ -71,6 +71,23 @@ func SetExplicitThreshold(ctx context.Context, tx pgx.Tx, token lease.Token, act
 	return nil
 }
 
+// SetRecentHistorySize writes the smallest change in one quantity the reading
+// against this service's own recent history has to detect, as a share. It is one
+// value per quantity, as the window's own size is, and the average run length
+// that reading is taken at is one number for the service.
+//
+// It is a row of [RecentHistorySizeTable] rather than a column, and it takes the
+// transaction package policy appends the policy version in and fences it with
+// token first, the arrangement [SetWindowSize] already has.
+func SetRecentHistorySize(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	serviceID string, quantity gatepolicy.Quantity, size float64) error {
+	if size <= 0 || size > 1 {
+		return fmt.Errorf("%w: size %v is between 0 and 1", ErrShareOutOfRange, size)
+	}
+	return setPerQuantity(ctx, tx, token, actor, RecentHistorySizeTable, RecentHistorySizeIDPrefix,
+		FormatVersionRecentHistorySize, "size", serviceID, quantity, size)
+}
+
 // SetOperationCap writes how many operations one release may hold open per
 // interval and the name the excess lands in. The two are one write because a cap
 // with no overflow operation would truncate the count and leave nowhere for the

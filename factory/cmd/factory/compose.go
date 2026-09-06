@@ -86,6 +86,10 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		serviceByID:   map[string]service.Service{},
 	}
 	p.candidates = environment.NewCandidates(d.pool, d.token)
+	// Retiring a service is an owner's write that calls the deployer, and the
+	// deployer is composed here: package policy writes retired and reaches no
+	// deploy target itself.
+	p.factory.Removal = p.removeService
 
 	// The install. The factory-wide settings record exists before any project
 	// does; the project and production's environment for it are created in the

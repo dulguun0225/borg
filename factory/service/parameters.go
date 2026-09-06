@@ -197,6 +197,64 @@ func SetInstanceHourRate(ctx context.Context, tx pgx.Tx, serviceID string, rate 
 	return set(ctx, tx, serviceID, `instance_hour_rate`, rate)
 }
 
+// SetMutationFloor writes the mutation score below which Merge to master
+// rejects, as a share. Where an owner authors none the score supplies it, and a
+// safeguard may raise it and never lower it, as with the bake volume.
+func SetMutationFloor(ctx context.Context, tx pgx.Tx, serviceID string, floor float64) error {
+	if floor < 0 || floor > 1 {
+		return fmt.Errorf("%w: the mutation floor %v is between 0 and 1", ErrShareOutOfRange, floor)
+	}
+	return set(ctx, tx, serviceID, `mutation_floor`, floor)
+}
+
+// SetKeptFraction writes the fraction of its instances a release keeps while a
+// rollback could return to it. It is authored outright: the default is all of
+// them, fixed rather than supplied, because the score does not model capacity.
+func SetKeptFraction(ctx context.Context, tx pgx.Tx, serviceID string, fraction float64) error {
+	if fraction <= 0 || fraction > 1 {
+		return fmt.Errorf("%w: the kept fraction %v is above 0 and at most 1", ErrShareOutOfRange, fraction)
+	}
+	return set(ctx, tx, serviceID, `kept_fraction`, fraction)
+}
+
+// SetMaxConcurrentKeptFleets writes how many kept fleets this service may hold
+// at once. A service at the cap stops deploying rather than losing a recovery a
+// window could still call for, so an absent value is no cap and not a cap of
+// nothing.
+func SetMaxConcurrentKeptFleets(ctx context.Context, tx pgx.Tx, serviceID string, fleets float64) error {
+	if fleets <= 0 {
+		return fmt.Errorf("%w: the maximum concurrent kept fleets %v", ErrNotPositive, fleets)
+	}
+	return set(ctx, tx, serviceID, `max_concurrent_kept_fleets`, fleets)
+}
+
+// SetRecentHistoryRunLength writes the average run length the reading against
+// this service's own recent history is taken at: the mean volume a service whose
+// behaviour has not changed runs before that reading crosses once. A safeguard
+// may only shorten it, which adds a check rather than removing one.
+func SetRecentHistoryRunLength(ctx context.Context, tx pgx.Tx, serviceID string, volume float64) error {
+	if volume <= 0 {
+		return fmt.Errorf("%w: the average run length %v", ErrNotPositive, volume)
+	}
+	return set(ctx, tx, serviceID, `recent_history_run_length`, volume)
+}
+
+// SetProofTestRate writes how often the deployer, inside an open window, shifts
+// a share of traffic onto the instances of the rollback's target and back again.
+// It is authored outright with nothing supplied, and where an owner authors none
+// no proof test runs at all — so a rate of nothing is a real value and is
+// admitted, being a test that never runs said out loud.
+//
+// What the rate is counted per is the design's to say and it does not: doc.go
+// names that as the one thing this field waits on, and the component that would
+// run a proof test is not built.
+func SetProofTestRate(ctx context.Context, tx pgx.Tx, serviceID string, rate float64) error {
+	if rate < 0 {
+		return fmt.Errorf("%w: the proof test rate %v", ErrRateNegative, rate)
+	}
+	return set(ctx, tx, serviceID, `proof_test_rate`, rate)
+}
+
 // SetMutantCap writes how many mutants the mutation score may spend per item.
 func SetMutantCap(ctx context.Context, tx pgx.Tx, serviceID string, cap float64) error {
 	if cap <= 0 {
@@ -273,6 +331,9 @@ func withQuantities(ctx context.Context, pool *pgxpool.Pool, s Service) (Service
 		return Service{}, err
 	}
 	if s.Parameters.WindowPower, err = perQuantity(ctx, pool, WindowPowerTable, "power", s.ID); err != nil {
+		return Service{}, err
+	}
+	if s.RecentHistorySize, err = perQuantity(ctx, pool, RecentHistorySizeTable, "size", s.ID); err != nil {
 		return Service{}, err
 	}
 	if s.ExplicitThreshold, err = explicitThresholds(ctx, pool, s.ID); err != nil {

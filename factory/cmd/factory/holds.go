@@ -7,6 +7,8 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // The three seams a gate and enforcement are composed with here, each a read
@@ -20,14 +22,14 @@ import (
 // record for it would be a decision where nothing is decided, and re-testing
 // would append one every time the gate re-fired.
 //
-// Five of the fourteen holds this answers, and nine it does not. The halt is
+// Six of the fourteen holds this answers, and eight it does not. The halt is
 // package gate's own read; the drift mismatch is a firing's own read of that
-// store; and the seven left — a contract migration not shipped, a service not
+// store; and the six left — a contract migration not shipped, a service not
 // provisioned, an error budget exhausted, the maximum concurrent kept fleets, an
-// advisory match, a change freeze, and the maximum concurrent candidate
-// environments authored on the production environment record — each read a
-// record or a field that is not built, so this reports none of them and a deploy
-// they should have held goes to a verdict.
+// advisory match, and the maximum concurrent candidate environments authored on
+// the production environment record — each read a record or a field that is not
+// built, so this reports none of them and a deploy they should have held goes to
+// a verdict.
 func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) {
 	if !s.Row.Deploys() || s.ItemID == "" {
 		return nil, nil
@@ -78,6 +80,16 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 		}
 		if awaiting != "" {
 			standing = append(standing, gate.HoldRollbackAwaitingRevert)
+		}
+		// The change freeze is read at the moment of the firing, which is what
+		// makes the hold lift itself: the next firing reads a moment outside
+		// every period the owner authored and finds none.
+		frozen, _, err := service.Frozen(ctx, p.d.pool, svc.ID, record.Now())
+		if err != nil {
+			return nil, err
+		}
+		if frozen {
+			standing = append(standing, gate.HoldChangeFreeze)
 		}
 	}
 	return standing, nil

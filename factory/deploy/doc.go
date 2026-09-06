@@ -40,6 +40,8 @@
 // [Writer.BeginMitigation] and [Writer.EndMitigation], [Mitigations] and
 // [StandingMitigations], and the errors [ErrOperationUnknown],
 // [ErrMitigationIncomplete], [ErrMitigationNotFound] and [ErrNotAHuman].
+// retirement.go is what an owner's write of retired calls the deployer for:
+// [Removal], [Environment], [Remove] and [ErrRemovalIncomplete].
 // adoption.go is the two records the deployer writes on another package's
 // table: [Adopt] and [Found] on the service record, and [RecordTargetCheck]
 // and [RecordPlatformCheck] on the last-check record, plus [Writer.Token] for
@@ -53,8 +55,8 @@
 // is the ordered walk and the strategy performed, and holds the fakes the three
 // beside it share; schemastep_test.go is the store step; restore_test.go is the
 // rollback's verification, what it advances target by target, and the restart;
-// mitigation_test.go is the mitigation. instancehours_test.go is the three
-// fleets' spans and the backfill mark.
+// mitigation_test.go is the mitigation and retirement_test.go the removal.
+// instancehours_test.go is the three fleets' spans and the backfill mark.
 //
 // # The record
 //
@@ -123,8 +125,10 @@
 // It is not a deploy: it is what Ops asks the deployer to perform on a target
 // outside a rollout, on a human's instruction, and the drift detector reads a
 // standing one as intended state that differs from the deploy record on
-// purpose. [Writer] writes all three tables and nothing else writes any of
-// them.
+// purpose. [Operations] holds two and not three — ending every instance of a
+// service on a target is a third operation of the seam, which [Remove]
+// performs for a retirement and no human at Ops instructs. [Writer] writes all
+// three tables and nothing else writes any of them.
 //
 // # What the deployer writes elsewhere
 //
@@ -164,8 +168,11 @@
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
 // computed by the health monitor, which is what calls [Restore]; the restart
 // and the deployer's write order in ../../end-goal/one-process.md; and the
-// mitigation in
-// ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md. The
+// mitigation, which is a class of two operations, in
+// ../../end-goal/deferred.md and
+// ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md; the
+// removal a retirement calls for, in
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md. The
 // three fleets, their spans and the instance-hour rate they are converted at are
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md,
 // the release a control runs is

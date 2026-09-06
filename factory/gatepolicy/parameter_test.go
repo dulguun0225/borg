@@ -101,12 +101,20 @@ func TestOnlyTheThresholdAddsAHuman(t *testing.T) {
 	}
 }
 
-// TestOnlyTheListIsAList: a list-valued parameter is clamped by union, and the
-// allowed predicate kinds are the only one, so nothing else reaches ClampList.
-func TestOnlyTheListIsAList(t *testing.T) {
+// TestOnlyAFloorOverAListReachesClampList: three parameters hold a list, and
+// only a floor over one is clamped — by union, which is what "a safeguard may
+// add a period or lengthen one" and "a kind of assertion added is coverage
+// added" each are. The paging hours are the third and no safeguard reaches them,
+// so nothing unions them.
+func TestOnlyAFloorOverAListReachesClampList(t *testing.T) {
+	lists := []Parameter{AllowedPredicateKinds, ChangeFreeze, PagingHours}
 	for _, d := range slices.Concat(Definitions, NotAmongTheEleven) {
-		if (d.Kind == KindList) != (d.Parameter == AllowedPredicateKinds) {
+		if (d.Kind == KindList) != slices.Contains(lists, d.Parameter) {
 			t.Errorf("%q is of kind %q", d.Parameter, d.Kind)
+		}
+		if d.Kind == KindList && d.Direction != DirectionFloor && d.Direction != DirectionNone {
+			t.Errorf("a safeguard on the list %q is a %q, and a list is clamped by union or not at all",
+				d.Parameter, d.Direction)
 		}
 	}
 }
@@ -128,11 +136,14 @@ func TestTheItemSizeTargetIsCountedInRequirements(t *testing.T) {
 
 // TestTheReadingsSizesArePerQuantity: one value per quantity, because a
 // detectable change in an error rate and one in a latency quantile are not one
-// number. Four parameters are keyed that way and no other is — the window's size
-// and power, and the explicit threshold with the size beside it, which is read
-// on one quantity and says nothing about another.
+// number. Five parameters are keyed that way and no other is — the window's size
+// and power, the explicit threshold with the size beside it, which is read on
+// one quantity and says nothing about another, and the size of the reading
+// against a service's own recent history.
 func TestTheReadingsSizesArePerQuantity(t *testing.T) {
-	perQuantityParameters := []Parameter{WindowSize, WindowPower, ExplicitThreshold, ExplicitThresholdSize}
+	perQuantityParameters := []Parameter{
+		WindowSize, WindowPower, ExplicitThreshold, ExplicitThresholdSize, RecentHistorySize,
+	}
 	for _, d := range slices.Concat(Definitions, NotAmongTheEleven, SafeguardOnly) {
 		perQuantity := d.Key == KeyQuantity
 		want := slices.Contains(perQuantityParameters, d.Parameter)
@@ -172,11 +183,13 @@ func TestTheAttemptLimitIsOneParameterAndNotThree(t *testing.T) {
 	}
 }
 
-// TestARetentionParameterIsAuthoredAndNotAmongTheEleven: the retention values,
-// the two rates, the remediation period, the harm mark's cap and the explicit
-// threshold are authored and are not gate policy's rows, so they carry no row
-// and are still resolvable — a safeguard binds each of them.
-func TestARetentionParameterIsAuthoredAndNotAmongTheEleven(t *testing.T) {
+// TestAuthoredAndNotAmongTheEleven: the retention values, the two report-channel
+// rates, the remediation period, the harm mark's cap, the strategy default and
+// the ceiling on candidate environments, and the twelve fields the design names
+// on the service record with the values authored beside them, are authored and
+// are not gate policy's rows — so they carry no row and are still resolvable, and
+// each names the direction the design gives it rather than one read off the row.
+func TestAuthoredAndNotAmongTheEleven(t *testing.T) {
 	directions := map[Parameter]Direction{
 		DecisionLogRetention:  DirectionFloor,
 		ReportRetention:       DirectionCeiling,
@@ -185,8 +198,38 @@ func TestARetentionParameterIsAuthoredAndNotAmongTheEleven(t *testing.T) {
 		RemediationPeriod:     DirectionCeiling,
 		ReportChannelRate:     DirectionCeiling,
 		HarmMarkPageCap:       DirectionCeiling,
-		ExplicitThreshold:     DirectionCeiling,
+		ExplicitThreshold:     DirectionAdds,
 		ExplicitThresholdSize: DirectionCeiling,
+
+		StrategyDefault:                    DirectionAdds,
+		MaxConcurrentCandidateEnvironments: DirectionNone,
+
+		// The design's twelve on the service record: the bake volume and the
+		// mutation floor a safeguard may raise and never lower, the rest of the
+		// supplied six it may lower and never raise, and six authored outright
+		// with nothing supplied — of which only the freeze admits a safeguard.
+		BakeVolume:              DirectionFloor,
+		MutationFloor:           DirectionFloor,
+		BacklogCap:              DirectionCeiling,
+		SearchBudget:            DirectionCeiling,
+		RecentHistorySize:       DirectionCeiling,
+		RecentHistoryRunLength:  DirectionCeiling,
+		Objective:               DirectionNone,
+		KeptFraction:            DirectionNone,
+		MaxConcurrentKeptFleets: DirectionNone,
+		PagingHours:             DirectionNone,
+		ProofTestRate:           DirectionNone,
+		ChangeFreeze:            DirectionFloor,
+
+		// Authored beside them on the same record.
+		InstanceHourRate:    DirectionNone,
+		EnvironmentHourRate: DirectionNone,
+		OperationCap:        DirectionCeiling,
+		MutantCap:           DirectionNone,
+		FailureRecordKeyCap: DirectionCeiling,
+		UnreliableBound:     DirectionFloor,
+		IncidentItemBound:   DirectionNone,
+		SnapshotRetention:   DirectionCeiling,
 	}
 	if len(NotAmongTheEleven) != len(directions) {
 		t.Fatalf("NotAmongTheEleven holds %d parameters, the test names %d", len(NotAmongTheEleven), len(directions))
@@ -206,6 +249,37 @@ func TestARetentionParameterIsAuthoredAndNotAmongTheEleven(t *testing.T) {
 	}
 }
 
+// TestTheTwelveOnTheServiceRecord: the design names twelve fields on the service
+// record beside the window limit and the analysis window's parameters, and every
+// one of them is a parameter here whose scope is that record — which is what
+// lets a safeguard bind it.
+func TestTheTwelveOnTheServiceRecord(t *testing.T) {
+	twelve := []Parameter{
+		ExplicitThreshold, Objective, KeptFraction, MaxConcurrentKeptFleets,
+		RecentHistorySize, RecentHistoryRunLength, PagingHours, ProofTestRate,
+		ChangeFreeze, BacklogCap, SearchBudget, BakeVolume, MutationFloor,
+	}
+	// Thirteen names for twelve fields: the size and the average run length of
+	// the reading against a service's own recent history are one of the twelve
+	// and two numbers, as the design states them.
+	if len(twelve) != 13 {
+		t.Fatalf("the test names %d parameters for the design's twelve fields", len(twelve))
+	}
+	for _, parameter := range twelve {
+		d, err := Define(parameter)
+		if err != nil {
+			t.Errorf("Define(%q): %v", parameter, err)
+			continue
+		}
+		if d.Scope != ScopeService {
+			t.Errorf("%q is scoped to %q, and the design makes it a field of the service record", parameter, d.Scope)
+		}
+		if d.Row != "" {
+			t.Errorf("%q names row %q, and it is authored and not among the eleven", parameter, d.Row)
+		}
+	}
+}
+
 // TestASafeguardNeverWidens is the rule stated as arithmetic: a ceiling over a
 // value already lower leaves it, a floor under a value already higher leaves it,
 // and neither moves a value the wrong way.
@@ -221,6 +295,7 @@ func TestASafeguardNeverWidens(t *testing.T) {
 		{DirectionFloor, 0.9, 0.95, 0.95},  // the authored confidence is already higher
 		{DirectionFloor, 0.9, 0.5, 0.9},    // the safeguard raises the weaker value
 		{DirectionAddsAHuman, 0, 0.3, 0.3}, // a safeguard on the threshold moves no number
+		{DirectionAdds, 0.9, 0.3, 0.3},     // a safeguard that adds a check moves no number either
 		{DirectionNone, 7, 0.3, 0.3},       // nothing clamps a parameter no safeguard reaches
 	}
 	for _, c := range cases {

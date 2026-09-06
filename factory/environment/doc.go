@@ -9,8 +9,8 @@
 // [Production], [ForItem], [CountLiveCandidates] and [TornDownCandidates]. writer.go is the persistent
 // kinds' writer: [Writer] and [NewWriter] with [Writer.Create], [Writer.Withdraw],
 // [Writer.AddTarget] and [Writer.RemoveTarget], the transaction-taking functions
-// beside each ([Insert], [Withdraw], [AddTarget], [RemoveTarget]), and
-// [SetMaxConcurrentCandidateEnvironments]. candidate.go is the candidate kind's
+// beside each ([Insert], [Withdraw], [AddTarget], [RemoveTarget]),
+// [SetMaxConcurrentCandidateEnvironments] and [SetStrategyDefault]. candidate.go is the candidate kind's
 // writer: [Candidates] and [NewCandidates] with [Candidates.Compose] and
 // [Candidates.Recompose], plus [Composition], [Composed] and [NameForItem].
 // cycle.go is the compose-and-reclaim cycle: [Reason] with [Reasons] and
@@ -25,8 +25,10 @@
 // persistent kinds an owner writes, target_test.go a persistent environment's
 // targets and its withdrawal, candidate_test.go the candidate kind's
 // composition, cycle_test.go the compose-and-reclaim cycle and what it costs,
-// and threshold_test.go the gate threshold — every one of them against the
-// database except the cycle's own arithmetic, which needs none.
+// threshold_test.go the gate threshold, and strategy_test.go the strategy
+// default — every one of them against the
+// database except the cycle's own arithmetic and the strategy CHECK, which need
+// none.
 //
 // One record type with a [Kind] fixed at creation. [Kinds] and the CHECK in
 // [DDL] list the same three, so a kind is added by widening a CHECK — the
@@ -59,6 +61,11 @@
 //
 // The gate thresholds are a table of their own, one row per gate row an owner
 // authored one for, read by [GateThreshold], rather than eight columns.
+//
+// The strategy default is production's record alone, a field rather than a row
+// because there is one per record: a strategy decides whether a control runs,
+// and a control is a comparison against organic traffic, which no other kind
+// has. [SetStrategyDefault] is the write and package gate makes the pick.
 //
 // Three fields are a candidate's alone and empty on a persistent kind. The item
 // is what the environment belongs to — the item and not the build, because the

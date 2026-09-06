@@ -15,10 +15,11 @@ import (
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
-// Operation is what a mitigation does. There are three: two the design names as
-// the class — shifting traffic off a target, and changing the instance count of
-// a release the factory deployed — and ending every instance of a service on a
-// target beside them.
+// Operation is what a mitigation does. There are two and not three: shifting
+// traffic off a target, and changing the instance count of a release the factory
+// deployed. Ending every instance of a service on a target is a third operation
+// of the seam and not a mitigation — retirement is what calls for it outside a
+// rollout, through [Perform] on a removal, and no human at Ops instructs one.
 type Operation string
 
 const (
@@ -27,14 +28,11 @@ const (
 	// OperationSetInstanceCount is the instance count of a release the factory
 	// deployed, changed.
 	OperationSetInstanceCount Operation = "set_instance_count"
-	// OperationEndEveryInstance is every instance of the service on that target,
-	// ended.
-	OperationEndEveryInstance Operation = "end_every_instance"
 )
 
 // Operations is every operation a mitigation may name. The CHECK constraint in
-// [DDL] lists the same three.
-var Operations = []Operation{OperationShiftTraffic, OperationSetInstanceCount, OperationEndEveryInstance}
+// [DDL] lists the same two.
+var Operations = []Operation{OperationShiftTraffic, OperationSetInstanceCount}
 
 var (
 	// ErrOperationUnknown is returned for an operation outside [Operations].
@@ -123,11 +121,6 @@ func Mitigate(ctx context.Context, w *Writer, m Mitigating) (Mitigation, error) 
 		err = m.Target.SetInstanceCount(ctx, m.Principal, targetseam.InstanceCount{
 			Service: m.ServiceName, Build: m.Build, Count: m.Count, Credential: m.Credential,
 		})
-	case OperationEndEveryInstance:
-		// What the seam reports about how those instances ended is not written
-		// here: a mitigation is not a deploy, and the replacement field it would
-		// go on is the deploy record's own row per target.
-		_, err = m.Target.Stop(ctx, m.Principal, m.ServiceName, m.Credential)
 	default:
 		err = fmt.Errorf("%w: %q", ErrOperationUnknown, m.Operation)
 	}

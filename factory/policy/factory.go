@@ -23,6 +23,12 @@ import (
 // supplies.
 var ErrNotAnOwner = errors.New("policy: gate policy is authored by a human")
 
+// ErrNoDeployer is returned by [Factory.RetireService] where nothing composed
+// [Factory.Removal]. Retiring a service is an owner's write that calls the
+// deployer, so a factory that cannot reach one refuses the write rather than
+// recording a retirement nothing performed.
+var ErrNoDeployer = errors.New("policy: retiring a service calls the deployer, and none is composed")
+
 // Factory is the writer of everything an owner authors: it calls into the
 // package that owns each record and appends the policy version, as a row of the
 // decision log, in the same transaction.
@@ -41,6 +47,16 @@ type Factory struct {
 	// forward unchanged, which is what a factory whose People screen is not
 	// built does.
 	Declaration func(ctx context.Context) (DeclarationSnapshot, error)
+
+	// Removal is what the deployer performs when a service is retired: it ends
+	// every instance of the service on every target of every persistent
+	// environment and writes a deploy record per environment naming no release.
+	// It is supplied by whatever composes the factory, this package reaching no
+	// deploy target and importing nothing that does. A nil value refuses the
+	// retirement with [ErrNoDeployer]: the design has the write call the
+	// deployer, so retiring through a factory with none composed would write
+	// retired and leave the service running.
+	Removal func(ctx context.Context, serviceID string) error
 
 	// AutoPassRates is the realized auto-pass rate at a threshold, one per
 	// factor set, computed in the same call that appends the version and frozen

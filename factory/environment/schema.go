@@ -61,6 +61,13 @@ const (
 // alone. Nothing supplies a value for it, so zero is unauthored and not a
 // ceiling of nothing — the CHECK is what keeps it off the other two kinds.
 //
+// strategy_default is the production record's alone for a reason of its own: a
+// strategy decides whether a control runs, and a control is a comparison against
+// organic traffic, which no other kind has. Its CHECK lists the two rollout
+// strategies and the empty value an owner has authored no default at, and
+// [gatepolicy.Strategies] names the same two — TestDDLListsEveryStrategy is what
+// says the store and the vocabulary still agree.
+//
 // Five columns are a candidate's and empty on a persistent kind, each with a
 // constraint saying so rather than a comment. The item is the candidate's own,
 // which is what item_id_matches_kind enforces in both directions: a persistent
@@ -99,6 +106,7 @@ var DDL = []string{
 	platform_credential text not null,
 	can_compose_on_demand boolean not null,
 	max_concurrent_candidate_environments integer not null,
+	strategy_default text not null default '',
 	item_id text not null,
 	composed_from text not null,
 	seed_version text not null,
@@ -118,6 +126,8 @@ var DDL = []string{
 		or (kind <> 'candidate' and platform_name <> '' and platform_credential <> '')
 	),
 	constraint ceiling_is_productions check (kind = 'production' or max_concurrent_candidate_environments = 0),
+	constraint strategy_default_is_productions check (kind = 'production' or strategy_default = ''),
+	constraint strategy_default_known check (strategy_default in ('', 'with a control', 'without a control')),
 	constraint ceiling_not_negative check (max_concurrent_candidate_environments >= 0),
 	constraint item_id_matches_kind check ((kind = 'candidate') = (item_id <> '')),
 	constraint composed_from_is_a_candidates check (kind = 'candidate' or composed_from = ''),

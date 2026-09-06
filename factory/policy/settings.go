@@ -30,6 +30,12 @@ var ErrNotAShortening = errors.New("policy: this value is not a shortening, and 
 // [ErrShorteningIsDecided]: the protection a shorter value destroys is the
 // evidence itself, so the write takes a gate row of its own.
 //
+// The first authored value is a shortening too. Where an owner has authored
+// none the log is kept for the life of the install, so any finite value is
+// shorter than what is in force and takes the row — a factory whose first
+// authoring escaped it would cut the log on one owner's write, which is the one
+// thing that row exists to stop.
+//
 // Neither an authored value nor a safeguard may take it under the retention
 // floor, which package factorysettings refuses in the same transaction.
 func (f *Factory) AuthorDecisionLogRetention(ctx context.Context, actor record.Actor,
@@ -39,7 +45,10 @@ func (f *Factory) AuthorDecisionLogRetention(ctx context.Context, actor record.A
 		return Version{}, err
 	}
 	held := settings.DecisionLogRetentionSeconds
-	if held.Present && float64(seconds) < held.Number {
+	if !held.Present {
+		return Version{}, fmt.Errorf("%w: %d against the life of the install", ErrShorteningIsDecided, seconds)
+	}
+	if float64(seconds) < held.Number {
 		return Version{}, fmt.Errorf("%w: %d under the %v in force", ErrShorteningIsDecided, seconds, held.Number)
 	}
 	return f.setDecisionLogRetention(ctx, actor, settings.ID, seconds)
@@ -49,7 +58,8 @@ func (f *Factory) AuthorDecisionLogRetention(ctx context.Context, actor record.A
 // a shortening approved. Its caller is that row's close, the row naming each
 // author whose per-author prior the cut would remove; this package does not
 // fire it. A value that is not shorter is refused: that path is the ungated one
-// above.
+// above. Where nothing is authored, every finite value is shorter than the life
+// of the install, so the first authoring comes through here.
 func (f *Factory) ApproveRetentionShortening(ctx context.Context, actor record.Actor,
 	seconds int64) (Version, error) {
 	settings, err := factorysettings.Get(ctx, f.pool)

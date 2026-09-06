@@ -7,6 +7,9 @@ import "slices"
 // alone — which is the whole of "a safeguard is a bound and not a precedence". A
 // safeguard that adds a human clamps nothing and returns the value unchanged;
 // what it adds is read from the direction by the gate and not from a number. A
+// safeguard of [DirectionAdds] returns it unchanged too: its bound is a check
+// applied in addition to what the mechanism reads, written onto the record that
+// mechanism reads rather than narrowing a number here. A
 // parameter of [DirectionNone] is unchanged for the other reason: no safeguard
 // reaches it, and one is refused where it is written.
 func Clamp(direction Direction, bound, value float64) float64 {

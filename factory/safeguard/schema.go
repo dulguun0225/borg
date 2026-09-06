@@ -72,7 +72,7 @@ var DDL = []string{
 		'contract_element', 'design_system_component', 'factory_settings', 'report_store',
 		'drift_detector_last_check')),
 	constraint subject_id_present check (subject_id <> ''),
-	constraint direction_known check (direction in ('ceiling', 'floor', 'adds_a_human')),
+	constraint direction_known check (direction in ('ceiling', 'floor', 'adds_a_human', 'adds')),
 	constraint one_bound_at_most check (
 		(case when bound is null then 0 else 1 end)
 		+ (case when bound_list = '' then 0 else 1 end)

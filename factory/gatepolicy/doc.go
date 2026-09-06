@@ -11,12 +11,15 @@
 //
 // definitions.go is [Definitions], the thirteen parameters of the eleven rows,
 // with the row names as constants. notamongtheeleven.go is [NotAmongTheEleven],
-// what an owner authors on the factory-wide settings record that is not gate
-// policy, and [SafeguardOnly], the one parameter nobody authors.
+// what an owner authors on the factory-wide settings record, on production's
+// environment record and on the service record that is not gate policy, and
+// [SafeguardOnly], the two parameters nobody authors.
 //
 // quantity.go is [Quantity] and [Quantities], the numbers the health monitor
 // reads, with [DecidableQuantity] refusing a name outside them: the analysis
-// window's size and power are authored per quantity.
+// window's size and power are authored per quantity. strategy.go is [Strategy],
+// [Strategies] and [DecidableStrategy], the same shape for the default an owner
+// authors on production's environment record.
 //
 // clamp.go is [Clamp] and [ClampList]: a bound narrows the value in force and
 // never replaces one already narrower than itself, and a floor under a list is
@@ -44,6 +47,10 @@
 // What is authored and not among the eleven is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
 // and ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md.
+// The strategy default being production's environment record's alone is
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md,
+// and the change freeze is
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.
 // The predicate kinds are
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md, and the
 // quantities are

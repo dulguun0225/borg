@@ -34,3 +34,24 @@ func (r *Reader) All(ctx context.Context, s Subjects) ([]Effective, error) {
 	}
 	return all, nil
 }
+
+// InForce is one parameter as it is in force against these subjects, whichever
+// of the three lists package gatepolicy defines it in. [Reader.All] answers over
+// gate policy's eleven rows alone, so this is what a caller reading a parameter
+// authored and not among them asks: the value in force for decision-log
+// retention is a read of the factory-wide settings record and not of a row that
+// list holds.
+func (r *Reader) InForce(ctx context.Context, parameter gatepolicy.Parameter, s Subjects) (Effective, error) {
+	d, err := gatepolicy.Define(parameter)
+	if err != nil {
+		return Effective{}, err
+	}
+	authored, list, err := r.authored(ctx, d, s)
+	if err != nil {
+		return Effective{}, err
+	}
+	if d.Kind == gatepolicy.KindList || d.Kind == gatepolicy.KindStrategy {
+		return r.resolveList(ctx, parameter, list, s)
+	}
+	return r.resolve(ctx, parameter, authored, s)
+}

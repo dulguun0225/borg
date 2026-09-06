@@ -17,15 +17,31 @@ var (
 	ErrNameEmpty = errors.New("project: the name is empty")
 	// ErrNotFound is returned by [Get] where no project has the id.
 	ErrNotFound = errors.New("project: no project has that id")
+	// ErrServicesStandInIt is returned by [End] where a service in the project is
+	// not retired. A project is ended once every service in it is, each ending by
+	// an owner's write on its own record.
+	ErrServicesStandInIt = errors.New("project: a service in the project is not retired")
+	// ErrAlreadyEnded is returned by [End] for a project already ended. Ending one
+	// is one event, and the production environment that ends with it is withdrawn
+	// once.
+	ErrAlreadyEnded = errors.New("project: the project is already ended")
 )
 
-// Project is one project as it is stored: its identity and nothing else.
+// Project is one project as it is stored: its identity, and when an owner ended
+// it.
 type Project struct {
 	ID    string
 	Actor record.Actor
 	At    string
 	Name  string
+	// EndedAt is when an owner ended the project at Factory, and is empty while
+	// it stands.
+	EndedAt string
 }
+
+// Ended is whether an owner has ended the project. A reader that skips an ended
+// project asks this rather than comparing the timestamp itself.
+func (p Project) Ended() bool { return p.EndedAt != "" }
 
 // Writer is the table's one writer: an owner at Factory.
 type Writer struct {
@@ -77,8 +93,8 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 
 	p := Project{ID: record.NewID(IDPrefix), Actor: actor, At: record.Now(), Name: name}
 	_, err := tx.Exec(ctx, `insert into `+Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name)
-		values ($1, $2, $3, $4, $5, $6, $7)`,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name, ended_at)
+		values ($1, $2, $3, $4, $5, $6, $7, '')`,
 		p.ID, FormatVersion, string(p.Actor.Kind), p.Actor.Key, string(p.Actor.Basis), p.At, p.Name,
 	)
 	if err != nil {
@@ -87,7 +103,51 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 	return p, nil
 }
 
-const selectProject = `select id, actor_kind, actor_key, actor_key_basis, at, name from ` + Table
+// End writes when an owner ended the project, which they may do once every
+// service in it is retired. Its caller is package policy, which withdraws
+// production's environment in the same transaction — the project's production
+// environment ends with it — and appends the policy version there.
+//
+// servicesNotRetired is a count the caller read, not a query made here: a
+// service record is another package's and the direction between the two is
+// service -> project, so the refusal is stated here over a number the caller
+// read inside the same transaction. What that costs is a caller that can pass a
+// count it did not read.
+//
+// The row stays and is never deleted, for the reason it never was: an area, a
+// constraint, a safeguard or a scope naming the project would otherwise point at
+// nothing.
+func End(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	id string, servicesNotRetired int) error {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if servicesNotRetired < 0 {
+		return fmt.Errorf("project: the services not retired is not a count: %d", servicesNotRetired)
+	}
+	if servicesNotRetired > 0 {
+		return fmt.Errorf("%w: %d of them in %s", ErrServicesStandInIt, servicesNotRetired, id)
+	}
+	var endedAt string
+	err := tx.QueryRow(ctx, `select ended_at from `+Table+` where id = $1 for update`, id).Scan(&endedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: %s", ErrNotFound, id)
+	} else if err != nil {
+		return fmt.Errorf("project: reading %s: %w", id, err)
+	}
+	if endedAt != "" {
+		return fmt.Errorf("%w: %s at %s", ErrAlreadyEnded, id, endedAt)
+	}
+	if _, err := tx.Exec(ctx, `update `+Table+` set ended_at = $1 where id = $2`, record.Now(), id); err != nil {
+		return fmt.Errorf("project: ending %s: %w", id, err)
+	}
+	return nil
+}
+
+const selectProject = `select id, actor_kind, actor_key, actor_key_basis, at, name, ended_at from ` + Table
 
 // Get is one project by id. It takes the pool and not a [Writer], because
 // reading a project is not a reason to be handed the thing that creates them.
@@ -134,7 +194,7 @@ func All(ctx context.Context, pool *pgxpool.Pool) ([]Project, error) {
 func scan(row pgx.Row, named string) (Project, error) {
 	var p Project
 	var kind, basis string
-	err := row.Scan(&p.ID, &kind, &p.Actor.Key, &basis, &p.At, &p.Name)
+	err := row.Scan(&p.ID, &kind, &p.Actor.Key, &basis, &p.At, &p.Name, &p.EndedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Project{}, fmt.Errorf("%w: %s", ErrNotFound, named)
 	} else if err != nil {
