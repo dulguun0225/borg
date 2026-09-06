@@ -108,9 +108,10 @@ func (h *HealthMonitor) read(ctx context.Context, w Watching, svc service.Servic
 		// closes at the one exit of the four that says a window ruled nothing
 		// out; the design names no exit for it, and leaving it open would fill
 		// the window limit and hold the service on a reading that can never be
-		// taken. What keeps that from making an unmeasured release a rollback
-		// target is [window.ClosedPassedOrTimedOut], which reads only the
-		// windows that measured something.
+		// taken. Closing it timed out is what makes it stay what such a window
+		// stays below: a rollback's target, since [window.ClosedPassedOrTimedOut]
+		// asks whether any window failed the release and not whether anything
+		// measured it.
 		closed, err := h.windows.Close(ctx, win.ID, window.ExitTimedOut, window.Closing{})
 		one.Window, one.Exit = closed, window.ExitTimedOut
 		return one, err
@@ -267,11 +268,10 @@ func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window
 // rather than only where the record says one is.
 //
 // It reads the record rather than the window because the record is what says a
-// control is there: the count of control instances on each target's row. The
-// build is the deploy's one control release and not a field per target — the
-// record carries one control target and one control release for the whole
-// deploy, which doc.go states — so every teardown asked for here names the same
-// build.
+// control is there: the count of control instances on each target's row, and the
+// release that target's own control runs — there is one control per production
+// target the release has reached and the deploy record names each rather than
+// naming one control for the whole deploy, so two targets can name two builds.
 //
 // A search's window tears nothing down at any exit. What its deploy was
 // compared against is the instances of the rollback's target, which the search
@@ -280,13 +280,7 @@ func (h *HealthMonitor) tearDownControls(ctx context.Context, w Watching, win wi
 	if h.deployer == nil || win.ReleaseID == "" {
 		return nil
 	}
-	buildID := ""
-	if dep, err := deploy.Get(ctx, h.pool, win.DeployID); err == nil && dep.ControlReleaseID != "" {
-		if rel, err := release.Get(ctx, h.pool, dep.ControlReleaseID); err == nil {
-			buildID = rel.BuildID
-		}
-	}
-	for _, target := range h.controlTargets(ctx, win) {
+	for target, buildID := range h.controlTargets(ctx, win) {
 		control := Control{
 			ServiceID: w.ID, ServiceName: w.Name, EnvironmentID: w.EnvironmentID,
 			DeployID: win.DeployID, Target: target, BuildID: buildID,
@@ -298,26 +292,48 @@ func (h *HealthMonitor) tearDownControls(ctx context.Context, w Watching, win wi
 	return nil
 }
 
-// controlTargets is every target of this deploy whose record names a control:
-// the count of instances running it is the field that says so. Where the record
-// names none — a deploy written before the rollout reached any target, or a
-// record this factory cannot read — the window's own target set stands in, so a
-// teardown is still asked for wherever one could be running.
-func (h *HealthMonitor) controlTargets(ctx context.Context, win window.Window) []string {
+// controlTargets is every target of this deploy whose record names a control,
+// keyed by address with the build that target's own control runs: the count of
+// control instances on the row is what says a control is there, and
+// control_release_id resolved to its build is what says which one, empty where
+// the release could not be read. Where the record names none on any target — a
+// deploy written before the rollout reached any target, or a record this
+// factory cannot read — the window's own target set stands in with no build
+// named for any of them, so a teardown is still asked for wherever one could be
+// running.
+func (h *HealthMonitor) controlTargets(ctx context.Context, win window.Window) map[string]string {
 	targets, err := deploy.Targets(ctx, h.pool, win.DeployID)
 	if err != nil {
-		return win.Targets
+		return fallbackTargets(win.Targets)
 	}
-	var carrying []string
+	carrying := map[string]string{}
 	for _, t := range targets {
-		if t.Fleets.Control.Instances > 0 {
-			carrying = append(carrying, t.Address)
+		if t.Fleets.Control.Instances == 0 {
+			continue
 		}
+		buildID := ""
+		if t.ControlReleaseID != "" {
+			if rel, err := release.Get(ctx, h.pool, t.ControlReleaseID); err == nil {
+				buildID = rel.BuildID
+			}
+		}
+		carrying[t.Address] = buildID
 	}
 	if len(carrying) == 0 {
-		return win.Targets
+		return fallbackTargets(win.Targets)
 	}
 	return carrying
+}
+
+// fallbackTargets is every address in addresses with no build named, the shape
+// [HealthMonitor.controlTargets] falls back to where the record names a control
+// on no target it could read.
+func fallbackTargets(addresses []string) map[string]string {
+	fallback := make(map[string]string, len(addresses))
+	for _, address := range addresses {
+		fallback[address] = ""
+	}
+	return fallback
 }
 
 // newestRecord is the newest time the store held a record for this service over

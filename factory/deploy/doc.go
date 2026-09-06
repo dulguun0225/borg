@@ -44,8 +44,9 @@
 // retirement.go is what an owner's write of retired calls the deployer for:
 // [Removal], [Environment], [Remove] and [ErrRemovalIncomplete].
 // adoption.go is the two records the deployer writes on another package's
-// table: [Adopt] and [Found] on the service record, and [RecordTargetCheck]
-// and [RecordPlatformCheck] on the last-check record, plus [Writer.Token] for
+// table: [Adopt] and [Found] on the service record, and [RecordTargetCheck] on
+// the last-check record — its platform record is
+// lastcheck.Writer.RecordPlatformPass and not here — plus [Writer.Token] for
 // the writes made through another package's transaction-taking write.
 //
 // db_test.go is the tests against the database, in an external package for the
@@ -85,9 +86,12 @@
 // refuses the shift — [Writer.PerformedWithoutControl] is that write, and
 // [Writer.PerformedWithControl] is the shift returning. Neither is written at
 // the start: a deployer that stopped before it performed anything would
-// otherwise leave a record naming a control that never ran. control_target
-// names the target the control ran on and control_release_id the release it
-// runs, a control being defined by which release it runs.
+// otherwise leave a record naming a control that never ran. The control itself
+// is a target row's own field and not the whole deploy's:
+// [TargetTable].control_release_id names the release the control on that
+// target runs, a control being defined by which release it runs, because there
+// is one control per production target the release has reached and the deploy
+// record names each.
 //
 // A deploy names every schema change its build carries, and a revert's deploy is
 // the one that carries more than one. [Writer.MarkSchemaChangesComplete] runs on
@@ -143,11 +147,11 @@
 // health monitor reads, which is behind an interface of its own and doc.go says
 // which caller supplies it.
 //
-// The deployer's last check per platform has two writers and neither is called:
-// [RecordPlatformCheck] here, which takes the payload as text, and
-// lastcheck.Writer.RecordPlatformPass, which composes the three counts. One
-// record with two writers is one writer too many, and which of the two goes is
-// not settled here.
+// The deployer's last check per platform is lastcheck.Writer.RecordPlatformPass
+// and not here: it is the sole writer of that record, composing the payload
+// from the three counts the design names rather than taking it as text, and
+// the command-line interface's composition calls it beside [RecordTargetCheck]
+// on every production deploy.
 //
 // # What is not built yet
 //

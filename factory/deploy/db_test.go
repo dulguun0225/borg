@@ -122,6 +122,21 @@ var twoTargets = []deploy.Reaching{
 	{Address: "/srv/two", ReleaseInstances: 4, KeptInstances: 2},
 }
 
+// withControlReleaseID returns a copy of targets naming releaseID as the
+// release the control on the target at address runs — the field a caller
+// building a [deploy.Beginning] directly names per target now that a control
+// is a target row's own field and not the whole deploy's.
+func withControlReleaseID(targets []deploy.Reaching, address, releaseID string) []deploy.Reaching {
+	copied := make([]deploy.Reaching, len(targets))
+	copy(copied, targets)
+	for n, target := range copied {
+		if target.Address == address {
+			copied[n].ControlReleaseID = releaseID
+		}
+	}
+	return copied
+}
+
 func addressesOf(targets []deploy.Reaching) []string {
 	var addresses []string
 	for _, target := range targets {
@@ -221,9 +236,8 @@ func TestCompletionIsPerTarget(t *testing.T) {
 
 	d, err := w.Start(ctx, deployer, deploy.Beginning{
 		ServiceID: serviceID, EnvironmentID: productionID,
-		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: withControlReleaseID(twoTargets, "/srv/one", "rel_below"),
 		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
-		ControlTarget: "/srv/one", ControlReleaseID: "rel_below",
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

@@ -132,15 +132,6 @@ const lockName = "borg/factory/deploy/"
 // report store that would digest it are not built, so nothing reads this
 // column yet.
 //
-// control_target is the target the control runs on under a strategy with one,
-// and control_release_id is the release it runs — the newest release below this
-// one whose window closed without failing it, which is the release a rollback of
-// this deploy would return to. A control is defined by which release it runs, so
-// the two are empty together, which control_names_its_release holds. How many
-// instances the control runs is control_instances on that target's row, which is
-// not the kept-instance count: a control is sized for the release's share, and
-// the kept fleet is sized for all of production.
-//
 // # Completion per target
 //
 // [TargetTable] is a field of the deploy record and not a record of its own: it
@@ -159,6 +150,15 @@ const lockName = "borg/factory/deploy/"
 // authored. Without the last those kept instances are an assertion and the drift
 // detector has nothing to read what runs against.
 //
+// control_release_id is the release the control on this target runs — the
+// newest release below this one whose window closed without failing it, which
+// is the release a rollback of this deploy would return to. A control is
+// defined by which release it runs, so a target with none running names none.
+// There is one control per production target the release has reached, started
+// on that target when the rollout reaches it, and each target row names its
+// own rather than the whole deploy naming one for all of them.
+//
+
 // reached_at is written before the deployer calls that target and complete_at
 // after it, both carrying the fencing token, which is what bounds what a
 // deployer whose lease lapsed mid-call can leave behind. replacement is what
@@ -208,8 +208,6 @@ var DDL = []string{
 	snapshot_deleted_at text not null default '',
 	configuration_digest text not null default '',
 	way_in_token_digest text not null default '',
-	control_target text not null default '',
-	control_release_id text not null default '',
 	backfill_contract text not null default '',
 	backfill_element text not null default '',
 	backfill_from_element text not null default '',
@@ -230,7 +228,6 @@ var DDL = []string{
 	constraint status_known check (status in ('started', 'complete', 'failed')),
 	constraint failed_names_its_step check ((status = 'failed') = (failed_step <> '')),
 	constraint schema_changes_completed_names_one check (schema_changes <> '' or not schema_changes_completed),
-	constraint control_names_its_release check ((control_target = '') = (control_release_id = '')),
 	constraint backfill_names_all_three check (
 		(backfill_contract = '' and backfill_element = '' and backfill_from_element = '')
 		or (backfill_contract <> '' and backfill_element <> '' and backfill_from_element <> '')
@@ -250,6 +247,7 @@ var DDL = []string{
 	completion text not null,
 	release_instances int not null default 0,
 	control_instances int not null default 0,
+	control_release_id text not null default '',
 	kept_instances int not null default 0,
 	replacement text not null default '',
 	reached_at text not null default '',

@@ -20,9 +20,8 @@ func TestTheThreeFleetsSpansAreSummedIntoInstanceHours(t *testing.T) {
 
 	d, err := w.Start(ctx, deployer, deploy.Beginning{
 		ServiceID: serviceID, EnvironmentID: productionID,
-		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: withControlReleaseID(twoTargets, "/srv/one", "rel_below"),
 		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
-		ControlTarget: "/srv/one", ControlReleaseID: "rel_below",
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

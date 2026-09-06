@@ -55,11 +55,6 @@ var (
 	// ErrNoSnapshot is returned by [Writer.DeleteSnapshot] for a record naming
 	// no copy. There is nothing for a deletion to stand beside.
 	ErrNoSnapshot = errors.New("deploy: the deploy names no snapshot")
-	// ErrControlIncomplete is returned by [Writer.Start] for a control target
-	// with no release or a release with no target. A control is defined by which
-	// release it runs — the release a rollback of this deploy would return to —
-	// so one that names none is a comparison against nothing.
-	ErrControlIncomplete = errors.New("deploy: a control names the target it runs on and the release it runs")
 	// ErrBackfillIncomplete is returned by [Writer.Start] for a backfill naming
 	// some of the three. What a backfill declares is the element it fills and
 	// the element it fills from, on one store contract, and a pair missing a

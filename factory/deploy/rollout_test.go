@@ -182,9 +182,17 @@ func TestATargetThatRefusesTheShiftMakesThePerformedStrategyDiffer(t *testing.T)
 	if read.StrategyPerformed != deploy.StrategyWithoutControl {
 		t.Errorf("the performed strategy reads %q, want without a control", read.StrategyPerformed)
 	}
-	if read.ControlTarget != "/srv/one" || read.ControlReleaseID != "rel_the_rollback_would_return_to" {
-		t.Errorf("the control is %q running %q, want the first target the rollout reaches and the release a rollback returns to",
-			read.ControlTarget, read.ControlReleaseID)
+	targets, err := deploy.Targets(ctx, pool, d.ID)
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	if targets[0].ControlReleaseID != "rel_the_rollback_would_return_to" {
+		t.Errorf("%s runs control release %q, want the release a rollback returns to",
+			targets[0].Address, targets[0].ControlReleaseID)
+	}
+	if targets[1].ControlReleaseID != "" {
+		t.Errorf("%s runs control release %q, want none — it carries no control instances",
+			targets[1].Address, targets[1].ControlReleaseID)
 	}
 }
 
@@ -200,9 +208,8 @@ func TestTheStrategyPerformedIsWrittenOnlyOnceSomethingWasPerformed(t *testing.T
 
 	started, err := w.Start(ctx, deployer, deploy.Beginning{
 		ServiceID: serviceID, EnvironmentID: productionID,
-		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: withControlReleaseID(twoTargets, "/srv/one", "rel_below"),
 		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
-		ControlTarget: "/srv/one", ControlReleaseID: "rel_below",
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

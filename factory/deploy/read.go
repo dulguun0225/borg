@@ -16,7 +16,7 @@ import (
 const selectDeploy = `select id, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, number,
 	release_id, build_id, delivered_release_ids, strategy_picked, strategy_performed, status, failed_step,
 	schema_changes, schema_changes_completed, snapshot_name, snapshot_digest, snapshot_deleted_at,
-	configuration_digest, way_in_token_digest, control_target, control_release_id,
+	configuration_digest, way_in_token_digest,
 	backfill_contract, backfill_element, backfill_from_element,
 	failed_release_id, skipped_release_ids, source
 	from ` + Table
@@ -40,7 +40,8 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 // what a reader of one deploy reads beside the record.
 func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target, error) {
 	rows, err := pool.Query(ctx, `select deploy_id, position, address, completion,
-		release_instances, control_instances, kept_instances, replacement, reached_at, complete_at,
+		release_instances, control_instances, control_release_id, kept_instances,
+		replacement, reached_at, complete_at,
 		release_torn_down_at, control_torn_down_at, kept_torn_down_at,
 		release_instance_hours, control_instance_hours, kept_instance_hours,
 		instance_hours, amount, rate
@@ -56,7 +57,7 @@ func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target
 		var completion, replacement string
 		var amount, rate *float64
 		err := rows.Scan(&t.DeployID, &t.Position, &t.Address, &completion,
-			&t.Fleets.Release.Instances, &t.Fleets.Control.Instances, &t.Fleets.Kept.Instances,
+			&t.Fleets.Release.Instances, &t.Fleets.Control.Instances, &t.ControlReleaseID, &t.Fleets.Kept.Instances,
 			&replacement, &t.ReachedAt, &t.CompleteAt,
 			&t.Fleets.Release.TornDownAt, &t.Fleets.Control.TornDownAt, &t.Fleets.Kept.TornDownAt,
 			&t.Fleets.Release.Hours, &t.Fleets.Control.Hours, &t.Fleets.Kept.Hours,
@@ -273,7 +274,7 @@ func scan(row pgx.Row) (Deploy, error) {
 	if err := row.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.ServiceID, &d.EnvironmentID, &d.Number,
 		&d.ReleaseID, &d.BuildID, &delivered, &picked, &performed, &status, &d.FailedStep,
 		&changes, &d.SchemaChangesCompleted, &d.Snapshot.Name, &d.Snapshot.Digest, &d.Snapshot.DeletedAt,
-		&d.ConfigurationDigest, &d.WayInTokenDigest, &d.ControlTarget, &d.ControlReleaseID,
+		&d.ConfigurationDigest, &d.WayInTokenDigest,
 		&d.Backfill.Contract, &d.Backfill.Element, &d.Backfill.FromElement,
 		&d.Undoing.FailedReleaseID, &skipped, &d.Undoing.Source); err != nil {
 		return Deploy{}, err

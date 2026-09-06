@@ -150,11 +150,12 @@ func recordedFor(ctx context.Context, pool *pgxpool.Pool, serviceID, environment
 }
 
 // excusedBuilds is every build an open analysis window accounts for, per target:
-// the build of the release under watch, the build of the control that window's
-// deploy record names, and the build of the release a rollback of it would
-// return to, which is the same release the control runs. A build running beside
-// the current release is a mismatch only where no open window names it, or the
-// independent driftdetector would page on every rollout it sees.
+// the build of the release under watch, and the build of the control that
+// target's own row of the deploy record names — the release a rollback of the
+// deploy would return to, which is the release the control runs, so each target
+// can name a different control build. A build running beside the current
+// release is a mismatch only where no open window names it, or the independent
+// driftdetector would page on every rollout it sees.
 //
 // It is per target because the exemption is: it is never granted on a target the
 // deploy record marks complete, that target being meant to run the release under
@@ -194,20 +195,12 @@ func excusedBuilds(ctx context.Context, pool *pgxpool.Pool, serviceID string) (m
 		if err != nil {
 			return nil, err
 		}
-		if dep.ControlReleaseID != "" {
-			control, err := release.Get(ctx, pool, dep.ControlReleaseID)
-			if err != nil {
-				return nil, err
-			}
-			// One release covers two of the three: the control runs the build of
-			// the release a rollback of this deploy would return to.
-			builds[control.BuildID] = true
-		}
 
 		targets, err := deploy.Targets(ctx, pool, dep.ID)
 		if err != nil {
 			return nil, err
 		}
+		controlBuilds := map[string]string{}
 		for _, t := range targets {
 			if t.Completion == deploy.CompletionComplete {
 				continue
@@ -218,6 +211,23 @@ func excusedBuilds(ctx context.Context, pool *pgxpool.Pool, serviceID string) (m
 			for build := range builds {
 				excused[t.Address][build] = true
 			}
+			if t.ControlReleaseID == "" {
+				continue
+			}
+			// One release covers what the control on this target runs: the
+			// release a rollback of this deploy would return to. Cached per
+			// window, because more than one target's control can name the same
+			// release.
+			buildID, cached := controlBuilds[t.ControlReleaseID]
+			if !cached {
+				control, err := release.Get(ctx, pool, t.ControlReleaseID)
+				if err != nil {
+					return nil, err
+				}
+				buildID = control.BuildID
+				controlBuilds[t.ControlReleaseID] = buildID
+			}
+			excused[t.Address][buildID] = true
 		}
 	}
 	return excused, nil

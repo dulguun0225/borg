@@ -166,12 +166,6 @@ type Deploy struct {
 	// deploy, never the token. Nothing reads it: the way in and the report store
 	// are not built.
 	WayInTokenDigest string
-	// ControlTarget is the target a control ran on, and is empty on every deploy
-	// without one. ControlReleaseID is the release that control runs — the
-	// release a rollback of this deploy would return to, which is what defines a
-	// control — and the two are empty together.
-	ControlTarget    string
-	ControlReleaseID string
 	// Undoing is what a rollback's own deploy record names beside the deploy it
 	// is, and is empty on every other record. [Undoing.Any] is what tells the
 	// two apart.
@@ -217,6 +211,13 @@ type Target struct {
 	Completion Completion
 	// Fleets is the three sets of instances this deploy's record dates here.
 	Fleets Fleets
+	// ControlReleaseID is the release the control on this target runs — the
+	// release a rollback of this deploy would return to, which is what defines a
+	// control — and is empty on a target running none. There is one control per
+	// production target the release has reached, started on that target when
+	// the rollout reaches it, so this is the target's own field and not the
+	// deploy's.
+	ControlReleaseID string
 	// Replacement is what the seam reported when it replaced the instances here:
 	// a drain, or a cut where the platform could not hold a request open across
 	// the replacement.

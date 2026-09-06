@@ -290,19 +290,21 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 // this deploy is.
 func (p Performance) beginning(wayInDigest string) Beginning {
 	targets := make([]Reaching, 0, len(p.Reaches))
-	control, controlRelease := "", ""
 	for _, reach := range p.Reaches {
-		targets = append(targets, Reaching{
+		reaching := Reaching{
 			Address:          reach.Address,
 			ReleaseInstances: reach.ReleaseInstances,
 			ControlInstances: reach.ControlInstances,
 			KeptInstances:    reach.KeptInstances,
-		})
-	}
-	if p.IntoProduction && p.StrategyPicked == StrategyWithControl && len(p.Reaches) > 0 {
-		// A control runs the release a rollback would return to, beside the
-		// release itself, and it starts on the first target the rollout reaches.
-		control, controlRelease = p.Reaches[0].Address, p.ControlReleaseID
+		}
+		if p.IntoProduction && p.StrategyPicked == StrategyWithControl && reach.ControlInstances > 0 {
+			// A control runs the release a rollback would return to, beside the
+			// release itself, on every target the rollout has reached that
+			// carries one — one control per production target and not one for
+			// the whole deploy.
+			reaching.ControlReleaseID = p.ControlReleaseID
+		}
+		targets = append(targets, reaching)
 	}
 	return Beginning{
 		ServiceID:           p.ServiceID,
@@ -316,8 +318,6 @@ func (p Performance) beginning(wayInDigest string) Beginning {
 		Backfill:            p.Backfill,
 		ConfigurationDigest: DigestConfiguration(p.Configuration),
 		WayInTokenDigest:    wayInDigest,
-		ControlTarget:       control,
-		ControlReleaseID:    controlRelease,
 	}
 }
 

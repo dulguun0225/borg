@@ -23,9 +23,15 @@ type Reaching struct {
 	Address string
 	// ReleaseInstances is how many instances of this deploy's own build run
 	// here, and ControlInstances how many the control runs, which is nothing on
-	// every target but the control's.
+	// every target but the ones a control runs on.
 	ReleaseInstances int
 	ControlInstances int
+	// ControlReleaseID is the release the control on this target runs — the
+	// release a rollback of this deploy would return to, which is what defines a
+	// control — and is empty on a target running none. There is one control per
+	// production target the release has reached, so this names it per target and
+	// not once for the whole deploy.
+	ControlReleaseID string
 	// KeptInstances is the capacity the release being replaced had, times the
 	// fraction its owner authored, kept here while any open window's rollback
 	// could return to that release.
@@ -60,12 +66,6 @@ type Beginning struct {
 	ConfigurationDigest string
 	// WayInTokenDigest is the digest of the token minted for the way in.
 	WayInTokenDigest string
-	// ControlTarget is the target a control runs on, under a strategy with one,
-	// and ControlReleaseID the release that control runs: the release a rollback
-	// of this deploy would return to, which is what defines a control. The two
-	// arrive together, and a control naming no release is refused.
-	ControlTarget    string
-	ControlReleaseID string
 	// Backfill is what a backfill item's release copies between, and is empty on
 	// every other deploy.
 	Backfill Backfill
@@ -130,10 +130,6 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, und
 		return Deploy{}, fmt.Errorf("%w: into production %v, strategy %q",
 			ErrStrategyNotProduction, b.IntoProduction, b.StrategyPicked)
 	}
-	if (b.ControlTarget == "") != (b.ControlReleaseID == "") {
-		return Deploy{}, fmt.Errorf("%w: target %q, release %q",
-			ErrControlIncomplete, b.ControlTarget, b.ControlReleaseID)
-	}
 	if b.Backfill.Any() && (b.Backfill.Contract == "" || b.Backfill.FromElement == "") {
 		return Deploy{}, fmt.Errorf("%w: %+v", ErrBackfillIncomplete, b.Backfill)
 	}
@@ -153,8 +149,6 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, und
 		Backfill:            b.Backfill,
 		ConfigurationDigest: b.ConfigurationDigest,
 		WayInTokenDigest:    b.WayInTokenDigest,
-		ControlTarget:       b.ControlTarget,
-		ControlReleaseID:    b.ControlReleaseID,
 		Undoing:             undoing,
 	}
 
@@ -182,16 +176,15 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, und
 	_, err = tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, environment_id, number,
 		 release_id, build_id, delivered_release_ids, strategy_picked, strategy_performed, status,
-		 schema_changes, configuration_digest, way_in_token_digest, control_target, control_release_id,
+		 schema_changes, configuration_digest, way_in_token_digest,
 		 backfill_contract, backfill_element, backfill_from_element,
 		 failed_release_id, skipped_release_ids, source)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-		 $21, $22, $23, $24, $25, $26)`,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+		 $19, $20, $21, $22, $23, $24)`,
 		d.ID, FormatVersion, string(d.Actor.Kind), d.Actor.Key, string(d.Actor.Basis), d.At,
 		d.ServiceID, d.EnvironmentID, d.Number, d.ReleaseID, d.BuildID, joinLines(d.DeliveredReleaseIDs),
 		string(d.StrategyPicked), string(d.StrategyPerformed), string(d.Status),
 		joinLines(d.SchemaChanges), d.ConfigurationDigest, d.WayInTokenDigest,
-		d.ControlTarget, d.ControlReleaseID,
 		d.Backfill.Contract, d.Backfill.Element, d.Backfill.FromElement,
 		d.Undoing.FailedReleaseID, joinLines(d.Undoing.SkippedReleaseIDs), d.Undoing.Source,
 	)
@@ -202,10 +195,10 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, und
 	for position, target := range b.Targets {
 		_, err = tx.Exec(ctx, `insert into `+TargetTable+`
 			(deploy_id, position, address, completion,
-			 release_instances, control_instances, kept_instances)
-			values ($1, $2, $3, $4, $5, $6, $7)`,
+			 release_instances, control_instances, control_release_id, kept_instances)
+			values ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			d.ID, position, target.Address, string(CompletionNotReached),
-			target.ReleaseInstances, target.ControlInstances, target.KeptInstances)
+			target.ReleaseInstances, target.ControlInstances, target.ControlReleaseID, target.KeptInstances)
 		if err != nil {
 			return Deploy{}, fmt.Errorf("deploy: writing the row of target %s of %s: %w",
 				target.Address, d.ID, err)
