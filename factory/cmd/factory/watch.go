@@ -359,6 +359,9 @@ func readExchange(path string) ([]consumercontract.Document, error) {
 //
 // It reports what it found either way, because a marked element with a list that
 // has not emptied is the mechanism working and an owner reading a run should see it.
+// An element whose brownout ran and established nothing is reported too: no pass
+// of the detector can raise its removal, so an owner reading the run is who
+// learns that raising it is theirs.
 func (p *path) raiseRemovals(ctx context.Context) error {
 	marked, err := p.contracts.Deprecated(ctx)
 	if err != nil {
@@ -383,6 +386,10 @@ func (p *path) raiseRemovals(ctx context.Context) error {
 		return err
 	}
 	for _, r := range raised {
+		if r.Stall() {
+			fmt.Fprintln(p.d.out, r.Stalled)
+			continue
+		}
 		if !r.New {
 			fmt.Fprintf(p.d.out, "The removal of %s.%s is already asked for by intent %s; the detector takes nothing in\n",
 				r.Marked.Contract.Name, r.Marked.Element.Name, r.Intent.ID)

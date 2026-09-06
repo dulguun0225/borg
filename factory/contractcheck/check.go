@@ -87,7 +87,7 @@ func (c *Check) Enforce(ctx context.Context, candidate Candidate, production str
 		currentNumber = rel.Number
 	}
 
-	binding, _, err := c.Binding(ctx, candidate.ServiceID)
+	binding, ranges, err := c.Binding(ctx, candidate.ServiceID)
 	if err != nil {
 		return Checked{}, err
 	}
@@ -97,8 +97,17 @@ func (c *Check) Enforce(ctx context.Context, candidate Candidate, production str
 		}
 	}
 
+	// The consumers no derivation shows to have stopped reading anything: the
+	// partial ones and the ones nobody could read. The deprecation list and this
+	// diff are one list asked at two moments, so both read the same pair.
+	unreadable, err := c.unreadable(ctx, ranges)
+	if err != nil {
+		return Checked{}, err
+	}
+	checked.Unreadable = unreadable
+
 	for _, form := range checked.Publishes {
-		broken, err := c.diff(ctx, candidate, form, current, currentNumber, running, binding)
+		broken, err := c.diff(ctx, candidate, form, current, currentNumber, running, binding, unreadable)
 		if err != nil {
 			return Checked{}, err
 		}
@@ -208,7 +217,8 @@ func (c *Checked) unsatisfied(result consumercontract.Result) {
 
 // diff is one form against the version the service's current release publishes.
 func (c *Check) diff(ctx context.Context, candidate Candidate, form contract.Form,
-	current deploy.Deploy, currentNumber int64, running bool, binding []consumercontract.Predicate) (Broken, error) {
+	current deploy.Deploy, currentNumber int64, running bool, binding []consumercontract.Predicate,
+	unreadable Unreadable) (Broken, error) {
 	existing, found, err := contract.ByName(ctx, c.pool, candidate.ServiceID, form.Name)
 	if err != nil {
 		return Broken{}, err
@@ -278,7 +288,11 @@ func (c *Check) diff(ctx context.Context, candidate Candidate, form contract.For
 		if !ordinary || len(naming) > 0 {
 			broken.Breaks = append(broken.Breaks, element)
 		}
-		blocking := Blocking{Element: element, Predicates: naming}
+		// The consumers no derivation shows to have stopped reading it hold the
+		// element the way a predicate naming it does: a partial record's silence
+		// on an element never shows that the consumer does not touch it, and
+		// nothing bounds what an unreadable consumer consumes.
+		blocking := Blocking{Element: element, Predicates: naming, Unreadable: unreadable}
 		for _, p := range safeguards {
 			if p.Subject == contract.ElementSubject(existing.ID, element) {
 				blocking.Safeguards = append(blocking.Safeguards, p)

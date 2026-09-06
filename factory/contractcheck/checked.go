@@ -45,8 +45,9 @@ type Broken struct {
 }
 
 // Blocking is one breaking element and everything that still depends on it: the
-// consumer contracts in force, the safeguards' predicates, and — on a store — the
-// service's own past. The first two are the deprecation list for that element, which
+// consumer contracts in force, the consumers no derivation shows to have stopped
+// reading it, the safeguards' predicates, and — on a store — the service's own
+// past. The first three are the deprecation list for that element, which
 // is what "without the migration already shipped ahead of it" is: the list having
 // emptied is the migration.
 //
@@ -59,6 +60,12 @@ type Broken struct {
 type Blocking struct {
 	Element    string
 	Predicates []consumercontract.Predicate
+	// Unreadable is the consumers whose derivation holds the element whatever
+	// their predicates say — the partial ones and the ones nobody could read.
+	// [Marked] carries the same pair for a marked element, the two being one
+	// list: a removal that reaches this row by any route waits on what the
+	// detector waits on.
+	Unreadable Unreadable
 	Safeguards []policy.SafeguardPredicate
 	// Past is the release the store's own past is — the one a rollback would
 	// restore — and is empty on every element but a store's forward-breaking one.
@@ -67,7 +74,15 @@ type Blocking struct {
 
 // Blocked reports whether anything at all still depends on the element.
 func (b Blocking) Blocked() bool {
-	return len(b.Predicates) > 0 || len(b.Safeguards) > 0 || b.Past != ""
+	return b.HeldByADerivation() || len(b.Safeguards) > 0 || b.Past != ""
+}
+
+// HeldByADerivation reports whether the deprecation list for this element is not
+// empty: a consumer contract in force names it, or a consumer's derivation
+// cannot be read as having stopped naming it. It is what a breaking change waits
+// for and what the detector's [Marked.Empty] asks of the same element.
+func (b Blocking) HeldByADerivation() bool {
+	return len(b.Predicates) > 0 || b.Unreadable.Holds()
 }
 
 // Consumers is the distinct consumer services on the list, which is the answer to
@@ -119,6 +134,11 @@ type Checked struct {
 	Declares consumercontract.Derived
 	// Broken is every contract this candidate changes, breaking or not.
 	Broken []Broken
+	// Unreadable is the consumers no derivation shows to have stopped reading
+	// anything this candidate publishes, which every element of Blocking carries
+	// too. It is here so a reader of the row sees the pair once rather than once
+	// per element.
+	Unreadable Unreadable
 	// Unsatisfied and Unmet are the two consumer contract checks.
 	Unsatisfied []Unsatisfied
 	Unmet       []Unmet
@@ -148,7 +168,7 @@ func (c Checked) Passed() bool { return c.Check() == "" }
 func (c Checked) Check() string {
 	for _, broken := range c.Broken {
 		for _, blocking := range broken.Blocking {
-			if len(blocking.Predicates) > 0 || blocking.Past != "" {
+			if blocking.HeldByADerivation() || blocking.Past != "" {
 				return gate.AutoRejectedByContractDiff
 			}
 		}
@@ -183,6 +203,16 @@ func (c Checked) Why() string {
 					"%s.%s is %s and %s still declares it: %s",
 					broken.Contract.Name, blocking.Element, changeTo(broken.Change, blocking.Element),
 					consumer, describe(blocking.Predicates, consumer)))
+			}
+			for _, consumer := range blocking.Unreadable.Partial {
+				said = append(said, fmt.Sprintf(
+					"%s.%s is %s and %s's derivation is partial, so nothing shows it stopped reading it",
+					broken.Contract.Name, blocking.Element, changeTo(broken.Change, blocking.Element), consumer))
+			}
+			for _, consumer := range blocking.Unreadable.CouldNotDerive {
+				said = append(said, fmt.Sprintf(
+					"%s.%s is %s and nobody could derive %s at all, so nothing bounds what it consumes",
+					broken.Contract.Name, blocking.Element, changeTo(broken.Change, blocking.Element), consumer))
 			}
 			for _, s := range blocking.Safeguards {
 				said = append(said, fmt.Sprintf(

@@ -236,10 +236,14 @@ func draft(producer service.Service, interfaceName, element string,
 // It is what a run does, written directly, so a test can put the releases and the
 // windows in an order a run cannot easily produce — which is exactly the case the
 // last known-good release exists for.
+//
+// unfollowed is what the extractor met and could not follow, which makes the
+// derivation partial; a release given none derives completely.
 func ship(t *testing.T, ctx context.Context, g graph, svc service.Service,
-	forms []contract.Form, declares []consumercontract.Draft, exit window.Exit) (release.Release, string) {
+	forms []contract.Form, declares []consumercontract.Draft, exit window.Exit,
+	unfollowed ...string) (release.Release, string) {
 	t.Helper()
-	return shipOnIntent(t, ctx, g, svc, newIntent(t, ctx, g), forms, declares, exit)
+	return shipOnIntent(t, ctx, g, svc, newIntent(t, ctx, g), forms, declares, exit, unfollowed...)
 }
 
 // finishIntent moves a detector's intent to delivered, the state
@@ -285,7 +289,8 @@ func newIntent(t *testing.T, ctx context.Context, g graph) string {
 // what a test names to put a marked element's brownout on the evidence its
 // intent was raised on.
 func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Service, intentID string,
-	forms []contract.Form, declares []consumercontract.Draft, exit window.Exit) (release.Release, string) {
+	forms []contract.Form, declares []consumercontract.Draft, exit window.Exit,
+	unfollowed ...string) (release.Release, string) {
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: svc.ID, Branch: "item/" + record.NewID("in"),
@@ -300,8 +305,8 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
 	}
-	if len(declares) > 0 {
-		if _, _, _, err := g.store.SubmitConsumerContract(ctx, theActor, theBy, it.ID, svc.ID, "derived from the build", consumercontract.Derived{Extractor: consumercontract.GoExtractor("test"), Drafts: declares}, ""); err != nil {
+	if len(declares) > 0 || len(unfollowed) > 0 {
+		if _, _, _, err := g.store.SubmitConsumerContract(ctx, theActor, theBy, it.ID, svc.ID, "derived from the build", consumercontract.Derived{Extractor: consumercontract.GoExtractor("test"), Drafts: declares, Unfollowed: unfollowed}, ""); err != nil {
 			t.Fatalf("submitting the consumer contract: %v", err)
 		}
 	}

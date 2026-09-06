@@ -47,6 +47,33 @@ type Brownout struct {
 	// volume, which is the one reading that licenses the removal: a comparison
 	// that received none says nothing about the element.
 	Establishes bool
+	// Exit is what the window closed at, and empty while it is open.
+	Exit window.Exit
+	// EstablishesNothing is a closed window that neither failed nor establishes:
+	// it closed passed before its cap, it was skipped, or it reached its cap
+	// having received no volume. None of the three licenses the removal and none
+	// is a consumer read the derivation missed, so the detector raises nothing
+	// for the element and reports why rather than passing over it silently — no
+	// later pass can change what this window closed at, so the removal is a
+	// human's from there.
+	EstablishesNothing bool
+}
+
+// Why is why a brownout that ran establishes nothing, in the words the detector
+// reports the stall in. It is empty on a window that is open, one that failed,
+// and one that establishes.
+func (b Brownout) Why() string {
+	if !b.EstablishesNothing {
+		return ""
+	}
+	switch b.Exit {
+	case window.ExitPassed:
+		return "window " + b.WindowID + " closed passed before its cap, and a brownout's window runs to the cap, its evidence being the point"
+	case window.ExitTimedOut:
+		return "window " + b.WindowID + " reached its cap having received no volume, and a comparison that received none says nothing about the element"
+	default:
+		return "window " + b.WindowID + " closed " + string(b.Exit) + ", which establishes nothing about the element"
+	}
 }
 
 // brownout is what the record says about the brownout of one marked element.
@@ -202,6 +229,8 @@ func (c *Check) window(ctx context.Context, releaseID string) (Brownout, error) 
 	for _, c := range w.ClosedOn.Quantities {
 		counts = counts.Add(c)
 	}
+	ran.Exit = w.Exit
 	ran.Establishes = w.Exit == window.ExitTimedOut && (counts.Units > 0 || counts.BaselineUnits > 0)
+	ran.EstablishesNothing = !ran.Open && !ran.Failed && !ran.Establishes
 	return ran, nil
 }

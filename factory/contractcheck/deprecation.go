@@ -33,6 +33,21 @@ type Marked struct {
 	// Predicates is the consumer contracts in force naming the element, whichever
 	// consumer.
 	Predicates []consumercontract.Predicate
+	// Unreadable is the consumers whose derivation holds the element whatever
+	// their predicates say: the partial ones and the ones nobody could read.
+	Unreadable Unreadable
+	// Safeguards is the safeguards' predicates naming it, which an owner placed
+	// and a derivation did not.
+	Safeguards []policy.SafeguardPredicate
+}
+
+// Unreadable is the two ways a consumer's derivation holds a producer's element
+// open whatever its predicates say: the consumers whose contracts in force over
+// that producer are partial, and the consumers nobody could derive at all. The
+// deprecation list and the producer's own diff read the same pair, because they
+// are one list asked at two moments — [Marked] carries it for a marked element
+// and [Blocking] for an element a candidate breaks.
+type Unreadable struct {
 	// Partial is the services whose consumer contracts in force over this
 	// producer are partial: the extractor met something it could not follow, and
 	// the record's silence on an element never shows that the consumer does not
@@ -42,9 +57,25 @@ type Marked struct {
 	// be derived at all. Nothing bounds what an unreadable consumer consumes, so
 	// one is on every producer's list.
 	CouldNotDerive []string
-	// Safeguards is the safeguards' predicates naming it, which an owner placed
-	// and a derivation did not.
-	Safeguards []policy.SafeguardPredicate
+}
+
+// Holds reports whether either list names anybody, which is an element no
+// derivation shows to be free.
+func (u Unreadable) Holds() bool { return len(u.Partial) > 0 || len(u.CouldNotDerive) > 0 }
+
+// unreadable is that pair for one producer: the partial consumers among the
+// ranges its own consumers were derived over, and every consumer nobody could
+// read at all, whichever producer that one consumes.
+func (c *Check) unreadable(ctx context.Context, ranges []InForce) (Unreadable, error) {
+	partial, err := c.partial(ctx, ranges)
+	if err != nil {
+		return Unreadable{}, err
+	}
+	blind, err := c.couldNotDerive(ctx)
+	if err != nil {
+		return Unreadable{}, err
+	}
+	return Unreadable{Partial: partial, CouldNotDerive: blind}, nil
 }
 
 // Empty reports whether every consumer the factory can read has migrated off the
@@ -59,7 +90,7 @@ type Marked struct {
 // safeguard and its author, which is the blocked removal item asking the consumer
 // to confirm.
 func (m Marked) Empty() bool {
-	return len(m.Predicates) == 0 && len(m.Partial) == 0 && len(m.CouldNotDerive) == 0
+	return len(m.Predicates) == 0 && !m.Unreadable.Holds()
 }
 
 // Consumers is the distinct services whose consumer contracts in force still
@@ -100,10 +131,6 @@ func (c *Check) Deprecated(ctx context.Context) ([]Marked, error) {
 	if err != nil {
 		return nil, err
 	}
-	blind, err := c.couldNotDerive(ctx)
-	if err != nil {
-		return nil, err
-	}
 	var marked []Marked
 	for _, con := range contracts {
 		version, hasOne, err := contract.NewestVersion(ctx, c.pool, con.ID)
@@ -129,7 +156,7 @@ func (c *Check) Deprecated(ctx context.Context) ([]Marked, error) {
 		if err != nil {
 			return nil, err
 		}
-		partial, err := c.partial(ctx, ranges)
+		unreadable, err := c.unreadable(ctx, ranges)
 		if err != nil {
 			return nil, err
 		}
@@ -145,9 +172,8 @@ func (c *Check) Deprecated(ctx context.Context) ([]Marked, error) {
 			element, _ := form.Element(name)
 			one := Marked{
 				Contract: con, ServiceName: svc.Name, Version: version, Element: element,
-				Predicates:     consumercontract.NamingElement(binding, con.ServiceID, con.Name, name),
-				Partial:        partial,
-				CouldNotDerive: blind,
+				Predicates: consumercontract.NamingElement(binding, con.ServiceID, con.Name, name),
+				Unreadable: unreadable,
 			}
 			for _, p := range safeguards {
 				if p.Subject == contract.ElementSubject(con.ID, name) {
@@ -220,7 +246,17 @@ type Raised struct {
 	// finished, which is what stops a second raise arriving beside one already
 	// raised.
 	New bool
+	// Stalled is why this pass raised nothing for an element whose list has
+	// emptied: its brownout ran and its window established nothing, so no pass of
+	// the detector can raise the removal and a human is who raises it. Intent is
+	// the zero value and Brownout and New are false wherever it is set, and it is
+	// empty on every other entry.
+	Stalled string
 }
+
+// Stall reports whether this entry is a stall rather than a raise, which is what
+// a caller printing one reads first.
+func (r Raised) Stall() bool { return r.Stalled != "" }
 
 // Raise is the detector: one pass over every marked element, raising the brownout
 // where the derived consumer contracts naming the element are gone, and the
@@ -236,6 +272,13 @@ type Raised struct {
 // It raises neither again for an element whose brownout failed: the failed window
 // stands in the record as a consumer read the derivation missed, and both raises
 // are a human's from then on.
+//
+// A brownout whose window closed establishing nothing — passed before its cap,
+// skipped, or at its cap having received no volume — is neither of those and
+// raises nothing either. That entry carries [Raised.Stalled] instead of an
+// intent, because no later pass of this can raise the removal and an element
+// waiting on a raise that is never coming is what a silent fall-through would
+// leave.
 //
 // A factory composed with no intake raises nothing and is not an error: what it
 // loses is the detector, which is the one thing in this component that writes.
@@ -274,6 +317,14 @@ func (c *Check) Raise(ctx context.Context) ([]Raised, error) {
 				return nil, err
 			}
 			raised = append(raised, one)
+		case brownout.EstablishesNothing:
+			// The brownout ran and its window establishes nothing, so the removal
+			// is a human's from here and no later pass changes that. Reporting it
+			// is what keeps the element from waiting on a raise that is never
+			// coming.
+			raised = append(raised, Raised{Marked: m, Stalled: fmt.Sprintf(
+				"the brownout of %s.%s of %s established nothing: %s. The detector raises no removal on it, and raising one is a human's act from here",
+				m.Contract.Name, m.Element.Name, m.ServiceName, brownout.Why())})
 		}
 	}
 	return raised, nil

@@ -171,6 +171,56 @@ func TestABrownoutsReleaseIsToldFromEveryOtherRelease(t *testing.T) {
 	}
 }
 
+// TestABrownoutWhoseWindowEstablishedNothingIsReportedAndNotPassedOver: a
+// brownout's window runs to its cap, its evidence being the point, so one that
+// closed passed before the cap establishes nothing about the element. No pass of
+// the detector can raise the removal after that, and the element would wait on a
+// raise that is never coming — so the pass reports the stall instead of falling
+// through silently.
+func TestABrownoutWhoseWindowEstablishedNothingIsReportedAndNotPassedOver(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	marked := published(element("Status", "string", true, false), element("Detail", "string", false, true))
+	ship(t, ctx, g, g.producer, []contract.Form{marked}, nil, window.ExitTimedOut)
+
+	raised, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("Raise: %v", err)
+	}
+	if len(raised) != 1 || !raised[0].Brownout {
+		t.Fatalf("the detector raised %+v, want the brownout", raised)
+	}
+
+	// The brownout ships and its window closes passed, which is what happens
+	// wherever the passed exit was not suppressed at its open.
+	shipOnIntent(t, ctx, g, g.producer, raised[0].Intent.ID, []contract.Form{marked}, nil, window.ExitPassed)
+	finishIntent(t, ctx, g, raised[0].Intent.ID)
+
+	stalled, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("Raise after the brownout closed passed: %v", err)
+	}
+	if len(stalled) != 1 || !stalled[0].Stall() {
+		t.Fatalf("the detector raised %+v, want one stall and no removal", stalled)
+	}
+	if stalled[0].Intent.ID != "" || stalled[0].New {
+		t.Errorf("the stall carries an intent: %+v", stalled[0])
+	}
+	if !contains(stalled[0].Stalled, "Detail") || !contains(stalled[0].Stalled, "closed passed before its cap") {
+		t.Errorf("the stall does not say what the window did: %s", stalled[0].Stalled)
+	}
+
+	// It says the same on every later pass, because nothing about a closed window
+	// changes: the removal is a human's from here.
+	again, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("the second Raise: %v", err)
+	}
+	if len(again) != 1 || !again[0].Stall() {
+		t.Fatalf("the second pass raised %+v, want the same stall", again)
+	}
+}
+
 // TestASafeguardsPredicateBlocksTheRemovalAndIsToldApartFromAConsumerContract: a
 // safeguard never stops the item existing, only passing, and what a reader of that
 // rejection needs is the safeguard and its author.
