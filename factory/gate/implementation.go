@@ -24,11 +24,18 @@ const (
 	// for the build that nothing drives, and a driver naming a state no machine
 	// in force declares.
 	AutoRejectedByADriver = "a state in force that nothing drives, or a driver naming a state no machine in force declares"
+	// AutoRejectedByCompile is a build the build runner refused outright: the
+	// commit does not compile. It is a fact about the build and not a judgment,
+	// so the row rejects on it before a verdict is asked for and the compiler's
+	// own words are the feedback — computed by the caller from the build
+	// runner's own error, the way the caller computes it for the two checks
+	// above from what it derived over the checkout.
+	AutoRejectedByCompile = "a build that does not compile"
 )
 
 // ImplementationChecks is every check that rejects on its own terms at the
 // Implementation row, in the order the design names them.
-var ImplementationChecks = []string{AutoRejectedByForbiddenTransition, AutoRejectedByADriver}
+var ImplementationChecks = []string{AutoRejectedByForbiddenTransition, AutoRejectedByADriver, AutoRejectedByCompile}
 
 // ScreenRejection is that rejection, over what the caller derived from the
 // build: the transition check's derivation, the drivers', and the machines in

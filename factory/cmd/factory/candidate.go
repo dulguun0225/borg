@@ -89,6 +89,14 @@ type candidate struct {
 	// transition function, against.
 	screens        []agent.ScreenInForce
 	implArtifactID string
+	// compileFailure is the compiler's own words, trimmed to its first lines,
+	// where the build the implementer wrote does not compile — and empty where
+	// it does. It is what the Implementation row rejects on mechanically before
+	// a verdict is asked for, in place of a build record: commitAndBuild sets it
+	// and leaves buildID empty rather than stopping the run, and the stage
+	// resets it at the top of every attempt so a later, compiling build does not
+	// carry a stale reading into the gate.
+	compileFailure string
 	// consumerContractArtifactID is the consumer contract version derived from the
 	// same build, and is empty where the build declares nothing about another
 	// service.

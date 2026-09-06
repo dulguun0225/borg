@@ -42,8 +42,8 @@ var SpecChecks = []string{
 // ChecksAt is the checks a row rejects on its own terms. Four rows have any:
 // the Decomposition row over what the set answers, the Spec row over the hazard
 // and the requirement a criterion names, the Implementation row over the
-// screens, and the Merge to master row over the candidate's run. Every other row
-// rejects only on a verdict.
+// screens and over a build that does not compile, and the Merge to master row
+// over the candidate's run. Every other row rejects only on a verdict.
 func ChecksAt(row Row) []string {
 	switch row.Kind {
 	case KindDecomposition:

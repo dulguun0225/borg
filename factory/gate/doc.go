@@ -22,8 +22,11 @@
 // requirement a criterion names — [SpecRejection] over the second and third of
 // them, and [ChecksAt], the checks a row rejects on. implementation.go is the
 // Implementation row's: [ImplementationChecks] and [ScreenRejection], the
-// rejection made from what the transition check and the drivers derived over the
-// build. strategy.go is [Strategy], [Schedule], [Whys]
+// rejection made from what the transition check and the drivers derived over
+// the build, and [AutoRejectedByCompile], the third check, over a build the
+// build runner refused outright — computed by the caller from that refusal
+// directly, the way the caller computes the other two from what it derived.
+// strategy.go is [Strategy], [Schedule], [Whys]
 // and [Pick] with [Pick.Validate], the shape the pick is stored in; the score
 // picks it. waits.go is [Waits],
 // [RoutedTo], and the three duties the design names for a row.

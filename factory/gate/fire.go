@@ -358,6 +358,14 @@ func (g *Gate) assess(ctx context.Context, f Firing, subjects policy.Subjects, v
 	if err != nil {
 		return score.Assessment{}, err
 	}
+	// A build that does not compile leaves the Implementation row with no build
+	// to name: there is no diff behind a build record and nothing for the
+	// exposure group to read, so this firing is scored the way the three rows
+	// above a build are — exposure inapplicable rather than resolved — instead
+	// of the set the row weighs when a build exists.
+	if f.Row.Kind == KindImplementation && f.BuildID == "" {
+		set = score.SetAboveABuild
+	}
 	bound, err := g.policy.ExposureBound(ctx, subjects)
 	if err != nil {
 		return score.Assessment{}, fmt.Errorf("gate: reading the exposure bound in force: %w", err)

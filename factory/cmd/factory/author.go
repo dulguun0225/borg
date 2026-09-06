@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -37,6 +39,10 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 	d := p.d
 	returned := agent.Returned{}
 	for {
+		// A compile failure found on the attempt this iteration re-enters for is
+		// this iteration's own; a build made here that compiles must not carry a
+		// prior attempt's reading into the gate below.
+		c.compileFailure = ""
 		if err := p.startBranch(ctx, c); err != nil {
 			return err
 		}
@@ -78,7 +84,14 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 			return err
 		}
 
-		verdict, reason, err := p.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &c.implementationGate, "", "")
+		// A build that does not compile is found here, mechanically, before a
+		// verdict is asked for: commitAndBuild left the compiler's own words on
+		// the candidate and named no build.
+		check, found := "", ""
+		if c.compileFailure != "" {
+			check, found = gate.AutoRejectedByCompile, c.compileFailure
+		}
+		verdict, reason, err := p.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &c.implementationGate, check, found)
 		if err != nil {
 			return err
 		}
@@ -136,7 +149,11 @@ func (p *path) startBranch(ctx context.Context, c *candidate) error {
 //
 // The binary that runs is produced where it will run, which is the candidate's
 // own environment, one step down — so what is checked here is only that the
-// build compiles, which is what the Implementation gate rejects a build for.
+// build compiles, which is what the Implementation gate rejects a build for. A
+// commit that does not compile is not returned as an error: it is recorded on
+// the candidate as compileFailure, with buildID left empty, and the stage
+// carries it into the gate as the mechanical rejection — the row still has the
+// implementation version submitted above to fire over.
 func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Change, manifestID string) error {
 	d := p.d
 	repo := c.svc.Repository
@@ -172,12 +189,22 @@ func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Ch
 	}
 
 	// createBuild compiles the commit to produce the record's own digest, which
-	// is what the Implementation gate would reject a build for: a build that
-	// does not compile stops the run here, where nothing has been written for
-	// it, rather than one step down where a candidate environment would already
-	// have been composed for it.
+	// is what the Implementation gate rejects a build for: a build that does not
+	// compile is caught here, where nothing has been written for it and before a
+	// candidate environment would already have been composed for it, and carried
+	// to the row as the mechanical rejection rather than stopping the run.
 	bl, err := p.createBuild(ctx, repo, c.itemID, c.svc.ID, commit)
 	if err != nil {
+		if errors.Is(err, ErrDoesNotCompile) {
+			c.compileFailure = firstLines(err.Error())
+			// Nothing was measured over a build that does not exist, and a zero
+			// measurement would read as a change of no lines; the factors that
+			// read it resolve instead, the way they do for a diff that could not
+			// be taken.
+			c.measurement = score.Measurement{Unavailable: "the build does not compile, so nothing was measured over it"}
+			fmt.Fprintf(d.out, "The build does not compile: %s\n", c.compileFailure)
+			return nil
+		}
 		return err
 	}
 	c.buildID = bl.ID

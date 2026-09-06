@@ -304,7 +304,10 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 		// rather than rejecting, so it is carried on the firing whatever
 		// [gate.ScreenRejection] finds, and the mechanical rejection is
 		// computed here rather than by the caller, the way the exposure and the
-		// criteria in force already are.
+		// criteria in force already are — except where the caller already found
+		// a build that does not compile and handed check non-empty: a build
+		// the compiler refused has no transition to admit or forbid, so that
+		// finding is what is reported and this one is left uncomputed.
 		screensInForce, err := screenstatemachine.InForce(ctx, p.d.pool, c.svc.ID, []string{c.itemID})
 		if err != nil {
 			return "", "", err

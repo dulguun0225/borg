@@ -67,7 +67,12 @@ func complete(f Firing) error {
 		return nil
 	}
 	required := []struct{ what, value string }{{"item", f.ItemID}, {"service", f.ServiceID}}
-	if f.Row.Kind != KindSpec && f.Row.Kind != KindImplementationPlan && f.Row.Kind != KindTasks {
+	// The Implementation row joins the three rows above a build: a commit the
+	// build runner refused outright leaves no build record to name, and the row
+	// still fires over the version submitted, rejecting on AutoRejectedByCompile
+	// before a verdict is asked for.
+	if f.Row.Kind != KindSpec && f.Row.Kind != KindImplementationPlan && f.Row.Kind != KindTasks &&
+		f.Row.Kind != KindImplementation {
 		required = append(required, struct{ what, value string }{"build", f.BuildID})
 	}
 	if f.Row.ReadsAThreshold() {
