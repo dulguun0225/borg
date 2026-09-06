@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/dulguun0225/borg/factory/boundary"
+	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
@@ -54,13 +55,25 @@ func (c *Check) brownout(ctx context.Context, m Marked) (Brownout, error) {
 	if err != nil {
 		return Brownout{}, err
 	}
-	highest, found, err := release.Highest(ctx, c.pool, m.Contract.ServiceID)
+	oldest, found, err := c.oldestOnEvidence(ctx, m.Contract.ServiceID, key)
 	if err != nil || !found {
 		return Brownout{}, err
 	}
-	releases, err := release.Between(ctx, c.pool, m.Contract.ServiceID, 1, highest.Number)
+	return c.window(ctx, oldest)
+}
+
+// oldestOnEvidence is the service's oldest release whose item came from an
+// intent raised on this evidence, and false where it has none. That release is
+// the brownout's: the removal is raised on the same evidence and only after the
+// brownout has shipped.
+func (c *Check) oldestOnEvidence(ctx context.Context, serviceID, key string) (string, bool, error) {
+	highest, found, err := release.Highest(ctx, c.pool, serviceID)
+	if err != nil || !found {
+		return "", false, err
+	}
+	releases, err := release.Between(ctx, c.pool, serviceID, 1, highest.Number)
 	if err != nil {
-		return Brownout{}, err
+		return "", false, err
 	}
 	for _, rel := range releases {
 		if rel.ItemID == "" {
@@ -71,23 +84,101 @@ func (c *Check) brownout(ctx context.Context, m Marked) (Brownout, error) {
 		}
 		it, err := item.Get(ctx, c.pool, rel.ItemID)
 		if err != nil {
-			return Brownout{}, err
+			return "", false, err
 		}
 		if it.IntentID == "" {
 			continue
 		}
 		in, err := intent.Get(ctx, c.pool, it.IntentID)
 		if err != nil {
-			return Brownout{}, err
+			return "", false, err
 		}
-		if in.Evidence != key {
+		if in.Evidence == key {
+			return rel.ID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// BrownoutOf is what a brownout's release is the brownout of: the contract and
+// the marked element its evidence names.
+type BrownoutOf struct {
+	ContractID string
+	Element    string
+}
+
+// IsBrownout is whether a release is a brownout of a marked element, and of
+// which. It is the reading the health monitor needs of this component, because a
+// brownout's window is not an ordinary window in two ways and neither is
+// readable from the window's own record: it runs to the cap rather than stopping
+// where the boundary would allow, the way the held-out sample's does, its
+// evidence being the point; and it is the one window that reads more than the
+// producer's own numbers, any service crossing the reading against its own
+// recent history while it is open failing it.
+//
+// The walk is the same one [Check.brownout] takes, in the other direction:
+// nothing writes a link from the element to the release, so what says a release
+// is a brownout is the intent's evidence — keyed by the contract and the element
+// — the item that names that intent, and the release that names the item. A
+// later release on the same evidence is the removal and not the brownout, and a
+// release whose element is no longer marked is neither.
+func (c *Check) IsBrownout(ctx context.Context, releaseID string) (BrownoutOf, bool, error) {
+	rel, err := release.Get(ctx, c.pool, releaseID)
+	if err != nil || rel.ItemID == "" {
+		return BrownoutOf{}, false, err
+	}
+	it, err := item.Get(ctx, c.pool, rel.ItemID)
+	if err != nil || it.IntentID == "" {
+		return BrownoutOf{}, false, err
+	}
+	in, err := intent.Get(ctx, c.pool, it.IntentID)
+	if err != nil || in.Evidence == "" {
+		return BrownoutOf{}, false, err
+	}
+
+	of, named, err := c.markedOnEvidence(ctx, rel.ServiceID, in.Evidence)
+	if err != nil || !named {
+		return BrownoutOf{}, false, err
+	}
+	oldest, found, err := c.oldestOnEvidence(ctx, rel.ServiceID, in.Evidence)
+	if err != nil || !found || oldest != releaseID {
+		return BrownoutOf{}, false, err
+	}
+	return of, true, nil
+}
+
+// markedOnEvidence is the marked element of this service whose evidence key is
+// the one given, and false where no marked element has it — an intent the
+// factory raised on some other evidence, or one whose element the removal has
+// since dropped.
+func (c *Check) markedOnEvidence(ctx context.Context, serviceID, key string) (BrownoutOf, bool, error) {
+	contracts, err := contract.OfService(ctx, c.pool, serviceID)
+	if err != nil {
+		return BrownoutOf{}, false, err
+	}
+	for _, con := range contracts {
+		version, hasOne, err := contract.NewestVersion(ctx, c.pool, con.ID)
+		if err != nil {
+			return BrownoutOf{}, false, err
+		}
+		if !hasOne {
 			continue
 		}
-		// The oldest release on this evidence is the brownout's: the removal is
-		// raised on the same evidence and only after the brownout has shipped.
-		return c.window(ctx, rel.ID)
+		form, err := contract.FormOf(ctx, c.pool, con, version.ID)
+		if err != nil {
+			return BrownoutOf{}, false, err
+		}
+		for _, element := range form.Marked() {
+			marked, err := intent.Evidence{ContractID: con.ID, Element: element}.Key()
+			if err != nil {
+				return BrownoutOf{}, false, err
+			}
+			if marked == key {
+				return BrownoutOf{ContractID: con.ID, Element: element}, true, nil
+			}
+		}
 	}
-	return Brownout{}, nil
+	return BrownoutOf{}, false, nil
 }
 
 // window is what the window over the brownout's release says.

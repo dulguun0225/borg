@@ -231,10 +231,17 @@ func (c *Check) diff(ctx context.Context, candidate Candidate, form contract.For
 		return Broken{}, err
 	}
 	for _, element := range broken.Change.Breaking {
-		blocking := Blocking{
-			Element:    element,
-			Predicates: consumercontract.NamingElement(binding, candidate.ServiceID, existing.Name, element),
+		naming := consumercontract.NamingElement(binding, candidate.ServiceID, existing.Name, element)
+		if ordinaryConstraint(existing.Kind, broken.Change, before, form, element) {
+			// The store rule's ordinary path: a not-null constraint or a domain
+			// check on the new form is addable where every declaration in force
+			// writes the form populated and inside the constraint's domain. So
+			// what holds it is a declaration the new form rejects, not the
+			// existence of one — the backfill's completion is the other half and
+			// is the store rule's.
+			naming = rejectedBy(naming, form)
 		}
+		blocking := Blocking{Element: element, Predicates: naming}
 		for _, p := range safeguards {
 			if p.Subject == contract.ElementSubject(existing.ID, element) {
 				blocking.Safeguards = append(blocking.Safeguards, p)
@@ -252,6 +259,48 @@ func (c *Check) diff(ctx context.Context, candidate Candidate, form contract.For
 		}
 	}
 	return broken, nil
+}
+
+// ordinaryConstraint reports whether a store element breaks for the one reason
+// the design gives an ordinary path: a not-null constraint or a domain check
+// added to the form. Everything else a store element can do — a removal, a
+// retype, a weakening, an element added and always populated — is destructive
+// against any declaration in force, and so is a uniqueness rule, which is not on
+// the design's addable list because no predicate can say a write would not
+// collide with another.
+func ordinaryConstraint(kind contract.Kind, change contract.Change, before, after contract.Form, element string) bool {
+	if kind != contract.KindStore {
+		return false
+	}
+	if !slices.Contains(change.Constrained, element) && !slices.Contains(change.Narrowed, element) {
+		return false
+	}
+	for _, otherwise := range [][]string{
+		change.Removed, change.Retyped, change.Weakened, change.Required, change.Added,
+	} {
+		if slices.Contains(otherwise, element) {
+			return false
+		}
+	}
+	was, had := before.Element(element)
+	is, has := after.Element(element)
+	return had && has && !(!was.Unique && is.Unique)
+}
+
+// rejectedBy is the predicates among these that the candidate's own form does
+// not satisfy, which is what "every declaration in force writes the form
+// populated and inside the constraint's domain" comes to. A predicate the form
+// cannot decide is not one the constraint rejects: what decides a store
+// declaration against the state a run left behind is decideConsumers, and this
+// is the diff's question.
+func rejectedBy(predicates []consumercontract.Predicate, form contract.Form) []consumercontract.Predicate {
+	var rejected []consumercontract.Predicate
+	for _, p := range predicates {
+		if result := p.AgainstForm(form); result.Decided && !result.Held {
+			rejected = append(rejected, p)
+		}
+	}
+	return rejected
 }
 
 // againstNewest decides one of this candidate's own consumer contracts against

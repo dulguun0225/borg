@@ -166,6 +166,21 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	}
 	fmt.Fprintf(d.out, "Analysis window %s opened over deploy %s: size %v, confidence %v, cap %vs; %s\n",
 		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, passed)
+
+	// A brownout's window is not an ordinary one: it runs to the cap rather than
+	// stopping where the boundary would allow, and any service crossing the
+	// reading against its own recent history while it is open fails it. Which
+	// release is a brownout is package contractcheck's to answer and the health
+	// monitor is not told it yet, so the run reports the reading here; that
+	// package's doc.go names what the health monitor still needs.
+	of, isBrownout, err := p.contracts.IsBrownout(ctx, c.releaseID)
+	if err != nil {
+		return err
+	}
+	if isBrownout {
+		fmt.Fprintf(d.out, "Release %s is the brownout of %s: its window is the one that runs to the cap whatever the boundary allows, and that any service breaking in the install fails\n",
+			c.releaseID, of.Element)
+	}
 	return nil
 }
 

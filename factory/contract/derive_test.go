@@ -95,7 +95,7 @@ func TestDeriveReadsEveryKindOfElementOutOfTheSource(t *testing.T) {
 	}
 
 	status, _ := form.Element("Health.Status")
-	if status.Type != "string" || !status.Populated || status.Deprecated {
+	if status.Type != "string" || !status.Populated || status.Marked {
 		t.Errorf("Health.Status is %+v, want a populated unmarked string", status)
 	}
 	if !slices.Equal(status.Domain, []string{"ok", "error"}) {

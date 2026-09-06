@@ -122,16 +122,3 @@ func (p *path) Snapshot(context.Context, contractcheck.Candidate) (contractcheck
 		Why: "no build on this path declares a schema change, so no candidate environment has taken a snapshot",
 	}, nil
 }
-
-// Complete is [contractcheck.Backfills]: the deploy record that marks the
-// backfill for one element of one store contract complete. The field the
-// deployer would write it on is not built — package contractcheck says so where
-// it declares the seam — so this marks none complete, which blocks the item that
-// moves reads to a store's new form and the drop after it.
-//
-// That is the refusing direction and it is the right one: a new form filled only
-// by writes made after it reads every earlier row as absent, and the drop then
-// destroys the only copy.
-func (p *path) Complete(_ context.Context, serviceID, contractName, element string) (string, bool, error) {
-	return "", false, nil
-}

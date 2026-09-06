@@ -9,8 +9,8 @@
 // [Predicate.AgainstForm] and [Predicate.AgainstExchange] with the [Result] each
 // returns, [Document], and [Domain] and [Range], the two arguments a kind reads.
 // derivation.go is [Derivation] with [Derivation.Partial],
-// [Derivation.CouldNotDerive] and [Derivation.Describe], [Derived], [Extractor],
-// and [Cause] with [Causes]. writer.go is [Draft], [Of], [Insert] and
+// [Derivation.CouldNotDerive] and [Derivation.Describe], [Derived], [Extractor]
+// with [Extractors] and [ExtractorFor], and [Cause] with [Causes]. writer.go is [Draft], [Of], [Insert] and
 // [DeriveAgain]. derive.go is [Derive], [GoExtractor], [FileName] and
 // [ErrNotAnAllowedPredicateKind]; address.go is [Entries] and [Entry], the
 // configuration file that says which producer an address reaches; source.go is
@@ -36,6 +36,12 @@
 // rest against [Document] values. A predicate the thing it was decided against
 // could not answer comes back undecided rather than failed, and undecided is read
 // at the gate the way a failure is.
+//
+// [Extractors] is which toolchains this factory version has an extractor for,
+// and [ExtractorFor] is one of them by toolchain. An extractor ships with the
+// factory, so that set is a fact of the factory's version and is published
+// rather than discovered at a service's first removal; cmd/factory's contracts
+// subcommand prints it.
 //
 // A [Derivation] is one row per consumer contract version: which extractor
 // produced it, the toolchain and the factory version that shipped that extractor,

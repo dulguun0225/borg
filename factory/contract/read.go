@@ -221,7 +221,7 @@ func ElementsOf(ctx context.Context, q Querier, versionID string) ([]Element, er
 		var e Element
 		var kind, position, domain string
 		var low, high *float64
-		if err := rows.Scan(&e.Name, &kind, &position, &e.Type, &e.Required, &e.Populated, &e.Deprecated,
+		if err := rows.Scan(&e.Name, &kind, &position, &e.Type, &e.Required, &e.Populated, &e.Marked,
 			&domain, &low, &high, &e.NotNull, &e.Unique); err != nil {
 			return nil, fmt.Errorf("contract: reading an element of %s: %w", versionID, err)
 		}

@@ -154,7 +154,7 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 			range_low, range_high, not_null, unique_rule)
 			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
 			record.NewID(ElementIDPrefix), FormatVersionElement, string(actor.Kind), actor.Key, string(actor.Basis), v.At,
-			v.ID, c.ID, e.Name, string(e.Kind), string(e.Position), e.Type, e.Required, e.Populated, e.Deprecated,
+			v.ID, c.ID, e.Name, string(e.Kind), string(e.Position), e.Type, e.Required, e.Populated, e.Marked,
 			DomainText(e.Domain), low, high, e.NotNull, e.Unique,
 		); err != nil {
 			return Published{}, fmt.Errorf("contract: writing element %s of %s %s: %w",

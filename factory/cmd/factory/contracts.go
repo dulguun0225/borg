@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -18,8 +19,9 @@ import (
 
 // contractsCommand prints the graph a contract and a consumer contract make,
 // which is the milestone's own claim read off the records: what does this break
-// is a query rather than an estimate. Four things, in this order.
+// is a query rather than an estimate. Five things, in this order.
 //
+// Which toolchains have an extractor, as a fact of this factory version.
 // Every contract with its versions, the elements of the newest, and the
 // deprecation mark on each — which is what a producer promises and to which
 // version. The consumer contracts in force per service with the release range they
@@ -76,6 +78,14 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 		names[svc.ID] = svc.Name
 	}
 
+	// An extractor is shipped with the factory, so which toolchains have one is
+	// a fact of this version and is read here — before a service is adopted
+	// rather than at its first removal.
+	for _, e := range consumercontract.Extractors(factoryVersion) {
+		fmt.Fprintf(p.d.out, "toolchain %s has an extractor: %s %s, shipped with factory version %s\n",
+			e.Toolchain, e.Name, e.Version, e.FactoryVersion)
+	}
+
 	all, err := contract.All(ctx, p.d.pool)
 	if err != nil {
 		return err
@@ -116,7 +126,7 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 			if e.Populated {
 				said = append(said, "always populated")
 			}
-			if e.Deprecated {
+			if e.Marked {
 				said = append(said, "marked deprecated")
 			}
 			fmt.Fprintf(p.d.out, "    %s: %s\n", e.Name, strings.Join(said, ", "))

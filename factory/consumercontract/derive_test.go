@@ -271,3 +271,29 @@ func TestDeriveRefusesAKindOutsideTheListInForce(t *testing.T) {
 		t.Fatalf("deriving against a list of one kind returned %v, want ErrNotAnAllowedPredicateKind", err)
 	}
 }
+
+// TestWhichToolchainsHaveAnExtractorIsPublished: which toolchains have an
+// extractor is a fact of the factory's version and is readable before a service
+// is adopted, rather than discovered at that service's first removal. A
+// toolchain nothing covers is the could-not-derive cause that lifts when an
+// extractor ships.
+func TestWhichToolchainsHaveAnExtractorIsPublished(t *testing.T) {
+	shipped := consumercontract.Extractors("test")
+	if len(shipped) == 0 {
+		t.Fatal("this factory version publishes no extractor at all")
+	}
+	for _, e := range shipped {
+		if e.Toolchain == "" || e.Name == "" || e.Version == "" || e.FactoryVersion != "test" {
+			t.Errorf("the published extractor %+v does not name a toolchain, a name, a version and the factory version", e)
+		}
+	}
+
+	covered, found := consumercontract.ExtractorFor(consumercontract.Toolchain, "test")
+	if !found || covered != consumercontract.GoExtractor("test") {
+		t.Errorf("ExtractorFor(%q) = %+v, %v; want this factory's Go extractor",
+			consumercontract.Toolchain, covered, found)
+	}
+	if _, found := consumercontract.ExtractorFor("rust", "test"); found {
+		t.Error("a toolchain no extractor covers reads as covered")
+	}
+}

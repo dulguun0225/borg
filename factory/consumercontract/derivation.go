@@ -55,6 +55,29 @@ type Extractor struct {
 	FactoryVersion string
 }
 
+// Extractors is every extractor this factory version ships, one per toolchain
+// it covers. An extractor is a component of the factory, shipped with it, so
+// which toolchains have one is a fact of the factory's version — published here
+// rather than discovered at a service's first removal, which is why it takes the
+// factory version and returns whole records rather than names.
+//
+// A second toolchain is a second file in this package and a second line here.
+func Extractors(factoryVersion string) []Extractor {
+	return []Extractor{GoExtractor(factoryVersion)}
+}
+
+// ExtractorFor is the extractor this factory version ships for a toolchain, and
+// false where none covers it — which is [CauseNoExtractor], the could-not-derive
+// cause that lifts when an extractor ships and takes no item on the consumer.
+func ExtractorFor(toolchain, factoryVersion string) (Extractor, bool) {
+	for _, e := range Extractors(factoryVersion) {
+		if e.Toolchain == toolchain {
+			return e, true
+		}
+	}
+	return Extractor{}, false
+}
+
 // Derived is what one run of an extractor produced, before it is a record: the
 // extractor, the constructs it met and could not follow, why it could not run at
 // all, and the predicates it found.

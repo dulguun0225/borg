@@ -30,7 +30,7 @@ func readTag(tag *ast.BasicLit) (Element, error) {
 		case TagRequired:
 			e.Required = true
 		case TagDeprecated:
-			e.Deprecated = true
+			e.Marked = true
 		case TagNotNull:
 			e.NotNull = true
 		case TagUnique:

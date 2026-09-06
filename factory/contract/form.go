@@ -118,9 +118,10 @@ type Element struct {
 	// always populated and stops being breaks a consumer that declared it
 	// populated, which is why this is part of the form and not a note about it.
 	Populated bool
-	// Deprecated is the mark: the old form of a pair, said by the producer's own
-	// item, because no diff shows which new element supersedes which old one.
-	Deprecated bool
+	// Marked is the deprecation mark: the old form of a pair, said by the
+	// producer's own item, because no diff shows which new element supersedes
+	// which old one.
+	Marked bool
 	// Domain is the set of names the element accepts, and nil is an element that
 	// accepts any. A name withdrawn from it is breaking in input position, and on
 	// a store it is the domain check the store rule names.
@@ -200,7 +201,7 @@ func (f Form) Element(name string) (Element, bool) {
 func (f Form) Marked() []string {
 	var marked []string
 	for _, e := range f.Elements {
-		if e.Deprecated {
+		if e.Marked {
 			marked = append(marked, e.Name)
 		}
 	}
