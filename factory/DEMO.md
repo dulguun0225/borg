@@ -319,7 +319,7 @@ and the deploy that follows says `its window runs to the cap — the longest wat
 
 ## Authoring gate policy
 
-Six subcommands are duty 8, duty 9, the priority a queue is reordered with, and the People declaration a page routes on, none of which has a screen of its own until M7:
+Eight subcommands are duty 8, duty 9, the priority a queue is reordered with, and the People declaration a page routes on, none of which has a screen of its own until M7. Five of them are in the demonstration; `safeguard`, `halt` and `legal-hold` are not:
 
 ```sh
 go run ./cmd/factory area payments -inside greeting

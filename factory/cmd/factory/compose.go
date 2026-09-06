@@ -36,11 +36,14 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// compose is a run's collaborators, the install's two records, and the two
-// versions in force — everything a run has before it takes an intent in. It is
-// separate from [run] because the same value is what drives every step, and a test
-// that drives them one at a time needs the one run composes rather than a second
-// composition to keep in step with it.
+// compose is a run's collaborators, the install's three records — the
+// factory-wide settings record, the project, and production's environment for
+// it — and the two versions in force, everything a run has before it takes an
+// intent in. Only a composition that installs creates the three; every other
+// reads them, which install.go is. It is separate from [run] because the same
+// value is what drives every step, and a test that drives them one at a time
+// needs the one run composes rather than a second composition to keep in step
+// with it.
 func compose(ctx context.Context, d deps) (*path, error) {
 	if d.candidateCeiling < 1 {
 		return nil, fmt.Errorf("factory: the platform's room for candidate environments is %d, and a run needs one",
@@ -90,12 +93,14 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// deploy target itself.
 	p.factory.Removal = p.removeService
 
-	// The install. The factory-wide settings record exists before any project
-	// does; the project and production's environment for it are created in the
-	// same event, an owner not choosing production because it exists
-	// everywhere. This ensures all three as the owner and takes the policy
-	// version in force from it.
-	installed, err := p.factory.Install(ctx, p.human, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
+	// The install, where this composition is the one that installs. The
+	// factory-wide settings record exists before any project does; the project
+	// and production's environment for it are created in the same event, an
+	// owner not choosing production because it exists everywhere. This ensures
+	// all three as the owner and takes the policy version in force from it.
+	// Every other composition reads the same three and refuses where the project
+	// or its production environment is absent.
+	installed, err := p.installed(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -183,12 +188,12 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 
 	// The queue. It reaches the repository and the candidate environments through
-	// this same value, which is the deployer, and it is composed without three
+	// this same value, which is the deployer, and it is composed without four
 	// readings the design gives it: the health monitor's store, which a mint
-	// takes its second number from, the design system constraint records, and
-	// what waits behind a rollback hold. Each is named with the value the package
-	// exposes for a factory composed without it, so the composition says which
-	// ones it is without rather than passing nothing.
+	// takes its second number from, the design system constraint records, what
+	// waits behind a rollback hold, and which item is a revert. Each is named
+	// with the value the package exposes for a factory composed without it, so
+	// the composition says which ones it is without rather than passing nothing.
 	p.queue = mergequeue.New(mergequeue.Composition{
 		Pool:         d.pool,
 		Token:        d.token,
@@ -198,6 +203,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Numbers:      mergequeue.NoNumbersSeen{},
 		DesignSystem: mergequeue.EveryMoveDiffers{},
 		Backlog:      mergequeue.NoBacklog{},
+		Reverts:      mergequeue.NoRevertKnown{},
 	})
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
@@ -286,35 +292,6 @@ func (p *path) serviceOf(ctx context.Context, serviceID string) (service.Service
 	return svc, nil
 }
 
-// runsOnProduction authors production's targets on a service that names none,
-// which is an owner's write and is made as the owner at this terminal: -targets
-// is what this interface calls production's addresses, and a service installed
-// here runs on all of them. It is authored once — a service already naming
-// targets is left as it is, an owner having said which it runs on.
-//
-// It matters beyond the record saying so. What is running is read per target
-// against the addresses a deploy recorded its completion on, so a service naming
-// none is a service whose current deploy no reader can find: the analysis window
-// stands the environment in for the whole set at the open, and the reading after
-// a window has closed has no such fallback and would find nothing running.
-func (p *path) runsOnProduction(ctx context.Context, svc service.Service) (service.Service, error) {
-	addresses := p.production.Addresses()
-	if len(svc.Targets) > 0 || len(addresses) == 0 {
-		return svc, nil
-	}
-	if _, err := p.factory.SetServiceTargets(ctx, p.human, svc.ID, addresses, addresses); err != nil {
-		return service.Service{}, err
-	}
-	read, found, err := service.ByName(ctx, p.d.pool, svc.Name)
-	if err != nil {
-		return service.Service{}, err
-	}
-	if !found {
-		return svc, nil
-	}
-	return read, nil
-}
-
 // ownHistoryRunLength is how many intervals a service whose behaviour has not
 // changed runs before the reading against its own recent past crosses it once.
 // A thousand intervals of the resolution emission.go fixes is under a minute of
@@ -365,19 +342,6 @@ func atLeastASecond(every time.Duration) time.Duration {
 		return time.Second
 	}
 	return every
-}
-
-// productionAddresses is the addresses of production's targets, in the
-// environment's order. It is what every read of what is running is performed
-// against: a release is current when its deploy is marked complete on every one
-// of them, so a producer deployed to three targets of four is not current and
-// holds its consumer until the fourth lands.
-func (p *path) productionAddresses() []string {
-	addresses := make([]string, 0, len(p.production.Targets))
-	for _, target := range p.production.Targets {
-		addresses = append(addresses, target.Address)
-	}
-	return addresses
 }
 
 // subjectsFor is what a policy read about one candidate is performed against: the item's

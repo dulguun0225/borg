@@ -156,6 +156,67 @@ func TestTheBacklogCapStopsTheServiceButNotTheRevertsOwnCandidate(t *testing.T) 
 	}
 }
 
+// TestAHaltPassesARevertWhateverRaisedIt: the halt's first exception is a
+// revert, and a revert passes it whatever raised it — the health monitor at a
+// failed exit, or a named human at Ops asking for one. The intent of the item
+// here is not the health monitor's, so the second exception does not cover it,
+// and the reading that says it is a revert is the composition's.
+func TestAHaltPassesARevertWhateverRaisedIt(t *testing.T) {
+	repo := newRepository()
+	reverts := &revertReading{}
+	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo, Reverts: reverts})
+
+	ordinary := queued(ctx, t, pool, token, 1)
+	revert := queued(ctx, t, pool, token, 2)
+	repo.verified[ordinary.ID] = mergequeue.Verified{Commit: "commit-one", BuildID: "bl_one", Passed: true}
+	repo.verified[revert.ID] = mergequeue.Verified{Commit: "commit-two", BuildID: "bl_two", Passed: true}
+	reverts.is = map[string]bool{revert.ID: true}
+
+	if _, err := halt.NewWriter(pool, token).Insert(ctx, owner, "the owner has lost confidence in the factory"); err != nil {
+		t.Fatalf("setting the halt: %v", err)
+	}
+
+	pass, err := q.Run(ctx, serviceID)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(pass.Outcomes) != 2 {
+		t.Fatalf("the outcomes are %+v, want one per member", pass.Outcomes)
+	}
+	stopped, merged := pass.Outcomes[0], pass.Outcomes[1]
+	if stopped.ItemID != ordinary.ID || stopped.Stopped != string(mergequeue.WaitHalt) {
+		t.Errorf("the ordinary candidate's outcome is %+v, want it held on the halt", stopped)
+	}
+	if merged.ItemID != revert.ID || !merged.Merged {
+		t.Errorf("the revert's outcome is %+v, want it merged: a halt never stops the factory undoing what it did", merged)
+	}
+	if len(reverts.asked) == 0 {
+		t.Error("the queue asked nothing whether an item was a revert, so the exception is not a reading of its own")
+	}
+}
+
+// TestAFactoryComposedWithNoReaderOfTheRevertsKnowsNoneOfThem: the value a
+// factory composed without that reading uses answers for every item, which is
+// what [mergequeue.NoRevertKnown] says on its own type.
+func TestAFactoryComposedWithNoReaderOfTheRevertsKnowsNoneOfThem(t *testing.T) {
+	is, err := mergequeue.NoRevertKnown{}.IsARevert(context.Background(), item.Item{ID: "it_one"})
+	if err != nil || is {
+		t.Errorf("NoRevertKnown.IsARevert = %v, %v, want false and no error", is, err)
+	}
+}
+
+// revertReading is the reading of which items are reverts that a test supplies,
+// recording what it was asked so that the halt's two exceptions are told apart.
+type revertReading struct {
+	is    map[string]bool
+	asked []string
+}
+
+func (r *revertReading) IsARevert(_ context.Context, it item.Item) (bool, error) {
+	r.asked = append(r.asked, it.ID)
+	return r.is[it.ID], nil
+}
+
 // waitingReading is the backlog reading a test moves between passes.
 type waitingReading struct {
 	reading mergequeue.Waiting

@@ -260,7 +260,7 @@ func (p *path) editInPlace(ctx context.Context, opened gate.Opened, again gate.F
 		return "", decisionlog.Row{}, errors.New("an edit in place authors a version, and this one is empty")
 	}
 
-	by := artifact.By{Authorship: artifact.AuthorshipGate, Author: p.d.human}
+	by := p.authoredAtTheGate()
 	var version artifact.Artifact
 	var err error
 	switch opened.Gate.Kind {
@@ -289,6 +289,15 @@ func (p *path) editInPlace(ctx context.Context, opened gate.Opened, again gate.F
 	report(p.d.out, reopened, nil)
 	verdict, _, closing, err := p.settle(ctx, reopened, again)
 	return verdict, closing, err
+}
+
+// authoredAtTheGate is who a version a human typed at a gate row is recorded
+// as: the gate component's authorship, and the per-person key the People mapping
+// gives the name at this terminal. It is the key and never the name — every
+// record of the graph names a key, and the mapping from key to name is kept
+// outside the chain so an erasure can delete it alone.
+func (p *path) authoredAtTheGate() artifact.By {
+	return artifact.By{Authorship: artifact.AuthorshipGate, Author: p.human.Key}
 }
 
 // typed reads a verdict the human typed. A reject carries its reason after the

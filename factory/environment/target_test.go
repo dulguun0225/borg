@@ -44,6 +44,32 @@ func TestATargetDeclaresWhetherThePlatformBehindItServesAShare(t *testing.T) {
 	}
 }
 
+// TestTheShareIsReadOverTheServicesOwnSet: every reader of targets reads the
+// service's set, and the score picks the row with a control only where every
+// target in that set serves a share — so a target the service does not run on
+// says nothing about the strategy for that service, and a set the owner wrote
+// none of is every target of the environment.
+func TestTheShareIsReadOverTheServicesOwnSet(t *testing.T) {
+	env := environment.Environment{Targets: []environment.Target{
+		{Address: "/srv/targets/one", ServesAShare: true},
+		{Address: "/srv/targets/two", ServesAShare: false},
+	}}
+
+	if env.EveryTargetServesAShare() {
+		t.Error("a service running on every target reads as one every target of which serves a share")
+	}
+	if !env.EveryTargetServesAShare("/srv/targets/one") {
+		t.Error("a service running only on the target that serves a share reads as one that does not")
+	}
+	if env.EveryTargetServesAShare("/srv/targets/one", "/srv/targets/two") {
+		t.Error("a set holding the target that serves none reads as one that does")
+	}
+	// An address this environment does not hold serves no share here.
+	if env.EveryTargetServesAShare("/srv/targets/three") {
+		t.Error("an address the environment does not hold reads as a target that serves a share")
+	}
+}
+
 // TestATargetLeavesTheFieldTheWayAnEnvironmentIsWithdrawn: an owner removes the
 // address, refused while any service's deploy record marks that target complete
 // for a release, so the deployer's removal on that one target comes first.

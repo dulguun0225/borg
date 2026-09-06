@@ -286,6 +286,13 @@ type pathFlags struct {
 // existing records needs and what makes these commands work on an install of any
 // number of services. A factory with no service record yet has nothing for one of
 // these to act on, and the error says so.
+//
+// It installs nothing. run creates the project and production's environment for
+// it; every one of these reads the default project and refuses where it does not
+// exist, so a subcommand can never leave a second project behind under a name
+// run never used. The candidate ceiling below is what the composition needs to
+// exist and is authored on no record here, none of these composing a candidate
+// environment.
 func withPath(f pathFlags, command func(context.Context, *path) error) error {
 	if _, err := secretsResolver(f.secrets); err != nil {
 		return err

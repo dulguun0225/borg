@@ -370,6 +370,10 @@ func runCommand(args []string) error {
 		targets: newTargetSet(localTargetAt),
 		dir:     *targets,
 		project: *projectName,
+		// run is the one subcommand that installs: it creates the project and
+		// production's environment for it in the same event where they do not
+		// exist, and every other one reads them and refuses where they do not.
+		install: true,
 
 		credential:       deployCredential(),
 		in:               in,

@@ -206,16 +206,37 @@ func (e Environment) Addresses() []string {
 	return addresses
 }
 
-// EveryTargetServesAShare is whether every target of the environment is behind a
-// platform that serves a share. The score picks the row with a control only
+// EveryTargetServesAShare is whether every target in the service's set is behind
+// a platform that serves a share. The score picks the row with a control only
 // where it holds, there being no control where no share can be served.
-func (e Environment) EveryTargetServesAShare() bool {
-	for _, t := range e.Targets {
-		if !t.ServesAShare {
+//
+// runsOn is the service record's own field, which of this environment's targets
+// the service runs on, and an empty one is the service running on every target
+// of the environment — the design's reading of a field the owner wrote none of.
+// An address in runsOn that this environment does not hold is a target that
+// serves no share here, which is the safe direction of the two.
+func (e Environment) EveryTargetServesAShare(runsOn ...string) bool {
+	if len(runsOn) == 0 {
+		for _, t := range e.Targets {
+			if !t.ServesAShare {
+				return false
+			}
+		}
+		return len(e.Targets) > 0
+	}
+	for _, address := range runsOn {
+		served := false
+		for _, t := range e.Targets {
+			if t.Address == address {
+				served = t.ServesAShare
+				break
+			}
+		}
+		if !served {
 			return false
 		}
 	}
-	return len(e.Targets) > 0
+	return true
 }
 
 const selectEnvironment = `select id, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,

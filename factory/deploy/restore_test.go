@@ -55,6 +55,44 @@ func TestARollbackVerifiesTheArtifactsDigestBeforeItRestoresAnything(t *testing.
 	}
 }
 
+// TestARollbackAppliesNoSchemaChange: the schema moves only forward, staying at
+// the newest release's form however far traffic moves back. A restoration
+// carrying a change is refused before a record exists, rather than resting on
+// the caller having left the field empty.
+func TestARollbackAppliesNoSchemaChange(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	returnedTo := mintRelease(t, ctx, pool, token, serviceID)
+	failed := mintRelease(t, ctx, pool, token, serviceID)
+	reaches, fakes := twoFakes(false)
+
+	p := performance(serviceID, returnedTo, reaches)
+	p.SchemaChanges = []targetseam.SchemaChange{{Change: "0003-drop-the-old-column", Text: "drop the old column"}}
+	_, err := deploy.Restore(ctx, w, deploy.Restoration{
+		Performance:    p,
+		Undoing:        deploy.Undoing{FailedReleaseID: failed.ID, Source: deploy.SourceHealthMonitorAtFailed},
+		RecordedDigest: "the digest the build recorded",
+		Artifacts:      artifacts{returnedTo.BuildID: "the digest the build recorded"},
+	})
+	if !errors.Is(err, deploy.ErrSchemaChangeAtARollback) {
+		t.Fatalf("Restore over a rollback naming a schema change = %v, want ErrSchemaChangeAtARollback", err)
+	}
+	for n, fake := range fakes {
+		for _, call := range fake.Calls() {
+			if call.Op == targetseam.OpApplySchemaChange || call.Op == targetseam.OpDeploy {
+				t.Errorf("target %d was reached with %s by a refused rollback", n+1, call.Op)
+			}
+		}
+	}
+	unfinished, err := deploy.Unfinished(ctx, pool)
+	if err != nil {
+		t.Fatalf("Unfinished: %v", err)
+	}
+	if len(unfinished) != 0 {
+		t.Errorf("the refusal left %d record(s) behind, want the refusal to come before the record", len(unfinished))
+	}
+}
+
 // TestARollbackAdvancesTheDeploysItUndoesTargetByTarget: the rolled-back value
 // is written target by target as the record of the rollback that undid it
 // completes on each, so a rollback that stopped undoes nothing on the record

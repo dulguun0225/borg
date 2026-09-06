@@ -118,7 +118,17 @@ func (q *Queue) Run(ctx context.Context, serviceID string) (Pass, error) {
 			})
 			continue
 		}
-		if kind := stopFor(it, m.Intents[it.ID], halted, capped, waiting); kind != "" {
+		// Whether the item is a revert is read only where a halt stands, that
+		// being the one stop the reading is an exception to: the backlog cap's
+		// own exception is the item the rollback's reading names.
+		revert := false
+		if halted {
+			revert, err = q.reverts.IsARevert(ctx, it)
+			if err != nil {
+				return pass, fmt.Errorf("mergequeue: reading whether %s is a revert: %w", it.ID, err)
+			}
+		}
+		if kind := stopFor(it, m.Intents[it.ID], halted, capped, revert, waiting); kind != "" {
 			outcome, subject, err := q.stop(ctx, it, kind, waiting)
 			if err != nil {
 				return pass, err

@@ -11,8 +11,12 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// restart is every component's restart, run once at every start of this
-// process before anything else reads a record.
+// restart is every component's restart, run once at the end of [compose] and
+// before the path it composed reads a record. [compose] is its one caller, so a
+// subcommand that composes a path runs it — run, walk's deploy is read without
+// one, and watch, approve over an item, contracts, rollback, accept-commit and
+// mitigate compose one — and a subcommand that reaches the store through
+// withPool or opens the pool itself composes no component and runs none.
 //
 // ../../../end-goal/one-process.md gives each of them and they are a read of
 // each component's own records rather than anything kept between runs: the
@@ -20,9 +24,9 @@ import (
 // merge left owing; the deployer completes or returns the deploy records no
 // target has finished; the health monitor evaluates again every window the
 // deploy records left open; the notifier delivers again per row still waiting;
-// Factory rewrites any owner-authored field the newest policy version per
-// scope no longer names; and the People declaration's derived rows are
-// rewritten the same way. Dispatch's own restart is nothing it holds, and its
+// Factory reads the newest policy version per scope and rewrites every
+// authored field that version names which does not already hold what it names;
+// and the People declaration's derived rows are rewritten the same way. Dispatch's own restart is nothing it holds, and its
 // re-match of the open holds is here for the same reason: a hold is a row and
 // a start is a read of it.
 //

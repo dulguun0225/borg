@@ -43,9 +43,15 @@ type deps struct {
 	// through — model.openrouter or model.anthropic — carried so that every
 	// agentrun record this run writes names the credential it was served on.
 	modelCredentialName string
-	// project is the name of the project this run installs and works in,
-	// resolved to the record by [policy.Factory.Install].
+	// project is the name of the project this composition works in, resolved to
+	// the record by [policy.Factory.Install] where install is set and read by
+	// name where it is not.
 	project string
+	// install is whether this composition creates the project and production's
+	// environment for it where they do not exist. Only run sets it; every other
+	// subcommand reads the two and refuses where either is absent, so a
+	// subcommand cannot install a second project under a name run never used.
+	install bool
 	// targets is one target per environment. There is one per environment and not
 	// one per install, because a candidate's environment is a place of its own.
 	targets *targetSet

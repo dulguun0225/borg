@@ -25,6 +25,15 @@ type Artifacts interface {
 // it.
 var ErrDigestDiffers = errors.New("deploy: the artifact no longer digests to what the build recorded")
 
+// ErrSchemaChangeAtARollback is returned by [Restore] for a [Restoration]
+// carrying a schema change. A rollback applies none: the schema moves only
+// forward, staying at the newest release's form however far traffic moves back,
+// which is what the store's forward promise exists to make survivable. The
+// refusal is here rather than left to the caller's discipline, [Restoration]
+// embedding the whole of [Performance] and [Performance.SchemaChanges] being one
+// of its fields.
+var ErrSchemaChangeAtARollback = errors.New("deploy: a rollback applies no schema change — the schema moves only forward")
+
 // Restoration is the slow rollback: a deploy of the release being returned to,
 // naming what it failed, what it skipped, and the source that called for it,
 // with the digest verified before anything is put anywhere.
@@ -32,7 +41,9 @@ type Restoration struct {
 	// Performance is the deploy this rollback is. Its What is the release being
 	// returned to and that release's build, and its Configuration is the value
 	// set that release ran under — a rollback restores the configuration version
-	// the deploy record named for that release beside its code.
+	// the deploy record named for that release beside its code. Its SchemaChanges
+	// is empty on every rollback, and [ErrSchemaChangeAtARollback] is what a
+	// non-empty one is answered with.
 	Performance
 	// Undoing is the release this rollback failed, the ones it skipped, and the
 	// source that called for it.
@@ -46,7 +57,8 @@ type Restoration struct {
 }
 
 // Restore is the slow rollback: the build of the release being returned to put
-// back on the targets and waited for. It verifies the artifact's digest first,
+// back on the targets and waited for. It applies no schema change, refusing a
+// restoration that names one; it verifies the artifact's digest next,
 // writes the rollback's deploy record, and performs the deploy the way any other
 // is performed — which is what advances the deploys it undoes, one target at a
 // time, as this rollback completes on each. Which deploys those are is
@@ -71,6 +83,10 @@ func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
 	if r.Artifacts == nil || r.RecordedDigest == "" {
 		return Deploy{}, fmt.Errorf("%w: the build's recorded digest is what it is verified against",
 			ErrDigestDiffers)
+	}
+	if len(r.SchemaChanges) > 0 {
+		return Deploy{}, fmt.Errorf("%w: %d named on the rollback to %s",
+			ErrSchemaChangeAtARollback, len(r.SchemaChanges), r.What.ReleaseID)
 	}
 
 	token, digest, err := mintWayInToken()

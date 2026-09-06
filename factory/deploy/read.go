@@ -118,29 +118,37 @@ func CompleteOnEvery(ctx context.Context, pool *pgxpool.Pool, deployID string, a
 // instead and a candidate environment is a place where nothing is current; a
 // search's deploy names a build too, so the service's current release stays the
 // rollback's target throughout a search.
+//
+// The record's own status is not read. Completion on the addresses the service
+// runs on is the whole of the rule, and the status says something else: it is
+// complete once every target of the record is, which on an environment holding
+// targets the service does not run on is a stricter thing than the design's. A
+// record marked failed cannot match either, no target of one being complete, and
+// a rollback advances the targets it undoes to rolled back, so a deploy the
+// rollback has reached is no longer complete on them.
 func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID string, addresses []string) (Deploy, bool, error) {
 	if len(addresses) == 0 {
 		return Deploy{}, false, nil
 	}
 
 	current, found, err := scanOne(ctx, pool, selectDeploy+`
-		where service_id = $1 and environment_id = $2 and status = $3 and release_id <> ''
+		where service_id = $1 and environment_id = $2 and release_id <> ''
 		and (select count(*) from `+TargetTable+` t
-			where t.deploy_id = `+Table+`.id and t.address = any($4) and t.completion = $5) = $6
+			where t.deploy_id = `+Table+`.id and t.address = any($3) and t.completion = $4) = $5
 		order by (select number from `+release.Table+` r where r.id = release_id) desc nulls last
 		limit 1`,
-		serviceID, environmentID, string(StatusComplete), addresses, string(CompletionComplete), len(addresses))
+		serviceID, environmentID, addresses, string(CompletionComplete), len(addresses))
 	if err != nil || !found {
 		return Deploy{}, false, err
 	}
 
 	removal, removed, err := scanOne(ctx, pool, selectDeploy+`
-		where service_id = $1 and environment_id = $2 and status = $3
+		where service_id = $1 and environment_id = $2
 		and release_id = '' and build_id = ''
 		and (select count(*) from `+TargetTable+` t
-			where t.deploy_id = `+Table+`.id and t.address = any($4) and t.completion = $5) = $6
+			where t.deploy_id = `+Table+`.id and t.address = any($3) and t.completion = $4) = $5
 		order by number desc limit 1`,
-		serviceID, environmentID, string(StatusComplete), addresses, string(CompletionComplete), len(addresses))
+		serviceID, environmentID, addresses, string(CompletionComplete), len(addresses))
 	if err != nil {
 		return Deploy{}, false, err
 	}
