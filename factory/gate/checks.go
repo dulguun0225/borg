@@ -321,7 +321,7 @@ func (g *Gate) unmeasured(ctx context.Context, f Firing) (string, error) {
 
 // rollout is what the score picks the strategy over besides the vector, read at
 // the moment of firing like every other read a gate makes: whether every target
-// of the environment serves a share, the strategy default an owner authored on
+// the service runs on serves a share, the strategy default an owner authored on
 // production's environment record, whether a safeguard on that default keeps a
 // control on this service, and whether the item's area is graded irreversible.
 // It is read at a deploy to production row and at no other: a strategy decides
@@ -336,6 +336,13 @@ func (g *Gate) rollout(ctx context.Context, f Firing) (score.Rollout, error) {
 	if err != nil {
 		return score.Rollout{}, fmt.Errorf("gate: reading whether every target of %s serves a share: %w",
 			f.EnvironmentID, err)
+	}
+	// Every reader of targets reads the service's set, so the share is read over
+	// the targets this service runs on and not over the environment's whole list:
+	// another service's target declaring no share says nothing about this one.
+	runsOn, err := service.Get(ctx, g.pool, f.ServiceID)
+	if err != nil {
+		return score.Rollout{}, fmt.Errorf("gate: reading the targets %s runs on: %w", f.ServiceID, err)
 	}
 	keepsAControl := false
 	if g.strategySafeguard != nil {
@@ -355,7 +362,7 @@ func (g *Gate) rollout(ctx context.Context, f Firing) (score.Rollout, error) {
 	}
 	return score.Rollout{
 		ReplacesReleaseID:       f.ReplacesReleaseID,
-		EveryTargetServesAShare: env.EveryTargetServesAShare(),
+		EveryTargetServesAShare: env.EveryTargetServesAShare(runsOn.Targets...),
 		Irreversible:            irreversible,
 		Default:                 score.Strategy(env.StrategyDefault),
 		KeepsAControl:           keepsAControl,

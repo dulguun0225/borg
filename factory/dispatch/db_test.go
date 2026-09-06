@@ -41,7 +41,7 @@ const (
 	// theAreaAbove is the area oneArea lies inside, which is the second link
 	// of the chain a scope is matched against.
 	theAreaAbove = "ar_11111111111111111111111111111111"
-	modelName  = "vendor/test-model"
+	modelName    = "vendor/test-model"
 )
 
 var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}

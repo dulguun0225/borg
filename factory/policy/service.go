@@ -271,7 +271,7 @@ func (f *Factory) AuthorOperationCap(ctx context.Context, actor record.Actor,
 	serviceID string, operations float64, overflow string) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "operation_cap"},
+		scope:  Scope{Kind: ScopeService, ID: serviceID, Key: "operation_cap"},
 		number: operations, list: []string{overflow}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.SetOperationCap(ctx, tx, serviceID, operations, overflow)

@@ -171,8 +171,7 @@
 // computed by the health monitor, which is what calls [Restore]; the restart
 // and the deployer's write order in ../../end-goal/one-process.md; and the
 // mitigation, which is a class of two operations, in
-// ../../end-goal/deferred.md and
-// ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md; the
+// ../../end-goal/deferred.md; the
 // removal a retirement calls for, in
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md. The
 // three fleets, their spans and the instance-hour rate they are converted at are
