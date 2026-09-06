@@ -105,8 +105,8 @@
 //     leaves, and intakeNotifier, a round of the interview and an intent
 //     escalated.
 //   - holds.go — Standing, the factory's own holds at a deploy row, and the
-//     four reads enforcement makes of a candidate's own store and of a
-//     backfill's completion, each saying which records it cannot reach.
+//     three reads enforcement makes of a candidate's own store, each saying
+//     which records it cannot reach.
 //   - marks.go — marks, the releases a named human at Ops marked as not caused
 //     by the release, which the score and its learning pass exclude.
 //   - rollout.go — how a deploy is performed on this platform: the deployer's
@@ -146,7 +146,8 @@
 //     a dispatch is given.
 //   - author.go — implementationStage with startBranch, commitAndBuild and
 //     hazardOf, and consumerContractStage; Publishes, Declares,
-//     DeclaresSchemaChange, repoOfItem, the deployer's side of contractcheck;
+//     DeclaresSchemaChange, DeclaresBackfill, repoOfItem, the deployer's side of
+//     contractcheck;
 //     and filesSize and rolePromptCriteria, what a stage hands a role.
 //   - fleet.go — oneModelFleet, the [dispatch.Fleet] this interface is composed
 //     with; rolePrompts, the role prompt version in force per role;
@@ -280,13 +281,13 @@
 // writers and holds no table, and every read goes through the owning
 // package's readers. What it implements for two components is a seam rather than a
 // record: it is [mergequeue.Repository] and [contractcheck.Checkout] because
-// reaching a repository is the deployer's, [contractcheck.Exchanges],
-// [contractcheck.StoreState] and [contractcheck.Backfills] because observing a
-// run and reading a candidate's own store are, [healthmonitor.Deployer] because
-// reaching a deploy target is, and [gate.Holds] because computing the factory's
-// own holds reads most of the graph. [contractcheck.Checkout] is also where the
-// build's own reading of whether its checkout declares a schema change is
-// answered, read off the build record the run wrote it on.
+// reaching a repository is the deployer's, [contractcheck.Exchanges] and
+// [contractcheck.StoreState] because observing a run and reading a candidate's
+// own store are, [healthmonitor.Deployer] because reaching a deploy target is,
+// and [gate.Holds] because computing the factory's own holds reads most of the
+// graph. [contractcheck.Checkout] is also where the build's own reading of
+// whether its checkout declares a schema change, and of whether it is a
+// backfill, is answered — the first off the build record the run wrote it on.
 //
 // Every subcommand acquires the lease before it touches the store, whether it
 // writes or only reads: a read still appends a read event, which is itself a

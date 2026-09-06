@@ -196,7 +196,7 @@ func TestAVersionMovesOnlyWhereTheFormDoes(t *testing.T) {
 func TestAMarkMintsAMinor(t *testing.T) {
 	before := form(contract.KindInterface, output("Health.Status", "string", true))
 	after := form(contract.KindInterface, output("Health.Status", "string", true))
-	after.Elements[0].Deprecated = true
+	after.Elements[0].Marked = true
 	change := contract.Diff(before, after)
 	if !slices.Equal(change.Marked, []string{"Health.Status"}) || len(change.Breaking) != 0 {
 		t.Fatalf("a mark is %s and breaks %v, and it changes no shape", change.Describe(), change.Breaking)

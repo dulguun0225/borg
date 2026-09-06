@@ -116,6 +116,61 @@ func TestTheDeprecationListIsAQueryAndTheDetectorRaisesTheBrownoutThenTheRemoval
 	}
 }
 
+// TestABrownoutsReleaseIsToldFromEveryOtherRelease: the health monitor has to be
+// told which release is a brownout, because a brownout's window is not an
+// ordinary one — it runs to the cap rather than stopping where the boundary
+// would allow, and it is the one window that reads more than the producer's own
+// numbers. Nothing writes a link from the element to the release, so what says a
+// release is one is the walk over the intent's evidence.
+func TestABrownoutsReleaseIsToldFromEveryOtherRelease(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	marked := published(element("Status", "string", true, false), element("Detail", "string", false, true))
+	ordinary, _ := ship(t, ctx, g, g.producer, []contract.Form{marked}, nil, window.ExitTimedOut)
+
+	// Nothing derived names Detail, so the list is empty and the brownout is
+	// raised on the mark's evidence.
+	raised, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("Raise: %v", err)
+	}
+	if len(raised) != 1 || !raised[0].Brownout {
+		t.Fatalf("the detector raised %+v, want the brownout", raised)
+	}
+
+	brownout, watching := shipOnIntent(t, ctx, g, g.producer, raised[0].Intent.ID, []contract.Form{marked}, nil, "")
+	of, is, err := g.check.IsBrownout(ctx, brownout.ID)
+	if err != nil {
+		t.Fatalf("IsBrownout on the brownout's release: %v", err)
+	}
+	if !is || of.Element != "Detail" {
+		t.Fatalf("IsBrownout on the brownout's release = %+v, %v; want the brownout of Detail", of, is)
+	}
+
+	if _, is, err := g.check.IsBrownout(ctx, ordinary.ID); err != nil || is {
+		t.Fatalf("IsBrownout on an ordinary release = %v, %v; want false", is, err)
+	}
+
+	// The removal is raised on the same evidence once the brownout's window has
+	// reached its cap having received volume, and its own release is not a
+	// brownout: the oldest release on the evidence is.
+	if _, err := g.windows.Close(ctx, watching, window.ExitTimedOut, closedOn()); err != nil {
+		t.Fatalf("closing the brownout's window: %v", err)
+	}
+	finishIntent(t, ctx, g, raised[0].Intent.ID)
+	removed, err := g.check.Raise(ctx)
+	if err != nil {
+		t.Fatalf("Raise after the brownout closed: %v", err)
+	}
+	if len(removed) != 1 || removed[0].Brownout {
+		t.Fatalf("the detector raised %+v, want the removal", removed)
+	}
+	removal, _ := shipOnIntent(t, ctx, g, g.producer, removed[0].Intent.ID, []contract.Form{marked}, nil, window.ExitTimedOut)
+	if _, is, err := g.check.IsBrownout(ctx, removal.ID); err != nil || is {
+		t.Fatalf("IsBrownout on the removal's release = %v, %v; want false", is, err)
+	}
+}
+
 // TestASafeguardsPredicateBlocksTheRemovalAndIsToldApartFromAConsumerContract: a
 // safeguard never stops the item existing, only passing, and what a reader of that
 // rejection needs is the safeguard and its author.

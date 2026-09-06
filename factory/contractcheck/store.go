@@ -25,10 +25,12 @@ import (
 //     present throughout, so what decides them is the state the candidate
 //     environment's own store holds — which decideConsumers reads;
 //   - the item that moves reads and the removal after it are each rejected while
-//     no deploy record marks the backfill for that element complete;
+//     no deploy record marks the backfill for that element complete, and so is a
+//     constraint added to an element of a store whose form marks something;
 //   - every change is authored to be applied twice without effect, and the
-//     candidate environment checks that by applying it twice — asked only of a
-//     build that declares a schema change, a form moving being the code's doing
+//     candidate environment checks that by applying it twice — asked of a build
+//     that declares a schema change and of a backfill item, whose change is data
+//     and not form, and of nothing else, a form moving being the code's doing
 //     and not a change for a deploy to apply;
 //   - a change that destroys stored data is exercised with the snapshot the
 //     deploy of it will rest on.
@@ -46,6 +48,12 @@ type Migration struct {
 	// derives it moves, and a build can move it and ship nothing for a deploy to
 	// apply — so this and not Moved is what says there is a change to exercise.
 	Declared bool
+	// Backfill is what a backfill item's build declares it copies between, read
+	// through [Checkout.DeclaresBackfill] and empty on every other item. A
+	// backfill's change is data and not form, so neither Moved nor Declared
+	// reaches it and this is the second thing that says there is a change to
+	// run twice.
+	Backfill deploy.Backfill
 	// Destroys is whether the change destroys stored data — the drop, and any
 	// diff the store rule forbids without one — which is what the snapshot is
 	// taken before.
@@ -60,13 +68,18 @@ type Migration struct {
 	Waiting []Waiting
 }
 
-// Waiting is one element whose backfill is not complete, and which of the two
-// items this candidate is: the one that moves reads to the element, or the one
-// that drops the form it was filled from.
+// Waiting is one element whose backfill is not complete, and which of the three
+// things this candidate does to it: moves reads to it, drops the form it was
+// filled from, or puts a constraint on it.
 type Waiting struct {
 	Element  string
 	Moving   bool
 	Dropping bool
+	// Constraining is a not-null constraint or a domain check added to an
+	// element of a store whose form marks something, which is a migration in
+	// progress. It is addable once the backfill is complete and not before: the
+	// rows the copy has not reached would violate it.
+	Constraining bool
 }
 
 // Blocked reports whether the store rule rejects this candidate at Merge to
@@ -75,10 +88,7 @@ func (m Migration) Blocked() bool {
 	if len(m.Waiting) > 0 {
 		return true
 	}
-	if !m.Moved {
-		return false
-	}
-	if m.Declared && !m.SecondApplication.Ran {
+	if (m.Declared || m.Backfill.Any()) && !m.SecondApplication.Ran {
 		return true
 	}
 	if m.SecondApplication.Changed {
@@ -100,11 +110,20 @@ func (m Migration) Why() []string {
 			said = append(said, fmt.Sprintf(
 				"%s drops %s and no deploy record marks that backfill complete, so the drop would destroy the only copy",
 				m.Contract, waiting.Element))
+		case waiting.Constraining:
+			said = append(said, fmt.Sprintf(
+				"%s constrains %s and no deploy record marks that backfill complete, so the rows the copy has not reached would violate it",
+				m.Contract, waiting.Element))
 		}
 	}
 	if m.Declared && !m.SecondApplication.Ran {
 		said = append(said, fmt.Sprintf(
 			"%s changes the schema and the candidate environment did not apply the change twice", m.Contract))
+	}
+	if m.Backfill.Any() && !m.SecondApplication.Ran {
+		said = append(said, fmt.Sprintf(
+			"%s fills %s from %s and the candidate environment did not run the change twice over the seeded store",
+			m.Contract, m.Backfill.Element, m.Backfill.FromElement))
 	}
 	if m.SecondApplication.Changed {
 		said = append(said, fmt.Sprintf(
@@ -135,14 +154,19 @@ func (c *Check) storeRule(ctx context.Context, candidate Candidate, checked *Che
 		}
 		migration.Waiting = waiting
 
-		if migration.Moved {
-			migration.Declared, err = c.checkout.DeclaresSchemaChange(ctx, candidate)
-			if err != nil {
-				return err
-			}
+		migration.Declared, err = c.checkout.DeclaresSchemaChange(ctx, candidate)
+		if err != nil {
+			return err
+		}
+		declared, err := c.checkout.DeclaresBackfill(ctx, candidate)
+		if err != nil {
+			return err
+		}
+		if declared.Contract == broken.Contract.Name {
+			migration.Backfill = declared
 		}
 
-		if migration.Declared {
+		if migration.Declared || migration.Backfill.Any() {
 			migration.SecondApplication, err = c.store.AppliedTwice(ctx, candidate)
 			if err != nil {
 				return err
@@ -173,7 +197,7 @@ func (c *Check) waiting(ctx context.Context, candidate Candidate, broken Broken,
 	var waiting []Waiting
 	for _, element := range broken.Change.Removed {
 		was, found := elementOf(broken, element)
-		if !found || !was.Deprecated {
+		if !found || !was.Marked {
 			continue
 		}
 		complete, err := c.backfilled(ctx, candidate, broken.Contract.Name, element)
@@ -194,6 +218,26 @@ func (c *Check) waiting(ctx context.Context, candidate Candidate, broken Broken,
 		}
 		if !complete {
 			waiting = append(waiting, Waiting{Element: element, Moving: true})
+		}
+	}
+
+	// The other half of the constraint rule, the half check.go's diff does not
+	// answer: a not-null constraint or a domain check is addable once the
+	// backfill is complete, the completion standing for the rows no release in
+	// force wrote. It is asked only where the form marks something, a store that
+	// marks nothing having no backfill to wait on.
+	if len(form.Marked()) > 0 {
+		for _, element := range append(slices.Clone(broken.Change.Constrained), broken.Change.Narrowed...) {
+			if slices.ContainsFunc(waiting, func(w Waiting) bool { return w.Element == element }) {
+				continue
+			}
+			complete, err := c.backfilled(ctx, candidate, broken.Contract.Name, element)
+			if err != nil {
+				return nil, err
+			}
+			if !complete {
+				waiting = append(waiting, Waiting{Element: element, Constraining: true})
+			}
 		}
 	}
 	return waiting, nil
@@ -221,7 +265,7 @@ func (c *Check) readsMoved(candidate Candidate, drafts []consumercontract.Draft,
 	}
 	away := false
 	for _, e := range form.Elements {
-		if e.Deprecated && before[e.Name] && !now[e.Name] {
+		if e.Marked && before[e.Name] && !now[e.Name] {
 			away = true
 		}
 	}

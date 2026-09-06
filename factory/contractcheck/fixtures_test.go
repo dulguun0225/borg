@@ -89,6 +89,9 @@ type graph struct {
 	// deploy here is started with — one target is what the test install gives
 	// production, and both services deploy onto it.
 	productionTargets []string
+	// project is the project the install created, which a test writing a third
+	// service names.
+	project string
 	// producer and consumer are the two service records: an interface has
 	// consumers, and the consumers are other services in the same factory.
 	producer service.Service
@@ -142,6 +145,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 			publishes:      map[string][]contract.Form{},
 			declares:       map[string][]consumercontract.Draft{},
 			noSchemaChange: map[string]bool{},
+			backfills:      map[string]deploy.Backfill{},
 		},
 		exchanges:  &fakeExchanges{observed: map[string][]consumercontract.Document{}},
 		storeState: newFakeStoreState(),
@@ -152,6 +156,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	}
 	g.production = installed.Production.ID
 	g.productionTargets = installed.Production.Addresses()
+	g.project = installed.Project.ID
 
 	writer := service.NewWriter(pool, token)
 	g.producer, err = writer.Create(ctx, theActor, "producer", t.TempDir(), installed.Project.ID)
@@ -187,8 +192,8 @@ func inSchema(t *testing.T, base, schema string) string {
 // field and never an operation, an argument, or a message. [published] and
 // [stored] set its position: output on an interface, since every one of these
 // is something the consumer reads, and store on a store.
-func element(name, kind string, populated, deprecated bool) contract.Element {
-	return contract.Element{Name: name, Kind: contract.ElementField, Type: kind, Populated: populated, Deprecated: deprecated}
+func element(name, kind string, populated, marked bool) contract.Element {
+	return contract.Element{Name: name, Kind: contract.ElementField, Type: kind, Populated: populated, Marked: marked}
 }
 
 func published(elements ...contract.Element) contract.Form {

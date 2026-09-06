@@ -119,10 +119,10 @@ func form(kind contract.Kind, elements ...contract.Element) contract.Form {
 	return contract.Form{Name: theInterface, Kind: kind, Elements: made}
 }
 
-func element(name, kind string, populated, deprecated bool) contract.Element {
+func element(name, kind string, populated, marked bool) contract.Element {
 	return contract.Element{
 		Name: name, Kind: contract.ElementField, Position: contract.PositionOutput,
-		Type: kind, Populated: populated, Deprecated: deprecated,
+		Type: kind, Populated: populated, Marked: marked,
 	}
 }
 

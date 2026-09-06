@@ -9,6 +9,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
@@ -68,6 +69,13 @@ type Checkout interface {
 	// so a candidate that declares none is not refused for a change it does not
 	// carry.
 	DeclaresSchemaChange(ctx context.Context, c Candidate) (bool, error)
+	// DeclaresBackfill is what a backfill item's build declares: the store
+	// contract, the element it fills, and the element it fills from. A backfill
+	// item is a release whose change is data and not form — it declares no
+	// schema diff and opens no contract version, only that pair — so neither the
+	// diff nor [Checkout.DeclaresSchemaChange] says there is a change to
+	// exercise, and this is what does. Empty is every item that is not one.
+	DeclaresBackfill(ctx context.Context, c Candidate) (deploy.Backfill, error)
 }
 
 // Exchanges is what the candidate's run wrote: one document per unit of work,
@@ -95,11 +103,14 @@ type StoreState interface {
 	// force — read and write — is decided against. None is undecided, the way no
 	// exchange is.
 	Rows(ctx context.Context, c Candidate, storeName string) ([]consumercontract.Document, error)
-	// AppliedTwice is what a second application of the candidate's schema change
-	// changed on that environment. Every change is authored to be applied twice
-	// without effect, because an engine that cannot put a change and its history
-	// row in one transaction can leave a change applied with no row, and a second
-	// application that changes anything is a rejection at Merge to master.
+	// AppliedTwice is what a second run of the candidate's change changed on that
+	// environment. Every change is authored to be applied twice without effect,
+	// because an engine that cannot put a change and its history row in one
+	// transaction can leave a change applied with no row, and a second
+	// application that changes anything is a rejection at Merge to master. A
+	// backfill's change takes the same exercise for its own reason: it is
+	// written to be rerun from where it stopped, so a deploy rerun after a stop
+	// finishes the copy.
 	AppliedTwice(ctx context.Context, c Candidate) (SecondApplication, error)
 	// Snapshot is the snapshot the candidate environment took and verified before
 	// a change that destroys stored data. One it cannot take and verify is a
@@ -107,11 +118,12 @@ type StoreState interface {
 	Snapshot(ctx context.Context, c Candidate) (Snapshot, error)
 }
 
-// SecondApplication is what applying the candidate's schema change a second time
-// did.
+// SecondApplication is what a second run of the candidate's change on its
+// environment did — the schema change it declares, or the backfill's copy, which
+// take the same exercise.
 type SecondApplication struct {
-	// Ran is whether the environment applied it twice at all. False is a
-	// candidate with no schema change to apply.
+	// Ran is whether the environment ran it twice at all. False is a candidate
+	// with no change to run.
 	Ran bool
 	// Changed is whether the second application changed anything, and What says
 	// what it changed for the words a rejection is read in.

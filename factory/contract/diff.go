@@ -178,9 +178,9 @@ func (c *Change) compare(was, e Element) {
 		}
 	}
 	switch {
-	case !was.Deprecated && e.Deprecated:
+	case !was.Marked && e.Marked:
 		c.Marked = append(c.Marked, e.Name)
-	case was.Deprecated && !e.Deprecated:
+	case was.Marked && !e.Marked:
 		c.Unmarked = append(c.Unmarked, e.Name)
 	}
 }

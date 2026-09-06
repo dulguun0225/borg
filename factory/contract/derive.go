@@ -257,12 +257,12 @@ func operationDecls(parsed *ast.File) []*ast.FuncDecl {
 // puts a message in input position.
 func operation(source []byte, fset *token.FileSet, decl *ast.FuncDecl, kind Kind, path string) ([]Element, []string, error) {
 	elements := []Element{{
-		Name:       decl.Name.Name,
-		Kind:       ElementOperation,
-		Position:   positionOf(kind, PositionOutput),
-		Type:       sourceOf(source, fset, decl.Type),
-		Populated:  true,
-		Deprecated: directed(decl.Doc, deprecatedDirective),
+		Name:      decl.Name.Name,
+		Kind:      ElementOperation,
+		Position:  positionOf(kind, PositionOutput),
+		Type:      sourceOf(source, fset, decl.Type),
+		Populated: true,
+		Marked:    directed(decl.Doc, deprecatedDirective),
 	}}
 	var carried []string
 	if decl.Type.Params == nil {

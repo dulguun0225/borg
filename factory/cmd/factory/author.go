@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
@@ -264,6 +265,15 @@ func (p *path) DeclaresSchemaChange(ctx context.Context, c contractcheck.Candida
 		return false, err
 	}
 	return bl.DeclaresSchemaChange, nil
+}
+
+// DeclaresBackfill is [contractcheck.Checkout]: the store contract and the pair
+// of elements a backfill item's build declares it copies between. Nothing on
+// this path derives a backfill from a build, so no candidate here is one and the
+// answer is none — which is what an item whose change is form and not data reads
+// as, and it leaves the double run asked of a declared schema change alone.
+func (p *path) DeclaresBackfill(context.Context, contractcheck.Candidate) (deploy.Backfill, error) {
+	return deploy.Backfill{}, nil
 }
 
 // Publishes is [contractcheck.Checkout]: what the candidate's build publishes, read

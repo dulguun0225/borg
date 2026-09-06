@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/deploy"
 )
 
 // fakeCheckout is what a candidate's build publishes and declares, by item. It
@@ -25,6 +26,10 @@ type fakeCheckout struct {
 	// that moves it, so a test that does not care about the reading configures
 	// nothing.
 	noSchemaChange map[string]bool
+	// backfills is the items whose build declares a backfill, by item. No entry
+	// is an item whose change is form and not data, which is every item but a
+	// backfill.
+	backfills map[string]deploy.Backfill
 }
 
 func (f *fakeCheckout) Publishes(_ context.Context, c contractcheck.Candidate) ([]contract.Form, error) {
@@ -37,6 +42,10 @@ func (f *fakeCheckout) Declares(_ context.Context, c contractcheck.Candidate, _ 
 
 func (f *fakeCheckout) DeclaresSchemaChange(_ context.Context, c contractcheck.Candidate) (bool, error) {
 	return !f.noSchemaChange[c.ItemID], nil
+}
+
+func (f *fakeCheckout) DeclaresBackfill(_ context.Context, c contractcheck.Candidate) (deploy.Backfill, error) {
+	return f.backfills[c.ItemID], nil
 }
 
 // fakeExchanges is the documents one build wrote, by build. No entry is no document

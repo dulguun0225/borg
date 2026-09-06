@@ -143,10 +143,11 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		return nil
 	}
 
-	// The environment: composed from the current release of each of the
-	// candidate's dependencies, which is none on a path where decomposition declares
-	// none. Its target is a directory of its own under the install's, which is what
-	// makes two candidates of one service not read each other's.
+	// The environment: composed from the producers the candidate build's
+	// consumer contract names, and theirs, which is none where the build
+	// declares against nothing. Its target is a directory of its own under the
+	// install's, which is what makes two candidates of one service not read
+	// each other's.
 	composed, err := p.compositionFor(ctx, it)
 	if err != nil {
 		return err
@@ -350,29 +351,32 @@ func (p *path) checkEncodings(ctx context.Context, repo, serviceID string, of []
 	return err
 }
 
-// compositionFor is the current release of each of the candidate's dependencies,
-// which is what the environment is composed from. A dependency with nothing
-// running is an error here and not a composition with a hole in it: the hold above
-// is what stops a candidate whose dependency is not live, so reaching this with one
-// means the two disagree.
+// compositionFor is what the candidate's environment is composed from: the
+// producers the candidate build's consumer contract names, and theirs through
+// their current releases' consumer contracts, which package contractcheck walks
+// over the one field that holds the edge between two services.
+//
+// A producer with nothing running is an error here and not a composition with a
+// hole in it: the hold above is what stops a candidate whose dependency is not
+// live, so reaching this with one means the two disagree.
+//
+// Each entry's address for this environment is not written yet: the composition
+// record names a service and a release and has no field for one, which package
+// contractcheck's doc.go states.
 func (p *path) compositionFor(ctx context.Context, it item.Item) ([]environment.Composed, error) {
-	var composed []environment.Composed
-	for _, waitsOn := range it.WaitsOn {
-		dependency, err := item.Get(ctx, p.d.pool, waitsOn)
-		if err != nil {
-			return nil, err
-		}
-		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID, p.productionAddresses())
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			return nil, fmt.Errorf("factory: item %s waits on %s and %s is running nothing, which the hold at %s should have caught",
-				it.ID, waitsOn, dependency.ServiceID, gate.DeployToCandidateEnvironment)
+	reaches, err := p.contracts.ComposedFrom(ctx, it.ID, it.ServiceID, p.production.ID)
+	if err != nil {
+		return nil, err
+	}
+	composed := make([]environment.Composed, 0, len(reaches))
+	for _, producer := range reaches {
+		if producer.ReleaseID == "" {
+			return nil, fmt.Errorf("factory: item %s reaches %s through %v and %s is running nothing, which the hold at %s should have caught",
+				it.ID, producer.ServiceID, producer.Addresses, producer.ServiceID, gate.DeployToCandidateEnvironment)
 		}
 		composed = append(composed, environment.Composed{
-			ServiceID: dependency.ServiceID,
-			ReleaseID: current.ReleaseID,
+			ServiceID: producer.ServiceID,
+			ReleaseID: producer.ReleaseID,
 		})
 	}
 	return composed, nil
@@ -413,11 +417,11 @@ func (p *path) dependencyHold(ctx context.Context, it item.Item) (string, error)
 }
 
 // describeComposition is what an environment was composed from, for a human
-// reading the run. Nothing is the honest word for a candidate whose item declared
-// no dependency, and it is what every candidate on this path reads.
+// reading the run. Nothing is the honest word for a candidate whose build
+// declares against no producer.
 func describeComposition(composed []environment.Composed) string {
 	if len(composed) == 0 {
-		return "nothing, its item declaring no dependency"
+		return "nothing, its build's consumer contract naming no producer"
 	}
 	named := make([]string, 0, len(composed))
 	for _, dependency := range composed {

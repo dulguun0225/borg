@@ -5,15 +5,15 @@
 // contractcheck.go is the component itself: [Check] and [New], composed with
 // the [Checkout], [Exchanges] and [StoreState] seams, plus the [Candidate] a
 // check is asked about and [Actor], the actor its two writes — the brownout
-// intent and the removal intent — are made as. The five files
+// intent and the removal intent — are made as. The six files
 // below are one question each, checked.go being the shape [Check.Enforce]
-// returns and not a sixth question.
+// returns and not a seventh question.
 //
 // The tests are against the database: fixtures_test.go holds the graph the
 // others build on and fakes_test.go the three seams it is composed with,
 // db_test.go is the composition [New] refuses, and
-// enforce_test.go, deprecation_test.go, inforce_test.go and store_test.go are
-// the four questions, one file each.
+// enforce_test.go, deprecation_test.go, inforce_test.go, store_test.go and
+// composition_test.go are the questions, one file each.
 //
 // [Check.Enforce], in check.go, is the whole of what the merge row asks about
 // one [Candidate], and it holds two baselines because they are different
@@ -45,6 +45,26 @@
 // raises by the evidence [intent.OnEvidence] reads and not by a record saying
 // either has fired.
 //
+// [Check.IsBrownout], in brownout.go, is that same walk in the other direction
+// and is the reading the health monitor needs of this component: whether a
+// release is a brownout of a marked element, as a [BrownoutOf]. A brownout's
+// window runs to its cap rather than stopping where the boundary would allow,
+// and it is the one window that reads more than the producer's own numbers, any
+// service crossing the reading against its own recent history while it is open
+// failing it. Both are the health monitor's to perform and it is not told which
+// release is one yet: what it needs is this reading at the open, so that the
+// passed exit is unavailable to such a window the way it is to a held-out
+// release, and again while it watches. cmd/factory reports the reading at the
+// production deploy meanwhile.
+//
+// [Check.ComposedFrom], in composition.go, is what a candidate's environment is
+// composed from: the producers the candidate build's consumer contract names,
+// and theirs through their current releases' consumer contracts, as a
+// [Composed] each. What is not written is each entry's address for that
+// environment — the composition record names a service and a release and has no
+// field for one — so the addresses the entries reach a producer through are on
+// the value and nothing stores them.
+//
 // [Check.ConsumerContractsInForce], in inforce.go, is for one service the
 // predicates derived by the items of every release from its
 // [Check.LastKnownGood] to its newest, as an [InForce]; [Check.Binding] is that
@@ -61,13 +81,19 @@
 // applying the change twice through [StoreState.AppliedTwice] and, where it
 // destroys stored data, taking and verifying a snapshot through
 // [StoreState.Snapshot] — are read off that environment's own run. The double
-// application is asked for only where [Checkout.DeclaresSchemaChange] says the
-// build declares one: a store contract's form moves whenever the code deriving
-// it moves, and a build can move it with no change for a deploy to apply. [Migration]
-// is what it found and [Migration.Blocked] the rejection; [Waiting] is an
-// element whose backfill no deploy record marks complete, read through
-// deploy.BackfillComplete, which blocks the item that moves reads to it and the
-// drop after it until one does.
+// application is asked for where [Checkout.DeclaresSchemaChange] says the build
+// declares a change and where [Checkout.DeclaresBackfill] says it is a backfill,
+// whose change is data and not form, and nowhere else: a store contract's form
+// moves whenever the code deriving it moves, and a build can move it with no
+// change for a deploy to apply. [Migration] is what it found and
+// [Migration.Blocked] the rejection; [Waiting] is an element whose backfill no
+// deploy record marks complete, read through deploy.BackfillComplete, which
+// blocks the item that moves reads to it, the drop after it, and a constraint
+// put on it while the form marks something, until one does. The other half of
+// the constraint rule is in check.go: a not-null constraint or a domain check on
+// a store's form is held by a declaration in force the new form rejects and not
+// by the existence of one, which is what makes the design's ordinary path
+// reachable.
 //
 // Who may write what: this component owns no table. It writes two records —
 // the brownout intent and the removal intent, both through [intent.Intake] —
@@ -95,6 +121,11 @@
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
 // a schema change and its snapshot are
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md;
+// the composition of a candidate's environment from what a consumer contract
+// names is
+// ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md;
+// what a brownout's window runs to and reads is
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md;
 // and the last known-good release is
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md.
 package contractcheck

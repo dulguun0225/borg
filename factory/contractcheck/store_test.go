@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/window"
@@ -180,6 +181,186 @@ func TestAStoreWhoseBuildDeclaresNoSchemaChangeIsNotBlocked(t *testing.T) {
 	}
 	if !contains(checked.Why(), "did not apply the change twice") {
 		t.Errorf("the rejection does not name the double application: %s", checked.Why())
+	}
+}
+
+// constrained is a store element carrying a not-null constraint, and ranged one
+// accepting the two numbers named. Neither is what [element] builds, and the
+// constraint rule is the one thing in this package that reads them.
+func constrained(name string) contract.Element {
+	e := element(name, "string", true, false)
+	e.NotNull = true
+	return e
+}
+
+func ranged(name string, low, high float64) contract.Element {
+	e := element(name, "int64", true, false)
+	e.Range = &contract.Range{Low: low, High: high}
+	return e
+}
+
+// TestAStoreConstraintIsAddableWhereEveryDeclarationInForceFitsIt: a not-null
+// constraint or a domain check on a store's form is addable once every
+// declaration in force writes the form populated and inside the constraint's
+// domain. That is the ordinary rule, and a constraint held by the mere existence
+// of a declaration naming the element could never be added at all.
+func TestAStoreConstraintIsAddableWhereEveryDeclarationInForceFitsIt(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	// The producer's own past release writes Amount, which is what makes the
+	// producer its own store's consumer.
+	ship(t, ctx, g, g.producer, []contract.Form{stored(element("Amount", "string", true, false))},
+		[]consumercontract.Draft{draft(g.producer, theStore, "Amount", gatepolicy.PredicateSent, consumercontract.Sent)},
+		window.ExitTimedOut)
+
+	adding := candidateOf(t, ctx, g, g.producer, []contract.Form{stored(constrained("Amount"))}, nil, nil)
+	g.storeState.rows[adding.ItemID+"/"+theStore] = []consumercontract.Document{{"Amount": "x"}}
+	checked, err := g.check.Enforce(ctx, adding, g.production)
+	if err != nil {
+		t.Fatalf("Enforce: %v", err)
+	}
+	if !checked.Passed() {
+		t.Fatalf("a constraint every declaration in force fits is refused: %s", checked.Why())
+	}
+	if len(checked.Broken) != 1 || len(checked.Broken[0].Change.Constrained) != 1 {
+		t.Fatalf("the diff found is %+v, want Amount newly constrained", checked.Broken)
+	}
+	if len(checked.Broken[0].Blocking) != 0 {
+		t.Errorf("the constraint is blocked by %+v, want nothing", checked.Broken[0].Blocking)
+	}
+}
+
+// TestAStoreConstraintADeclarationInForceViolatesIsRefused: the other side of
+// the same rule. A range narrowed on a store element is a constraint the release
+// a rollback would restore can violate, and an additive diff that condemns that
+// release's writes turns a recovery into a write outage.
+func TestAStoreConstraintADeclarationInForceViolatesIsRefused(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	ship(t, ctx, g, g.producer, []contract.Form{stored(ranged("Amount", 0, 100))},
+		[]consumercontract.Draft{draft(g.producer, theStore, "Amount", gatepolicy.PredicateSentRange, "0..100")},
+		window.ExitTimedOut)
+
+	narrowing := candidateOf(t, ctx, g, g.producer, []contract.Form{stored(ranged("Amount", 0, 50))}, nil, nil)
+	g.storeState.rows[narrowing.ItemID+"/"+theStore] = []consumercontract.Document{{"Amount": 5.0}}
+	checked, err := g.check.Enforce(ctx, narrowing, g.production)
+	if err != nil {
+		t.Fatalf("Enforce: %v", err)
+	}
+	if checked.Passed() {
+		t.Fatal("a store range narrowed under a declaration in force that sends outside it passed")
+	}
+	if checked.Check() != gate.AutoRejectedByContractDiff {
+		t.Errorf("the check that rejected is %q, want the diff", checked.Check())
+	}
+	if !contains(checked.Why(), "Amount") {
+		t.Errorf("the rejection does not name the element: %s", checked.Why())
+	}
+}
+
+// TestAStoreConstraintOnAFormInMigrationWaitsOnTheBackfill: the constraint rule
+// reads the backfill's completion too — before it, the rows the copy has not
+// reached would violate the constraint.
+func TestAStoreConstraintOnAFormInMigrationWaitsOnTheBackfill(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	// The first two items of the migration have shipped: New sits beside Old,
+	// Old is marked, and nothing declares anything about New yet.
+	ship(t, ctx, g, g.producer,
+		[]contract.Form{stored(element("Old", "string", true, true), element("New", "string", false, false))},
+		nil, window.ExitTimedOut)
+
+	constraining := candidateOf(t, ctx, g, g.producer,
+		[]contract.Form{stored(element("Old", "string", true, true), constrained("New"))}, nil, nil)
+	checked, err := g.check.Enforce(ctx, constraining, g.production)
+	if err != nil {
+		t.Fatalf("Enforce: %v", err)
+	}
+	if checked.Passed() {
+		t.Fatal("a constraint on a store in migration passed with no backfill marked complete")
+	}
+	if len(checked.Migrations) != 1 || len(checked.Migrations[0].Waiting) != 1 ||
+		!checked.Migrations[0].Waiting[0].Constraining {
+		t.Fatalf("the migration found is %+v, want New waiting and constraining", checked.Migrations)
+	}
+
+	markBackfill(t, ctx, g, g.producer, theStore, "New", "Old")
+	again := candidateOf(t, ctx, g, g.producer,
+		[]contract.Form{stored(element("Old", "string", true, true), constrained("New"))}, nil, nil)
+	checked, err = g.check.Enforce(ctx, again, g.production)
+	if err != nil {
+		t.Fatalf("the second Enforce: %v", err)
+	}
+	if !checked.Passed() {
+		t.Fatalf("the constraint is still refused once the backfill is marked complete: %s", checked.Why())
+	}
+}
+
+// TestABackfillItemsChangeIsRunTwiceOverTheSeededStore: a backfill item is a
+// release whose change is data and not form. It declares no schema diff and
+// opens no contract version, so nothing about its form says there is a change
+// to exercise — and the candidate environment still runs the change twice over
+// the seeded store, a second run that changes anything being a rejection at
+// Merge to master.
+func TestABackfillItemsChangeIsRunTwiceOverTheSeededStore(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	// The first two items of the migration have shipped: New sits beside Old and
+	// Old is marked. The backfill publishes that same form.
+	form := stored(element("Old", "string", true, true), element("New", "string", false, false))
+	ship(t, ctx, g, g.producer, []contract.Form{form}, nil, window.ExitTimedOut)
+
+	backfilling := candidateOf(t, ctx, g, g.producer, []contract.Form{form}, nil, nil)
+	g.checkout.noSchemaChange[backfilling.ItemID] = true
+	g.checkout.backfills[backfilling.ItemID] = deploy.Backfill{Contract: theStore, Element: "New", FromElement: "Old"}
+	g.storeState.appliedTwice[backfilling.ItemID] = contractcheck.SecondApplication{
+		Ran: true, Changed: true, What: "a row the first run had already copied",
+	}
+
+	checked, err := g.check.Enforce(ctx, backfilling, g.production)
+	if err != nil {
+		t.Fatalf("Enforce: %v", err)
+	}
+	if checked.Passed() {
+		t.Fatal("a backfill whose second run changed something passed")
+	}
+	if checked.Check() != gate.AutoRejectedByContractDiff {
+		t.Errorf("the check that rejected is %q, want the store rule", checked.Check())
+	}
+	if !contains(checked.Why(), "a row the first run had already copied") {
+		t.Errorf("the rejection does not name what the second run changed: %s", checked.Why())
+	}
+
+	// An environment that never ran it twice is the same rejection: the fact the
+	// check rests on was never established.
+	never := candidateOf(t, ctx, g, g.producer, []contract.Form{form}, nil, nil)
+	g.checkout.noSchemaChange[never.ItemID] = true
+	g.checkout.backfills[never.ItemID] = deploy.Backfill{Contract: theStore, Element: "New", FromElement: "Old"}
+	g.storeState.appliedTwice[never.ItemID] = contractcheck.SecondApplication{}
+	checked, err = g.check.Enforce(ctx, never, g.production)
+	if err != nil {
+		t.Fatalf("the second Enforce: %v", err)
+	}
+	if checked.Passed() {
+		t.Fatal("a backfill the candidate environment never ran twice passed")
+	}
+	if !contains(checked.Why(), "twice over the seeded store") {
+		t.Errorf("the rejection does not name the second run: %s", checked.Why())
+	}
+
+	// And one whose second run changed nothing ships, which is the ordinary path.
+	rerunnable := candidateOf(t, ctx, g, g.producer, []contract.Form{form}, nil, nil)
+	g.checkout.noSchemaChange[rerunnable.ItemID] = true
+	g.checkout.backfills[rerunnable.ItemID] = deploy.Backfill{Contract: theStore, Element: "New", FromElement: "Old"}
+	checked, err = g.check.Enforce(ctx, rerunnable, g.production)
+	if err != nil {
+		t.Fatalf("the third Enforce: %v", err)
+	}
+	if !checked.Passed() {
+		t.Fatalf("a backfill written to be rerun is refused: %s", checked.Why())
+	}
+	if len(checked.Migrations) != 1 || !checked.Migrations[0].Backfill.Any() {
+		t.Fatalf("the migration found is %+v, want the backfill it declares", checked.Migrations)
 	}
 }
 
