@@ -4,10 +4,12 @@
 //
 // # The code
 //
-// score.go is [Score], [New] and [Score.Assess], with [Change], [Measurement],
-// [ExposureEvidence] and [FleetChange] — what the caller hands in — and
-// [OpenEvent] and [CloseEvent], the parts of a decision's payloads this package
-// reads back. factor.go is [Factor], [Group] and [Term]; factorsets.go is
+// score.go is [Score], [Composition], [New], [Score.Assess] and
+// [Score.AssessUnder], with [Change], [Measurement], [ExposureEvidence] and
+// [FleetChange] — what the caller hands in — and [OpenEvent] and [CloseEvent],
+// the parts of a decision's payloads this package reads back. A gate an authored
+// threshold binds assesses through [Score.AssessUnder], the version in force at
+// its scope not always being the newest. factor.go is [Factor], [Group] and [Term]; factorsets.go is
 // [FactorSet], the three sets, [Weights] and the weights the product ships;
 // formula.go is [Formula], [FormulaVersion] and [Assessment]. factorread.go
 // reads the change, author and context factors out of the records, exposure.go
@@ -15,7 +17,10 @@
 // prior with the width and the count of resolved window exits behind it.
 // resolution.go is [Resolution] and the [Cause] of each: a resolved factor is
 // left out of the weighted means, and a firing that resolved anything is a
-// human's whatever the number reads.
+// human's whatever the number reads. strategy.go is the rollout strategy the
+// score picks at a production deploy — [Strategy], [Schedule], [Pick],
+// [Rollout], [PickStrategy] and [ShippedControlBound] — read against the bound
+// the version names, package gate storing the answer in a shape of its own.
 //
 // windowhistory.go is the [Evidence] methods read off the windows and the
 // stages, unexported, that windowlearn.go, rejection.go and learn.go fold: a
@@ -46,15 +51,42 @@
 // passes nothing a safeguard put a human at and nothing a resolution did.
 //
 // marks.go is [Marks], what a named human at Ops marked as not caused by the
-// release. The record's writer is Ops and no package owns it yet, so the
-// composition hands the score whatever reads it and [NoMarks] is what a factory
-// with no such record composes.
+// release. The record is package window's rollback mark, written by a named
+// human at Ops; it is an interface here rather than a read of that package
+// because what the score learns from is the set of marked releases and nothing
+// else, and [NoMarks] is what a factory with none composes.
+//
+// authorship.go is [Authored] and the [Authorship] that reads it, what an agent
+// authoring the version under decision worked from — the input manifest, the
+// effort, and the versions of the role prompt and the skills — which the vector
+// names and no factor weighs. withdrawal.go is [ProtectionRemoved] and the
+// [Withdrawals] that reads it, what a spec version under decision withdraws.
+// Both are interfaces because each joins records this package does not read, and
+// [NoAuthorship] and [NoWithdrawals] are what a composition supplying neither
+// hands in.
 //
 // Two inputs arrive as parameters because nothing writes them yet:
 // [ExposureEvidence], which the component that built the change derives per
 // toolchain the way it takes the diff, and [FleetChange], which is the fleet's
 // own records. A factory that fires without either resolves the factor rather
-// than reading it as nothing.
+// than reading it as nothing. [Measurement]'s reading of whether the diff
+// destroys stored data arrives the same way and for the same reason, and its
+// own could-not-derive resolves the reversibility factor.
+//
+// # What the design does not decide
+//
+// Three things here the design names without fixing, each stated where it is
+// made rather than invented as though it were the document's. The weight
+// context.protection_withdrawn ships at is nothing: the design names the factor's
+// resolution and no weight for it, and a recalibration fits one like every other.
+// Where the line falls for [ShippedControlBound] is the code's: the design states
+// which half of the vector the strategy reads and not the bound. And what makes a
+// diff destroy stored data is a reading per toolchain the design does not
+// describe, derived by the caller that takes the diff.
+//
+// [Withdrawals] is supplied by no composition yet, so the score reads no
+// withdrawal: what one spec version withdraws and which transitions two screen
+// state machines declare are queries no package answers.
 //
 // # The shape
 //

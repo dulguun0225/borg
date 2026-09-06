@@ -4,10 +4,13 @@ import "context"
 
 // Marks is what a named human at Ops marked as not caused by the release: a
 // record of its own, written once, pointing at the rollback's deploy record, and
-// read by everything that learns from outcomes and by nothing that acts. It is
-// an interface here because the record's writer is Ops and no package owns it
-// yet: the composition hands the score whatever reads it, and [NoMarks] is what
-// a factory with no such record composes.
+// read by everything that learns from outcomes and by nothing that acts. The
+// record is package window's rollback mark, written by a named human at Ops.
+//
+// It is an interface here rather than a read of that package because what every
+// rule in this package asks of it is one question — which releases a mark
+// excludes — and [NoMarks] is what a factory where nothing has been marked
+// composes.
 //
 // What a mark changes is the evidence and only the evidence: the rollback is
 // excluded from the per-author prior of every release it undid, from the

@@ -107,14 +107,23 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		ServiceID:     f.ServiceID,
 		AreaID:        f.AreaID,
 	}
-	assessment, err := g.assess(ctx, f, subjects, version)
+	// The policy first, because it answers which score version decides this row:
+	// a version that redefined the number does not decide a gate an authored
+	// threshold binds until its owner has confirmed it, so the vector is computed
+	// under the version in force at this scope and the decision names that one.
+	applied, err := g.policy.AtGate(ctx, componentPrincipal(f.Row), subjects)
+	if err != nil {
+		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", f.Row, err)
+	}
+
+	rollout, err := g.rollout(ctx, f)
 	if err != nil {
 		return Opened{}, err
 	}
 
-	applied, err := g.policy.AtGate(ctx, componentPrincipal(f.Row), subjects)
+	assessment, err := g.assess(ctx, f, subjects, version, applied, rollout)
 	if err != nil {
-		return Opened{}, fmt.Errorf("gate: reading what applies at %s: %w", f.Row, err)
+		return Opened{}, err
 	}
 
 	mismatch, err := g.mismatch(ctx, f)
@@ -155,8 +164,11 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, err
 	}
 
-	// A held-out item removes the human the number put at the row and no other.
-	gatedByNumber := overThreshold && !selection.HeldOut
+	// A held-out item removes the human the number put at the row and no other,
+	// and removes none at a firing a safeguard or a resolved factor put one at —
+	// which is what [score.Selection.AutoPasses] says and the selection itself
+	// does not, the selection standing on every decision from where it was made.
+	gatedByNumber := overThreshold && !selection.AutoPasses
 	marks := marksOn(gatedByNumber, resolved, applied.HumanBySafeguard,
 		f.supersedes != "", reviewSampled, readsNoThreshold)
 
@@ -183,10 +195,8 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 	if !opened.HumanDecides {
 		opened.WaitsOn = Waits{}
 	}
-	opened.Strategy, err = g.strategy(ctx, f, assessment, selection.HeldOut)
-	if err != nil {
-		return Opened{}, err
-	}
+	rollout.HeldOut = selection.HeldOut
+	opened.Strategy = g.strategy(f, assessment, rollout)
 
 	payload, err := json.Marshal(OpeningPayload{
 		OpenEvent: score.OpenEvent{
@@ -202,6 +212,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 			HeldOutRate: selection.RateInForce,
 			AuthorKey:   author.Key,
 			AuthorBasis: string(author.Basis),
+			Authored:    assessment.Authored,
 		},
 		ArtifactDigest:   digest,
 		BuildID:          f.BuildID,
@@ -285,10 +296,17 @@ func (g *Gate) EditInPlace(ctx context.Context, superseded Opened, f Firing) (Op
 //
 // The exposure bound is read here and handed to the score with the change: the
 // score supplies a value for that row and may not read what an owner authored,
-// so the gate is where the two are put together.
-func (g *Gate) assess(ctx context.Context, f Firing, subjects policy.Subjects, version string) (score.Assessment, error) {
+// so the gate is where the two are put together. So is the version the vector is
+// computed under, which the policy resolved for this row's own scope.
+func (g *Gate) assess(ctx context.Context, f Firing, subjects policy.Subjects, version string,
+	applied policy.Applied, rollout score.Rollout) (score.Assessment, error) {
+
+	inForce, err := g.scoreVersion(ctx, applied)
+	if err != nil {
+		return score.Assessment{}, err
+	}
 	if !f.Row.ReadsAThreshold() {
-		return score.Assessment{Version: g.score.Version().ID}, nil
+		return score.Assessment{Version: inForce.ID}, nil
 	}
 	set, err := FactorSetAt(f.Row)
 	if err != nil {
@@ -298,23 +316,43 @@ func (g *Gate) assess(ctx context.Context, f Firing, subjects policy.Subjects, v
 	if err != nil {
 		return score.Assessment{}, fmt.Errorf("gate: reading the exposure bound in force: %w", err)
 	}
-	assessment, err := g.score.Assess(ctx, score.Change{
-		ItemID:           f.ItemID,
-		ServiceID:        f.ServiceID,
-		AreaID:           f.AreaID,
-		ArtifactID:       version,
-		FactorSet:        set,
-		AtImplementation: f.Row.Kind == KindImplementation,
-		AtSpec:           f.Row.Kind == KindSpec,
-		ExposureBound:    bound.Number,
-		Measurement:      f.Measurement,
-		Exposure:         f.Exposure,
-		Fleet:            f.Fleet,
+	assessment, err := g.score.AssessUnder(ctx, inForce, score.Change{
+		ItemID:                  f.ItemID,
+		ServiceID:               f.ServiceID,
+		AreaID:                  f.AreaID,
+		ArtifactID:              version,
+		FactorSet:               set,
+		AtImplementation:        f.Row.Kind == KindImplementation,
+		AtSpec:                  f.Row.Kind == KindSpec,
+		AtDeployToProduction:    f.Row.Kind == KindDeployToProduction,
+		ReplacesReleaseID:       rollout.ReplacesReleaseID,
+		EveryTargetServesAShare: rollout.EveryTargetServesAShare,
+		ExposureBound:           bound.Number,
+		Measurement:             f.Measurement,
+		Exposure:                f.Exposure,
+		Fleet:                   f.Fleet,
 	})
 	if err != nil {
 		return score.Assessment{}, fmt.Errorf("gate: assessing the change: %w", err)
 	}
 	return assessment, nil
+}
+
+// scoreVersion is the version this firing computes its vector under: the one the
+// policy resolved as in force at this row's scope, which is the newest where
+// nobody authored a threshold here and the last one confirmed at the scope where
+// somebody did. It is read back off the log where the two differ, so the vector,
+// the number and the version the decision names are one version's.
+func (g *Gate) scoreVersion(ctx context.Context, applied policy.Applied) (score.Version, error) {
+	newest := g.score.Version()
+	if applied.ScoreVersion == "" || applied.ScoreVersion == newest.ID {
+		return newest, nil
+	}
+	inForce, err := score.Get(ctx, g.pool, g.token, applied.ScoreVersion)
+	if err != nil {
+		return score.Version{}, fmt.Errorf("gate: reading the score version in force at this row: %w", err)
+	}
+	return inForce, nil
 }
 
 // blocked is how many of the criteria decided against the build stop it at the

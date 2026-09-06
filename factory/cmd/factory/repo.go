@@ -230,7 +230,7 @@ func (p *path) createBuild(ctx context.Context, repo, itemID, serviceID, commit 
 	// of this checkout, taken where the repository is and recorded on the record
 	// the gate rows and enforcement read them off. measure.go says why each is
 	// derived here and nowhere else.
-	reached, declares := reaches(ctx, repo, commit, resolved)
+	reached, declares := reaches(ctx, repo, commit, resolved, p.currentReleaseResolved(ctx, serviceID))
 	draft.Exposure, draft.DeclaresSchemaChange = &reached, declares
 	return p.builds.Create(ctx, buildActor, draft)
 }

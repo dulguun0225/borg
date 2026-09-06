@@ -107,7 +107,16 @@ func (s *Score) churn(ctx context.Context, c Change) (reading, error) {
 // item's own excluded, and resolves where the diff destroys stored data. A first
 // release has none, which is what the design says of one: no control, nothing
 // able to close a window passed, and no rollback target.
+//
+// Whether a diff destroys stored data is derived per toolchain, so a toolchain
+// with no derivation behind it leaves the reading unavailable and resolves the
+// factor rather than reading the diff as destroying nothing — the direction
+// every unavailable input takes, and the one that keeps a human at the gate a
+// failure would otherwise remove.
 func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
+	if c.AtImplementation && c.Measurement.DestroysStoredDataUnavailable != "" {
+		return reading{unavailable: c.Measurement.DestroysStoredDataUnavailable}, nil
+	}
 	if c.Measurement.DestroysStoredData && c.AtImplementation {
 		return reading{
 			resolved: "the diff destroys stored data, so a human decides at Implementation with the diff in front of them",
@@ -133,6 +142,13 @@ func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 // owner writes rather than the factory derives. An irreversible value is
 // resolved rather than weighed, at Implementation and at no gate above it: a
 // human at all four would stop the factory authoring in such an area at all.
+//
+// It resolves at one row below Implementation too, and for a reason of the
+// rollout strategy's rather than the score's: where a target of the production
+// environment is behind a platform that serves no share there is no schedule to
+// pick and every deploy there goes without a control, so an irreversible area's
+// deploy to production is a human's whatever the formula returns, and what that
+// human accepts is an exposure the platform gives the factory no way to limit.
 func (s *Score) hazardSeverity(ctx context.Context, c Change) (reading, error) {
 	if c.AreaID == "" {
 		return reading{unavailable: "the item names no area, so nothing says what harm its software can do"}, nil
@@ -141,22 +157,36 @@ func (s *Score) hazardSeverity(ctx context.Context, c Change) (reading, error) {
 	if err != nil {
 		return reading{}, err
 	}
+	return hazardReading(grade, c), nil
+}
+
+// hazardReading is what one grade reads at one firing. It is separate from the
+// read of the record so that the two resolutions are testable as rules, the way
+// every other arithmetic in this package is.
+func hazardReading(grade area.Grade, c Change) reading {
 	switch grade {
 	case area.GradeIrreversible:
-		if !c.AtImplementation {
-			return reading{level: 1.0, words: "the area is graded irreversible"}, nil
+		switch {
+		case c.AtImplementation:
+			return reading{
+				resolved: "the hazard severity in force on this area is irreversible, so a human decides at Implementation whatever the formula returns",
+				cause:    CauseIrreversibleHazard,
+				words:    "the area is graded irreversible",
+			}
+		case c.AtDeployToProduction && !c.EveryTargetServesAShare:
+			return reading{
+				resolved: "the hazard severity in force on this area is irreversible and a target of this environment serves no share, so there is no schedule to pick and a human decides this deploy whatever the formula returns",
+				cause:    CauseNoControlInAnIrreversibleArea,
+				words:    "the area is graded irreversible and no control can run here",
+			}
 		}
-		return reading{
-			resolved: "the hazard severity in force on this area is irreversible, so a human decides at Implementation whatever the formula returns",
-			cause:    CauseIrreversibleHazard,
-			words:    "the area is graded irreversible",
-		}, nil
+		return reading{level: 1.0, words: "the area is graded irreversible"}
 	case area.GradeRecoverable:
-		return reading{level: 0.5, words: "the area is graded recoverable"}, nil
+		return reading{level: 0.5, words: "the area is graded recoverable"}
 	case area.GradeNegligible:
-		return reading{level: 0.1, words: "the area is graded negligible"}, nil
+		return reading{level: 0.1, words: "the area is graded negligible"}
 	}
-	return reading{level: 0.1, words: "no area on this item's chain names a hazard severity"}, nil
+	return reading{level: 0.1, words: "no area on this item's chain names a hazard severity"}
 }
 
 // intentSource reads where the intent this item answers came from. An intent
@@ -190,6 +220,46 @@ func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
 	default:
 		return reading{level: 0.2, words: "an owner typed this request"}, nil
 	}
+}
+
+// protectionWithdrawn reads what the version under decision removes: a criterion
+// whose provenance is human-confirmed, constraint-derived or hazard-derived
+// withdrawn, and a superseding screen state machine declaring a transition a
+// human-confirmed machine did not, which under a closed machine is what admits
+// behaviour the confirmed one forbade. Either is resolved rather than weighed at
+// Spec, routed to the human that provenance names — one human decision per such
+// withdrawal, which is the cost the design states for it.
+//
+// A version that removes none of it reads as nothing, and so does every row that
+// decides no spec version: the withdrawal is a fact of the version under
+// decision, and a row deciding another kind of version removes nothing by
+// having none.
+func (s *Score) protectionWithdrawn(ctx context.Context, c Change) (reading, error) {
+	removed, err := s.withdrawals.ProtectionRemovedBy(ctx, c.ArtifactID)
+	if err != nil {
+		return reading{}, err
+	}
+	if len(removed) == 0 {
+		return reading{level: 0, words: "the version under decision withdraws no criterion and removes no declared transition"}, nil
+	}
+	var evidence []string
+	for _, r := range removed {
+		routed := "the owner, its provenance naming nobody the factory can resolve"
+		if r.RoutedTo != "" {
+			routed = r.RoutedTo
+		}
+		evidence = append(evidence, fmt.Sprintf("%s: %s (%s), routed to %s", r.What, r.SubjectID, r.Provenance, routed))
+	}
+	words := fmt.Sprintf("%d protection(s) the version under decision removes", len(removed))
+	if !c.AtSpec {
+		return reading{level: 1.0, words: words, evidence: evidence}, nil
+	}
+	return reading{
+		resolved: "the version under decision withdraws a criterion whose provenance names an authority or admits what a human-confirmed screen state machine forbade, so a human decides at Spec whatever the formula returns",
+		cause:    CauseProtectionWithdrawn,
+		words:    words,
+		evidence: evidence,
+	}, nil
 }
 
 // consumers reads which sibling services declare they consume what this one

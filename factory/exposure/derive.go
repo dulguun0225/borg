@@ -28,13 +28,20 @@ type Package struct {
 	Licence string
 }
 
-// Checkout is what the derivation runs over: the repository on disk, and the
-// resolved set the build performed there produced. The set is here because a
-// dependency change names the package, its version and its declared licence, and
-// the licence is the build's reading and not the manifest's.
+// Checkout is what the derivation runs over: the repository on disk, the
+// resolved set the build performed there produced, and the resolved set of the
+// build the service's current release put on production. A dependency change is
+// the first diffed against the second, each package added or moved named with
+// its version and its declared licence, and the licence is the build's reading
+// and not the manifest's.
+//
+// CurrentRelease is empty for a service with no current release, which reads as
+// every package in this build being one the service did not reach before — the
+// same reading the diff against git's empty tree already gives a first build.
 type Checkout struct {
-	Dir      string
-	Resolved []Package
+	Dir            string
+	Resolved       []Package
+	CurrentRelease []Package
 }
 
 // Evidence is the exposure list: what the change reaches that the service did
@@ -102,7 +109,6 @@ func Derive(ctx context.Context, c Checkout, base, head string) (Evidence, Cover
 
 	changes := parse(string(out))
 	evidence := Evidence{}
-	dependencies := map[string]bool{}
 	for _, change := range changes {
 		if found, is := outboundCall(change); is {
 			evidence.OutboundCalls = append(evidence.OutboundCalls, found)
@@ -113,10 +119,11 @@ func Derive(ctx context.Context, c Checkout, base, head string) (Evidence, Cover
 		if found, is := authorizationCheck(change); is {
 			evidence.AuthorizationChecks = append(evidence.AuthorizationChecks, found)
 		}
-		if key, found, is := dependencyChange(change, c.Resolved); is && !dependencies[key] {
-			dependencies[key] = true
-			evidence.DependencyChanges = append(evidence.DependencyChanges, found)
-		}
 	}
+	// The dependency changes are a diff of the two resolved sets and not a
+	// reading of the changed lines, so they are computed once over the whole
+	// checkout rather than per changed line; the changes are handed over so an
+	// entry can name the manifest line where there is one.
+	evidence.DependencyChanges = dependencyChanges(c.Resolved, c.CurrentRelease, changes)
 	return evidence, Coverage{Toolchain: Toolchain, Changes: len(changes)}, nil
 }

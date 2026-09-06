@@ -23,9 +23,11 @@ type varyingScore struct {
 	heldOutAsked []string
 }
 
-func (v *varyingScore) Assess(_ context.Context, c score.Change) (score.Assessment, error) {
+func (v *varyingScore) AssessUnder(_ context.Context, version score.Version, c score.Change) (score.Assessment, error) {
 	v.asked = c
-	return assessed(v.by[c.ItemID]), nil
+	assessment := assessed(v.by[c.ItemID])
+	assessment.Version = version.ID
+	return assessment, nil
 }
 
 // HoldOut selects nothing. The Decomposition row does not ask, and a test that

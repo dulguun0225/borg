@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/exposure"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -43,6 +44,7 @@ func measure(repo string, masterExists bool) score.Measurement {
 	}
 
 	m := score.Measurement{FilesInTree: len(lines(files))}
+	m.DestroysStoredData, m.DestroysStoredDataUnavailable = destroysStoredData(repo, base, "HEAD")
 	for _, line := range lines(numstat) {
 		added, removed, path, ok := numstatLine(line)
 		if !ok {
@@ -57,6 +59,50 @@ func measure(repo string, masterExists bool) score.Measurement {
 		m.LinesChanged += added + removed
 	}
 	return m
+}
+
+// DestructiveStatements are what an added line has to carry for the diff to
+// read as destroying stored data. They are the statements that remove stored
+// rows or the place they are stored, and they are a list rather than a rule
+// about SQL because the list is what a human argues with: a statement outside it
+// is one this reading does not find, and adding one is a line here.
+//
+// It is a convention per toolchain, the way every other derivation from a
+// checkout is: what a diff destroys is a property of the language the schema
+// change is written in, and this one is written for SQL in a Go service's
+// repository. The design names the reading and not how to make it — measure.go's
+// own package documentation says so.
+var DestructiveStatements = []string{
+	"drop table", "drop column", "drop schema", "drop database", "drop index",
+	"truncate table", "delete from",
+}
+
+// destroysStoredData is whether the diff between base and head destroys stored
+// data, and why nothing could say where the reading could not be made. A git
+// that will not answer leaves it unavailable with git's own words on it, which
+// resolves the reversibility factor at Implementation: the gate a failure would
+// remove is the gate that failure is evidence for needing, and a diff nobody
+// could read is never read as a diff that destroys nothing.
+//
+// It reads the added side alone. A statement removed from the repository
+// destroys nothing when the build runs, and one added is what will run.
+func destroysStoredData(repo, base, head string) (destroys bool, unavailable string) {
+	diff, err := git(repo, "diff", "--unified=0", "--no-color", base, head)
+	if err != nil {
+		return false, fmt.Sprintf("whether the diff against %s destroys stored data could not be read: %v", base, err)
+	}
+	for _, line := range lines(diff) {
+		if !strings.HasPrefix(line, "+") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+		lowered := strings.ToLower(line)
+		for _, statement := range DestructiveStatements {
+			if strings.Contains(lowered, statement) {
+				return true, ""
+			}
+		}
+	}
+	return false, ""
 }
 
 // numstatLine reads one line of git diff --numstat: lines added, lines removed,
@@ -107,22 +153,54 @@ func lines(output string) []string {
 // gate a failure would remove is the gate that failure is evidence for needing.
 // The schema reading answers false there, which decides nothing on its own — the
 // row it would have been read at already has a human at it.
-func reaches(ctx context.Context, repo, commit string, resolved []build.ResolvedEntry) (exposure.Evidence, bool) {
+func reaches(ctx context.Context, repo, commit string, resolved, currentRelease []build.ResolvedEntry) (exposure.Evidence, bool) {
 	base := emptyTree
 	if head, err := masterCommit(repo); err == nil && head != "" {
 		base = "master"
 	}
-	packages := make([]exposure.Package, 0, len(resolved))
-	for _, entry := range resolved {
-		packages = append(packages, exposure.Package{
-			Package: entry.Package, Version: entry.Version, Licence: entry.Licence,
-		})
-	}
-	evidence, _, err := exposure.Derive(ctx, exposure.Checkout{Dir: repo, Resolved: packages}, base, commit)
+	evidence, _, err := exposure.Derive(ctx, exposure.Checkout{
+		Dir: repo, Resolved: packagesOf(resolved), CurrentRelease: packagesOf(currentRelease),
+	}, base, commit)
 	if err != nil {
 		return exposure.Evidence{Unavailable: fmt.Sprintf("the exposure list could not be derived: %v", err)}, false
 	}
 	return evidence, declaresSchemaChange(repo, base, commit)
+}
+
+// packagesOf is a build record's resolved set in the shape the extractor reads
+// it, which is the repetition this module pays for locality: the extractor reads
+// a repository and decides nothing, the record stores what a build resolved, and
+// this is the one place that holds both.
+func packagesOf(entries []build.ResolvedEntry) []exposure.Package {
+	packages := make([]exposure.Package, 0, len(entries))
+	for _, entry := range entries {
+		packages = append(packages, exposure.Package{
+			Package: entry.Package, Version: entry.Version, Licence: entry.Licence,
+		})
+	}
+	return packages
+}
+
+// currentReleaseResolved is the resolved set of the build the service's current
+// release put on production, which is the set a dependency change is diffed
+// against. A service running nothing has none, and every package this build
+// resolved is then one the service did not reach before — the reading a first
+// release already gets from the diff against git's empty tree.
+//
+// A read that fails answers none for the same reason: it is the caller's own
+// store and a failure here is a factory that cannot read its own deploy record,
+// which the rows over the build read as a wider exposure and never as a
+// narrower one.
+func (p *path) currentReleaseResolved(ctx context.Context, serviceID string) []build.ResolvedEntry {
+	current, running, err := deploy.Current(ctx, p.d.pool, serviceID, p.production.ID, p.productionAddresses())
+	if err != nil || !running || current.BuildID == "" {
+		return nil
+	}
+	entries, err := build.Resolved(ctx, p.d.pool, current.BuildID)
+	if err != nil {
+		return nil
+	}
+	return entries
 }
 
 // declaresSchemaChange is the build's own reading of whether its checkout ships

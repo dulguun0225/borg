@@ -3,7 +3,7 @@ package score
 import "fmt"
 
 // Cause is why a factor was resolved rather than weighed. The design names
-// five, and every one of them is a fact recorded on the decision rather than a
+// eight, and every one of them is a fact recorded on the decision rather than a
 // low number a reader has to interpret.
 type Cause string
 
@@ -30,6 +30,16 @@ const (
 	// CauseExposureOverTheBound is an exposure factor above the bound gate
 	// policy sets, which resolves at Implementation.
 	CauseExposureOverTheBound Cause = "exposure over the bound"
+	// CauseProtectionWithdrawn is a spec version withdrawing a criterion whose
+	// provenance names an authority, or superseding a human-confirmed screen
+	// state machine with one that declares a transition it did not. It resolves
+	// at Spec, routed to the human that provenance names.
+	CauseProtectionWithdrawn Cause = "the version withdraws a protection"
+	// CauseNoControlInAnIrreversibleArea is an irreversible hazard severity at
+	// the deploy to production row where no control can run: where the platform
+	// serves no share there is no schedule to pick, so what the human accepts is
+	// an exposure the platform gives the factory no way to limit.
+	CauseNoControlInAnIrreversibleArea Cause = "an irreversible area with no control to run"
 )
 
 // Resolution is one factor resolved at one firing: which factor, why, and the

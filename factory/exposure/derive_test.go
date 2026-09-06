@@ -195,6 +195,75 @@ func TestADependencyChange(t *testing.T) {
 	}
 }
 
+// TestADependencyChangeIsTwoResolvedSetsDiffed: what a build resolved against
+// what the current release's build resolved. A package at the version already
+// running is no change however its manifest line moved, a package at another
+// version is one, and an unpinned range that resolved differently with nothing
+// in the manifest changed is read as the change it is.
+func TestADependencyChangeIsTwoResolvedSetsDiffed(t *testing.T) {
+	dir, base, head := repoWith(t,
+		map[string]string{
+			"go.mod": "module demo\n\ngo 1.25\n\nrequire example.com/x v1.2.3\n",
+			"go.sum": "example.com/x v1.2.3 h1:aaa=\n",
+		},
+		map[string]string{
+			"go.mod": "module demo\n\ngo 1.25\n\nrequire example.com/x v1.2.3 // moved comment\n",
+			"go.sum": "example.com/x v1.2.3 h1:aaa=\n",
+		})
+
+	running := []exposure.Package{
+		{Package: "example.com/x", Version: "v1.2.3", Licence: "MIT"},
+		{Package: "example.com/y", Version: "v0.4.0", Licence: "Apache-2.0"},
+	}
+	same := derive(t, exposure.Checkout{Dir: dir, Resolved: running, CurrentRelease: running}, base, head)
+	if len(same.DependencyChanges) != 0 {
+		t.Errorf("a manifest line changed over the version already running reads as %v", same.DependencyChanges)
+	}
+
+	// Nothing in the manifest names example.com/y at its new version, so the
+	// entry names the resolved set instead of a file and a line — and it is a
+	// dependency change either way.
+	moved := derive(t, exposure.Checkout{
+		Dir: dir,
+		Resolved: []exposure.Package{
+			{Package: "example.com/x", Version: "v1.2.3", Licence: "MIT"},
+			{Package: "example.com/y", Version: "v0.5.0", Licence: "Apache-2.0"},
+		},
+		CurrentRelease: running,
+	}, base, head)
+	if len(moved.DependencyChanges) != 1 {
+		t.Fatalf("the dependency changes are %v, want the one package that moved", moved.DependencyChanges)
+	}
+	entry := moved.DependencyChanges[0]
+	if !strings.Contains(entry, "example.com/y moved from v0.4.0 to v0.5.0") ||
+		!strings.Contains(entry, "licence Apache-2.0") {
+		t.Errorf("the entry is %q, want the package, both versions and the licence", entry)
+	}
+	if !strings.Contains(entry, "resolved set") {
+		t.Errorf("the entry is %q, want it to say the manifest named nothing", entry)
+	}
+}
+
+// TestACredentialNameRemovedIsRead: the factor reads a credential name added or
+// removed the way it reads one added or removed in code, a change to the file
+// that holds it being a diff like any other. Reading a removal as nothing would
+// be the absence of evidence read as evidence of safety, which this group does
+// not do.
+func TestACredentialNameRemovedIsRead(t *testing.T) {
+	dir, base, head := repoWith(t,
+		map[string]string{"config.go": "package main\n\nvar credential = \"model.openrouter\"\n"},
+		map[string]string{"config.go": "package main\n"})
+
+	evidence := derive(t, exposure.Checkout{Dir: dir}, base, head)
+	if len(evidence.Credentials) != 1 {
+		t.Fatalf("the credentials found are %v, want the removed name", evidence.Credentials)
+	}
+	if !strings.Contains(evidence.Credentials[0], "a removed") ||
+		!strings.Contains(evidence.Credentials[0], "model.openrouter") {
+		t.Errorf("the entry is %q, want the removal and the name", evidence.Credentials[0])
+	}
+}
+
 // TestNoGitAtBaseIsUnavailableAndNeverNothing: an extractor that could not run
 // resolves the factor, and a diff that added none of this reads as nothing. The
 // two are opposite answers and this is where they are told apart.

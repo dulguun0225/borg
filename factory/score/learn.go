@@ -70,7 +70,11 @@ func LearnFrom(e *Evidence) (Learned, error) {
 // Only a window that closed passed makes an item well and only one that failed
 // makes it badly, so a held-out release whose window timed out raises nothing:
 // the sample exists to produce an outcome, and the exit that reports none reports
-// none here either.
+// none here either. A held-out firing at the row whose release then turned out
+// badly stops the rise outright, whatever else the sample produced: the evidence
+// for raising a threshold is held-out releases that failed none of them, and a
+// count of the good ones alone would raise it on a row the sample had already
+// shown a gate was needed at.
 //
 // A rejection is read at the row the human was at and at no other. The item it
 // rejected was never auto-passed there — that is what a human at a gate means —
@@ -82,7 +86,7 @@ func thresholds(e *Evidence) []Supplied {
 	var moved []Supplied
 	for _, row := range e.GateRows() {
 		lowestBad := math.NaN()
-		good, bad := 0, 0
+		good, bad, heldOutFailed := 0, 0, 0
 		for _, f := range e.firings {
 			if f.OpenEvent.Gate != row || f.HumanClosed {
 				continue
@@ -96,6 +100,8 @@ func thresholds(e *Evidence) []Supplied {
 				}
 			case f.CloseEvent.WhyItAutoPassed == AutoPassSample && outcome == OutcomeWell:
 				good++
+			case f.CloseEvent.WhyItAutoPassed == AutoPassSample && outcome == OutcomeBadly:
+				heldOutFailed++
 			}
 		}
 
@@ -105,7 +111,7 @@ func thresholds(e *Evidence) []Supplied {
 			value = math.Max(thresholdFloor, lowestBad-thresholdBand)
 			why = fmt.Sprintf("%d change(s) auto-passed on the number at this row turned out badly, the lowest of them scoring %.2f, so the threshold is one band below it",
 				bad, lowestBad)
-		case good >= heldOutPerBand:
+		case good >= heldOutPerBand && heldOutFailed == 0:
 			bands := good / heldOutPerBand
 			value = math.Min(thresholdCeiling, start.Value+float64(bands)*thresholdBand)
 			why = fmt.Sprintf("%d held-out firing(s) at this row reached a window that closed passed and none that failed, which is %d band(s) of unbiased evidence that the gate was not needed",

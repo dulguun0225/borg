@@ -246,6 +246,17 @@ func TestTheThresholdRisesOnlyOnAHeldOutWindowThatPassed(t *testing.T) {
 		t.Errorf("the threshold reads %v after a bad auto-pass at 0.20, want %v", got, 0.20-thresholdBand)
 	}
 
+	// A fourth held-out firing whose release the window failed stops the rise: the
+	// reason the rise is written with is that the row reached windows that closed
+	// passed and none that failed, and a rise counting the good ones alone would
+	// loosen a row the sample had just shown a gate was needed at.
+	failedToo := fail(firingEvidence(t, append(append([]Firing{}, held...),
+		autoPassed(row, 0.9, AutoPassSample, "it_d"))), "it_d")
+	if got := valueOf(t, failedToo, gatepolicy.RiskThreshold, row); got != start.Value {
+		t.Errorf("the threshold rose to %v with a held-out release that failed at the row, want the starting %v",
+			got, start.Value)
+	}
+
 	// Three approvals by a human at a gate that gated them move nothing.
 	approved := firingEvidence(t, []Firing{
 		humanApproved(row, 0.9, "it_a"), humanApproved(row, 0.9, "it_b"), humanApproved(row, 0.9, "it_c"),

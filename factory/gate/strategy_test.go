@@ -59,9 +59,10 @@ func TestAnIrreversibleAreaIsTheBoundWhereNothingElseWasOne(t *testing.T) {
 	p := &fakePolicy{applied: applied(0.5)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	// The impact discounted by reversibility at or above the control bound is
-	// what picks the row with a control where no sample did.
-	s.assessment.DiscountedImpact = gate.ControlBound
+	// The impact discounted by reversibility at or above the bound the score
+	// version names is what picks the row with a control where no sample did.
+	s.assessment.ControlBound = score.ShippedControlBound
+	s.assessment.DiscountedImpact = score.ShippedControlBound
 
 	declared, err := area.NewWriter(pool, token).Declare(ctx, owner, "erasures",
 		area.Inside{ProjectID: "prj_00000000000000000000000000000a"},

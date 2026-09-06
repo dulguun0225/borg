@@ -19,8 +19,9 @@
 // human at a row. merge.go is the Merge to master row's own vocabulary:
 // [MechanicalChecks] and [Derivations]. spec.go is the Spec row's:
 // [SpecChecks], [SpecRejection] over the requirement a criterion names, and
-// [ChecksAt], the checks a row rejects on. strategy.go is [Strategy], [Schedule],
-// [Pick] with [Pick.Validate], and [ControlBound]. waits.go is [Waits],
+// [ChecksAt], the checks a row rejects on. strategy.go is [Strategy], [Schedule]
+// and [Pick] with [Pick.Validate], the shape the pick is stored in; the score
+// picks it. waits.go is [Waits],
 // [RoutedTo], and the three duties the design names for a row.
 //
 // gate.go is [Gate], [Composition] and [New], the [Score], [Policy],

@@ -88,25 +88,40 @@ func outboundCall(c change) (string, bool) {
 	return "", false
 }
 
-// credential is the entry an added line makes as a credential named or read.
+// credential is the entry a changed line makes as a credential named or read.
+//
+// A removed line makes one as an added line does: the factor reads a credential
+// name added or removed the way it reads one added or removed in code, a change
+// to the file that holds it being a diff like any other. What a removal reaches
+// that the service did not reach before is the name itself, which is on the list
+// beside the diff for the human at Implementation to read either way — and the
+// group only ever raises the number, so reading a removal as nothing would be
+// the absence of evidence read as evidence of safety.
 func credential(c change) (string, bool) {
-	if c.Removed {
-		return "", false
-	}
 	if strings.Contains(c.Text, "secretref.Resolve(") {
-		return entry(c, "a new call to secretref.Resolve"), true
+		return entry(c, direction(c)+" call to secretref.Resolve"), true
 	}
 	for _, match := range getenv.FindAllStringSubmatch(c.Text, -1) {
 		if word, carried := credentialWord(match[1]); carried {
-			return entry(c, fmt.Sprintf("a new read of the environment variable %s, whose name carries %s", match[1], word)), true
+			return entry(c, fmt.Sprintf("%s read of the environment variable %s, whose name carries %s",
+				direction(c), match[1], word)), true
 		}
 	}
 	for _, match := range literal.FindAllStringSubmatch(c.Text, -1) {
 		if secretName.MatchString(match[1]) {
-			return entry(c, "a new string literal shaped like a secret's name: "+match[1]), true
+			return entry(c, direction(c)+" string literal shaped like a secret's name: "+match[1]), true
 		}
 	}
 	return "", false
+}
+
+// direction is which side of the diff a line is on, in the words an entry is
+// read in.
+func direction(c change) string {
+	if c.Removed {
+		return "a removed"
+	}
+	return "a new"
 }
 
 // credentialWord is the word a name carries that makes reading it a credential
@@ -148,35 +163,68 @@ func authorizationCheck(c change) (string, bool) {
 	return "", false
 }
 
-// dependencyChange is the entry a changed line of go.mod or go.sum makes: the
-// package and the version it names, with the licence the build's resolved set
-// gives that package where the set names one. The key it answers beside the
-// entry is the package and its version, which is what tells one change from
-// another: go.sum names one package on two lines and go.mod on a third, so a
-// package added is one dependency change and not three. A line naming no version is not a
-// dependency change — the module line and the go directive are the file's own
-// and not a package.
+// dependencyChanges is the build's own resolved set diffed against the set of
+// the service's current release's build: each package added or moved, named with
+// its version and its declared licence. It is a diff of two sets and not a read
+// of the changed lines of go.mod and go.sum, because what a build resolved is
+// what it runs — an unpinned range that resolves differently with nothing in the
+// manifest changed is read as the change it is, and a manifest line changed that
+// resolved to the version already running is not one.
 //
-// An unpinned range that resolves differently with nothing in the manifest
-// changed is read as the change it is, because go.sum is one of the two files
-// read and a re-resolution changes it.
-func dependencyChange(c change, resolved []Package) (key, found string, ok bool) {
-	name := path.Base(c.File)
-	if name != "go.mod" && name != "go.sum" {
-		return "", "", false
+// A package removed is not here. The group only ever raises the number and what
+// it names is what the change reaches that the service did not reach before, so
+// a package the build no longer resolves reaches nothing new.
+//
+// A current release's set with nothing in it is a service with no current
+// release, which is the reading a first release already gets everywhere else
+// here: every package in the build is one the service did not reach before.
+func dependencyChanges(resolved, currentRelease []Package, changes []change) []string {
+	was := map[string]string{}
+	for _, p := range currentRelease {
+		was[p.Package] = p.Version
 	}
-	pkg, version, named := packageVersion(c.Text)
-	if !named {
-		return "", "", false
+	var found []string
+	seen := map[string]bool{}
+	for _, p := range resolved {
+		before, ran := was[p.Package]
+		if (ran && before == p.Version) || seen[p.Package] {
+			continue
+		}
+		seen[p.Package] = true
+		what := fmt.Sprintf("%s %s, %s", p.Package, p.Version, licenceOf(p))
+		if ran {
+			what = fmt.Sprintf("%s moved from %s to %s, %s", p.Package, before, p.Version, licenceOf(p))
+		}
+		found = append(found, manifestLine(p.Package, changes)+" — "+what)
 	}
-	licence := "a licence the build's resolved set does not name"
-	for _, r := range resolved {
-		if r.Package == pkg && r.Licence != "" {
-			licence = "licence " + r.Licence
-			break
+	return found
+}
+
+// licenceOf is the licence the build's resolved set declares for one package,
+// and what the entry says where the set declares none.
+func licenceOf(p Package) string {
+	if p.Licence == "" {
+		return "a licence the build's resolved set does not name"
+	}
+	return "licence " + p.Licence
+}
+
+// manifestLine is where a package's change appears in the manifest, so the entry
+// names the file and the line the way every other one does. Where nothing in the
+// manifest names it, the entry says so: that is the unpinned range that resolved
+// differently with nothing changed, and it is a dependency change with no line
+// to point at rather than no dependency change.
+func manifestLine(pkg string, changes []change) string {
+	for _, c := range changes {
+		name := path.Base(c.File)
+		if name != "go.mod" && name != "go.sum" {
+			continue
+		}
+		if named, _, ok := packageVersion(c.Text); ok && named == pkg {
+			return fmt.Sprintf("%s:%d", c.File, c.Line)
 		}
 	}
-	return pkg + " " + version, entry(c, fmt.Sprintf("%s %s, %s", pkg, version, licence)), true
+	return "the build's resolved set, with nothing in the manifest changed"
 }
 
 // packageVersion is the package and the version one line of go.mod or go.sum

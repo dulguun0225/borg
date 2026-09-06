@@ -38,15 +38,22 @@ type NeverDraw struct{}
 func (NeverDraw) Fraction() float64 { return 1 }
 
 // Selection is what the sample decided about one firing: whether the score is
-// holding this item out, which of the two ways it came to be held out, and the
-// rate in force at the selection. The reason is on the open event because a
-// firing that reads the same to an owner for two different reasons is one they
-// cannot argue with, and the rate is beside it so that a held-out outcome can be
-// weighted by the probability that selected it, per service or per author, at
-// whatever scope the rate was authored.
+// holding this item out, whether the selection auto-passes this firing, which of
+// the two ways it came to be held out, and the rate in force at the selection.
+// The reason is on the open event because a firing that reads the same to an
+// owner for two different reasons is one they cannot argue with, and the rate is
+// beside it so that a held-out outcome can be weighted by the probability that
+// selected it, per service or per author, at whatever scope the rate was
+// authored.
 type Selection struct {
 	HeldOut bool
-	Why     string
+	// AutoPasses is whether the selection removes the human at this firing. It
+	// is false where a safeguard or a resolved factor put one there, and true
+	// nowhere else the item is held out: held out is written on every decision on
+	// the item from the selection onward, and what is withheld at such a firing is
+	// the auto-pass and not the selection.
+	AutoPasses bool
+	Why        string
 	// RateInForce is the held-out sample rate this selection was drawn against:
 	// what an owner authored where they authored one and what the score supplies
 	// otherwise, after every safeguard clamping it on that item's service,
@@ -88,15 +95,17 @@ const (
 // authored where they authored one and what the score supplies otherwise,
 // clamped by every safeguard reaching that item's service, project and area.
 //
-// Four rules, in this order. A safeguard is never passed: a human a safeguard
-// added at a gate is a human an owner added, and a sample that could pass one
-// would be the single mechanism in the design that removes a human from a gate.
-// A resolved vector is never passed either, whether the score could not compute
-// the factor or computed a value the design resolves on — the score is in no
-// position to auto-pass a gate its own number never decided. An item an earlier
-// decision says was selected stays selected, whatever the number reads now. And
-// otherwise the draw selects, but only where the score would have gated: holding
-// out what it was going to pass anyway would produce no evidence about a gate.
+// Four rules, in this order. An item an earlier decision says was selected stays
+// selected, whatever the number reads now and whatever this firing resolved: the
+// selection is written on every decision on the item from the selection onward,
+// so an item selected once reaches production as a held-out release and the
+// strategy that keeps a control is picked for it. What a safeguard or a resolved
+// factor withholds at such a firing is the auto-pass and not the selection: a
+// human a safeguard added at a gate is a human an owner added, and the score is
+// in no position to auto-pass a gate its own number never decided. Neither is
+// selected at either, so the draw is not asked there. And otherwise the draw
+// selects, but only where the score would have gated: holding out what it was
+// going to pass anyway would produce no evidence about a gate.
 //
 // A firing over a set is not sampled, which the caller says by asking for no
 // selection at Decomposition: that row decides over several items at once, so
@@ -104,28 +113,31 @@ const (
 func (s *Score) HoldOut(ctx context.Context, itemID string, rate float64,
 	wouldGate, bySafeguard bool, resolved []Resolution) (Selection, error) {
 
-	if itemID == "" || bySafeguard || len(resolved) > 0 {
+	if itemID == "" {
 		return Selection{}, nil
 	}
 	selectedEarlier, err := heldOutBefore(ctx, s.pool, s.token, itemID)
 	if err != nil {
 		return Selection{}, err
 	}
-	return s.decide(rate, wouldGate, selectedEarlier), nil
+	return s.decide(rate, wouldGate, selectedEarlier, bySafeguard || len(resolved) > 0), nil
 }
 
 // decide is the sample's rule over what the log already said: the stickiness
-// first, then the draw. It is separate from the read so that the rule is
-// testable as a rule, the way every other arithmetic in this package is.
-func (s *Score) decide(rate float64, wouldGate, selectedEarlier bool) Selection {
+// first, then the draw. humanStays is a safeguard or a resolved factor having
+// put a human at this firing, which withholds the auto-pass and stops the draw
+// and leaves an earlier selection standing. It is separate from the read so that
+// the rule is testable as a rule, the way every other arithmetic in this package
+// is.
+func (s *Score) decide(rate float64, wouldGate, selectedEarlier, humanStays bool) Selection {
 	if selectedEarlier {
-		return Selection{HeldOut: true, Why: SelectedEarlier, RateInForce: rate}
+		return Selection{HeldOut: true, AutoPasses: !humanStays, Why: SelectedEarlier, RateInForce: rate}
 	}
-	if !wouldGate || rate <= 0 {
+	if humanStays || !wouldGate || rate <= 0 {
 		return Selection{}
 	}
 	if s.draw.Fraction() < rate {
-		return Selection{HeldOut: true, Why: SelectedHere, RateInForce: rate}
+		return Selection{HeldOut: true, AutoPasses: true, Why: SelectedHere, RateInForce: rate}
 	}
 	return Selection{}
 }

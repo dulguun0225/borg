@@ -275,26 +275,46 @@ func (g *Gate) unmeasured(ctx context.Context, f Firing) (string, error) {
 	return "the service is missing " + join(missing), nil
 }
 
-// strategy is the rollout strategy this row picked. It is picked at a deploy to
-// production row and at no other: a strategy decides whether a control runs, and
-// a control is a comparison against organic traffic, which only production has.
-func (g *Gate) strategy(ctx context.Context, f Firing, a score.Assessment, heldOut bool) (Pick, error) {
+// rollout is what the score picks the strategy over besides the vector, read at
+// the moment of firing like every other read a gate makes: whether every target
+// of the environment serves a share, and whether the item's area is graded
+// irreversible.
+// It is read at a deploy to production row and at no other: a strategy decides
+// whether a control runs, and a control is a comparison against organic traffic,
+// which only production has. Whether the sample selected the item is set on the
+// answer after the selection is made, the selection being read after the policy.
+func (g *Gate) rollout(ctx context.Context, f Firing) (score.Rollout, error) {
 	if f.Row.Kind != KindDeployToProduction {
-		return Pick{}, nil
+		return score.Rollout{}, nil
 	}
 	env, err := environment.Get(ctx, g.pool, f.EnvironmentID)
 	if err != nil {
-		return Pick{}, fmt.Errorf("gate: reading whether every target of %s serves a share: %w", f.EnvironmentID, err)
+		return score.Rollout{}, fmt.Errorf("gate: reading whether every target of %s serves a share: %w",
+			f.EnvironmentID, err)
 	}
 	irreversible := false
 	if f.AreaID != "" {
 		grade, err := area.SeverityInForce(ctx, g.pool, f.AreaID)
 		if err != nil {
-			return Pick{}, fmt.Errorf("gate: reading the hazard severity of %s: %w", f.AreaID, err)
+			return score.Rollout{}, fmt.Errorf("gate: reading the hazard severity of %s: %w", f.AreaID, err)
 		}
 		irreversible = grade == area.GradeIrreversible
 	}
-	return pickStrategy(a, f.ReplacesReleaseID, env.EveryTargetServesAShare(), heldOut, irreversible)
+	return score.Rollout{
+		ReplacesReleaseID:       f.ReplacesReleaseID,
+		EveryTargetServesAShare: env.EveryTargetServesAShare(),
+		Irreversible:            irreversible,
+	}, nil
+}
+
+// strategy is the rollout strategy this row picked, which is the score's pick in
+// the words this package stores it in. It is picked at a deploy to production row
+// and at no other, so every other row writes an empty pick.
+func (g *Gate) strategy(f Firing, a score.Assessment, r score.Rollout) Pick {
+	if f.Row.Kind != KindDeployToProduction {
+		return Pick{}
+	}
+	return pickedBy(a, r)
 }
 
 // join reads a list of missing fields the way a sentence does.

@@ -71,9 +71,9 @@
 // open event, carrying the threshold, whether a safeguard adds a human, and the
 // score version in force at that row — the newest where nobody authored a
 // threshold there, and the last one confirmed at the scope where somebody did.
-// A firing computes its vector under [Applied.ScoreVersion]; what passes it to
-// the score is package gate's own composition, which does not yet;
-// gatereads.go is the three parameters a gate reads beside it,
+// A firing computes its vector under [Applied.ScoreVersion], package gate
+// reading that version back and assessing under it, so the vector, the number
+// and the version a decision names are one version's. gatereads.go is the three parameters a gate reads beside it,
 // [Reader.HeldOutSampleRate], [Reader.ReviewSampleRate] and
 // [Reader.ExposureBound].
 // window.go is [Reader.WindowParameters] and [Window]; attemptlimit.go and

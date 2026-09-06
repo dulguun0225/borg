@@ -57,7 +57,11 @@ type fakeScore struct {
 	// handed: the item, the rate in force, whether the score would have gated
 	// and whether a safeguard did (askedHoldOut, in that order), and what the
 	// vector resolved.
-	selection     score.Selection
+	selection score.Selection
+	// askedVersion is the score version the firing assessed under, which is what
+	// says a gate an authored threshold binds computed its vector under the
+	// version in force at its own scope.
+	askedVersion  string
 	selectionErr  error
 	askedItemID   string
 	askedRate     float64
@@ -65,10 +69,12 @@ type fakeScore struct {
 	askedResolved []score.Resolution
 }
 
-func (f *fakeScore) Assess(_ context.Context, c score.Change) (score.Assessment, error) {
+func (f *fakeScore) AssessUnder(_ context.Context, version score.Version, c score.Change) (score.Assessment, error) {
 	f.asked = c
+	f.askedVersion = version.ID
 	assessment := f.assessment
 	assessment.FactorSet = c.FactorSet
+	assessment.Version = version.ID
 	return assessment, f.err
 }
 
@@ -79,6 +85,10 @@ func (f *fakeScore) HoldOut(_ context.Context, itemID string, rate float64,
 	f.askedResolved = resolved
 	selection := f.selection
 	selection.RateInForce = rate
+	// The score's own rule, held here rather than set per test: an item stays
+	// selected at a firing a safeguard or a resolved factor put a human at, and
+	// what is withheld there is the auto-pass alone.
+	selection.AutoPasses = selection.HeldOut && !bySafeguard && len(resolved) == 0
 	return selection, f.selectionErr
 }
 

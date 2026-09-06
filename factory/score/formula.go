@@ -11,7 +11,7 @@ package score
 // It moves when a line of [Formula] changes, and a version that changes it does
 // not decide a gate an authored threshold binds until the owner has confirmed or
 // re-authored that threshold against it, which is [InForceAt].
-const FormulaVersion = "authored-4"
+const FormulaVersion = "authored-5"
 
 // Formula is the published formula, in the words the score version stores and a
 // human disagreeing with a number reads. It states every breakpoint, and
@@ -44,6 +44,11 @@ const Formula = `Each factor resolves to a level between 0 and 1, where 1 is the
                          resolved at Spec rather than weighed
   context.consumers      sibling services declaring they consume this one: <=0 -> 0.0, <=2 -> 0.4, <=9 -> 0.7,
                          above -> 1.0
+  context.protection_withdrawn  the version under decision withdrawing a criterion whose provenance is
+                         human-confirmed, constraint-derived or hazard-derived, or superseding a
+                         human-confirmed screen state machine with one declaring a transition it did not:
+                         either is resolved at Spec rather than weighed, and a version removing neither
+                         reads 0.0
   fleet.share_working_from_it  the share of the factory working from the version in force this one replaces
   fleet.departure        how far this version differs from the version in force, as the share of its lines
                          that differ
@@ -102,7 +107,15 @@ type Assessment struct {
 	// Resolved is every factor this firing resolved. A firing with any
 	// resolution is a human's whatever the number reads, and the sample may not
 	// select past it.
-	Resolved         []Resolution
+	Resolved []Resolution
+	// Authored is what an agent authoring the version under decision worked
+	// from, which the vector names beside the factors and no factor weighs.
+	Authored Authored
+	// ControlBound is the impact discounted by reversibility at or above which
+	// the rollout strategy picks the row with a control. It is a value the score
+	// version names, carried here because the pick is read against the vector
+	// this assessment produced and under the version that produced it.
+	ControlBound     float64
 	Likelihood       float64
 	Impact           float64
 	DiscountedImpact float64
