@@ -14,22 +14,29 @@ import (
 
 // mergeGate is the Merge to master row: where the verdict on the candidate is
 // given. What it reads is the candidate's own run — the acceptance criteria decided
-// against the candidate environment with undecided read the way a failure is, every
-// consumer contract in force decided against that same run, the
-// producer's own contract diff against the version production is running, and
-// the factory's own list of security predicates decided against the same build.
+// against the candidate environment with undecided read the way a failure is, the
+// encoding defect [path.checkEncodings] found over that same run and carried on
+// the candidate rather than stopping it, every consumer contract in force decided
+// against that same run, the producer's own contract diff against the version
+// production is running, and the factory's own list of security predicates
+// decided against the same build.
 //
-// All four reject on their own terms before anyone gives a verdict, which is
+// All five reject on their own terms before anyone gives a verdict, which is
 // what the design says of this row: the row fires so the vector exists and the
 // rejection is readable against it, and then the factory's own reject closes it. A
 // human who was going to approve is not overruled — there is nothing left to
 // approve, and a schema diff is not a judgment they could have made differently.
-// The criteria go first: an acceptance criterion the candidate's own run did not
-// pass is what the row exists to read, and a reader of the rejection is told that
-// before what a contract or a security predicate found.
+// The criteria go first and the encoding defect next: an acceptance criterion the
+// candidate's own run did not pass is what the row exists to read, and a
+// criterion in force with no encoding or an encoding naming one the build
+// withdraws is read right after it, before what a contract or a security
+// predicate found. An encoding whose derivation could not be made puts a human
+// at the row instead of rejecting, the way a security predicate's own
+// could-not-derive already does.
 //
 // Approving admits the candidate to the merge queue, which is the stage the item
-// advances to; rejecting sends the item back with an attempt counted where it goes.
+// advances to; rejecting sends the item back with an attempt counted where it
+// goes — which is what the rejection carries as feedback to the implementer.
 func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	if c.environmentID == "" {
 		fmt.Fprintf(p.d.out, "Item %s reached no candidate environment, so its Merge to master gate does not fire\n", c.itemID)
@@ -54,7 +61,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(c.criteria),
 		Criteria:        c.criteria,
-		CouldNotDerive:  couldNotDerive(predicates),
+		CouldNotDerive:  couldNotDerive(c, predicates),
 		Measurement:     c.measurement,
 		Exposure:        reached,
 	}
@@ -68,11 +75,14 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 
 	// The mechanical rejection, before a verdict is asked for, in the order
 	// [gate.MechanicalChecks] lists: the criteria first — what the row exists to
-	// read — then the contract checks, then a security predicate on the terms the
-	// contract checks do.
+	// read — then the encoding defect, then the contract checks, then a security
+	// predicate on the terms the contract checks do.
 	check, why := "", ""
 	if blocking := blockingCriteria(c.criteria); len(blocking) > 0 {
 		check, why = gate.AutoRejectedByCriterion, describeCriteriaRejection(blocking)
+	}
+	if check == "" && c.encodingDefect != "" {
+		check, why = gate.AutoRejectedByEncoding, c.encodingDefect
 	}
 	if check == "" {
 		check, why = checked.Check(), checked.Why()
@@ -159,14 +169,18 @@ func describeCriteriaRejection(blocking []gate.CriterionResult) string {
 	return strings.Join(parts, ", ")
 }
 
-// couldNotDerive is what the firing carries where no security predicate could be
-// decided: one of the derivations the merge row names, which puts a human there
-// rather than rejecting.
-func couldNotDerive(predicates securitypredicate.Decided) []string {
-	if predicates.CouldNotBeDerived() {
-		return []string{gate.CouldNotDeriveSecurityPredicate}
+// couldNotDerive is what the firing carries where the encodings or the security
+// predicates could not be decided: the derivations the merge row names, in that
+// order, which put a human there rather than rejecting.
+func couldNotDerive(c *candidate, predicates securitypredicate.Decided) []string {
+	var derivations []string
+	if c.encodingCouldNotDerive {
+		derivations = append(derivations, gate.CouldNotDeriveEncoding)
 	}
-	return nil
+	if predicates.CouldNotBeDerived() {
+		derivations = append(derivations, gate.CouldNotDeriveSecurityPredicate)
+	}
+	return derivations
 }
 
 // reportSecurityPredicates prints what the factory's own list came to, as an

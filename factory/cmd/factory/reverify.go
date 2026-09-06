@@ -130,9 +130,16 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if err := p.checkEncodings(ctx, repo, c.svc.ID, withAhead(it, ahead), inForce); err != nil {
+	if err := p.checkEncodings(ctx, c, repo, c.svc.ID, withAhead(it, ahead), inForce); err != nil {
+		return mergequeue.Verified{}, err
+	}
+	if c.encodingDefect != "" {
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
-			Why: "the criteria and the encodings do not match with master merged in: " + firstLines(err.Error())}, nil
+			Why: "the criteria and the encodings do not match with master merged in: " + c.encodingDefect}, nil
+	}
+	if c.encodingCouldNotDerive {
+		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+			Why: "the criteria and the encodings do not match with master merged in: the encodings could not be derived"}, nil
 	}
 	results, err := p.decideCriteria(ctx, c, bl.ID, inForce)
 	if err != nil {

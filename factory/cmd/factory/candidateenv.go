@@ -204,7 +204,7 @@ func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buil
 // the criterion id it names, and nothing here runs one of them alone.
 func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 	inForce []criterion.Criterion) ([]gate.CriterionResult, error) {
-	if err := p.checkEncodings(ctx, c.svc.Repository, c.svc.ID, []string{c.itemID}, inForce); err != nil {
+	if err := p.checkEncodings(ctx, c, c.svc.Repository, c.svc.ID, []string{c.itemID}, inForce); err != nil {
 		return nil, err
 	}
 
@@ -312,16 +312,23 @@ func (p *path) recordCriterionRun(ctx context.Context, buildID string, run int, 
 
 // checkEncodings rejects in both directions — a criterion in force with no
 // encoding in the build naming it, and an encoding naming a criterion not in
-// force — and prints both lists on a failure. The check's own errors say which
-// criterion has no encoding and never what the encodings are, which leaves a
-// human reading a failure with nothing to compare, and the two lists are the whole
-// of the answer: an id missing from the build, or one there under a spelling the
-// check does not recognise.
+// force or withdrawn — and prints both lists on a defect. The check's own
+// errors say which criterion has no encoding and never what the encodings
+// are, which leaves a human reading a defect with nothing to compare, and the
+// two lists are the whole of the answer: an id missing from the build, or one
+// there under a spelling the check does not recognise.
 //
-// It is the Implementation gate's rejection, and that row rejects over the
-// screens and over nothing else, so a failure here stops the run rather than
-// counting an attempt and returning the item to the implementation stage.
-func (p *path) checkEncodings(ctx context.Context, repo, serviceID string, of []string, inForce []criterion.Criterion) error {
+// A defect is not returned as an error: it is carried on c, as
+// [candidate.encodingDefect] (the four check errors, joined onto one line) or
+// [candidate.encodingCouldNotDerive] (a derivation that could not be made),
+// and the run proceeds — the environment is composed and the encodings run
+// as they would otherwise. It is [path.mergeGate]'s rejection, at the Merge
+// to master row, which rejects on the defect's own terms before a verdict is
+// asked for, the item going back to the implementation stage with an attempt
+// counted there rather than the run stopping outright; a could-not-derive
+// puts a human at that row instead of rejecting. What is still returned as an
+// error is what checking could not even attempt: reading the store, or git.
+func (p *path) checkEncodings(ctx context.Context, c *candidate, repo, serviceID string, of []string, inForce []criterion.Criterion) error {
 	ids, err := p.itemsInBuild(ctx, serviceID, of)
 	if err != nil {
 		return err
@@ -334,13 +341,13 @@ func (p *path) checkEncodings(ctx context.Context, repo, serviceID string, of []
 	if err != nil {
 		return err
 	}
-	err = criterion.CheckEncodings(derived, inForce, withdrawn)
-	if err == nil {
+	defect := criterion.CheckEncodings(derived, inForce, withdrawn)
+	if defect == nil {
 		return nil
 	}
 	named, readErr := criterion.Encodings(repo)
 	if readErr != nil {
-		return errors.Join(err, readErr)
+		return errors.Join(defect, readErr)
 	}
 	fmt.Fprintf(p.d.out, "The criteria in force: %s\n", strings.Join(criterionIDs(inForce), ", "))
 	if len(named) == 0 {
@@ -352,7 +359,13 @@ func (p *path) checkEncodings(ctx context.Context, repo, serviceID string, of []
 		}
 		fmt.Fprintf(p.d.out, "The build names: %s\n", strings.Join(ids, ", "))
 	}
-	return err
+	var couldNotDerive *criterion.CouldNotDeriveError
+	if errors.As(defect, &couldNotDerive) {
+		c.encodingCouldNotDerive = true
+		return nil
+	}
+	c.encodingDefect = strings.Join(lines(defect.Error()), "; ")
+	return nil
 }
 
 // compositionFor is what the candidate's environment is composed from: the

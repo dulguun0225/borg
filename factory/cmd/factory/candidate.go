@@ -140,7 +140,16 @@ type candidate struct {
 	approvedComposition []environment.Composed
 	candidateDeployID   string
 	criteria            []gate.CriterionResult
-	tornDown            bool
+	// encodingDefect is what [path.checkEncodings] found wrong with the build's
+	// encodings against the criteria in force — a criterion with no encoding
+	// naming it, an encoding naming a criterion not in force or withdrawn, or
+	// one declaring no place or two — joined onto one line, and empty where the
+	// check found nothing. encodingCouldNotDerive is whether the encodings
+	// could not be derived at all, which is a different outcome from a defect:
+	// it puts a human at the Merge to master row rather than rejecting.
+	encodingDefect         string
+	encodingCouldNotDerive bool
+	tornDown               bool
 	// buildHistory is every build this item's own criteria have been decided
 	// against on the candidate environment, oldest first, appended once per
 	// [path.decideCriteria] call. It is what a criterion's own outcome history

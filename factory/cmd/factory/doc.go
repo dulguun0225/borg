@@ -385,9 +385,10 @@
 // [gate.Gate.Refer] re-fires the set that row decided, and never gets that far.
 // The Implementation row rejects over the screens and over nothing else: the
 // encodings are checked one row below, at the candidate environment, where a
-// failure stops the run rather than counting an attempt and returning the item;
-// so are the emission in both directions and the count of the area's hazardous
-// operation, which nothing reads back off the build.
+// defect is carried on the candidate rather than stopping the run, and rejects
+// at the row after that, Merge to master; so are the emission in both
+// directions and the count of the area's hazardous operation, which nothing
+// reads back off the build.
 // [policy.Factory.WithdrawEnvironment] has
 // no subcommand: production's is the only persistent environment this interface
 // composes, and it is withdrawn with the project by "end-project".
