@@ -1,6 +1,6 @@
 # What particular gates decide
 
-What each of the eight rows decides, taken one at a time, and then the three rows that are not among them.
+What each of the eight rows decides, taken one at a time, and then the rows that are not among them: three with a subsection each below, and two more of the same shape as [_A safeguard's withdrawal_](10-a-safeguards-withdrawal.md). The two are the row that decides shortening decision-log retention and the row that ends a legal hold, each stated beside the record it decides in [_Retention_](../../09-gate-policy/03-what-is-not-in-it/02-retention.md) and [_A legal hold_](../../09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md).
 
 | Subsection | What it settles |
 |---|---|

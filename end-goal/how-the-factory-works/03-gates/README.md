@@ -10,4 +10,4 @@ Where a decision about a change happens, what may be decided there, and what dec
 | [What a gate may change](04-what-a-gate-may-change.md) | What editing an artifact does, and what reject and hold do at a gate |
 | [The attempt limit](05-the-attempt-limit.md) | How many attempts a stage gets before an item escalates |
 | [Going back up](06-going-back-up.md) | The one way an item moves backward, and what happens to the work below it |
-| [What particular gates decide](07-what-particular-gates-decide/README.md) | What each particular gate decides, and the two gates on no item's path |
+| [What particular gates decide](07-what-particular-gates-decide/README.md) | What each particular gate decides, and the five gates on no item's path |
