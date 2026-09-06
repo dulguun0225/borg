@@ -46,7 +46,7 @@ func TestAdmissionIsOrderedByTierThenPriority(t *testing.T) {
 // intent carries one; the priority is dispatch's own write.
 func (c composed) tiered(t *testing.T, tier, priority int, evidence string) item.Item {
 	t.Helper()
-	in, err := c.intake.TakeIn(c.ctx, record.Actor{Kind: record.KindComponent, Key: "health_monitor"},
+	in, err := c.intake.TakeIn(c.ctx, record.Actor{Kind: record.KindComponent, Key: "health_monitor", Basis: record.BasisClaimed},
 		intent.Arrival{
 			Source: intent.SourceDetector, Statement: "a defect is live", ProjectID: oneProject,
 			Evidence: intent.Evidence{ServiceID: evidence},

@@ -22,7 +22,7 @@ func TestShorteningDecisionLogRetentionIsDecidedAndLengtheningIsNot(t *testing.T
 	if _, err := in.factory.AuthorDecisionLogRetention(ctx, owner, 90*24*3600); !errors.Is(err, policy.ErrShorteningIsDecided) {
 		t.Fatalf("the first authored value = %v, want ErrShorteningIsDecided", err)
 	}
-	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 90*24*3600); err != nil {
+	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 90*24*3600, decidedAt); err != nil {
 		t.Fatalf("ApproveRetentionShortening of the first value: %v", err)
 	}
 	settings, err := factorysettings.Get(ctx, in.pool)
@@ -87,7 +87,7 @@ func TestNeitherAnAuthoredValueNorTheRowGoesUnderTheRetentionFloor(t *testing.T)
 	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600, decidedAt); !errors.Is(err, factorysettings.ErrUnderTheRetentionFloor) {
 		t.Errorf("approving a value under the floor = %v, want ErrUnderTheRetentionFloor", err)
 	}
-	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 90*24*3600); err != nil {
+	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 90*24*3600, decidedAt); err != nil {
 		t.Fatalf("ApproveRetentionShortening above the floor: %v", err)
 	}
 	// What an owner may still write ungated is a longer value, and a value

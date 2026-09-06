@@ -197,10 +197,13 @@ func rowGate(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (*gate.
 		return nil, err
 	}
 	return gate.New(gate.Composition{
-		Pool:   pool,
-		Token:  token,
-		Log:    decisionlog.NewWriter(pool, token),
-		Score:  score.New(pool, version, score.NeverDraw{}, marksOf(pool), token),
+		Pool:  pool,
+		Token: token,
+		Log:   decisionlog.NewWriter(pool, token),
+		Score: score.New(score.Composition{
+			Pool: pool, Version: version, Draw: score.NeverDraw{},
+			Marks: marksOf(pool), Token: token,
+		}),
 		Policy: policy.NewReader(pool, token, version),
 	}), nil
 }

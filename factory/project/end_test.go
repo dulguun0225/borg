@@ -3,9 +3,7 @@ package project_test
 import (
 	"errors"
 	"testing"
-	"time"
 
-	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/project"
 )
 
@@ -14,7 +12,7 @@ import (
 // because this package may not read a service record. The row stays: an area, a
 // constraint, a safeguard or a scope naming the project still points at it.
 func TestAProjectIsEndedOnceEveryServiceInItIsRetired(t *testing.T) {
-	ctx, pool, w := newWriter(t)
+	ctx, pool, w, token := newWriter(t)
 
 	created, err := w.Create(ctx, owner, "payments")
 	if err != nil {
@@ -22,11 +20,6 @@ func TestAProjectIsEndedOnceEveryServiceInItIsRetired(t *testing.T) {
 	}
 	if created.Ended() {
 		t.Errorf("a project reads as ended at its creation: %+v", created)
-	}
-
-	token, err := lease.Acquire(ctx, pool, "test", time.Minute)
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
 	}
 
 	tx, err := pool.Begin(ctx)

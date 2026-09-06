@@ -35,7 +35,7 @@ var owner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.Bas
 // newWriter gives a test a schema of its own, this package's DDL applied inside
 // it, and a writer over it. The schema is dropped when the test ends, so a
 // rerun on a database a previous run left dirty starts clean.
-func newWriter(t *testing.T) (context.Context, *pgxpool.Pool, *project.Writer) {
+func newWriter(t *testing.T) (context.Context, *pgxpool.Pool, *project.Writer, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -75,7 +75,12 @@ func newWriter(t *testing.T) (context.Context, *pgxpool.Pool, *project.Writer) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	return ctx, pool, project.NewWriter(pool, token)
+	t.Cleanup(func() {
+		if err := lease.Release(context.Background(), pool, token); err != nil {
+			t.Errorf("Release: %v", err)
+		}
+	})
+	return ctx, pool, project.NewWriter(pool, token), token
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -93,7 +98,7 @@ func inSchema(t *testing.T, base, schema string) string {
 }
 
 func TestCreateGetAndByName(t *testing.T) {
-	ctx, pool, w := newWriter(t)
+	ctx, pool, w, _ := newWriter(t)
 
 	created, err := w.Create(ctx, owner, "payments")
 	if err != nil {
@@ -127,7 +132,7 @@ func TestCreateGetAndByName(t *testing.T) {
 }
 
 func TestAllIsEveryProjectInOrder(t *testing.T) {
-	ctx, pool, w := newWriter(t)
+	ctx, pool, w, _ := newWriter(t)
 
 	for _, name := range []string{"payments", "marketing"} {
 		if _, err := w.Create(ctx, owner, name); err != nil {
@@ -144,7 +149,7 @@ func TestAllIsEveryProjectInOrder(t *testing.T) {
 }
 
 func TestCreateRefusals(t *testing.T) {
-	ctx, _, w := newWriter(t)
+	ctx, _, w, _ := newWriter(t)
 
 	if _, err := w.Create(ctx, owner, ""); !errors.Is(err, project.ErrNameEmpty) {
 		t.Errorf("Create with no name = %v, want ErrNameEmpty", err)
@@ -158,7 +163,7 @@ func TestCreateRefusals(t *testing.T) {
 // refused by the unique constraint and not by a pre-check the writer makes, so
 // the refusal holds against two owners writing at once.
 func TestDuplicateNameRefusedByTheStore(t *testing.T) {
-	ctx, _, w := newWriter(t)
+	ctx, _, w, _ := newWriter(t)
 
 	if _, err := w.Create(ctx, owner, "payments"); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -173,7 +178,7 @@ func TestDuplicateNameRefusedByTheStore(t *testing.T) {
 // TestTheStoreRefusesAroundTheWriter inserts by raw SQL, so what it exercises is
 // the CHECK constraint and not the writer's own refusal.
 func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
-	ctx, pool, _ := newWriter(t)
+	ctx, pool, _, _ := newWriter(t)
 
 	_, err := pool.Exec(ctx, `insert into project
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name)
@@ -187,7 +192,7 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 // TestInsertIsFenced is the write package policy makes inside its own
 // transaction: a stale token is refused there as it is in every other write.
 func TestInsertIsFenced(t *testing.T) {
-	ctx, pool, _ := newWriter(t)
+	ctx, pool, _, _ := newWriter(t)
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {

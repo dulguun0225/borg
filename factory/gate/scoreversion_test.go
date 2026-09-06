@@ -24,7 +24,7 @@ func TestAFiringAssessesUnderTheVersionInForceAtItsScope(t *testing.T) {
 	// the fake score's own version stands for the newest, and this one for the
 	// one in force at the scope.
 	inForce, err := score.NewWriter(pool, token, score.NoMarks{}).Ensure(ctx,
-		record.Actor{Kind: record.KindComponent, Key: "score"})
+		record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed})
 	if err != nil {
 		t.Fatalf("appending the score version in force at the scope: %v", err)
 	}

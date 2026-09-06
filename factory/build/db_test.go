@@ -131,7 +131,7 @@ func TestEveryBuildNamesTheShippedBundleIdentity(t *testing.T) {
 	}
 
 	_, err = pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, declares_schema_change)
-		values ($1, $2, 'component', 'dispatch', '', $3, $4, $5, 'dddd', 'sha256:x', '', '', '', '', '', false)`,
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, 'dddd', 'sha256:x', '', '', '', '', '', false)`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), itemID, serviceID)
 	if err == nil || !strings.Contains(err.Error(), "shipped_bundle_identity_present") {
 		t.Errorf("inserting a build naming no bundle = %v, want a violation of shipped_bundle_identity_present", err)
