@@ -124,6 +124,18 @@ func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 		t.Error("a version carrying the drift does not report the factor drifted")
 	}
 
+	// The same eight decisions over two items are two readings and not eight:
+	// every row over one item weighs one vector, so the pass reads nothing.
+	twoItems := newEvidence()
+	for i, f := range firings {
+		f.OpenEvent.ItemID = fmt.Sprintf("it_%d", i/4)
+		twoItems.firings = append(twoItems.firings, f)
+	}
+	twoItems.index()
+	if found := twoItems.drift(); len(found) != 0 {
+		t.Errorf("the pass found %+v drifted over two items, and eight decisions of two items are two readings", found)
+	}
+
 	// A factor that held still is not drifted, and the prior is exempt from this
 	// reading: its distribution moving is what it working looks like.
 	steady := newEvidence()

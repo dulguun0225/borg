@@ -224,13 +224,12 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 		t.Fatalf("placing the safeguard: %v", err)
 	}
 
-	// Six approvals and then the hold: every row of this item's path puts a human
-	// there — the three above a build because the change's reach cannot be
-	// computed before anything is built, and the three over a build because the
-	// score's calibration found two factors drifted and resolves them until a
-	// recalibration is in force — and the seventh row, production, is where the
-	// safeguard puts one and where the verdict is hold.
-	d.in = strings.NewReader(strings.Repeat("approve\n", 6) + "hold the window before this one is still open\n")
+	// Three approvals and then the hold: the three rows above a build put a
+	// human there because the change's reach cannot be computed before anything
+	// is built, the three over a build auto-pass on the number, and the seventh
+	// row, production, is where the safeguard puts one and where the verdict is
+	// hold.
+	d.in = strings.NewReader(strings.Repeat("approve\n", 3) + "hold the window before this one is still open\n")
 	res, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
 		t.Fatalf("the third run stopped, and a hold is not an error: %v", err)

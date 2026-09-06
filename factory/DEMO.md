@@ -98,11 +98,11 @@ go run ./cmd/factory run \
   -service greeter=~/borg-demo/greeter \
   -area greeting \
   -targets ~/borg-demo/targets \
-  -intent 'Add a route answering GET /ready with status 200 and the body ready, in a new file ready.go with its test in ready_test.go. Change no existing file.' \
-  -intent 'Add a route answering GET /uptime with status 200 and the seconds since start as a decimal number, in a new file uptime.go with its test in uptime_test.go. Change no existing file.'
+  -intent 'Add a route answering GET /ready with status 200 and the body ready, in a new file ready.go with its test in ready_test.go, registering the route from an init function in ready.go. Change no existing file.' \
+  -intent 'Add a route answering GET /uptime with status 200 and the seconds since start as a decimal number, in a new file uptime.go with its test in uptime_test.go, registering the route from an init function in uptime.go. Change no existing file.'
 ```
 
-Both statements say to change no existing file, and that is the whole trick of this take: two candidates of one service are cut from the same master, so two changes to one file are two sides of a merge that conflicts — which the queue is right to reject and is not what this take is for. [_The queue rejecting a candidate_](#the-queue-rejecting-a-candidate) below is how to show that on purpose.
+Both statements say to change no existing file and to register the route from the new file, because a route registered in `main.go` is a change to an existing file, and that is the whole trick of this take: two candidates of one service are cut from the same master, so two changes to one file are two sides of a merge that conflicts — which the queue is right to reject and is not what this take is for. [_The queue rejecting a candidate_](#the-queue-rejecting-a-candidate) below is how to show that on purpose.
 
 What to watch, in the order it prints. Both items are authored and built before either reaches a gate. Then each gets its own environment, at its own directory under `-targets`, named for its item — `ls ~/borg-demo/targets` while it runs shows two of them, which is the milestone in one command. Each candidate's build is deployed to its own environment and its criteria are decided there, so nothing either candidate runs is anything the other can see. Then the queue prints its order and takes them one at a time: the first re-verifies against the master both were cut from, fast-forwards, and is minted a number; the second re-verifies against the master the first one just created, which is a build the implementation stage never made, and takes the number after it. Both environments are torn down at their merges — the records stay, because the deploy records naming them would otherwise point at nothing — and the two releases are deployed in the order the numbers were minted.
 
@@ -169,7 +169,7 @@ The two halves are the whole point. The criterion is about the route, the test d
 Master still holds the change that was rolled back, so every production deploy of that service now waits:
 
 ```sh
-go run ./cmd/factory run … -intent 'Add a route answering GET /extra with status 200 and the body extra, in a new file extra.go with its test in extra_test.go. Change no existing file.'
+go run ./cmd/factory run … -intent 'Add a route answering GET /extra with status 200 and the body extra, in a new file extra.go with its test in extra_test.go, registering the route from an init function in extra.go. Change no existing file.'
 ```
 
 It merges, it is minted a number, and its deploy prints `waits at deploy_to_production: a rollback's revert has not shipped`. Nothing is written for that hold — it is computed from records that already exist and it lifts itself — and the line says which item to approve through it if you want to.

@@ -12,9 +12,12 @@ import (
 // Every one of them is in [Rules] and TestRulesStateEveryBound holds the two
 // together.
 const (
-	// driftReadings is how many decisions must have named a factor before its
+	// driftReadings is how many items must have named a factor before its
 	// distribution is read against its own history at all. Below it the two
-	// halves are too few to say anything.
+	// halves are too few to say anything. The unit is the item and not the
+	// decision: every row over one item weighs the one vector its build was
+	// read into, so the four decisions of one item are one reading of each
+	// factor and not four, and eight decisions can be two items.
 	driftReadings = 8
 	// driftBound is how far the newer half's mean level may sit from the older
 	// half's before the factor is found drifted. A factor whose distribution has
@@ -62,6 +65,9 @@ func (e *Evidence) drift() []Drift {
 // what supplies it.
 func (e *Evidence) factorDrift() []Drift {
 	levels := map[string][]float64{}
+	// One reading per item per factor, taken from the item's first firing that
+	// valued it: the rows over one item weigh one vector.
+	read := map[string]map[string]bool{}
 	ordered := append([]Firing{}, e.firings...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].At < ordered[j].At })
 	for _, f := range ordered {
@@ -69,6 +75,13 @@ func (e *Evidence) factorDrift() []Drift {
 			if v.Resolved != "" || v.Name == authorPrior.name {
 				continue
 			}
+			if read[v.Name] == nil {
+				read[v.Name] = map[string]bool{}
+			}
+			if read[v.Name][f.OpenEvent.ItemID] {
+				continue
+			}
+			read[v.Name][f.OpenEvent.ItemID] = true
 			levels[v.Name] = append(levels[v.Name], v.Level)
 		}
 	}
@@ -86,7 +99,7 @@ func (e *Evidence) factorDrift() []Drift {
 		}
 		found = append(found, Drift{
 			Factor: name,
-			Why: fmt.Sprintf("over %d decisions naming it the mean level moved from %.2f to %.2f, past the bound of %.2f",
+			Why: fmt.Sprintf("over %d items naming it the mean level moved from %.2f to %.2f, past the bound of %.2f",
 				len(read), was, now, driftBound),
 		})
 	}
