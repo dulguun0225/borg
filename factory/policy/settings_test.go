@@ -3,10 +3,13 @@ package policy_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/safeguard"
 )
 
 // TestShorteningDecisionLogRetentionIsDecidedAndLengtheningIsNot: removing a
@@ -158,5 +161,67 @@ func TestNeitherAnAuthoredValueNorTheRowGoesUnderTheRetentionFloor(t *testing.T)
 	if settings.DecisionLogRetentionSeconds.Number != 90*24*3600 {
 		t.Errorf("the retention in force is %v, want the ninety days the row approved",
 			settings.DecisionLogRetentionSeconds.Number)
+	}
+}
+
+// TestTheRemediationPeriodIsReadAtTheSeverityItWasAuthoredFor: the period is one
+// value per advisory severity, so the read names the severity it is asked for; a
+// read naming none finds nothing authored, and a safeguard on it is keyed by the
+// same severity and narrows the value in force.
+func TestTheRemediationPeriodIsReadAtTheSeverityItWasAuthoredFor(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	if _, err := in.factory.AuthorRemediationPeriod(ctx, owner, 7, 72*3600); err != nil {
+		t.Fatalf("AuthorRemediationPeriod: %v", err)
+	}
+
+	unnamed := in.subjects("deploy_to_production")
+	effective, err := in.reader.InForce(ctx, gatepolicy.RemediationPeriod, unnamed)
+	if err != nil {
+		t.Fatalf("InForce naming no severity: %v", err)
+	}
+	if effective.Source != policy.FromNothing {
+		t.Errorf("a read naming no severity is %+v, want nothing authored and nothing supplied", effective)
+	}
+
+	named := unnamed
+	named.Severity, named.SeverityNamed = 7, true
+	effective, err = in.reader.InForce(ctx, gatepolicy.RemediationPeriod, named)
+	if err != nil {
+		t.Fatalf("InForce at the severity it was authored for: %v", err)
+	}
+	if effective.Source != policy.FromAuthored || effective.Number != 72*3600 {
+		t.Errorf("the remediation period in force is %+v, want the authored seventy-two hours", effective)
+	}
+
+	// A value authored for one severity is not a value for another.
+	other := unnamed
+	other.Severity, other.SeverityNamed = 3, true
+	effective, err = in.reader.InForce(ctx, gatepolicy.RemediationPeriod, other)
+	if err != nil {
+		t.Fatalf("InForce at another severity: %v", err)
+	}
+	if effective.Source != policy.FromNothing {
+		t.Errorf("severity 3 reads %+v, want nothing: the period was authored for severity 7", effective)
+	}
+
+	// A safeguard narrows it further, and names the severity the way the
+	// authored value does.
+	placed, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.RemediationPeriod,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID, Key: "7"},
+		safeguard.Bound{Number: 24 * 3600}, safeguard.Routing{})
+	if err != nil {
+		t.Fatalf("AddSafeguard on the remediation period: %v", err)
+	}
+	effective, err = in.reader.InForce(ctx, gatepolicy.RemediationPeriod, named)
+	if err != nil {
+		t.Fatalf("InForce with the safeguard standing: %v", err)
+	}
+	if effective.Number != 24*3600 || !effective.Clamped {
+		t.Errorf("the period reads %v clamped %v, want the safeguard's ceiling of a day",
+			effective.Number, effective.Clamped)
+	}
+	if !slices.Contains(effective.Safeguards, placed.ID) {
+		t.Errorf("the period names safeguards %v, want the one placed", effective.Safeguards)
 	}
 }

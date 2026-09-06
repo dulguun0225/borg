@@ -276,10 +276,14 @@ func (r *Reader) authoredOnSettings(ctx context.Context, d gatepolicy.Definition
 		authored, err := factorysettings.ReportChannelRate(ctx, r.pool, settings.ID, s.ServiceID)
 		return authored, nil, err
 	case gatepolicy.RemediationPeriod:
-		// The severity a period is keyed by is the advisory severity in force,
-		// which is a parameter of its own; a read naming no severity finds
-		// nothing authored, the way a read naming no quantity does.
-		return gatepolicy.Authored{}, nil, nil
+		// One value per advisory severity, read at the severity these subjects
+		// name; a read naming none finds nothing authored, the way a read
+		// naming no quantity does.
+		if !s.SeverityNamed {
+			return gatepolicy.Authored{}, nil, nil
+		}
+		authored, err := factorysettings.RemediationPeriod(ctx, r.pool, settings.ID, s.Severity)
+		return authored, nil, err
 	case gatepolicy.HarmMarkPageCap:
 		if s.ServiceID == "" {
 			return gatepolicy.Authored{}, nil, nil
@@ -456,8 +460,9 @@ func (r *Reader) safeguardsOn(ctx context.Context, parameter gatepolicy.Paramete
 
 // keyOf is the value of a parameter's own key for these subjects: the gate row
 // for the risk threshold, the stage for the attempt limit, the quantity for the
-// window's size and power, the duty for the review sample rate, the service for
-// the report channel's per-service rate and the harm mark's page cap.
+// window's size and power, the duty for the review sample rate, the severity for
+// the remediation period, the service for the report channel's per-service rate
+// and the harm mark's page cap.
 func keyOf(d gatepolicy.Definition, s Subjects) string {
 	switch d.Key {
 	case gatepolicy.KeyGateRow:
@@ -468,6 +473,11 @@ func keyOf(d gatepolicy.Definition, s Subjects) string {
 		return s.Quantity
 	case gatepolicy.KeyDuty:
 		return dutyKey(s.Duty)
+	case gatepolicy.KeySeverity:
+		if !s.SeverityNamed {
+			return ""
+		}
+		return severityKey(s.Severity)
 	case gatepolicy.KeyService:
 		return s.ServiceID
 	}

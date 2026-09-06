@@ -218,8 +218,7 @@ func shareOf(statement string) string { return statement }
 // What the set answers is decided here too, and mechanically: [setRejection]
 // reads the intent's requirements in force against what the set's items answer,
 // and where it finds one the row is closed as the factory's own reject before a
-// human is asked, the way a build that does not compile is rejected at
-// Implementation. It is computed before the row fires because the composition
+// human is asked, the way [specRejection] closes the Spec row. It is computed before the row fires because the composition
 // holds the set: package gate imports neither the requirements nor the items,
 // and it names which of [gate.DecompositionChecks] rejected so the close event
 // carries it.
@@ -271,12 +270,12 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 		fmt.Fprintf(p.d.out, "The set is incomplete, so the row rejects before a human is asked by %s: %s\n",
 			check, incomplete)
 	} else {
-		// The firing a refer would re-fire with is the set's, and
-		// [gate.Gate.Refer] re-fires through [gate.Gate.Fire], which refuses the
-		// Decomposition row because that row decides a set. So a refer here is
-		// refused by the gate and the human is asked again — the one row of the
-		// four this interface fires where the action the design puts on every
-		// row is not reachable.
+		// [gate.Gate.Refer] re-fires this row over the set its own open event
+		// names, so the firing handed here carries the row and nothing else. A
+		// refer at it is still refused: the design names no duty for this row,
+		// so it waits on the owner from its first firing and a refer at a row
+		// already there has nobody left to reach — the human is asked again, and
+		// what they have left is a reject.
 		verdict, feedback, closing, err = p.settle(ctx, opened, gate.Firing{Row: gate.Decomposition})
 		if err != nil {
 			return false, err

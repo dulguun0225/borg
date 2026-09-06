@@ -280,6 +280,32 @@ func TestTheTwelveOnTheServiceRecord(t *testing.T) {
 	}
 }
 
+// TestTheTwoParametersOnlyASafeguardSetsSayWhatReadsThem:
+// [Definition.ReaderAtThisMilestone] is what an owner reads to see whether a
+// bound they place changes anything, so a parameter nothing reads yet names
+// nothing rather than the mechanism that would read it. A safeguard's predicate
+// reaches enforcement; a maximum age on the drift detector's last check reaches
+// nothing, no hold at the production deploy row carrying one.
+func TestTheTwoParametersOnlyASafeguardSetsSayWhatReadsThem(t *testing.T) {
+	readers := map[Parameter]string{
+		SafeguardPredicate:           "enforcement, beside the consumer contracts derived from a consumer's build",
+		DriftDetectorLastCheckMaxAge: "",
+	}
+	if len(SafeguardOnly) != len(readers) {
+		t.Fatalf("SafeguardOnly holds %d parameters, the test names %d", len(SafeguardOnly), len(readers))
+	}
+	for _, d := range SafeguardOnly {
+		want, named := readers[d.Parameter]
+		if !named {
+			t.Errorf("%q is not one the test names", d.Parameter)
+			continue
+		}
+		if d.ReaderAtThisMilestone != want {
+			t.Errorf("%q says %q reads it, want %q", d.Parameter, d.ReaderAtThisMilestone, want)
+		}
+	}
+}
+
 // TestASafeguardNeverWidens is the rule stated as arithmetic: a ceiling over a
 // value already lower leaves it, a floor under a value already higher leaves it,
 // and neither moves a value the wrong way.

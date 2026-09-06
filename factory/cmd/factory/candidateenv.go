@@ -315,8 +315,9 @@ func (p *path) recordCriterionRun(ctx context.Context, buildID string, run int, 
 // of the answer: an id missing from the build, or one there under a spelling the
 // check does not recognise.
 //
-// It is the Implementation gate's rejection and that gate is not built, so a
-// failure here stops the run rather than sending the item back.
+// It is the Implementation gate's rejection, and that row rejects over the
+// screens and over nothing else, so a failure here stops the run rather than
+// counting an attempt and returning the item to the implementation stage.
 func (p *path) checkEncodings(ctx context.Context, repo, serviceID string, of []string, inForce []criterion.Criterion) error {
 	ids, err := p.itemsInBuild(ctx, serviceID, of)
 	if err != nil {

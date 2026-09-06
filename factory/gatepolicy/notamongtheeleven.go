@@ -236,8 +236,13 @@ var SafeguardOnly = []Definition{
 	{
 		Parameter: DriftDetectorLastCheckMaxAge,
 		Kind:      KindSeconds, Direction: DirectionCeiling, Scope: ScopeNothing, Key: KeyNone,
-		Limits:                "how old the drift detector's own last check may be before the production deploy row holds",
-		Unit:                  "seconds since that record was written",
-		ReaderAtThisMilestone: "the production deploy row, beside the mismatch it already reads",
+		Limits: "how old the drift detector's own last check may be before the production deploy row holds",
+		Unit:   "seconds since that record was written",
+		// Nothing reads it: no hold at the production deploy row carries a stale
+		// last check, so a safeguard bound on this parameter clamps a value no
+		// mechanism asks for. The field says so rather than naming the row it
+		// would be read at, because an owner reading the name would take the
+		// bound as one in force.
+		ReaderAtThisMilestone: "",
 	},
 }

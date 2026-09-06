@@ -110,9 +110,10 @@ func masterCommit(repo string) (string, error) {
 
 // compiles checks that the build compiles, with the binary written to a directory
 // that is thrown away. It is what the Implementation gate would reject a build
-// for, and that gate is not built — so a build that does not compile stops the run
-// here, where the build record was just written, rather than one step down where a
-// candidate environment would already have been composed for it.
+// for, and that row rejects over the screens and over nothing else — so a build
+// that does not compile stops the run here, where the build record was just
+// written, rather than one step down where a candidate environment would already
+// have been composed for it.
 func compiles(repo string) error {
 	dir, err := os.MkdirTemp("", "borg-compile-")
 	if err != nil {

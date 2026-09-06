@@ -185,7 +185,7 @@ func (f *Factory) SetRetentionFloor(ctx context.Context, actor record.Actor, sec
 func (f *Factory) AuthorRemediationPeriod(ctx context.Context, actor record.Actor,
 	severity float64, seconds int64) (Version, error) {
 	return f.authorOnSettings(ctx, actor, gatepolicy.RemediationPeriod,
-		fmt.Sprintf("severity %v", severity), float64(seconds),
+		severityKey(severity), float64(seconds),
 		func(ctx context.Context, tx pgx.Tx, settingsID string) error {
 			return factorysettings.SetRemediationPeriod(ctx, tx, actor, settingsID, severity, seconds)
 		})

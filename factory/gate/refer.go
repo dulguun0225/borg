@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -41,13 +42,29 @@ type Referred struct {
 //
 // The firing it re-fires with is the caller's, because the vector is computed
 // again over what is now under decision; what this call sets on it is the row it
-// was referred from and the referrers, which a caller cannot set.
+// was referred from and the referrers, which a caller cannot set. Decomposition
+// is the one row decided over a set rather than over a firing, so what it
+// re-fires with is [setUnderDecision] — the set its own open event names, which
+// a refer changes nothing about — and the referrers are not carried there: that
+// row's open event names the intent and the members and holds no field for them,
+// so a second refer at it is refused against the holders read at the close
+// alone.
 func (g *Gate) Refer(ctx context.Context, opened Opened, actor record.Actor, reason string, again Firing) (Referred, error) {
 	if err := permits(opened.Gate, VerdictRefer); err != nil {
 		return Referred{}, err
 	}
 	if reason == "" {
 		return Referred{}, fmt.Errorf("%w: the refer of %s carries none", ErrReasonMissing, opened.Row.ID)
+	}
+	// What the row is re-fired over is read before anything is appended, so a row
+	// this call cannot re-fire is refused with no refer chained into the log.
+	var set SetFiring
+	if opened.Gate.Kind == KindDecomposition {
+		read, err := setUnderDecision(opened)
+		if err != nil {
+			return Referred{}, err
+		}
+		set = read
 	}
 	refusals, err := g.refusalsFor(ctx, opened, actor)
 	if err != nil {
@@ -65,14 +82,46 @@ func (g *Gate) Refer(ctx context.Context, opened Opened, actor record.Actor, rea
 		return Referred{}, err
 	}
 
-	again.Row = opened.Gate
-	again.referredFrom = opened.Row.ID
-	again.referrers = append(append([]string{}, refusals.referrers...), refusals.actor)
-	reopened, err := g.Fire(ctx, again)
+	var reopened Opened
+	if opened.Gate.Kind == KindDecomposition {
+		reopened, err = g.FireSet(ctx, set)
+	} else {
+		again.Row = opened.Gate
+		again.referredFrom = opened.Row.ID
+		again.referrers = append(append([]string{}, refusals.referrers...), refusals.actor)
+		reopened, err = g.Fire(ctx, again)
+	}
 	if err != nil {
 		return Referred{Close: closed}, err
 	}
 	return Referred{Close: closed, Reopened: reopened}, nil
+}
+
+// setUnderDecision is the set a Decomposition row is deciding, read back off
+// that row's own open event. A refer finds no fault and sends nothing back, so
+// what the row fires again over is what it fired over, and [Gate.FireSet]
+// computes the vector again there the way it computed the first one.
+//
+// The environment is the [Opened]'s: the set's open event names the intent and
+// the members, and the record the threshold is read from is carried on the
+// subjects the firing returned.
+func setUnderDecision(opened Opened) (SetFiring, error) {
+	var opening SetOpeningPayload
+	if err := json.Unmarshal([]byte(opened.Row.Payload), &opening); err != nil {
+		return SetFiring{}, fmt.Errorf("gate: reading the set %s decided over: %w", opened.Row.ID, err)
+	}
+	members := make([]SetMember, 0, len(opening.Set))
+	for _, m := range opening.Set {
+		members = append(members, SetMember{
+			ItemID: m.ItemID, ServiceID: m.ServiceID, AreaID: m.AreaID,
+			Requirements: m.Requirements, WaitsOn: m.WaitsOn,
+		})
+	}
+	return SetFiring{
+		IntentID:      opening.IntentID,
+		EnvironmentID: opened.Subject.EnvironmentID,
+		Members:       members,
+	}, nil
 }
 
 // withoutReferrers is who a re-fired row waits on: the holders of its duty who

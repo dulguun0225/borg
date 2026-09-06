@@ -1,7 +1,3 @@
-// The install's three records and the targets a service runs on: what a
-// composition creates or reads before anything else, and which addresses every
-// read of what is running is performed against — the service's own set, and
-// production's whole list where the service record names none.
 package main
 
 import (

@@ -65,4 +65,12 @@ type Subjects struct {
 	// none — the zero value, no duty being numbered zero — finds nothing
 	// authored.
 	Duty int
+	// Severity is which advisory severity a per-severity parameter is read for:
+	// the remediation period is one value per severity. Severities start at
+	// zero and a period may be authored there, so the zero value is a severity
+	// and not the absence of one, and SeverityNamed is what says the caller
+	// named it — a read that does not finds nothing authored, the way a read
+	// naming no quantity does.
+	Severity      float64
+	SeverityNamed bool
 }

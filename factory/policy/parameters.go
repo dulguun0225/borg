@@ -274,3 +274,10 @@ func (f *Factory) authorOnSettings(ctx context.Context, actor record.Actor, para
 // dutyKey is a duty as a scope's key: the review sample rate is one value per
 // duty, and the version and a safeguard on it name which by the same spelling.
 func dutyKey(duty int) string { return strconv.Itoa(duty) }
+
+// severityKey is an advisory severity as a scope's key: the remediation period
+// is one value per severity, and the version and a safeguard on it name which by
+// the same spelling.
+func severityKey(severity float64) string {
+	return strconv.FormatFloat(severity, 'g', -1, 64)
+}

@@ -101,8 +101,9 @@
 //     created where deps says this composition installs and read and refused
 //     where it does not; runsOnProduction, which authors production's addresses
 //     on a service naming none; and serviceTargets, serviceAddresses and
-//     addressesOf, the service's own set of an environment's targets, which is
-//     what every reader of targets here reads.
+//     addressesOf, the addresses every read of what is running is performed
+//     against: the service's own set of an environment's targets, and
+//     production's whole list where the service record names none.
 //
 // The path a run walks stage by stage:
 //
@@ -363,15 +364,15 @@
 // interface holds on a stage no entry covers. The gate every role prompt
 // version fires is not fired, so a version an upgrade entered stays out of
 // force with the install's in force below it. A refer at the Decomposition row
-// is refused by the gate, [gate.Gate.Refer] re-firing through
-// [gate.Gate.Fire], which decides one item and not a set. The Decomposition
-// row's rejection over what the set answers is closed through [gate.Gate.Decide]
-// as the gate component rather than [gate.Gate.AutoReject], which refuses a
-// check name that row does not offer, and package gate offers none there. The
-// mechanical
-// rejection of a build whose emission does not count the area's hazardous
-// operation is not built: the implementer is told the operation and nothing
-// reads the count back off the build. [policy.Factory.WithdrawEnvironment] has
+// reaches nobody: the design names no duty for that row, so it waits on the
+// owner from its first firing and a refer there has nobody left to refer to —
+// [gate.Gate.Refer] re-fires the set that row decided, and never gets that far.
+// The Implementation row rejects over the screens and over nothing else: the
+// encodings are checked one row below, at the candidate environment, where a
+// failure stops the run rather than counting an attempt and returning the item;
+// so are the emission in both directions and the count of the area's hazardous
+// operation, which nothing reads back off the build.
+// [policy.Factory.WithdrawEnvironment] has
 // no subcommand: production's is the only persistent environment this interface
 // composes, and it is withdrawn with the project by "end-project".
 //
