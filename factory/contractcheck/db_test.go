@@ -20,13 +20,13 @@ func TestACheckWithNoSeamIsRefused(t *testing.T) {
 	_ = ctx
 
 	reader := policy.NewReader(g.pool, g.token, score.Version{})
-	if _, err := contractcheck.New(g.pool, reader, nil, nil, g.exchanges, g.storeState); err == nil {
+	if _, err := contractcheck.New(g.pool, reader, nil, nil, deprecationPassInterval, nil, g.exchanges, g.storeState); err == nil {
 		t.Error("a check with no checkout was composed")
 	}
-	if _, err := contractcheck.New(g.pool, reader, nil, g.checkout, nil, g.storeState); err == nil {
+	if _, err := contractcheck.New(g.pool, reader, nil, nil, deprecationPassInterval, g.checkout, nil, g.storeState); err == nil {
 		t.Error("a check with no run to observe was composed")
 	}
-	if _, err := contractcheck.New(g.pool, reader, nil, g.checkout, g.exchanges, nil); err == nil {
+	if _, err := contractcheck.New(g.pool, reader, nil, nil, deprecationPassInterval, g.checkout, g.exchanges, nil); err == nil {
 		t.Error("a check with no candidate store to read was composed")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -168,32 +170,40 @@ var (
 // declares, the deprecation list, and the detector that raises a brownout and a
 // removal.
 //
-// It writes two records and only two — the brownout intent and the removal intent,
-// both through intake — and everything else it does is a read of the graph. That is
-// what makes "what does this break" a query rather than an estimate.
+// It writes two records and only two beyond its own last check — the brownout
+// intent and the removal intent, both through intake — and everything else it
+// does is a read of the graph. That is what makes "what does this break" a query
+// rather than an estimate.
 type Check struct {
 	pool      *pgxpool.Pool
 	policy    *policy.Reader
 	intake    *intent.Intake
+	checks    *lastcheck.Writer
+	interval  time.Duration
 	checkout  Checkout
 	exchanges Exchanges
 	store     StoreState
 }
 
 // New returns the check over pool, reading what is in force through the policy,
-// taking an intent in through intake, and reading a candidate through the
-// checkout, its run through exchanges, and its environment's store through
-// store.
+// taking an intent in through intake, writing the pass over the deprecation
+// list's own last check through checks with the interval it promises the next
+// pass within, and reading a candidate through the checkout, its run through
+// exchanges, and its environment's store through store.
 //
 // A nil intake is allowed and the three seams are not. A factory that cannot take
 // an intent in still enforces — the diff and the consumer contracts are most of
-// what enforcement does — and what it loses is the detector, which is the one thing
-// here that writes.
+// what enforcement does — and what it loses is the detector, which is the one
+// thing here that writes, its own last check included: a pass that never runs
+// leaves nothing to check in on. A nil checks is likewise allowed and [Check.Raise]
+// then writes no last check, the way a health monitor with no writer of its own
+// does not.
 //
 // Which backfills a deploy record marks complete is no seam: it is a read of the
 // deploy records this component already reads what is running from, and a seam
 // there would be a second answer able to disagree with the record.
 func New(pool *pgxpool.Pool, p *policy.Reader, intake *intent.Intake,
+	checks *lastcheck.Writer, interval time.Duration,
 	checkout Checkout, exchanges Exchanges, store StoreState) (*Check, error) {
 	if checkout == nil {
 		return nil, ErrNoCheckout
@@ -205,7 +215,7 @@ func New(pool *pgxpool.Pool, p *policy.Reader, intake *intent.Intake,
 		return nil, ErrNoStoreState
 	}
 	return &Check{
-		pool: pool, policy: p, intake: intake, checkout: checkout,
-		exchanges: exchanges, store: store,
+		pool: pool, policy: p, intake: intake, checks: checks, interval: interval,
+		checkout: checkout, exchanges: exchanges, store: store,
 	}, nil
 }

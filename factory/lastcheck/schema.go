@@ -16,15 +16,15 @@ const FormatVersion = "last_check/1"
 //
 // component_known lists the same components [Components] does, and
 // TestDDLListsEveryComponent fails if the two stop agreeing. The drift
-// detector's is not among them: it is the seventh last check and it lives in the
+// detector's is not among them: it is the eighth last check and it lives in the
 // detector's own store, which no factory component may write.
 //
 // subject_matches_component is the shape of the seam between the components that
 // keep one record per thing and the ones that keep a single record for
 // themselves: the health monitor's names a service, the deployer's a target
-// address or a platform name, and the notifier's, the two passes' and dispatch's
-// name nothing. Writing it as a CHECK is what stops a component that keeps one
-// per thing from collapsing to a single row nobody can tell apart.
+// address or a platform name, and the notifier's, the three passes' and
+// dispatch's name nothing. Writing it as a CHECK is what stops a component that
+// keeps one per thing from collapsing to a single row nobody can tell apart.
 //
 // interval_positive is the whole of what makes a stopped component visible: a
 // record older than the interval it names has missed a pass, and a record naming
@@ -43,9 +43,9 @@ var DDL = []string{
 	payload text not null,
 	` + record.Constraints + `,
 	constraint actor_is_a_component check (actor_kind = 'component'),
-	constraint component_known check (component in ('health_monitor', 'deployer', 'notifier', 'constraints_pass', 'advisory_pass', 'dispatch')),
+	constraint component_known check (component in ('health_monitor', 'deployer', 'notifier', 'constraints_pass', 'advisory_pass', 'deprecation_pass', 'dispatch')),
 	constraint subject_matches_component check (
-		(component in ('notifier', 'constraints_pass', 'advisory_pass', 'dispatch')) = (subject = '')
+		(component in ('notifier', 'constraints_pass', 'advisory_pass', 'deprecation_pass', 'dispatch')) = (subject = '')
 	),
 	constraint checked_at_is_time_layout check (checked_at ~ '` + record.TimePattern + `'),
 	constraint interval_positive check (interval_seconds > 0),

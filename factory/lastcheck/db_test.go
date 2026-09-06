@@ -146,10 +146,10 @@ func TestARecordIsOverwrittenPerComponentAndSubject(t *testing.T) {
 	}
 }
 
-// TestOnlyTheSixComponentsInThisStoreMayWriteOne: the seventh last check is the
+// TestOnlyTheSevenComponentsInThisStoreMayWriteOne: the eighth last check is the
 // drift detector's, which lives in a store of its own that no factory component
 // may write. The writer refuses it and so does the store.
-func TestOnlyTheSixComponentsInThisStoreMayWriteOne(t *testing.T) {
+func TestOnlyTheSevenComponentsInThisStoreMayWriteOne(t *testing.T) {
 	ctx, pool, w := newTable(t)
 
 	_, err := w.Record(ctx, deployer, lastcheck.LastCheck{
@@ -193,8 +193,8 @@ func TestDDLListsEveryComponent(t *testing.T) {
 
 // TestASubjectIsRequiredOfTheComponentsThatKeepOnePerThing: the health monitor
 // keeps one per service and the deployer one per target and one per platform, so
-// each names its subject; the notifier, the two passes and dispatch keep a single
-// one for themselves and name none.
+// each names its subject; the notifier, the three passes and dispatch keep a
+// single one for themselves and name none.
 func TestASubjectIsRequiredOfTheComponentsThatKeepOnePerThing(t *testing.T) {
 	ctx, pool, w := newTable(t)
 

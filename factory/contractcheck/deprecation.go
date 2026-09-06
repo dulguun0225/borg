@@ -8,6 +8,7 @@ import (
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -281,7 +282,14 @@ func (r Raised) Stall() bool { return r.Stalled != "" }
 // leave.
 //
 // A factory composed with no intake raises nothing and is not an error: what it
-// loses is the detector, which is the one thing in this component that writes.
+// loses is the detector, which is the one thing in this component that writes
+// besides its own last check.
+//
+// It writes that last check on every pass through [recordPass], the shape the
+// pass over the constraints in force and the pass over the advisory feed
+// already write theirs in: a single record for itself, naming the interval it
+// promises the next pass within, so a stopped pass is a named row rather than a
+// brownout that never arrives.
 func (c *Check) Raise(ctx context.Context) ([]Raised, error) {
 	if c.intake == nil {
 		return nil, nil
@@ -327,7 +335,27 @@ func (c *Check) Raise(ctx context.Context) ([]Raised, error) {
 				m.Contract.Name, m.Element.Name, m.ServiceName, brownout.Why())})
 		}
 	}
+	if err := c.recordPass(ctx, len(marked), len(raised)); err != nil {
+		return raised, err
+	}
 	return raised, nil
+}
+
+// recordPass writes this pass's own last check: a single record for the
+// component, naming no subject, the way the notifier's own already does. A nil
+// checks is a factory composed with nowhere to write one, and this then writes
+// nothing rather than erroring, the way a nil intake already leaves the two
+// intents unwritten.
+func (c *Check) recordPass(ctx context.Context, markedElements, raisedCount int) error {
+	if c.checks == nil {
+		return nil
+	}
+	_, err := c.checks.Record(ctx, Actor, lastcheck.LastCheck{
+		Component: lastcheck.ComponentDeprecationPass,
+		Interval:  c.interval,
+		Payload:   fmt.Sprintf("%d marked element(s) read, %d raised", markedElements, raisedCount),
+	})
+	return err
 }
 
 // raise takes one intent in on the element's evidence, or reports the one already

@@ -1,6 +1,17 @@
 // Package contractcheck is enforcement: the mechanical answer to what a change
 // breaks, and everything that reads the graph a contract and a consumer
-// contract make.
+// contract make. It also holds **the pass over the deprecation list**
+// (../../end-goal/components.md's own name for it), the detector that raises
+// the brownout and the removal — [Check.Raise], in deprecation.go. Enforcement
+// answers a question other components ask at a firing and has no row of its
+// own there; the pass over the deprecation list does, and
+// ../../end-goal/components.md names it "intake, once per raise" as its one
+// caller. The two share this package rather than each owning one, a departure
+// from one package per concept: both walk the same list of marked elements and
+// the same consumer contracts in force, [Check.Deprecated] being what
+// [Check.Enforce]'s breaking-diff check and [Check.Raise]'s detector both read,
+// and splitting them would split fixtures_test.go and fakes_test.go, which
+// both already build the one graph and the same three seams both draw on.
 //
 // contractcheck.go is the component itself: [Check] and [New], composed with
 // the [Checkout], [Exchanges] and [StoreState] seams, plus the [Candidate] a
@@ -53,6 +64,13 @@
 // neither again for an element whose brownout failed, deduplicating both
 // raises by the evidence [intent.OnEvidence] reads and not by a record saying
 // either has fired.
+//
+// [Check.Raise] also writes its own last check on every pass, through
+// [recordPass] — a single record for the component, naming the interval it
+// promises the next pass within, the shape the pass over the constraints in
+// force and the pass over the advisory feed already write theirs in, so a
+// stopped pass is a named row rather than a brownout that never arrives. A nil
+// checks, the writer [New] is given, leaves it unwritten.
 //
 // [Check.IsBrownout], in brownout.go, is that same walk in the other direction
 // and is the reading the health monitor needs of this component: whether a
@@ -114,7 +132,8 @@
 //
 // Who may write what: this component owns no table. It writes two records —
 // the brownout intent and the removal intent, both through [intent.Intake] —
-// and everything else it does is a read. What it does not do is reject: it
+// and its own last check, through [lastcheck.Writer], and everything else it
+// does is a read. What it does not do is reject: it
 // answers, and the caller gives that answer to [gate.Gate.AutoReject], which is
 // the one thing that closes a firing. What it does to a checkout, what it
 // observes of a run, and what the candidate environment's own store holds are
@@ -143,6 +162,8 @@
 // ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md;
 // what a brownout's window runs to and reads is
 // ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md;
-// and the last known-good release is
-// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md.
+// the last known-good release is
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md;
+// and the shape every last check record has is
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md.
 package contractcheck

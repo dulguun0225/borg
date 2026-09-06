@@ -31,6 +31,9 @@ const (
 	// ComponentAdvisoryPass keeps a single one for the pass over the advisory
 	// feed.
 	ComponentAdvisoryPass = "advisory_pass"
+	// ComponentDeprecationPass keeps a single one for the pass over the
+	// deprecation list.
+	ComponentDeprecationPass = "deprecation_pass"
 	// ComponentDispatch keeps a single one for the pass that argues a fleet
 	// proposal.
 	ComponentDispatch = "dispatch"
@@ -45,6 +48,7 @@ var Components = []string{
 	ComponentNotifier,
 	ComponentConstraintsPass,
 	ComponentAdvisoryPass,
+	ComponentDeprecationPass,
 	ComponentDispatch,
 }
 
@@ -55,6 +59,7 @@ var componentsKeepingASingleRecord = []string{
 	ComponentNotifier,
 	ComponentConstraintsPass,
 	ComponentAdvisoryPass,
+	ComponentDeprecationPass,
 	ComponentDispatch,
 }
 

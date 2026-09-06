@@ -189,12 +189,14 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 
 	// The queue. It reaches the repository and the candidate environments through
-	// this same value, which is the deployer, and it is composed without four
+	// this same value, which is the deployer, and it is composed without three
 	// readings the design gives it: the health monitor's store, which a mint
-	// takes its second number from, the design system constraint records, what
-	// waits behind a rollback hold, and which item is a revert. Each is named
-	// with the value the package exposes for a factory composed without it, so
-	// the composition says which ones it is without rather than passing nothing.
+	// takes its second number from, the design system constraint records, and
+	// what waits behind a rollback hold. Each is named with the value the
+	// package exposes for a factory composed without it, so the composition
+	// says which ones it is without rather than passing nothing. Which item is
+	// a revert is [path.IsARevert]: the link is the intent's evidence, written
+	// the same way whichever of the two sources raised it.
 	p.queue = mergequeue.New(mergequeue.Composition{
 		Pool:         d.pool,
 		Token:        d.token,
@@ -204,7 +206,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Numbers:      mergequeue.NoNumbersSeen{},
 		DesignSystem: mergequeue.EveryMoveDiffers{},
 		Backlog:      mergequeue.NoBacklog{},
-		Reverts:      mergequeue.NoRevertKnown{},
+		Reverts:      p,
 	})
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
@@ -235,7 +237,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// Enforcement. The checkout, the run it observes, the candidate's own store
 	// and a backfill's completion are all this same value, the deployer being
 	// what reaches a repository and a target.
-	p.contracts, err = contractcheck.New(d.pool, p.policy, p.intake, p, p, p)
+	p.contracts, err = contractcheck.New(d.pool, p.policy, p.intake, p.checks, atLeastASecond(d.watchEvery), p, p, p)
 	if err != nil {
 		return nil, err
 	}

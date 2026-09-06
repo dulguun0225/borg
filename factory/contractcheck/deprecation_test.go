@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -293,5 +294,54 @@ func TestASafeguardsPredicateBlocksTheRemovalAndIsToldApartFromAConsumerContract
 	}
 	if !checked.Passed() {
 		t.Fatalf("the removal is still refused after the safeguard was withdrawn: %s", checked.Why())
+	}
+}
+
+// TestRaiseWritesItsOwnLastCheckWithItsInterval: the pass over the deprecation
+// list writes a last check of its own each pass, the shape the constraints
+// pass and the advisory pass already write, so a stopped pass is a named row
+// rather than a brownout that never arrives — even a pass over a factory with
+// nothing marked at all, since what is being checked in on is the pass and not
+// the list it found.
+func TestRaiseWritesItsOwnLastCheckWithItsInterval(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	if _, found, err := lastcheck.Get(ctx, g.pool, lastcheck.ComponentDeprecationPass, ""); err != nil {
+		t.Fatalf("Get before any pass: %v", err)
+	} else if found {
+		t.Fatal("a last check exists before any pass ran")
+	}
+
+	if _, err := g.check.Raise(ctx); err != nil {
+		t.Fatalf("Raise: %v", err)
+	}
+
+	check, found, err := lastcheck.Get(ctx, g.pool, lastcheck.ComponentDeprecationPass, "")
+	if err != nil {
+		t.Fatalf("Get after the pass: %v", err)
+	}
+	if !found {
+		t.Fatal("Raise wrote no last check for the pass over the deprecation list")
+	}
+	if check.Interval != deprecationPassInterval {
+		t.Errorf("the last check's interval = %v, want %v", check.Interval, deprecationPassInterval)
+	}
+	if check.Subject != "" {
+		t.Errorf("the last check names subject %q, want none: this pass keeps a single record for itself", check.Subject)
+	}
+
+	// A second pass overwrites the one record rather than appending a second —
+	// the shape every last check has, checked once here rather than repeated
+	// for a component whose write is a passthrough of package lastcheck's own
+	// writer.
+	if _, err := g.check.Raise(ctx); err != nil {
+		t.Fatalf("the second Raise: %v", err)
+	}
+	all, err := lastcheck.ForComponent(ctx, g.pool, lastcheck.ComponentDeprecationPass)
+	if err != nil {
+		t.Fatalf("ForComponent: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("the pass over the deprecation list has %d last checks, want one overwritten", len(all))
 	}
 }

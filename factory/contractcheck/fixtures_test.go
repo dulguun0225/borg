@@ -33,6 +33,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
@@ -60,6 +61,11 @@ var (
 // the approval reads of it.
 const decidedAtARow = "dl_0000000000000000000000000000001"
 
+// deprecationPassInterval is what these tests give [contractcheck.New] as the
+// interval its own last check promises the next pass within — a fixed value
+// with nothing behind it, since none of these tests waits for one to pass.
+const deprecationPassInterval = time.Minute
+
 // theInterface is the name every producer here gives what it publishes, and
 // theStore the name it gives its own store.
 const (
@@ -78,6 +84,7 @@ type graph struct {
 	items      *item.Decomposition
 	store      *artifact.Store
 	factory    *policy.Factory
+	checks     *lastcheck.Writer
 	checkout   *fakeCheckout
 	exchanges  *fakeExchanges
 	storeState *fakeStoreState
@@ -141,6 +148,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		items:    item.NewDecomposition(pool, token),
 		store:    artifact.NewStore(pool, token),
 		factory:  policy.NewFactory(pool, token),
+		checks:   lastcheck.NewWriter(pool, token),
 		checkout: &fakeCheckout{
 			publishes:      map[string][]contract.Form{},
 			declares:       map[string][]consumercontract.Draft{},
@@ -169,7 +177,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	}
 
 	g.check, err = contractcheck.New(pool, policy.NewReader(pool, token, score.Version{}), intent.NewIntake(pool, token, intent.NoNotifier{}),
-		g.checkout, g.exchanges, g.storeState)
+		g.checks, deprecationPassInterval, g.checkout, g.exchanges, g.storeState)
 	if err != nil {
 		t.Fatalf("composing the check: %v", err)
 	}
