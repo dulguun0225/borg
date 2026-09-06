@@ -34,7 +34,7 @@ place the design least wants that decided: at a deploy gate, by whoever is there
 whatever made the owner set it. What passes it instead are the two exceptions the
 [exhausted error budget](../08-operations/05-service-level-objectives.md) hold already
 takes, a revert and an item the [health
-monitor](../08-operations/01-the-health-monitor.md) raised on that service. The queue stop
+monitor](../08-operations/01-the-health-monitor.md) raised on that service. A revert is known by the link its intent carries to [the release it undoes](../06-releases/06-rollback.md), whichever source raised it, and never by the source. The queue stop
 does not catch a revert's own candidate, for the reason the backlog cap's does not.
 
 It suspends nothing that recovers. The [rollback](../06-releases/06-rollback.md) inside an
