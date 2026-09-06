@@ -29,6 +29,11 @@ const (
 	secondCriterionSentence = "When asked for its version, the system shall respond two."
 	thirdCriterionSentence  = "When asked for its readiness, the system shall respond ready."
 	fourthCriterionSentence = "When asked for its uptime, the system shall respond forever."
+
+	// theScreenStatement is the one statement whose spec declares a screen's
+	// state machine, for the tests over the transition check and the drivers.
+	theScreenStatement      = "The demo service needs a login screen."
+	screenCriterionSentence = "When asked for its login status, the system shall respond ready."
 )
 
 // theSpecs is what the fake spec author writes for each statement. Both sentences
@@ -39,7 +44,16 @@ var theSpecs = map[string]struct{ spec, criterion string }{
 	theSecondStatement: {"The demo service answers a version request with two.", secondCriterionSentence},
 	theThirdStatement:  {"The demo service answers a readiness check with ready.", thirdCriterionSentence},
 	theFourthStatement: {"The demo service answers an uptime request with forever.", fourthCriterionSentence},
+	theScreenStatement: {"The demo service shows a login screen with a start and an active state.", screenCriterionSentence},
 }
+
+// screenDeclaration is the three lines the spec author's protocol declares a
+// screen's state machine in, appended to [theScreenStatement]'s spec alone: a
+// machine of two states, one event, and one transition, well formed by
+// [screenstatemachine.Validate]'s three rules — no two transitions on one
+// event from one state, every declared state reachable from the initial one,
+// and every state either terminal or answering an event.
+const screenDeclaration = "SCREEN start: start, active\nTRANSITION start begin: active\nTERMINAL: active"
 
 // rolePromptCriterion picks the criteria out of a role's user prompt: one line per
 // criterion, its id then its sentence, which is the shape both prompts render
@@ -109,10 +123,11 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agen
 	case agent.ShippedSpecAuthorPrompt:
 		for statement, authored := range theSpecs {
 			if strings.Contains(user, statement) {
-				return agent.Reply{
-					Text:  "SPEC:\n" + authored.spec + "\nCRITERION" + answers(user) + ": " + authored.criterion,
-					Units: map[string]int64{agent.UnitsOutput: 23},
-				}, nil
+				text := "SPEC:\n" + authored.spec + "\nCRITERION" + answers(user) + ": " + authored.criterion
+				if statement == theScreenStatement {
+					text += "\n" + screenDeclaration
+				}
+				return agent.Reply{Text: text, Units: map[string]int64{agent.UnitsOutput: 23}}, nil
 			}
 		}
 		// A revert, whose intent the health monitor wrote at a rollback. Nothing on the item

@@ -296,6 +296,29 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 		firing.Measurement = c.measurement
 		firing.Exposure = reached
 		firing.CriteriaInForce = len(inForce)
+
+		// The transition check and the drivers, derived from the checkout the
+		// build was made from — still on the item's branch at the commit
+		// commitAndBuild left it on. A screen the extractor could not derive
+		// resolves the factor [screenstatemachine.Derivation.Unavailable] reads
+		// rather than rejecting, so it is carried on the firing whatever
+		// [gate.ScreenRejection] finds, and the mechanical rejection is
+		// computed here rather than by the caller, the way the exposure and the
+		// criteria in force already are.
+		screensInForce, err := screenstatemachine.InForce(ctx, p.d.pool, c.svc.ID, []string{c.itemID})
+		if err != nil {
+			return "", "", err
+		}
+		derivedScreens := screenstatemachine.DeriveTransitions(c.svc.Repository, screensInForce,
+			screenstatemachine.GoExtractor(factoryVersion))
+		derivedDrivers, err := screenstatemachine.DeriveDrivers(c.svc.Repository)
+		if err != nil {
+			return "", "", err
+		}
+		firing.Screens = derivedScreens
+		if check == "" {
+			check, found, _ = gate.ScreenRejection(derivedScreens, derivedDrivers, screensInForce)
+		}
 	}
 	opened, err := p.gate.Fire(ctx, firing)
 	if err != nil {
