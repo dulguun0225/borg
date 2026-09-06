@@ -232,8 +232,10 @@
 //
 // The merge queue and production deploy:
 //
-//   - merge.go — mergeGate, the Merge to master row, and enforceContracts,
-//     the two contract checks it reads before a human decides.
+//   - merge.go — mergeGate, the Merge to master row, blockingCriteria — the
+//     acceptance criteria the candidate's run did not pass, read before every
+//     other mechanical check — and enforceContracts, the two contract checks,
+//     all rejecting on their own terms before a human decides.
 //   - reverify.go — the whole of [mergequeue.Repository]: Head and Holds, the
 //     two readings of master; Reverify, which merges master and every candidate
 //     ahead of this one before it builds; Confirm, the confirming run over the

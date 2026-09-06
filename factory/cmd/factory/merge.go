@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/gate"
@@ -18,11 +19,14 @@ import (
 // producer's own contract diff against the version production is running, and
 // the factory's own list of security predicates decided against the same build.
 //
-// The last three reject on their own terms before anyone gives a verdict, which is
+// All four reject on their own terms before anyone gives a verdict, which is
 // what the design says of this row: the row fires so the vector exists and the
 // rejection is readable against it, and then the factory's own reject closes it. A
 // human who was going to approve is not overruled — there is nothing left to
 // approve, and a schema diff is not a judgment they could have made differently.
+// The criteria go first: an acceptance criterion the candidate's own run did not
+// pass is what the row exists to read, and a reader of the rejection is told that
+// before what a contract or a security predicate found.
 //
 // Approving admits the candidate to the merge queue, which is the stage the item
 // advances to; rejecting sends the item back with an attempt counted where it goes.
@@ -62,10 +66,17 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	reportContracts(p.d.out, checked)
 	reportSecurityPredicates(p.d.out, predicates)
 
-	// The mechanical rejection, before a verdict is asked for. A security
-	// predicate rejects here on the terms the contract checks do, and after them:
-	// what a reader of the row needs first is the promise the candidate breaks.
-	check, why := checked.Check(), checked.Why()
+	// The mechanical rejection, before a verdict is asked for, in the order
+	// [gate.MechanicalChecks] lists: the criteria first — what the row exists to
+	// read — then the contract checks, then a security predicate on the terms the
+	// contract checks do.
+	check, why := "", ""
+	if blocking := blockingCriteria(c.criteria); len(blocking) > 0 {
+		check, why = gate.AutoRejectedByCriterion, describeCriteriaRejection(blocking)
+	}
+	if check == "" {
+		check, why = checked.Check(), checked.Why()
+	}
 	if check == "" && len(predicates.Rejected()) > 0 {
 		check, why = gate.AutoRejectedBySecurityPredicate, predicates.Why()
 	}
@@ -121,6 +132,31 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 func (p *path) decideSecurityPredicates(c *candidate) securitypredicate.Decided {
 	list, _ := securitypredicate.ForToolchain(securitypredicate.ToolchainGo, factoryVersion)
 	return securitypredicate.Decide(list, securitypredicate.Checkout{Dir: c.svc.Repository})
+}
+
+// blockingCriteria is every result in criteria whose outcome stops the item at
+// this row, per [criterion.Outcome.Blocks]: failed, or undecided, unless the
+// criterion is unreliable — in which case its failure blocks nothing and
+// counts no attempt, and this returns none of it.
+func blockingCriteria(criteria []gate.CriterionResult) []gate.CriterionResult {
+	var blocking []gate.CriterionResult
+	for _, result := range criteria {
+		if result.Outcome.Blocks(result.Unreliable) {
+			blocking = append(blocking, result)
+		}
+	}
+	return blocking
+}
+
+// describeCriteriaRejection lists each blocking criterion by id and outcome, so
+// a reader of the close event sees what the candidate's own run did not pass
+// without following back to the criterion table.
+func describeCriteriaRejection(blocking []gate.CriterionResult) string {
+	parts := make([]string, 0, len(blocking))
+	for _, result := range blocking {
+		parts = append(parts, fmt.Sprintf("%s %s", result.CriterionID, result.Outcome))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // couldNotDerive is what the firing carries where no security predicate could be
