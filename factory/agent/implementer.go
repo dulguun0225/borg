@@ -103,6 +103,10 @@ type Implementer struct {
 	// Prompt is the role prompt version in force, handed over by the component
 	// that dispatched the role. An empty one is [ErrNoPrompt].
 	Prompt string
+	// Effort is the effort the fleet entry names, handed over by the same
+	// component and sent with the call. An empty one asks the provider for
+	// none.
+	Effort string
 }
 
 // Implement sends what it is given and parses the reply into a [Change]. What
@@ -133,7 +137,7 @@ func (im Implementer) Implement(ctx context.Context, as principal.Principal, imp
 	for _, f := range implementing.Files {
 		fmt.Fprintf(&b, "\n=== FILE %s ===\n%s\n=== END ===\n", f.Path, f.Content)
 	}
-	reply, err := im.Model.Complete(ctx, as, im.Prompt, b.String())
+	reply, err := im.Model.Complete(ctx, as, Call{System: im.Prompt, User: b.String(), Effort: im.Effort})
 	if err != nil {
 		return Change{}, err
 	}

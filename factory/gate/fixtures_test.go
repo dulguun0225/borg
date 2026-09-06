@@ -25,7 +25,6 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
-	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
@@ -147,19 +146,13 @@ func (f fakeDrift) Mismatch(context.Context, string) (bool, string, error) {
 	return f.found, f.why, nil
 }
 
-// fakeNotifier records the two calls the gate makes on it.
+// fakeNotifier records the one call the gate makes on it.
 type fakeNotifier struct {
 	acknowledged []string
-	escalated    []string
 }
 
 func (f *fakeNotifier) Acknowledged(_ context.Context, openID string, _ record.Actor) error {
 	f.acknowledged = append(f.acknowledged, openID)
-	return nil
-}
-
-func (f *fakeNotifier) Escalated(_ context.Context, itemID string, stage item.Stage, _ string) error {
-	f.escalated = append(f.escalated, itemID+" at "+string(stage))
 	return nil
 }
 

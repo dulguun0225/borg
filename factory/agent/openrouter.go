@@ -93,6 +93,16 @@ type chatRequest struct {
 	Model     string        `json:"model"`
 	MaxTokens int           `json:"max_tokens"`
 	Messages  []chatMessage `json:"messages"`
+	// Reasoning is this endpoint's field for the effort a fleet entry names,
+	// and is left out where the entry names none. What the endpoint does with a
+	// value it does not offer is its own answer, which is where an entry asking
+	// for an effort nobody offers fails.
+	Reasoning *chatReasoning `json:"reasoning,omitempty"`
+}
+
+// chatReasoning is the effort as this endpoint takes it.
+type chatReasoning struct {
+	Effort string `json:"effort"`
 }
 
 type chatMessage struct {
@@ -138,7 +148,7 @@ type chatResponse struct {
 // returns contains the credential's value: the resolver's errors carry no value
 // by that package's own rule, a transport error names the method and the URL and
 // no header, and a [StatusError] carries what the server sent back.
-func (o OpenRouter) Complete(ctx context.Context, p principal.Principal, system, user string) (Reply, error) {
+func (o OpenRouter) Complete(ctx context.Context, p principal.Principal, call Call) (Reply, error) {
 	// The value exists from here to the header write and in nothing a caller
 	// can reach afterwards. The principal recorded beside the credential's name
 	// is the caller's, for the reason [Anthropic.Complete] states.
@@ -149,14 +159,18 @@ func (o OpenRouter) Complete(ctx context.Context, p principal.Principal, system,
 
 	// The system prompt is the first message and not a field, which is this
 	// endpoint's shape rather than a choice made here.
-	body, err := json.Marshal(chatRequest{
+	request := chatRequest{
 		Model:     o.ModelName,
 		MaxTokens: maxTokens,
 		Messages: []chatMessage{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
+			{Role: "system", Content: call.System},
+			{Role: "user", Content: call.User},
 		},
-	})
+	}
+	if call.Effort != "" {
+		request.Reasoning = &chatReasoning{Effort: call.Effort}
+	}
+	body, err := json.Marshal(request)
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: encoding the request: %w", err)
 	}

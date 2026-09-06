@@ -77,6 +77,11 @@ type path struct {
 	production environment.Environment
 	projectID  string
 	areaID     string
+	// areaChain is that area and every area above it, up to the project the
+	// chain ends at. It is what a fleet entry's scope is matched against, a
+	// scope drawn on any area in the chain reaching the item, and it is read
+	// once per run because this interface declares one area for the whole of it.
+	areaChain []string
 
 	policy        *policy.Reader
 	factory       *policy.Factory
@@ -110,6 +115,10 @@ type path struct {
 	// what [gate.NoDriftDetector] answers for.
 	healthMonitor *healthmonitor.HealthMonitor
 	notifier      *notifier.Notifier
+	// escalations is the wait an item escalated leaves, as dispatch reaches it.
+	// It is held rather than composed at the call because the composition is
+	// what supplies it to dispatch and what a test exercises.
+	escalations dispatchNotifier
 
 	// byItem is the candidate of each item the run has touched, so the queue's
 	// re-verification can write what it produced onto the candidate the run reports.
@@ -300,6 +309,36 @@ func layers(candidates []*candidate) [][]*candidate {
 	return out
 }
 
+// admissionOrder is this layer's candidates in the order dispatch admits them,
+// which is the tier of each item's intent first and the item's own priority
+// within one tier. The item records are read here and the ordering is
+// dispatch's: what a tier orders is admission, and the ceiling on candidate
+// environments is what makes more ready than the platform admits.
+func (p *path) admissionOrder(ctx context.Context, candidates []*candidate) ([]*candidate, error) {
+	if len(candidates) < 2 {
+		return candidates, nil
+	}
+	items := make([]item.Item, 0, len(candidates))
+	byID := make(map[string]*candidate, len(candidates))
+	for _, c := range candidates {
+		it, err := item.Get(ctx, p.d.pool, c.itemID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+		byID[it.ID] = c
+	}
+	ordered, err := p.dispatch.Admit(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	admitted := make([]*candidate, 0, len(ordered))
+	for _, it := range ordered {
+		admitted = append(admitted, byID[it.ID])
+	}
+	return admitted, nil
+}
+
 func inRun(candidates []*candidate, itemID string) bool {
 	for _, c := range candidates {
 		if c.itemID == itemID {
@@ -318,8 +357,16 @@ func inRun(candidates []*candidate, itemID string) bool {
 // this run finishes and has to report like any other.
 func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*candidate, error) {
 	// Every candidate's own environment: the gate that decides its deploy creates
-	// one, the build goes on it, and the criteria are decided there.
-	for _, c := range candidates {
+	// one, the build goes on it, and the criteria are decided there. The order is
+	// dispatch's, because what limits how many move at once is the platform's own
+	// room for candidate environments: dispatch orders admission by the tier of
+	// the intent each item was decomposed from, an item's priority breaking a tie
+	// within one, so what waits at the ceiling is what a tier put last.
+	admitted, err := p.admissionOrder(ctx, candidates)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, c := range admitted {
 		if err := p.candidateEnvironment(ctx, c); err != nil {
 			return "", nil, err
 		}

@@ -42,10 +42,22 @@ type Hold struct {
 	IntentID  string `json:"intent_id,omitempty"`
 	ProjectID string `json:"project_id,omitempty"`
 	ServiceID string `json:"service_id,omitempty"`
-	AreaID    string `json:"area_id,omitempty"`
+	// AreaChain is the item's area and every area above it, which is the value
+	// the scope was matched against: a scope drawn anywhere on the chain covers
+	// the item, so the chain and not one area is what says why no entry
+	// covered it. Its first entry is the item's own area.
+	AreaChain []string `json:"area_chain,omitempty"`
 	// State is the intent's state where that was the cause, and empty
 	// otherwise.
 	State string `json:"state,omitempty"`
+}
+
+// area is the item's own area, which is the first of the chain the row names.
+func (h Hold) area() string {
+	if len(h.AreaChain) == 0 {
+		return ""
+	}
+	return h.AreaChain[0]
 }
 
 // HoldKind is what every hold row of this component carries, so a reader tells
@@ -54,11 +66,28 @@ const HoldKind = "dispatch_hold"
 
 // hold opens one hold row and returns the run naming it. No page fires and no
 // attempt counts: nothing deployed is worse for it, and no agent worked.
+//
+// One row per item and stage: a hold already open for that item, that stage and
+// that condition is returned as it stands rather than written again, so a stage
+// retried against a condition that has not moved is one row and not one per
+// retry. For a run on no item the row is per intent and role, and per project
+// for a run on one, which is the same read one field along.
 func (d *Dispatch) hold(ctx context.Context, run Run, on On, condition, state string) (Run, error) {
+	standing, rows, err := d.Open(ctx)
+	if err != nil {
+		return run, err
+	}
+	for n, open := range standing {
+		if open.Condition == condition && open.sameSubject(run.Role, on) {
+			run.Held, run.HoldRow = condition, rows[n]
+			return run, fmt.Errorf("%w: %s", ErrHeld, condition)
+		}
+	}
+
 	payload, err := json.Marshal(Hold{
 		Kind: HoldKind, Condition: condition, Role: string(run.Role),
 		ItemID: on.ItemID, Stage: string(on.Stage), IntentID: on.IntentID,
-		ProjectID: on.ProjectID, ServiceID: on.ServiceID, AreaID: on.AreaID,
+		ProjectID: on.ProjectID, ServiceID: on.ServiceID, AreaChain: on.Areas(),
 		State: state,
 	})
 	if err != nil {
@@ -72,6 +101,17 @@ func (d *Dispatch) hold(ctx context.Context, run Run, on On, condition, state st
 	}
 	run.Held, run.HoldRow = condition, row.ID
 	return run, fmt.Errorf("%w: %s", ErrHeld, condition)
+}
+
+// sameSubject reports whether an open hold is about what this dispatch is
+// about: the item and the stage where there is an item, and the intent and the
+// role where the run is on an intent. It is what makes a hold one row per item
+// and stage rather than one per retry.
+func (h Hold) sameSubject(role Role, on On) bool {
+	if on.ItemID != "" {
+		return h.ItemID == on.ItemID && h.Stage == string(on.Stage)
+	}
+	return h.ItemID == "" && h.IntentID == on.IntentID && h.Role == string(role)
 }
 
 // Open is every hold this component has open, read off the log. It is what a
@@ -141,7 +181,8 @@ func (d *Dispatch) Rematch(ctx context.Context) ([]string, error) {
 func (d *Dispatch) stillHolds(ctx context.Context, held Hold) (bool, error) {
 	on := On{
 		ItemID: held.ItemID, Stage: item.Stage(held.Stage), IntentID: held.IntentID,
-		ProjectID: held.ProjectID, ServiceID: held.ServiceID, AreaID: held.AreaID,
+		ProjectID: held.ProjectID, ServiceID: held.ServiceID,
+		AreaID: held.area(), AreaChain: held.AreaChain,
 	}
 	switch held.Condition {
 	case HoldNoEntryCoversTheStage:

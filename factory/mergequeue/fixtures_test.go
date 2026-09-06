@@ -232,7 +232,7 @@ func inSchema(t *testing.T, base, schema string) string {
 func refined(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token,
 	n int, actor record.Actor, tier int) intent.Intent {
 	t.Helper()
-	intake := intent.NewIntake(pool, token)
+	intake := intent.NewIntake(pool, token, intent.NoNotifier{})
 	arrival := intent.Arrival{
 		Source:    intent.SourceDetector,
 		Statement: fmt.Sprintf("intent %d", n),
@@ -266,7 +266,7 @@ func refined(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.
 func requested(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token,
 	n, tier int) intent.Intent {
 	t.Helper()
-	intake := intent.NewIntake(pool, token)
+	intake := intent.NewIntake(pool, token, intent.NoNotifier{})
 	in, err := intake.TakeIn(ctx, owner, intent.Arrival{
 		Source: intent.SourceOwner, Statement: fmt.Sprintf("request %d", n),
 	})

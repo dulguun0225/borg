@@ -151,7 +151,7 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 
 // AutoReject gives the factory's own reject, which is what a mechanical check
 // that failed closes a firing with: the close event's actor is the gate
-// component, the payload names which of [MechanicalChecks] rejected, and the
+// component, the payload names which of [ChecksAt] the row rejected on, and the
 // reason is what it found.
 //
 // It is allowed whatever the firing decided about a human, and [Gate.AutoPass]
@@ -166,8 +166,8 @@ func (g *Gate) AutoReject(ctx context.Context, opened Opened, check, found strin
 	if check == "" || found == "" {
 		return decisionlog.Row{}, fmt.Errorf("%w: check %q, what it found %q", ErrCheckMissing, check, found)
 	}
-	if !slices.Contains(MechanicalChecks, check) {
-		return decisionlog.Row{}, fmt.Errorf("%w: %q", ErrCheckUnknown, check)
+	if !slices.Contains(ChecksAt(opened.Gate), check) {
+		return decisionlog.Row{}, fmt.Errorf("%w: %q at %s", ErrCheckUnknown, check, opened.Gate)
 	}
 	returnsTo, _ := DefaultReturnsTo(opened.Gate)
 	return g.close(ctx, opened, component(opened.Gate), "", ClosingPayload{

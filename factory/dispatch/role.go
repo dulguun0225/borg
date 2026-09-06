@@ -140,6 +140,11 @@ type Scope struct {
 // the scope names has to be the item's; a field it leaves empty matches
 // whatever the item has, the empty value included.
 //
+// Both halves of a scope are honoured, the item's area chain and its service's
+// project: a scope drawn on any area in the chain reaches the item, so
+// declaring a finer area never takes the item out of an entry drawn on a
+// coarser one. [On.Areas] is what the area is matched against.
+//
 // What a scope costs is that it binds nothing yet: this honours it and no
 // mechanism stops an agent reaching past it. Every call the agent makes carries
 // it, in the principal seam 5 puts on a call, so what stops it later has the
@@ -151,10 +156,24 @@ func (s Scope) Covers(on On) bool {
 	if s.ServiceID != "" && s.ServiceID != on.ServiceID {
 		return false
 	}
-	if s.AreaID != "" && s.AreaID != on.AreaID {
+	if s.AreaID != "" && !slices.Contains(on.Areas(), s.AreaID) {
 		return false
 	}
 	return true
+}
+
+// Areas is what a scope's area is matched against and what a hold row names:
+// the item's area chain where the caller supplied one, and the item's own area
+// alone where it did not. An item with no area at all is matched against
+// nothing, which only the empty scope covers.
+func (o On) Areas() []string {
+	if len(o.AreaChain) > 0 {
+		return o.AreaChain
+	}
+	if o.AreaID == "" {
+		return nil
+	}
+	return []string{o.AreaID}
 }
 
 // String is the scope as the principal carries it, so a call made under it

@@ -80,8 +80,8 @@ var Derivations = []string{
 }
 
 var (
-	// ErrCheckUnknown is returned by [Gate.AutoReject] for a check outside
-	// [MechanicalChecks].
+	// ErrCheckUnknown is returned by [Gate.AutoReject] for a check the row does
+	// not reject on, which [ChecksAt] answers per row.
 	ErrCheckUnknown = errors.New("gate: that is not a check this row rejects on")
 	// ErrDerivationUnknown is returned by [Gate.Fire] for a could-not-derive
 	// outside [Derivations].

@@ -157,7 +157,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		t.Fatalf("writing the consumer: %v", err)
 	}
 
-	g.check, err = contractcheck.New(pool, policy.NewReader(pool, token, score.Version{}), intent.NewIntake(pool, token),
+	g.check, err = contractcheck.New(pool, policy.NewReader(pool, token, score.Version{}), intent.NewIntake(pool, token, intent.NoNotifier{}),
 		g.checkout, g.exchanges, g.storeState)
 	if err != nil {
 		t.Fatalf("composing the check: %v", err)
@@ -240,7 +240,7 @@ func ship(t *testing.T, ctx context.Context, g graph, svc service.Service,
 // would.
 func finishIntent(t *testing.T, ctx context.Context, g graph, intentID string) {
 	t.Helper()
-	intake := intent.NewIntake(g.pool, g.token)
+	intake := intent.NewIntake(g.pool, g.token, intent.NoNotifier{})
 	if _, err := intake.Confirm(ctx, theActor, intent.Confirmation{
 		IntentID: intentID,
 		Requirements: []intent.NewRequirement{{
@@ -261,7 +261,7 @@ func finishIntent(t *testing.T, ctx context.Context, g graph, intentID string) {
 // and not the bare id [ship] used to carry.
 func newIntent(t *testing.T, ctx context.Context, g graph) string {
 	t.Helper()
-	taken, err := intent.NewIntake(g.pool, g.token).TakeIn(ctx, theActor, intent.Arrival{
+	taken, err := intent.NewIntake(g.pool, g.token, intent.NoNotifier{}).TakeIn(ctx, theActor, intent.Arrival{
 		Source: intent.SourceOwner, Statement: "test intent",
 	})
 	if err != nil {

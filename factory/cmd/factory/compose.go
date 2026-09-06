@@ -74,7 +74,6 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		policy:        policy.NewReader(d.pool, d.token, scoreVersion),
 		log:           decisionlog.NewWriter(d.pool, d.token),
 		store:         artifact.NewStore(d.pool, d.token),
-		intake:        intent.NewIntake(d.pool, d.token),
 		decomposition: item.NewDecomposition(d.pool, d.token),
 		items:         item.NewDispatch(d.pool, d.token),
 		builds:        build.NewWriter(d.pool, d.token),
@@ -115,14 +114,17 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	} else {
 		fmt.Fprintln(d.out, "No drift detector is installed, so every check this factory makes reads a record it wrote itself")
 	}
-	// The notifier first: the gate reaches a human through it for an
-	// acknowledgement and for the wait an escalation leaves, so it exists before
-	// the gate does. It is composed with the owner's name because a page widens
-	// to the owner and the design gives the owner no record.
+	// The notifier first: three components reach a human through it — the gate
+	// for an acknowledgement, intake at a round of the interview and at an
+	// intent escalated, and dispatch at an item escalated — so it exists before
+	// any of them does. It is composed with the owner's name because a page
+	// widens to the owner and the design gives the owner no record.
 	p.notifier, err = notifier.New(d.pool, p.log, d.token, terminal{out: d.out}, d.human)
 	if err != nil {
 		return nil, err
 	}
+	p.escalations = dispatchNotifier{notifier: p.notifier, path: p}
+	p.intake = intent.NewIntake(d.pool, d.token, intakeNotifier{notifier: p.notifier, path: p})
 
 	p.gate = gate.New(gate.Composition{
 		Pool:                     d.pool,
@@ -169,6 +171,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Manifests:  inputmanifest.NewWriter(d.pool, d.token),
 		Runs:       agentrun.NewWriter(d.pool, d.token),
 		Escalation: gateEscalation{gate: p.gate},
+		Notifier:   p.escalations,
 	})
 	if err != nil {
 		return nil, err
@@ -244,6 +247,13 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			fmt.Fprintf(d.out, "Area %s declared as %s\n", d.area, ar.ID)
 		}
 		p.areaID = ar.ID
+		chain, _, err := area.Chain(ctx, d.pool, ar.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, one := range chain {
+			p.areaChain = append(p.areaChain, one.ID)
+		}
 	}
 
 	// Every component's restart, before anything reads a record: this process

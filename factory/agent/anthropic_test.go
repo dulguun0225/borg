@@ -62,7 +62,7 @@ func TestCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reply, err := newAnthropic(t, srv).Complete(context.Background(), as(), "the system prompt", "the user message")
+	reply, err := newAnthropic(t, srv).Complete(context.Background(), as(), Call{System: "the system prompt", User: "the user message"})
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
@@ -95,6 +95,35 @@ func TestCompleteResolvesTheCredentialAtTheCall(t *testing.T) {
 	if len(sent.Messages) != 1 || sent.Messages[0].Role != "user" || sent.Messages[0].Content != "the user message" {
 		t.Errorf("Messages = %+v, want one user message", sent.Messages)
 	}
+	if sent.Effort != "" {
+		t.Errorf("Effort = %q, and a call naming none asks the provider for none", sent.Effort)
+	}
+}
+
+// TestAnthropicSendsTheEffortTheEntryNames: the effort a fleet entry names is
+// asked of the provider in the field this endpoint has for it. The factory does
+// not check that the provider offers it — an effort nobody offers fails at the
+// provider's own answer, which is where an exhausted account fails too.
+func TestAnthropicSendsTheEffortTheEntryNames(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("content-type", "application/json")
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+
+	if _, err := newAnthropic(t, srv).Complete(context.Background(), as(),
+		Call{System: "s", User: "u", Effort: "high"}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	var sent request
+	if err := json.Unmarshal(gotBody, &sent); err != nil {
+		t.Fatalf("unmarshalling the sent body: %v", err)
+	}
+	if sent.Effort != "high" {
+		t.Errorf("Effort = %q, want the effort the entry named", sent.Effort)
+	}
 }
 
 // TestCompleteReturnsStatusAndBodyAndNoKey is the error contract: a non-200
@@ -107,7 +136,7 @@ func TestCompleteReturnsStatusAndBodyAndNoKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newAnthropic(t, srv).Complete(context.Background(), as(), "s", "u")
+	_, err := newAnthropic(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 	var status *StatusError
 	if !errors.As(err, &status) {
 		t.Fatalf("Complete = %v, want a StatusError", err)
@@ -136,7 +165,7 @@ func TestCompleteReadsPastABlockThatIsNotText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reply, err := newAnthropic(t, srv).Complete(context.Background(), as(), "s", "u")
+	reply, err := newAnthropic(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
@@ -159,7 +188,7 @@ func TestCompleteRefusesAnUnreadableAnswer(t *testing.T) {
 				fmt.Fprint(w, body)
 			}))
 			defer srv.Close()
-			_, err := newAnthropic(t, srv).Complete(context.Background(), as(), "s", "u")
+			_, err := newAnthropic(t, srv).Complete(context.Background(), as(), Call{System: "s", User: "u"})
 			if !errors.Is(err, ErrAnswer) {
 				t.Fatalf("Complete = %v, want ErrAnswer", err)
 			}

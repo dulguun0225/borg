@@ -103,21 +103,17 @@ func (p *path) authorIntent(ctx context.Context, one asked, of string) (*decompo
 	}
 	fmt.Fprintf(d.out, "Intent %s refined after %d round(s)\n", in.ID, rounds)
 
-	requirementIDs := make([]string, len(requirements))
-	for n, r := range requirements {
-		requirementIDs[n] = r.ID
-	}
-
 	// 3. Decomposition: one item per service the intent changes, each waiting on the one
-	// before it, and the service record written where the service does not exist yet.
-	candidates, err := p.decomposeItems(ctx, in, one.services, requirementIDs)
+	// before it, the service record written where the service does not exist yet, and
+	// what each item answers assigned — whole where the set is one item, and a share
+	// derived per item where the split spreads a requirement over several.
+	candidates, err := p.decomposeItems(ctx, in, one.services, requirements)
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, c := range candidates {
 		set.itemIDs = append(set.itemIDs, c.itemID)
 		c.statement = in.Statement
-		c.requirements = requirements
 		itsPromised, err := p.inForceFor(ctx, c.svc, nil)
 		if err != nil {
 			return nil, nil, err

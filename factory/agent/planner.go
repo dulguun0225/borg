@@ -51,6 +51,10 @@ type Planner struct {
 	// Prompt is the role prompt version in force, handed over by the component
 	// that dispatched the role. An empty one is [ErrNoPrompt].
 	Prompt string
+	// Effort is the effort the fleet entry names, handed over by the same
+	// component and sent with the call. An empty one asks the provider for
+	// none.
+	Effort string
 }
 
 // Plan sends the role prompt and parses the reply.
@@ -65,7 +69,7 @@ func (p Planner) Plan(ctx context.Context, as principal.Principal, of Planning) 
 		writeCriteria(&b, "The criteria in force for the service:", of.Criteria)
 	}
 	writeReturned(&b, of.Returned)
-	reply, err := p.Model.Complete(ctx, as, p.Prompt, b.String())
+	reply, err := p.Model.Complete(ctx, as, Call{System: p.Prompt, User: b.String(), Effort: p.Effort})
 	if err != nil {
 		return Plan{}, err
 	}

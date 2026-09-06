@@ -64,8 +64,30 @@ func TestAStageNoEntryCoversAndARoleWithNoPromptAreHolds(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		if len(held) != 1 || held[0].ServiceID != oneService || held[0].AreaID != oneArea {
+		if len(held) != 1 || held[0].ServiceID != oneService {
 			t.Errorf("the hold is %+v, want the values the match was made on", held)
+		}
+		// The row names the chain the scope was matched against and not one
+		// area: a scope drawn anywhere on it would have covered the item.
+		if len(held) == 1 && (len(held[0].AreaChain) != 2 ||
+			held[0].AreaChain[0] != oneArea || held[0].AreaChain[1] != theAreaAbove) {
+			t.Errorf("the hold names the area chain %v, want the item's own area and the one above it",
+				held[0].AreaChain)
+		}
+
+		// A second dispatch of the same item and stage against the same
+		// condition writes no second row: a hold is one row per item and stage.
+		if _, run, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) {
+			t.Fatalf("the retry = %v, want ErrHeld", err)
+		} else if run.HoldRow == "" {
+			t.Error("the retry named no wait row, and the hold it met is one that stands")
+		}
+		again, rows, err := c.dispatch.Open(c.ctx)
+		if err != nil {
+			t.Fatalf("Open after the retry: %v", err)
+		}
+		if len(again) != 1 {
+			t.Errorf("%d holds are open after the retry, want the one row per item and stage", len(rows))
 		}
 	})
 
@@ -161,8 +183,20 @@ func TestAScopeBindsWhatAnEntryMayBePutOn(t *testing.T) {
 	if !(dispatch.Scope{ProjectID: oneProject}).Covers(item) {
 		t.Error("a project-wide scope does not cover an item in the project")
 	}
-	if (dispatch.Scope{AreaID: "ar_" + strings.Repeat("1", 32)}).Covers(item) {
+	if (dispatch.Scope{AreaID: "ar_" + strings.Repeat("2", 32)}).Covers(item) {
 		t.Error("an area-scoped entry covers an item in another area")
+	}
+	// Both halves of a scope: an entry drawn on an area above the item's
+	// reaches it, so declaring a finer area never takes the item out of it.
+	inChain := dispatch.On{
+		ProjectID: oneProject, ServiceID: oneService,
+		AreaID: oneArea, AreaChain: []string{oneArea, theAreaAbove},
+	}
+	if !(dispatch.Scope{AreaID: theAreaAbove}).Covers(inChain) {
+		t.Error("an entry drawn on an area above the item's does not cover it, and the chain is what a scope is matched against")
+	}
+	if (dispatch.Scope{AreaID: theAreaAbove}).Covers(item) {
+		t.Error("an item whose caller supplied no chain is covered by an area it does not name")
 	}
 	if got := (dispatch.Scope{ServiceID: oneService}).String(); !strings.Contains(got, oneService) {
 		t.Errorf("the scope reads as %q, want it to name the service the principal carries", got)
@@ -193,6 +227,12 @@ func TestAStageEnteredAgainAfterARejectCountsAndEscalatesAtTheLimit(t *testing.T
 	}
 	if !run.Escalated || len(c.escalation.items) != 1 {
 		t.Errorf("the run escalated %v and the escalation saw %v, want the item escalated once", run.Escalated, c.escalation.items)
+	}
+	// The wait an escalation leaves is dispatch's own call, made after the item
+	// was written escalated and its pending rows abandoned.
+	if len(c.told.items) != 1 || c.told.items[0] != it.ID ||
+		c.told.reasons[0] != dispatch.EscalatedByTheAttemptLimit {
+		t.Errorf("the notifier was told %v for %v, want this item at the attempt limit", c.told.reasons, c.told.items)
 	}
 	if c.model.calls != 1 {
 		t.Errorf("%d calls, want no agent put on the stage after the limit was spent", c.model.calls)

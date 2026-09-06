@@ -7,15 +7,30 @@ import (
 	"github.com/dulguun0225/borg/factory/principal"
 )
 
-// Model is one completion call: the principal the call is made as, a system
-// prompt, a user message, a [Reply]. A role holds one and does not know which
-// provider answers it.
+// Model is one completion call: the principal the call is made as, a [Call],
+// and a [Reply]. A role holds one and does not know which provider answers it.
 //
 // The principal is the dispatch's own — the model version, the dispatch, and
 // the scope it was put on — and it is what the resolver records beside the
 // credential's name when the call reads it.
 type Model interface {
-	Complete(ctx context.Context, p principal.Principal, system, user string) (Reply, error)
+	Complete(ctx context.Context, p principal.Principal, call Call) (Reply, error)
+}
+
+// Call is what one completion sends: the system prompt, the user message, and
+// the effort. It is a struct and not three arguments because all three are
+// strings and a caller that swapped two would compile.
+type Call struct {
+	System string
+	User   string
+	// Effort is how long the model works before it answers, as the fleet entry
+	// names it, and empty where the entry names none. Each implementation sends
+	// it in the field its own request shape has for it. The factory does not
+	// check that the credential's provider offers what the entry asks for, the
+	// way it does not check a quota: an entry asking for an effort nobody
+	// offers fails at the provider's own answer, which is where an exhausted
+	// account fails too.
+	Effort string
 }
 
 // The kinds a provider counts units apart under. A provider that counts a kind

@@ -49,6 +49,10 @@ type TaskAuthor struct {
 	// Prompt is the role prompt version in force, handed over by the component
 	// that dispatched the role. An empty one is [ErrNoPrompt].
 	Prompt string
+	// Effort is the effort the fleet entry names, handed over by the same
+	// component and sent with the call. An empty one asks the provider for
+	// none.
+	Effort string
 }
 
 // Divide sends the role prompt and parses the reply.
@@ -62,7 +66,7 @@ func (t TaskAuthor) Divide(ctx context.Context, as principal.Principal, of Divid
 		fmt.Fprintf(&b, "\nThe spec it was planned against:\n%s\n", of.Spec)
 	}
 	writeReturned(&b, of.Returned)
-	reply, err := t.Model.Complete(ctx, as, t.Prompt, b.String())
+	reply, err := t.Model.Complete(ctx, as, Call{System: t.Prompt, User: b.String(), Effort: t.Effort})
 	if err != nil {
 		return Tasks{}, err
 	}
