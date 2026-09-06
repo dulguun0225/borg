@@ -184,10 +184,10 @@ const lockName = "borg/factory/deploy/"
 // [MitigationTable] is a record and composes the columns every record table
 // does. It names the actor under seam 1 — a human at Ops, whose instruction the
 // deployer performs it on — the operation, the target, and the deploy record it
-// modifies, which the drift detector reads as intended state. There are three
-// operations and not two: shifting traffic off a target and changing the
-// instance count of a release the factory deployed, and ending every instance
-// beside them.
+// modifies, which the drift detector reads as intended state. There are two
+// operations and not three: shifting traffic off a target, and changing the
+// instance count of a release the factory deployed. Ending every instance of a
+// service on a target is a removal, which retirement calls for.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,

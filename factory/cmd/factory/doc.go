@@ -39,7 +39,7 @@
 // ends the stop that commit leaves. "mark-rollback <deploy-id>" is a named human
 // at Ops saying a rollback was not caused by the release, which the score and
 // its learning pass then exclude. "mitigate <deploy-id>" is the deployer
-// performing one of the three operations on a target on a human's instruction,
+// performing one of the class's two operations on a target on a human's instruction,
 // and "-end" ends one standing. "truncate" is the decision log's retention pass,
 // refused while a legal hold stands.
 //

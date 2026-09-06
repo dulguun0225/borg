@@ -4,7 +4,7 @@
 //
 // # The code
 //
-// schema.go is [Table] and the six tables beside it — [WindowSizeTable],
+// schema.go is [Table] and the seven tables beside it — [WindowSizeTable],
 // [WindowPowerTable], [ExplicitThresholdTable], [RecentHistorySizeTable],
 // [ChangeFreezeTable], [SeedTable], [ValueSetTable] —
 // with their id prefixes, format versions, and [DDL]. writer.go is [Service], [Writer] and [NewWriter]

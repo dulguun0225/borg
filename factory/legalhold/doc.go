@@ -19,7 +19,7 @@
 // truncation of the decision log is refused against.
 //
 // A withdrawal is written pending and is not in force until a second write
-// approves it: it ends only at the gate row gate.LegalHoldWithdrawal, held by a
+// approves it: it ends only at the gate row [gate.KindLegalHoldWithdrawal], held by a
 // human always and routed away from the human who wrote it, the treatment the
 // gate row A safeguard's withdrawal already gets. Nothing here combines the two
 // writes into one call — the row is what sits between them.
