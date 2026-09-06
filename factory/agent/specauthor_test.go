@@ -211,6 +211,21 @@ func TestRefineRefusesACriterionNamingNoRequirement(t *testing.T) {
 	}
 }
 
+// TestRefineRefusesAQuestionOnceTheInterviewIsOver: the requirements are listed
+// once the interview is over, the user message says so, and a question then is
+// refused for the stage to retry rather than stopping the run.
+func TestRefineRefusesAQuestionOnceTheInterviewIsOver(t *testing.T) {
+	model := &fakeModel{text: "QUESTION: which commit?"}
+	listed := Refining{Statement: "s", Requirements: []Requirement{{ID: "rq_a", Statement: "answer"}}}
+	_, err := SpecAuthor{Model: model, Prompt: ShippedSpecAuthorPrompt}.Refine(context.Background(), as(), listed)
+	if !errors.Is(err, ErrReply) {
+		t.Fatalf("Refine = %v, want ErrReply", err)
+	}
+	if !strings.Contains(model.user, "The interview is over") {
+		t.Errorf("the user message does not say the interview is over:\n%s", model.user)
+	}
+}
+
 // TestRefineParsesTheProvenanceOfACriterion: a criterion's constraint-derived
 // and hazard-derived provenance is read at introduction, so the reply names
 // which constraints a criterion was drafted under and which area's hazardous

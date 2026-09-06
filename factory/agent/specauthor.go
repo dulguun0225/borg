@@ -245,6 +245,7 @@ func (s SpecAuthor) Refine(ctx context.Context, as principal.Principal, of Refin
 		for _, r := range of.Requirements {
 			fmt.Fprintf(&b, "%s: %s\n", r.ID, r.Statement)
 		}
+		b.WriteString("The interview is over: reply with a SPEC and not a QUESTION, deciding what the statement leaves open.\n")
 	}
 	if len(of.InForce) > 0 {
 		b.WriteString("\n")
@@ -295,16 +296,22 @@ func (s SpecAuthor) Refine(ctx context.Context, as principal.Principal, of Refin
 	return refined, nil
 }
 
-// namesARequirement is the one check the parser cannot make on its own: where
-// the user message listed the item's requirements, a criterion naming none is
-// outside the protocol and refused, so the stage tries again inside its
+// namesARequirement is the check the parser cannot make on its own: where the
+// user message listed the item's requirements, a question and a criterion
+// naming no requirement are each outside the protocol and refused, so the stage tries again inside its
 // attempt limit rather than the writer refusing the empty id and stopping the
 // run. A criterion naming a requirement that is not this item's is not refused
 // here — it is written, and the Spec row rejects it as one naming a
 // requirement assigned elsewhere, which is the design's own answer to it.
 func namesARequirement(refined Refined, requirements []Requirement) error {
-	if len(requirements) == 0 || refined.Question != "" {
+	if len(requirements) == 0 {
 		return nil
+	}
+	// The requirements are listed once the interview is over, and a question
+	// then is outside the protocol: the interview is the intent's, and the
+	// stage tries again inside its attempt limit rather than stopping the run.
+	if refined.Question != "" {
+		return fmt.Errorf("%w: the spec author asked %q, and the interview is over", ErrReply, refined.Question)
 	}
 	for _, c := range refined.Criteria {
 		if c.RequirementID == "" {

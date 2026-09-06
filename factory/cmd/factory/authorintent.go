@@ -20,14 +20,20 @@ import (
 // that parameter exists — a later dispatch's decision, not this one's.
 var defaultTier = intent.Tier{Value: 1, PolicyVersion: "unauthored"}
 
-// take is the intent a decomposition is authored from. Package intent's
-// rewrite dropped the statement-keyed lookup [take] used to read: a detector's
-// removal intent and a health monitor's revert intent are now found only by
-// evidence or by id, and this command-line interface is handed a statement rather
-// than either — so an owner re-typing the exact words of an intent already
-// waiting takes a second one in rather than resuming the first, which this
-// milestone's decision leaves open.
+// take is the intent a decomposition is authored from: the one already waiting
+// on these exact words in this project, where a detector or the health monitor
+// raised it, and otherwise a new one taken in from the owner. This interface is
+// handed a statement and never an id, so the words are how a human names the
+// revert a rollback already raised.
 func (p *path) take(ctx context.Context, statement string) (intent.Intent, error) {
+	waiting, found, err := intent.Waiting(ctx, p.d.pool, p.projectID, statement)
+	if err != nil {
+		return intent.Intent{}, err
+	}
+	if found {
+		fmt.Fprintf(p.d.out, "Intent %s is already waiting on these words, from %s; it is worked rather than taken in again\n", waiting.ID, waiting.Source)
+		return waiting, nil
+	}
 	return p.intake.TakeIn(ctx, p.human, intent.Arrival{
 		Source:    intent.SourceOwner,
 		Statement: statement,

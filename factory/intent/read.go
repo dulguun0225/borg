@@ -57,6 +57,23 @@ func OnEvidence(ctx context.Context, pool *pgxpool.Pool, evidence Evidence) (Int
 	return in, true, nil
 }
 
+// Waiting is the oldest unrefined intent in this project whose statement is
+// these words exactly, and false where there is none. It is what lets a human
+// at a terminal work an intent a detector or the health monitor already
+// raised by typing its statement, rather than taking a second one in that says
+// the same thing; an intent past unrefined is being worked and is not resumed.
+func Waiting(ctx context.Context, pool *pgxpool.Pool, projectID, statement string) (Intent, bool, error) {
+	in, err := scanIntent(pool.QueryRow(ctx, `select `+intentColumns+` from `+Table+`
+		where project_id = $1 and statement = $2 and state = $3 order by at, id limit 1`,
+		projectID, statement, string(StateUnrefined)))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Intent{}, false, nil
+	} else if err != nil {
+		return Intent{}, false, fmt.Errorf("intent: reading the intent waiting on a statement: %w", err)
+	}
+	return in, true, nil
+}
+
 // Questions is every question of one intent, in the order they were asked.
 // The order is the round and not the timestamp, because the round is what the
 // interview counts.

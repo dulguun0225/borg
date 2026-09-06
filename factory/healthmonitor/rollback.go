@@ -159,8 +159,11 @@ func (h *HealthMonitor) raiseCrossing(ctx context.Context, w Watching, one Watch
 	if err != nil {
 		return Crossed{}, err
 	}
-	statement := fmt.Sprintf("%s's release %d failed its analysis window and was rolled back to release %d",
-		w.Name, one.Release.Number, one.Baseline.Number)
+	// The statement is what the spec author is handed, so it says what to
+	// build and not only what happened: the change to undo, by the two commits.
+	statement := fmt.Sprintf("Revert on %s what release %d changed against release %d, commit %s against commit %s: release %d failed its analysis window and was rolled back to release %d, and master must build release %d's behaviour again",
+		w.Name, one.Release.Number, one.Baseline.Number, one.Release.Commit, one.Baseline.Commit,
+		one.Release.Number, one.Baseline.Number, one.Baseline.Number)
 	if one.WhyNoRollback != "" {
 		statement = fmt.Sprintf("%s's release %d failed its analysis window; no rollback was performed (%s)",
 			w.Name, one.Release.Number, one.WhyNoRollback)
