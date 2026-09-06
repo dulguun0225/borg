@@ -4,6 +4,8 @@
 package localtarget_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -115,8 +117,14 @@ func TestReadRunningReportsTheDigestAndTheCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
 	}
-	if len(running.ArtifactDigest) != 64 {
-		t.Errorf("ArtifactDigest = %q, want the sha256 of the artifact", running.ArtifactDigest)
+	content, err := os.ReadFile(filepath.Join(dir, "rel_one"))
+	if err != nil {
+		t.Fatalf("reading the deployed binary back: %v", err)
+	}
+	sum := sha256.Sum256(content)
+	want := "sha256:" + hex.EncodeToString(sum[:])
+	if running.ArtifactDigest != want {
+		t.Errorf("ArtifactDigest = %q, want %q, the sha256 of the deployed binary", running.ArtifactDigest, want)
 	}
 	if running.Instances != 1 {
 		t.Errorf("Instances = %d, want the one instance this platform runs", running.Instances)

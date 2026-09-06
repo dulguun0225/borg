@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/build"
@@ -296,21 +297,29 @@ func (p *path) Confirm(ctx context.Context, it item.Item, verified mergequeue.Ve
 // commit with no item has no candidate environment. The queue mints a number for
 // what this passes, so what it costs is a release numbered over a build nothing
 // exercised.
+//
+// The repository is switched onto commit before createBuild compiles it, which
+// is what makes the build record's digest the digest of that commit's own
+// binary and not of whatever the repository last held. A commit that does not
+// compile is [ErrDoesNotCompile] from createBuild, told apart here from an
+// infrastructure failure and reported as the soft outcome this interface's
+// caller reads rather than an error — no build record exists for it, there
+// being no digest to write one with.
 func (p *path) VerifyCommit(ctx context.Context, serviceID, commit string) (mergequeue.Verified, error) {
 	svc, err := p.serviceOf(ctx, serviceID)
-	if err != nil {
-		return mergequeue.Verified{}, err
-	}
-	bl, err := p.createBuild(ctx, svc.Repository, "", svc.ID, commit)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
 	if _, err := git(svc.Repository, "switch", "--detach", commit); err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if err := compiles(svc.Repository); err != nil {
-		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
-			Why: "the commit a human accepted does not compile: " + firstLines(err.Error())}, nil
+	bl, err := p.createBuild(ctx, svc.Repository, "", svc.ID, commit)
+	if err != nil {
+		if errors.Is(err, ErrDoesNotCompile) {
+			return mergequeue.Verified{Commit: commit,
+				Why: "the commit a human accepted does not compile: " + firstLines(err.Error())}, nil
+		}
+		return mergequeue.Verified{}, err
 	}
 	return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Passed: true}, nil
 }

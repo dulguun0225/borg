@@ -5,12 +5,18 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/policy"
@@ -146,6 +152,38 @@ func TestOneChangeShips(t *testing.T) {
 	}
 	if running.Build != rel.BuildID {
 		t.Errorf("the target runs %q, the deploy put build %s there", running.Build, rel.BuildID)
+	}
+
+	// The build record's own artifact digest is the sha256 of the binary "go
+	// build" produced for it — the same bytes buildInto put at d.dir/<build id>
+	// — and not a digest of the commit. This is the regression a live run once
+	// found: the two sides of the drift detector's own comparison, computed
+	// two different ways, never agreeing on a target running exactly what the
+	// factory recorded.
+	made, err := build.Get(ctx, d.pool, rel.BuildID)
+	if err != nil {
+		t.Fatalf("reading the build record: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(d.dir, rel.BuildID))
+	if err != nil {
+		t.Fatalf("reading the deployed binary: %v", err)
+	}
+	sum := sha256.Sum256(content)
+	wantDigest := "sha256:" + hex.EncodeToString(sum[:])
+	if made.ArtifactDigest != wantDigest {
+		t.Errorf("the build's ArtifactDigest = %q, want %q, the sha256 of the artifact buildInto produced",
+			made.ArtifactDigest, wantDigest)
+	}
+	if running.ArtifactDigest != made.ArtifactDigest {
+		t.Errorf("the running artifact digests %q, the build record holds %q", running.ArtifactDigest, made.ArtifactDigest)
+	}
+	pass := driftdetector.Pass{
+		ServiceID: res.serviceID, Target: d.dir, Reached: true,
+		RunningBuild: running.Build, RecordedBuildID: current.BuildID,
+		RunningDigest: running.ArtifactDigest, RecordedDigest: made.ArtifactDigest,
+	}
+	if !pass.Agreed() {
+		t.Error("the drift detector's own comparison disagrees over a target running exactly the build the factory recorded")
 	}
 
 	// Master exists in the repository at the commit the queue fast-forwarded to.

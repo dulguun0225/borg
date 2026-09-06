@@ -171,14 +171,16 @@ func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Ch
 		return err
 	}
 
+	// createBuild compiles the commit to produce the record's own digest, which
+	// is what the Implementation gate would reject a build for: a build that
+	// does not compile stops the run here, where nothing has been written for
+	// it, rather than one step down where a candidate environment would already
+	// have been composed for it.
 	bl, err := p.createBuild(ctx, repo, c.itemID, c.svc.ID, commit)
 	if err != nil {
 		return err
 	}
 	c.buildID = bl.ID
-	if err := compiles(repo); err != nil {
-		return err
-	}
 	fmt.Fprintf(d.out, "Build %s made from commit %s\n", bl.ID, commit)
 
 	// The measurement is taken here, where the repository is, and against the

@@ -322,9 +322,11 @@ func (l *Local) ReadRunning(_ context.Context, p principal.Principal, service st
 	}, nil
 }
 
-// digest is the sha256 of the artifact at dir/<build>, in hexadecimal, which is
-// what a rollback verifies against the digest the build record holds and what
-// the drift detector reads bytes rather than names with.
+// digest is the sha256 of the artifact at dir/<build>, "sha256:" and then
+// hexadecimal — the form [targetseam.Running.ArtifactDigest] and the build
+// record share, which is what a rollback verifies against the digest the
+// build record holds and what the drift detector reads bytes rather than
+// names with.
 func (l *Local) digest(build string) (string, error) {
 	if !filepath.IsLocal(build) {
 		return "", fmt.Errorf("%w: %q", ErrBuildNotLocal, build)
@@ -336,7 +338,7 @@ func (l *Local) digest(build string) (string, error) {
 		return "", fmt.Errorf("localtarget: reading the artifact of build %s: %w", build, err)
 	}
 	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:]), nil
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 // read is what the file says: the build and the process id, and false where

@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	"os"
+	"path/filepath"
 
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -72,6 +72,10 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	if err != nil {
 		return err
 	}
+	addresses := serviceAddresses(p.production, svc)
+	if len(addresses) == 0 {
+		return fmt.Errorf("factory: %s runs on no target of production, and a rollback has no artifact to verify", svc.Name)
+	}
 	undone, err := p.undoneBy(ctx, r)
 	if err != nil {
 		return err
@@ -96,7 +100,7 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 			Source:            r.Source,
 		},
 		RecordedDigest: made.ArtifactDigest,
-		Artifacts:      artifactsOf{pool: p.d.pool},
+		Artifacts:      artifactsOf{dir: addresses[0]},
 	})
 	if err != nil {
 		return err
@@ -152,24 +156,23 @@ func (p *path) undoneBy(ctx context.Context, r healthmonitor.Rollback) ([]string
 }
 
 // artifactsOf is [deploy.Artifacts]: the digest of the artifact a build
-// produced, computed before a rollback puts that build back on a target.
+// produced, read off the disk and computed fresh before a rollback puts that
+// build back on a target — which is what the verification buys: a build whose
+// bytes changed under the record is caught here rather than restored as a name.
 //
-// On this platform the recorded digest is sha256 of the commit hash — the local
-// target runs the checked-out commit directly and produces no binary digest of
-// its own, which repo.go states where it writes the build record — so this
-// recomputes the same thing. What that costs is the whole of what the
-// verification buys: it catches a build record whose commit changed and not an
-// artifact whose bytes did, so a rollback here restores a name after all. A
-// platform that produces a binary is where this reads the bytes.
-type artifactsOf struct{ pool *pgxpool.Pool }
+// dir is one target's directory — this platform's address — and one is enough:
+// buildInto compiles the binary once and copyFile puts the identical bytes in
+// every further target a rollout reaches, so what one target holds is what
+// every other one does.
+type artifactsOf struct{ dir string }
 
-// Digest is that recomputation: the build record read, and sha256 over the
-// commit hash it names.
-func (a artifactsOf) Digest(ctx context.Context, buildID string) (string, error) {
-	made, err := build.Get(ctx, a.pool, buildID)
+// Digest reads the build's own binary at dir/<build id> and returns its
+// sha256, in the "sha256:" form the build record's own digest carries.
+func (a artifactsOf) Digest(_ context.Context, buildID string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(a.dir, buildID))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("factory: reading the artifact of build %s at %s: %w", buildID, a.dir, err)
 	}
-	sum := sha256.Sum256([]byte(made.CommitHash))
+	sum := sha256.Sum256(content)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }

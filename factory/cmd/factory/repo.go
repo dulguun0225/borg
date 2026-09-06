@@ -108,20 +108,37 @@ func masterCommit(repo string) (string, error) {
 	return "", err
 }
 
-// compiles checks that the build compiles, with the binary written to a directory
-// that is thrown away. It is what the Implementation gate would reject a build
-// for, and that row rejects over the screens and over nothing else — so a build
-// that does not compile stops the run here, where the build record was just
-// written, rather than one step down where a candidate environment would already
-// have been composed for it.
-func compiles(repo string) error {
+// ErrDoesNotCompile marks a failure of "go build" as the candidate's own code
+// failing to compile rather than an infrastructure failure, which is what lets
+// a caller that treats a repository's own compile failure as a soft outcome —
+// not an error — tell the two apart.
+var ErrDoesNotCompile = errors.New("factory: the build does not compile")
+
+// compiles is what produces the build record's own artifact digest: it builds
+// the repository into a directory that is thrown away right after, and returns
+// the sha256 of the binary "go build" produced, in the "sha256:" form the
+// record and a target's own reading share. It is also what the Implementation
+// gate would reject a build for, and that row rejects over the screens and over
+// nothing else: a build that does not compile returns [ErrDoesNotCompile]
+// wrapping go build's own words, before the record it would have been written
+// to and before a candidate environment would already have been composed for
+// it.
+func compiles(repo string) (string, error) {
 	dir, err := os.MkdirTemp("", "borg-compile-")
 	if err != nil {
-		return fmt.Errorf("factory: making a directory to compile into: %w", err)
+		return "", fmt.Errorf("factory: making a directory to compile into: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	_, err = inDir(repo, "go", "build", "-o", filepath.Join(dir, "compiled"), ".")
-	return err
+	compiled := filepath.Join(dir, "compiled")
+	if _, err := inDir(repo, "go", "build", "-o", compiled, "."); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrDoesNotCompile, err)
+	}
+	content, err := os.ReadFile(compiled)
+	if err != nil {
+		return "", fmt.Errorf("factory: reading the binary it just compiled: %w", err)
+	}
+	sum := sha256.Sum256(content)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 // buildInto puts the build's binary in an environment's directory, named exactly
@@ -202,21 +219,29 @@ func repoFiles(repo string) ([]agent.File, error) {
 }
 
 // createBuild writes the build record for one commit: the artifact digest —
-// sha256 of the commit hash, this platform never producing a binary digest
-// of its own, the local target running the checked-out commit directly rather
-// than a built artifact of its own — the shipped-bundle identity, which is
-// factoryVersion, this binary being the release of the product that made the
-// build — and, for a Go module, its go.sum
+// "sha256:" and the sha256 of the binary "go build" produces for the commit,
+// which is [compiles], the same artifact [buildInto] later produces for an
+// environment — two builds of one commit in this repository having been
+// measured byte-identical, which is what makes the drift detector's comparison
+// of it against a running target's own digest real — the shipped-bundle
+// identity, which is factoryVersion, this binary being the release of the
+// product that made the build — and, for a Go module, its go.sum
 // resolved into entries with licence "unknown", this milestone having no
 // licence resolver. Criterion results of the build's own process are none:
 // nothing in this command-line interface decides a criterion at that place yet.
+//
+// The repository must already be checked out at commit: compiles builds
+// whatever is on disk, and reads nothing from commit itself.
 func (p *path) createBuild(ctx context.Context, repo, itemID, serviceID, commit string) (build.Build, error) {
-	sum := sha256.Sum256([]byte(commit))
+	digest, err := compiles(repo)
+	if err != nil {
+		return build.Build{}, err
+	}
 	draft := build.Draft{
 		ItemID:                itemID,
 		ServiceID:             serviceID,
 		CommitHash:            commit,
-		ArtifactDigest:        "sha256:" + hex.EncodeToString(sum[:]),
+		ArtifactDigest:        digest,
 		ShippedBundleIdentity: factoryVersion,
 	}
 	resolved, coverage, couldNotDerive := resolvedGoModules(repo)

@@ -345,7 +345,10 @@ type Running struct {
 	// name that build has on master.
 	Build string
 	// ArtifactDigest is the digest of the artifact the target is running, read
-	// from the target and compared against what the build record holds.
+	// from the target and compared against what the build record holds. Its
+	// form is "sha256:" followed by the hex digest, the form the build record's
+	// own artifact digest carries — one quantity in one format on both sides of
+	// the comparison.
 	ArtifactDigest string
 	// Instances is how many instances of that build the target runs, which is
 	// the capacity a kept-instance count is computed from and what a proof test
