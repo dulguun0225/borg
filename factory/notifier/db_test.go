@@ -255,6 +255,63 @@ func TestAcknowledgeStopsTheWideningAndNotASecondTime(t *testing.T) {
 	}
 }
 
+// TestAcknowledgingTakesTheKindOffThePageAndARowThatPagesNobodyTakesItToo is
+// the acknowledgement as Pages has it: the same act on a row that is a decision
+// appends an acknowledgement to the decision as well, one act writing both, and
+// a gate row that pages nobody still takes the acknowledgement — where the half
+// this component writes is nothing. The caller acknowledging holds the row and
+// not what the page was about, so the event carries the kind it was reached
+// under.
+func TestAcknowledgingTakesTheKindOffThePageAndARowThatPagesNobodyTakesItToo(t *testing.T) {
+	ctx, _, _, n, channels := newNotifier(t)
+
+	// The gate component's own call: it knows the row a human acknowledged at
+	// Work and names the one kind of wait every firing leaves.
+	asTheGateCalls := notifier.Wait{
+		Row: "dl_open", Kind: notifier.KindGateDecision,
+		Waiting: "a human at Work acknowledged the row this page was about",
+		Holding: people.OfDuty(12),
+	}
+	if _, err := n.Notify(ctx, asTheGateCalls); err != nil {
+		t.Fatalf("Notify of a row that pages nobody: %v", err)
+	}
+	row, err := n.Acknowledge(ctx, asTheGateCalls, "hk_alice")
+	if err != nil {
+		t.Fatalf("Acknowledge of a row that pages nobody: %v", err)
+	}
+	if row.ID != "" {
+		t.Errorf("acknowledging a row no page reached wrote %s, want no page event", row.ID)
+	}
+	if channels.on(notifier.ChannelPage) != 0 {
+		t.Errorf("a row that pages nobody reached the page channel %d time(s)", channels.on(notifier.ChannelPage))
+	}
+
+	// The same row under a kind that does page: the event names what the page
+	// was reached under and not what this caller could name.
+	paging := asTheGateCalls
+	paging.Row, paging.Kind, paging.Worse = "dl_revert", notifier.KindGateRevertDecision, true
+	paging.Waiting = "a revert waits at a gate while the rollback still holds"
+	if _, err := n.Notify(ctx, paging); err != nil {
+		t.Fatalf("Notify of a revert decision that pages: %v", err)
+	}
+	acknowledging := asTheGateCalls
+	acknowledging.Row = paging.Row
+	if _, err := n.Acknowledge(ctx, acknowledging, "hk_alice"); err != nil {
+		t.Fatalf("Acknowledge of a revert decision: %v", err)
+	}
+	events, err := n.EventsFor(ctx, paging.Row)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	last := events[len(events)-1]
+	if notifier.Event(last.Event) != notifier.EventAcknowledged {
+		t.Fatalf("the last event on the revert's row is %+v, want the acknowledgement", last)
+	}
+	if last.WaitKind != string(notifier.KindGateRevertDecision) {
+		t.Errorf("the acknowledgement names kind %q, want the kind the page was reached under", last.WaitKind)
+	}
+}
+
 // TestThePageConditionIsSettledPerKind is what makes "nothing else fires one"
 // mechanical wherever the design has already applied the condition, and leaves the
 // condition itself as the test wherever it has not.

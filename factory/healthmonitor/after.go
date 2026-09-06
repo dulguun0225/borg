@@ -40,6 +40,11 @@ type AfterReading struct {
 // intent, taking the same stages and the same gates as one an owner typed —
 // which is the whole of "finds issues and fixes bugs".
 //
+// The incident this crossing writes carries the failure records for that
+// service, release and target, copied at the crossing the way the incident
+// inside a window carries them: the arm read here is the completed production
+// deploy's, the window's own control having been torn down with it.
+//
 // The second crossing on one release is an observation on the incident already
 // open and never a second intent. That is what keeps a service failing
 // steadily from filling Work with one item per pass, and what it costs is that
@@ -98,7 +103,12 @@ func (h *HealthMonitor) AfterWindow(ctx context.Context, w Watching) (AfterReadi
 
 	statement := fmt.Sprintf("%s's release %d is failing against its own recent history after its analysis window closed",
 		w.Name, rel.Number)
-	crossed, err := h.recordCrossing(ctx, w, rel, current.ID, cross, win.PolicyVersion, win.ScoreVersion, "", statement)
+	failureRecords, err := h.failureRecordsJSON(ctx, w, Arm{BuildID: rel.BuildID, DeployID: current.ID}, cross)
+	if err != nil {
+		return reading, true, err
+	}
+	crossed, err := h.recordCrossing(ctx, w, rel, current.ID, cross,
+		win.PolicyVersion, win.ScoreVersion, failureRecords, statement)
 	if err != nil {
 		return reading, true, err
 	}

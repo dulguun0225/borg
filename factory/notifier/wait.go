@@ -224,11 +224,13 @@ var (
 	// already answered: there is nothing left to say "I have this row"
 	// about.
 	ErrAlreadyAnswered = errors.New("notifier: this wait is already answered")
-	// ErrNothingReached is returned by [Notifier.Widen], [Notifier.Answered]
-	// and [Notifier.Acknowledge] for a wait no page ever reached anybody
-	// about. A page is the sequence of events on one wait, and widening,
-	// answering or acknowledging one that never started would leave a
-	// sequence with no beginning.
+	// ErrNothingReached is returned by [Notifier.Widen] and
+	// [Notifier.Answered] for a wait no page ever reached anybody about. A
+	// page is the sequence of events on one wait, and widening or answering
+	// one that never started would leave a sequence with no beginning.
+	// [Notifier.Acknowledge] is the one act that does not refuse there: a row
+	// that pages nobody still takes the acknowledgement, and the half this
+	// package writes for one is nothing.
 	ErrNothingReached = errors.New("notifier: no page was ever delivered about this wait")
 )
 

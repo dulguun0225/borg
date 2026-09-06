@@ -50,10 +50,15 @@
 // a page where nothing was rolled back, and the window closed failed last —
 // never first, which is what would leave a release the factory had failed
 // serving production with no rollback record, no hold, no mismatch, and
-// nothing that would ever retry. after.go is [HealthMonitor.AfterWindow]: the
+// nothing that would ever retry. A search's window takes none of that: its
+// exit is the answer, so it rolls nothing back, raises no incident, and pages
+// nobody. after.go is [HealthMonitor.AfterWindow]: the
 // same own-history reading run once the window has closed and its control was
 // torn down with it, raising an intent through intake instead of rolling
-// back, plus [HealthMonitor.ResolveSettled] and [Shipped].
+// back, plus [HealthMonitor.ResolveSettled] and [Shipped]. kept.go is [Kept]
+// and [HealthMonitor.tearDownKept]: the instances of a release a rollback
+// would return to, ended at the close of the last window that could return to
+// them and never at an exit of their own.
 //
 // target.go is [HealthMonitor.TargetBelow] and [HealthMonitor.LastKnownGood]:
 // the newest release below the one under watch whose window closed passed or
@@ -90,7 +95,11 @@
 // fields. The deploy record names each control per target through the count of
 // instances running it; the build a control runs is read off that record's
 // control release, and a record naming none leaves the teardown asked for on
-// every target the window was allocated over.
+// every target the window was allocated over. Ending a search's own deploy at
+// its exit is the deployer's and no call for it is composed: [Deployer] is
+// asked for the build to be deployed and for nothing to be torn down, so the
+// instances the search put in front of traffic end where the composition ends
+// them.
 //
 // What defines it: ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
 // for the control, its fallback, the quantities, and what the health monitor is;

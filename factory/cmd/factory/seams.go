@@ -70,13 +70,17 @@ type gateNotifier struct {
 }
 
 // Acknowledged is the page's acknowledged event, written where the row that was
-// acknowledged also pages: one act at Work writes both.
+// acknowledged also pages: one act at Work writes both. A gate row that pages
+// nobody still takes the acknowledgement, and there the notifier writes
+// nothing — which is why the kind named here is the ordinary gate decision, the
+// one kind of wait every firing leaves. Where the row did page, the event is
+// written under the kind the page it acknowledges was reached under.
 func (g gateNotifier) Acknowledged(ctx context.Context, openID string, human record.Actor) error {
 	if g.notifier == nil {
 		return nil
 	}
 	_, err := g.notifier.Acknowledge(ctx, notifier.Wait{
-		Row: openID, Kind: notifier.KindDriftMismatch,
+		Row: openID, Kind: notifier.KindGateDecision,
 		Waiting: "a human at Work acknowledged the row this page was about",
 		Holding: people.OfDuty(takeOverIssues),
 	}, human.Key)

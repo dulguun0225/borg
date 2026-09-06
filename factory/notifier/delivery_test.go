@@ -160,6 +160,92 @@ func TestAWaitOfTheSecondKindWaitsForTheServicesHours(t *testing.T) {
 	}
 }
 
+// TestAPageHeldToTheHoursGoesOutWhenTheyComeRound is the rest of that split: a
+// wait of the second kind arising outside a service's hours goes out by mail
+// and chat at once and pages at the next hour the service allows, which is what
+// [notifier.Notifier.PageDeferred] delivers rather than the page being dropped.
+func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
+	ctx, pool, token, n, channels := newNotifier(t)
+	serviceID := aServiceWithNoPagingHoursNow(t, ctx, pool, token)
+
+	held := notifier.Wait{
+		Row: "mis_held", Kind: notifier.KindDriftMismatch,
+		Waiting: "a record disagrees with what runs", Worse: true, ServiceID: serviceID,
+		Holding: people.OfObligation(people.ObligationDriftDetector),
+	}
+	if _, err := n.Notify(ctx, held); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if channels.on(notifier.ChannelPage) != 0 {
+		t.Fatalf("the wait paged outside the service's hours")
+	}
+
+	// A pass while the hours are still closed delivers nothing.
+	paged, err := n.PageDeferred(ctx)
+	if err != nil {
+		t.Fatalf("PageDeferred outside the hours: %v", err)
+	}
+	if len(paged) != 0 || channels.on(notifier.ChannelPage) != 0 {
+		t.Fatalf("PageDeferred paged %v while the service's hours are closed", paged)
+	}
+
+	authorHoursCovering(t, ctx, pool, token, serviceID, time.Now())
+
+	paged, err = n.PageDeferred(ctx)
+	if err != nil {
+		t.Fatalf("PageDeferred: %v", err)
+	}
+	if len(paged) != 1 || paged[0] != held.Row {
+		t.Fatalf("PageDeferred paged %v, want the row held to the hours", paged)
+	}
+	events, err := n.EventsFor(ctx, held.Row)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	if len(events) != 1 || notifier.Event(events[0].Event) != notifier.EventReached {
+		t.Fatalf("the row holds %+v, want the one reached event the delayed page wrote", events)
+	}
+	if channels.on(notifier.ChannelMail) != 1 || channels.on(notifier.ChannelChat) != 1 {
+		t.Errorf("the delayed page delivered mail %d time(s) and chat %d, want the once each Notify already made",
+			channels.on(notifier.ChannelMail), channels.on(notifier.ChannelChat))
+	}
+
+	// A second pass finds the page delivered and adds nothing.
+	again, err := n.PageDeferred(ctx)
+	if err != nil {
+		t.Fatalf("PageDeferred again: %v", err)
+	}
+	if len(again) != 0 {
+		t.Errorf("a second pass paged %v, want nothing left held", again)
+	}
+}
+
+// authorHoursCovering writes paging hours that cover at, which is the next hour
+// the service allows arriving.
+func authorHoursCovering(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	token lease.Token, serviceID string, at time.Time) {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		t.Fatalf("fencing: %v", err)
+	}
+	hours := service.PagingHours{
+		Start: at.UTC().Add(-time.Hour).Format("15:04"),
+		End:   at.UTC().Add(time.Hour).Format("15:04"),
+		Zone:  "UTC",
+	}
+	if err := service.SetPagingHours(ctx, tx, serviceID, hours); err != nil {
+		t.Fatalf("authoring the paging hours: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("committing: %v", err)
+	}
+}
+
 // TestTheHarmMarkCapPagesOncePerIntervalPastIt is the cap: past it a marked
 // intent's own page channel is skipped and one page goes out naming the service
 // and how many arrived past it.

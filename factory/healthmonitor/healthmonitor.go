@@ -203,6 +203,10 @@ type Deployer interface {
 	// timed out and then closes the window; a rollback ends every control it
 	// touches with the windows it closes.
 	TearDownControl(ctx context.Context, c Control) error
+	// TearDownKept ends the instances of a release kept for a rollback on one
+	// target. The health monitor calls this once the last window that could
+	// return to that release has closed, and never at an exit of their own.
+	TearDownKept(ctx context.Context, k Kept) error
 	// RollBack puts the target's build back on the target, writes the rollback's
 	// deploy record, and advances the deploy of the failed release and of every
 	// release it skipped over to rolled back.

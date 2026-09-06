@@ -107,7 +107,28 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	for _, i := range resolved {
 		fmt.Fprintf(p.d.out, "Incident %s resolved: the crossing has stopped against what runs and what it raised has shipped\n", i.ID)
 	}
+	if err := p.pagesHeldToTheHours(ctx); err != nil {
+		return err
+	}
 	return p.driftDetectorPages(ctx)
+}
+
+// pagesHeldToTheHours is the notifier's own pass over the pages a service's
+// authored paging hours held back, which go out at the next hour that service
+// allows. It runs on every watch pass, that being the pass this interface makes
+// while anything is waiting.
+func (p *path) pagesHeldToTheHours(ctx context.Context) error {
+	if p.notifier == nil {
+		return nil
+	}
+	paged, err := p.notifier.PageDeferred(ctx)
+	if err != nil {
+		return err
+	}
+	for _, row := range paged {
+		fmt.Fprintf(p.d.out, "Page about %s went out: the hours its service pages within have come round\n", row)
+	}
+	return nil
 }
 
 // reportWatched prints one window's reading as an owner would read it: the

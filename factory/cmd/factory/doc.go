@@ -227,8 +227,8 @@
 //     emitted.intervals and paired beneath them; and the two readings this
 //     platform cannot give.
 //   - rollback.go — [healthmonitor.Deployer]: StartControl, TearDownControl,
-//     RollBack and DeploySearch, with artifactsOf, the digest a rollback is
-//     verified against.
+//     TearDownKept, RollBack and DeploySearch, with artifactsOf, the digest a
+//     rollback is verified against.
 //   - ops.go — peopleCommand, watchCommand, approveCommand: the three
 //     subcommands downstream of a deploy; and pathFlags/withPath, composing a
 //     path for one of them with no model.
