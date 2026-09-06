@@ -41,6 +41,13 @@
 // people.go is [Factory.AppendPeopleVersion], the append a write at People
 // calls for.
 //
+// Four of those writes are decided at a gate row rather than authored — the
+// three withdrawals' approvals and the shortening of decision-log retention —
+// and each takes the close event of that row, refusing a call that names none
+// with [ErrNotDecidedAtARow] and naming it on the version as [Version.Decision].
+// This package fires no row: package gate does, and its caller hands the close
+// event here.
+//
 // rederive.go is [Factory.Rederive] and [Rederived]: the factory's start
 // rewrites every authored field the newest version names that does not hold
 // what it names, and appends no version. It re-derives the values whose

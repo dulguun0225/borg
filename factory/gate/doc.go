@@ -6,11 +6,10 @@
 //
 // row.go is the vocabulary of a row: [Kind] with [Kinds], [Row] with [Of],
 // [DeployTo], [Row.String], [RowFrom] and [Row.Validate], the eight rows of the
-// default path and the four outside every item as values, [Row.ArtifactGate],
+// default path and the five outside every item as values, [Row.ArtifactGate],
 // [Row.DecidesAnItem], [Row.ReadsAThreshold], [Row.Deploys], [FactorSetAt],
 // [Verdict] with its four values, [Actions], [ReturnsTo] with
-// [ReturnsToTargets] and [DefaultReturnsTo], and the two refusals
-// [ErrEditInPlaceRefused] and [ErrStrategySafeguardRefused].
+// [ReturnsToTargets] and [DefaultReturnsTo], and [ErrEditInPlaceRefused].
 //
 // hold.go is the fourteen holds, [HoldsAt] per row, [Subjects] a hold is
 // computed against, the [Holds] interface and [NoHolds], and the three refusals
@@ -39,7 +38,11 @@
 // [Opened]. set.go is [Gate.FireSet], which decides over a [SetFiring] of
 // [SetMember]s — each naming how many of the intent's requirements its item
 // answers, which is what the change group is computed from at that row — and
-// [SetOpeningPayload].
+// [SetOpeningPayload], with [Gate.EditSetInPlace] beside it, the Decomposition
+// row's own Edit in place. strategysafeguard.go is the production deploy row's
+// fourth action: [StrategySafeguard], [Gate.SafeguardTheStrategy] with
+// [WhySafeguarded], and its three refusals [ErrStrategyNotPickedHere],
+// [ErrPlatformServesNoShare] and [ErrStrategySafeguardNotComposed].
 //
 // verdict.go appends the close event: [Gate.Decide] takes a [Given],
 // [Gate.AutoPass] is the factory approving, [Gate.AutoReject] is the factory
@@ -62,7 +65,9 @@
 // [decisionlog.Writer], which owns that table. The one record it writes outside
 // the log is the escalation onto an item, and it writes that through
 // [item.Dispatch], which owns the item's stage: a gate decides an event and edits
-// nothing else.
+// nothing else. The safeguard the production deploy row's fourth action places
+// is written through [StrategySafeguard], which the composition supplies, so the
+// writer of that record is still Factory.
 //
 // # Which callers are not built
 //
@@ -78,11 +83,25 @@
 // the wait an escalation leaves.
 //
 // [Firing.CouldNotDerive] and [Firing.Exposure] are what the component that
-// built hands the gate; neither derivation is built. The three rows outside
+// built hands the gate; neither derivation is built. The four rows outside
 // every item and the row that decides a shortening of decision-log retention
 // fire like any other, and what would fire them — the artifact store's fleet
-// versions, a safeguard's withdrawal, a halt's withdrawal, and an owner's
-// shorter retention value — reaches them from the composition.
+// versions, a safeguard's withdrawal, a halt's withdrawal, a legal hold's
+// withdrawal, and an owner's shorter retention value — reaches them from the
+// composition.
+//
+// [StrategySafeguard] is the writer of the safeguard the production deploy row's
+// fourth action places. There is no [gatepolicy] parameter for a rollout
+// strategy that keeps a control, so nothing composes one yet and
+// [Gate.SafeguardTheStrategy] refuses with [ErrStrategySafeguardNotComposed] —
+// a second refusal beside the platform's, which is the one the design allows.
+//
+// [Gate.Fire]'s check that nothing is already pending is per subject at every
+// row that decides an item and at A role prompt or a skill, whose subject is the
+// version under decision and is on the open event. At the four rows that decide
+// a record the subject is that record and it is not on the open event, so two
+// firings over two different records are refused as one there: what would carry
+// it is a field of [OpeningPayload], and adding one is what that check waits on.
 //
 // # What defines it
 //
@@ -108,10 +127,12 @@
 // 06-deploy-to-candidate-environment.md, the merge row's mechanical rejections
 // and its derivations are 07-merge-to-master.md, the production deploy row's
 // holds and the four fields a service must have to auto-pass are
-// 08-deploy-to-production.md, and the three rows outside every item are
-// 09-a-role-prompt-or-a-skill.md, 10-a-safeguards-withdrawal.md and
-// 11-a-halts-withdrawal.md. The row that decides a shortening of decision-log
-// retention is
+// 08-deploy-to-production.md, and the three rows outside every item that file
+// names are 09-a-role-prompt-or-a-skill.md, 10-a-safeguards-withdrawal.md and
+// 11-a-halts-withdrawal.md. Two more rows belong to no item: a legal hold's
+// withdrawal, which is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md,
+// and the shortening of decision-log retention, which is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md,
 // and the halt no approve passes, with the two exceptions it takes, is
 // ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.

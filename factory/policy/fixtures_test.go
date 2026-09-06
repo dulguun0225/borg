@@ -40,6 +40,12 @@ var (
 	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition"}
 )
 
+// decidedAt stands for the close event of the gate row that decided one of the
+// four approvals a row decides. This package does not fire a row — the gate
+// component does — so what these tests supply is the id that close would have,
+// which is all the approval reads of it: a call naming none is refused.
+const decidedAt = "dl_0000000000000000000000000000001"
+
 var credential = secretref.MustNew("deploy.local")
 
 // installed is a factory an owner could author on: the two records Install

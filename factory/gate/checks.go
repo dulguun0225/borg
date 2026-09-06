@@ -90,10 +90,16 @@ func (g *Gate) intentPermits(ctx context.Context, f Firing) error {
 	return nil
 }
 
-// nothingPending refuses a firing on a row and an item that already has an open
-// event pending, so one gate on one item has at most one pending row. The one
-// exception is the open event Edit in place appends naming the row it
+// nothingPending refuses a firing on a row and a subject that already has an
+// open event pending, so one gate on one subject has at most one pending row.
+// The one exception is the open event Edit in place appends naming the row it
 // supersedes, and the one a refer re-fires.
+//
+// The subject is the item at every row on an item's path, and the version under
+// decision at A role prompt or a skill, which names a version and no item at
+// all. At the four rows that decide a record the subject is that record, and it
+// is not on the open event, so the match there is the row's kind alone: doc.go
+// says what that costs and what it is waiting on.
 func (g *Gate) nothingPending(ctx context.Context, f Firing) error {
 	if f.supersedes != "" || f.referredFrom != "" {
 		return nil
@@ -103,11 +109,34 @@ func (g *Gate) nothingPending(ctx context.Context, f Firing) error {
 		return err
 	}
 	for _, open := range pending {
-		if open.Gate == f.Row && open.Subject.ItemID == f.ItemID {
-			return fmt.Errorf("%w: %s on %s is open as %s", ErrRowPending, f.Row, f.ItemID, open.Row.ID)
+		if open.Gate != f.Row {
+			continue
 		}
+		if f.Row.DecidesAnItem() {
+			if open.Subject.ItemID != f.ItemID {
+				continue
+			}
+		} else if open.ArtifactID != f.ArtifactID {
+			continue
+		}
+		return fmt.Errorf("%w: %s on %s is open as %s",
+			ErrRowPending, f.Row, pendingSubjectOf(f), open.Row.ID)
 	}
 	return nil
+}
+
+// pendingSubjectOf is the subject the refusal above names, in the words a reader
+// of the error reads: the item, the version under decision, or the row itself
+// where the record it decides is not on the open event.
+func pendingSubjectOf(f Firing) string {
+	switch {
+	case f.Row.DecidesAnItem():
+		return f.ItemID
+	case f.ArtifactID != "":
+		return f.ArtifactID
+	default:
+		return "the record this row decides"
+	}
 }
 
 // Pending is every decision this package wrote whose open event has neither a

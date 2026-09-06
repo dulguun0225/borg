@@ -196,6 +196,29 @@ func ApproveWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, withdr
 
 const selectHalts = `select id, actor_kind, actor_key, actor_key_basis, at, reason from ` + Table
 
+// GetWithdrawal is one withdrawal by id, read through the pool. The gate row
+// that decides it reads it before it fires: the actor on this record is the one
+// human the row may not route to.
+func GetWithdrawal(ctx context.Context, pool *pgxpool.Pool, id string) (Withdrawal, error) {
+	var w Withdrawal
+	var kind, basis string
+	var approvedAt *string
+	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at,
+		halt_id, approved, approved_at from `+WithdrawalTable+` where id = $1`, id).
+		Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At, &w.HaltID, &w.Approved, &approvedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Withdrawal{}, fmt.Errorf("%w: %s", ErrWithdrawalNotFound, id)
+		}
+		return Withdrawal{}, fmt.Errorf("halt: reading withdrawal %s: %w", id, err)
+	}
+	w.Actor.Kind, w.Actor.Basis = record.Kind(kind), record.Basis(basis)
+	if approvedAt != nil {
+		w.ApprovedAt = *approvedAt
+	}
+	return w, nil
+}
+
 // Standing is every halt in force: every row [WithdrawalTable] names no
 // approved withdrawal for. While any stands, every firing of a deploy to
 // production row on every service holds and the merge queue stops

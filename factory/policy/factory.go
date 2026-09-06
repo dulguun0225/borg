@@ -97,6 +97,10 @@ type write struct {
 	dropHalt      string
 	dropLegalHold string
 
+	// decision is the close event of the gate row that decided this write, on the
+	// four writes a row decides and empty on every other.
+	decision string
+
 	// declaration replaces what the version in force names, for a write at
 	// People. Every other write carries it forward.
 	declaration *DeclarationSnapshot
@@ -135,7 +139,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 	}
 
 	key := writeKey(w.caller, w.actor, w.action, w.parameter, w.scope, w.number, w.list,
-		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold+w.confirmsScoreVersion)
+		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold+w.confirmsScoreVersion+w.decision)
 	if w.mint == nil && previous.Key != "" && previous.Key == key {
 		return previous, nil
 	}
@@ -174,7 +178,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		Authored: slices.Clone(previous.Authored), Safeguards: slices.Clone(previous.Safeguards),
 		Halts: slices.Clone(previous.Halts), LegalHolds: slices.Clone(previous.LegalHolds),
 		Declaration: declaration, AutoPassRates: w.rates,
-		ConfirmsScoreVersion: w.confirmsScoreVersion,
+		ConfirmsScoreVersion: w.confirmsScoreVersion, Decision: w.decision,
 	}
 	if w.mint != nil {
 		created, err := w.mint(ctx, tx)

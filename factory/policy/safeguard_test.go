@@ -124,7 +124,7 @@ func TestASafeguardOnTheThresholdAddsAHumanRatherThanMovingTheNumber(t *testing.
 
 	// The approval is where it leaves force, and the firing that follows names
 	// no safeguard.
-	if _, err := in.factory.ApproveSafeguardWithdrawal(ctx, approver, written.ID); err != nil {
+	if _, err := in.factory.ApproveSafeguardWithdrawal(ctx, approver, written.ID, decidedAt); err != nil {
 		t.Fatalf("ApproveSafeguardWithdrawal: %v", err)
 	}
 	withdrawn, err := in.reader.AtGate(ctx, owner, in.subjects("deploy_to_production"))

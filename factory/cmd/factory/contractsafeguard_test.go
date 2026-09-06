@@ -75,7 +75,8 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 		t.Fatalf("writing the withdrawal: %v", err)
 	}
 	decider := owner(t, ctx, d.pool, d.token, "reviewer")
-	if _, err := policy.NewFactory(d.pool, d.token).ApproveSafeguardWithdrawal(ctx, decider, written.ID); err != nil {
+	if _, err := policy.NewFactory(d.pool, d.token).ApproveSafeguardWithdrawal(ctx,
+		decider, written.ID, closedAtItsRow); err != nil {
 		t.Fatalf("approving the withdrawal: %v", err)
 	}
 	through := only(t, runOne(t, ctx, d, out, removeStatement, theService))

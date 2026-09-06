@@ -93,9 +93,11 @@ func TestAWithdrawalIsPendingUntilApproved(t *testing.T) {
 	}
 }
 
-// TestWithdrawInsertsAndApprovesAtOnce: the combined call this package offers
-// until the gate row exists, which package policy's own withdrawal calls.
-func TestWithdrawInsertsAndApprovesAtOnce(t *testing.T) {
+// TestNothingHereWithdrawsInOneCall: this package writes a withdrawal pending
+// and approves one, and offers no call that does both. What sits between them is
+// the gate row, so a combined call would be a safeguard leaving force with no
+// decision on it.
+func TestNothingHereWithdrawsInOneCall(t *testing.T) {
 	ctx, pool, token := newTable(t)
 
 	placed := place(t, ctx, pool, token, gatepolicy.WindowLimit, onAService, safeguard.Bound{Number: 2})
@@ -104,27 +106,24 @@ func TestWithdrawInsertsAndApprovesAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if err := safeguard.Withdraw(ctx, tx, token, owner, placed.ID); err != nil {
-		t.Fatalf("Withdraw: %v", err)
+	written, err := safeguard.InsertWithdrawal(ctx, tx, token, owner, placed.ID)
+	if err != nil {
+		t.Fatalf("InsertWithdrawal: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
+	// The one write left the safeguard standing: nothing in this package took it
+	// out of force, which is what the row's approval is for.
 	inForce, err := safeguard.BySubjects(ctx, pool, gatepolicy.WindowLimit, []safeguard.Subject{onAService})
 	if err != nil {
 		t.Fatalf("BySubjects: %v", err)
 	}
-	if len(inForce) != 0 {
-		t.Errorf("a safeguard Withdraw ended is still in force: %v", ids(inForce))
+	if len(inForce) != 1 || inForce[0].ID != placed.ID {
+		t.Errorf("writing a withdrawal took the safeguard out of force on its own: %v", ids(inForce))
 	}
-
-	withdrawAgain, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	defer func() { _ = withdrawAgain.Rollback(ctx) }()
-	if err := safeguard.Withdraw(ctx, withdrawAgain, token, owner, "sfg_nothing"); !errors.Is(err, safeguard.ErrNotFound) {
-		t.Errorf("withdrawing a safeguard that does not exist = %v, want ErrNotFound", err)
+	if written.Approved {
+		t.Errorf("the withdrawal %s reads back approved with nothing having decided it", written.ID)
 	}
 }

@@ -8,13 +8,14 @@
 // inside a caller's own transaction the way package policy calls a record
 // package's write; [Writer] and [NewWriter], which wrap those three in their
 // own transaction for a caller — a test, today — that holds none of its own;
-// and [Standing], every halt with no approved withdrawal.
+// [GetWithdrawal], one withdrawal by id, which the gate row that decides it
+// reads before it fires, the actor on that record being the one human the row
+// may not route to; and [Standing], every halt with no approved withdrawal.
 //
 // A withdrawal is written pending and is not in force until a second write
 // approves it, the way the gate row A halt's withdrawal decides one, held by
 // a human always and routed to the owner, the halt's subject being the
-// factory. Nothing here combines the two writes into one call the way package
-// safeguard stands in for its own withdrawal's gate row: the gate row is
+// factory. Nothing here combines the two writes into one call: the gate row is
 // gate.KindHaltWithdrawal, and what it calls at its close is package policy's
 // ApproveHaltWithdrawal.
 //

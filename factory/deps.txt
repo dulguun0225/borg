@@ -60,6 +60,12 @@
 # transaction, and so are a consumer contract version and the predicates it introduces.
 # The alternative in each case is two writers of one table.
 #
+# legalhold -> service is an import for one table name. A hold on a project
+# reaches the project's environment and every service in it, so the read of
+# whether a hold reaches a service asks which project that service lies in,
+# which is a field of the service record. The alternative was the caller passing
+# the project, and a caller that passed nothing would lose the reach silently.
+#
 # service -> secretref is an import for a type. A service's repository credential
 # is held by name on the service record, one name on a host that cannot restrict
 # by branch and two where it can, and a second spelling of a secret's name here
@@ -322,7 +328,7 @@ environment -> record gatepolicy secretref lease
 factorysettings -> record gatepolicy item lease
 safeguard -> record gatepolicy lease
 halt -> record lease
-legalhold -> record lease
+legalhold -> record lease service
 window -> boundary gatepolicy record lease
 incident -> record lease
 people -> record lease legalhold policy
@@ -366,7 +372,7 @@ test driftdetector -> postgres lease decisionlog
 test factorysettings -> postgres lease
 test safeguard -> postgres lease
 test halt -> postgres lease
-test legalhold -> postgres lease
+test legalhold -> postgres lease service
 test window -> postgres lease
 test incident -> postgres lease
 test people -> postgres lease legalhold policy score

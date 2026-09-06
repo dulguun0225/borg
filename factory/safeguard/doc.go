@@ -35,11 +35,17 @@
 // [WithdrawalTable], the two id prefixes and [DDL], whose CHECK lists the same
 // nine subject kinds.
 //
-// withdrawal.go holds [Withdrawal], [InsertWithdrawal] and [ApproveWithdrawal]:
+// withdrawal.go holds [Withdrawal], [InsertWithdrawal], [ApproveWithdrawal] and
+// [GetWithdrawal], one withdrawal by id, which the gate row that decides it
+// reads before it fires — the actor on that record is the one human the row may
+// not route to, and the safeguard it names is what the row's routing is read
+// from:
 // a withdrawal is written pending and is not in force until a second write
 // approves it, the way the gate row A safeguard's withdrawal decides one, held
-// by a human always. That row is not built, so [Withdraw] combines the two
-// writes as a stand-in; a caller acting for the row it will become.
+// by a human always. Nothing here combines the two writes — the row is what
+// puts a human between them, and it is reached through
+// policy.Factory.WriteSafeguardWithdrawal and
+// policy.Factory.ApproveSafeguardWithdrawal.
 // [Safeguard.Withdrawn] and the exclusion in [BySubjects] both read
 // [WithdrawalTable] rather than a field of the safeguard, because a safeguard
 // is never edited.

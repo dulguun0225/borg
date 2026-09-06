@@ -200,6 +200,10 @@ type Composition struct {
 	// Notifier is what the acknowledgement and the escalation reach a human
 	// through. A nil value is [NoNotifier].
 	Notifier Notifier
+	// StrategySafeguard places the safeguard the production deploy row's fourth
+	// action places. A nil value refuses that action with
+	// [ErrStrategySafeguardNotComposed].
+	StrategySafeguard StrategySafeguard
 	// Dispatch is the item's writer, which the gate calls to write an escalation
 	// onto an item that exceeded the attempt limit. A nil value refuses that
 	// call with [ErrDispatchNotComposed].
@@ -224,6 +228,9 @@ type Gate struct {
 	draw                     Draw
 	notifier                 Notifier
 	dispatch                 *item.Dispatch
+	// strategySafeguard places the safeguard the production deploy row's fourth
+	// action places, and is nil in a factory composed without one.
+	strategySafeguard StrategySafeguard
 }
 
 // New returns the gate over one composition, with the three optional components
@@ -249,6 +256,7 @@ func New(c Composition) *Gate {
 		draw:                     c.Draw,
 		notifier:                 c.Notifier,
 		dispatch:                 c.Dispatch,
+		strategySafeguard:        c.StrategySafeguard,
 	}
 }
 

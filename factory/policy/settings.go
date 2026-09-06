@@ -42,16 +42,19 @@ func (f *Factory) AuthorDecisionLogRetention(ctx context.Context, actor record.A
 	if held.Present && float64(seconds) < held.Number {
 		return Version{}, fmt.Errorf("%w: %d under the %v in force", ErrShorteningIsDecided, seconds, held.Number)
 	}
-	return f.setDecisionLogRetention(ctx, actor, settings.ID, seconds)
+	return f.setDecisionLogRetention(ctx, actor, settings.ID, seconds, "")
 }
 
 // ApproveRetentionShortening writes the shorter value the gate row that decides
 // a shortening approved. Its caller is that row's close, the row naming each
 // author whose per-author prior the cut would remove; this package does not
-// fire it. A value that is not shorter is refused: that path is the ungated one
-// above.
+// fire it. decision is that close event, required with [ErrNotDecidedAtARow]. A
+// value that is not shorter is refused: that path is the ungated one above.
 func (f *Factory) ApproveRetentionShortening(ctx context.Context, actor record.Actor,
-	seconds int64) (Version, error) {
+	seconds int64, decision string) (Version, error) {
+	if decision == "" {
+		return Version{}, fmt.Errorf("%w: the shortening to %d second(s)", ErrNotDecidedAtARow, seconds)
+	}
 	settings, err := factorysettings.Get(ctx, f.pool)
 	if err != nil {
 		return Version{}, err
@@ -60,16 +63,20 @@ func (f *Factory) ApproveRetentionShortening(ctx context.Context, actor record.A
 	if held.Present && float64(seconds) >= held.Number {
 		return Version{}, fmt.Errorf("%w: %d against the %v in force", ErrNotAShortening, seconds, held.Number)
 	}
-	return f.setDecisionLogRetention(ctx, actor, settings.ID, seconds)
+	return f.setDecisionLogRetention(ctx, actor, settings.ID, seconds, decision)
 }
 
 func (f *Factory) setDecisionLogRetention(ctx context.Context, actor record.Actor,
-	settingsID string, seconds int64) (Version, error) {
-	return f.author(ctx, actor, gatepolicy.DecisionLogRetention,
-		Scope{Kind: ScopeFactorySettings, ID: settingsID}, float64(seconds),
-		func(ctx context.Context, tx pgx.Tx) error {
+	settingsID string, seconds int64, decision string) (Version, error) {
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionAuthored,
+		parameter: gatepolicy.DecisionLogRetention,
+		scope:     Scope{Kind: ScopeFactorySettings, ID: settingsID},
+		number:    float64(seconds), authored: true, decision: decision,
+		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return factorysettings.SetDecisionLogRetention(ctx, tx, settingsID, seconds)
-		})
+		},
+	})
 }
 
 // AuthorReportRetention authors how long the report store keeps a report.
