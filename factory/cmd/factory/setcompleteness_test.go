@@ -14,7 +14,9 @@ import (
 // ../../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md's
 // "A set that leaves a requirement named by no item and derived into none is
 // rejected there, and so is one that leaves a derived requirement named by no
-// item", in both directions and in the three cases that are not rejections.
+// item", and the paragraph after it, "And so is one with an item that answers
+// no requirement, whole or derived" — the three directions and the cases that
+// are not rejections.
 func TestSetRejectionOverWhatTheSetAnswers(t *testing.T) {
 	whole := intent.Requirement{ID: "rq_whole", Kind: intent.KindConfirmed, Statement: "the whole"}
 	enumerated := intent.Requirement{ID: "rq_enumerated", Kind: intent.KindEnumeratedFromEvidence, Statement: "from evidence"}
@@ -27,6 +29,7 @@ func TestSetRejectionOverWhatTheSetAnswers(t *testing.T) {
 		name     string
 		inForce  []intent.Requirement
 		answered []string
+		members  []gate.SetMember
 		rejects  bool
 		check    string
 	}{
@@ -34,11 +37,13 @@ func TestSetRejectionOverWhatTheSetAnswers(t *testing.T) {
 			name:     "one item answers the requirement whole",
 			inForce:  []intent.Requirement{whole},
 			answered: []string{"rq_whole"},
+			members:  []gate.SetMember{{ItemID: "it_a", Requirements: 1}},
 		},
 		{
 			name:     "the split spreads it and every share is answered",
 			inForce:  []intent.Requirement{whole, shareA, shareB},
 			answered: []string{"rq_a", "rq_b"},
+			members:  []gate.SetMember{{ItemID: "it_a", Requirements: 1}, {ItemID: "it_b", Requirements: 1}},
 		},
 		{
 			name:    "a requirement decomposition marked unanswerable is named by no item",
@@ -64,9 +69,17 @@ func TestSetRejectionOverWhatTheSetAnswers(t *testing.T) {
 			rejects:  true,
 			check:    gate.AutoRejectedByDerivedRequirementNamedByNoItem,
 		},
+		{
+			name:     "a member of the set answers no requirement, whole or derived",
+			inForce:  []intent.Requirement{whole},
+			answered: []string{"rq_whole"},
+			members:  []gate.SetMember{{ItemID: "it_a", Requirements: 1}, {ItemID: "it_b", Requirements: 0}},
+			rejects:  true,
+			check:    gate.AutoRejectedByItemAnsweringNoRequirement,
+		},
 	} {
 		t.Run(one.name, func(t *testing.T) {
-			check, found, rejects := setRejection(one.inForce, one.answered)
+			check, found, rejects := setRejection(one.inForce, one.answered, one.members)
 			if rejects != one.rejects {
 				t.Fatalf("setRejection = %q, %q, %v; want rejects = %v", check, found, rejects, one.rejects)
 			}

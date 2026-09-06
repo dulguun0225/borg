@@ -231,8 +231,6 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	for _, c := range candidates {
 		answered = append(answered, c.requirementIDs...)
 	}
-	check, incomplete, rejects := setRejection(inForce, answered)
-
 	members := make([]gate.SetMember, 0, len(candidates))
 	for _, c := range candidates {
 		members = append(members, gate.SetMember{
@@ -244,6 +242,8 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 			WaitsOn:      c.waitsOn,
 		})
 	}
+	check, incomplete, rejects := setRejection(inForce, answered, members)
+
 	opened, err := p.gate.FireSet(ctx, gate.SetFiring{
 		IntentID: in.ID, EnvironmentID: p.production.ID, Members: members,
 	})

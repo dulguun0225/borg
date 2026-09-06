@@ -34,6 +34,14 @@ const (
 	// AutoRejectedByDerivedRequirementNamedByNoItem is a share the split wrote
 	// and left with nobody: a derived requirement no item of the set names.
 	AutoRejectedByDerivedRequirementNamedByNoItem = "a derived requirement named by no item of the set"
+	// AutoRejectedByItemAnsweringNoRequirement is a member of the set that
+	// answers no requirement of the intent, whole or derived: work nobody
+	// asked for, whose criteria at Spec would trace to nothing. Decomposition's
+	// own writes derive a requirement for every item they write — the item
+	// that creates a service and each step of a migration included — so this
+	// is never a decomposition working as the design intends, and always one
+	// that left a member with nothing assigned.
+	AutoRejectedByItemAnsweringNoRequirement = "an item that answers no requirement of the set, whole or derived"
 )
 
 // DecompositionChecks is every check that rejects on its own terms at the
@@ -43,6 +51,7 @@ const (
 var DecompositionChecks = []string{
 	AutoRejectedByRequirementNamedByNoItem,
 	AutoRejectedByDerivedRequirementNamedByNoItem,
+	AutoRejectedByItemAnsweringNoRequirement,
 }
 
 // SetMember is one item of a decomposition as the row decides over it: the item,
@@ -57,10 +66,10 @@ type SetMember struct {
 	// Requirements is how many of the intent's requirements this item answers,
 	// which is the unit decomposition sets and the unit the item-size target is
 	// authored in. It is what the change group is computed from at this row,
-	// there being no build and no diff. A member that answers none is read as
-	// the smallest set and not refused: what the set answers is the caller's
-	// completeness reading, and a firing this package rejected on its own shape
-	// would leave that reading with no row to reject at.
+	// there being no build and no diff. A member that answers none is scored as
+	// the smallest set here — this package rejects on no shape of its own — but
+	// what the set answers is the caller's completeness reading, and a member
+	// answering none is [AutoRejectedByItemAnsweringNoRequirement] there.
 	Requirements int
 	WaitsOn      []string
 }
