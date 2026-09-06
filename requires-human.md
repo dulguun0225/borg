@@ -93,6 +93,40 @@ supplies with nothing. A field, or a link the human's rollback writes, is the de
   fields match what `02-an-environment-per-candidate/README.md` and `03-room-and-what-an-environment-costs.md`
   intend before an install relies on the defaults.
 
+## Questions the design does not settle
+
+Each of these is a place where two readings of `end-goal/` are both defensible and the code had to
+pick one. The pick is named so it can be overruled.
+
+- **Whether the retention-shortening row and Decomposition name a duty.** Both rows route away from
+  the human who wrote what they decide, but neither names a duty, so `anotherDeciderExists` is
+  false and the bar can mark a self-approval and never refuse one. That follows the design's own
+  "wherever one exists", but "routed to a human other than the one who authored the shorter value"
+  is only honoured in full if a duty attaches — 8 is the obvious candidate for retention. The same
+  question attaches to duty 10 and the revert's own gate row.
+- **One page per drift mismatch or two.** A mismatch now pages twice: the detector's sweep, on the
+  mismatch, which a human ends by clearing it, and the gate firing it holds, on the row, which a
+  human ends at the row. They reach the same holders. Collapsing them loses the second's tie to the
+  decision; keeping both means one condition, two pages.
+- **Which page a firing sends where a drift mismatch and a revert decision hold at once.** A page is
+  the sequence of events on one row, so the code sends the mismatch's. The design names both
+  conditions and not their order.
+- **Whether a decomposition member that answers no requirement is a third rejection direction.**
+  [_Decomposition_](end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md)
+  names two directions and neither covers an item answering nothing. The row now fires and that
+  member scores as the smallest set rather than erroring the run out, which is the smallest change
+  that is grounded; a third direction is the design's to add.
+- **Which component writes the platform's last check.** `deploy.RecordPlatformCheck` and
+  `lastcheck.Writer.RecordPlatformPass` are two writers of one record and neither is called. The
+  one-writer rule says one of them goes.
+- **How a backfill declares itself.** [_The store is a contract too_](end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md)
+  says a backfill item declares "only the element it fills and the element it fills from" and names
+  no file or syntax. The Go derivation expects `backfill.<store>.go` carrying one
+  `//borg:backfill <element> from <element>` line, chosen to match the contract extractor's file
+  convention. A backfill item cannot merge on this platform either way: the double-application check
+  needs a candidate environment with a store, and this one has none, so the check reports that
+  nothing ran — which the design reads as not passing.
+
 ## Left to a component the factory does not have (stated in the owning package's `doc.go`; listed
 here only so the count is not lost)
 
@@ -103,9 +137,18 @@ role-prompt-or-skill gate's own firing. Every mechanism that reads one of these 
 parameter or an interface the composition does not yet supply, rather than a substitute the code
 invented.
 
-Four seams are built on both sides and joined by nothing, each because the component between them
-is one of the above: the People declaration's credentials and rates reach no agent run, because
-dispatch reads the fleet entry that does not exist; the spend ceiling is authored and compared by
-nobody, for the same reason; the transition check and the screen drivers are derived and checked
-but fired by no build, because nothing hands the Implementation row a checkout; and a platform that
-keeps a fleet closes no instance-hour span, this one keeping none.
+Several seams are built on both sides and joined by nothing, each because the component between
+them is one of the above: the People declaration's credentials and rates reach no agent run, and
+the spend ceiling is authored and compared by nobody, because dispatch reads the fleet entry that
+does not exist; the transition check and the screen drivers are derived and checked but fired by no
+build, because nothing hands the Implementation row a checkout; a platform that keeps a fleet closes
+no instance-hour span, this one keeping none; the unreliable bound is authored and read back by
+nobody; and no agent is ever handed a skill, so the versions the vector names are empty for want of
+anything to name — nothing composes a skill at all.
+
+Three smaller gaps of the same kind, each stated where it sits: the effort an entry names is sent to
+the provider in the field that provider documents, but no model this install can reach offers the
+parameter, so the path is never exercised against one that accepts it; the repository credential an
+install writes is a name resolving to nothing, a repository here being a directory; and an owner
+clears a score version waiting at the factory-settings scope only by re-authoring the number, there
+being no confirmation call for that scope as there is for an environment's.
