@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/area"
@@ -88,7 +89,11 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 		if err != nil {
 			return err
 		}
-		if err := p.commitAndBuild(ctx, c, change, run.InputManifestID); err != nil {
+		if err := p.commitAndBuild(ctx, c, change, run.InputManifestID); errors.Is(err, ErrNoChange) {
+			fmt.Fprintf(d.out, "The implementer's reply changed no file, so there is nothing to build; item %s builds again against that\n", c.itemID)
+			returned = agent.Returned{Reason: ErrNoChange.Error(), Version: c.commit}
+			continue
+		} else if err != nil {
 			return err
 		}
 
@@ -162,6 +167,12 @@ func (p *path) startBranch(ctx context.Context, c *candidate) error {
 // the candidate as compileFailure, with buildID left empty, and the stage
 // carries it into the gate as the mechanical rejection — the row still has the
 // implementation version submitted above to fire over.
+// ErrNoChange is a reply applied to the checkout that left it as it was: no
+// file written differently, none removed. The implementer was asked for a
+// change and returned none, and the stage tries again with that as what was
+// found wrong.
+var ErrNoChange = errors.New("factory: the implementation changed no file, so there is nothing to build")
+
 func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Change, manifestID string) error {
 	d := p.d
 	repo := c.svc.Repository
@@ -170,6 +181,17 @@ func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Ch
 	}
 	if _, err := git(repo, "add", "-A"); err != nil {
 		return err
+	}
+	// A reply that changed no file is not an implementation: there is nothing
+	// to commit, nothing to build, and nothing for a row to decide over. It is
+	// handed back to the implementer as what was found wrong, the way a
+	// rejection is, and the attempt limit bounds it.
+	staged, err := git(repo, "status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(staged) == "" {
+		return ErrNoChange
 	}
 	if _, err := git(repo, "-c", "user.name=agent.implementer", "-c", "user.email=agent.implementer@factory.invalid",
 		"commit", "-m", "item "+c.itemID+": implement"); err != nil {
