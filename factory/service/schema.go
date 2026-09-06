@@ -22,6 +22,18 @@ const (
 // quantity and none on another.
 const ExplicitThresholdTable = "service_explicit_threshold"
 
+// RecentHistorySizeTable is the fourth per-quantity table: the smallest change
+// the health monitor's comparison against a service's own recent history has to
+// detect, per quantity as the window's own size is. The average run length that
+// reading is taken at is one number for the service and a column of [Table].
+const RecentHistorySizeTable = "service_recent_history_size"
+
+// ChangeFreezeTable is the periods within which this service's production
+// deploys are held, one row per period. It is a table and not a pair of columns
+// because the field names periods, plural, and a period is added rather than
+// edited.
+const ChangeFreezeTable = "service_change_freeze"
+
 // SeedTable and ValueSetTable are the two version tables: what the candidate's
 // store starts with, and the non-production values the configuration takes on a
 // candidate. Each authoring is a version written beside the earlier ones and
@@ -31,24 +43,28 @@ const (
 	ValueSetTable = "service_value_set_version"
 )
 
-// IDPrefix is what [record.NewID] is called with for a service, and the four
-// beside it are for the rows of the four tables above.
+// IDPrefix is what [record.NewID] is called with for a service, and the six
+// beside it are for the rows of the six tables above.
 const (
 	IDPrefix                  = "svc"
 	WindowSizeIDPrefix        = "sws"
 	WindowPowerIDPrefix       = "swp"
 	ExplicitThresholdIDPrefix = "set"
+	RecentHistorySizeIDPrefix = "srh"
+	ChangeFreezeIDPrefix      = "scf"
 	SeedIDPrefix              = "ssv"
 	ValueSetIDPrefix          = "svs"
 )
 
 // FormatVersion is what this package writes into format_version on every insert
-// into [Table], and the four beside it on every insert into the others.
+// into [Table], and the six beside it on every insert into the others.
 const (
-	FormatVersion                  = "service/3"
+	FormatVersion                  = "service/4"
 	FormatVersionWindowSize        = "service_window_size/1"
 	FormatVersionWindowPower       = "service_window_power/1"
 	FormatVersionExplicitThreshold = "service_explicit_threshold/1"
+	FormatVersionRecentHistorySize = "service_recent_history_size/1"
+	FormatVersionChangeFreeze      = "service_change_freeze/1"
 	FormatVersionSeed              = "service_seed_version/1"
 	FormatVersionValueSet          = "service_value_set_version/1"
 )
@@ -83,6 +99,16 @@ const (
 // value is the score's to supply, and for one authored outright — the objective,
 // the paging hours, the two retentions — nothing supplies it and absence is the
 // design's own default, stated in the file doc.go names for each.
+//
+// mutation_floor, kept_fraction, max_concurrent_kept_fleets,
+// recent_history_run_length and proof_test_rate are five of the twelve the
+// design names on this record. The score supplies the floor and the run length
+// where an owner authors neither; the other three are authored outright, the
+// fraction's default being all of them, fixed rather than supplied, because the
+// score does not model capacity, and no proof test runs at all where an owner
+// authors no rate. The size the run length is read at is per quantity and is a
+// row of RecentHistorySizeTable rather than a column here, the arrangement the
+// window's own size already has.
 //
 // The bake volume, the backlog cap and the instance-hour rate sit beside the
 // window limit rather than among gate policy's eleven rows: the first two are
@@ -129,6 +155,11 @@ var DDL = []string{
 	unreliable_bound double precision,
 	incident_item_bound_seconds double precision,
 	snapshot_retention_seconds double precision,
+	mutation_floor double precision,
+	kept_fraction double precision,
+	max_concurrent_kept_fleets double precision,
+	recent_history_run_length double precision,
+	proof_test_rate double precision,
 	objective double precision,
 	objective_period_seconds double precision,
 	paging_hours_start text not null,
@@ -171,6 +202,11 @@ var DDL = []string{
 	constraint unreliable_bound_is_a_share check (unreliable_bound is null or (unreliable_bound >= 0 and unreliable_bound <= 1)),
 	constraint incident_item_bound_positive check (incident_item_bound_seconds is null or incident_item_bound_seconds > 0),
 	constraint snapshot_retention_positive check (snapshot_retention_seconds is null or snapshot_retention_seconds > 0),
+	constraint mutation_floor_is_a_share check (mutation_floor is null or (mutation_floor >= 0 and mutation_floor <= 1)),
+	constraint kept_fraction_is_a_share check (kept_fraction is null or (kept_fraction > 0 and kept_fraction <= 1)),
+	constraint max_concurrent_kept_fleets_positive check (max_concurrent_kept_fleets is null or max_concurrent_kept_fleets > 0),
+	constraint recent_history_run_length_positive check (recent_history_run_length is null or recent_history_run_length > 0),
+	constraint proof_test_rate_not_negative check (proof_test_rate is null or proof_test_rate >= 0),
 	constraint objective_is_a_share check (objective is null or (objective > 0 and objective <= 1)),
 	constraint objective_names_its_period check ((objective is null) = (objective_period_seconds is null)),
 	constraint objective_period_positive check (objective_period_seconds is null or objective_period_seconds > 0),
@@ -216,6 +252,31 @@ var DDL = []string{
 	constraint threshold_is_a_share check (threshold >= 0 and threshold <= 1),
 	constraint threshold_size_is_a_share check (size > 0 and size <= 1),
 	constraint one_threshold_per_service_and_quantity unique (service_id, quantity)
+)`,
+
+	`create table if not exists ` + RecentHistorySizeTable + ` (
+	` + record.Columns + `,
+	service_id text not null,
+	quantity text not null,
+	size double precision not null,
+	` + record.Constraints + `,
+	constraint service_id_present check (service_id <> ''),
+	constraint quantity_present check (quantity <> ''),
+	constraint size_is_a_share check (size > 0 and size <= 1),
+	constraint one_recent_history_size_per_service_and_quantity unique (service_id, quantity)
+)`,
+
+	`create table if not exists ` + ChangeFreezeTable + ` (
+	` + record.Columns + `,
+	service_id text not null,
+	starts_at text not null,
+	ends_at text not null,
+	` + record.Constraints + `,
+	constraint service_id_present check (service_id <> ''),
+	constraint starts_at_is_time_layout check (starts_at ~ '` + record.TimePattern + `'),
+	constraint ends_at_is_time_layout check (ends_at ~ '` + record.TimePattern + `'),
+	constraint period_ends_after_it_starts check (ends_at >= starts_at),
+	constraint one_row_per_period unique (service_id, starts_at, ends_at)
 )`,
 
 	`create table if not exists ` + SeedTable + ` (

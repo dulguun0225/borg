@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -143,13 +144,15 @@ func insert(ctx context.Context, tx pgx.Tx, e Environment) error {
 	_, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
 		 targets, credential, platform_name, platform_credential, can_compose_on_demand,
-		 max_concurrent_candidate_environments, item_id, composed_from, seed_version, value_set_version,
+		 max_concurrent_candidate_environments, strategy_default,
+		 item_id, composed_from, seed_version, value_set_version,
 		 torn_down_at, torn_down_reason, withdrawn_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
 		e.ID, FormatVersion, string(e.Actor.Kind), e.Actor.Key, string(e.Actor.Basis), e.At,
 		string(e.Kind), e.ProjectID, e.Name, joinTargets(e.Targets), e.Credential.Name(),
 		e.Platform.Name, e.Platform.Credential.Name(), e.Platform.CanComposeOnDemand,
-		e.MaxConcurrentCandidateEnvironments, e.ItemID, joinComposed(e.Composition.From),
+		e.MaxConcurrentCandidateEnvironments, string(e.StrategyDefault),
+		e.ItemID, joinComposed(e.Composition.From),
 		e.Composition.SeedVersion, e.Composition.ValueSetVersion,
 		e.TornDownAt, string(e.TornDownReason), e.WithdrawnAt,
 	)
@@ -280,6 +283,39 @@ func SetMaxConcurrentCandidateEnvironments(ctx context.Context, tx pgx.Tx, token
 	if _, err := tx.Exec(ctx, `update `+Table+`
 		set max_concurrent_candidate_environments = $1 where id = $2`, count, id); err != nil {
 		return fmt.Errorf("environment: authoring the ceiling on %s: %w", id, err)
+	}
+	return nil
+}
+
+// SetStrategyDefault authors the rollout strategy production takes where nothing
+// narrows the pick. It is production's record alone: a strategy decides whether
+// a control runs, and a control is a comparison against organic traffic, which
+// no other kind has. Nothing supplies a value for it, so the empty value is a
+// default nobody authored and not a strategy of nothing.
+//
+// What reads it is the production deploy row's pick, which is package gate's.
+// This package holds the field and never the pick.
+func SetStrategyDefault(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	id string, strategy gatepolicy.Strategy) error {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if _, err := gatepolicy.DecidableStrategy(string(strategy)); err != nil {
+		return err
+	}
+	e, err := lockPersistent(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if e.Kind != KindProduction {
+		return fmt.Errorf("%w: %s is %s", ErrNotAProductionEnvironment, id, e.Kind)
+	}
+	if _, err := tx.Exec(ctx, `update `+Table+` set strategy_default = $1 where id = $2`,
+		string(strategy), id); err != nil {
+		return fmt.Errorf("environment: authoring the strategy default on %s: %w", id, err)
 	}
 	return nil
 }

@@ -8,8 +8,8 @@ import (
 
 // Parameter is one value an owner may author, or one a safeguard binds without
 // anyone authoring it. Thirteen are authored across gate policy's eleven rows —
-// [Definitions] — seven more are authored and are not among the eleven —
-// [NotAmongTheEleven] — and one is only ever a safeguard's, [SafeguardOnly].
+// [Definitions] — thirty-one more are authored and are not among the eleven —
+// [NotAmongTheEleven] — and two are only ever a safeguard's, [SafeguardOnly].
 type Parameter string
 
 const (
@@ -108,6 +108,91 @@ const (
 	ExplicitThreshold Parameter = "explicit_threshold"
 	// ExplicitThresholdSize is the size an owner sets when they set the number.
 	ExplicitThresholdSize Parameter = "explicit_threshold_size"
+
+	// StrategyDefault is the rollout strategy production takes where nothing
+	// narrows the pick. It is a field of production's environment record alone,
+	// because a strategy decides whether a control runs and a control exists only
+	// where organic traffic does.
+	StrategyDefault Parameter = "strategy_default"
+	// MaxConcurrentCandidateEnvironments is how many candidate environments the
+	// platform may hold at once. It is a field of the production environment
+	// record beside the platform it declares, authored outright with nothing
+	// supplied.
+	MaxConcurrentCandidateEnvironments Parameter = "max_concurrent_candidate_environments"
+
+	// BakeVolume is the traffic the targets a rollout has already reached serve
+	// before the next is reached. It is a field of the service record.
+	BakeVolume Parameter = "bake_volume"
+	// MutationFloor is the mutation score below which Merge to master rejects. It
+	// is a field of the service record.
+	MutationFloor Parameter = "mutation_floor"
+	// BacklogCap is how many releases may wait behind a rollback hold before the
+	// merge queue stops fast-forwarding this service's candidates. It is a field
+	// of the service record.
+	BacklogCap Parameter = "backlog_cap"
+	// SearchBudget is what a search may spend before it stops: a maximum count of
+	// builds, with the maximum total time production spends on them authored
+	// beside it. It is a field of the service record.
+	SearchBudget Parameter = "search_budget"
+	// KeptFraction is the fraction of its instances a release keeps while a
+	// rollback could return to it. It is a field of the service record, authored
+	// outright with a fixed default of all of them.
+	KeptFraction Parameter = "kept_fraction"
+	// MaxConcurrentKeptFleets is how many kept fleets one service may hold at
+	// once. It is a field of the service record, authored outright with nothing
+	// supplied.
+	MaxConcurrentKeptFleets Parameter = "max_concurrent_kept_fleets"
+	// RecentHistorySize is the smallest change the health monitor's comparison
+	// against a service's own recent history has to detect. It is a field of the
+	// service record, one value per [Quantity] as the window's size is.
+	RecentHistorySize Parameter = "recent_history_size"
+	// RecentHistoryRunLength is the average run length that reading is taken at:
+	// the mean volume a service whose behaviour has not changed runs before it
+	// crosses once. It is a field of the service record.
+	RecentHistoryRunLength Parameter = "recent_history_run_length"
+	// Objective is the service level objective, with the period it is counted over
+	// authored beside it. It is a field of the service record, authored outright
+	// with nothing supplied.
+	Objective Parameter = "objective"
+	// PagingHours is the hours within which the service pages, with the zone they
+	// were written in. It is a field of the service record, authored outright with
+	// a default of every hour.
+	PagingHours Parameter = "paging_hours"
+	// ProofTestRate is how often the deployer, inside an open window, shifts a
+	// share of traffic onto the instances of the rollback's target and back again.
+	// It is a field of the service record, and no proof test runs at all where an
+	// owner authors no rate.
+	ProofTestRate Parameter = "proof_test_rate"
+	// ChangeFreeze is the periods within which this service's production deploys
+	// are held. It is a field of the service record, authored outright with
+	// nothing supplied.
+	ChangeFreeze Parameter = "change_freeze"
+	// InstanceHourRate is what one instance-hour converts to, in the currency the
+	// owner's rates are authored in. It is a field of the service record.
+	InstanceHourRate Parameter = "instance_hour_rate"
+	// EnvironmentHourRate is the same for one environment-hour. It is a field of
+	// the service record.
+	EnvironmentHourRate Parameter = "environment_hour_rate"
+	// OperationCap is how many operations one release may hold open per interval,
+	// with the overflow operation the excess lands in authored beside it. It is a
+	// field of the service record.
+	OperationCap Parameter = "operation_cap"
+	// MutantCap is how many mutants the mutation score may spend per item. It is a
+	// field of the service record, with a fixed default.
+	MutantCap Parameter = "mutant_cap"
+	// FailureRecordKeyCap is how many distinct keys a release may hold open per
+	// interval for its failure records. It is a field of the service record.
+	FailureRecordKeyCap Parameter = "failure_record_key_cap"
+	// UnreliableBound is the rate of disagreement above which a criterion of this
+	// service is unreliable. It is a field of the service record with a fixed
+	// default.
+	UnreliableBound Parameter = "unreliable_bound"
+	// IncidentItemBound is how long an incident-raised item may be worked before a
+	// human is reached. It is a field of the service record with a fixed default.
+	IncidentItemBound Parameter = "incident_item_bound"
+	// SnapshotRetention is how long a schema-change snapshot is kept. It is a
+	// field of the service record, authored outright with nothing supplied.
+	SnapshotRetention Parameter = "snapshot_retention"
 )
 
 // Kind is what a parameter's value is, which decides how a safeguard clamps it and
@@ -127,6 +212,16 @@ const (
 	KindSeverity Kind = "severity"
 	// KindList is a list of names, clamped by union.
 	KindList Kind = "list"
+	// KindRate is a number per unit, the unit being the parameter's own: currency
+	// per instance-hour, currency per environment-hour, and how often a proof test
+	// runs. It is its own kind because nothing bounds it above and a rate of
+	// nothing is a real value, where a fraction is bounded at one and a count is
+	// above zero.
+	KindRate Kind = "rate"
+	// KindStrategy is one of the two rollout strategies, [Strategies]. It is its
+	// own kind because the value is a name and not a number, and the only
+	// parameter that takes it is the strategy default.
+	KindStrategy Kind = "strategy"
 	// KindPredicate is one predicate on one element of a contract: a
 	// [PredicateKind] and, where that kind takes one, its argument. It is the shape a
 	// safeguard's predicate takes as its bound and of nothing else, and it is not a
@@ -149,6 +244,12 @@ const (
 	// DirectionAddsAHuman adds a human at the gate and carries no bound. It is
 	// the risk threshold's direction and no other's.
 	DirectionAddsAHuman Direction = "adds_a_human"
+	// DirectionAdds adds a check rather than clamping a value: the safeguard's
+	// bound is applied in addition to what the mechanism already reads and never
+	// instead of it, so nothing arithmetic narrows the value in force. Two
+	// parameters take it — the explicit health threshold, read beside the
+	// comparison, and the strategy default, where a safeguard keeps a control.
+	DirectionAdds Direction = "adds"
 	// DirectionNone is a parameter no safeguard reaches: one authored outright
 	// with nothing supplied and nothing to clamp, and the field an owner turns on
 	// once. A safeguard on such a parameter is refused where it is written rather

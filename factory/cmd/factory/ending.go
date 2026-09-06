@@ -126,16 +126,17 @@ func acceptCommitCommand(args []string) error {
 }
 
 // mitigateCommand is `factory mitigate <deploy-id>`: a human at Ops
-// instructing the deployer to perform one of the three operations on a target,
-// and ending one already standing. The factory performs none of the three on
-// its own — a mitigation is a human's instruction and the record says which
-// human.
+// instructing the deployer to perform one of the class's two operations on a
+// target, and ending one already standing. The factory performs neither on its
+// own — a mitigation is a human's instruction and the record says which human.
+// Ending every instance of a service on a target is not among them: retirement
+// is what calls for that, through the deployer's removal.
 func mitigateCommand(args []string) error {
 	flags := flag.NewFlagSet("mitigate", flag.ContinueOnError)
 	secrets := flags.String("secrets", "", "path of the secrets file (required)")
 	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
 	human := flags.String("human", "owner", "the named human at Ops instructing the deployer")
-	operation := flags.String("operation", "", "one of shift_traffic, set_instance_count, end_every_instance")
+	operation := flags.String("operation", "", "one of shift_traffic, set_instance_count")
 	share := flags.Float64("share", 0, "the share a traffic shift asks for")
 	count := flags.Int("count", 0, "the instance count a set_instance_count asks for")
 	end := flags.String("end", "", "the id of a standing mitigation to end, instead of performing one")
@@ -237,25 +238,22 @@ func truncateCommand(args []string) error {
 			holds = append(holds, one.ID)
 		}
 
-		// The retention value in force, read through the whole set rather than
-		// one parameter: package policy's reader answers per subject and this
-		// pass is the factory's own, so what it enforces is what the
-		// factory-wide row holds. The reader is composed with the score version
-		// in force, which is what supplies a value an owner authored none for.
+		// The retention value in force. It is authored and is not one of gate
+		// policy's eleven rows, so it is read one parameter at a time and not
+		// through the set those rows make: this pass is the factory's own, and
+		// what it enforces is what the factory-wide record holds. The reader is
+		// composed with the score version in force, which is what supplies a
+		// value an owner authored none for.
 		version, err := score.NewWriter(pool, token, marksOf(pool)).Ensure(ctx, scoreActor)
 		if err != nil {
 			return err
 		}
-		all, err := policy.NewReader(pool, token, version).All(ctx, policy.Subjects{})
+		inForce, err := policy.NewReader(pool, token, version).
+			InForce(ctx, gatepolicy.DecisionLogRetention, policy.Subjects{})
 		if err != nil {
 			return err
 		}
-		retention := 0.0
-		for _, one := range all {
-			if one.Parameter == gatepolicy.DecisionLogRetention {
-				retention = one.Number
-			}
-		}
+		retention := inForce.Number
 		row, err := decisionlog.NewWriter(pool, token).Truncate(ctx, decisionlog.Cut{
 			Actor:     actor,
 			Retention: fmt.Sprintf("%.0f second(s)", retention),

@@ -8,9 +8,10 @@
 // record hands its version, and the one write path every method below takes:
 // the version in force is read, the write's key derived, and the version and
 // the record write put in one fenced transaction. A write whose key is the one
-// the version in force already carries writes nothing. [Factory.Declaration]
-// and [Factory.AutoPassRates] are the two functions the composition supplies,
-// for what this package may not read.
+// the version in force already carries writes nothing. [Factory.Declaration],
+// [Factory.AutoPassRates] and [Factory.Removal] are the three functions the
+// composition supplies, for what this package may not read and may not reach —
+// a retirement through a factory composed with no deployer is [ErrNoDeployer].
 //
 // version.go is [Version] — a row of the decision log and no table of this
 // package's — with [Caller], [Action], [Scope], [AuthoredValue],
@@ -22,8 +23,10 @@
 //
 // records.go is the records Factory creates: [Factory.Install],
 // [Factory.CreateProject], which writes production's environment in the same
-// event, [Factory.CreateEnvironment], [Factory.WithdrawEnvironment],
-// [Factory.SetMaxConcurrentCandidateEnvironments] and [Factory.DeclareArea].
+// event, [Factory.EndProject], which ends the two in one write once every
+// service in the project is retired, [Factory.CreateEnvironment],
+// [Factory.WithdrawEnvironment], [Factory.SetMaxConcurrentCandidateEnvironments],
+// [Factory.AuthorStrategyDefault] and [Factory.DeclareArea].
 // parameters.go is the thirteen parameters of gate policy's eleven rows, one
 // Author call each, with [Factory.ConfirmGateThreshold] beside the two threshold
 // writes: a threshold write names the score version in force at it, and the
@@ -34,8 +37,11 @@
 // [Factory.AuthorDecisionLogRetention] refusing a shortening
 // ([ErrShorteningIsDecided]) that [Factory.ApproveRetentionShortening] is what
 // writes. service.go is what an owner writes on a service record beside the
-// eleven, [Factory.MarkServiceProvisioned] and [Factory.RetireService] among
-// them. safeguards.go is [Factory.AddSafeguard],
+// eleven — [Factory.MarkServiceProvisioned] and [Factory.RetireService], and an
+// Author call for each of the twelve the design names there and the values
+// authored beside them. safeguards.go is [Factory.AddSafeguard], which is also
+// where a safeguard on the explicit threshold writes the number and the size
+// beside it onto the service record, and
 // [Factory.WriteSafeguardWithdrawal] and [Factory.ApproveSafeguardWithdrawal].
 // stop.go is the halt and the legal hold with the same three calls each.
 // people.go is [Factory.AppendPeopleVersion], the append a write at People
@@ -45,7 +51,11 @@
 // rewrites every authored field the newest version names that does not hold
 // what it names, and appends no version. It re-derives the values whose
 // parameter package gatepolicy names; a field a version names by key and no
-// parameter is left as it stands.
+// parameter is left as it stands. A write that sets a second value beside the
+// first — the objective and its period, the paging hours, the operation cap and
+// its overflow, the search budget's two numbers, and a change freeze period —
+// is one of those: re-deriving one number of a pair would leave the record in a
+// state its own CHECK refuses.
 //
 // reader.go is [Reader], [NewReader] and [Subjects], the records a read is
 // performed against. A [Reader] holds one [score.Version] rather than reading
@@ -69,7 +79,9 @@
 // window.go is [Reader.WindowParameters] and [Window]; attemptlimit.go and
 // allowedpredicatekinds.go are the two parameters with a read of their own; and
 // all.go is [Reader.All], every parameter in the order gate policy's table
-// lists the rows, each saying what reads it.
+// lists the rows, each saying what reads it, with [Reader.InForce] beside it:
+// one parameter, whichever of package gatepolicy's three lists holds it, which
+// is how a value authored and not among the eleven is read.
 //
 // safeguardpredicate.go is [Reader.SafeguardPredicatesOn] and
 // [SafeguardPredicate], which resolve to assertions on one contract element

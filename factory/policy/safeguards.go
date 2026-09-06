@@ -9,6 +9,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/safeguard"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // AddSafeguard places one, in the direction the parameter's definition gives
@@ -29,10 +30,56 @@ func (f *Factory) AddSafeguard(ctx context.Context, actor record.Actor, paramete
 			if err != nil {
 				return Created{}, err
 			}
+			if err := f.writeExplicitThreshold(ctx, tx, actor, parameter, subject, bound); err != nil {
+				return Created{}, err
+			}
 			return Created{SafeguardID: placed.ID}, nil
 		},
 	})
 	return placed, version, err
+}
+
+// writeExplicitThreshold is the one place a safeguard writes a field rather
+// than clamping a value. The explicit threshold adds a reading beside the
+// comparison rather than narrowing one, and what reads it is the health
+// monitor, off the service record — so placing the safeguard is what puts the
+// number there.
+//
+// It is the pair or nothing: the owner sets the size when they set the number,
+// so the field is written once both safeguards stand and neither alone writes
+// anything. The counterpart is read through the pool rather than tx, every
+// safeguard before this one having committed, and the one being placed is the
+// bound in hand.
+func (f *Factory) writeExplicitThreshold(ctx context.Context, tx pgx.Tx, actor record.Actor,
+	parameter gatepolicy.Parameter, subject safeguard.Subject, bound safeguard.Bound) error {
+	if parameter != gatepolicy.ExplicitThreshold && parameter != gatepolicy.ExplicitThresholdSize {
+		return nil
+	}
+	if subject.Kind != safeguard.SubjectService || subject.ID == "" {
+		return nil
+	}
+	quantity, err := gatepolicy.DecidableQuantity(subject.Key)
+	if err != nil {
+		return err
+	}
+
+	counterpart := gatepolicy.ExplicitThresholdSize
+	if parameter == gatepolicy.ExplicitThresholdSize {
+		counterpart = gatepolicy.ExplicitThreshold
+	}
+	standing, err := safeguard.BySubjects(ctx, f.pool, counterpart, []safeguard.Subject{subject})
+	if err != nil {
+		return err
+	}
+	if len(standing) == 0 {
+		return nil
+	}
+
+	number, size := bound.Number, standing[0].Bound.Number
+	if parameter == gatepolicy.ExplicitThresholdSize {
+		number, size = standing[0].Bound.Number, bound.Number
+	}
+	return service.SetExplicitThreshold(ctx, tx, f.token, actor, subject.ID, quantity, number, size)
 }
 
 // WriteSafeguardWithdrawal writes a withdrawal of one safeguard, pending. The

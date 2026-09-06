@@ -4,8 +4,9 @@
 //
 // # The code
 //
-// schema.go is [Table] and the five tables beside it — [WindowSizeTable],
-// [WindowPowerTable], [ExplicitThresholdTable], [SeedTable], [ValueSetTable] —
+// schema.go is [Table] and the six tables beside it — [WindowSizeTable],
+// [WindowPowerTable], [ExplicitThresholdTable], [RecentHistorySizeTable],
+// [ChangeFreezeTable], [SeedTable], [ValueSetTable] —
 // with their id prefixes, format versions, and [DDL]. writer.go is [Service], [Writer] and [NewWriter]
 // with [Writer.Create], and the reads [Get], [ByName] and [All], each of which
 // returns everything on the record. parameters.go is [Parameters] and
@@ -13,20 +14,27 @@
 // [gatepolicy.Quantity], and
 // [SetWindowConfidence], [SetWindowCap], [SetWindowLimit] and [SetExposureBound]
 // for the service, beside [SetBakeVolume], [SetBacklogCap],
-// [SetInstanceHourRate], [SetMutantCap], [SetFailureRecordKeyCap],
+// [SetInstanceHourRate], [SetMutationFloor], [SetKeptFraction],
+// [SetMaxConcurrentKeptFleets], [SetRecentHistoryRunLength],
+// [SetProofTestRate], [SetMutantCap], [SetFailureRecordKeyCap],
 // [SetUnreliableBound] and [SetIncidentItemBound], which are authored the same way
 // and are not gate policy's. provisioning.go is [Provisioned], [CredentialShape],
 // [SetProvisioned], [SetTargets] and [Retire]. operations.go is [Objective],
 // [PagingHours], [SetObjective], [SetPagingHours], [SetProductLicence] and
 // [SetSnapshotRetention]. threshold.go is [Threshold] and
 // [SetExplicitThreshold], the absolute number a safeguard sets per quantity
-// beside the size it is read at, with [SetOperationCap] — the cap on how many
+// beside the size it is read at, with [SetRecentHistorySize] per quantity,
+// [SetOperationCap] — the cap on how many
 // operations one release may hold open per interval and the overflow operation
-// the excess lands in — [SetEnvironmentHourRate] and [SetSearchBudget]. deployer.go is [Reachability] and [Adopt]. versions.go is
+// the excess lands in — [SetEnvironmentHourRate] and [SetSearchBudget].
+// freeze.go is the change freeze: [Period], [AddFreezePeriod], [FreezePeriods]
+// and [Frozen], the read a gate row asks at every firing.
+// deployer.go is [Reachability] and [Adopt]. versions.go is
 // [Version] with [AuthorSeed], [AuthorValueSet], [SeedInForce], [ValueSetInForce]
 // and the two lists beside them. The tests are one file per subject above —
 // db_test.go, parameters_test.go, provisioning_test.go, operations_test.go,
-// deployer_test.go, threshold_test.go and versions_test.go — sharing the newWriter, acquire, begin
+// deployer_test.go, threshold_test.go, freeze_test.go and versions_test.go —
+// sharing the newWriter, acquire, begin
 // and commit helpers of db_test.go and helpers_test.go, every one of them against
 // the database.
 //
@@ -63,13 +71,22 @@
 //
 // # What is not built
 //
-// Package policy is the caller of every owner-authored write here, and it calls
-// [SetWindowConfidence], [SetWindowCap], [SetWindowLimit] and [SetWindowSize]
-// today. The rest wait on package gatepolicy naming the parameter each is
-// authored under, and until it does they are reachable from a test and from
-// nothing else. [Retire] takes the three counts that refuse it as arguments,
-// because each is a read of a package this one may not import; the caller that
-// computes them is not built either.
+// Package policy is the caller of every owner-authored write here, package
+// gatepolicy naming the parameter each is authored under. [Retire] takes the
+// three counts that refuse it as arguments, because each is a read of a package
+// this one may not import; the caller that computes them is not built either,
+// and neither is the removal the deployer performs when the write lands, which
+// package policy calls through what its composition supplies.
+//
+// Two numbers the design fixes and does not give. The bound above which a
+// criterion is unreliable has a fixed default rather than a supplied value, and
+// the design states no number, so nothing here holds one: the column is null
+// until an owner authors a bound, and the reader — package criterion's own read
+// — takes the bound as an argument, so a service with none authored has none to
+// give. The proof test rate is the other: the design says how often the rollback
+// path is exercised and never what the rate is counted per, so the field holds
+// the number an owner authored and the component that would run a proof test is
+// not built.
 //
 // # What defines it
 //
@@ -89,7 +106,20 @@
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md.
 // The window's size, confidence and power per quantity, the cap, the window limit
 // and the exposure bound are
-// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md. The
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md, and
+// the twelve fields authored here that are not among the eleven, with the
+// direction a safeguard on each points, are
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md.
+// The change freeze is
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md,
+// the mutation floor is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md,
+// the size and average run length of the reading against the service's own
+// recent history are
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md,
+// and the fraction of its instances a release keeps, the maximum concurrent kept
+// fleets, the proof test rate and the search budget are
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md. The
 // bake volume between one target of a rollout and the next is
 // ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md, the
 // backlog cap on how many releases wait behind a rollback hold is

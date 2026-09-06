@@ -289,7 +289,7 @@ var DDL = []string{
 	began_at text not null,
 	ended_at text not null default '',
 	` + record.Constraints + `,
-	constraint operation_known check (operation in ('shift_traffic', 'set_instance_count', 'end_every_instance')),
+	constraint operation_known check (operation in ('shift_traffic', 'set_instance_count')),
 	constraint address_present check (address <> ''),
 	constraint deploy_id_present check (deploy_id <> ''),
 	constraint began_at_is_time_layout check (began_at ~ '` + record.TimePattern + `'),

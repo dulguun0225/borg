@@ -93,6 +93,23 @@ type Service struct {
 	PagingHours              PagingHours
 	ProductLicence           string
 
+	// Five more of the twelve the design names on this record. MutationFloor is
+	// the mutation score below which Merge to master rejects; KeptFraction is the
+	// fraction of its instances a release keeps while a rollback could return to
+	// it, absent meaning the fixed default of all of them;
+	// MaxConcurrentKeptFleets is how many kept fleets it may hold at once;
+	// RecentHistoryRunLength is the average run length the reading against the
+	// service's own recent history is taken at, and RecentHistorySize the smallest
+	// change that reading has to detect, per quantity as the window's size is; and
+	// ProofTestRate is how often the rollback's path is exercised inside an open
+	// window, no proof test running at all where an owner authors none.
+	MutationFloor           gatepolicy.Authored
+	KeptFraction            gatepolicy.Authored
+	MaxConcurrentKeptFleets gatepolicy.Authored
+	RecentHistoryRunLength  gatepolicy.Authored
+	RecentHistorySize       map[gatepolicy.Quantity]gatepolicy.Authored
+	ProofTestRate           gatepolicy.Authored
+
 	// Reachability is the deployer's four fields and when it wrote them.
 	Reachability Reachability
 }
@@ -146,6 +163,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 			WindowSize:  map[gatepolicy.Quantity]gatepolicy.Authored{},
 			WindowPower: map[gatepolicy.Quantity]gatepolicy.Authored{},
 		},
+		RecentHistorySize: map[gatepolicy.Quantity]gatepolicy.Authored{},
 		ExplicitThreshold: map[gatepolicy.Quantity]Threshold{},
 	}
 
@@ -167,6 +185,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 		operation_cap, overflow_operation, search_budget_builds, search_budget_seconds,
 		mutant_cap, failure_record_key_cap, unreliable_bound, incident_item_bound_seconds,
 		snapshot_retention_seconds, objective, objective_period_seconds,
+		mutation_floor, kept_fraction, max_concurrent_kept_fleets, recent_history_run_length, proof_test_rate,
 		paging_hours_start, paging_hours_end, paging_hours_zone, product_licence,
 		target_reached, instances_replaceable, rollback_path_present, emission_readable, deployer_wrote_at)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9,
@@ -177,6 +196,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 		null, '', null, null,
 		null, null, null, null,
 		null, null, null,
+		null, null, null, null, null,
 		'', '', '', '',
 		false, false, false, false, '')`,
 		s.ID, FormatVersion, string(s.Actor.Kind), s.Actor.Key, string(s.Actor.Basis), s.At,
@@ -199,6 +219,7 @@ const selectService = `select id, actor_kind, actor_key, actor_key_basis, at, na
 	operation_cap, overflow_operation, search_budget_builds, search_budget_seconds,
 	mutant_cap, failure_record_key_cap, unreliable_bound, incident_item_bound_seconds,
 	snapshot_retention_seconds, objective, objective_period_seconds,
+	mutation_floor, kept_fraction, max_concurrent_kept_fleets, recent_history_run_length, proof_test_rate,
 	paging_hours_start, paging_hours_end, paging_hours_zone, product_licence,
 	target_reached, instances_replaceable, rollback_path_present, emission_readable, deployer_wrote_at
 	from ` + Table
@@ -288,6 +309,7 @@ func scan(row pgx.Row, named string) (Service, error) {
 	var operationCap, searchBudgetBuilds, searchBudgetSeconds *float64
 	var mutantCap, keyCap, unreliable, incidentBound, snapshotRetention *float64
 	var objective, objectivePeriod *float64
+	var mutationFloor, keptFraction, keptFleets, runLength, proofTestRate *float64
 	err := row.Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &s.Name, &s.Repository, &s.ProjectID,
 		&s.Provisioned.At, &shape, &branch, &master,
 		&s.RetiredAt, &targets,
@@ -296,6 +318,7 @@ func scan(row pgx.Row, named string) (Service, error) {
 		&operationCap, &s.OverflowOperation, &searchBudgetBuilds, &searchBudgetSeconds,
 		&mutantCap, &keyCap, &unreliable, &incidentBound,
 		&snapshotRetention, &objective, &objectivePeriod,
+		&mutationFloor, &keptFraction, &keptFleets, &runLength, &proofTestRate,
 		&s.PagingHours.Start, &s.PagingHours.End, &s.PagingHours.Zone, &s.ProductLicence,
 		&s.Reachability.TargetReached, &s.Reachability.InstancesReplaceable,
 		&s.Reachability.RollbackPathPresent, &s.Reachability.EmissionReadable, &s.Reachability.At)
@@ -335,6 +358,12 @@ func scan(row pgx.Row, named string) (Service, error) {
 	s.IncidentItemBoundSeconds = authored(incidentBound)
 	s.SnapshotRetentionSeconds = authored(snapshotRetention)
 	s.Objective = Objective{Target: authored(objective), PeriodSeconds: authored(objectivePeriod)}
+	s.MutationFloor = authored(mutationFloor)
+	s.KeptFraction = authored(keptFraction)
+	s.MaxConcurrentKeptFleets = authored(keptFleets)
+	s.RecentHistoryRunLength = authored(runLength)
+	s.ProofTestRate = authored(proofTestRate)
+	s.RecentHistorySize = map[gatepolicy.Quantity]gatepolicy.Authored{}
 	return s, nil
 }
 

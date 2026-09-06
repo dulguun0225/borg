@@ -99,9 +99,9 @@ func TestAMitigationIsRefusedWhereNoHumanAskedAndWhereItNamesNothing(t *testing.
 	}
 
 	asking := deploy.Mitigating{
-		Actor: opsHuman, Principal: deployerCalls, Operation: deploy.OperationEndEveryInstance,
+		Actor: opsHuman, Principal: deployerCalls, Operation: deploy.OperationShiftTraffic,
 		Address: "/srv/one", Target: fakes[0], DeployID: d.ID,
-		ServiceName: "checkout", Credential: credential,
+		ServiceName: "checkout", Build: r.BuildID, Share: 0, Credential: credential,
 	}
 
 	byTheDeployer := asking
@@ -118,6 +118,18 @@ func TestAMitigationIsRefusedWhereNoHumanAskedAndWhereItNamesNothing(t *testing.
 	unknown.Operation = "restart_the_world"
 	if _, err := deploy.Mitigate(ctx, w, unknown); !errors.Is(err, deploy.ErrOperationUnknown) {
 		t.Errorf("a mitigation naming an operation outside the class = %v, want ErrOperationUnknown", err)
+	}
+	// Ending every instance of a service on a target is a third operation of the
+	// seam and not a mitigation: retirement is what calls for it outside a
+	// rollout, and no human at Ops instructs one here.
+	ending := asking
+	ending.Operation = "end_every_instance"
+	if _, err := deploy.Mitigate(ctx, w, ending); !errors.Is(err, deploy.ErrOperationUnknown) {
+		t.Errorf("a mitigation asking to end every instance = %v, want ErrOperationUnknown", err)
+	}
+	if len(deploy.Operations) != 2 {
+		t.Errorf("the mitigation class holds %d operations, and the design fixes it at two: %v",
+			len(deploy.Operations), deploy.Operations)
 	}
 	if standing, err := deploy.StandingMitigations(ctx, pool); err != nil || len(standing) != 0 {
 		t.Errorf("a refused mitigation was recorded: %+v, %v", standing, err)

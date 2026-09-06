@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
@@ -166,6 +167,11 @@ type Environment struct {
 	// to candidate environment beside the platform's own room, whichever of the
 	// two is reached first.
 	MaxConcurrentCandidateEnvironments int
+	// StrategyDefault is the rollout strategy an owner authored on production's
+	// record, and is empty where they authored none and on every other kind: a
+	// strategy decides whether a control runs, and a control is a comparison
+	// against organic traffic, which no other kind has.
+	StrategyDefault gatepolicy.Strategy
 	// ItemID is the item a candidate's environment belongs to, and is empty on a
 	// persistent kind. It is the item and not the build, because the environment
 	// persists across a rebuild.
@@ -214,7 +220,8 @@ func (e Environment) EveryTargetServesAShare() bool {
 
 const selectEnvironment = `select id, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
 	targets, credential, platform_name, platform_credential, can_compose_on_demand,
-	max_concurrent_candidate_environments, item_id, composed_from, seed_version, value_set_version,
+	max_concurrent_candidate_environments, strategy_default,
+	item_id, composed_from, seed_version, value_set_version,
 	torn_down_at, torn_down_reason, withdrawn_at
 	from ` + Table
 
@@ -333,9 +340,10 @@ func TornDownCandidates(ctx context.Context, pool *pgxpool.Pool, productionEnvir
 func scan(row pgx.Row, named string) (Environment, error) {
 	var e Environment
 	var kind, actorKind, actorBasis, targets, credential, platformCredential, composed, reason string
+	var strategyDefault string
 	err := row.Scan(&e.ID, &actorKind, &e.Actor.Key, &actorBasis, &e.At, &kind, &e.ProjectID, &e.Name,
 		&targets, &credential, &e.Platform.Name, &platformCredential, &e.Platform.CanComposeOnDemand,
-		&e.MaxConcurrentCandidateEnvironments, &e.ItemID, &composed,
+		&e.MaxConcurrentCandidateEnvironments, &strategyDefault, &e.ItemID, &composed,
 		&e.Composition.SeedVersion, &e.Composition.ValueSetVersion,
 		&e.TornDownAt, &reason, &e.WithdrawnAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -346,6 +354,7 @@ func scan(row pgx.Row, named string) (Environment, error) {
 	e.Actor.Kind = record.Kind(actorKind)
 	e.Actor.Basis = record.Basis(actorBasis)
 	e.Kind = Kind(kind)
+	e.StrategyDefault = gatepolicy.Strategy(strategyDefault)
 	e.TornDownReason = Reason(reason)
 	e.Targets, err = splitTargets(targets)
 	if err != nil {

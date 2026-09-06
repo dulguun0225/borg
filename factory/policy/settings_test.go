@@ -12,11 +12,18 @@ import (
 // protection is decided and not merely written, and here the protection is the
 // evidence a shorter value destroys. A longer value adds protection and is in
 // force on write.
+//
+// The first authored value is a shortening too: where an owner has authored
+// none the log is kept for the life of the install, so any finite value is
+// shorter than what is in force and comes through the row.
 func TestShorteningDecisionLogRetentionIsDecidedAndLengtheningIsNot(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	if _, err := in.factory.AuthorDecisionLogRetention(ctx, owner, 90*24*3600); err != nil {
-		t.Fatalf("AuthorDecisionLogRetention: %v", err)
+	if _, err := in.factory.AuthorDecisionLogRetention(ctx, owner, 90*24*3600); !errors.Is(err, policy.ErrShorteningIsDecided) {
+		t.Fatalf("the first authored value = %v, want ErrShorteningIsDecided", err)
+	}
+	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 90*24*3600); err != nil {
+		t.Fatalf("ApproveRetentionShortening of the first value: %v", err)
 	}
 	settings, err := factorysettings.Get(ctx, in.pool)
 	if err != nil {
@@ -75,10 +82,27 @@ func TestNeitherAnAuthoredValueNorTheRowGoesUnderTheRetentionFloor(t *testing.T)
 	if _, err := in.factory.SetRetentionFloor(ctx, owner, 60*24*3600); err != nil {
 		t.Fatalf("SetRetentionFloor: %v", err)
 	}
-	if _, err := in.factory.AuthorDecisionLogRetention(ctx, owner, 30*24*3600); !errors.Is(err, factorysettings.ErrUnderTheRetentionFloor) {
-		t.Errorf("authoring under the floor = %v, want ErrUnderTheRetentionFloor", err)
-	}
+	// Every value that shortens the retention comes through the row, the first
+	// one included, so the floor is what that row is refused by.
 	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 30*24*3600); !errors.Is(err, factorysettings.ErrUnderTheRetentionFloor) {
 		t.Errorf("approving a value under the floor = %v, want ErrUnderTheRetentionFloor", err)
+	}
+	if _, err := in.factory.ApproveRetentionShortening(ctx, approver, 90*24*3600); err != nil {
+		t.Fatalf("ApproveRetentionShortening above the floor: %v", err)
+	}
+	// What an owner may still write ungated is a longer value, and a value
+	// longer than one already above the floor cannot be under it — so an
+	// authored value under the floor is unreachable rather than refused, and the
+	// store's own constraint is what keeps it so.
+	if _, err := in.factory.AuthorDecisionLogRetention(ctx, owner, 45*24*3600); !errors.Is(err, policy.ErrShorteningIsDecided) {
+		t.Errorf("authoring a shorter value = %v, want ErrShorteningIsDecided", err)
+	}
+	settings, err := factorysettings.Get(ctx, in.pool)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if settings.DecisionLogRetentionSeconds.Number != 90*24*3600 {
+		t.Errorf("the retention in force is %v, want the ninety days the row approved",
+			settings.DecisionLogRetentionSeconds.Number)
 	}
 }

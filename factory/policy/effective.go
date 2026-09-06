@@ -129,6 +129,28 @@ func (r *Reader) authored(ctx context.Context, d gatepolicy.Definition, s Subjec
 		authored, err := factorysettings.ReviewSampleRate(ctx, r.pool, settings.ID, s.Duty)
 		return authored, nil, err
 	default:
+		if d.Scope == gatepolicy.ScopeFactorySettings {
+			return r.authoredOnSettings(ctx, d, s)
+		}
+		if d.Scope == gatepolicy.ScopeEnvironment {
+			if s.EnvironmentID == "" {
+				return gatepolicy.Authored{}, nil, nil
+			}
+			e, err := environment.Get(ctx, r.pool, s.EnvironmentID)
+			if err != nil {
+				return gatepolicy.Authored{}, nil, err
+			}
+			if d.Parameter == gatepolicy.StrategyDefault {
+				if e.StrategyDefault == "" {
+					return gatepolicy.Authored{}, nil, nil
+				}
+				return gatepolicy.Authored{}, []string{string(e.StrategyDefault)}, nil
+			}
+			return gatepolicy.Authored{
+				Number:  float64(e.MaxConcurrentCandidateEnvironments),
+				Present: e.MaxConcurrentCandidateEnvironments > 0,
+			}, nil, nil
+		}
 		if s.ServiceID == "" {
 			return gatepolicy.Authored{}, nil, nil
 		}
@@ -149,9 +171,126 @@ func (r *Reader) authored(ctx context.Context, d gatepolicy.Definition, s Subjec
 			return svc.Parameters.WindowLimit, nil, nil
 		case gatepolicy.ExposureBound:
 			return svc.Parameters.ExposureBound, nil, nil
+		case gatepolicy.ChangeFreeze:
+			// The freeze is periods, plural, and each is a row rather than a
+			// field, so it is read here where the pool is rather than off the
+			// record already in hand.
+			periods, err := service.FreezePeriods(ctx, r.pool, s.ServiceID)
+			if err != nil {
+				return gatepolicy.Authored{}, nil, err
+			}
+			named := make([]string, 0, len(periods))
+			for _, p := range periods {
+				named = append(named, p.StartsAt+" "+p.EndsAt)
+			}
+			return gatepolicy.Authored{}, named, nil
 		}
-		return gatepolicy.Authored{}, nil, fmt.Errorf("policy: nothing reads an authored %s", d.Parameter)
+		return authoredBesideTheEleven(d, s, svc)
 	}
+}
+
+// authoredBesideTheEleven is what an owner authored on the service record that
+// is not one of gate policy's eleven rows: the twelve the design names there and
+// the values authored beside them. Each is a field of the record already read,
+// the paging hours being read as a list rather than a number; the change
+// freeze's periods are rows and are read where the pool is.
+func authoredBesideTheEleven(d gatepolicy.Definition, s Subjects,
+	svc service.Service) (gatepolicy.Authored, []string, error) {
+	switch d.Parameter {
+	case gatepolicy.BakeVolume:
+		return svc.BakeVolume, nil, nil
+	case gatepolicy.BacklogCap:
+		return svc.BacklogCap, nil, nil
+	case gatepolicy.MutationFloor:
+		return svc.MutationFloor, nil, nil
+	case gatepolicy.SearchBudget:
+		return svc.SearchBudgetBuilds, nil, nil
+	case gatepolicy.KeptFraction:
+		return svc.KeptFraction, nil, nil
+	case gatepolicy.MaxConcurrentKeptFleets:
+		return svc.MaxConcurrentKeptFleets, nil, nil
+	case gatepolicy.RecentHistorySize:
+		return svc.RecentHistorySize[gatepolicy.Quantity(s.Quantity)], nil, nil
+	case gatepolicy.RecentHistoryRunLength:
+		return svc.RecentHistoryRunLength, nil, nil
+	case gatepolicy.Objective:
+		return svc.Objective.Target, nil, nil
+	case gatepolicy.PagingHours:
+		if !svc.PagingHours.Authored() {
+			return gatepolicy.Authored{}, nil, nil
+		}
+		return gatepolicy.Authored{}, []string{svc.PagingHours.Start, svc.PagingHours.End, svc.PagingHours.Zone}, nil
+	case gatepolicy.ProofTestRate:
+		return svc.ProofTestRate, nil, nil
+	case gatepolicy.InstanceHourRate:
+		return svc.InstanceHourRate, nil, nil
+	case gatepolicy.EnvironmentHourRate:
+		return svc.EnvironmentHourRate, nil, nil
+	case gatepolicy.OperationCap:
+		return svc.OperationCap, nil, nil
+	case gatepolicy.MutantCap:
+		return svc.MutantCap, nil, nil
+	case gatepolicy.FailureRecordKeyCap:
+		return svc.FailureRecordKeyCap, nil, nil
+	case gatepolicy.UnreliableBound:
+		return svc.UnreliableBound, nil, nil
+	case gatepolicy.IncidentItemBound:
+		return svc.IncidentItemBoundSeconds, nil, nil
+	case gatepolicy.SnapshotRetention:
+		return svc.SnapshotRetentionSeconds, nil, nil
+	case gatepolicy.ExplicitThreshold:
+		threshold, held := svc.ExplicitThreshold[gatepolicy.Quantity(s.Quantity)]
+		return gatepolicy.Authored{Number: threshold.Number, Present: held}, nil, nil
+	case gatepolicy.ExplicitThresholdSize:
+		threshold, held := svc.ExplicitThreshold[gatepolicy.Quantity(s.Quantity)]
+		return gatepolicy.Authored{Number: threshold.Size, Present: held}, nil, nil
+	}
+	return gatepolicy.Authored{}, nil, fmt.Errorf("policy: nothing reads an authored %s", d.Parameter)
+}
+
+// authoredOnSettings is what an owner authored on the factory-wide settings
+// record that is not one of the rows the switch above answers: the retentions,
+// the retention floor, the remediation period per severity, the report
+// channel's rate per service and factory-wide, and the harm mark's page cap.
+// Each is a field of that record, and the keyed ones are read at the key these
+// subjects name.
+func (r *Reader) authoredOnSettings(ctx context.Context, d gatepolicy.Definition,
+	s Subjects) (gatepolicy.Authored, []string, error) {
+	settings, err := factorysettings.Get(ctx, r.pool)
+	if err != nil {
+		return gatepolicy.Authored{}, nil, err
+	}
+	switch d.Parameter {
+	case gatepolicy.DecisionLogRetention:
+		return settings.DecisionLogRetentionSeconds, nil, nil
+	case gatepolicy.ReportRetention:
+		return settings.ReportRetentionSeconds, nil, nil
+	case gatepolicy.BackupRetention:
+		return settings.BackupRetentionSeconds, nil, nil
+	case gatepolicy.RetentionFloor:
+		return settings.RetentionFloorSeconds, nil, nil
+	case gatepolicy.ReportChannelRate:
+		if s.ServiceID == "" {
+			return settings.ReportChannelRate, nil, nil
+		}
+		authored, err := factorysettings.ReportChannelRate(ctx, r.pool, settings.ID, s.ServiceID)
+		return authored, nil, err
+	case gatepolicy.RemediationPeriod:
+		// The severity a period is keyed by is the advisory severity in force,
+		// which is a parameter of its own; a read naming no severity finds
+		// nothing authored, the way a read naming no quantity does.
+		return gatepolicy.Authored{}, nil, nil
+	case gatepolicy.HarmMarkPageCap:
+		if s.ServiceID == "" {
+			return gatepolicy.Authored{}, nil, nil
+		}
+		cap, err := factorysettings.HarmMarkPageCap(ctx, r.pool, settings.ID, s.ServiceID)
+		if err != nil {
+			return gatepolicy.Authored{}, nil, err
+		}
+		return gatepolicy.Authored{Number: float64(cap.Cap), Present: cap.Authored}, nil, nil
+	}
+	return gatepolicy.Authored{}, nil, fmt.Errorf("policy: nothing reads an authored %s", d.Parameter)
 }
 
 // resolve is the three reads for a numeric parameter: what an owner authored,
@@ -207,7 +346,7 @@ func (r *Reader) resolve(ctx context.Context, parameter gatepolicy.Parameter,
 //
 // The source says which of the three the value came from, and the factory's own is
 // the answer where an owner authored nothing. It is not [FromNothing]: an
-// unauthored list is the five kinds and not an empty one, so a consumer contract
+// unauthored list is the nine kinds and not an empty one, so a consumer contract
 // can be derived on a factory where nobody has opened gate policy.
 func (r *Reader) resolveList(ctx context.Context, parameter gatepolicy.Parameter,
 	authored []string, s Subjects) (Effective, error) {

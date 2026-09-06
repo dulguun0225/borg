@@ -119,6 +119,15 @@ func (f *Factory) fieldInForce(ctx context.Context, value AuthoredValue) (gatepo
 	case gatepolicy.AllowedPredicateKinds:
 		settings, err := factorysettings.Get(ctx, f.pool)
 		return gatepolicy.Authored{}, settings.AllowedPredicateKinds, err
+	case gatepolicy.StrategyDefault:
+		e, err := environment.Get(ctx, f.pool, value.Scope.ID)
+		if err != nil {
+			return gatepolicy.Authored{}, nil, err
+		}
+		if e.StrategyDefault == "" {
+			return gatepolicy.Authored{}, nil, nil
+		}
+		return gatepolicy.Authored{}, []string{string(e.StrategyDefault)}, nil
 	case gatepolicy.AdvisorySeverity, gatepolicy.HeldOutSampleRate,
 		gatepolicy.DecisionLogRetention, gatepolicy.ReportRetention,
 		gatepolicy.BackupRetention, gatepolicy.RetentionFloor:
@@ -145,6 +154,36 @@ func (f *Factory) fieldInForce(ctx context.Context, value AuthoredValue) (gatepo
 		return svc.Parameters.WindowLimit, nil, nil
 	case gatepolicy.ExposureBound:
 		return svc.Parameters.ExposureBound, nil, nil
+	case gatepolicy.BakeVolume:
+		return svc.BakeVolume, nil, nil
+	case gatepolicy.BacklogCap:
+		return svc.BacklogCap, nil, nil
+	case gatepolicy.MutationFloor:
+		return svc.MutationFloor, nil, nil
+	case gatepolicy.KeptFraction:
+		return svc.KeptFraction, nil, nil
+	case gatepolicy.MaxConcurrentKeptFleets:
+		return svc.MaxConcurrentKeptFleets, nil, nil
+	case gatepolicy.RecentHistorySize:
+		return svc.RecentHistorySize[gatepolicy.Quantity(value.Scope.Key)], nil, nil
+	case gatepolicy.RecentHistoryRunLength:
+		return svc.RecentHistoryRunLength, nil, nil
+	case gatepolicy.ProofTestRate:
+		return svc.ProofTestRate, nil, nil
+	case gatepolicy.InstanceHourRate:
+		return svc.InstanceHourRate, nil, nil
+	case gatepolicy.EnvironmentHourRate:
+		return svc.EnvironmentHourRate, nil, nil
+	case gatepolicy.MutantCap:
+		return svc.MutantCap, nil, nil
+	case gatepolicy.FailureRecordKeyCap:
+		return svc.FailureRecordKeyCap, nil, nil
+	case gatepolicy.UnreliableBound:
+		return svc.UnreliableBound, nil, nil
+	case gatepolicy.IncidentItemBound:
+		return svc.IncidentItemBoundSeconds, nil, nil
+	case gatepolicy.SnapshotRetention:
+		return svc.SnapshotRetentionSeconds, nil, nil
 	}
 	return gatepolicy.Authored{}, nil, fmt.Errorf("policy: nothing re-derives %s", value.Parameter)
 }
@@ -237,6 +276,46 @@ func (f *Factory) rewriteIn(ctx context.Context, tx pgx.Tx, actor record.Actor, 
 		return service.SetWindowLimit(ctx, tx, value.Scope.ID, value.Number)
 	case gatepolicy.ExposureBound:
 		return service.SetExposureBound(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.BakeVolume:
+		return service.SetBakeVolume(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.BacklogCap:
+		return service.SetBacklogCap(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.MutationFloor:
+		return service.SetMutationFloor(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.KeptFraction:
+		return service.SetKeptFraction(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.MaxConcurrentKeptFleets:
+		return service.SetMaxConcurrentKeptFleets(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.RecentHistorySize:
+		return service.SetRecentHistorySize(ctx, tx, f.token, actor, value.Scope.ID,
+			gatepolicy.Quantity(value.Scope.Key), value.Number)
+	case gatepolicy.RecentHistoryRunLength:
+		return service.SetRecentHistoryRunLength(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.ProofTestRate:
+		return service.SetProofTestRate(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.InstanceHourRate:
+		return service.SetInstanceHourRate(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.EnvironmentHourRate:
+		return service.SetEnvironmentHourRate(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.MutantCap:
+		return service.SetMutantCap(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.FailureRecordKeyCap:
+		return service.SetFailureRecordKeyCap(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.UnreliableBound:
+		return service.SetUnreliableBound(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.IncidentItemBound:
+		return service.SetIncidentItemBound(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.SnapshotRetention:
+		return service.SetSnapshotRetention(ctx, tx, value.Scope.ID, value.Number)
+	case gatepolicy.StrategyDefault:
+		if len(value.List) == 0 {
+			return fmt.Errorf("policy: the version names no strategy default on %s", value.Scope.ID)
+		}
+		strategy, err := gatepolicy.DecidableStrategy(value.List[0])
+		if err != nil {
+			return err
+		}
+		return environment.SetStrategyDefault(ctx, tx, f.token, actor, value.Scope.ID, strategy)
 	}
 	return fmt.Errorf("policy: nothing re-derives %s", value.Parameter)
 }
