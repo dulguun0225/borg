@@ -12,6 +12,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -230,9 +231,15 @@ func TestEditInPlaceAtDecompositionSupersedesTheSet(t *testing.T) {
 	edited := firing
 	edited.Members = append(slices.Clone(firing.Members),
 		gate.SetMember{ItemID: "it_c", ServiceID: "svc_a", Requirements: 1})
-	reopened, err := g.EditSetInPlace(ctx, opened, edited)
+	reopened, err := g.EditSetInPlace(ctx, opened, edited, author)
 	if err != nil {
 		t.Fatalf("EditSetInPlace: %v", err)
+	}
+	// The editor is barred from closing the row they edited, which is the
+	// close-by-the-author refusal at the one gate of the five with no artifact
+	// version to read an author off.
+	if reopened.WaitsOn.NotHuman != author.Key {
+		t.Errorf("the row an edit in place fired bars %q, want the human who edited the set", reopened.WaitsOn.NotHuman)
 	}
 	if reopened.Row.ID == opened.Row.ID {
 		t.Fatal("the edit in place reused the row it superseded")
@@ -266,5 +273,21 @@ func TestEditInPlaceAtDecompositionSupersedesTheSet(t *testing.T) {
 	// and says which call takes it.
 	if _, err := g.EditInPlace(ctx, opened, gate.Firing{}); !errors.Is(err, gate.ErrEditInPlaceRefused) {
 		t.Errorf("EditInPlace at Decomposition = %v, want ErrEditInPlaceRefused", err)
+	}
+	// And an edit in place that names no human is refused: what the row bars is
+	// a person, and a caller naming none would fire a row barring nobody.
+	if _, err := g.EditSetInPlace(ctx, opened, edited, record.Actor{}); !errors.Is(err, gate.ErrEditInPlaceRefused) {
+		t.Errorf("EditSetInPlace naming no human = %v, want ErrEditInPlaceRefused", err)
+	}
+
+	// Nobody else can decide this row — Decomposition names no duty, so it
+	// widens to the owner — and the editor closing it carries the self-approval
+	// field rather than passing unmarked.
+	closed, err := g.Decide(ctx, reopened, gate.Given{Actor: author, Verdict: gate.VerdictApprove})
+	if err != nil {
+		t.Fatalf("the editor closing the row nobody else can decide: %v", err)
+	}
+	if !closed.SelfApproval {
+		t.Errorf("the close does not say the editor decided their own edit: %+v", closed)
 	}
 }

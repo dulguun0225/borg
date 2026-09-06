@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/project"
+	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -81,6 +82,34 @@ func (p *path) runsOnProduction(ctx context.Context, svc service.Service) (servi
 	}
 	if !found {
 		return svc, nil
+	}
+	return read, nil
+}
+
+// provisioned marks a service provisioned where nobody has, which is an owner's
+// write and is made as the owner at this terminal, beside [path.runsOnProduction]:
+// the repository is the one -service named, which this install was told about
+// and which exists before a service record is written for it, and the store on
+// the persistent environment is the target directory production names. It is
+// written once — a service already marked is left as it is, an owner having
+// said so.
+//
+// It matters because a service nobody has marked provisioned holds at both
+// deploy rows, that hold being what stops the factory reaching for a repository
+// or a store that is not there. An install on a repository host that issues
+// credentials writes this through package policy with the credentials that host
+// gave, and never here.
+func (p *path) provisioned(ctx context.Context, svc service.Service) (service.Service, error) {
+	if svc.Provisioned.Written() {
+		return svc, nil
+	}
+	if _, err := p.factory.MarkServiceProvisioned(ctx, p.human, svc.ID,
+		service.ShapeOne, repositoryCredential(), secretref.Ref{}); err != nil {
+		return service.Service{}, err
+	}
+	read, err := service.Get(ctx, p.d.pool, svc.ID)
+	if err != nil {
+		return service.Service{}, err
 	}
 	return read, nil
 }

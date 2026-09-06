@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/score"
@@ -44,6 +45,15 @@ type Applied struct {
 	ScoreVersionWaiting string
 }
 
+// RolePromptOrSkillRow is the name of the gate row whose threshold is authored
+// on the factory-wide settings record rather than on an environment: that row
+// belongs to no item, so it has no project and no production environment to
+// read one from. It is package gate's own name for the row, declared here
+// because the direction between the two packages is this one to that one, and
+// gate's TestTheRowNameThePolicyKeysAThresholdBy is what holds the two
+// spellings together.
+const RolePromptOrSkillRow = "a_role_prompt_or_a_skill"
+
 // AtGate is what applies at one gate firing: the threshold in force for the row
 // and whether a safeguard adds a human. Both reads run at the moment of firing,
 // which is what the design requires of every check a gate makes.
@@ -56,17 +66,12 @@ func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) 
 		return Applied{}, err
 	}
 
-	authored := gatepolicy.Authored{}
-	if s.EnvironmentID != "" && s.GateRow != "" {
-		authored, err = environment.GateThreshold(ctx, r.pool, s.EnvironmentID, s.GateRow)
-		if err != nil {
-			return Applied{}, err
-		}
+	authored, scope, err := r.authoredThreshold(ctx, s)
+	if err != nil {
+		return Applied{}, err
 	}
 
-	inForce, waiting, err := r.scoreVersionAt(ctx, authored.Present, Scope{
-		Kind: ScopeEnvironment, ID: s.EnvironmentID, Key: s.GateRow,
-	})
+	inForce, waiting, err := r.scoreVersionAt(ctx, authored.Present, scope)
 	if err != nil {
 		return Applied{}, err
 	}
@@ -92,6 +97,33 @@ func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) 
 		applied.Safeguards = append(applied.Safeguards, p.ID)
 	}
 	return applied, nil
+}
+
+// authoredThreshold is what an owner authored for the risk threshold at one gate
+// row, and the scope they authored it on. There are two scopes and no third: the
+// environment record per row, which every row of an item's path reads, and the
+// factory-wide settings record for [RolePromptOrSkillRow], the one row with no
+// environment. A row the subjects name no record for reads as unauthored, which
+// is the same answer as a field nobody wrote.
+//
+// The scope is answered beside the value because it is what the score version in
+// force at the row is read at: a version that redefined the number does not
+// decide a gate an authored threshold binds until its owner has confirmed it at
+// that scope, and the confirmation names the scope the value was authored on.
+func (r *Reader) authoredThreshold(ctx context.Context, s Subjects) (gatepolicy.Authored, Scope, error) {
+	if s.GateRow == RolePromptOrSkillRow {
+		settings, err := factorysettings.Get(ctx, r.pool)
+		if err != nil {
+			return gatepolicy.Authored{}, Scope{}, err
+		}
+		return settings.RolePromptOrSkillThreshold,
+			Scope{Kind: ScopeFactorySettings, ID: settings.ID, Key: s.GateRow}, nil
+	}
+	if s.EnvironmentID == "" || s.GateRow == "" {
+		return gatepolicy.Authored{}, Scope{}, nil
+	}
+	authored, err := environment.GateThreshold(ctx, r.pool, s.EnvironmentID, s.GateRow)
+	return authored, Scope{Kind: ScopeEnvironment, ID: s.EnvironmentID, Key: s.GateRow}, err
 }
 
 // scoreVersionAt is the score version that decides one gate row, and the newest

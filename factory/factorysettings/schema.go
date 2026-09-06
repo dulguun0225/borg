@@ -23,6 +23,12 @@ const (
 	// PageCapTable holds the harm mark's page cap per service, with the interval
 	// it is counted over.
 	PageCapTable = "factory_settings_harm_mark_page_cap"
+	// ShorteningTable holds a shorter decision-log retention value written
+	// pending, one row per shortening proposed. It is not a keyed parameter
+	// like the five above: it is the record the gate row that decides a
+	// shortening decides, and the value it names moves the record's own field
+	// when that row approves it.
+	ShorteningTable = "factory_settings_retention_shortening"
 )
 
 // IDPrefix is what [record.NewID] is called with for the factory-wide settings record.
@@ -35,6 +41,7 @@ const (
 	RemediationPeriodIDPrefix = "fsm"
 	ReportChannelRateIDPrefix = "fsc"
 	PageCapIDPrefix           = "fsp"
+	ShorteningIDPrefix        = "fss"
 )
 
 // FormatVersion is what this package writes into format_version on every
@@ -49,6 +56,7 @@ const (
 	FormatVersionRemediationPeriod = "factory_settings_remediation_period/1"
 	FormatVersionReportChannelRate = "factory_settings_report_channel_rate/1"
 	FormatVersionPageCap           = "factory_settings_harm_mark_page_cap/1"
+	FormatVersionShortening        = "factory_settings_retention_shortening/1"
 )
 
 // DDL is this package's schema, in the order the statements are applied.
@@ -170,5 +178,16 @@ var DDL = []string{
 	constraint page_cap_not_negative check (page_cap >= 0),
 	constraint interval_positive check (interval_seconds > 0),
 	constraint one_page_cap_row_per_service unique (factory_settings_id, service_id)
+)`,
+
+	`create table if not exists ` + ShorteningTable + ` (
+	` + record.Columns + `,
+	seconds bigint not null,
+	approved boolean not null default false,
+	approved_at text,
+	` + record.Constraints + `,
+	constraint shortening_positive check (seconds > 0),
+	constraint approved_at_with_approved check (
+		(approved and approved_at is not null) or (not approved and approved_at is null))
 )`,
 }

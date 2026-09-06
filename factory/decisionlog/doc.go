@@ -106,11 +106,15 @@
 // It takes the legal holds standing beside the cut and refuses the truncation
 // where any of them does ([ErrLegalHoldStands]): a truncation is refused
 // wherever a legal hold reaches, and the caller reads them because the package
-// owning that record may not be imported here.
+// owning that record may not be imported here. It refuses a cut naming no
+// retention value ([ErrNoRetentionInForce]) and one whose boundary is younger
+// than the value reaches back ([ErrBoundaryInsideTheRetention]), so the row's
+// claim about the value it enforced is one the cut obeyed.
 // Which caller is not built: nothing enforces the retention value on a pass of
 // its own. [Writer.Truncate] is the call enforcement makes, and its one caller
-// is the command-line interface's `truncate`, which reads the value in force,
-// reads the legal holds standing, and cuts to the boundary a human named.
+// is the command-line interface's `truncate`, which reads the value in force
+// and who authored it, reads the legal holds standing, and cuts to the boundary
+// a human named.
 // [Writer.AppendReworkRequest] has no caller either: what writes one is
 // whoever was authoring at the stage, through the component that dispatches,
 // and nothing in the module makes that call yet.

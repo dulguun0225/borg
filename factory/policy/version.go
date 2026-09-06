@@ -61,6 +61,11 @@ const (
 	// hold written pending. What it withdraws stands until the gate row that
 	// decides it approves it.
 	ActionWithdrawalWritten Action = "withdrawal_written"
+	// ActionShorteningWritten is a shorter decision-log retention value written
+	// pending. The value in force stands until the gate row that decides a
+	// shortening approves it, and that row is routed away from the actor on
+	// this write.
+	ActionShorteningWritten Action = "shortening_written"
 	// ActionWithdrawalApproved is that gate row's approval, which is where the
 	// withdrawal comes into force.
 	ActionWithdrawalApproved Action = "withdrawal_approved"
@@ -163,6 +168,10 @@ type Version struct {
 	HaltID       string
 	LegalHoldID  string
 	WithdrawalID string
+	// ShorteningID is the shorter decision-log retention value written pending,
+	// on the write that wrote it and on the approval that put it in force, and
+	// empty on every other write.
+	ShorteningID string
 
 	// Decision is the close event of the gate row that decided this write, and
 	// is empty on every write no row decides. The four writes a row decides —
@@ -209,6 +218,7 @@ type payload struct {
 	HaltID        string               `json:"halt_id,omitempty"`
 	LegalHoldID   string               `json:"legal_hold_id,omitempty"`
 	WithdrawalID  string               `json:"withdrawal_id,omitempty"`
+	ShorteningID  string               `json:"shortening_id,omitempty"`
 	Decision      string               `json:"decision,omitempty"`
 	Key           string               `json:"key"`
 	Authored      []AuthoredValue      `json:"authored,omitempty"`
@@ -228,7 +238,8 @@ func (v Version) marshal() (string, error) {
 	body, err := json.Marshal(payload{
 		Caller: v.Caller, Action: v.Action, Parameter: v.Parameter, Scope: v.Scope,
 		Number: v.Number, List: v.List, SafeguardID: v.SafeguardID, HaltID: v.HaltID,
-		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, Decision: v.Decision, Key: v.Key,
+		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, ShorteningID: v.ShorteningID,
+		Decision: v.Decision, Key: v.Key,
 		Authored: v.Authored, Safeguards: v.Safeguards, Halts: v.Halts, LegalHolds: v.LegalHolds,
 		Declaration: v.Declaration, AutoPassRates: v.AutoPassRates,
 		ConfirmsScoreVersion: v.ConfirmsScoreVersion,
@@ -253,7 +264,8 @@ func versionOf(row decisionlog.Row) (Version, error) {
 		ID: row.ID, Actor: row.Actor, At: row.At,
 		Caller: p.Caller, Action: p.Action, Parameter: p.Parameter, Scope: p.Scope,
 		Number: p.Number, List: p.List, SafeguardID: p.SafeguardID, HaltID: p.HaltID,
-		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, Decision: p.Decision, Key: p.Key,
+		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, ShorteningID: p.ShorteningID,
+		Decision: p.Decision, Key: p.Key,
 		Authored: p.Authored, Safeguards: p.Safeguards, Halts: p.Halts, LegalHolds: p.LegalHolds,
 		Declaration: p.Declaration, AutoPassRates: p.AutoPassRates,
 		ConfirmsScoreVersion: p.ConfirmsScoreVersion,

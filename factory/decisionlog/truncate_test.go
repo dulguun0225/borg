@@ -3,6 +3,7 @@ package decisionlog_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 )
@@ -17,8 +18,12 @@ func TestTruncateRemovesTheOldestRowsAndKeepsTheHead(t *testing.T) {
 	appended := appendThreeOpenings(ctx, t, log, reader)
 	boundary := appended[1] // the second row becomes the new checkpoint
 
+	// A retention of one second, waited out: the cut may remove a row older
+	// than the value in force and no row younger, so the boundary has to be
+	// outside it before the cut is permitted.
+	time.Sleep(theRetention + 100*time.Millisecond)
 	truncation, err := log.Truncate(ctx, decisionlog.Cut{
-		Actor: owner, Retention: "30d", Boundary: boundary.ID,
+		Actor: owner, RetentionSeconds: 1, Boundary: boundary.ID,
 		PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	}, nil)
 	if err != nil {
@@ -55,17 +60,75 @@ func TestTruncateRefusesAnEmptyOrUnknownBoundary(t *testing.T) {
 	ctx, _, log, _ := newLog(t)
 
 	if _, err := log.Truncate(ctx, decisionlog.Cut{
-		Actor: owner, Retention: "30d", PolicyVersion: "policy-1", ScoreVersion: "score-1",
+		Actor: owner, RetentionSeconds: 1, PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	}, nil); !errors.Is(err, decisionlog.ErrBoundaryEmpty) {
 		t.Errorf("a cut naming no boundary: %v, want ErrBoundaryEmpty", err)
 	}
 	if _, err := log.Truncate(ctx, decisionlog.Cut{
-		Actor: owner, Retention: "30d", Boundary: "dl_00112233445566778899aabbccddeeff",
+		Actor: owner, RetentionSeconds: 1, Boundary: "dl_00112233445566778899aabbccddeeff",
 		PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	}, nil); !errors.Is(err, decisionlog.ErrBoundaryUnknown) {
 		t.Errorf("a cut naming a boundary that does not exist: %v, want ErrBoundaryUnknown", err)
 	}
 }
+
+// TestTruncateRefusesACutTheValueInForceDidNotDetermine: the truncation row says
+// the value it enforced, so the cut has to be one that value permits. A cut
+// naming no value enforces nothing, and a boundary inside the retention would
+// remove rows the value keeps.
+func TestTruncateRefusesACutTheValueInForceDidNotDetermine(t *testing.T) {
+	ctx, pool, log, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
+
+	appended := appendThreeOpenings(ctx, t, log, reader)
+	boundary := appended[1]
+
+	if _, err := log.Truncate(ctx, decisionlog.Cut{
+		Actor: owner, Boundary: boundary.ID,
+		PolicyVersion: "policy-1", ScoreVersion: "score-1",
+	}, nil); !errors.Is(err, decisionlog.ErrNoRetentionInForce) {
+		t.Errorf("a cut naming no retention value = %v, want ErrNoRetentionInForce", err)
+	}
+	// The rows were written a moment ago, so a value reaching back a day keeps
+	// every one of them and the boundary is inside it.
+	if _, err := log.Truncate(ctx, decisionlog.Cut{
+		Actor: owner, RetentionSeconds: 24 * 3600, Boundary: boundary.ID,
+		PolicyVersion: "policy-1", ScoreVersion: "score-1",
+	}, nil); !errors.Is(err, decisionlog.ErrBoundaryInsideTheRetention) {
+		t.Errorf("a cut inside the retention = %v, want ErrBoundaryInsideTheRetention", err)
+	}
+
+	// Nothing was removed and no truncation row was appended by either refusal.
+	rows, err := reader.Read(ctx, ownerReading)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	for _, row := range rows {
+		if row.Shape == decisionlog.ShapeTruncation {
+			t.Fatalf("a refused cut appended a truncation row: %+v", row)
+		}
+	}
+	for _, was := range appended {
+		if !holds(rows, was.ID) {
+			t.Errorf("row %s went with a refused cut", was.ID)
+		}
+	}
+}
+
+// holds reports whether the log still holds one row.
+func holds(rows []decisionlog.Row, id string) bool {
+	for _, row := range rows {
+		if row.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// theRetention is the value the cutting tests enforce: one second, waited out
+// rather than backdated, because the timestamp a boundary is compared on is
+// hashed into the chain and a test that rewrote one would break it.
+const theRetention = time.Second
 
 // TestTruncateRefusesWhileALegalHoldStands is the design's refusal: while a
 // legal hold stands, truncation is refused wherever it reaches, and the rows a
@@ -78,8 +141,9 @@ func TestTruncateRefusesWhileALegalHoldStands(t *testing.T) {
 	appended := appendThreeOpenings(ctx, t, log, reader)
 	boundary := appended[1]
 
+	time.Sleep(theRetention + 100*time.Millisecond)
 	cut := decisionlog.Cut{
-		Actor: owner, Retention: "30d", Boundary: boundary.ID,
+		Actor: owner, RetentionSeconds: 1, Boundary: boundary.ID,
 		PolicyVersion: "policy-1", ScoreVersion: "score-1",
 	}
 	if _, err := log.Truncate(ctx, cut, []string{"lgh_1 over the whole factory"}); !errors.Is(err,

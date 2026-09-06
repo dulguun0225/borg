@@ -11,6 +11,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
@@ -210,11 +211,20 @@ func mitigateCommand(args []string) error {
 // the factory that destroys evidence, which is why the row that records it is
 // written first and stays.
 //
+// The row's actor is whoever authored the retention value, read off the policy
+// versions, and not the human running the pass: what the row says is under what
+// authority the rows went, and the pass is the factory enforcing a value a
+// human authored. -human is who the reads of the log are made as, which every
+// read of it names.
+//
 // It is refused where a legal hold stands: a hold suspends every retention
-// clock it names, and the pass reads the holds before it reads a row.
+// clock it names, and the pass reads the holds before it reads a row. It is
+// refused too where nothing is authored — the log is then kept for the life of
+// the install — and where the boundary is inside the retention, which package
+// decisionlog checks against the value the cut names.
 func truncateCommand(args []string) error {
 	flags := flag.NewFlagSet("truncate", flag.ContinueOnError)
-	human := flags.String("human", "owner", "the human running the retention pass")
+	human := flags.String("human", "owner", "the human running the retention pass, as whom the log is read")
 	boundary := flags.String("boundary", "", "the id of the oldest row that will remain")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -258,7 +268,28 @@ func truncateCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		retention := inForce.Number
+		if inForce.Source != policy.FromAuthored {
+			return errors.New("factory truncate: nobody has authored decision-log retention, " +
+				"so the log is kept for the life of the install and there is nothing to enforce")
+		}
+		retention := int64(inForce.Number)
+
+		// Who authored the value, which is the actor the truncation row names.
+		// A value in force was authored by some version, so a pass that cannot
+		// find one is a pass whose row would name the wrong person.
+		settings, err := factorysettings.Get(ctx, pool)
+		if err != nil {
+			return err
+		}
+		author, found, err := reader.AuthoredBy(ctx, asPrincipal(actor), gatepolicy.DecisionLogRetention,
+			policy.Scope{Kind: policy.ScopeFactorySettings, ID: settings.ID})
+		if err != nil {
+			return err
+		}
+		if !found {
+			return errors.New("factory truncate: no policy version authored the retention value in force, " +
+				"and the truncation row names who authored it")
+		}
 
 		// The two versions in force at the cut, which the truncation row names
 		// beside the value and the boundary: a decision after the cut naming a
@@ -269,17 +300,17 @@ func truncateCommand(args []string) error {
 			return err
 		}
 		row, err := decisionlog.NewWriter(pool, token).Truncate(ctx, decisionlog.Cut{
-			Actor:         actor,
-			Retention:     fmt.Sprintf("%.0f second(s)", retention),
-			Boundary:      *boundary,
-			PolicyVersion: inForceNow.ID,
-			ScoreVersion:  version.ID,
+			Actor:            author,
+			RetentionSeconds: retention,
+			Boundary:         *boundary,
+			PolicyVersion:    inForceNow.ID,
+			ScoreVersion:     version.ID,
 		}, holds)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Truncation %s written: %s is the log's new checkpoint, under retention of %.0f second(s)\n",
-			row.ID, *boundary, retention)
+		fmt.Printf("Truncation %s written: %s is the log's new checkpoint, under the %d second(s) %s authored\n",
+			row.ID, *boundary, retention, author.Key)
 		fmt.Println("What the log no longer holds is gone; the truncation row is what says a cut happened and where")
 		return nil
 	})

@@ -88,9 +88,8 @@ func (f *Factory) AuthorRolePromptOrSkillThreshold(ctx context.Context, actor re
 	if err != nil {
 		return Version{}, err
 	}
-	const row = "role_prompt_or_skill"
-	scope := Scope{Kind: ScopeFactorySettings, ID: settings.ID, Key: row}
-	rates, err := f.ratesAt(ctx, scope, row, threshold)
+	scope := Scope{Kind: ScopeFactorySettings, ID: settings.ID, Key: RolePromptOrSkillRow}
+	rates, err := f.ratesAt(ctx, scope, RolePromptOrSkillRow, threshold)
 	if err != nil {
 		return Version{}, err
 	}

@@ -30,6 +30,12 @@ const (
 	anthropicCredentialName  = "model.anthropic"
 	openRouterCredentialName = "model.openrouter"
 	deployCredentialName     = "deploy.local"
+	// repositoryCredentialName is what a service's provisioning names as the
+	// credential that pushes its branch. A repository here is a directory on
+	// this host, which tells no branch from master — credential shape one — and
+	// the clone resolves a path rather than a credential, so the secrets file
+	// need not hold this one and nothing reads it.
+	repositoryCredentialName = "repository.local"
 )
 
 // providers is what -provider accepts, in the order the flag's usage lists
@@ -245,6 +251,10 @@ func secretsResolver(path string) (*secretref.Resolver, error) {
 // is a name and never a value: what sits behind the seam resolves it, and nothing sits
 // behind this one.
 func deployCredential() secretref.Ref { return secretref.MustNew(deployCredentialName) }
+
+// repositoryCredential is the reference a service's provisioning names. It is a
+// name and never a value, the way the deploy credential is.
+func repositoryCredential() secretref.Ref { return secretref.MustNew(repositoryCredentialName) }
 
 // localTargetAt is how every command in this interface makes a target: one local
 // process per service in one directory.

@@ -156,9 +156,8 @@ func (w *Writer) ApproveWithdrawal(ctx context.Context, withdrawalID string) err
 	return nil
 }
 
-// Insert writes one legal hold inside tx. Its caller is package policy,
-// appending the policy version in the same transaction, once policy wires
-// this in — see doc.go for what is not built yet.
+// Insert writes one legal hold inside tx. Its caller is package policy's
+// SetLegalHold, which appends the policy version in the same transaction.
 func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, subject Subject,
 	reason string) (Hold, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
@@ -195,9 +194,9 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 // InsertWithdrawal writes a pending withdrawal naming holdID, inside tx. It is
 // not in force until [ApproveWithdrawal] marks it: it ends only at a gate row
 // of its own, held by a human always and routed away from the human who wrote
-// it — the treatment the gate row A safeguard's withdrawal already gets. That
-// row is not built, so this and [ApproveWithdrawal] are the two writes it
-// will call.
+// it — the treatment the gate row A safeguard's withdrawal already gets. This
+// and [ApproveWithdrawal] are the two writes that row makes, through package
+// policy's WriteLegalHoldWithdrawal and ApproveLegalHoldWithdrawal.
 func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
 	holdID string) (Withdrawal, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {

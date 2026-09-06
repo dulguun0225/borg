@@ -30,7 +30,11 @@ import (
 
 var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
-func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *factorysettings.Writer) {
+// newTable is a schema of this test's own with this package's DDL applied, the
+// writer over it, and the fencing token every write here carries — the token
+// because the writes that take one directly are the tx-taking ones, which is
+// how package policy calls them.
+func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *factorysettings.Writer, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -62,7 +66,7 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *factorysettings.Wr
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	return ctx, pool, factorysettings.NewWriter(pool, token)
+	return ctx, pool, factorysettings.NewWriter(pool, token), token
 }
 
 func inSchema(t *testing.T, base, schema string) string {
@@ -81,7 +85,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // project does, so whatever reaches it first creates it — and the store, not the
 // caller that looked first, is what keeps there being one.
 func TestThereIsOneRecordAndEnsureIsIdempotent(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 
 	if _, err := factorysettings.Get(ctx, pool); !errors.Is(err, factorysettings.ErrNotFound) {
 		t.Fatalf("Get before the record exists = %v, want ErrNotFound", err)
@@ -115,7 +119,7 @@ func TestThereIsOneRecordAndEnsureIsIdempotent(t *testing.T) {
 // foreign key to refuse it, and a value nothing will ever read is worse than an
 // error. A stage that is not retried is refused at [factorysettings.OfStage].
 func TestTheAttemptLimitIsOneParameterAndNotThree(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 
 	policy, err := w.Ensure(ctx, owner)
 	if err != nil {
@@ -205,7 +209,7 @@ func TestDDLListsEveryAttemptLimitSubject(t *testing.T) {
 // TestReAuthoringALimitIsOneRow: the unique constraint on the record and the
 // stage is what an authoring write conflicts on.
 func TestReAuthoringALimitIsOneRow(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 
 	policy, err := w.Ensure(ctx, owner)
 	if err != nil {
@@ -237,7 +241,7 @@ func TestReAuthoringALimitIsOneRow(t *testing.T) {
 // record and neither is read by anything at this milestone, which is what makes
 // storing them the whole of what can be demonstrated about them.
 func TestTheAllowedPredicateKindsAndTheRolePromptThreshold(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, _ := newTable(t)
 
 	policy, err := w.Ensure(ctx, owner)
 	if err != nil {

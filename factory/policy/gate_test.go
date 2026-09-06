@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -74,5 +75,71 @@ func TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName(t *testing.T) {
 	if _, err := policy.NewReader(pool, token, score.Version{}).AtGate(ctx, ownerReading,
 		policy.Subjects{GateRow: "merge_to_master"}); !errors.Is(err, policy.ErrNoVersion) {
 		t.Errorf("AtGate on a factory nobody installed = %v, want ErrNoVersion", err)
+	}
+}
+
+// TestTheRowWithNoEnvironmentReadsTheThresholdOnTheSettingsRecord: the risk
+// threshold is authorable at two scopes and a firing reads whichever its row
+// names. The row that decides a version of what an agent is told belongs to no
+// item, so it has no project and no production environment: its threshold is a
+// field of the factory-wide settings record, and a firing there reads the
+// number its owner authored and decides under the score version confirmed at
+// that scope — not under one that redefined the number since.
+func TestTheRowWithNoEnvironmentReadsTheThresholdOnTheSettingsRecord(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	first, found, err := score.Newest(ctx, in.pool, in.token)
+	if err != nil || !found {
+		t.Fatalf("the score version in force: %v", err)
+	}
+	if _, err := in.factory.AuthorRolePromptOrSkillThreshold(ctx, owner, 0.15); err != nil {
+		t.Fatalf("AuthorRolePromptOrSkillThreshold: %v", err)
+	}
+
+	subjects := policy.Subjects{GateRow: policy.RolePromptOrSkillRow}
+	applied, err := in.reader.AtGate(ctx, ownerReading, subjects)
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if applied.ThresholdFrom != policy.FromAuthored || applied.Threshold != 0.15 {
+		t.Errorf("the row reads %v from %s, want the authored 0.15", applied.Threshold, applied.ThresholdFrom)
+	}
+
+	// A version that redefines the number waits on the owner here, the way it
+	// does at a row an owner authored a threshold on an environment record for.
+	recalibrated, err := score.NewWriter(in.pool, in.token, score.NoMarks{}).EnterShipped(ctx,
+		record.Actor{Kind: record.KindComponent, Key: "score", Basis: record.BasisClaimed}, "borg/2.0.0")
+	if err != nil {
+		t.Fatalf("EnterShipped: %v", err)
+	}
+	reader := policy.NewReader(in.pool, in.token, recalibrated)
+	waiting, err := reader.AtGate(ctx, ownerReading, subjects)
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if waiting.ScoreVersion != first.ID || waiting.ScoreVersionWaiting != recalibrated.ID {
+		t.Errorf("the row decides under %q and waits on %q, want the confirmed %q and the newest %q",
+			waiting.ScoreVersion, waiting.ScoreVersionWaiting, first.ID, recalibrated.ID)
+	}
+	if waiting.Threshold != 0.15 {
+		t.Errorf("the threshold reads %v while a version waits, want the owner's 0.15", waiting.Threshold)
+	}
+
+	// Re-authoring names the version in force, which is what puts it in force
+	// at this scope: there is no confirmation call for a scope with no
+	// environment.
+	if _, err := in.factory.AuthorRolePromptOrSkillThreshold(ctx, owner, 0.2); err != nil {
+		t.Fatalf("AuthorRolePromptOrSkillThreshold again: %v", err)
+	}
+	confirmed, err := reader.AtGate(ctx, ownerReading, subjects)
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if confirmed.ScoreVersion != recalibrated.ID || confirmed.ScoreVersionWaiting != "" {
+		t.Errorf("after the re-authoring the row decides under %q and waits on %q, want %q and nothing",
+			confirmed.ScoreVersion, confirmed.ScoreVersionWaiting, recalibrated.ID)
+	}
+	if confirmed.Threshold != 0.2 {
+		t.Errorf("the threshold reads %v, want the re-authored 0.2", confirmed.Threshold)
 	}
 }

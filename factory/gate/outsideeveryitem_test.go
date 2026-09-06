@@ -11,6 +11,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/policy"
 )
 
 // TestARolePromptRowIsPendingPerVersion: one gate on one subject has at most one
@@ -206,5 +207,71 @@ func TestALegalHoldsWithdrawalIsARowOfItsOwn(t *testing.T) {
 	}
 	if _, err := g.Decide(ctx, opened, gate.Given{Actor: second, Verdict: gate.VerdictApprove}); err != nil {
 		t.Errorf("the holder the row routes to closing it: %v", err)
+	}
+}
+
+// TestTheRowNameThePolicyKeysAThresholdBy holds the two spellings together. The
+// threshold the row that decides a version of what an agent is told reads is a
+// field of the factory-wide settings record, keyed by the row's name, and
+// package policy cannot import this one — this package imports it — so that name
+// is declared in both. A firing passes this row's name to policy.Reader.AtGate,
+// and a policy that keyed the field by any other string would find nothing
+// authored.
+func TestTheRowNameThePolicyKeysAThresholdBy(t *testing.T) {
+	if policy.RolePromptOrSkillRow != gate.RolePromptOrSkill.String() {
+		t.Errorf("policy keys the threshold by %q and this package names the row %q",
+			policy.RolePromptOrSkillRow, gate.RolePromptOrSkill)
+	}
+}
+
+// TestTheRetentionShorteningRowNamesWhoseEvidenceGoes: the row that decides a
+// shortening of decision-log retention is barred to the human who wrote the
+// value, and its open event names each author whose per-author prior stands
+// drifted and whose held-out decisions the cut would remove. Nowhere else does
+// a firing name one: no other row removes evidence.
+func TestTheRetentionShorteningRowNamesWhoseEvidenceGoes(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, token, g := newGate(t, s, p)
+
+	opened, err := g.Fire(ctx, gate.Firing{
+		Row:             gate.DecisionLogRetentionShortening,
+		RecordID:        "fs_0000000000000000000000000000000a",
+		RoutedTo:        gate.RoutedTo{NotHuman: author.Key},
+		PriorsRestarted: []string{"fake-model-1", "person:writer"},
+	})
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if !opened.HumanDecides || opened.Assessment.Vector != nil {
+		t.Errorf("the row decides %v with a vector of %v, want a human always and no factor set",
+			opened.HumanDecides, opened.Assessment.Vector)
+	}
+	if opened.WaitsOn.NotHuman != author.Key {
+		t.Errorf("the row bars %q, want the human who wrote the shorter value", opened.WaitsOn.NotHuman)
+	}
+	if !slices.Equal(opened.PriorsRestarted, []string{"fake-model-1", "person:writer"}) {
+		t.Errorf("the row names %v, want the two authors whose priors restart", opened.PriorsRestarted)
+	}
+	payload := lastOpeningPayload(t, ctx, pool, token)
+	if !slices.Equal(payload.PriorsRestarted, []string{"fake-model-1", "person:writer"}) {
+		t.Errorf("the open event says %v, want the two authors whose priors restart", payload.PriorsRestarted)
+	}
+
+	// Nobody else can decide it — the row names no duty, so it widens to the
+	// owner — and the close by the human who wrote the value says so rather
+	// than passing unmarked.
+	closed, err := g.Decide(ctx, opened, gate.Given{Actor: author, Verdict: gate.VerdictApprove})
+	if err != nil {
+		t.Fatalf("the writer closing the row nobody else can decide: %v", err)
+	}
+	if !closed.SelfApproval {
+		t.Errorf("the close does not say the writer decided their own value: %+v", closed)
+	}
+
+	// A row that removes no evidence names no prior.
+	named := mergeFiring
+	named.PriorsRestarted = []string{"fake-model-1"}
+	if _, err := g.Fire(ctx, named); !errors.Is(err, gate.ErrFiringIncomplete) {
+		t.Errorf("a merge row naming a prior = %v, want ErrFiringIncomplete", err)
 	}
 }
