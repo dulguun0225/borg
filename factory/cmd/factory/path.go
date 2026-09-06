@@ -382,11 +382,17 @@ func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*c
 		}
 	}
 
-	// Every candidate's Merge to master gate. What it reads is the candidate's own run — the
+	// Every candidate's Merge to master gate, fired again against a new build for
+	// as long as it keeps rejecting: what it reads is the candidate's own run — the
 	// criteria, every consumer contract, and the producer's own contract diff —
 	// and the last two reject on their own terms before a verdict is asked for.
+	// [path.mergeUntilQueued] is what builds the candidate again rather than
+	// leaving it at Implementation for good; it ends when the row approves or
+	// when the implementer's own attempt limit escalates. What is not looped here
+	// is the merge queue's own rejection at re-verification, inside runQueue
+	// below — see [path.mergeUntilQueued]'s doc comment for why.
 	for _, c := range candidates {
-		if err := p.mergeGate(ctx, c); err != nil {
+		if err := p.mergeUntilQueued(ctx, c); err != nil {
 			return "", nil, err
 		}
 	}

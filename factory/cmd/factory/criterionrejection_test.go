@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/score"
 )
 
 // TestAFailedCriterionIsRejectedAtTheMergeRowBeforeAVerdict is the defect this
@@ -127,6 +128,108 @@ func TestAnUnreliableCriterionsFailureDoesNotRejectAtTheMergeRow(t *testing.T) {
 	}
 	if !c.queued {
 		t.Fatal("the candidate did not reach the merge queue, and its only failure is an unreliable criterion")
+	}
+}
+
+// TestAFailedCriterionAtMergeSendsTheItemBackAndBuildsAgain is the defect a
+// live run found and [path.mergeUntilQueued] fixes: a candidate the Merge to
+// master row rejects on a failed criterion is not left at Implementation for
+// good. It is sent back with an attempt counted there, as it always was, and
+// now it is built again against what the row found wrong, deployed onto the
+// environment it already has, and the row fires again — reaching the merge
+// queue once the rebuild's own criteria pass.
+func TestAFailedCriterionAtMergeSendsTheItemBackAndBuildsAgain(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	if _, err := run(ctx, d, of(theStatement)); err != nil {
+		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
+	}
+
+	d.in = strings.NewReader(approvals)
+	// The model corrupts only the implementer reply that introduces the second
+	// item's own criterion, and only the first time — the shape a real defect
+	// the criteria catch takes, and the shape a rebuild against the row's own
+	// finding fixes.
+	model := &criterionOnceFailingModel{inner: &fakeModel{}, sentence: secondCriterionSentence}
+	d.model = model
+	path := p(ctx, t, d)
+	c := authorOne(t, ctx, path, theSecondStatement, out)
+	if !model.corrupted {
+		t.Fatal("the fake never corrupted the second item's own criterion; this test proves nothing")
+	}
+
+	if err := path.candidateEnvironment(ctx, c); err != nil {
+		t.Fatalf("the candidate environment: %v\noutput so far:\n%s", err, out)
+	}
+	failing := ""
+	for _, r := range c.criteria {
+		if r.Outcome.Blocks(r.Unreliable) {
+			failing = r.CriterionID
+		}
+	}
+	if failing == "" {
+		t.Fatalf("the corrupted build did not fail its own criterion on the candidate environment: %v", c.criteria)
+	}
+	envBefore := c.environmentID
+	if envBefore == "" {
+		t.Fatal("the candidate has no environment to reuse for the rebuild")
+	}
+
+	if err := path.mergeUntilQueued(ctx, c); err != nil {
+		t.Fatalf("mergeUntilQueued: %v\noutput so far:\n%s", err, out)
+	}
+
+	// The implementer was dispatched a second time, told what the row found
+	// wrong.
+	if len(model.implementerUsers) != 2 {
+		t.Fatalf("the implementer was dispatched %d time(s), want 2 — the failing attempt and the rebuild", len(model.implementerUsers))
+	}
+	if !strings.Contains(model.implementerUsers[1], "What was found wrong: ") || !strings.Contains(model.implementerUsers[1], failing) {
+		t.Errorf("the second attempt was not told what the Merge to master row found wrong (want it to name %s):\n%s",
+			failing, model.implementerUsers[1])
+	}
+
+	// The item's implementation attempt count rose by one: one entry for the
+	// failing attempt authorOne made, one for the rebuild.
+	stages, err := item.Stages(ctx, d.pool, c.itemID)
+	if err != nil {
+		t.Fatalf("reading the item's stages: %v", err)
+	}
+	for _, st := range stages {
+		if st.Stage == item.StageImplementation && st.Attempts != 2 {
+			t.Errorf("implementation attempts = %d, want 2 — the rejected attempt and the rebuild", st.Attempts)
+		}
+	}
+
+	// The rebuild ran on the environment the candidate already had, recomposed
+	// rather than composed a second time.
+	if c.environmentID != envBefore {
+		t.Errorf("the rebuild's environment is %s, want the reused %s", c.environmentID, envBefore)
+	}
+
+	// The second merge-row close event approves, and the item is in the queue.
+	if !c.queued {
+		t.Fatalf("the candidate did not reach the merge queue after building again against what was found wrong:\n%s", out)
+	}
+	closing := closingOf(t, ctx, d, c.mergeGate.closing)
+	if closing.Verdict != score.VerdictApproved {
+		t.Errorf("the second Merge to master close event is %q, want %q", closing.Verdict, score.VerdictApproved)
+	}
+	members, err := path.queue.Members(ctx, theServiceRecord(t, ctx, path).ID)
+	if err != nil {
+		t.Fatalf("reading the queue's members: %v", err)
+	}
+	found := false
+	for _, m := range members {
+		if m.ID == c.itemID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("item %s is not a member of the merge queue after its rebuild was approved", c.itemID)
+	}
+
+	if !strings.Contains(out.String(), "goes back to implementation against what the Merge to master row found wrong") {
+		t.Errorf("the run does not print the re-entry line:\n%s", out)
 	}
 }
 

@@ -1,32 +1,56 @@
-// A reject stopping the path before any release exists, on the first item
-// and on the second one a rejected first leaves behind.
+// A reject at the merge row: what it costs before the attempt limit is spent
+// (rebuilt against the feedback, on the same environment, no release minted),
+// and the second item a service reaches once the first item's attempts are
+// spent and it is escalated rather than merged.
 package main
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
 )
 
-// TestARejectStopsThePath scripts a reject at the merge row: the path stops
-// before any release exists, the item goes back to implementation with an attempt
-// counted there, master is never created, and the close event carries the
-// feedback.
+// rejectUntilEscalated is enough verdicts to reject the merge row [attemptLimit]
+// times running, on a first release where every one of Spec, Implementation
+// plan, Tasks, Implementation and Deploy to candidate environment is a human's
+// decision too: [approvalsBeforeMerge] once for the first attempt, then one
+// reject at the merge row per attempt, each rebuild after the first needing
+// only Implementation and Deploy to candidate environment approved again — the
+// item goes back to Implementation and Spec, the plan and the tasks are not
+// re-authored, so their rows do not fire again.
+var rejectUntilEscalated = approvalsBeforeMerge + "reject not what I asked for\n" +
+	strings.Repeat("approve\napprove\nreject not what I asked for\n", attemptLimit-1)
+
+// TestARejectStopsThePath scripts a reject at the merge row, repeated until the
+// stage's own attempt limit is spent: [path.mergeUntilQueued] sends the item back
+// to Implementation with an attempt counted there and builds it again against the
+// feedback, and only running out of attempts stops it — a single reject no longer
+// does. No release exists, master is never created, and the item's environment
+// stays live throughout, keeping it ready for whoever clears the escalation.
 func TestARejectStopsThePath(t *testing.T) {
-	ctx, d, out := newPath(t, theAnswer+"\n"+approvalsBeforeMerge+"reject not what I asked for\n")
+	ctx, d, out := newPath(t, theAnswer+"\n"+rejectUntilEscalated)
+	// A human who keeps rejecting the same thing is not something a rebuild
+	// fixes on its own; see
+	// [TestAStoresForwardPromiseRefusesAnAlwaysPopulatedColumn] for why this
+	// uses [retriedWithNoFix] — the fake's reply would otherwise be byte-identical
+	// across attempts and git would refuse the rebuild's own commit.
+	d.model = &retriedWithNoFix{inner: d.model}
 
 	res, err := run(ctx, d, of(theStatement))
-	if err != nil {
-		t.Fatalf("the path stopped with an error, and a reject is not one: %v\noutput so far:\n%s", err, out)
+	if err == nil {
+		t.Fatalf("a reject repeated until the attempt limit is spent finished without escalating:\n%s", out)
+	}
+	if !errors.Is(err, dispatch.ErrOutOfAttempts) {
+		t.Errorf("the error is %v, want a stage out of attempts", err)
 	}
 	c := only(t, res)
-	if !c.rejected {
-		t.Fatal("the verdict was reject and the run does not say so")
-	}
 	if c.releaseID != "" || c.deployID != "" {
 		t.Errorf("the run names release %q and deploy %q, a reject ships nothing", c.releaseID, c.deployID)
 	}
@@ -40,25 +64,30 @@ func TestARejectStopsThePath(t *testing.T) {
 		t.Errorf("%d releases exist, a reject mints none", releases)
 	}
 
-	// The item is at implementation with one attempt there: an attempt is
-	// counted when a stage is entered to author, and Dispatch.ReturnTo — what a
-	// reject sends the item back with — counts nothing itself. The entry that
-	// would count a second is the next dispatch onto the stage, and this run
-	// ends at the reject.
+	// The item is escalated: the stage's own attempt limit is spent rebuilding
+	// against feedback a rebuild here never satisfies.
 	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item: %v", err)
 	}
-	if it.Stage != item.StageImplementation {
-		t.Errorf("item stage = %s, a rejected item goes back to implementation", it.Stage)
+	if it.Stage != item.StageEscalated {
+		t.Errorf("item stage = %s, an item that spent its attempts is escalated", it.Stage)
 	}
+
+	// Implementation carries every rebuild's own entry; Spec, Implementation
+	// plan and Tasks are not re-authored by a return to Implementation, so
+	// they stand at their first and only entry.
 	stages, err := item.Stages(ctx, d.pool, c.itemID)
 	if err != nil {
 		t.Fatalf("reading the item's stages: %v", err)
 	}
 	for _, st := range stages {
-		if st.Attempts != 1 {
-			t.Errorf("stage %s attempts = %d, want 1", st.Stage, st.Attempts)
+		want := 1
+		if st.Stage == item.StageImplementation {
+			want = attemptLimit + 1
+		}
+		if st.Attempts != want {
+			t.Errorf("stage %s attempts = %d, want %d", st.Stage, st.Attempts, want)
 		}
 	}
 
@@ -68,46 +97,69 @@ func TestARejectStopsThePath(t *testing.T) {
 	}
 
 	// The environment stays the item's: nothing waits on the environment a
-	// rejected candidate used.
+	// rejected candidate used, and every rebuild ran on it again rather than a
+	// second one.
 	env, found, err := environment.ForItem(ctx, d.pool, c.itemID)
 	if err != nil || !found {
 		t.Fatalf("ForItem = found %v, %v", found, err)
 	}
 	if !env.Live() {
-		t.Error("the rejected item's environment was torn down, and it stays the item's until it merges or is dropped")
+		t.Error("the escalated item's environment was torn down, and it stays the item's until it merges or is dropped")
 	}
 
-	// The close event carries the feedback.
-	// Six decisions and twelve rows: the four rows of the item's own artifacts,
-	// the candidate deploy row, and the merge row the reject closed. The
-	// production deploy row never fires.
-	rows := decisionRows(readLog(t, ctx, d))
-	if len(rows) != 12 {
-		t.Fatalf("the log holds %d decision rows, and a reject at the merge row is six decisions: the production row never fires", len(rows))
+	// Every reject's close event carries the feedback and sends the item back
+	// to Implementation.
+	rejects := 0
+	for _, row := range decisionRows(readLog(t, ctx, d)) {
+		payload := closingPayload(t, row)
+		if payload.Verdict != string(gate.VerdictReject) {
+			continue
+		}
+		rejects++
+		if payload.Reason != "not what I asked for" {
+			t.Errorf("a reject's close event carries the reason %q, the human typed %q", payload.Reason, "not what I asked for")
+		}
+		if payload.ReturnsTo != gate.ReturnsToImplementation {
+			t.Errorf("a reject's close event returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsToImplementation)
+		}
 	}
-	payload := closingPayload(t, rows[11])
-	if payload.Verdict != string(gate.VerdictReject) {
-		t.Errorf("the closing carries verdict %q, the human rejected", payload.Verdict)
+	if rejects != attemptLimit {
+		t.Errorf("the log holds %d reject close event(s), want %d — one per attempt the merge row rejected", rejects, attemptLimit)
 	}
-	if payload.Reason != "not what I asked for" {
-		t.Errorf("the closing carries the reason %q, the human typed %q", payload.Reason, "not what I asked for")
-	}
-	if payload.ReturnsTo != gate.ReturnsToImplementation {
-		t.Errorf("the closing returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsToImplementation)
+	if !strings.Contains(out.String(), "goes back to implementation against what the Merge to master row found wrong") {
+		t.Errorf("the run does not print the re-entry line:\n%s", out)
 	}
 }
 
 // TestARejectThenASecondRunShips is the other way a service reaches a second
-// item: the first was rejected, so master does not exist and the second branch is
-// committed with no base too. The rejected item's criterion is not in force for
-// the second item's build — a build is a set of items and the rejected one is not
-// in it, which is what lets a candidate decomposed in parallel with another one build at
-// all. What it ships is release number 1, the reject having minted none.
+// item: the first item's attempts are spent rejecting at the merge row and it
+// is escalated rather than merged, so master does not exist and the second
+// branch is committed with no base too. The escalated item's criterion is not
+// in force for the second item's build — a build is a set of items and the
+// escalated one is not in it, which is what lets a candidate decomposed in
+// parallel with another one build at all. What it ships is release number 1,
+// the first item having minted none.
 func TestARejectThenASecondRunShips(t *testing.T) {
-	ctx, d, first, second := twoRunsOnOneService(t, approvalsBeforeMerge+"reject not what I asked for\n", approvals)
+	ctx, d, out := newPath(t, theAnswer+"\n"+rejectUntilEscalated)
+	d.model = &retriedWithNoFix{inner: d.model}
+	firstRes, err := run(ctx, d, of(theStatement))
+	if err == nil {
+		t.Fatalf("a reject repeated until the attempt limit is spent finished without escalating:\n%s", out)
+	}
+	if !errors.Is(err, dispatch.ErrOutOfAttempts) {
+		t.Errorf("the error is %v, want a stage out of attempts", err)
+	}
+	first := only(t, firstRes)
 
-	if !first.rejected {
-		t.Fatal("the first run's scripted verdict was a reject and the run does not say so")
+	d.in = strings.NewReader(approvals)
+	d.model = &fakeModel{}
+	secondRes, err := run(ctx, d, of(theSecondStatement))
+	if err != nil {
+		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)
+	}
+	second := only(t, secondRes)
+	if second.itemID == first.itemID {
+		t.Fatal("both runs report the same item, a second change is a second item")
 	}
 	if second.rejected {
 		t.Fatal("the second run reports rejected, and its scripted verdict was approve")
@@ -118,10 +170,10 @@ func TestARejectThenASecondRunShips(t *testing.T) {
 		t.Fatalf("reading the release: %v", err)
 	}
 	if rel.Number != 1 {
-		t.Errorf("the release's number = %d, the rejected item minted none so this is the service's first", rel.Number)
+		t.Errorf("the release's number = %d, the first item minted none so this is the service's first", rel.Number)
 	}
 
-	// One criterion in force for the second item's build: its own. The rejected
+	// One criterion in force for the second item's build: its own. The escalated
 	// item's is a promise the service records and this build's tree could not keep.
 	inForce, err := criterion.InForce(ctx, d.pool, rel.ServiceID, []string{second.itemID})
 	if err != nil {
@@ -148,8 +200,9 @@ func TestARejectThenASecondRunShips(t *testing.T) {
 		t.Errorf("%d criteria belong to the two items, each introduced one", len(both))
 	}
 
-	// The second branch had no base either: the reject minted no release, so
-	// nothing had created master by the time it was decomposed.
+	// The second branch had no base either: the first item's attempts were
+	// spent without minting a release, so nothing had created master by the
+	// time it was decomposed.
 	depth, err := git(theRepo(d), "rev-list", "--count", second.branch)
 	if err != nil {
 		t.Fatalf("counting the second branch's commits: %v", err)

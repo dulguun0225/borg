@@ -37,7 +37,15 @@ import (
 // rejects a build without.
 func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 	d := p.d
-	returned := agent.Returned{}
+	// A row after this one — today only the Merge to master row's rejection —
+	// may have sent the item back with what it found wrong on c.sentBack;
+	// starting the loop from it is what carries that reason into the first
+	// attempt this call makes, the way the loop already carries its own row's
+	// rejection between attempts below. It is cleared once read, so a second
+	// pass through this loop for the Implementation row's own rejection carries
+	// that row's reason as it always has.
+	returned := c.sentBack
+	c.sentBack = agent.Returned{}
 	for {
 		// A compile failure found on the attempt this iteration re-enters for is
 		// this iteration's own; a build made here that compiles must not carry a

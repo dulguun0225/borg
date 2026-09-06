@@ -313,6 +313,46 @@ func (m *conflictingModel) Complete(ctx context.Context, as principal.Principal,
 	return reply, nil
 }
 
+// criterionOnceFailingModel wraps a model and corrupts the one implementer
+// reply that introduces the criterion whose sentence is sentence, so that
+// criterion's own encoded test fails both times [path.decideCriteria] runs the
+// encodings on the candidate environment — the shape a real defect the
+// criteria are meant to catch takes. Every call after that one passes through
+// to the wrapped model untouched, so a rebuild against what the row found
+// wrong encodes the criterion correctly. It also keeps every implementer
+// call's user prompt, in order, so a test can read what a later attempt was
+// told was found wrong.
+type criterionOnceFailingModel struct {
+	inner     agent.Model
+	sentence  string
+	corrupted bool
+
+	implementerUsers []string
+}
+
+func (m *criterionOnceFailingModel) Complete(ctx context.Context, as principal.Principal, call agent.Call) (agent.Reply, error) {
+	reply, err := m.inner.Complete(ctx, as, call)
+	if err != nil || call.System != agent.ShippedImplementerPrompt {
+		return reply, err
+	}
+	m.implementerUsers = append(m.implementerUsers, call.User)
+	if m.corrupted {
+		return reply, nil
+	}
+	named := rolePromptCriterion.FindAllStringSubmatch(call.User, -1)
+	if len(named) == 0 {
+		return reply, nil
+	}
+	introduced := named[len(named)-1]
+	if introduced[2] != m.sentence {
+		return reply, nil
+	}
+	m.corrupted = true
+	pattern := regexp.MustCompile(`(func respond_` + introduced[1] + `\(\) string \{ return )"[^"]*"( \})`)
+	reply.Text = pattern.ReplaceAllString(reply.Text, `${1}"wrong"${2}`)
+	return reply, nil
+}
+
 // refusingModel wraps a model and answers the implementer's first refusals
 // times with prose outside the block protocol — what a real model did twice in
 // a row on 2026-08-18 — then lets the wrapped model answer. The spec author's

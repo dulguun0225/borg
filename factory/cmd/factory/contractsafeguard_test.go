@@ -3,10 +3,12 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/contract"
+	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
@@ -38,20 +40,35 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 		t.Fatalf("adding the safeguard: %v", err)
 	}
 
-	blocked := only(t, runOne(t, ctx, d, out, removeStatement, theService))
+	// A safeguard's predicate is not something a rebuild fixes on its own:
+	// [path.mergeUntilQueued] sends the item back and it comes back naming the
+	// same element every time, so the row keeps rejecting it until the stage's
+	// own attempt limit is spent and the implementer's dispatch escalates — see
+	// [TestAStoresForwardPromiseRefusesAnAlwaysPopulatedColumn] for why this uses
+	// [retriedWithNoFix].
+	d.in = strings.NewReader(manyApprovals)
+	d.model = &retriedWithNoFix{inner: d.model}
+	res, err := run(ctx, d, []asked{across(removeStatement, theService)})
+	if err == nil {
+		t.Fatalf("the removal merged with a safeguard's predicate naming the element:\n%s", out)
+	}
+	if !errors.Is(err, dispatch.ErrOutOfAttempts) {
+		t.Errorf("the error is %v, want a stage out of attempts — every rebuild reproduces the same removal", err)
+	}
+	blocked := only(t, res)
 	if blocked.merged {
 		t.Fatalf("the removal merged with a safeguard's predicate naming the element:\n%s", out)
 	}
-	if blocked.autoRejectedBy != gate.AutoRejectedBySafeguardPredicate {
-		t.Fatalf("the removal was rejected by %q, want the safeguard's predicate", blocked.autoRejectedBy)
+	if blocked.checked == nil || blocked.checked.Check() != gate.AutoRejectedBySafeguardPredicate {
+		t.Fatalf("the removal's last completed run was rejected by %q, want the safeguard's predicate", checkOf(blocked))
 	}
 	if !strings.Contains(blocked.checked.Why(), placed.ID) || !strings.Contains(blocked.checked.Why(), actor.Key) {
 		t.Errorf("the rejection names neither the safeguard nor its author: %s", blocked.checked.Why())
 	}
-	// The implementation stage stands at one attempt: an attempt is counted on
-	// entry to author, and Dispatch.ReturnTo — what the mechanical rejection
-	// sends the item back with — counts nothing itself, nothing here re-entering
-	// the stage to author it again.
+	// The implementation stage spent whatever attempt limit is in force —
+	// authored or learned, and this test's history may have moved it from what
+	// [attemptLimit] reads — rebuilding against a removal no rebuild here fixes,
+	// and the item is escalated at it.
 	stages, err := item.Stages(ctx, d.pool, blocked.itemID)
 	if err != nil {
 		t.Fatalf("reading the item's stages: %v", err)
@@ -62,8 +79,15 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 			attempts = s.Attempts
 		}
 	}
-	if attempts != 1 {
-		t.Errorf("the implementation stage stands at %d attempts, want 1", attempts)
+	if attempts < 2 {
+		t.Errorf("the implementation stage stands at %d attempts, want at least 2 — a rebuild happened and then the limit was spent", attempts)
+	}
+	it, err := item.Get(ctx, d.pool, blocked.itemID)
+	if err != nil {
+		t.Fatalf("reading the item: %v", err)
+	}
+	if it.Stage != item.StageEscalated {
+		t.Errorf("the item that spent its attempts is at %s, want escalated", it.Stage)
 	}
 
 	// A safeguard leaves force at the gate row A safeguard's withdrawal, which is
@@ -77,6 +101,11 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	throughASubcommand(t, ctx, &d, func() error {
 		return approveCommand([]string{"-safeguard-withdrawal", written.ID, "-human", "reviewer"})
 	})
+	// The escalated candidate is left as it is — clearing an escalation is not
+	// this milestone's concern — and a fresh item asking for the same removal is
+	// what confirms the predicate itself, and not the earlier candidate's own
+	// standing, is what was blocking it.
+	d.model = &contractModel{}
 	through := only(t, runOne(t, ctx, d, out, removeStatement, theService))
 	if !through.merged {
 		t.Fatalf("the removal is still refused after the safeguard was withdrawn:\n%s", out)

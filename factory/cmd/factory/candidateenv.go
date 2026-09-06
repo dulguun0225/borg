@@ -148,31 +148,49 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	// declares against nothing. Its target is a directory of its own under the
 	// install's, which is what makes two candidates of one service not read
 	// each other's.
+	//
+	// A candidate that already has one — a rebuild [path.mergeUntilQueued] sent
+	// back to Implementation and is now returning with — recomposes it rather
+	// than composing a second one: the environment stays the item's until it
+	// merges, is dropped, or is superseded, per
+	// ../../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md, and
+	// [environment.Candidates.Compose] refuses a second call for one item on the
+	// name's unique constraint.
 	composed, err := p.compositionFor(ctx, it)
 	if err != nil {
 		return err
 	}
-	c.environmentDir = filepath.Join(d.dir, "candidate-"+c.itemID)
-	if err := os.MkdirAll(c.environmentDir, 0o755); err != nil {
-		return fmt.Errorf("factory: making the candidate environment's directory: %w", err)
+	if c.environmentID != "" {
+		if err := p.candidates.Recompose(ctx, deployActor, c.environmentID, environment.Composition{From: composed}); err != nil {
+			return err
+		}
+		c.composedFrom = composed
+		c.approvedComposition = composed
+		fmt.Fprintf(d.out, "Candidate environment %s recomposed for item %s at %s, from %s\n",
+			c.environmentID, c.itemID, c.environmentDir, describeComposition(composed))
+	} else {
+		c.environmentDir = filepath.Join(d.dir, "candidate-"+c.itemID)
+		if err := os.MkdirAll(c.environmentDir, 0o755); err != nil {
+			return fmt.Errorf("factory: making the candidate environment's directory: %w", err)
+		}
+		env, err := p.candidates.Compose(ctx, deployActor, c.itemID, p.projectID,
+			[]environment.Target{{Address: c.environmentDir}}, d.credential, environment.Composition{From: composed})
+		if err != nil {
+			return err
+		}
+		c.environmentID = env.ID
+		c.composedFrom = composed
+		c.approvedComposition = composed
+		fmt.Fprintf(d.out, "Candidate environment %s composed for item %s at %s, from %s\n",
+			env.ID, c.itemID, c.environmentDir, describeComposition(composed))
 	}
-	env, err := p.candidates.Compose(ctx, deployActor, c.itemID, p.projectID,
-		[]environment.Target{{Address: c.environmentDir}}, d.credential, environment.Composition{From: composed})
-	if err != nil {
-		return err
-	}
-	c.environmentID = env.ID
-	c.composedFrom = composed
-	c.approvedComposition = composed
-	fmt.Fprintf(d.out, "Candidate environment %s composed for item %s at %s, from %s\n",
-		env.ID, c.itemID, c.environmentDir, describeComposition(composed))
 
 	dep, err := p.putOnCandidateEnvironment(ctx, c, c.buildID)
 	if err != nil {
 		return err
 	}
 	c.candidateDeployID = dep.ID
-	fmt.Fprintf(d.out, "Deploy %s complete: build %s runs on candidate environment %s\n", dep.ID, c.buildID, env.ID)
+	fmt.Fprintf(d.out, "Deploy %s complete: build %s runs on candidate environment %s\n", dep.ID, c.buildID, c.environmentID)
 
 	c.criteria, err = p.decideCriteria(ctx, c, c.buildID, inForce)
 	return err

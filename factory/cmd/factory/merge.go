@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
@@ -97,6 +98,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		}
 		c.mergeGate = recordFiring(opened, closing)
 		c.autoRejected, c.autoRejectedBy = true, check
+		c.mergeRejectReason = why
 		if _, err := p.items.ReturnTo(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
@@ -113,6 +115,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	c.mergeGate = recordFiring(opened, closing)
 	if verdict == gate.VerdictReject {
 		c.rejected = true
+		c.mergeRejectReason = feedback
 		if _, err := p.items.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
@@ -127,6 +130,41 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	c.queued = true
 	fmt.Fprintf(p.d.out, "Approved; item %s is in the merge queue\n", c.itemID)
 	return nil
+}
+
+// mergeUntilQueued is [path.mergeGate] fired again for a candidate it rejected,
+// against a build made against what was found wrong, until it approves or the
+// implementer's own attempt limit escalates: a mechanical rejection
+// (c.autoRejected) or a human's reject (c.rejected) at the Merge to master row
+// both send the item back to Implementation with an attempt counted there, per
+// ../../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md, and this is what
+// builds it again rather than leaving it there for good.
+//
+// What is not looped here is the merge queue's own rejection at
+// re-verification, which [path.returnRejected] already sends back with an
+// attempt counted: that happens inside [path.runQueue], after every candidate
+// of the layer has been through this loop, and building it again is not part of
+// this milestone.
+func (p *path) mergeUntilQueued(ctx context.Context, c *candidate) error {
+	for {
+		if err := p.mergeGate(ctx, c); err != nil {
+			return err
+		}
+		if !c.autoRejected && !c.rejected {
+			return nil
+		}
+		reason := c.mergeRejectReason
+		c.sentBack = agent.Returned{Reason: reason, Version: c.commit}
+		c.resetForRebuild()
+		fmt.Fprintf(p.d.out, "Item %s goes back to implementation against what the Merge to master row found wrong: %s\n",
+			c.itemID, reason)
+		if err := p.implementationStage(ctx, c); err != nil {
+			return err
+		}
+		if err := p.candidateEnvironment(ctx, c); err != nil {
+			return err
+		}
+	}
 }
 
 // decideSecurityPredicates is the factory's own list of security predicates

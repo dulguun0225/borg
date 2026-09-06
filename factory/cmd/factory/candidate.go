@@ -198,6 +198,17 @@ type candidate struct {
 	// before a verdict was asked for, and autoRejectedBy names which.
 	autoRejected   bool
 	autoRejectedBy string
+	// mergeRejectReason is what the Merge to master row's rejection found wrong,
+	// whichever of the two set c.rejected or c.autoRejected wrote it: the
+	// mechanical check's own words, or the human's feedback. It is what
+	// [path.mergeUntilQueued] hands to the implementer as [agent.Returned.Reason]
+	// when it sends the item back to build again.
+	mergeRejectReason string
+	// sentBack is what sent this item back to implementation from a row after
+	// it — today only the Merge to master row's rejection — carried into
+	// [path.implementationStage]'s own loop the way that loop already carries
+	// its own row's rejection between attempts.
+	sentBack agent.Returned
 	// superseded is true where the Decomposition row rejected the set this item
 	// was part of.
 	superseded bool
@@ -220,4 +231,25 @@ type candidate struct {
 	// where none was — a rollback opens none, and neither does a redeploy of a release
 	// already watched.
 	windowID string
+}
+
+// resetForRebuild clears what one build on the candidate environment recorded,
+// before [path.mergeUntilQueued] sends the item back to implementation and it
+// reaches the Deploy to candidate environment and Merge to master rows again for
+// a new build. environmentID and environmentDir are not among them: the
+// environment stays the item's until it merges, is dropped, or is superseded, per
+// ../../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md, so the next
+// candidateEnvironment call recomposes it rather than composing a second one.
+func (c *candidate) resetForRebuild() {
+	c.buildID = ""
+	c.criteria = nil
+	c.measurement = score.Measurement{}
+	c.encodingDefect = ""
+	c.encodingCouldNotDerive = false
+	c.compileFailure = ""
+	c.autoRejected = false
+	c.autoRejectedBy = ""
+	c.mergeRejectReason = ""
+	c.rejected = false
+	c.mergeGate = fired{}
 }

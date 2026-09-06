@@ -171,6 +171,10 @@
 //     and one item's build in progress. asked.resumeIntentID names an intent
 //     already waiting for the one caller that knows which, in place of the
 //     statement-keyed lookup package intent's rewrite no longer offers.
+//     candidate.sentBack and candidate.mergeRejectReason, and
+//     candidate.resetForRebuild, are what [path.mergeUntilQueued] carries a
+//     Merge to master rejection's reason into a rebuild with and clears
+//     between one build and the next.
 //   - candidateenv.go — candidateEnvironment, the Deploy to candidate
 //     environment row and composing and deploying to it; platformWait and
 //     PlatformWaitKind, the wait a full platform writes into the log; and
@@ -235,7 +239,11 @@
 //   - merge.go — mergeGate, the Merge to master row, blockingCriteria — the
 //     acceptance criteria the candidate's run did not pass, read before every
 //     other mechanical check — and enforceContracts, the two contract checks,
-//     all rejecting on their own terms before a human decides.
+//     all rejecting on their own terms before a human decides; and
+//     mergeUntilQueued, which fires mergeGate again on a build made against
+//     what it found wrong until it approves or the implementer's own attempt
+//     limit escalates — the loop that builds the item again rather than
+//     leaving it at Implementation for good.
 //   - reverify.go — the whole of [mergequeue.Repository]: Head and Holds, the
 //     two readings of master; Reverify, which merges master and every candidate
 //     ahead of this one before it builds; Confirm, the confirming run over the
