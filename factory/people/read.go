@@ -12,7 +12,8 @@ import (
 )
 
 // Declaration is one row of the holding table: a per-person key holding one
-// duty or one obligation.
+// duty or one obligation. What that key lent is [Credential], a row of its
+// own.
 type Declaration struct {
 	ID    string
 	Actor record.Actor
@@ -26,10 +27,6 @@ type Declaration struct {
 	// Obligation is the obligation held, and is empty where the row names a
 	// duty.
 	Obligation Obligation
-	// CredentialAccount and SpendCeiling are the lent credential's account
-	// and ceiling. Both are unbuilt: schema.go says why.
-	CredentialAccount string
-	SpendCeiling      float64
 	// WithdrawnAt is when the holding ended, and is empty while it stands.
 	// The row is kept, so a page delivered to a holder who has since
 	// stopped holding is still readable against the row that routed it.
@@ -40,7 +37,7 @@ type Declaration struct {
 func (d Declaration) Holds() bool { return d.WithdrawnAt == "" }
 
 const selectDeclaration = `select id, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-	credential_account, spend_ceiling, withdrawn_at
+	withdrawn_at
 	from ` + Table
 
 func scan(row pgx.Row) (Declaration, error) {
@@ -48,7 +45,7 @@ func scan(row pgx.Row) (Declaration, error) {
 	var kind, basis, obligation string
 	var duty int
 	if err := row.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.Key, &duty, &obligation,
-		&d.CredentialAccount, &d.SpendCeiling, &d.WithdrawnAt); err != nil {
+		&d.WithdrawnAt); err != nil {
 		return Declaration{}, err
 	}
 	d.Actor.Kind = record.Kind(kind)

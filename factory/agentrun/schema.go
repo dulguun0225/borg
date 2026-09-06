@@ -46,9 +46,8 @@ const FormatVersion = "agent_run/1"
 // is absent.
 //
 // served_names_something is the design's "one of the five and never none",
-// narrowed to the two a record exists for: an item or an intent. The grouper
-// run and the evaluation-set run are the two of the five that name neither, and
-// neither has a record yet — doc.go says so.
+// narrowed to the two a record exists for: an item or an intent. doc.go names
+// the three of the five this table cannot yet be written for.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,

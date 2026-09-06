@@ -18,11 +18,28 @@
 // kind was converted at, and the amount that sums to, absent where a kind
 // returned has no rate.
 //
-// Which caller is not built: dispatch as a component, the fleet entry, and
-// the People declaration's per-credential rate. What ran and what it ran on
-// are written straight onto the record rather than resolved through those,
-// because the owner may change any of them later without changing what a
-// past record says.
+// [Writer]'s caller is dispatch, the component that performs a run. What ran
+// and what it ran on are written straight onto the record rather than resolved
+// through the fleet entry or the People declaration, because the owner may
+// change either later without changing what a past record says.
+//
+// What no run carries yet, each because the record it would be read off is
+// not reached: the effort, the processing location and the skill versions,
+// which are the fleet entry's, and the fleet entry is not a record here; and
+// the lender key, the account kind, the rates and the converted amount, which
+// package people holds and dispatch does not read.
+//
+// What a run served is one of five, and this table takes an item or an intent:
+// a stage's run names the item and its stage, and an interview round and a
+// decomposition the intent. The grouper run and the evaluation-set run name
+// neither, and no run of either is written. The evaluation-set result
+// ../../end-goal/records.md inventories with dispatch as its writer, defined
+// in ../../end-goal/how-the-factory-works/10-fleet/02-a-model-under-a-name.md
+// and keyed by model version, effort, role prompt version, skill versions and
+// the set's version, has no package here: the evaluation set is content the
+// product ships and nothing ships one, the run is a dispatch onto a fleet
+// entry that is not a record, and the design names no shape for a result
+// beyond its key.
 //
 // [Run.UnpricedKinds] is what a spend ceiling names in the hold it writes on
 // a credential that fails closed: a run whose converted amount is absent

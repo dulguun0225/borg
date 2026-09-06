@@ -1,15 +1,16 @@
 // Package people owns the People declaration: which of the owner's twelve
-// duties each per-person key holds, and the named obligation a key holds
-// outside the twelve. From the first record the identity is the key and
-// never a name — [Mapping] is the one place a key maps to a name, kept
-// outside the chain so an erasure can delete it alone.
+// duties each per-person key holds, the named obligation a key holds outside
+// the twelve, and the credentials a key lent the factory with the account
+// kind, the spend ceiling and the rates on each. From the first record the
+// identity is the key and never a name — [Mapping] is the one place a key
+// maps to a name, kept outside the chain so an erasure can delete it alone.
 //
 // identity.go holds the vocabulary: a row names a [Duty] or an [Obligation]
 // and never both, which is what [Holding] carries — [OfDuty] and
 // [OfObligation] compose one. [Duties] is the twelve and [Obligations] the
 // three: hosting the factory, installing the drift detector, and composing
-// the fleet. schema.go holds [Table], [MappingTable], their id prefixes and
-// [DDL].
+// the fleet. schema.go holds [Table], [MappingTable], [CredentialTable],
+// [RateTable], their id prefixes and [DDL].
 //
 // The mapping holds a key and a name and nothing else: the hours a service
 // pages within are a field of the service record and a wait naming no service
@@ -22,6 +23,16 @@
 // [GetMapping], [NameOf], the read every screen and every page event resolves
 // a key through, and [KeyNamed], the same read the other way for a caller
 // handed a name and holding no key.
+//
+// credential.go holds the lent credential: [AccountKind] with
+// [AccountKinds], [PeriodUnit] with [PeriodUnits], [Ceiling] with
+// [Ceiling.PeriodStartAt] — the start of the period a time falls in, derived
+// from the length and the start date rather than held on any record —
+// [Credential], the reads [CredentialNamed] and [Credentials], and the writes
+// [Writer.Lend], [Writer.AuthorCeiling] and [Writer.TakeBack]. rate.go holds
+// [Rate], [Writer.AuthorRate], [RatesFor], [AllRates], [RateFor] and
+// [Convert], the converted amount a run's units come to at the rates
+// authored, absent where a kind the run returned has none.
 //
 // declare.go holds [Writer], [NewWriter], [Writer.Declare] and
 // [Writer.Withdraw]. Every write to the holding table — a duty held or an
@@ -39,8 +50,10 @@
 // human can read the four screens without gating, approving, or otherwise
 // acting anywhere.
 //
-// The tests are db_test.go, the holding table and the re-derivation, and
-// mapping_test.go, the mapping and its deletion; both against the database.
+// The tests are db_test.go, the holding table and the re-derivation,
+// mapping_test.go, the mapping and its deletion, and credential_test.go, the
+// lent credential, its ceiling and period, and the rates; all against the
+// database.
 //
 // rederive.go holds [Rederive], called at the factory's start: it rewrites
 // every duty the newest policy version's declaration names that the table
@@ -48,13 +61,24 @@
 //
 // Nothing enforces a duty's routing and nothing has to: a duty with no
 // holder is not an error, and an empty table is a working factory. The one
-// field this package enforces is nothing yet either — the spend ceiling
-// the design gives a lent credential is columns on [Table]
-// (credential_account, spend_ceiling) that nothing writes: the fleet that
-// would lend a credential is not built, so there is no caller for either.
+// thing here the factory enforces is the spend ceiling on a lent credential,
+// and what enforces it is not built: the component that performs a run reads
+// [CredentialNamed], [RatesFor] and [Convert] onto the agent run record, and
+// the sum over a period from [Ceiling.PeriodStartAt] is what a ceiling is
+// compared against. No caller does either yet.
+//
+// A version's snapshot carries less than these tables hold.
+// [policy.PersonDeclaration] has a field for the credential name, the ceiling
+// amount and the rates, and none for the obligation, the account kind, the
+// currency or the period, so a version names none of those four; a key that
+// lent two credentials is two rows of that snapshot. Extending that type is
+// package policy's, and this package does not import it for writing.
 //
 // Who may write what: [Writer] inserts a holding and withdraws it, and it
-// refuses an actor that is not a human with [ErrNotAnOwner]. [WriteMapping]
+// refuses an actor that is not a human with [ErrNotAnOwner]. [Writer.Lend],
+// [Writer.AuthorCeiling], [Writer.TakeBack] and [Writer.AuthorRate] are the
+// only writers of the lent credential and its rates, refusing a non-human
+// actor the same way. [WriteMapping]
 // and [DeleteMapping] are the mapping's only writer, also refusing a
 // non-human actor; [DeleteMapping] takes a caller-supplied check for
 // whether a legal hold reaches a record the key is written on, because this
@@ -63,7 +87,13 @@
 // A withdrawal of a legal hold, once built, is what would call it with one.
 //
 // What defines it: the twelve duties and the three obligations outside them
-// are ../../end-goal/what-humans-do.md; the record, the per-person key, the
+// are ../../end-goal/what-humans-do.md; the account kind and the rates beside
+// a lent credential are
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md;
+// the spend ceiling, its currency, its period and what it is compared against
+// are ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md; a
+// credential taken back is
+// ../../end-goal/how-the-factory-works/10-fleet/06-a-credential-taken-back.md; the record, the per-person key, the
 // key-to-name mapping, and the version every write but the mapping's
 // appends are
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md;

@@ -35,11 +35,11 @@
 // Who may write what: [Writer.Ensure] and [Insert] create the record, as Factory. Every
 // authoring call is called by package policy inside the transaction that appends
 // the policy version, so the field and the version commit together or not at all.
-// Two have a second caller the design names and the code does not have yet:
-// [SetDecisionLogRetention] is called by the gate row that decides a shortening,
-// and [SetRetentionFloor] by that row and by intake on the arrival of a
-// records-retention constraint. Neither row nor intake's constraint kind is
-// built.
+// [SetDecisionLogRetention]'s caller is the approval of the gate row that
+// decides a shortening, which package policy performs and the command-line
+// interface fires. [SetRetentionFloor] has a second caller the code does not
+// have yet: intake, on the arrival of a records-retention constraint, that
+// constraint kind not being built.
 //
 // What is not read yet: the advisory severity, the remediation period, the report
 // channel's two rates, the harm mark's page cap and whether it pages, report

@@ -61,10 +61,12 @@ func SetBackupRetention(ctx context.Context, tx pgx.Tx, settingsID string, secon
 }
 
 // SetRetentionFloor writes how low an authored value or a safeguard may ever take
-// decision-log retention, inside tx. It has two callers and no third: the gate row
-// that decides a shortening, and intake on the arrival of a records-retention
-// constraint, which writes the floor at arrival instead of it being read at
-// drafting. Neither is built, so what exists is the field and the refusal above it.
+// decision-log retention, inside tx. It has two callers and no third: an owner
+// at Factory, through package policy, and intake on the arrival of a
+// records-retention constraint, which writes the floor at arrival instead of it
+// being read at drafting. Intake's constraint kind is not built, so the second
+// caller is absent and the first is what authors the floor the refusal above
+// compares against.
 func SetRetentionFloor(ctx context.Context, tx pgx.Tx, settingsID string, seconds int64) error {
 	if seconds <= 0 {
 		return fmt.Errorf("%w: %d", ErrRetentionNotPositive, seconds)

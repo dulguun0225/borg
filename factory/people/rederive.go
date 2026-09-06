@@ -79,8 +79,8 @@ func rederiveOne(ctx context.Context, pool *pgxpool.Pool, token lease.Token, act
 	}
 	if _, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, person_key, duty, obligation,
-		 credential_account, spend_ceiling, withdrawn_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, '', '', 0, '')
+		 withdrawn_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, '', '')
 		on conflict (person_key, duty, obligation) do update set withdrawn_at = ''`,
 		record.NewID(HoldingIDPrefix), FormatVersion, string(actor.Kind), actor.Key, string(actor.Basis),
 		record.Now(), key, int(duty),

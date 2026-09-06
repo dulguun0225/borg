@@ -29,9 +29,10 @@ type Span struct {
 // recomputed over what remains. It is the one exception to "insert and never
 // update" this package otherwise holds — made for erasure and not for
 // correction, which is what every other write here refuses instead of
-// allowing. Its caller, the report store's redaction pass, is not built; a
-// caller with reach to redact a version that was never a report is a
-// mechanism this method does not add.
+// allowing. Its caller is this store's own redaction pass, over the
+// redactions naming versions it wrote — each target's writer destroying the
+// bytes it holds — and that pass is not built: the redaction record has no
+// package, so there is nothing to read.
 func (s *Store) Redact(ctx context.Context, actor record.Actor, versionID string, spans []Span) error {
 	if err := actor.Validate(); err != nil {
 		return err

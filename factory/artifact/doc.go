@@ -107,8 +107,10 @@
 //
 // [Store.Redact] is the one exception to "insert and never update": it
 // destroys the named [Span]s of a version's content in place and recomputes
-// content_digest, for erasure rather than correction. Its caller, the report
-// store's redaction pass, is not built.
+// content_digest, for erasure rather than correction. Its caller is this
+// store's own pass over the redactions naming the versions it writes, one of
+// the three passes ../../end-goal/records.md gives a redaction's targets, and
+// it is not built: the redaction record has no package here.
 //
 // # What a version was authored from
 //
