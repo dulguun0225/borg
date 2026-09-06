@@ -70,7 +70,19 @@ What prints between the prompts is the demonstration, in order: the two versions
 
 ## The second take, which is M2's demonstration
 
-Run the path again with the same `-service` and `-area`, on a statement that adds a route:
+First, author the analysis window's parameters on the service the first take created, because the first release's window is already open at the values the [score](../end-goal/how-the-factory-works/04-risk-score/README.md) supplies — a size of two in a hundred and a cap of a day, right for a real service and unwatchable here — and a window copies its values at the open, so nothing authored now moves that one. It stays open for its day, and the window limit the score supplies is one, so every later production deploy of this service would wait behind it; the limit is authored above it here, which is what [_When it fails_](#when-it-fails) says of that wait:
+
+```sh
+go run ./cmd/factory author -parameter window_size -value 0.1 -service greeter
+go run ./cmd/factory author -parameter window_confidence -value 0.95 -service greeter
+go run ./cmd/factory author -parameter window_cap -value 60 -service greeter
+go run ./cmd/factory author -parameter window_limit -value 3 -service greeter
+go run ./cmd/factory policy -service greeter
+```
+
+A size of `0.1` is one unit of work in ten failing above the baseline, and `60` is a minute before a window that will never reach its volume ends unresolved. `window_size` is authored per quantity — `-quantity` names which, `error_rate` unless given. What `policy` prints now is those four with a reader beside each, where it said nothing read them before. What authoring the limit costs is stated at the sixth take: a value an owner authored is not one the score's movement is read on.
+
+Then run the path again with the same `-service` and `-area`, on a statement that adds a route:
 
 > Add a second route to this service: it answers GET /version with status 200 and the body 1.0.0. Keep the existing route and its test as they are. Test the new handler through net/http/httptest rather than by binding the port.
 
@@ -124,16 +136,7 @@ A greater number goes first. It orders every queue the item waits in as an item 
 
 This one is the factory taking a change back off production on its own, so it needs three things set up first.
 
-**The analysis window's parameters, authored before the first window opens.** A window copies the size, the confidence, and the cap onto itself at the open, so authoring afterwards does not move one already open — and the values the [score](../end-goal/how-the-factory-works/04-risk-score/README.md) supplies are a size of two in a hundred and a cap of a day, which is right for a real service and unwatchable in a demonstration. Author a coarse size and a short cap on the service the takes above created:
-
-```sh
-go run ./cmd/factory author -parameter window_size -value 0.1 -service greeter
-go run ./cmd/factory author -parameter window_confidence -value 0.95 -service greeter
-go run ./cmd/factory author -parameter window_cap -value 60 -service greeter
-go run ./cmd/factory policy -service greeter
-```
-
-A size of `0.1` is one unit of work in ten failing above the baseline, and `60` is a minute before a window that will never reach its volume ends unresolved. `window_size` is authored per quantity — `-quantity` names which, `error_rate` unless given. What `policy` prints now is those four with a reader beside each, where it said nothing read them before.
+**The analysis window's parameters** were authored at the second take, and every window since has opened with them; a window that opened before them — the first release's — runs to the cap it copied.
 
 **Drift detection, installed once.** It is a second process with a store of its own, and installing it beside the factory is substrate outside the twelve duties:
 
@@ -143,6 +146,14 @@ go run ./cmd/driftdetector show
 ```
 
 The first pass creates its schema and compares what each production target runs against what the factory recorded. `show` prints every mismatch and the last check per target — no mismatches is not health if the last check is old, which is why the second record exists at all. Run the factory without it and every check the factory makes reads a record it wrote itself; the run says so on its first line either way.
+
+On this interface the first pass finds one mismatch already: a stale component. The health monitor runs only inside a `run` or a `watch`, its last check names the interval it was reading on and owes a further pass while any window is open — the first release's is, for its day — and between runs nothing reads. That is the drift detector doing what it is for, on a substrate with no process to keep the monitor running until `serve` exists at M7, and it holds the service's production deploys until a human clears it:
+
+```sh
+go run ./cmd/driftdetector clear <mismatch-id> -human you
+```
+
+Expect it again at every later pass while that window is open.
 
 **Who a page reaches.** A mismatch belongs to none of [the twelve duties](../end-goal/what-humans-do.md), so the page it fires reaches whoever installed the drift detector:
 
@@ -284,7 +295,7 @@ The pass prints every value the score supplies, the subject each was learned abo
 
 Then run anything again. The rows that auto-passed before the rollback now ask for a verdict, and the firing prints why the threshold it was compared against is what it is. That is the milestone: a supplied parameter moved because outcomes moved it, and the same change is decided differently afterwards.
 
-**The window limit, which is the value the design spells out.** It rises per three windows closing without failing a release and falls at a rollback that swept — and it only rises where nobody authored it, so leave the window limit the fourth take authored out and let three windows close:
+**The window limit, which is the value the design spells out.** It rises per three windows closing without failing a release and falls at a rollback that swept — and it only rises where nobody authored it. The window limit was authored at the second take, so its rise is not read as in force here; what `learn` prints is the value the score supplies beside the authored one, and the rise is read there. Let three windows close:
 
 ```sh
 go run ./cmd/factory watch greeter -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets
@@ -292,7 +303,7 @@ go run ./cmd/factory learn
 go run ./cmd/factory policy -service greeter
 ```
 
-`policy` is where the movement is read as what is in force: `window_limit = 2 (supplied), moved by outcomes on svc_…`, with the evidence under it. Author a window limit and the same line reads `authored` and the score's own value is not in force at all — which is the division the design draws, and the reason the fourth take's authored parameters have to be left out of this one.
+`policy` is where what is in force is read, and here it reads `window_limit = 3 (authored)`: the score's own value is not in force at all where an owner authored one, which is the division the design draws. The movement is read in `learn`, which prints the value the score supplies — `window_limit = 2, moved by outcomes on svc_…` — with the evidence under it; on a service with no authored limit the same line is what `policy` reads as in force.
 
 **The movement as records.** A supplied value is a field of a score version, and every decision names the version it was decided under — so the movement is read by following a decision to its version and that version to the one it superseded:
 
