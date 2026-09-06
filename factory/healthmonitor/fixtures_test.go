@@ -290,6 +290,63 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 	return rel
 }
 
+// shipOneUnmeasured is [shipOne] for a release watched by a window that
+// measures nothing: the deploy completes the same way, but the window it opens
+// records only that and closes timed out at the open, the way a service
+// missing one of the four fields the deployer populates is watched. It is what
+// a rollback's target still descends to, since that query asks whether any
+// window failed the release and not whether anything measured it.
+func shipOneUnmeasured(t *testing.T, ctx context.Context, g graph, intentID string) release.Release {
+	t.Helper()
+	it, err := g.items.Create(ctx, theActor, item.New{
+		IntentID: intentID, ServiceID: g.serviceID, Branch: "item/" + intentID,
+	}, "", "", nil)
+	if err != nil {
+		t.Fatalf("decomposing the item: %v", err)
+	}
+	bl, err := g.builds.Create(ctx, theActor, build.Draft{
+		ItemID: it.ID, ServiceID: g.serviceID, CommitHash: "commit-" + intentID, ArtifactDigest: "digest-" + intentID,
+		ShippedBundleIdentity: "bundle-test",
+	})
+	if err != nil {
+		t.Fatalf("writing the build: %v", err)
+	}
+	rel, err := g.releases.Mint(ctx, theActor, release.Minting{
+		ServiceID: g.serviceID, BuildID: bl.ID, Commit: bl.CommitHash, ItemID: it.ID,
+	})
+	if err != nil {
+		t.Fatalf("minting the release: %v", err)
+	}
+	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
+		ServiceID: g.serviceID, EnvironmentID: theEnvironment,
+		What: deploy.OfRelease(rel.ID, bl.ID), Targets: []deploy.Reaching{{Address: theTarget, KeptInstances: 1}},
+	})
+	if err != nil {
+		t.Fatalf("starting the deploy: %v", err)
+	}
+	if err := g.deploys.ReachTarget(ctx, dep.ID, theTarget); err != nil {
+		t.Fatalf("reaching the target: %v", err)
+	}
+	if err := g.deploys.CompleteTarget(ctx, dep.ID, theTarget, targetseam.ReplacementDrained); err != nil {
+		t.Fatalf("completing the target: %v", err)
+	}
+	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
+		t.Fatalf("completing the deploy: %v", err)
+	}
+	w, err := g.windows.Open(ctx, healthmonitor.Actor, window.OpenEvent{
+		DeployID: dep.ID, ReleaseID: rel.ID, BuildID: bl.ID, ServiceID: g.serviceID,
+		MeasuresNothing: true, BoundaryVersion: boundary.Version,
+		PolicyVersion: "pv_test", ScoreVersion: "scv_test",
+	})
+	if err != nil {
+		t.Fatalf("opening the window that measures nothing: %v", err)
+	}
+	if _, err := g.windows.Close(ctx, w.ID, window.ExitTimedOut, window.Closing{}); err != nil {
+		t.Fatalf("closing the window that measures nothing: %v", err)
+	}
+	return rel
+}
+
 // can recompute is one nobody can argue with.
 func closedOn() window.Read {
 	return window.Read{Quantities: map[gatepolicy.Quantity]boundary.Counts{

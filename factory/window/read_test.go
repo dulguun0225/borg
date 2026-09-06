@@ -105,15 +105,13 @@ func TestASkippedWindowIsNotSomethingToReturnTo(t *testing.T) {
 	}
 }
 
-// TestAWindowThatMeasuresNothingIsNotSomethingToReturnTo is the other row the
-// two queries descend past. Timing out counts because a release that never
-// served cannot time out — one arm silent beside a serving control crosses on
-// the request rate and the window closes failed — and that argument is about a
-// window with arms. A window over a service missing one of the four fields the
-// deployer populates has none and records only that it measures nothing, so
-// admitting it would name a release nothing measured as what production is
-// shifted onto.
-func TestAWindowThatMeasuresNothingIsNotSomethingToReturnTo(t *testing.T) {
+// TestAWindowThatMeasuresNothingIsStillARollbackTarget is a window a service
+// missing one of the four fields the deployer populates opens: it records only
+// that it measures nothing and closes timed out at the open, and it stays what
+// such a window stays below — a rollback's target and the last known-good
+// release — since the two queries ask whether any window failed the release and
+// not whether anything measured it.
+func TestAWindowThatMeasuresNothingIsStillARollbackTarget(t *testing.T) {
 	ctx, pool, w, _ := newTable(t)
 	serviceID := record.NewID("svc")
 
@@ -138,11 +136,15 @@ func TestAWindowThatMeasuresNothingIsNotSomethingToReturnTo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClosedPassedOrTimedOut: %v", err)
 	}
-	if len(returnable) != 0 {
-		t.Errorf("ClosedPassedOrTimedOut = %+v, want none: nothing was measured on that release", returnable)
+	if len(returnable) != 1 || returnable[0].ID != opened.ID {
+		t.Errorf("ClosedPassedOrTimedOut = %+v, want the window that measured nothing", returnable)
 	}
-	if _, found, err := window.LastKnownGood(ctx, pool, serviceID); err != nil || found {
-		t.Errorf("LastKnownGood over a service whose only window measured nothing = found %v, %v", found, err)
+	last, found, err := window.LastKnownGood(ctx, pool, serviceID)
+	if err != nil || !found {
+		t.Fatalf("LastKnownGood over a service whose only window measured nothing = found %v, %v", found, err)
+	}
+	if last.ID != opened.ID {
+		t.Errorf("LastKnownGood = %s, want the window that measured nothing %s", last.ID, opened.ID)
 	}
 }
 

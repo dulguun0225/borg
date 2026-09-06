@@ -56,8 +56,10 @@
 // The reads are [Get], [ForRelease], [ForDeploy], and [AllOpen]; [CountOpen],
 // what the window limit is compared against, the limit itself being package
 // policy's read; [ClosedPassedOrTimedOut] and [LastKnownGood], which is what a
-// rollback's target and the last known-good release are computed from — over
-// the windows that measured something, the caller descending past a release
+// rollback's target and the last known-good release are computed from — a
+// window that measures nothing admitted the same as any other window closed
+// timed out, since the question is whether any window failed the release and
+// not whether anything measured it, and the caller descending past a release
 // whose deploy stopped before its build took traffic, which is the deploy
 // record's fact and not this one's; [All]; and
 // [ClosedAtTheVersionInForce], every closed window of every service written

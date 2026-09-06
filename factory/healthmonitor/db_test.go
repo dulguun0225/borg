@@ -131,6 +131,27 @@ func TestAWindowThatFailedToCloseLeavesTheTargetOlderThanItShouldBe(t *testing.T
 	}
 }
 
+// TestAWindowThatMeasuredNothingIsStillTheRollbackTarget is a window a service
+// missing one of the four fields the deployer populates opens: it closes timed
+// out at the open, and it stays what such a window stays below — a rollback's
+// target — since the query asks whether any window failed the release and not
+// whether anything measured it.
+func TestAWindowThatMeasuredNothingIsStillTheRollbackTarget(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	one := shipOneUnmeasured(t, ctx, g, "in_1")          // measured nothing, closed timed out at the open
+	two := shipOne(t, ctx, g, "in_2", window.ExitFailed) // above it, failed
+
+	target, found, err := g.monitor.TargetBelow(ctx, g.watching(), two.Number)
+	if err != nil || !found {
+		t.Fatalf("TargetBelow(%d) = found %v, %v", two.Number, found, err)
+	}
+	if target.ID != one.ID {
+		t.Errorf("a rollback of release %d returns to %d, want the release whose window measured nothing %d",
+			two.Number, target.Number, one.Number)
+	}
+}
+
 // TestShippedIsAReleaseDeployedAndNotJustMinted is the predicate two mechanisms ask of
 // one intent: whether the incident it raised has finished, and whether the hold a
 // rollback leaves may lift. A numbered release that has never run anywhere is normal,

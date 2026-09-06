@@ -138,17 +138,14 @@ func CountOpen(ctx context.Context, pool *pgxpool.Pool, serviceID string) (int, 
 // It names the two exits it admits rather than the three that close without
 // failing the release, because skipped leaves nothing running to return to.
 //
-// A window that measures nothing is left out however it closed. Timing out
-// counts only because a release that never served cannot time out — one arm
-// silent beside a control that is serving crosses on the request rate and the
-// window closes failed — and that argument is about a window with arms. A
-// window over a service missing one of the four fields the deployer populates
-// has none: it records only that it measures nothing, no reading was ever taken
-// on it, and admitting it would make a release nothing measured a release the
-// factory shifts all of production onto.
+// A window that measures nothing is admitted the same as any other window that
+// closed timed out: this query asks whether any window failed the release and
+// not whether anything measured it, and a window over a service missing one of
+// the four fields the deployer populates closes timed out at the open for
+// exactly that reason.
 func ClosedPassedOrTimedOut(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Window, error) {
 	return list(ctx, pool, serviceID,
-		` and not measures_nothing and exit in ('`+string(ExitPassed)+`', '`+string(ExitTimedOut)+`')
+		` and exit in ('`+string(ExitPassed)+`', '`+string(ExitTimedOut)+`')
 		order by closed_at desc, id`,
 		"the windows that closed passed or timed out")
 }
