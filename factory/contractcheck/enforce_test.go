@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
+	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
@@ -258,5 +259,137 @@ func TestACandidateCreatingAContractBreaksNothing(t *testing.T) {
 	}
 	if checked.Broken[0].Next != contract.FirstVersion {
 		t.Errorf("it would mint %s, want the first version", checked.Broken[0].Next)
+	}
+}
+
+// TestAPartialDerivationHoldsTheElementAtTheMergeRow: the deprecation list reads
+// a partial record the way it reads a could-not-derive one — the consumer stays
+// on the list of every marked element of every producer contract the record
+// names — and the list the producer's own diff waits on is that same list, so a
+// removal reaching this row by any route waits on what the detector waits on.
+func TestAPartialDerivationHoldsTheElementAtTheMergeRow(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	full := published(element("Status", "string", true, false), element("Detail", "string", false, false))
+	ship(t, ctx, g, g.producer, []contract.Form{full}, nil, window.ExitTimedOut)
+
+	// The consumer declares Status alone, and the extractor met a read it could
+	// not follow. Nothing derived names Detail, and the record's silence on it
+	// shows nothing.
+	ship(t, ctx, g, g.consumer, nil, []consumercontract.Draft{
+		draft(g.producer, theInterface, "Status", gatepolicy.PredicateRead, ""),
+	}, window.ExitTimedOut, "a read through reflection")
+
+	trimmed := published(element("Status", "string", true, false))
+	removing := candidateOf(t, ctx, g, g.producer, []contract.Form{trimmed}, nil, ok())
+	checked, err := g.check.Enforce(ctx, removing, g.production)
+	if err != nil {
+		t.Fatalf("Enforce: %v", err)
+	}
+	if checked.Passed() {
+		t.Fatalf("a removal passed while a consumer's derivation is partial: %+v", checked.Broken)
+	}
+	if checked.Check() != gate.AutoRejectedByContractDiff {
+		t.Errorf("the check that rejected is %q, want the producer's own diff", checked.Check())
+	}
+	if !slices.Contains(checked.Unreadable.Partial, g.consumer.ID) {
+		t.Errorf("the partial consumers are %v, want the consumer %s", checked.Unreadable.Partial, g.consumer.ID)
+	}
+	if !contains(checked.Why(), "partial") || !contains(checked.Why(), g.consumer.ID) {
+		t.Errorf("the rejection does not say the consumer's derivation is partial: %s", checked.Why())
+	}
+
+	// The same element's deprecation list gives the same answer, which is the
+	// point: the two spellings are one list.
+	marked := markedDetail(t, ctx, g)
+	if marked.Empty() {
+		t.Error("the deprecation list on the same element is empty while the diff's list is not")
+	}
+	if !slices.Contains(marked.Unreadable.Partial, g.consumer.ID) {
+		t.Errorf("the deprecation list's partial consumers are %v, want the consumer", marked.Unreadable.Partial)
+	}
+
+	// The consumer's next release derives completely, and the same removal passes:
+	// what lifts a partial record is a derivation that followed everything.
+	ship(t, ctx, g, g.consumer, nil, []consumercontract.Draft{
+		draft(g.producer, theInterface, "Status", gatepolicy.PredicateRead, ""),
+	}, window.ExitTimedOut)
+	again := candidateOf(t, ctx, g, g.producer, []contract.Form{trimmed}, nil, ok())
+	checked, err = g.check.Enforce(ctx, again, g.production)
+	if err != nil {
+		t.Fatalf("the second Enforce: %v", err)
+	}
+	if !checked.Passed() {
+		t.Fatalf("the removal is still refused after the derivation was complete: %s", checked.Why())
+	}
+}
+
+// markedDetail ships a producer release that marks Detail deprecated and returns
+// the deprecation list entry for it, so one test can compare the two lists the
+// design says are one.
+func markedDetail(t *testing.T, ctx context.Context, g graph) contractcheck.Marked {
+	t.Helper()
+	ship(t, ctx, g, g.producer, []contract.Form{
+		published(element("Status", "string", true, false), element("Detail", "string", false, true)),
+	}, nil, window.ExitTimedOut)
+	list, err := g.check.Deprecated(ctx)
+	if err != nil {
+		t.Fatalf("Deprecated: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("the marked elements are %+v, want Detail alone", list)
+	}
+	return list[0]
+}
+
+// TestAConsumerNobodyCouldDeriveHoldsEveryProducersElement: nothing bounds what
+// an unreadable consumer consumes, so a marked element's list can no longer be
+// known empty and no removal ships mechanically while the record stands.
+func TestAConsumerNobodyCouldDeriveHoldsEveryProducersElement(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	full := published(element("Status", "string", true, false), element("Detail", "string", false, false))
+	ship(t, ctx, g, g.producer, []contract.Form{full}, nil, window.ExitTimedOut)
+
+	// A consumer with a release and no consumer contract at all: nothing yet
+	// holds the producer's element.
+	rel, _ := ship(t, ctx, g, g.consumer, nil, nil, window.ExitTimedOut)
+	trimmed := published(element("Status", "string", true, false))
+	before := candidateOf(t, ctx, g, g.producer, []contract.Form{trimmed}, nil, ok())
+	checked, err := g.check.Enforce(ctx, before, g.production)
+	if err != nil {
+		t.Fatalf("Enforce: %v", err)
+	}
+	if !checked.Passed() {
+		t.Fatalf("the removal is refused with nothing naming the element: %s", checked.Why())
+	}
+
+	// The consumer's build is derived again and no extractor covers its
+	// toolchain. It declares nothing and is on every producer's list all the same.
+	if _, _, _, err := g.store.SubmitConsumerContract(ctx, theActor, theBy, rel.ItemID, g.consumer.ID,
+		"no extractor covers this build", consumercontract.Derived{
+			Extractor: consumercontract.Extractor{Toolchain: "rust", FactoryVersion: "test"},
+			Cause:     consumercontract.CauseNoExtractor,
+		}, ""); err != nil {
+		t.Fatalf("submitting the could-not-derive record: %v", err)
+	}
+
+	after := candidateOf(t, ctx, g, g.producer, []contract.Form{trimmed}, nil, ok())
+	checked, err = g.check.Enforce(ctx, after, g.production)
+	if err != nil {
+		t.Fatalf("the second Enforce: %v", err)
+	}
+	if checked.Passed() {
+		t.Fatal("the removal passed while a consumer nobody could derive stands")
+	}
+	if checked.Check() != gate.AutoRejectedByContractDiff {
+		t.Errorf("the check that rejected is %q, want the producer's own diff", checked.Check())
+	}
+	if !slices.Contains(checked.Unreadable.CouldNotDerive, g.consumer.ID) {
+		t.Errorf("the unreadable consumers are %v, want the consumer %s",
+			checked.Unreadable.CouldNotDerive, g.consumer.ID)
+	}
+	if !contains(checked.Why(), "nobody could derive") {
+		t.Errorf("the rejection does not say nobody could derive the consumer: %s", checked.Why())
 	}
 }

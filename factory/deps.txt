@@ -26,10 +26,10 @@
 # arrangement inverts as well. Its rules are tested without a database at all,
 # over outcomes the test assembles and indexes the way a read of the store does,
 # which is what keeps a rule about arithmetic testable as arithmetic.
-# notifier's and healthmonitor's name postgres
-# although neither owns a table: the notifier's page events are rows of the log
-# and the health monitor's answers are queries over the graph, so both need a
-# database and records to read. Most of driftdetector's tests open its own
+# notifier's and healthmonitor's name postgres: the notifier owns one table, its
+# deliveries, and everything else it writes are page events, which are rows of
+# the log; the health monitor owns none at all, its answers being queries over
+# the graph. Both need a database and records to read. Most of driftdetector's tests open its own
 # store through its own opener and never postgres, which is the independence
 # checked rather than asserted; head_test.go is the one file that also opens
 # the factory's own store, through postgres and decisionlog, because the
@@ -54,11 +54,17 @@
 #
 # The edges whose reason the list does not make obvious have it stated here.
 #
-# artifact -> criterion and artifact -> consumercontract are the two imports between
-# record packages that both own tables: the artifact store is the one writer of
-# both, so a spec version and the criteria it introduces are written in one
-# transaction, and so are a consumer contract version and the predicates it introduces.
-# The alternative in each case is two writers of one table.
+# Four edges run from one record package into another whose table it writes
+# inside its own transaction, which is the only reason a record package writes a
+# table it does not own. artifact -> criterion, artifact -> consumercontract and
+# artifact -> screenstatemachine are the artifact store being the one writer of
+# all four tables: a spec version and the criteria and the screens' machines it
+# introduces are written in one transaction, and so are a consumer contract
+# version and the predicates it introduces. build -> criterion is the same
+# arrangement one package along: what the build's own process decided about the
+# criteria whose encodings declare the build is written as run 0 in the same
+# transaction as the build row. The alternative in each case is two writers of
+# one table.
 #
 # legalhold -> service is an import for one table name. A hold on a project
 # reaches the project's environment and every service in it, so the read of
@@ -213,6 +219,15 @@
 # temporary repository alone. It is the arrangement contract's own derivation
 # has.
 #
+# securitypredicate imports nothing inside this module either, for the same
+# reason exposure does not: it is the factory's own list of security predicates
+# and the derivations that decide them against a checkout, per toolchain, and a
+# package with no dependencies is what makes a list shipped as content of the
+# product testable without a database. What its answer becomes at the merge row
+# — a rejection, or a human where nothing could be derived — is package gate's
+# vocabulary and the caller's to apply, the arrangement contractcheck's own
+# answer already has.
+#
 # boundary imports nothing, inside this module or out of it beyond the standard
 # library. It is the analysis window's arithmetic over numbers its caller has
 # already read, and a package with no dependencies is what makes the one part of
@@ -318,6 +333,7 @@ record
 gatepolicy
 boundary
 exposure
+securitypredicate
 lease -> record
 decisionlog -> record lease principal
 principal -> record
@@ -361,7 +377,7 @@ localtarget -> principal secretref targetseam
 postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record release safeguard screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release safeguard score screenstatemachine secretref service targetseam window
+cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release safeguard score screenstatemachine secretref securitypredicate service targetseam window
 cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
 test dispatch -> postgres

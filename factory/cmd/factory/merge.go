@@ -8,15 +8,17 @@ import (
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/securitypredicate"
 )
 
 // mergeGate is the Merge to master row: where the verdict on the candidate is
 // given. What it reads is the candidate's own run — the acceptance criteria decided
 // against the candidate environment with undecided read the way a failure is, every
-// consumer contract in force decided against that same run, and the
-// producer's own contract diff against the version production is running.
+// consumer contract in force decided against that same run, the
+// producer's own contract diff against the version production is running, and
+// the factory's own list of security predicates decided against the same build.
 //
-// The last two reject on their own terms before anyone gives a verdict, which is
+// The last three reject on their own terms before anyone gives a verdict, which is
 // what the design says of this row: the row fires so the vector exists and the
 // rejection is readable against it, and then the factory's own reject closes it. A
 // human who was going to approve is not overruled — there is nothing left to
@@ -38,6 +40,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
+	predicates := p.decideSecurityPredicates(c)
 	firing := gate.Firing{
 		Row:             gate.MergeToMaster,
 		ItemID:          c.itemID,
@@ -47,6 +50,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(c.criteria),
 		Criteria:        c.criteria,
+		CouldNotDerive:  couldNotDerive(predicates),
 		Measurement:     c.measurement,
 		Exposure:        reached,
 	}
@@ -56,10 +60,17 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	}
 	report(p.d.out, opened, c.criteria)
 	reportContracts(p.d.out, checked)
+	reportSecurityPredicates(p.d.out, predicates)
 
-	// The mechanical rejection, before a verdict is asked for.
-	if check := checked.Check(); check != "" {
-		closing, err := p.gate.AutoReject(ctx, opened, check, checked.Why())
+	// The mechanical rejection, before a verdict is asked for. A security
+	// predicate rejects here on the terms the contract checks do, and after them:
+	// what a reader of the row needs first is the promise the candidate breaks.
+	check, why := checked.Check(), checked.Why()
+	if check == "" && len(predicates.Rejected()) > 0 {
+		check, why = gate.AutoRejectedBySecurityPredicate, predicates.Why()
+	}
+	if check != "" {
+		closing, err := p.gate.AutoReject(ctx, opened, check, why)
 		if err != nil {
 			return err
 		}
@@ -68,7 +79,7 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		if _, err := p.items.ReturnTo(ctx, gate.Component(gate.MergeToMaster), c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
-		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, checked.Why())
+		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, why)
 		fmt.Fprintf(p.d.out, "  close event %s written as %s; item %s goes back to %s with an attempt counted there\n",
 			closing.ID, closing.Actor.Key, c.itemID, item.StageImplementation)
 		return nil
@@ -95,6 +106,46 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	c.queued = true
 	fmt.Fprintf(p.d.out, "Approved; item %s is in the merge queue\n", c.itemID)
 	return nil
+}
+
+// decideSecurityPredicates is the factory's own list of security predicates
+// decided against this candidate's build. The design decides it at the candidate
+// run beside the criteria; this decides it here, over the same checkout the run
+// was performed on, because the row that reads the answer is this one and no
+// record carries it between the two.
+//
+// Which toolchain a service's build is is not a field of any record, so every
+// service is read as Go, the way the consumer contract extractor already reads
+// one. A toolchain the factory ships no list for is the zero list, which reads
+// as could not derive.
+func (p *path) decideSecurityPredicates(c *candidate) securitypredicate.Decided {
+	list, _ := securitypredicate.ForToolchain(securitypredicate.ToolchainGo, factoryVersion)
+	return securitypredicate.Decide(list, securitypredicate.Checkout{Dir: c.svc.Repository})
+}
+
+// couldNotDerive is what the firing carries where no security predicate could be
+// decided: one of the derivations the merge row names, which puts a human there
+// rather than rejecting.
+func couldNotDerive(predicates securitypredicate.Decided) []string {
+	if predicates.CouldNotBeDerived() {
+		return []string{gate.CouldNotDeriveSecurityPredicate}
+	}
+	return nil
+}
+
+// reportSecurityPredicates prints what the factory's own list came to, as an
+// owner at the row would read it: which list ran, how many kinds it holds, and
+// why nothing could be decided where nothing was.
+func reportSecurityPredicates(out io.Writer, predicates securitypredicate.Decided) {
+	if predicates.CouldNotBeDerived() {
+		fmt.Fprintf(out, "  the security predicates could not be derived: %s\n", predicates.CouldNotDerive)
+		return
+	}
+	fmt.Fprintf(out, "  %d security predicate(s) of the %s list shipped with factory version %s decided against this build\n",
+		len(predicates.Results), predicates.List.Toolchain, predicates.List.FactoryVersion)
+	for _, rejected := range predicates.Rejected() {
+		fmt.Fprintf(out, "    %s does not hold: %s\n", rejected.Kind, rejected.Why)
+	}
 }
 
 // enforceContracts is the two contract checks over one candidate, kept on the
@@ -149,6 +200,12 @@ func reportContracts(out io.Writer, checked contractcheck.Checked) {
 		for _, blocking := range broken.Blocking {
 			for _, consumer := range blocking.Consumers() {
 				fmt.Fprintf(out, "    %s is still declared by %s\n", blocking.Element, consumer)
+			}
+			for _, consumer := range blocking.Unreadable.Partial {
+				fmt.Fprintf(out, "    %s is held by %s, whose derivation is partial\n", blocking.Element, consumer)
+			}
+			for _, consumer := range blocking.Unreadable.CouldNotDerive {
+				fmt.Fprintf(out, "    %s is held by %s, whom nobody could derive at all\n", blocking.Element, consumer)
 			}
 			for _, s := range blocking.Safeguards {
 				fmt.Fprintf(out, "    %s is still asserted by safeguard %s, placed by %s %s\n",

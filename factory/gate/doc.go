@@ -109,9 +109,11 @@
 // [Firing.Exposure] is what the component that built hands the gate, derived by
 // package exposure and read off the build record at the three firing sites
 // below a build. [Firing.CouldNotDerive] is the same arrangement at the merge
-// row, and no firing site hands one over, so a derivation that produced no
-// result puts no human there yet. The four rows outside
-// every item and the row that decides a shortening of decision-log retention
+// row, and cmd/factory hands one over for a security predicate the factory's
+// own list could not decide. The five rows outside
+// every item — a role prompt or a skill, the three withdrawals, and the
+// shortening of decision-log retention, the last four of them the rows that
+// decide a record —
 // fire like any other, and what fires them — the artifact store's fleet
 // versions, a safeguard's withdrawal, a halt's withdrawal, a legal hold's
 // withdrawal, and a shortening of decision-log retention written pending —

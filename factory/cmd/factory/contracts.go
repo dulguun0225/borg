@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/securitypredicate"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -84,6 +85,14 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 	for _, e := range consumercontract.Extractors(factoryVersion) {
 		fmt.Fprintf(p.d.out, "toolchain %s has an extractor: %s %s, shipped with factory version %s\n",
 			e.Toolchain, e.Name, e.Version, e.FactoryVersion)
+	}
+
+	// The factory's own list of security predicates is shipped content too, so
+	// which toolchains have one is the same kind of fact and is read here beside
+	// the extractors.
+	for _, l := range securitypredicate.Lists(factoryVersion) {
+		fmt.Fprintf(p.d.out, "toolchain %s has a security-predicate list of %d kind(s), shipped with factory version %s\n",
+			l.Toolchain, len(l.Kinds), l.FactoryVersion)
 	}
 
 	all, err := contract.All(ctx, p.d.pool)
@@ -198,6 +207,12 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 		}
 		fmt.Fprintf(p.d.out, "%s.%s of %s is marked deprecated in %s — %s\n",
 			m.Contract.Name, m.Element.Name, m.ServiceName, m.Version.Semver, state)
+		for _, consumer := range m.Unreadable.Partial {
+			fmt.Fprintf(p.d.out, "  %s is on the list whatever it declares: its derivation is partial\n", consumer)
+		}
+		for _, consumer := range m.Unreadable.CouldNotDerive {
+			fmt.Fprintf(p.d.out, "  %s is on the list whatever it declares: nobody could derive it at all\n", consumer)
+		}
 		for _, s := range m.Safeguards {
 			fmt.Fprintf(p.d.out, "  safeguard %s, placed by %s %s, asserts %s on it: the removal item exists and is rejected at its Merge to master gate\n",
 				s.SafeguardID, s.Actor.Kind, s.Actor.Key, s.Kind)

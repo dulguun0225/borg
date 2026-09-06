@@ -31,12 +31,18 @@
 //
 // [Check.Deprecated], in deprecation.go, is the deprecation list: a [Marked]
 // per marked element, naming the consumer contracts and safeguards' predicates
-// that still hold it, whether any consumer's derivation was partial, and whether
-// any could not be derived at all — [Marked.Empty] is nothing holding it, which
+// that still hold it and the [Unreadable] consumers — the partial derivations
+// and the ones nobody could derive at all — that hold it whatever they declare;
+// [Marked.Empty] is nothing holding it, which
 // is what a breaking change and a removal each wait for. [Broken.Blocking],
-// built by the diff in check.go, is what a rejection names. A breaking diff and the list are one
+// built by the diff in check.go, is what a rejection names, and it carries the
+// same [Unreadable] pair, [Blocking.HeldByADerivation] being the same question
+// [Marked.Empty] asks: the deprecation list and the diff's own list are one list
+// read at two moments, so a removal reaching the merge row by any route waits on
+// what the detector waits on. A breaking diff and the list are one
 // check, so a breaking change passes exactly when nothing still names the
-// elements it breaks — no consumer contract in force, and no safeguard's
+// elements it breaks — no consumer contract in force, no consumer whose
+// derivation cannot be read as having stopped, and no safeguard's
 // predicate. A safeguard's predicate is told apart from a derived consumer
 // contract, because what clears it is a withdrawal rather than a release.
 // [Check.Raise], also in deprecation.go, is the detector: one pass over every
@@ -55,10 +61,15 @@
 // and it is the one window that reads more than the producer's own numbers, any
 // service crossing the reading against its own recent history while it is open
 // failing it. Both are the health monitor's to perform and it is not told which
-// release is one yet: what it needs is this reading at the open, so that the
+// release is one yet: what it needs is this reading at the open, handed to it
+// the way the held-out selection already is, so that the
 // passed exit is unavailable to such a window the way it is to a held-out
 // release, and again while it watches. cmd/factory reports the reading at the
-// production deploy meanwhile.
+// production deploy meanwhile. Until the health monitor takes it, a brownout's
+// window can close passed before its cap, which is
+// [Brownout.EstablishesNothing]: [Check.Raise] reports that as [Raised.Stalled]
+// rather than passing over the element, no pass of the detector being able to
+// raise the removal after such a close.
 //
 // [Check.ComposedFrom], in composition.go, is what a candidate's environment is
 // composed from: the producers the candidate build's consumer contract names,
