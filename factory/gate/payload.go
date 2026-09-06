@@ -181,18 +181,22 @@ type Opened struct {
 // rather than going to a verdict.
 func (o Opened) Holding() bool { return len(o.Holds) > 0 }
 
-// Pages reports whether the row fired a page. Two conditions do. A mismatch the
-// drift detector found waits on a human and on nothing else, where the
-// conditions beside it in the holds lift themselves and page nobody. And a
-// human deciding on a revert while the rollback that removed the defect still
-// holds: the service runs the build that was restored, master still contains
-// the defect, and nothing ships past that human.
+// Pages reports whether the row fired a page. One condition does: a human
+// deciding on a revert while the rollback that removed the defect still holds —
+// the service runs the build that was restored, master still contains the
+// defect, and nothing ships past that human. It is read together with
+// [Opened.HumanDecides] because a revert row the number auto-passed leaves no
+// human waiting, and a page is a wait on one.
 //
-// The second is read together with [Opened.HumanDecides] and the first is not,
-// because a mismatch puts a human at the row by itself: a revert row the number
-// auto-passed leaves no human waiting, and a page is a wait on one.
+// A mismatch the drift detector found is not a second condition: it holds this
+// row, but the row it holds pages nobody, the rule [_What a gate may
+// change_](../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md)
+// states for every hold. The drift detector's own page reaches whoever
+// installed it, through the notifier's sweep of that store and not through this
+// row, so a firing that finds a mismatch and a revert decision standing at once
+// still sends only the revert decision's page.
 func (o Opened) Pages() bool {
-	return o.Mismatch != "" || (o.RevertWhileRollbackHolds && o.HumanDecides)
+	return o.RevertWhileRollbackHolds && o.HumanDecides
 }
 
 // openedFrom reads one row of the log back into the [Opened] the closing calls

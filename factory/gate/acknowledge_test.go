@@ -46,9 +46,39 @@ func TestAcknowledgeAppendsAndRefusesANonHuman(t *testing.T) {
 }
 
 // TestAcknowledgeOfAPagingRowCallsTheNotifier: where the row also pages — a
-// drift mismatch, which is the one condition that does — one act at Work
-// writes both the acknowledgement row and the page's acknowledged event.
+// human deciding on a revert while the rollback that removed the defect still
+// holds, which is the one condition that does — one act at Work writes both
+// the acknowledgement row and the page's acknowledged event.
 func TestAcknowledgeOfAPagingRowCallsTheNotifier(t *testing.T) {
+	notifier := &fakeNotifier{}
+	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, token, g := newGateWith(t, s, p, func(c *gate.Composition) {
+		c.Notifier = notifier
+	})
+
+	firing := deployFiring(t, ctx, pool, token)
+	firing.RevertWhileRollbackHolds = true
+	opened, err := g.Fire(ctx, firing)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if !opened.Pages() {
+		t.Fatal("a firing with a revert decided while the rollback holds does not page")
+	}
+
+	if _, err := g.Acknowledge(ctx, opened, owner); err != nil {
+		t.Fatalf("Acknowledge: %v", err)
+	}
+	if len(notifier.acknowledged) != 1 || notifier.acknowledged[0] != opened.Row.ID {
+		t.Errorf("the notifier was told %v acknowledged, want %q", notifier.acknowledged, opened.Row.ID)
+	}
+}
+
+// TestAcknowledgeOfAMismatchDoesNotCallTheNotifier: a mismatch the drift
+// detector found puts a human at the row, but the row it holds pages nobody, so
+// an acknowledgement of it calls the notifier for nothing — the detector's own
+// page is reached through its own sweep and not through this row.
+func TestAcknowledgeOfAMismatchDoesNotCallTheNotifier(t *testing.T) {
 	notifier := &fakeNotifier{}
 	s, p := &fakeScore{assessment: assessed(0.2)}, &fakePolicy{applied: applied(0.5)}
 	ctx, pool, token, g := newGateWith(t, s, p, func(c *gate.Composition) {
@@ -60,14 +90,17 @@ func TestAcknowledgeOfAPagingRowCallsTheNotifier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	if !opened.Pages() {
-		t.Fatal("a firing with a drift mismatch does not page")
+	if opened.Mismatch == "" {
+		t.Fatal("the firing found no mismatch to hold the row on")
+	}
+	if opened.Pages() {
+		t.Fatal("a mismatch holds the row and pages nobody, and this firing pages")
 	}
 
 	if _, err := g.Acknowledge(ctx, opened, owner); err != nil {
 		t.Fatalf("Acknowledge: %v", err)
 	}
-	if len(notifier.acknowledged) != 1 || notifier.acknowledged[0] != opened.Row.ID {
-		t.Errorf("the notifier was told %v acknowledged, want %q", notifier.acknowledged, opened.Row.ID)
+	if len(notifier.acknowledged) != 0 {
+		t.Errorf("the notifier was told %v acknowledged, want nothing: the row it was held on pages nobody", notifier.acknowledged)
 	}
 }

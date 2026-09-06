@@ -369,3 +369,31 @@ func TestARevertDecidedWhileTheRollbackHoldsPages(t *testing.T) {
 		t.Error("a revert row nobody decides fired a page, and a page is a wait on a human")
 	}
 }
+
+// TestAMismatchBesideARevertDecisionPagesOnlyOnceMore: a firing that finds a
+// mismatch and a revert decision standing at once still pages, once, for the
+// revert decision — the mismatch holds the row and pages nobody, so it is not a
+// second condition [Opened.Pages] answers.
+func TestAMismatchBesideARevertDecisionPagesOnlyOnceMore(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, token, g := newGateWith(t, s, p, func(c *gate.Composition) {
+		c.DriftDetector = fakeDrift{found: true, why: "the release does not match what runs"}
+	})
+
+	firing := deployFiring(t, ctx, pool, token)
+	firing.RevertWhileRollbackHolds = true
+	opened, err := g.Fire(ctx, firing)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if opened.Mismatch == "" {
+		t.Fatal("the firing found no mismatch, and this test is about one standing beside a revert decision")
+	}
+	if !opened.RevertWhileRollbackHolds || !opened.HumanDecides {
+		t.Fatalf("the revert decision is not standing: revert=%v humanDecides=%v",
+			opened.RevertWhileRollbackHolds, opened.HumanDecides)
+	}
+	if !opened.Pages() {
+		t.Error("a revert decision standing beside a mismatch pages, and this firing does not")
+	}
+}

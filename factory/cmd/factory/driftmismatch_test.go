@@ -1,5 +1,7 @@
 // Tests of a mismatch the drift detector raised: it holds the
-// production deploy row and pages whoever installed the detector.
+// production deploy row and pages whoever installed the detector — the
+// detector's own page, and never a second one on the row it holds, a hold
+// paging nobody being the rule for every hold here.
 package main
 
 import (
@@ -15,11 +17,11 @@ import (
 )
 
 // TestADriftMismatchHoldsTheProductionDeployAndPages is the one hold the factory
-// cannot lift by gathering evidence, and so the one that fires the row and pages. What
-// the factory recorded about the service is not what is running, so nothing here can be
-// decided on the record. The row is a decision as well as a page, so the one act at
-// Work writes both halves — the decision's acknowledgement and the page's — which is
-// only possible where the page a firing sends is keyed on the row a human acknowledges.
+// cannot lift by gathering evidence. What the factory recorded about the
+// service is not what is running, so nothing here can be decided on the
+// record. The row it holds pages nobody — the page is the detector's own, on
+// the mismatch and not on the row — so acknowledging the gate row here writes
+// only the decision's acknowledgement and calls the notifier for nothing.
 func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.driftdetector = newDriftDetectorStore(t, ctx)
@@ -95,26 +97,15 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 			payload.Mismatch)
 	}
 
-	// The firing's own page, on the row a human acknowledges at Work: the gate's
-	// open event. Acknowledging it wrote both halves of the one act — the
-	// decision's acknowledgement row above, and the page's acknowledged event
-	// here — which is what a page keyed on some other row could never take.
+	// The gate row itself: it is held, and it pages nobody, so acknowledging it
+	// at Work writes the decision's acknowledgement and calls the notifier for
+	// nothing — no page event ever named this row.
 	onTheRow, err := p(ctx, t, d).notifier.EventsFor(ctx, c.deployGate.opening)
 	if err != nil {
 		t.Fatalf("reading the page events on the gate row: %v", err)
 	}
-	if len(onTheRow) != 2 {
-		t.Fatalf("the gate row holds %+v, want the firing's page and its acknowledgement", onTheRow)
-	}
-	if notifier.Event(onTheRow[0].Event) != notifier.EventReached || onTheRow[0].Reached != installer.Key {
-		t.Errorf("the firing's page is %+v, want one reached to %q", onTheRow[0], installer.Key)
-	}
-	if notifier.Event(onTheRow[1].Event) != notifier.EventAcknowledged {
-		t.Errorf("the gate row's second event is %+v, want the acknowledgement of its page", onTheRow[1])
-	}
-	if notifier.Kind(onTheRow[1].WaitKind) != notifier.KindDriftMismatch {
-		t.Errorf("the acknowledgement names kind %q, want the kind the page was reached under",
-			onTheRow[1].WaitKind)
+	if len(onTheRow) != 0 {
+		t.Fatalf("the gate row holds %+v, want nothing: a mismatch holds this row and pages nobody", onTheRow)
 	}
 
 	// The mismatch's own page: reached, to whoever installed the drift detector,
