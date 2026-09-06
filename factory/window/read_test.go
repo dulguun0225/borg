@@ -10,6 +10,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -101,6 +102,47 @@ func TestASkippedWindowIsNotSomethingToReturnTo(t *testing.T) {
 	}
 	if _, found, err := window.LastKnownGood(ctx, pool, serviceID); err != nil || found {
 		t.Errorf("LastKnownGood over a service whose only window was skipped = found %v, %v", found, err)
+	}
+}
+
+// TestAWindowThatMeasuresNothingIsNotSomethingToReturnTo is the other row the
+// two queries descend past. Timing out counts because a release that never
+// served cannot time out — one arm silent beside a serving control crosses on
+// the request rate and the window closes failed — and that argument is about a
+// window with arms. A window over a service missing one of the four fields the
+// deployer populates has none and records only that it measures nothing, so
+// admitting it would name a release nothing measured as what production is
+// shifted onto.
+func TestAWindowThatMeasuresNothingIsNotSomethingToReturnTo(t *testing.T) {
+	ctx, pool, w, _ := newTable(t)
+	serviceID := record.NewID("svc")
+
+	opened, err := w.Open(ctx, healthMonitor, window.OpenEvent{
+		DeployID:        record.NewID("dep"),
+		ReleaseID:       record.NewID("rel"),
+		BuildID:         record.NewID("bld"),
+		ServiceID:       serviceID,
+		MeasuresNothing: true,
+		BoundaryVersion: boundary.Version,
+		PolicyVersion:   "pv_1",
+		ScoreVersion:    "sv_1",
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := w.Close(ctx, opened.ID, window.ExitTimedOut, window.Closing{}); err != nil {
+		t.Fatalf("Close timed out: %v", err)
+	}
+
+	returnable, err := window.ClosedPassedOrTimedOut(ctx, pool, serviceID)
+	if err != nil {
+		t.Fatalf("ClosedPassedOrTimedOut: %v", err)
+	}
+	if len(returnable) != 0 {
+		t.Errorf("ClosedPassedOrTimedOut = %+v, want none: nothing was measured on that release", returnable)
+	}
+	if _, found, err := window.LastKnownGood(ctx, pool, serviceID); err != nil || found {
+		t.Errorf("LastKnownGood over a service whose only window measured nothing = found %v, %v", found, err)
 	}
 }
 

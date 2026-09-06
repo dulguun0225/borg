@@ -68,21 +68,21 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 		// means. A target of the environment the service does not run on runs
 		// somebody else's software and is that service's mismatch of nothing.
 		addresses := runsOn(production, svc)
-		recorded, err := recordedFor(ctx, s.factory, svc.ID, production.ID, addresses)
-		if err != nil {
-			return err
-		}
-		var recordedDigest string
-		if recorded.BuildID != "" {
-			if b, err := build.Get(ctx, s.factory, recorded.BuildID); err == nil {
-				recordedDigest = b.ArtifactDigest
-			}
-		}
 		excused, err := excusedBuilds(ctx, s.factory, svc.ID)
 		if err != nil {
 			return err
 		}
 		for _, address := range addresses {
+			recorded, err := recordedFor(ctx, s.factory, svc.ID, production.ID, address)
+			if err != nil {
+				return err
+			}
+			var recordedDigest string
+			if recorded.BuildID != "" {
+				if b, err := build.Get(ctx, s.factory, recorded.BuildID); err == nil {
+					recordedDigest = b.ArtifactDigest
+				}
+			}
 			p := driftdetector.Pass{
 				ServiceID:         svc.ID,
 				Target:            address,
@@ -128,19 +128,21 @@ func runsOn(production environment.Environment, svc service.Service) []string {
 	return svc.Targets
 }
 
-// recordedFor is what the factory recorded as the service's current release in
-// production: the release and the build its production deploy record names, and
-// nothing where no deploy of it has completed on every one of addresses.
+// recordedFor is what the factory recorded for one target: the release its
+// service's production deploy record names where that target is marked
+// complete, the previous one where it is not, and nothing where the complete
+// record is a removal's.
 //
-// It reads the newest deploy complete on every address the service runs on
-// rather than a true per-target reading with the previous-release
-// and removal fallbacks 08-drift-detection.md:6-10 states — deploy does not
-// yet expose a per-target walk back through a service's deploys, so a
-// rollout in progress on one target while another is already current reads
-// here as "not yet current" everywhere rather than per target. That gap is
-// open in the report this dispatch returns.
-func recordedFor(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID string, addresses []string) (deploy.Deploy, error) {
-	current, running, err := deploy.Current(ctx, pool, serviceID, environmentID, addresses)
+// It is one read per target and not one for the whole service, because the
+// comparison is per target. [deploy.Current] over that one address answers
+// exactly the sentence above — the highest-numbered release marked complete
+// there, and nothing where a removal complete there is newer. Read over the
+// whole set instead, every target of a rollout in progress is compared against
+// the release below, so the target the rollout has already completed on
+// disagrees, and that mismatch holds the service's production deploys and pages
+// until a human clears it.
+func recordedFor(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID, address string) (deploy.Deploy, error) {
+	current, running, err := deploy.Current(ctx, pool, serviceID, environmentID, []string{address})
 	if err != nil || !running {
 		return deploy.Deploy{}, err
 	}

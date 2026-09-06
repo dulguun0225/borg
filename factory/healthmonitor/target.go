@@ -23,7 +23,8 @@ import (
 //     would restart failed code onto production traffic for the whole of the
 //     next window.
 //
-// It descends past failed, past skipped, past any window still open, and past a
+// It descends past failed, past skipped, past any window still open, past a
+// window that measured nothing, and past a
 // release whose deploy stopped before its build took traffic: that release never
 // ran and its change never landed, so returning to it would redeploy a build
 // over a store missing the change it shipped.
@@ -68,7 +69,8 @@ func (h *HealthMonitor) TargetBelow(ctx context.Context, w Watching, number int6
 }
 
 // LastKnownGood is the service's standing value: the release watched by the
-// newest closed window whose exit is passed or timed out, descending past a
+// newest closed window that measured something and whose exit is passed or timed
+// out, descending past a
 // release whose deploy stopped before its build took traffic. It is what a
 // rollback could return to at all and where declarations in force start.
 //

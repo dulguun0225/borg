@@ -80,7 +80,8 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 
 // watchPass is one evaluation of everything downstream of a deploy on one service:
 // every open window, the release whose window has closed, the incidents that have
-// settled, and the drift detector's own store.
+// settled, the incidents that have not and hold no window open, and the drift
+// detector's own store.
 func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
 
@@ -107,6 +108,22 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	for _, i := range resolved {
 		fmt.Fprintf(p.d.out, "Incident %s resolved: the crossing has stopped against what runs and what it raised has shipped\n", i.ID)
 	}
+
+	// The page an open incident whose crossing has not stopped fires where no
+	// window of that service is open: the deployed software is worse until a
+	// human ends it, whatever the factory has since raised from it. It is on this
+	// pass because neither half of the condition is an event — a crossing that
+	// has not stopped is a reading taken again, and a window closing is what
+	// removes the other half — so the pass that reads the windows is the pass
+	// that can see it.
+	paged, err := p.healthMonitor.PageOpenIncidents(ctx, w)
+	if err != nil {
+		return err
+	}
+	for _, id := range paged {
+		fmt.Fprintf(p.d.out, "Incident %s still crosses with no window open, and the page went out: production is worse until a human ends it\n", id)
+	}
+
 	if err := p.pagesHeldToTheHours(ctx); err != nil {
 		return err
 	}

@@ -23,8 +23,14 @@ var theOperationsDuty = people.OfDuty(2)
 //
 // It is a pass rather than an event because neither half is an event: a crossing
 // that has not stopped is a reading taken again, and a window closing is what
-// removes the other half. It returns the incidents it paged about; one already
-// paged about is left alone, the page being the sequence of events on that row.
+// removes the other half. So the page events already on the incident are read
+// before another is written: the first pass that finds the condition pages, the
+// next widens it once to the owner where nobody has acknowledged it, and every
+// pass after that writes nothing. A page is the sequence of events on one row,
+// and a pass that notified each time would reach everybody holding (2) every few
+// seconds for as long as the crossing lasted.
+//
+// It returns the incidents this pass wrote a page event about.
 func (h *HealthMonitor) PageOpenIncidents(ctx context.Context, w Watching) ([]string, error) {
 	if err := w.validate(); err != nil {
 		return nil, err
@@ -63,15 +69,42 @@ func (h *HealthMonitor) PageOpenIncidents(ctx context.Context, w Watching) ([]st
 		if err != nil {
 			return paged, err
 		}
-		if _, err := h.pager.Notify(ctx, notifier.Wait{
+		wait := notifier.Wait{
 			Row:  i.ID,
 			Kind: notifier.KindIncidentNoOpenWindow,
 			Waiting: fmt.Sprintf("%s is still crossing against the release incident %s was raised on, and no window is open",
 				w.Name, i.ID),
 			Holding: theOperationsDuty, Worse: true, ServiceID: w.ID,
 			RollbackOutstanding: outstanding,
-		}); err != nil {
+		}
+		events, err := h.pager.EventsFor(ctx, i.ID)
+		if err != nil {
 			return paged, err
+		}
+		var reached, widened, acknowledged bool
+		for _, e := range events {
+			switch notifier.Event(e.Event) {
+			case notifier.EventReached:
+				reached = true
+			case notifier.EventWidened:
+				widened = true
+			case notifier.EventAcknowledged:
+				acknowledged = true
+			}
+		}
+		switch {
+		case !reached:
+			if _, err := h.pager.Notify(ctx, wait); err != nil {
+				return paged, err
+			}
+		case !widened && !acknowledged:
+			if _, err := h.pager.Widen(ctx, wait); err != nil {
+				return paged, err
+			}
+		default:
+			// The page stands and the row still waits; there is no second
+			// widening and nothing further to write.
+			continue
 		}
 		paged = append(paged, i.ID)
 	}

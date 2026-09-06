@@ -104,7 +104,13 @@ func (h *HealthMonitor) read(ctx context.Context, w Watching, svc service.Servic
 	one := Watched{Window: win}
 	if win.MeasuresNothing {
 		// The window records only that it measures nothing for this service, so
-		// there is nothing to read and its cap has already run.
+		// there is nothing to read and nothing a further pass would find. It
+		// closes at the one exit of the four that says a window ruled nothing
+		// out; the design names no exit for it, and leaving it open would fill
+		// the window limit and hold the service on a reading that can never be
+		// taken. What keeps that from making an unmeasured release a rollback
+		// target is [window.ClosedPassedOrTimedOut], which reads only the
+		// windows that measured something.
 		closed, err := h.windows.Close(ctx, win.ID, window.ExitTimedOut, window.Closing{})
 		one.Window, one.Exit = closed, window.ExitTimedOut
 		return one, err
@@ -260,9 +266,12 @@ func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window
 // is caught — so the teardown is asked for wherever a control could be running
 // rather than only where the record says one is.
 //
-// It reads the record rather than the window because the record is what the
-// design says names each control: which targets carry one, the build it runs,
-// and how many instances are running it.
+// It reads the record rather than the window because the record is what says a
+// control is there: the count of control instances on each target's row. The
+// build is the deploy's one control release and not a field per target — the
+// record carries one control target and one control release for the whole
+// deploy, which doc.go states — so every teardown asked for here names the same
+// build.
 //
 // A search's window tears nothing down at any exit. What its deploy was
 // compared against is the instances of the rollback's target, which the search

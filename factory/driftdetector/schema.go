@@ -51,7 +51,9 @@ const (
 // past the interval it promised, and the service it holds: the health monitor's
 // record is per service and holds that service's production deploys, and the
 // deployer's is per target of an environment and holds that environment's, which
-// is one row per service in it naming the target as well.
+// is one row per service in it naming the target as well. It names no service
+// where the stopped component reaches no deploy, which is the stopped raise
+// holding nothing.
 const (
 	MismatchKindTarget         = "target"
 	MismatchKindChain          = "chain"
@@ -138,8 +140,9 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 // when the second comparison finds the log's chain no longer holds the head this
 // store recorded — names neither, because it holds every service's production
 // deploys at once; and a stale-component mismatch names the component that
-// stopped, the service its stopping holds, and the target where the record that
-// stopped is per target. service_id_matches_kind, target_matches_kind and
+// stopped, the service its stopping holds where it holds one, and the target
+// where the record that stopped is per target.
+// service_id_matches_kind, target_matches_kind and
 // component_matches_kind are the CHECK that enforces the split. detail is the
 // words of the two kinds that have no fields to compose a sentence from — an
 // ordinary mismatch's [Mismatch.Why] composes its own — which
@@ -161,7 +164,10 @@ var DDL = []string{
 	` + record.Constraints + `,
 	constraint mismatch_kind_known check (kind in ('` + MismatchKindTarget + `', '` + MismatchKindChain + `',
 		'` + MismatchKindStaleComponent + `')),
-	constraint service_id_matches_kind check ((kind <> '` + MismatchKindChain + `') = (service_id <> '')),
+	constraint service_id_matches_kind check (
+		(kind = '` + MismatchKindTarget + `' and service_id <> '')
+		or (kind = '` + MismatchKindChain + `' and service_id = '')
+		or kind = '` + MismatchKindStaleComponent + `'),
 	constraint target_matches_kind check (
 		(kind = '` + MismatchKindTarget + `' and target <> '')
 		or (kind = '` + MismatchKindChain + `' and target = '')
