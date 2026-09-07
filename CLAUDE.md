@@ -140,8 +140,11 @@ still run only when the owner names them.
 
 Code lives in `factory/` — beside `end-goal/`, never inside it — written in Go against
 PostgreSQL, and PostgreSQL from the first record so the chained log is never migrated.
-`mise.toml` at the root pins the toolchain; `factory/docker-compose.yml` runs the dev
-database.
+The four screens are one client, an Angular application in `factory/client/`, whose build
+output the binary embeds with the standard library's `embed`: one binary serves the
+screens, and no client runs apart from the factory it was built with. `mise.toml` at the
+root pins both toolchains, Go's and the client's; `factory/docker-compose.yml` runs the
+dev database.
 
 The code's readers are LLMs, and the rules follow from three facts about one: it reads a
 file whole before it edits the file, its context is bounded, and it has only what the text
@@ -180,6 +183,40 @@ rule, the rule names the command; the rest are checked in review.
   restates the design's reasoning: the document comes first, and a restatement is a second
   copy able to disagree with it. Neither holds history: the commit is the history, and
   `roadmap.md` holds the milestones.
+
+The client is Angular for the reason the rules above exist. No human reads a diff, so a
+defect the build does not refuse is found by a user, and Angular with strict templates
+refuses more than any alternative: a misspelled field, a wrong type in a binding, and a
+form model out of step with its template are build errors, where a server-rendered
+template reports none of them until it runs. The profile is one dialect and nothing
+outside it — standalone components, signals and `computed` for state, zoneless, strict
+templates and strict TypeScript, Signal Forms as the one form dialect, no RxJS in
+application code, and a hand-written `fetch` client that carries the factory version and
+the principal on every call. Not in it: Material, a grid, and `$localize`; the screens are
+built from the factory's own design system, in one language until an owner supplies
+another. What the client costs is a second toolchain pinned in `mise.toml`, a package tree
+the supply chain row audits for version, vulnerability and licence, and a major upgrade on
+Angular's schedule as a yearly chore. The rules above hold in the client through these
+counterparts:
+
+- **One package per concept.** A screen is a directory under `factory/client/`, and each
+  of the four holds the same file names, which is the shape rule as written.
+- **Explicit over implicit.** The lint wall is the rule: whatever the compiler does not
+  refuse and this rule forbids is an `angular-eslint` rule that fails the build, listed in
+  the client's one lint configuration. Two clauses read differently in the client. The
+  Angular compiler's output is not the generated code the rule refuses — it is the build's
+  product and never committed, as the Go compiler's is. And `inject()` is the framework's
+  one way to reach what the framework provides; application code declares no provider of
+  its own beyond the `fetch` client and the stream reader.
+- **Locality.** The 500-line bound is unchanged, and a task's reads are one screen's
+  directory and the `end-goal/` file its `README.md` names.
+- **Machine-checked dependency direction.** An import-boundary rule in the same lint
+  configuration is the client's `deps.txt`: one allowed edge per line, the reason beside
+  each, and an import not on it fails the build.
+- **The map.** `factory/README.md` names the client beside the packages and says how to
+  build and test it. Each screen's directory holds a `README.md` saying what the screen
+  owns and the path of the `end-goal/` file it implements, which is the client's `doc.go`,
+  and `cmd/tracecheck` reads it as one.
 
 Duplicate a line rather than share a helper across packages: locality is paid for in
 repetition, and the repetition is the cheaper of the two. Copies keep one name and one
