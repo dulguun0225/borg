@@ -210,12 +210,12 @@ func printWindows(ctx context.Context, p *path, svc service.Service) error {
 		if !w.Open() {
 			state = string(w.Exit) + " at " + w.ClosedAt
 		}
-		clean := ""
+		passed := ""
 		if !w.PassedAvailable {
-			clean = "; clean was never available to it"
+			passed = "; passed was never available to it"
 		}
 		fmt.Fprintf(p.d.out, "window %s over deploy %s: %s (size %v, confidence %v, cap %vs)%s\n",
-			w.ID, w.DeployID, state, w.Size, w.Confidence, w.CapSeconds, clean)
+			w.ID, w.DeployID, state, w.Size, w.Confidence, w.CapSeconds, passed)
 	}
 	return nil
 }

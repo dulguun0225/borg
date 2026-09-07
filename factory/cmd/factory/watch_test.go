@@ -20,7 +20,7 @@ import (
 // TestABadDeployIsCaughtByItsWindowAndRolledBack is the milestone's demonstration. The
 // second release fails a share of the work it does, in no criterion's path — so every
 // criterion in force passes and the change ships. Its window opens with the first
-// release as its baseline, the boundary crosses, and the exit is harm: an incident, the
+// release as its baseline, the boundary crosses, and the exit is failed: an incident, the
 // release failed, the target's build put back, and a revert intent at the start of
 // the pipeline.
 func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
@@ -64,10 +64,10 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 		t.Fatalf("reading the window: %v", err)
 	}
 	if w.Exit != window.ExitFailed {
-		t.Fatalf("the window closed %q, want harm:\n%s", w.Exit, out)
+		t.Fatalf("the window closed %q, want failed:\n%s", w.Exit, out)
 	}
 	if !w.PassedAvailable {
-		t.Error("clean was unavailable to the second release, and the first one's window closed at the cap")
+		t.Error("passed was unavailable to the second release, and the first one's window closed at the cap")
 	}
 
 	// The incident: on production, naming the release and the deploy that was running,

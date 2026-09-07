@@ -53,7 +53,7 @@ func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.B
 		t.Fatalf("reading the bad release's window: %v", err)
 	}
 	if w.Exit != window.ExitFailed {
-		t.Fatalf("the bad release's window closed %q, want harm:\n%s", w.Exit, out)
+		t.Fatalf("the bad release's window closed %q, want failed:\n%s", w.Exit, out)
 	}
 
 	rollback, found, err := deploy.NewestRollback(ctx, d.pool, res.serviceID, res.environmentID)

@@ -290,7 +290,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 	t.Logf("window %s: size %v, confidence %v, cap %vs, passed available %v, exit %q",
 		w.ID, w.Size, w.Confidence, w.CapSeconds, w.PassedAvailable, w.Exit)
 	if w.PassedAvailable {
-		t.Error("the window says clean was available to a service's first release, and there is nothing below it to compare against")
+		t.Error("the window says passed was available to a service's first release, and there is nothing below it to compare against")
 	}
 	if w.Exit != window.ExitTimedOut {
 		t.Errorf("the window closed %q, and a first release can end at the cap and nowhere else", w.Exit)

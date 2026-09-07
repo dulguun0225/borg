@@ -56,7 +56,13 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 		// this merge has two roots; the flag does nothing where the histories are
 		// related. Where the two trees then conflict, the candidate failed its own
 		// re-verification, which is the right answer and not a workaround.
-		out, err := git(repo, "merge", "--allow-unrelated-histories",
+		//
+		// The merge commit is the queue's, so its identity is named here the way the
+		// implementer names its own: a repository the factory drives has no
+		// committer of its own, and a host with no global git identity refuses the
+		// commit otherwise.
+		out, err := git(repo, "-c", "user.name=mergequeue", "-c", "user.email=mergequeue@factory.invalid",
+			"merge", "--allow-unrelated-histories",
 			"-m", "merge master into "+it.Branch+" for re-verification", "master")
 		if err != nil {
 			// The abort is what leaves the branch where it was. A merge that failed
@@ -71,7 +77,8 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 	// one of them is this candidate failing its own re-verification, the same
 	// disposition a conflict with master is.
 	for _, one := range ahead {
-		out, err := git(repo, "merge", "--allow-unrelated-histories",
+		out, err := git(repo, "-c", "user.name=mergequeue", "-c", "user.email=mergequeue@factory.invalid",
+			"merge", "--allow-unrelated-histories",
 			"-m", "merge "+one.Branch+" into "+it.Branch+" for the speculation", one.Branch)
 		if err != nil {
 			_, _ = git(repo, "merge", "--abort")

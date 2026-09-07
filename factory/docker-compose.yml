@@ -4,6 +4,12 @@
 services:
   postgres:
     image: postgres:17
+    # Every database test applies the whole schema into a schema of its own and
+    # drops it after, and go test runs one package per core with the tests inside
+    # each in parallel. A drop takes a lock per object it removes, and the lock
+    # table the default sizes — 64 per connection — runs out under that load with
+    # "out of shared memory". The tests do not skip, so the table is sized here.
+    command: ["postgres", "-c", "max_locks_per_transaction=512"]
     environment:
       POSTGRES_USER: factory
       POSTGRES_PASSWORD: factory

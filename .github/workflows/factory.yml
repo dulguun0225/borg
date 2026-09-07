@@ -42,8 +42,11 @@ jobs:
           --health-timeout 2s
           --health-retries 15
 
+    # The drift detector's store is a URL of its own: the same server here, a
+    # schema of its own, the way factory/driftdetector's doc.go describes it.
     env:
       DATABASE_URL: postgres://factory:factory@localhost:5432/factory
+      DRIFTDETECTOR_DATABASE_URL: postgres://factory:factory@localhost:5432/factory?search_path=driftdetector
 
     steps:
       - uses: actions/checkout@v4

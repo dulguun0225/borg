@@ -147,7 +147,7 @@ func TestARollbackSweepsTheReleaseAboveItsTarget(t *testing.T) {
 		t.Fatalf("reading the upper window: %v", err)
 	}
 	if lowerWindow.Exit != window.ExitFailed {
-		t.Fatalf("the lower window closed %q, want harm:\n%s", lowerWindow.Exit, out)
+		t.Fatalf("the lower window closed %q, want failed:\n%s", lowerWindow.Exit, out)
 	}
 	if upperWindow.Exit != window.ExitSkipped {
 		t.Errorf("the upper window closed %q, want swept", upperWindow.Exit)

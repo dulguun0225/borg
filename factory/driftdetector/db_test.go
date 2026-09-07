@@ -36,9 +36,9 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *driftdetector.Writ
 	}
 	schema := "driftdetector_" + hex.EncodeToString(suffix[:])
 
-	pool, err := driftdetector.Open(ctx, inSchema(t, driftdetector.DefaultURL, schema))
+	pool, err := driftdetector.Open(ctx, inSchema(t, driftdetector.URL(), schema))
 	if err != nil {
-		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", driftdetector.DefaultURL, err)
+		t.Fatalf("the database at %s is not reachable, and these tests do not skip: %v", driftdetector.URL(), err)
 	}
 	t.Cleanup(func() {
 		// t.Context is already cancelled by the time cleanup runs.

@@ -185,11 +185,11 @@ func (p *path) reportWatched(one healthmonitor.Watched) {
 	}
 	switch one.Exit {
 	case window.ExitPassed:
-		fmt.Fprintln(out, "  clean: a regression of the size worth catching is ruled out, and the window closed early on evidence")
+		fmt.Fprintln(out, "  passed: a regression of the size worth catching is ruled out, and the window closed early on evidence")
 	case window.ExitTimedOut:
 		fmt.Fprintln(out, "  cap: neither exit was reached in the time allowed, so the window closed unresolved — weak protection, reported as weak")
 	case window.ExitFailed:
-		fmt.Fprintf(out, "  harm: the release is failed, incident %s raised, revert intent %s taken in\n",
+		fmt.Fprintf(out, "  failed: the release is failed, incident %s raised, revert intent %s taken in\n",
 			one.IncidentID, one.RaisedIntentID)
 		if one.Rolled != nil {
 			fmt.Fprintf(out, "  rolled back to release %d, skipping %d above the failed one\n",

@@ -61,7 +61,7 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 	// The passed exit is not available and the window timed out, which is weak
 	// protection reported as weak rather than a comparison that ran out of time.
 	if w.PassedAvailable {
-		t.Error("the window says clean was available to a service's first release, and there is nothing below it to compare against")
+		t.Error("the window says passed was available to a service's first release, and there is nothing below it to compare against")
 	}
 	if w.Exit != window.ExitTimedOut {
 		t.Errorf("the window closed %q, want the cap: nothing can clear a first release early", w.Exit)

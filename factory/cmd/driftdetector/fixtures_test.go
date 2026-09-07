@@ -100,7 +100,7 @@ func newDriftDetectorStore(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	}
 	schema := "driftdetector_" + hex.EncodeToString(suffix[:])
 
-	pool, err := driftdetector.Open(ctx, inSchema(t, driftdetector.DefaultURL, schema))
+	pool, err := driftdetector.Open(ctx, inSchema(t, driftdetector.URL(), schema))
 	if err != nil {
 		t.Fatalf("the drift detector's store is not reachable, and these tests do not skip: %v", err)
 	}
