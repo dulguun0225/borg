@@ -5,6 +5,10 @@
 // [Events] are the four page events; [Kind] is a kind of wait and [Kinds] maps
 // each to what the page's condition answers for it — [PagesNever],
 // [PagesAlways], or [PagesIfWorse], where [Wait.Worse] is the caller's answer.
+// [KindSpendCeilingFraction] is the one kind dispatch delivers on beside an
+// escalation, and it pages never: the design gives a spend ceiling a notice at
+// a fixed fraction so that the hold is not the first anyone hears of it, and a
+// notice is not a page.
 // [Wait] is what waits, whom it routes to, and the service it is about, validated
 // by the errors beside it: a caller that sets Worse on a [PagesNever] kind is
 // refused with [ErrWorseRefused], and so is one that clears it on a [PagesAlways]

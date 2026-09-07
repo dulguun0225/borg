@@ -1,4 +1,4 @@
-<h2>The fleet</h2>
+<h2 id="fleet">The fleet</h2>
 @if (entries().length === 0) {
   <p class="quiet">
     No fleet entry is written, so dispatch holds every item whose stage needs one.
@@ -42,7 +42,7 @@
           <td>{{ one.ReadAtOnceBound }}</td>
           <td>{{ one.DispatchesBetweenEvalRuns }}</td>
           <td>
-            <button type="button" (click)="withdrawEntry(one.ID)">Withdraw</button>
+            <button type="button" [disabled]="busy()" (click)="withdrawEntry(one.ID)">Withdraw</button>
           </td>
         </tr>
       }
@@ -77,23 +77,26 @@
   </div>
   <div class="field">
     <label for="entry-scope-project">
-      Scope project, empty where this entry is not narrowed to one
+      Scope project name, empty where this entry is not narrowed to one
     </label>
-    <input id="entry-scope-project" type="text" [formField]="entryForm.ScopeProjectID" />
+    <input id="entry-scope-project" type="text" [formField]="entryForm.ScopeProjectName" />
   </div>
   <div class="field">
     <label for="entry-scope-service">
-      Scope service, empty where this entry is not narrowed to one
+      Scope service name, empty where this entry is not narrowed to one
     </label>
-    <input id="entry-scope-service" type="text" [formField]="entryForm.ScopeServiceID" />
+    <input id="entry-scope-service" type="text" [formField]="entryForm.ScopeServiceName" />
   </div>
   <div class="field">
     <label for="entry-scope-area">
-      Scope area, empty where this entry is not narrowed to one
+      Scope area name, empty where this entry is not narrowed to one
     </label>
-    <input id="entry-scope-area" type="text" [formField]="entryForm.ScopeAreaID" />
+    <input id="entry-scope-area" type="text" [formField]="entryForm.ScopeAreaName" />
   </div>
-  <p class="quiet">All three empty scopes the entry to the whole factory.</p>
+  <p class="quiet">
+    All three empty scopes the entry to the whole factory. Each name given is resolved
+    against its record; a name that resolves to nothing is refused.
+  </p>
   <div class="field">
     <label for="entry-credential">Credential</label>
     @if (credentials().length > 0) {
@@ -179,7 +182,7 @@
     }
   </div>
   <div class="actions">
-    <button type="submit">Write it</button>
+    <button type="submit" [disabled]="busy()">Write it</button>
   </div>
 </form>
 
@@ -234,7 +237,7 @@
       }
     </div>
     <div class="actions">
-      <button type="submit">Decide it</button>
+      <button type="submit" [disabled]="busy()">Decide it</button>
     </div>
   </form>
 }

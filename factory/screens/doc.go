@@ -2,7 +2,7 @@
 // human can be on — an item, a decision, a service on an environment, or a
 // constraint — as the view the client fetches for it; every write a screen
 // makes as the call the client makes; the refusal of a call whose factory
-// version is not the store's; one server-sent-events stream per address; and
+// version is not its own; one server-sent-events stream per address; and
 // the principal.Principal every call carries.
 //
 // # The files
@@ -34,7 +34,15 @@
 // value.
 //
 // server.go is [Server] and [New], the [http.ServeMux] wiring every route
-// this package answers, and the small JSON helpers every handler shares.
+// this package answers, the small JSON helpers every handler shares, and
+// statusFor: the status of one error a view or a call returned. Four of them
+// come from the three errors views.go declares — 404 for [ErrNotFound], 403
+// for [ErrNotPermitted], 422 for [ErrRefused], and 500 for anything else,
+// which is a fault of this server's own and not something the caller can
+// answer for. A call the switch in call.go does not name is 400, and so is a
+// body it cannot decode; a body over the limit is 413; and the version refusal
+// version.go makes is 409, which is the one failure that does not take the
+// {"error": ...} shape.
 // version.go is [Server.checked], the middleware every /api/ route is
 // wrapped in: the version refusal and the principal every call carries.
 // call.go is [Server.handleCall], the POST /api/call/{name} handler: an

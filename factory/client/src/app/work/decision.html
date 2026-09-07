@@ -152,7 +152,7 @@
   <h2>Actions</h2>
 
   <div class="actions">
-    <button type="button" (click)="acknowledge()">I have this row</button>
+    <button type="button" [disabled]="busy()" (click)="acknowledge()">I have this row</button>
   </div>
 
   <form (submit)="decide($event)">
@@ -172,7 +172,7 @@
       }
     </div>
     <div class="actions">
-      <button type="submit">Write this verdict</button>
+      <button type="submit" [disabled]="busy()">Write this verdict</button>
     </div>
   </form>
 
@@ -182,7 +182,7 @@
       <textarea id="referral" [formField]="referralForm.Reason"></textarea>
     </div>
     <div class="actions">
-      <button type="submit">Refer</button>
+      <button type="submit" [disabled]="busy()">Refer</button>
     </div>
   </form>
 
@@ -192,7 +192,7 @@
       <textarea id="version" [formField]="editForm.VersionText"></textarea>
     </div>
     <div class="actions">
-      <button type="submit">Write this version</button>
+      <button type="submit" [disabled]="busy()">Write this version</button>
     </div>
   </form>
 
@@ -202,7 +202,7 @@
       <input id="stage" type="text" [formField]="takeOverForm.Stage" />
     </div>
     <div class="actions">
-      <button type="submit">Take over</button>
+      <button type="submit" [disabled]="busy()">Take over</button>
     </div>
   </form>
 </ng-template>

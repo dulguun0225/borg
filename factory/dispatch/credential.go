@@ -39,9 +39,10 @@ const (
 
 var (
 	// ErrNoCeilingHold is returned by [Dispatch.ClearCeiling] where no ceiling
-	// row stands open on that credential. A clear authorises an overage against
-	// a hold that is holding, and there is nothing to authorise before one is
-	// written.
+	// row stands open on that credential in the period in force. A clear
+	// authorises an overage against a hold that is holding, and there is nothing
+	// to authorise before one is written — nor where the only row open is a past
+	// period's, which is a row nothing is holding now.
 	ErrNoCeilingHold = errors.New("dispatch: no spend-ceiling row stands open on that credential")
 	// ErrNotTheOwner is returned by [Dispatch.ClearCeiling] for a clear by
 	// anybody but a human. What a clear authorises is spend, and the factory
@@ -181,12 +182,18 @@ func (r credentialRows) clearedFor(credentialName, periodStart string) bool {
 	return false
 }
 
-// rowsOf is the open rows of one kind on one credential, which is what a close
-// names.
-func (r credentialRows) rowsOf(kind, credentialName string) []decisionlog.Row {
+// rowsOf is the open rows of one kind on one credential and one period, which
+// is what a close names.
+//
+// The period is part of the match because a ceiling's row is about the credential
+// and the period both: a row a past period left open is not a row anything is
+// holding now, and a clear that closed it would authorise an overage in a period
+// nothing has yet reached the ceiling in. The unreachable rows carry no period,
+// so they match on the empty string at both ends.
+func (r credentialRows) rowsOf(kind, credentialName, periodStart string) []decisionlog.Row {
 	var found []decisionlog.Row
 	for n, one := range r.open {
-		if one.Kind == kind && one.CredentialName == credentialName {
+		if one.Kind == kind && one.CredentialName == credentialName && one.PeriodStart == periodStart {
 			found = append(found, r.openRows[n])
 		}
 	}
@@ -238,7 +245,7 @@ func (d *Dispatch) couldNotReach(ctx context.Context, as principal.Principal, on
 	if err != nil {
 		return "", err
 	}
-	if standing := read.rowsOf(KindCredentialUnreachable, credentialName); len(standing) > 0 {
+	if standing := read.rowsOf(KindCredentialUnreachable, credentialName, ""); len(standing) > 0 {
 		return standing[0].ID, nil
 	}
 	payload, err := json.Marshal(CredentialWait{
@@ -269,7 +276,7 @@ func (d *Dispatch) couldNotReach(ctx context.Context, as principal.Principal, on
 // closing it: an agent whose account ran out part-way through a stage renews
 // nothing and reports nothing.
 func (d *Dispatch) reached(ctx context.Context, read credentialRows, credentialName string) (bool, error) {
-	rows := read.rowsOf(KindCredentialUnreachable, credentialName)
+	rows := read.rowsOf(KindCredentialUnreachable, credentialName, "")
 	for _, row := range rows {
 		payload, err := json.Marshal(CredentialWait{
 			Kind: KindCredentialUnreachable, CredentialName: credentialName,
@@ -328,19 +335,55 @@ func (d *Dispatch) atCeiling(ctx context.Context, credentialName string,
 		return ceilingReading{}, fmt.Errorf("dispatch: the period in force on %s: %w", credentialName, err)
 	}
 	reading := ceilingReading{periodStart: periodStart}
-	if read.clearedFor(credentialName, periodStart) {
-		return reading, nil
-	}
 	spend, err := agentrun.SpendByCredentialSince(ctx, d.c.Pool, credentialName, periodStart)
 	if err != nil {
 		return ceilingReading{}, err
 	}
+	// The unpriced hold is decided before any clear is honoured, because the
+	// design clears that one by authoring the rate and not by authorising an
+	// overage: an overage authorised against a sum the rates do not cover would
+	// authorise a number nobody has.
 	if wants := wantsARate(spend.Unpriced); len(wants) > 0 {
 		reading.reached, reading.wantsARate = true, wants
 		return reading, nil
 	}
+	if err := d.nearingTheCeiling(ctx, credentialName, periodStart, spend.Amount, lent.Ceiling); err != nil {
+		return ceilingReading{}, err
+	}
+	if read.clearedFor(credentialName, periodStart) {
+		return reading, nil
+	}
 	reading.reached = spend.Amount >= lent.Ceiling.Amount
 	return reading, nil
+}
+
+// NotifiedAtFraction is the fraction of an authored ceiling the factory
+// notifies at. The design fixes the fraction rather than leaving it to an
+// owner, so it is a constant and not a parameter: a fraction an owner could
+// author would be a second place a ceiling is decided.
+const NotifiedAtFraction = 0.8
+
+// nearingTheCeiling delivers the one notice a ceiling carries: at
+// [NotifiedAtFraction] of the amount authored, through the notifier as a
+// delivery and never a page, so the hold is not the first anyone hears of it.
+//
+// It is evaluated where the sum is read, which is every place the ceiling is
+// compared, and delivered once per credential and period — the implementation
+// keys it on the two, this component holding no delivery record of its own.
+// The sum it compares is the priced one: a period with an unpriced run has
+// already failed closed above, and a fraction of a sum the rates do not cover
+// would be a fraction of a number nobody has.
+func (d *Dispatch) nearingTheCeiling(ctx context.Context, credentialName, periodStart string,
+	spent float64, ceiling people.Ceiling) error {
+	if spent < ceiling.Amount*NotifiedAtFraction {
+		return nil
+	}
+	if err := d.c.Notifier.NearingASpendCeiling(ctx, credentialName, periodStart,
+		spent, ceiling.Amount, ceiling.Currency); err != nil {
+		return fmt.Errorf("dispatch: reporting that %s is at %v of its ceiling: %w",
+			credentialName, NotifiedAtFraction, err)
+	}
+	return nil
 }
 
 // wantsARate is the unpriced runs as the ceiling's row names them: one entry
@@ -424,9 +467,9 @@ func (d *Dispatch) ClearCeiling(ctx context.Context, actor record.Actor, credent
 	if err != nil {
 		return err
 	}
-	rows := read.rowsOf(KindCredentialAtCeiling, credentialName)
+	rows := read.rowsOf(KindCredentialAtCeiling, credentialName, periodStart)
 	if len(rows) == 0 {
-		return fmt.Errorf("%w: %s", ErrNoCeilingHold, credentialName)
+		return fmt.Errorf("%w: %s in the period beginning %s", ErrNoCeilingHold, credentialName, periodStart)
 	}
 	for _, row := range rows {
 		payload, err := json.Marshal(CredentialWait{

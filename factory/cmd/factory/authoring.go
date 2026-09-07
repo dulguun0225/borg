@@ -82,7 +82,7 @@ func withPool(command func(context.Context, *pgxpool.Pool, lease.Token) error) e
 		return err
 	}
 	defer pool.Close()
-	token, stopLease, err := acquireLease(ctx, pool)
+	token, _, stopLease, err := acquireLease(ctx, pool)
 	if err != nil {
 		return err
 	}

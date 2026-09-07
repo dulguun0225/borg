@@ -231,7 +231,15 @@
               {{ one.Ceiling }} {{ one.Currency }}
             }
           </td>
-          <td>{{ one.BurnRate }}</td>
+          <td>
+            {{ one.BurnRate }}
+            @if (one.UnpricedRuns > 0) {
+              <span class="quiet">
+                ({{ one.UnpricedRuns }} runs this period could not be priced; this is a
+                lower bound)
+              </span>
+            }
+          </td>
           <td>
             @if (one.ProjectedExhaustion === '') {
               not projected

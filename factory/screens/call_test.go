@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/principal"
@@ -184,13 +186,90 @@ func TestACreatingCallReturnsItsID(t *testing.T) {
 	}
 }
 
-// TestAnUnknownCallNameIs404: a name handleCall's switch does not name is
-// refused rather than silently ignored.
-func TestAnUnknownCallNameIs404(t *testing.T) {
+// TestAnUnknownCallNameIs400: a name handleCall's switch does not name is a
+// client built against a shape this server does not have, not a record that is
+// not there — 404 is the absence a screen renders as an empty state.
+func TestAnUnknownCallNameIs400(t *testing.T) {
 	s := screens.New(&fakeViews{}, &fakeCalls{}, theVersion, noClient)
 	rec := post(t, s, "notARealCall", map[string]string{})
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404, body %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400, body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestARefusalIs422AndAnUnpermittedCallIs403: a call the server understood and
+// declined is not a fault of its own, and the two the caller can answer for
+// are told apart — the standing of the principal, and what the call asked.
+func TestARefusalIs422AndAnUnpermittedCallIs403(t *testing.T) {
+	for _, one := range []struct {
+		named string
+		from  error
+		want  int
+	}{
+		{"a refusal", fmt.Errorf("%w: the reason is empty", screens.ErrRefused), http.StatusUnprocessableEntity},
+		{"a caller who acts nowhere", fmt.Errorf("%w: hk_caller", screens.ErrNotPermitted), http.StatusForbidden},
+		{"a record that is not there", fmt.Errorf("%w: oe_1", screens.ErrNotFound), http.StatusNotFound},
+		{"a fault of the server's own", fmt.Errorf("the store is unreachable"), http.StatusInternalServerError},
+	} {
+		calls := &fakeCalls{
+			acknowledge: func(context.Context, principal.Principal, screens.AcknowledgeArgs) error {
+				return one.from
+			},
+		}
+		s := screens.New(&fakeViews{}, calls, theVersion, noClient)
+		rec := post(t, s, "acknowledge", screens.AcknowledgeArgs{OpenEventID: "oe_1"})
+		if rec.Code != one.want {
+			t.Errorf("%s: status = %d, want %d, body %s", one.named, rec.Code, one.want, rec.Body.String())
+		}
+		var body map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Errorf("%s: the body is not the {\"error\": ...} shape: %v", one.named, err)
+		} else if body["error"] == "" {
+			t.Errorf("%s: the body carries no error field: %s", one.named, rec.Body.String())
+		}
+	}
+}
+
+// TestAnUnknownFieldIs400: every call's arguments are one struct and the
+// client composes its object from that struct's own fields, so a field this
+// server does not know is a client built against a different shape.
+func TestAnUnknownFieldIs400(t *testing.T) {
+	called := false
+	calls := &fakeCalls{
+		acknowledge: func(context.Context, principal.Principal, screens.AcknowledgeArgs) error {
+			called = true
+			return nil
+		},
+	}
+	s := screens.New(&fakeViews{}, calls, theVersion, noClient)
+	rec := post(t, s, "acknowledge", map[string]string{"OpenEventID": "oe_1", "NoSuchField": "x"})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400, body %s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Error("Acknowledge was called with a field this server does not know")
+	}
+}
+
+// TestABodyOverTheLimitIs413: a body no bound applies to is a stream this
+// server would read for as long as it arrived.
+func TestABodyOverTheLimitIs413(t *testing.T) {
+	called := false
+	calls := &fakeCalls{
+		editInPlace: func(context.Context, principal.Principal, screens.EditInPlaceArgs) error {
+			called = true
+			return nil
+		},
+	}
+	s := screens.New(&fakeViews{}, calls, theVersion, noClient)
+	rec := post(t, s, "editInPlace", screens.EditInPlaceArgs{
+		OpenEventID: "oe_1", VersionText: strings.Repeat("x", 2<<20),
+	})
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413, body %s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Error("EditInPlace was called with a body over the limit")
 	}
 }
 

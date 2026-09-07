@@ -300,14 +300,17 @@ func compose(ctx context.Context, d deps) (*path, error) {
 // is is that record's own repository field rather than something this interface is
 // told twice.
 func (p *path) serviceOf(ctx context.Context, serviceID string) (service.Service, error) {
-	if svc, found := p.serviceByID[serviceID]; found {
+	if svc, found := p.heldService(serviceID); found {
 		return svc, nil
 	}
+	// The record is read with no lock held: a pass and a handler asking for the
+	// same service at once read it twice and write the same value, which costs
+	// one query and never a view waiting behind a query.
 	svc, err := service.Get(ctx, p.d.pool, serviceID)
 	if err != nil {
 		return service.Service{}, err
 	}
-	p.serviceByID[serviceID] = svc
+	p.keepService(svc)
 	return svc, nil
 }
 

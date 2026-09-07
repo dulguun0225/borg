@@ -105,10 +105,14 @@ export class OpsScreen implements OnDestroy {
     const result = await this.api.get<Ops>('/api/ops');
     if (result.outcome === 'value' || result.outcome === 'absent') {
       const summaries = result.outcome === 'value' ? (result.value.Services ?? []) : [];
-      const rows: Row[] = [];
-      for (const summary of summaries) {
-        rows.push({ summary, detail: await this.detailOf(summary) });
-      }
+      // One row's detail read does not wait on another's: they name different
+      // addresses, so nothing orders them and running them in parallel is
+      // one round trip's wait for the whole board rather than the sum.
+      const details = await Promise.all(summaries.map((summary) => this.detailOf(summary)));
+      const rows: Row[] = summaries.map((summary, index) => ({
+        summary,
+        detail: details[index] ?? null,
+      }));
       this.reading.set(false);
       this.failure.set('');
       this.board.set(rows);

@@ -267,6 +267,9 @@ export interface SupplyIntentConstraintArgs {
   BindsFrom: CalendarDate;
   ReviewDate: CalendarDate;
   Zone: string;
+  // RequiresSeam5Enforced holds every item decomposed from this intent at
+  // dispatch until Factory.Seam5Enforced is true.
+  RequiresSeam5Enforced: boolean;
 }
 
 export interface WithdrawConstraintArgs {

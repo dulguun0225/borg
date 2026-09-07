@@ -12,12 +12,15 @@ import (
 // call names returns that id, and every other method returns only an error.
 // cmd/factory implements Calls, reaching each writer the way the terminal's
 // own subcommand already does — so this interface adds no writer to the
-// graph. Two of the methods are the exception to the subcommand and not to
+// graph. Three of the methods are the exception to the subcommand and not to
 // the writer: [FirePage], the one call the design names as new, which package
-// notifier already defines and no subcommand fires; and
+// notifier already defines and no subcommand fires;
 // [ApproveThroughHold], which fires the production deploy row a hold the
 // factory computes stopped, through the same gate component every other
-// verdict here reaches.
+// verdict here reaches; and [SetSeam5Enforced], which turns on the
+// factory-wide field a document-kind constraint requires — a field package
+// policy has always been able to write and nothing has ever called, leaving
+// the hold that reads it with no way to clear.
 type Calls interface {
 	// Work
 	SupplyIntent(ctx context.Context, p principal.Principal, args SupplyIntentArgs) (string, error)
@@ -58,6 +61,7 @@ type Calls interface {
 	WriteFleetEntry(ctx context.Context, p principal.Principal, args WriteFleetEntryArgs) (string, error)
 	WithdrawFleetEntry(ctx context.Context, p principal.Principal, args WithdrawFleetEntryArgs) error
 	SupplyConstraint(ctx context.Context, p principal.Principal, args SupplyConstraintArgs) (string, error)
+	SetSeam5Enforced(ctx context.Context, p principal.Principal, args SetSeam5EnforcedArgs) error
 	RetireService(ctx context.Context, p principal.Principal, args RetireServiceArgs) error
 	EndProject(ctx context.Context, p principal.Principal, args EndProjectArgs) error
 	DecideRecordRow(ctx context.Context, p principal.Principal, args DecideRecordRowArgs) error

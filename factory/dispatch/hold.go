@@ -193,11 +193,16 @@ func (d *Dispatch) Open(ctx context.Context) ([]Hold, []decisionlog.Row, error) 
 // match now lifts, so no hold outlives its condition and none is left for a
 // component that has stopped to close. It returns the rows it closed.
 //
-// It is called where a record able to clear one arrives — an owner writing a
-// fleet entry, the gate a version fires putting a role prompt in force, an
-// intent leaving the state that stopped it, a credential reachable again, an
-// owner clearing a ceiling, the seam 5 field turning on — and at every start, a
-// hold being a row and a start being a read of it.
+// It is called where a record able to clear one arrives. Four of the six
+// records the design names have a caller: an owner writing or withdrawing a
+// fleet entry at Factory, a credential reached again by the dispatch whose own
+// failure opened its row, an owner clearing a ceiling, and the seam 5 field
+// turning on. Two do not, so a hold on either outlives its condition until
+// something else re-matches: the gate a version fires putting a role prompt in
+// force, and an intent leaving the state that stopped it. It is also called at
+// every start, a hold being a row and a start being a read of it, and by a
+// dispatch that got through the conditions — which is what those two are
+// covered by today, at whatever delay the next dispatch is.
 func (d *Dispatch) Rematch(ctx context.Context) ([]string, error) {
 	open, rows, err := d.Open(ctx)
 	if err != nil {

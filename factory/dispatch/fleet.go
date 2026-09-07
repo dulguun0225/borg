@@ -49,11 +49,11 @@ type Entry struct {
 	// of [fleetentry.MaterialClasses]. A class it does not name is withheld
 	// before the run and recorded on the manifest as excluded.
 	MaterialClasses []string
-	// Operations narrows [Role.Operations]. The record holds no list — the nine
-	// fields the design gives an entry do not include one, the operations
-	// staying the role's — so every entry read from it runs under the role's
-	// whole list, and [Role.Narrow] is what an owner's narrowing would go
-	// through.
+	// Operations narrows [Role.Operations]. The operations belong to the role
+	// and an owner may narrow them on the entry, which is not built: the record
+	// holds no column for a narrowed list, so every entry read from it runs
+	// under the role's whole list, and [Role.Narrow] is what an owner's
+	// narrowing would go through once there is one to read.
 	Operations []string
 }
 

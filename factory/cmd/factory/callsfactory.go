@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/constraint"
-	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/halt"
 	"github.com/dulguun0225/borg/factory/principal"
@@ -34,7 +32,7 @@ func (c *calls) CreateProject(ctx context.Context, who principal.Principal, args
 		return "", err
 	}
 	if strings.TrimSpace(args.Name) == "" {
-		return "", errors.New("factory: a project is written with a name, and this one names none")
+		return "", fmt.Errorf("%w: a project is written with a name, and this one names none", screens.ErrRefused)
 	}
 	created, _, err := c.p.factory.CreateProject(ctx, actor, args.Name,
 		[]string{c.p.d.dir}, c.p.d.credential)
@@ -111,7 +109,7 @@ func (c *calls) PlaceSafeguard(ctx context.Context, who principal.Principal, arg
 	}
 	routing := safeguard.Routing{Duty: int(args.RouteDuty), HumanKey: args.RouteHuman}
 	if err := routing.Validate(); err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %v", screens.ErrRefused, err)
 	}
 	placed, err := placeSafeguard(ctx, c.p.d.pool, c.p.factory, actor,
 		args.Parameter, args.SubjectKind+":"+args.SubjectName, args.ServiceName, args.Bound, routing)
@@ -143,7 +141,7 @@ func (c *calls) SetHalt(ctx context.Context, who principal.Principal, args scree
 		return "", err
 	}
 	if args.Reason == "" {
-		return "", errors.New("factory: a halt says why the factory is halted, and this one says nothing")
+		return "", fmt.Errorf("%w: a halt says why the factory is halted, and this one says nothing", screens.ErrRefused)
 	}
 	set, err := halt.NewWriter(c.p.d.pool, c.p.d.token).Insert(ctx, actor, args.Reason)
 	if err != nil {
@@ -176,7 +174,7 @@ func (c *calls) SetLegalHold(ctx context.Context, who principal.Principal, args 
 		return "", err
 	}
 	if args.Reason == "" {
-		return "", errors.New("factory: a legal hold says why it was set, and this one says nothing")
+		return "", fmt.Errorf("%w: a legal hold says why it was set, and this one says nothing", screens.ErrRefused)
 	}
 	on, err := legalHoldSubject(ctx, c.p.d.pool, args.SubjectKind+":"+args.SubjectName)
 	if err != nil {
@@ -204,53 +202,6 @@ func (c *calls) WithdrawLegalHold(ctx context.Context, who principal.Principal, 
 	return nil
 }
 
-// WriteFleetEntry is the owner's first act at Factory: a model at an effort in
-// a role with a scope, the credential it runs on, and the rest of the nine
-// fields. An install holding no entry for a role dispatches nothing, which is
-// what the readiness reading on the home view says before anything is wrong.
-func (c *calls) WriteFleetEntry(ctx context.Context, who principal.Principal, args screens.WriteFleetEntryArgs) (string, error) {
-	actor, err := c.acting(ctx, who)
-	if err != nil {
-		return "", err
-	}
-	written, err := fleetentry.NewWriter(c.p.d.pool, c.p.d.token).Write(ctx, actor, fleetentry.New{
-		ModelVersion: args.ModelVersion,
-		Effort:       args.Effort,
-		Role:         args.Role,
-		Scope: fleetentry.Scope{
-			ProjectID: args.ScopeProjectID,
-			ServiceID: args.ScopeServiceID,
-			AreaID:    args.ScopeAreaID,
-		},
-		CredentialName:                  args.Credential,
-		ProcessingLocation:              args.ProcessingLocation,
-		MaterialClasses:                 args.MaterialClasses,
-		ReadsAtOnce:                     args.ReadAtOnceBound,
-		DispatchesBetweenEvaluationRuns: args.DispatchesBetweenEvalRuns,
-	})
-	if err != nil {
-		return "", err
-	}
-	c.changed("factory", listAddressID)
-	c.changed("home", listAddressID)
-	return written.ID, nil
-}
-
-// WithdrawFleetEntry withdraws a fleet entry. A stage no entry covers holds,
-// which is a row in Work and a count at Factory.
-func (c *calls) WithdrawFleetEntry(ctx context.Context, who principal.Principal, args screens.WithdrawFleetEntryArgs) error {
-	actor, err := c.acting(ctx, who)
-	if err != nil {
-		return err
-	}
-	if _, err := fleetentry.NewWriter(c.p.d.pool, c.p.d.token).Withdraw(ctx, actor, args.FleetEntryID); err != nil {
-		return err
-	}
-	c.changed("factory", listAddressID)
-	c.changed("home", listAddressID)
-	return nil
-}
-
 // SupplyConstraint is duty 2 at Factory: a permanent constraint over the
 // factory, a project, or an area, read here rather than found through the
 // requests it arrived with.
@@ -264,7 +215,7 @@ func (c *calls) SupplyConstraint(ctx context.Context, who principal.Principal, a
 		return "", err
 	}
 	arriving, err := arrivingConstraint(args.Statement, reach, subjectID,
-		args.BindsFrom, args.ReviewDate, args.Zone)
+		args.BindsFrom, args.ReviewDate, args.Zone, args.RequiresSeam5Enforced)
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +243,7 @@ func (c *calls) permanentReach(ctx context.Context, kind, name string) (constrai
 		return constraint.ReachArea, ar.ID, err
 	default:
 		return "", "", fmt.Errorf(
-			"factory: a permanent constraint reaches the factory, a project or an area, not %q", kind)
+			"%w: a permanent constraint reaches the factory, a project or an area, not %q", screens.ErrRefused, kind)
 	}
 }
 
@@ -381,11 +332,11 @@ func (c *calls) EditRecordRow(ctx context.Context, who principal.Principal, args
 		return err
 	}
 	if args.Row != gate.RolePromptOrSkill.String() {
-		return fmt.Errorf("%w: %s decides a record and not a document, so there is no version to author",
-			gate.ErrEditInPlaceRefused, args.Row)
+		return fmt.Errorf("%w: %w: %s decides a record and not a document, so there is no version to author",
+			screens.ErrRefused, gate.ErrEditInPlaceRefused, args.Row)
 	}
 	if strings.TrimSpace(args.Version) == "" {
-		return errors.New("factory: an edit in place authors a version, and this one is empty")
+		return fmt.Errorf("%w: an edit in place authors a version, and this one is empty", screens.ErrRefused)
 	}
 	head, err := artifact.Get(ctx, c.p.d.pool, args.RecordID)
 	if err != nil {
@@ -401,5 +352,9 @@ func (c *calls) EditRecordRow(ctx context.Context, who principal.Principal, args
 		return err
 	}
 	c.changed("factory", listAddressID)
+	// The row fired here is a row pending on a human, which the home view's
+	// badge counts — the same pair [calls.decideRolePrompt] announces when it
+	// closes one.
+	c.changed("home", listAddressID)
 	return nil
 }

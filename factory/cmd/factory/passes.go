@@ -74,17 +74,21 @@ var passOrder = []string{
 }
 
 // pass is one component's pass: the name its interval flag and its errors are
-// reported under, how often it runs, and the call itself.
+// reported under, how often it runs, and the call itself. The call reports
+// whether the tick moved anything, which is what [passes.announce] answers on.
 type pass struct {
 	name  string
 	every time.Duration
-	do    func(context.Context) error
+	do    func(context.Context) (bool, error)
 }
 
 // passes is every pass with a ticker of its own, run by one goroutine. Nothing
-// here is locked and nothing needs to be: the tickers only say which pass is
-// due, and the pass itself runs on the goroutine [passes.Run] holds, so no two
-// passes touch the path at once.
+// here is locked: the tickers only say which pass is due, and the pass itself
+// runs on the goroutine [passes.Run] holds, so no two passes touch the path at
+// once. The composition they run over is reached from the HTTP handlers too,
+// and what that needs is locked there — the three fields shared.go's accessors
+// guard, and never a lock around a pass, which may spend minutes in one model
+// call while a view waits.
 type passes struct {
 	p   *path
 	out io.Writer
@@ -95,19 +99,31 @@ type passes struct {
 	// moved. It is nil where nothing serves, which is every subcommand.
 	changed func(kind, id string)
 	list    []pass
+	// scoreSeen is the score version the score pass last found in force. That
+	// pass appends a version only where the table it computes has moved, so a
+	// tick answering a version this process has already seen wrote nothing.
+	scoreSeen string
 }
 
 // newPasses composes the passes over one composition, at the intervals given.
 func newPasses(p *path, every intervals, changed func(kind, id string)) *passes {
-	ps := &passes{p: p, out: p.d.out, changed: changed}
-	do := map[string]func(context.Context) error{
-		passAdvance: func(ctx context.Context) error {
+	ps := &passes{p: p, out: p.d.out, changed: changed, scoreSeen: p.scoreVersion}
+	do := map[string]func(context.Context) (bool, error){
+		passAdvance: func(ctx context.Context) (bool, error) {
 			// The path's own pass, and with it the merge queue and the
 			// production deploys: [path.layer] runs the queue once per service
 			// and deploys what it merged, so the queue is not a pass of its
 			// own — what orders merges is inside the pass that reaches them.
-			_, err := p.advance(ctx)
-			return err
+			a, err := p.advance(ctx)
+			return a.moved, err
+		},
+		passScore: func(ctx context.Context) (bool, error) {
+			version, err := p.ensureScore(ctx)
+			moved := version != "" && version != ps.scoreSeen
+			if moved {
+				ps.scoreSeen = version
+			}
+			return moved, err
 		},
 		passWatch:        p.watchServices,
 		passReevaluate:   p.reevaluatePending,
@@ -115,7 +131,6 @@ func newPasses(p *path, every intervals, changed func(kind, id string)) *passes 
 		passDrift:        p.driftDetectorPages,
 		passDeprecations: p.raiseRemovals,
 		passAcceptance:   p.acceptancePass,
-		passScore:        p.ensureScore,
 	}
 	for _, name := range passOrder {
 		interval := defaultIntervals[name]
@@ -160,10 +175,13 @@ func (ps *passes) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case name := <-due:
-			if err := ps.Tick(ctx, name); err != nil {
+			moved, err := ps.Tick(ctx, name)
+			if err != nil {
 				fmt.Fprintf(ps.out, "The %s pass failed and the rest go on: %v\n", name, err)
 			}
-			ps.announce(name)
+			if moved {
+				ps.announce(name)
+			}
 		}
 	}
 }
@@ -171,13 +189,13 @@ func (ps *passes) Run(ctx context.Context) {
 // Tick runs one pass once, named. It is what [passes.Run] calls and what a test
 // drives a pass with, so nothing about a pass is reachable only through a
 // ticker.
-func (ps *passes) Tick(ctx context.Context, name string) error {
+func (ps *passes) Tick(ctx context.Context, name string) (bool, error) {
 	for _, one := range ps.list {
 		if one.name == name {
 			return one.do(ctx)
 		}
 	}
-	return fmt.Errorf("factory: %q is no pass of this process", name)
+	return false, fmt.Errorf("factory: %q is no pass of this process", name)
 }
 
 // announce tells every subscriber that the addresses this pass could have
@@ -187,11 +205,15 @@ func (ps *passes) Tick(ctx context.Context, name string) error {
 // moves — the board for the two that move an item, and Ops for everything
 // downstream of a deploy.
 //
-// It is announced whether or not the pass moved anything. Nothing here reads
-// what a pass did, and a subscriber told of a change that did not happen
-// re-reads the address and finds it as it was; a subscriber not told of one
-// that did reads a stale screen until a human reloads, which is the failure
-// push not poll exists to prevent.
+// It is announced after a tick that moved something and not after every tick.
+// Every pass reports whether it wrote, and a subscriber told of a change that
+// did not happen re-reads the address for nothing: a home view is read from
+// records every pass writes, so an idle install with one screen open would
+// re-read it every five seconds and append a read event to the chained log at
+// each one, which is unbounded growth out of an idle factory. The drift sweep
+// is the one pass with no cheaper signal and says so where it is written: it
+// records the notifier's own last check every time it runs, and the home view
+// renders that.
 func (ps *passes) announce(name string) {
 	if ps.changed == nil {
 		return
@@ -220,20 +242,23 @@ const listAddressID = "-"
 // closes an analysis window. It takes one reading per service and leaves what is
 // still open to the next tick, the interval being what says how often a window
 // is read.
-func (p *path) watchServices(ctx context.Context) error {
+func (p *path) watchServices(ctx context.Context) (bool, error) {
+	moved := false
 	for _, name := range p.d.serviceNames() {
 		svc, found, err := service.ByName(ctx, p.d.pool, name)
 		if err != nil {
-			return err
+			return moved, err
 		}
 		if !found {
 			continue
 		}
-		if err := p.watchPass(ctx, svc); err != nil {
-			return err
+		watched, err := p.watchPass(ctx, svc)
+		moved = moved || watched
+		if err != nil {
+			return moved, err
 		}
 	}
-	return nil
+	return moved, nil
 }
 
 // reevaluatePending is the gate's own pass over every pending row a hold stands
@@ -241,10 +266,10 @@ func (p *path) watchServices(ctx context.Context) error {
 // and which nothing called until this process existed: a hold the factory set
 // holds the open row rather than firing the gate again, so what closes the row
 // when the hold lifts is this.
-func (p *path) reevaluatePending(ctx context.Context) error {
+func (p *path) reevaluatePending(ctx context.Context) (bool, error) {
 	found, err := p.gate.ReevaluatePending(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, one := range found {
 		switch {
@@ -257,17 +282,17 @@ func (p *path) reevaluatePending(ctx context.Context) error {
 			fmt.Fprintf(p.d.out, "A held row goes on waiting: %v still stands\n", one.Holds)
 		}
 	}
-	return nil
+	return len(found) > 0, nil
 }
 
 // acceptancePass is the acceptance round asked of every intent the records say
 // is ready for one. The run subcommand asks it of the intents that run took in;
 // a process that outlives a run has no such list, so the intents are read off
 // the items — an intent ready for the round has items, all of them live.
-func (p *path) acceptancePass(ctx context.Context) error {
+func (p *path) acceptancePass(ctx context.Context) (bool, error) {
 	ids, err := p.intentIDs(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	sets := make([]*decompositionSet, 0, len(ids))
 	for _, id := range ids {
@@ -278,14 +303,16 @@ func (p *path) acceptancePass(ctx context.Context) error {
 
 // ensureScore is the score's own pass over the outcomes: it computes the
 // supplied table from every outcome in the store and appends a version where it
-// has moved, which is what `factory learn` does once.
+// has moved, which is what `factory learn` does once. It answers with the
+// version in force after it, so the caller can tell a tick that appended one
+// from a tick that found the table where it left it.
 //
 // What it does not do is move the version this composition holds. The policy
 // reader and the gate are composed with the version in force at the start, so a
 // version this pass appends is read by the next start of the process and not by
 // this one. What that costs is that a firing after the score has learned is
 // decided under the version before it, until the process restarts.
-func (p *path) ensureScore(ctx context.Context) error {
-	_, err := score.NewWriter(p.d.pool, p.d.token, marksOf(p.d.pool)).Ensure(ctx, scoreActor)
-	return err
+func (p *path) ensureScore(ctx context.Context) (string, error) {
+	version, err := score.NewWriter(p.d.pool, p.d.token, marksOf(p.d.pool)).Ensure(ctx, scoreActor)
+	return version.ID, err
 }

@@ -6,6 +6,10 @@ export interface Recorded {
   path: string;
   method: string;
   body: string;
+  // Every header the call carried, by name, the way a spec checks that the
+  // version and the principal are on every call and not only the ones a
+  // screen happens to assert a body for.
+  headers: Record<string, string>;
 }
 
 export class FakeFetch {
@@ -76,6 +80,7 @@ export class FakeFetch {
       path,
       method: init?.method ?? 'GET',
       body: typeof init?.body === 'string' ? init.body : '',
+      headers: headersOf(init?.headers),
     });
     if (this.holds) {
       return new Promise<Response>((settle) => {
@@ -101,6 +106,16 @@ export class FakeFetch {
   };
 }
 
+// The client sends headers as a plain object literal, never a Headers
+// instance or an array of pairs, so reading them as one is enough here; the
+// other two shapes RequestInit['headers'] allows are not this client's.
+function headersOf(headers: HeadersInit | undefined): Record<string, string> {
+  if (headers === undefined || headers instanceof Headers || Array.isArray(headers)) {
+    return {};
+  }
+  return { ...headers };
+}
+
 // The three things fetch takes as its first argument, each named rather than
 // stringified: a Request stringifies to [object Request].
 function addressOf(input: RequestInfo | URL): string {
@@ -123,8 +138,18 @@ function jsonResponse(body: unknown, status: number): Response {
 type Listener = (event: Event) => void;
 
 export class FakeEventSource {
+  // The three values the real EventSource's readyState takes, mirrored here
+  // because the stream reader reads it off the constructor
+  // (`EventSource.CLOSED`) and off the instance to tell a connection the
+  // browser is still retrying on its own from one that failed to open and
+  // never will again.
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+
   private readonly listeners = new Map<string, Listener[]>();
   closed = false;
+  readyState: number = FakeEventSource.CONNECTING;
 
   constructor(readonly url: string) {}
 
@@ -136,15 +161,28 @@ export class FakeEventSource {
 
   close(): void {
     this.closed = true;
+    this.readyState = FakeEventSource.CLOSED;
   }
 
-  // The subscription dropped.
+  // The subscription dropped the way a network interruption does: the
+  // browser is left retrying on its own, so readyState stays CONNECTING and
+  // the reader's own retry never fires.
   drop(): void {
+    this.readyState = FakeEventSource.CONNECTING;
+    this.fire('error');
+  }
+
+  // The connection never opened at all — a 400, 409, or 500 — which the
+  // browser does not retry from: readyState settles at CLOSED and the
+  // reader's own bounded-backoff retry is what has to open it again.
+  dropClosed(): void {
+    this.readyState = FakeEventSource.CLOSED;
     this.fire('error');
   }
 
   // The subscription came back, which re-reads the address whole.
   reconnect(): void {
+    this.readyState = FakeEventSource.OPEN;
     this.fire('open');
   }
 

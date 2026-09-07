@@ -11,16 +11,21 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/screens"
 )
 
-// atWork is the scripted human a test drives the gate component with, composed
-// as [deps.decide]: between two passes of the path it reads the rows the gate
+// atWork is the scripted human a test drives Work with, composed as
+// [deps.decide]: between two passes of the path it reads the rows the gate
 // holds pending and closes each with the next token of its script, through the
-// same calls a screen makes — [gate.Gate.Decide], [gate.Gate.Refer],
-// [gate.Gate.Acknowledge] and [path.editInPlace], which is what a screen's
-// Edit in place reaches.
+// call a screen makes for it — [calls.Decide], [calls.Refer],
+// [calls.Acknowledge] and [calls.EditInPlace], the same [screens.Calls] the
+// server serves — so an end-to-end test exercises one call per act a human
+// makes and not the writers beneath it.
 //
 // The script is the value's own and no longer a stream the path holds: the
 // terminal read the interview's answer and every verdict off standard input,
@@ -32,10 +37,17 @@ import (
 // nothing, so the row is read again — and "edit <text>", which authors the
 // version at the gate.
 //
-// [gate.Given.OpenedInWorkAt] is empty on every close: the field is the
-// screen's report of when the actor opened the row, and this driver reaches the
-// gate component directly rather than through a screen.
+// [gate.Given.OpenedInWorkAt] is filled on every verdict this driver gives,
+// and with a constant: the field is the screen's report of when the actor
+// opened the row, and a scripted human never had one open, so every close it
+// writes says [theScriptedOpenInWork] before the close.
 type atWork struct{ lines *bufio.Scanner }
+
+// theScriptedOpenInWork is how long the scripted human is taken to have had a
+// row open in Work before deciding it. It is a constant and not a clock: what
+// reads the field is the interval Factory reports as how long a row was open in
+// front of a human, and a scripted verdict has no real one to report.
+const theScriptedOpenInWork = 90 * time.Second
 
 // scriptedAtWork is one script's own driver.
 func scriptedAtWork(script string) *atWork {
@@ -84,19 +96,23 @@ func (a *atWork) next() (string, error) {
 
 // decideOne is one token acted on against one pending row.
 func decideOne(ctx context.Context, p *path, opened gate.Opened, line string) error {
+	// The composition's own [screens.Calls], made fresh per row: it holds a
+	// path and the views over it and nothing else, and the server it notifies
+	// subscribers through is nil here, so a verdict given this way tells no
+	// subscriber and needs none.
+	made := &calls{p: p, v: &views{p: p}}
+	who := principal.OfHuman(p.human.Key, record.BasisClaimed)
+	openEventID := opened.Row.ID
+
 	if _, is := strings.CutPrefix(line, "acknowledge"); is {
 		// An acknowledgement decides nothing: the row stays pending and the next
 		// token is read against it.
-		_, err := p.gate.Acknowledge(ctx, opened, p.human)
-		return err
+		return made.Acknowledge(ctx, who, screens.AcknowledgeArgs{OpenEventID: openEventID})
 	}
 	if rest, is := strings.CutPrefix(line, "edit"); is {
-		firing, err := p.firingFor(ctx, opened)
-		if err != nil {
-			return err
-		}
-		_, err = p.editInPlace(ctx, opened, firing, p.human, strings.TrimSpace(rest))
-		return err
+		return made.EditInPlace(ctx, who, screens.EditInPlaceArgs{
+			OpenEventID: openEventID, VersionText: strings.TrimSpace(rest),
+		})
 	}
 	actions, err := gate.Actions(opened.Gate)
 	if err != nil {
@@ -109,19 +125,12 @@ func decideOne(ctx context.Context, p *path, opened gate.Opened, line string) er
 		}
 		reason := strings.TrimSpace(rest)
 		if action == gate.VerdictRefer {
-			firing, err := p.firingFor(ctx, opened)
-			if err != nil {
-				return err
-			}
-			_, err = p.gate.Refer(ctx, opened, p.human, reason, firing)
-			return err
+			return made.Refer(ctx, who, screens.ReferArgs{OpenEventID: openEventID, Reason: reason})
 		}
-		given := gate.Given{Actor: p.human, Verdict: action, Reason: reason}
-		if action == gate.VerdictApprove {
-			given.Holds = opened.Holds
-		}
-		_, err := p.gate.Decide(ctx, opened, given)
-		return err
+		return made.Decide(ctx, who, screens.DecideArgs{
+			OpenEventID: openEventID, Verdict: string(action), Reason: reason,
+			OpenedInWorkAt: record.FormatTime(time.Now().Add(-theScriptedOpenInWork)),
+		})
 	}
 	return fmt.Errorf("the verdict at %s is one of %v, not %q", opened.Gate, actions, line)
 }

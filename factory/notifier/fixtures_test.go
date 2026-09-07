@@ -1,10 +1,9 @@
-// fixtures_test.go is what db_test.go and driftpass_test.go share: the
-// notifier composed over a recorder in place of the three channels, the
-// People writer that appends no policy version, and the small reads a test
-// makes directly against the log and against this package's own delivery
-// table. Splitting it out of db_test.go is what keeps that file, and
-// driftpass_test.go, under the line bound with their own tests read
-// together.
+// fixtures_test.go is what db_test.go, pageevents_test.go and
+// driftpass_test.go share: the notifier composed over a recorder in place of
+// the three channels, the People writer that appends no policy version, and
+// the small reads a test makes directly against the log and against this
+// package's own delivery table. Splitting it out of db_test.go is what keeps
+// those files under the line bound with their own tests read together.
 package notifier_test
 
 import (

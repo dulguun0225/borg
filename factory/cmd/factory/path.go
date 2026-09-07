@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/dulguun0225/borg/factory/artifact"
@@ -114,6 +115,11 @@ type path struct {
 	// what supplies it to dispatch and what a test exercises.
 	escalations dispatchNotifier
 
+	// mu guards the three fields a pass and an HTTP handler both reach —
+	// byItem, serviceByID and logRead — through the accessors in shared.go,
+	// which is where what it does and does not cover is stated. Every other
+	// field below is the pass goroutine's alone.
+	mu sync.Mutex
 	// byItem is the candidate of each item the run has touched, so the queue's
 	// re-verification can write what it produced onto the candidate the run reports.
 	byItem map[string]*candidate

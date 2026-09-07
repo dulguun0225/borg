@@ -163,6 +163,10 @@ export interface SpendCeiling {
   BurnRate: number;
   ProjectedExhaustion: Instant;
   Unbounded: boolean;
+  // UnpricedRuns is how many runs in the period returned a kind with no rate
+  // authored for it; their units are in no sum, so a burn rate with any of
+  // them is a lower bound.
+  UnpricedRuns: number;
 }
 
 export interface PageChannel {
@@ -219,6 +223,10 @@ export interface Factory {
   LoadSplits: LoadSplit[] | null;
   RecordDecidingRows: RecordDecidingRow[] | null;
   RolePromptGateRow: RolePromptGateRow | null;
+  // Seam5Enforced is whether this factory enforces seam 5, off at install and
+  // turned on once at Factory. A document-kind constraint may require it, and
+  // an item under such a constraint waits at dispatch until this is true.
+  Seam5Enforced: boolean;
 }
 
 // The seven classes of material a fleet entry may name, named the way
@@ -348,13 +356,16 @@ export interface WithdrawLegalHoldArgs {
   LegalHoldID: string;
 }
 
+// The scope's three fields are names, resolved against their record on the
+// server; a name that resolves to nothing is refused there rather than
+// stored.
 export interface WriteFleetEntryArgs {
   ModelVersion: string;
   Effort: string;
   Role: string;
-  ScopeProjectID: string;
-  ScopeServiceID: string;
-  ScopeAreaID: string;
+  ScopeProjectName: string;
+  ScopeServiceName: string;
+  ScopeAreaName: string;
   Credential: string;
   ProcessingLocation: string;
   MaterialClasses: string[];
@@ -373,6 +384,16 @@ export interface SupplyConstraintArgs {
   BindsFrom: CalendarDate;
   ReviewDate: CalendarDate;
   Zone: string;
+  // RequiresSeam5Enforced holds every item within this constraint's reach at
+  // dispatch until Factory.Seam5Enforced is true.
+  RequiresSeam5Enforced: boolean;
+}
+
+// SetSeam5EnforcedArgs turns enforcement of seam 5 on. It is one-way — off at
+// install, turned on once, and never off again — so a false is refused
+// rather than stored.
+export interface SetSeam5EnforcedArgs {
+  Enforced: boolean;
 }
 
 export interface DecideRecordRowArgs {
@@ -391,4 +412,21 @@ export interface EditRecordRowArgs {
   RecordID: string;
   Version: string;
   OpenedInWorkAt: Instant;
+}
+
+// RetireServiceArgs ends a service: the owner's write of retired on the
+// service record, and what calls the deployer's removal. EnvironmentName,
+// where given, performs the removal for that one environment and writes
+// nothing on the service record — the step an owner takes before an
+// environment other than production may be withdrawn, and the order is by
+// hand: remove, then withdraw.
+export interface RetireServiceArgs {
+  ServiceID: string;
+  EnvironmentName: string;
+}
+
+// EndProjectArgs ends a project once every service in it is retired, and
+// withdraws production's environment for it in the same write.
+export interface EndProjectArgs {
+  ProjectName: string;
 }

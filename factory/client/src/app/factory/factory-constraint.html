@@ -1,0 +1,77 @@
+<h1>Constraint {{ id() }}</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading this constraint.</p>
+  }
+  @case ('failed') {
+    <p class="danger">This constraint could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>There is no constraint at this address.</p>
+    <div class="actions">
+      <a [routerLink]="['/factory', 'constraints']">Constraints in force</a>
+    </div>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What it held stays readable and is
+      not being kept true.
+    </p>
+  }
+  @case ('ready') {
+    <p class="quiet">Kept true by the subscription on this address.</p>
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+@let one = constraint();
+@if (one !== null && state() !== 'failed') {
+  <dl>
+    <dt>Reach</dt>
+    <dd>{{ one.Reach }}</dd>
+    <dt>Kind</dt>
+    <dd>{{ one.Kind }}</dd>
+    <dt>Statement</dt>
+    <dd>{{ one.Statement }}</dd>
+    <dt>Supplied</dt>
+    <dd>{{ at(one.SuppliedAt) }}</dd>
+    <dt>Binds from</dt>
+    <dd>
+      @if (one.BindsFrom === '') {
+        on arrival
+      } @else {
+        {{ onDate(one.BindsFrom) }} in {{ one.Zone }}
+      }
+    </dd>
+    <dt>Review date</dt>
+    <dd>
+      @if (one.ReviewDate === '') {
+        none
+      } @else {
+        {{ onDate(one.ReviewDate) }} in {{ one.Zone }}
+      }
+    </dd>
+    <dt>Withdrawn</dt>
+    <dd>
+      @if (one.WithdrawnAt === '') {
+        no
+      } @else {
+        {{ at(one.WithdrawnAt) }}
+      }
+    </dd>
+    @if (one.Replaces !== '') {
+      <dt>Replaces</dt>
+      <dd>{{ one.Replaces }}</dd>
+    }
+  </dl>
+
+  <div class="actions">
+    <a [routerLink]="['/factory', 'constraints']">Constraints in force</a>
+  </div>
+}

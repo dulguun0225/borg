@@ -90,14 +90,16 @@
   <factory-fleet
     [view]="view"
     [openedInWorkAt]="openedInWorkAt"
+    [busy]="busy()"
     (requested)="requested($event)"
   />
   <factory-gate-policy
     [view]="view"
     [openedInWorkAt]="openedInWorkAt"
+    [busy]="busy()"
     (requested)="requested($event)"
   />
-  <factory-places [view]="view" (requested)="requested($event)" />
+  <factory-places [view]="view" [busy]="busy()" (requested)="requested($event)" />
   <factory-numbers [view]="view" />
 
   <div class="actions">

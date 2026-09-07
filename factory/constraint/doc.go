@@ -54,9 +54,18 @@
 // that is not [record.KindHuman] with [ErrActorNotHuman]: intake calls this
 // writer, but the actor it validates is the owner, never intake itself.
 // [Writer.Arrive] is called from Factory for a constraint whose reach is one
-// of the three widest, and from Work for one whose reach is an intent.
+// of the three widest, and from Work for one whose reach is an intent. The
+// second writer ../../end-goal/records.md declares is not built, and What is
+// not built says why.
 //
 // # What is not built
+//
+// The second writer ../../end-goal/records.md declares: the factory itself, at
+// its first start after an upgrade that changed the design system it ships.
+// [validateHuman] refuses it by construction — every write here requires
+// [record.KindHuman], so the factory writing one would be a component storing
+// itself as the owner who supplied it — and what such a write would carry, the
+// design system as a constraint's content, is unbuilt below.
 //
 // The other five kinds; the pass over the constraints in force that decides
 // a build against them; the design system as a constraint's content field,

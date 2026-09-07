@@ -179,8 +179,8 @@ type read struct {
 // it has. [path.advance] is what sets and clears [path.logRead], so a caller
 // outside a pass — a test driving one item — reads the log as it stands.
 func (p *path) readLog(ctx context.Context) (*read, error) {
-	if p.logRead != nil {
-		return p.logRead, nil
+	if held := p.heldLog(); held != nil {
+		return held, nil
 	}
 	rows, err := decisionlog.NewReader(p.d.pool, p.d.token).Read(ctx, resumeReader)
 	if err != nil {
@@ -464,14 +464,7 @@ func (p *path) liveCandidates(ctx context.Context) ([]*candidate, error) {
 		if err != nil {
 			return nil, fmt.Errorf("factory: reading item %s back out of the records: %w", id, err)
 		}
-		held := p.byItem[id]
-		if held == nil {
-			p.byItem[id] = fresh
-			live = append(live, fresh)
-			continue
-		}
-		*held = *fresh
-		live = append(live, held)
+		live = append(live, p.refreshCandidate(id, fresh))
 	}
 	return live, nil
 }

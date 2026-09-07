@@ -128,7 +128,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// Unanswered, it widens exactly once, to the owner. There is no second widening.
 	path := p(ctx, t, d)
 	for range 3 {
-		if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
+		if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 			t.Fatalf("a pass stopped: %v", err)
 		}
 	}
@@ -155,7 +155,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if _, err := driftdetector.NewWriter(d.driftdetector).Clear(ctx, raised.Raised, installer.Key); err != nil {
 		t.Fatalf("clearing the mismatch: %v", err)
 	}
-	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
+	if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass after the clearing stopped: %v", err)
 	}
 	events, err = path.notifier.EventsFor(ctx, raised.Raised)

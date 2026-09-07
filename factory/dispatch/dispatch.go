@@ -67,15 +67,24 @@ type Escalation interface {
 // other by one search.
 const EscalatedByTheAttemptLimit = "the item exceeded the attempt limit and stopped being retried"
 
-// Notifier is the one call this component makes on the component that reaches
-// humans: the wait an item escalated leaves, which ../../end-goal/components.md
-// gives to dispatch. It is an interface because the notifier's callers hand it
-// a wait rather than the other way round, so nothing that creates one is
-// imported there.
+// Notifier is the two calls this component makes on the component that reaches
+// humans: the wait an item escalated leaves, which
+// ../../end-goal/components.md gives to dispatch, and the notice at a fixed
+// fraction of an authored spend ceiling. It is an interface because the
+// notifier's callers hand it a wait rather than the other way round, so nothing
+// that creates one is imported there.
 type Notifier interface {
 	// Escalated is the wait an item stopped at the attempt limit leaves, which
 	// is what puts it in Work as an escalation.
 	Escalated(ctx context.Context, itemID string, stage item.Stage, reason string) error
+	// NearingASpendCeiling is the notice at [NotifiedAtFraction] of the amount
+	// authored on one credential, over the period beginning at periodStart. It
+	// is a delivery and never a page, and it goes out once per credential and
+	// period: this component compares the sum at every report and holds no
+	// record of what has been delivered, so the implementation is what keys the
+	// delivery on the two and drops the rest.
+	NearingASpendCeiling(ctx context.Context, credentialName, periodStart string,
+		spent, ceiling float64, currency string) error
 }
 
 // NoNotifier is what a dispatch composed with no notifier uses: nothing is
@@ -84,6 +93,12 @@ type NoNotifier struct{}
 
 // Escalated delivers nothing.
 func (NoNotifier) Escalated(context.Context, string, item.Stage, string) error { return nil }
+
+// NearingASpendCeiling delivers nothing. The ceiling still holds: what is
+// missing is the notice before it, not the comparison.
+func (NoNotifier) NearingASpendCeiling(context.Context, string, string, float64, float64, string) error {
+	return nil
+}
 
 // Composition is what a dispatch is built from. Every field is required.
 type Composition struct {

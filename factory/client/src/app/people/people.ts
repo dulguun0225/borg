@@ -64,10 +64,14 @@ export class PeopleScreen implements OnDestroy {
   private readonly failure = signal('');
   private readonly refusal = signal('');
   private readonly view = signal<People | null>(null);
+  // Set for the span of the one path every call takes, so a second click on
+  // any of the ten forms while one is already in flight has nothing to send.
+  private readonly working = signal(false);
 
   protected readonly machine = peopleMachine;
   protected readonly message = this.failure.asReadonly();
   protected readonly refused = this.refusal.asReadonly();
+  protected readonly busy = this.working.asReadonly();
   protected readonly declaration = this.view.asReadonly();
   protected readonly rows = computed(() => this.view()?.Rows ?? []);
   protected readonly disconnected = computed(() => this.stream.state() === 'disconnected');
@@ -124,37 +128,45 @@ export class PeopleScreen implements OnDestroy {
   }
 
   private async send(request: CallRequest): Promise<void> {
-    this.refusal.set('');
-    if (this.disconnected()) {
-      this.refusal.set('the subscription is down, so nothing was sent');
+    if (this.working()) {
       return;
     }
-    const fresh = await this.api.get<People>('/api/people');
-    if (fresh.outcome === 'failed') {
-      this.refusal.set(
-        `the declaration could not be re-read, so nothing was sent: ${fresh.message}`,
-      );
-      return;
+    this.working.set(true);
+    try {
+      this.refusal.set('');
+      if (this.disconnected()) {
+        this.refusal.set('the subscription is down, so nothing was sent');
+        return;
+      }
+      const fresh = await this.api.get<People>('/api/people');
+      if (fresh.outcome === 'failed') {
+        this.refusal.set(
+          `the declaration could not be re-read, so nothing was sent: ${fresh.message}`,
+        );
+        return;
+      }
+      if (fresh.outcome === 'absent') {
+        this.refusal.set('the factory holds no declaration, so nothing was sent');
+        this.view.set(null);
+        return;
+      }
+      if (fresh.outcome !== 'value') {
+        return;
+      }
+      this.view.set(fresh.value);
+      const result = await this.api.call(request.name, request.args);
+      if (result.outcome === 'absent') {
+        this.refusal.set('the factory holds no record at that address, so nothing changed');
+        return;
+      }
+      if (result.outcome === 'failed') {
+        this.refusal.set(result.message);
+        return;
+      }
+      this.refusal.set('the factory took it');
+      await this.read();
+    } finally {
+      this.working.set(false);
     }
-    if (fresh.outcome === 'absent') {
-      this.refusal.set('the factory holds no declaration, so nothing was sent');
-      this.view.set(null);
-      return;
-    }
-    if (fresh.outcome !== 'value') {
-      return;
-    }
-    this.view.set(fresh.value);
-    const result = await this.api.call(request.name, request.args);
-    if (result.outcome === 'absent') {
-      this.refusal.set('the factory holds no record at that address, so nothing changed');
-      return;
-    }
-    if (result.outcome === 'failed') {
-      this.refusal.set(result.message);
-      return;
-    }
-    this.refusal.set('the factory took it');
-    await this.read();
   }
 }

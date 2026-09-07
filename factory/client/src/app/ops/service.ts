@@ -66,10 +66,15 @@ export class ServiceScreen {
   private readonly failure = signal('');
   private readonly refusal = signal('');
   private readonly view = signal<Service | null>(null);
+  // Set for the span of the one path every action takes, so a second click
+  // on any of this screen's five forms while one is already in flight has
+  // nothing to send.
+  private readonly working = signal(false);
 
   protected readonly machine = opsMachine;
   protected readonly message = this.failure.asReadonly();
   protected readonly refused = this.refusal.asReadonly();
+  protected readonly busy = this.working.asReadonly();
   protected readonly service = this.view.asReadonly();
   protected readonly operations = [OPERATION_SHIFT_TRAFFIC, OPERATION_SET_INSTANCE_COUNT];
 
@@ -213,36 +218,47 @@ export class ServiceScreen {
 
   // The one path every action takes: refused while the subscription is down,
   // and re-reading the service first, because a screen holding what it can no
-  // longer be told about is not a screen an action may be taken from.
+  // longer be told about is not a screen an action may be taken from. A
+  // second invocation while one is already in flight, from this form or
+  // another, is ignored: the template disables every submitting control
+  // while busy() is true.
   private async act(name: string, args: object): Promise<void> {
-    this.refusal.set('');
-    if (this.stream()?.state() === 'disconnected') {
-      this.refusal.set('the subscription is down, so nothing was sent');
+    if (this.working()) {
       return;
     }
-    const fresh = await this.api.get<Service>(this.address());
-    if (fresh.outcome === 'failed') {
-      this.refusal.set(`the service could not be re-read, so nothing was sent: ${fresh.message}`);
-      return;
+    this.working.set(true);
+    try {
+      this.refusal.set('');
+      if (this.stream()?.state() === 'disconnected') {
+        this.refusal.set('the subscription is down, so nothing was sent');
+        return;
+      }
+      const fresh = await this.api.get<Service>(this.address());
+      if (fresh.outcome === 'failed') {
+        this.refusal.set(`the service could not be re-read, so nothing was sent: ${fresh.message}`);
+        return;
+      }
+      if (fresh.outcome === 'absent') {
+        this.refusal.set('this service is no longer at this address, so nothing was sent');
+        this.view.set(null);
+        return;
+      }
+      if (fresh.outcome !== 'value') {
+        return;
+      }
+      this.view.set(fresh.value);
+      const result = await this.api.call(name, args);
+      if (result.outcome === 'absent') {
+        this.refusal.set('the factory holds no record at that address, so nothing changed');
+        return;
+      }
+      if (result.outcome === 'failed') {
+        this.refusal.set(result.message);
+        return;
+      }
+      await this.read();
+    } finally {
+      this.working.set(false);
     }
-    if (fresh.outcome === 'absent') {
-      this.refusal.set('this service is no longer at this address, so nothing was sent');
-      this.view.set(null);
-      return;
-    }
-    if (fresh.outcome !== 'value') {
-      return;
-    }
-    this.view.set(fresh.value);
-    const result = await this.api.call(name, args);
-    if (result.outcome === 'absent') {
-      this.refusal.set('the factory holds no record at that address, so nothing changed');
-      return;
-    }
-    if (result.outcome === 'failed') {
-      this.refusal.set(result.message);
-      return;
-    }
-    await this.read();
   }
 }

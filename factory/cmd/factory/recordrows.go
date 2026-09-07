@@ -145,7 +145,7 @@ func decideOutsideEveryItemAt(ctx context.Context, pool *pgxpool.Pool, token lea
 		return err
 
 	default:
-		return fmt.Errorf("factory: %q is none of the four rows that decide a record", r.kind)
+		return fmt.Errorf("%w: %q is none of the four rows that decide a record", screens.ErrRefused, r.kind)
 	}
 }
 

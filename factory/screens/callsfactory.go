@@ -85,13 +85,19 @@ type WithdrawLegalHoldArgs struct {
 // service and an area — so this struct has eleven fields for the design's
 // nine; each of the three may be empty, and all three empty scopes the entry
 // to the whole factory.
+//
+// The three scope fields are names and not ids: an owner writes this entry by
+// hand at Factory, and a name is what they have. The composition resolves each
+// against its record and refuses one that resolves to nothing, the way a
+// permanent constraint's reach is resolved. What is stored is the id, which is
+// what [FleetEntry] carries back.
 type WriteFleetEntryArgs struct {
 	ModelVersion              string
 	Effort                    string
 	Role                      string
-	ScopeProjectID            string
-	ScopeServiceID            string
-	ScopeAreaID               string
+	ScopeProjectName          string
+	ScopeServiceName          string
+	ScopeAreaName             string
 	Credential                string
 	ProcessingLocation        string
 	MaterialClasses           []string
@@ -115,6 +121,17 @@ type SupplyConstraintArgs struct {
 	BindsFrom  string
 	ReviewDate string
 	Zone       string
+	// RequiresSeam5Enforced is the one thing a document-kind constraint makes
+	// dispatch read: every item within this constraint's reach waits at
+	// dispatch until [Factory.Seam5Enforced] says the factory enforces seam 5.
+	RequiresSeam5Enforced bool
+}
+
+// SetSeam5EnforcedArgs turns enforcement of seam 5 on. It is one-way — off at
+// install, turned on once, and never off again — so Enforced false is refused
+// rather than stored.
+type SetSeam5EnforcedArgs struct {
+	Enforced bool
 }
 
 // RetireServiceArgs ends a service: the owner's write of retired on the

@@ -65,6 +65,10 @@ function positive(message: string) {
 export class FactoryFleetSection {
   readonly view = input.required<Factory>();
   readonly openedInWorkAt = input.required<string>();
+  // Whether the screen's one path is already sending a call; every
+  // submitting control here binds [disabled] to it so a second click while
+  // one is in flight has nothing to send.
+  readonly busy = input(false);
   readonly requested = output<CallRequest>();
 
   protected readonly classes = MATERIAL_CLASSES;
@@ -94,9 +98,9 @@ export class FactoryFleetSection {
     ModelVersion: '',
     Effort: '',
     Role: '',
-    ScopeProjectID: '',
-    ScopeServiceID: '',
-    ScopeAreaID: '',
+    ScopeProjectName: '',
+    ScopeServiceName: '',
+    ScopeAreaName: '',
     Credential: '',
     ProcessingLocation: '',
     MaterialClasses: {
@@ -160,9 +164,9 @@ export class FactoryFleetSection {
           ModelVersion: written.ModelVersion,
           Effort: written.Effort,
           Role: written.Role,
-          ScopeProjectID: written.ScopeProjectID,
-          ScopeServiceID: written.ScopeServiceID,
-          ScopeAreaID: written.ScopeAreaID,
+          ScopeProjectName: written.ScopeProjectName,
+          ScopeServiceName: written.ScopeServiceName,
+          ScopeAreaName: written.ScopeAreaName,
           Credential: written.Credential,
           ProcessingLocation: written.ProcessingLocation,
           MaterialClasses: this.chosenClasses(written.MaterialClasses),

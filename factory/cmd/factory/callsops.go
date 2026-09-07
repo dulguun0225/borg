@@ -28,7 +28,7 @@ func (c *calls) RollBack(ctx context.Context, who principal.Principal, args scre
 		return err
 	}
 	if args.Reason == "" {
-		return errors.New("factory: the record says what the undo was for, and this one says nothing")
+		return fmt.Errorf("%w: the record says what the undo was for, and this one says nothing", screens.ErrRefused)
 	}
 	svc, err := service.Get(ctx, c.p.d.pool, args.ServiceID)
 	if err != nil {
@@ -41,6 +41,9 @@ func (c *calls) RollBack(ctx context.Context, who principal.Principal, args scre
 		return err
 	}
 	c.changed("service", svc.ID)
+	// The rollback is one of the two halves of the approve-and-undone pair at
+	// Factory, which counts every rollback in the records.
+	c.changed("factory", listAddressID)
 	return nil
 }
 
@@ -52,7 +55,7 @@ func (c *calls) RaiseRevert(ctx context.Context, who principal.Principal, args s
 		return err
 	}
 	if args.Reason == "" {
-		return errors.New("factory: the record says what the undo was for, and this one says nothing")
+		return fmt.Errorf("%w: the record says what the undo was for, and this one says nothing", screens.ErrRefused)
 	}
 	svc, err := service.Get(ctx, c.p.d.pool, args.ServiceID)
 	if err != nil {
@@ -62,6 +65,10 @@ func (c *calls) RaiseRevert(ctx context.Context, who principal.Principal, args s
 		return err
 	}
 	c.changed("work", listAddressID)
+	// The badge counts what an intent's items leave waiting, which is why
+	// [calls.SupplyIntent] announces the home view too: a revert is an intent
+	// taken in and reaches it the same way.
+	c.changed("home", listAddressID)
 	c.changed("service", svc.ID)
 	return nil
 }
@@ -85,15 +92,51 @@ func (c *calls) StartMitigation(ctx context.Context, who principal.Principal, ar
 
 // EndMitigation ends a mitigation already standing; what it did to the target
 // stands until a deploy replaces it.
+//
+// The service it stands on is read before it is ended, because a mitigation is
+// keyed by the deploy it was performed against and one that has ended is no
+// longer among the standing ones. Announcing it is what [calls.StartMitigation]
+// already does: the mitigation renders on that service's own view, and
+// [screens.Server.Changed] fans a service's change out to Ops and never Ops
+// back to a service — so Ops alone would leave every open per-service view
+// showing a mitigation that has ended.
 func (c *calls) EndMitigation(ctx context.Context, who principal.Principal, args screens.EndMitigationArgs) error {
 	if _, err := c.acting(ctx, who); err != nil {
+		return err
+	}
+	serviceID, err := c.serviceMitigated(ctx, args.MitigationID)
+	if err != nil {
 		return err
 	}
 	if err := c.p.deploys.EndMitigation(ctx, args.MitigationID); err != nil {
 		return err
 	}
 	c.changed("ops", listAddressID)
+	if serviceID != "" {
+		c.changed("service", serviceID)
+	}
 	return nil
+}
+
+// serviceMitigated is the service one standing mitigation stands on, and empty
+// where no standing mitigation carries that id — which [deploy.Writer.EndMitigation]
+// is what refuses, so nothing is decided here.
+func (c *calls) serviceMitigated(ctx context.Context, mitigationID string) (string, error) {
+	standing, err := deploy.StandingMitigations(ctx, c.p.d.pool)
+	if err != nil {
+		return "", err
+	}
+	for _, one := range standing {
+		if one.ID != mitigationID {
+			continue
+		}
+		dep, err := deploy.Get(ctx, c.p.d.pool, one.DeployID)
+		if err != nil {
+			return "", err
+		}
+		return dep.ServiceID, nil
+	}
+	return "", nil
 }
 
 // MarkRollbackNotCaused is a named human at Ops saying that a rollback was not
@@ -105,7 +148,7 @@ func (c *calls) MarkRollbackNotCaused(ctx context.Context, who principal.Princip
 		return err
 	}
 	if args.Reason == "" {
-		return errors.New("factory: the mark says what caused the rollback instead, and this one says nothing")
+		return fmt.Errorf("%w: the mark says what caused the rollback instead, and this one says nothing", screens.ErrRefused)
 	}
 	if err := markRollback(ctx, c.p.d.pool, c.p.d.token, actor, args.DeployID, args.Reason); err != nil {
 		return err
@@ -134,7 +177,7 @@ func (c *calls) FirePage(ctx context.Context, who principal.Principal, args scre
 		return err
 	}
 	if args.Reason == "" {
-		return errors.New("factory: a page a human fires says why, and this one says nothing")
+		return fmt.Errorf("%w: a page a human fires says why, and this one says nothing", screens.ErrRefused)
 	}
 	svc, err := service.Get(ctx, c.p.d.pool, args.ServiceID)
 	if err != nil {

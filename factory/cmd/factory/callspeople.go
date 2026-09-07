@@ -110,6 +110,10 @@ func (c *calls) TakeBackCredential(ctx context.Context, who principal.Principal,
 	}
 	c.changed("people", listAddressID)
 	c.changed("home", listAddressID)
+	// The lent credentials are a list at Factory and a taken-back one is
+	// rendered there as taken back, which is what [calls.LendCredential]
+	// announces the same address for.
+	c.changed("factory", listAddressID)
 	return nil
 }
 

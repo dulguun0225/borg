@@ -64,10 +64,9 @@
 // Nothing enforces a duty's routing and nothing has to: a duty with no
 // holder is not an error, and an empty table is a working factory. The one
 // thing here the factory enforces is the spend ceiling on a lent credential,
-// and what enforces it is not built: the component that performs a run reads
-// [CredentialNamed], [RatesFor] and [Convert] onto the agent run record, and
-// the sum over a period from [Ceiling.PeriodStartAt] is what a ceiling is
-// compared against. No caller does either yet.
+// and what enforces it is dispatch: it reads [CredentialNamed], [RatesFor]
+// and [Convert] onto the agent run record, and the sum over a period from
+// [Ceiling.PeriodStartAt] is what it compares a ceiling against before a run.
 //
 // A version's snapshot names everything the declaration holds for a key: the
 // duties, the obligations, and, per credential a key lent, its name, its

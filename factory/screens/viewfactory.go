@@ -39,6 +39,12 @@ type Factory struct {
 	PageChannel        PageChannel
 	LoadSplits         []LoadSplit
 
+	// Seam5Enforced is whether this factory enforces seam 5, off at install
+	// and turned on once at Factory. It is on the view because a document-kind
+	// constraint may require it, and an item under such a constraint waits at
+	// dispatch until this says yes.
+	Seam5Enforced bool
+
 	// RecordDecidingRows is the four rows outside every item that decide a
 	// record rather than an item, pending a disposition here.
 	RecordDecidingRows []RecordDecidingRow
@@ -255,6 +261,12 @@ type SpendCeiling struct {
 	BurnRate            float64
 	ProjectedExhaustion string // RFC 3339 UTC; empty where Unbounded or not projected
 	Unbounded           bool
+	// UnpricedRuns is how many runs in the period returned a kind with no rate
+	// authored for it. Their units are in no sum, so a burn rate with any of
+	// them is a lower bound and the projection beside it is later than the
+	// truth. The same runs are what the credential fails closed on at dispatch,
+	// which is cleared by authoring the rate.
+	UnpricedRuns int64
 }
 
 // PageChannel is the four numbers the page channel reports: pages per

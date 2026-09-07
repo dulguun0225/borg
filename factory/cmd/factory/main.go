@@ -297,7 +297,7 @@ func runCommand(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	token, stopLease, err := acquireLease(ctx, pool)
+	token, _, stopLease, err := acquireLease(ctx, pool)
 	if err != nil {
 		return err
 	}
@@ -375,7 +375,7 @@ func walkCommand(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	token, stopLease, err := acquireLease(ctx, pool)
+	token, _, stopLease, err := acquireLease(ctx, pool)
 	if err != nil {
 		return err
 	}

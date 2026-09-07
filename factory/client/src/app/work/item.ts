@@ -53,10 +53,14 @@ export class ItemScreen {
   // held in a signal and replaced when the id changes; a screen on a fixed
   // address holds its subscription in a plain field instead.
   private readonly stream = signal<AddressStream | null>(null);
+  // Set for the span of the one path every action takes, so a second click
+  // while one is already in flight has nothing to send.
+  private readonly working = signal(false);
 
   protected readonly machine = workMachine;
   protected readonly message = this.failure.asReadonly();
   protected readonly refused = this.refusal.asReadonly();
+  protected readonly busy = this.working.asReadonly();
   protected readonly item = this.view.asReadonly();
 
   protected readonly priority = signal({ Priority: 0 });
@@ -130,8 +134,23 @@ export class ItemScreen {
       });
     }
     // A record with no time of its own sorts after every record that has one:
-    // it is where the timeline ends and not where it began.
-    return entries.sort((one, two) => (one.at === '' ? 1 : two.at === '' ? -1 : one.at.localeCompare(two.at)));
+    // it is where the timeline ends and not where it began. Two such records
+    // compared against each other are neither before nor after, so they sort
+    // by their label instead — a fixed, defined order rather than whatever
+    // one comparison result the array happened to see first, which is what
+    // "one before two, so two before one" would otherwise both answer true.
+    return entries.sort((one, two) => {
+      if (one.at === '' && two.at === '') {
+        return one.label.localeCompare(two.label);
+      }
+      if (one.at === '') {
+        return 1;
+      }
+      if (two.at === '') {
+        return -1;
+      }
+      return one.at.localeCompare(two.at);
+    });
   });
 
   constructor() {
@@ -207,36 +226,46 @@ export class ItemScreen {
 
   // Every action re-reads the item first and refuses while the subscription is
   // down, because a screen holding what it can no longer be told about is not
-  // a screen an action may be taken from.
+  // a screen an action may be taken from. A second invocation while one is
+  // already in flight is ignored: the template disables the control it came
+  // from while busy() is true.
   private async act(name: string, args: object): Promise<void> {
-    this.refusal.set('');
-    if (this.stream()?.state() === 'disconnected') {
-      this.refusal.set('the subscription is down, so nothing was sent');
+    if (this.working()) {
       return;
     }
-    const fresh = await this.api.get<Item>(`/api/item/${this.id()}`);
-    if (fresh.outcome === 'failed') {
-      this.refusal.set(`the item could not be re-read, so nothing was sent: ${fresh.message}`);
-      return;
+    this.working.set(true);
+    try {
+      this.refusal.set('');
+      if (this.stream()?.state() === 'disconnected') {
+        this.refusal.set('the subscription is down, so nothing was sent');
+        return;
+      }
+      const fresh = await this.api.get<Item>(`/api/item/${this.id()}`);
+      if (fresh.outcome === 'failed') {
+        this.refusal.set(`the item could not be re-read, so nothing was sent: ${fresh.message}`);
+        return;
+      }
+      if (fresh.outcome === 'absent') {
+        this.refusal.set('this item is no longer at this address, so nothing was sent');
+        this.view.set(null);
+        return;
+      }
+      if (fresh.outcome !== 'value') {
+        return;
+      }
+      this.view.set(fresh.value);
+      const result = await this.api.call(name, args);
+      if (result.outcome === 'absent') {
+        this.refusal.set('the factory holds no record at that address, so nothing changed');
+        return;
+      }
+      if (result.outcome === 'failed') {
+        this.refusal.set(result.message);
+        return;
+      }
+      await this.read();
+    } finally {
+      this.working.set(false);
     }
-    if (fresh.outcome === 'absent') {
-      this.refusal.set('this item is no longer at this address, so nothing was sent');
-      this.view.set(null);
-      return;
-    }
-    if (fresh.outcome !== 'value') {
-      return;
-    }
-    this.view.set(fresh.value);
-    const result = await this.api.call(name, args);
-    if (result.outcome === 'absent') {
-      this.refusal.set('the factory holds no record at that address, so nothing changed');
-      return;
-    }
-    if (result.outcome === 'failed') {
-      this.refusal.set(result.message);
-      return;
-    }
-    await this.read();
   }
 }

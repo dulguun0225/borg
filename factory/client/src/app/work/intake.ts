@@ -41,10 +41,15 @@ export class IntakeScreen implements OnDestroy {
   private readonly failure = signal('');
   private readonly outcome = signal('');
   private readonly view = signal<Work | null>(null);
+  // Set for the span of whichever of act() or create() below is in flight,
+  // so a second click on any form here while one is already sending has
+  // nothing to send.
+  private readonly working = signal(false);
 
   protected readonly machine = workMachine;
   protected readonly message = this.failure.asReadonly();
   protected readonly reported = this.outcome.asReadonly();
+  protected readonly busy = this.working.asReadonly();
   protected readonly rows = computed(() => this.view()?.Rows ?? []);
   protected readonly zone = viewerZone();
 
@@ -80,6 +85,7 @@ export class IntakeScreen implements OnDestroy {
     Statement: '',
     BindsFrom: '',
     ReviewDate: '',
+    RequiresSeam5Enforced: false,
   });
   protected readonly constraintForm = form(this.constraint, (path) => {
     validate(path.IntentID, (field) => needed('name the intent this binds')(field.value()));
@@ -214,48 +220,67 @@ export class IntakeScreen implements OnDestroy {
   }
 
   // Every action here is refused while the subscription is down, the same rule
-  // every action on an address of this screen is held to.
+  // every action on an address of this screen is held to. A second
+  // invocation while one is already in flight, from this form or another, is
+  // ignored: the template disables every submitting control while busy() is
+  // true.
   private async act(name: string, args: object): Promise<void> {
-    this.outcome.set('');
-    if (this.stream.state() === 'disconnected') {
-      this.outcome.set('the subscription is down, so nothing was sent');
+    if (this.working()) {
       return;
     }
-    const result = await this.api.call(name, args);
-    if (result.outcome === 'absent') {
-      this.outcome.set('the factory holds no record at that address, so nothing changed');
-      return;
-    }
-    if (result.outcome === 'failed') {
-      this.outcome.set(result.message);
-      return;
-    }
-    if (result.outcome === 'value') {
-      this.outcome.set('the factory took it');
-      await this.read();
+    this.working.set(true);
+    try {
+      this.outcome.set('');
+      if (this.stream.state() === 'disconnected') {
+        this.outcome.set('the subscription is down, so nothing was sent');
+        return;
+      }
+      const result = await this.api.call(name, args);
+      if (result.outcome === 'absent') {
+        this.outcome.set('the factory holds no record at that address, so nothing changed');
+        return;
+      }
+      if (result.outcome === 'failed') {
+        this.outcome.set(result.message);
+        return;
+      }
+      if (result.outcome === 'value') {
+        this.outcome.set('the factory took it');
+        await this.read();
+      }
+    } finally {
+      this.working.set(false);
     }
   }
 
   private async create(name: string, args: object): Promise<string> {
-    this.outcome.set('');
-    if (this.stream.state() === 'disconnected') {
-      this.outcome.set('the subscription is down, so nothing was sent');
+    if (this.working()) {
       return '';
     }
-    const result = await this.api.call<CreatedAddress>(name, args);
-    if (result.outcome === 'absent') {
-      this.outcome.set('the factory holds no record at that address, so nothing was written');
-      return '';
+    this.working.set(true);
+    try {
+      this.outcome.set('');
+      if (this.stream.state() === 'disconnected') {
+        this.outcome.set('the subscription is down, so nothing was sent');
+        return '';
+      }
+      const result = await this.api.call<CreatedAddress>(name, args);
+      if (result.outcome === 'absent') {
+        this.outcome.set('the factory holds no record at that address, so nothing was written');
+        return '';
+      }
+      if (result.outcome === 'failed') {
+        this.outcome.set(result.message);
+        return '';
+      }
+      if (result.outcome !== 'value' || result.value === null) {
+        return '';
+      }
+      this.outcome.set(`the factory wrote it at ${result.value.id}`);
+      await this.read();
+      return result.value.id;
+    } finally {
+      this.working.set(false);
     }
-    if (result.outcome === 'failed') {
-      this.outcome.set(result.message);
-      return '';
-    }
-    if (result.outcome !== 'value' || result.value === null) {
-      return '';
-    }
-    this.outcome.set(`the factory wrote it at ${result.value.id}`);
-    await this.read();
-    return result.value.id;
   }
 }

@@ -59,7 +59,7 @@ func (t terminal) Deliver(_ context.Context, d notifier.Delivery) error {
 // limit and holds the next deploy, and is what `factory watch` is for.
 func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.Time, every time.Duration) error {
 	for {
-		if err := p.watchPass(ctx, svc); err != nil {
+		if _, err := p.watchPass(ctx, svc); err != nil {
 			return err
 		}
 		open, err := window.CountOpen(ctx, p.d.pool, svc.ID)
@@ -87,7 +87,7 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 // writes. [path.notifierPasses] is where a run performs them, once.
 func (p *path) watchWindowsTo(ctx context.Context, svc service.Service, deadline time.Time, every time.Duration) error {
 	for {
-		if err := p.watchWindows(ctx, svc); err != nil {
+		if _, err := p.watchWindows(ctx, svc); err != nil {
 			return err
 		}
 		open, err := window.CountOpen(ctx, p.d.pool, svc.ID)
@@ -110,51 +110,66 @@ func (p *path) watchWindowsTo(ctx context.Context, svc service.Service, deadline
 // watchPass is one evaluation of everything downstream of a deploy on one
 // service, and the notifier's two passes beside it. It is what the watch
 // subcommand and the process's own watch pass make.
-func (p *path) watchPass(ctx context.Context, svc service.Service) error {
-	if err := p.watchWindows(ctx, svc); err != nil {
-		return err
+// It reports whether anything moved, which is what the process's own pass
+// announces on: a subscriber told of a change that did not happen re-reads the
+// address for nothing, and every read of it appends a read event to the log.
+func (p *path) watchPass(ctx context.Context, svc service.Service) (bool, error) {
+	moved, err := p.watchWindows(ctx, svc)
+	if err != nil {
+		return moved, err
 	}
-	return p.notifierPasses(ctx)
+	notified, err := p.notifierPasses(ctx)
+	return moved || notified, err
 }
 
 // notifierPasses is the notifier's own two: the pages a service's authored
 // paging hours held back, and the drift detector's store. Both are the
 // notifier's and per-factory rather than per-service, and a run performs them
 // once.
-func (p *path) notifierPasses(ctx context.Context) error {
-	if err := p.pagesHeldToTheHours(ctx); err != nil {
-		return err
+func (p *path) notifierPasses(ctx context.Context) (bool, error) {
+	paged, err := p.pagesHeldToTheHours(ctx)
+	if err != nil {
+		return paged, err
 	}
-	return p.driftDetectorPages(ctx)
+	swept, err := p.driftDetectorPages(ctx)
+	return paged || swept, err
 }
 
 // watchWindows is one evaluation of everything downstream of a deploy on one
 // service: every open window, the release whose window has closed, the
 // incidents that have settled, and the incidents that have not and hold no
 // window open.
-func (p *path) watchWindows(ctx context.Context, svc service.Service) error {
+func (p *path) watchWindows(ctx context.Context, svc service.Service) (bool, error) {
 	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
+
+	// moved is whether this service had anything downstream of a deploy to
+	// read at all: a window evaluated, a reading after one that crossed, an
+	// incident resolved, or a page fired. A quiet service has none of them.
+	moved := false
 
 	watched, err := p.healthMonitor.Watch(ctx, w)
 	for _, one := range watched {
 		p.reportWatched(one)
 	}
+	moved = moved || len(watched) > 0
 	if err != nil {
-		return err
+		return moved, err
 	}
 
 	after, found, err := p.healthMonitor.AfterWindow(ctx, w)
 	if err != nil {
-		return err
+		return moved, err
 	}
 	if found && after.Crossed {
 		p.reportAfter(after)
+		moved = true
 	}
 
 	resolved, err := p.healthMonitor.ResolveSettled(ctx, w)
 	if err != nil {
-		return err
+		return moved, err
 	}
+	moved = moved || len(resolved) > 0
 	for _, i := range resolved {
 		fmt.Fprintf(p.d.out, "Incident %s resolved: the crossing has stopped against what runs and what it raised has shipped\n", i.ID)
 	}
@@ -168,12 +183,12 @@ func (p *path) watchWindows(ctx context.Context, svc service.Service) error {
 	// that can see it.
 	paged, err := p.healthMonitor.PageOpenIncidents(ctx, w)
 	if err != nil {
-		return err
+		return moved, err
 	}
 	for _, id := range paged {
 		fmt.Fprintf(p.d.out, "Incident %s still crosses with no window open, and the page went out: production is worse until a human ends it\n", id)
 	}
-	return nil
+	return moved || len(paged) > 0, nil
 }
 
 // pagesHeldToTheHours is the notifier's own pass over the pages a service's
@@ -185,18 +200,18 @@ func (p *path) watchWindows(ctx context.Context, svc service.Service) error {
 // mismatch cleared there is the one wait that ends where nothing calls, and the
 // pass reads it so that the hours coming round do not page about one a human
 // has already cleared.
-func (p *path) pagesHeldToTheHours(ctx context.Context) error {
+func (p *path) pagesHeldToTheHours(ctx context.Context) (bool, error) {
 	if p.notifier == nil {
-		return nil
+		return false, nil
 	}
 	paged, err := p.notifier.PageDeferred(ctx, p.d.driftdetector)
 	if err != nil {
-		return err
+		return len(paged) > 0, err
 	}
 	for _, row := range paged {
 		fmt.Fprintf(p.d.out, "Page about %s went out: the hours its service pages within have come round\n", row)
 	}
-	return nil
+	return len(paged) > 0, nil
 }
 
 // reportWatched prints one window's reading as an owner would read it: the
@@ -268,20 +283,24 @@ func (p *path) reportAfter(after healthmonitor.AfterReading) {
 // The pass is the notifier's and not this interface's: it holds the routing, the
 // page events and the delivery record, and a copy of the read here would be a
 // second place deciding when a mismatch widens.
-func (p *path) driftDetectorPages(ctx context.Context) error {
+// It reports that it moved whenever a detector is installed, this being the
+// one pass here with no cheaper signal: the sweeps report nothing about what
+// they wrote, and the last check it records for the notifier moves every time,
+// which the home view renders. An install with no detector moves nothing.
+func (p *path) driftDetectorPages(ctx context.Context) (bool, error) {
 	if p.d.driftdetector == nil || p.notifier == nil {
-		return nil
+		return false, nil
 	}
 	if err := p.notifier.SweepDriftDetector(ctx, p.d.driftdetector); err != nil {
-		return err
+		return true, err
 	}
 	if err := p.notifier.SweepDriftDetectorStale(ctx, p.d.driftdetector); err != nil {
-		return err
+		return true, err
 	}
 	if err := p.notifier.CatchUpDriftDetectorDelivery(ctx, p.d.driftdetector); err != nil {
-		return err
+		return true, err
 	}
-	return p.notifier.RecordOwnLastCheck(ctx, atLeastASecond(p.d.watchEvery))
+	return true, p.notifier.RecordOwnLastCheck(ctx, atLeastASecond(p.d.watchEvery))
 }
 
 // takeOverIssues is duty 12 — taking over issues the factory cannot fix on its
@@ -318,9 +337,16 @@ func liveIsWorse(source intent.Source) bool { return source != intent.SourceOwne
 // way every other verdict from a screen carries it. Its one caller is
 // [calls.ApproveThroughHold]: no subcommand fires this row, the hold being what
 // stops the pass firing it.
+//
+// The candidate is read back out of the records rather than taken from
+// [path.byItem]: this runs on the server's goroutine while a pass runs on its
+// own, and the pass rewrites every field of the candidate it holds at each
+// tick, so a value shared with it would be rewritten between the firing and
+// the deploy. It costs one rehydration per approval, at a row a human reaches
+// by hand.
 func (p *path) approveThrough(ctx context.Context, actor record.Actor, itemID string,
 	verdict gate.Verdict, reason, openedInWorkAt string) error {
-	c, err := p.candidateFor(ctx, itemID)
+	c, err := p.rehydrate(ctx, itemID)
 	if err != nil {
 		return err
 	}
@@ -432,13 +458,13 @@ func readExchange(path string) ([]consumercontract.Document, error) {
 // An element whose brownout ran and established nothing is reported too: no pass
 // of the detector can raise its removal, so an owner reading the run is who
 // learns that raising it is theirs.
-func (p *path) raiseRemovals(ctx context.Context) error {
+func (p *path) raiseRemovals(ctx context.Context) (bool, error) {
 	marked, err := p.contracts.Deprecated(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(marked) == 0 {
-		return nil
+		return false, nil
 	}
 	for _, m := range marked {
 		if m.Empty() && len(m.Safeguards) == 0 {
@@ -453,7 +479,7 @@ func (p *path) raiseRemovals(ctx context.Context) error {
 	}
 	raised, err := p.contracts.Raise(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, r := range raised {
 		if r.Stall() {
@@ -468,5 +494,6 @@ func (p *path) raiseRemovals(ctx context.Context) error {
 		fmt.Fprintf(p.d.out, "The list on %s.%s has emptied; intent %s taken in by the detector: %s\n",
 			r.Marked.Contract.Name, r.Marked.Element.Name, r.Intent.ID, r.Intent.Statement)
 	}
-	return nil
+	// Reporting a marked element writes nothing; what moved is a removal.
+	return len(raised) > 0, nil
 }

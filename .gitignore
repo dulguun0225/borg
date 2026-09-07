@@ -7,7 +7,10 @@
 # The unattended loop's log, per README.
 /loop.log
 __pycache__
+# The binary go build writes beside main.go, and the one written at the module root.
 factory/factory
+/factory/cmd/factory/factory
+/factory/cmd/driftdetector/driftdetector
 .env
 # The client's build output, embedded by factory/clientdist. .gitkeep is
 # what lets the directory embed on a fresh clone before the build has run.

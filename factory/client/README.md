@@ -36,9 +36,9 @@ is the state machine type the four screens declare and the four predicates their
 decide, and each of `src/app/work/`, `src/app/ops/`, `src/app/factory/` and
 `src/app/people/` is one screen. Each screen directory holds the same file names —
 `README.md`, `<screen>.ts`, `<screen>.html`, `<screen>.css`, `<screen>.spec.ts`,
-`<screen>.routes.ts`, `format.ts` — and Work and Ops each hold one further file pair per
-address under them. Each screen's `README.md` says what it owns and names the `end-goal/` file it
-implements, which is this client's counterpart to a package's `doc.go`.
+`<screen>.routes.ts`, `format.ts` — and Work, Ops and Factory each hold one further file
+pair per address under them. Each screen's `README.md` says what it owns and names the
+`end-goal/` file it implements, which is this client's counterpart to a package's `doc.go`.
 
 `format.ts` is one file duplicated across the four screen directories, and `request.ts` is
 a second such copy, in the two screen directories that hold one. A screen imports `api/`
@@ -64,7 +64,8 @@ per block with the reason beside it, as a `no-restricted-imports` pattern that f
 - a screen's spec additionally imports the fakes under `src/testing/`;
 - `api/` and `state/` import nothing of the app, except `src/environments/version.ts`;
 - the shell imports the four screens' routes and nothing else of a screen;
-- nothing under `src/app/` imports `rxjs`, `zone.js`, `@angular/localize`, or
+- nothing under `src/app/`, `src/main.ts`, `src/testing/`, or
+  `src/environments/` imports `rxjs`, `zone.js`, `@angular/localize`, or
   `@angular/material`.
 
 ## The version

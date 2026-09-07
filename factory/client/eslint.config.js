@@ -12,6 +12,42 @@ const angular = require('angular-eslint');
 // file names.
 const screens = ['work', 'ops', 'factory', 'people'];
 
+// The lint wall's counterpart to a path import: every name below is refused
+// wherever `noRestrictedImports` is used, in every block below, because flat
+// config's `no-restricted-imports` options replace rather than merge across
+// two blocks matching the same file — a block that set only `patterns` was
+// silently dropping these for every file more specific than
+// `src/app/**/*.ts`. Declaring the list once and spreading it into every
+// block is what keeps that from happening again.
+const RESTRICTED_PATHS = [
+  { name: 'rxjs', message: 'No RxJS in application code: state is signals.' },
+  { name: 'rxjs/operators', message: 'No RxJS in application code: state is signals.' },
+  { name: '@angular/core/rxjs-interop', message: 'No RxJS in application code: state is signals.' },
+  { name: 'zone.js', message: 'The client is zoneless.' },
+  { name: '@angular/localize', message: 'One language until an owner supplies another.' },
+  { name: '@angular/localize/init', message: 'One language until an owner supplies another.' },
+  { name: '@angular/material', message: 'The screens are built from the factory design system alone.' },
+];
+
+// The one pattern every block needs beside RESTRICTED_PATHS: a subpath import
+// of RxJS or Material, which `paths` alone does not catch.
+const NOT_IN_PROFILE_PATTERN = {
+  group: ['@angular/material/*', 'rxjs/*'],
+  message: 'Not in the client profile.',
+};
+
+// The whole of `no-restricted-imports`' options for one block: the shared
+// restriction above, plus that block's own import-boundary patterns.
+function noRestrictedImports(...patterns) {
+  return [
+    'error',
+    {
+      paths: RESTRICTED_PATHS,
+      patterns: [NOT_IN_PROFILE_PATTERN, ...patterns],
+    },
+  ];
+}
+
 module.exports = tseslint.config(
   {
     files: ['**/*.ts'],
@@ -93,29 +129,22 @@ module.exports = tseslint.config(
   },
   {
     // No RxJS in application code. The framework's own use of it is a
-    // transitive dependency and not an import any file here writes.
+    // transitive dependency and not an import any file here writes. This is
+    // also the one block that reaches app.spec.ts, which no more specific
+    // block below names.
     files: ['src/app/**/*.ts'],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            { name: 'rxjs', message: 'No RxJS in application code: state is signals.' },
-            { name: 'rxjs/operators', message: 'No RxJS in application code: state is signals.' },
-            { name: '@angular/core/rxjs-interop', message: 'No RxJS in application code: state is signals.' },
-            { name: 'zone.js', message: 'The client is zoneless.' },
-            { name: '@angular/localize', message: 'One language until an owner supplies another.' },
-            { name: '@angular/localize/init', message: 'One language until an owner supplies another.' },
-            { name: '@angular/material', message: 'The screens are built from the factory design system alone.' },
-          ],
-          patterns: [
-            {
-              group: ['@angular/material/*', 'rxjs/*'],
-              message: 'Not in the client profile.',
-            },
-          ],
-        },
-      ],
+      'no-restricted-imports': noRestrictedImports(),
+    },
+  },
+  {
+    // Outside src/app/: the entry point, the environment the build fills,
+    // and the test-only fakes. None of the three is a screen, so none of the
+    // per-screen or shell blocks below reaches them, and without a block of
+    // their own they would carry no restriction at all.
+    files: ['src/main.ts', 'src/testing/*.ts', 'src/environments/*.ts'],
+    rules: {
+      'no-restricted-imports': noRestrictedImports(),
     },
   },
   {
@@ -123,20 +152,12 @@ module.exports = tseslint.config(
     // are built from, and an edge back into a screen would be a cycle.
     files: ['src/app/api/**/*.ts', 'src/app/state/**/*.ts'],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              // ../../environments/version -- the one constant the build
-              // fills, which api/version.ts carries on every call.
-              regex: '^\\.\\.(?!/\\.\\./environments/)',
-              message: 'api/ and state/ import nothing of the app.',
-            },
-            { group: ['rxjs', 'rxjs/*'], message: 'No RxJS in application code.' },
-          ],
-        },
-      ],
+      'no-restricted-imports': noRestrictedImports({
+        // ../../environments/version -- the one constant the build
+        // fills, which api/version.ts carries on every call.
+        regex: '^\\.\\.(?!/\\.\\./environments/)',
+        message: 'api/ and state/ import nothing of the app.',
+      }),
     },
   },
   ...screens.map((screen) => ({
@@ -145,21 +166,13 @@ module.exports = tseslint.config(
     // and a link between two is a route and not an import.
     files: [`src/app/${screen}/**/*.ts`],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              // ../api/*   -- a screen reads and writes through the fetch client
-              // ../state/* -- a screen declares its own state machine and the
-              //               predicates its spec decides from these types
-              regex: '^\\.\\.(?!/(api|state)/)',
-              message: 'A screen imports api/ and state/ and nothing else outside its own directory.',
-            },
-            { group: ['rxjs', 'rxjs/*'], message: 'No RxJS in application code.' },
-          ],
-        },
-      ],
+      'no-restricted-imports': noRestrictedImports({
+        // ../api/*   -- a screen reads and writes through the fetch client
+        // ../state/* -- a screen declares its own state machine and the
+        //               predicates its spec decides from these types
+        regex: '^\\.\\.(?!/(api|state)/)',
+        message: 'A screen imports api/ and state/ and nothing else outside its own directory.',
+      }),
     },
   })),
   ...screens.map((screen) => ({
@@ -168,21 +181,13 @@ module.exports = tseslint.config(
     // state it declares.
     files: [`src/app/${screen}/**/*.spec.ts`],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              // ../api/*        -- as for any file of a screen
-              // ../state/*      -- as for any file of a screen
-              // ../../testing/* -- the fake fetch and the fake EventSource
-              regex: '^\\.\\.(?!/(api|state)/|/\\.\\./testing/)',
-              message: 'A spec imports api/, state/ and the fakes under src/testing.',
-            },
-            { group: ['rxjs', 'rxjs/*'], message: 'No RxJS in application code.' },
-          ],
-        },
-      ],
+      'no-restricted-imports': noRestrictedImports({
+        // ../api/*        -- as for any file of a screen
+        // ../state/*      -- as for any file of a screen
+        // ../../testing/* -- the fake fetch and the fake EventSource
+        regex: '^\\.\\.(?!/(api|state)/|/\\.\\./testing/)',
+        message: 'A spec imports api/, state/ and the fakes under src/testing.',
+      }),
     },
   })),
   {
@@ -190,22 +195,14 @@ module.exports = tseslint.config(
     // screen: what a screen renders is reached by navigating to it.
     files: ['src/app/app.ts', 'src/app/app.routes.ts', 'src/app/app.config.ts'],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              // ./work/work.routes       -- the Work screen's own routes
-              // ./ops/ops.routes         -- the Ops screen's own routes
-              // ./factory/factory.routes -- the Factory screen's own routes
-              // ./people/people.routes   -- the People screen's own routes
-              regex: '^\\./(work|ops|factory|people)/(?!(work|ops|factory|people)\\.routes$)',
-              message: 'The shell imports the four screens\' routes only.',
-            },
-            { group: ['rxjs', 'rxjs/*'], message: 'No RxJS in application code.' },
-          ],
-        },
-      ],
+      'no-restricted-imports': noRestrictedImports({
+        // ./work/work.routes       -- the Work screen's own routes
+        // ./ops/ops.routes         -- the Ops screen's own routes
+        // ./factory/factory.routes -- the Factory screen's own routes
+        // ./people/people.routes   -- the People screen's own routes
+        regex: '^\\./(work|ops|factory|people)/(?!(work|ops|factory|people)\\.routes$)',
+        message: 'The shell imports the four screens\' routes only.',
+      }),
     },
   },
 );

@@ -6,9 +6,11 @@ rather than by the process the screens are served from. [`DEMO.md`](DEMO.md) is 
 to start the factory, and the M8 demonstration; every take here starts from a factory installed the
 way that file says and is run from the same directory.
 
-Two of the eight milestones before M8 have no take of their own here.
+Three of the eight milestones before M8 have no take of their own here.
+[M0](../roadmap.md#m0--the-graph-and-the-log)'s demonstration is records written through each seam and the
+chain read back unbroken, which is `go test ./...` and nothing to walk through by hand.
 [M1](../roadmap.md#m1--one-change-ships)'s demonstration is one change shipped with a human at every
-gate, which is episodes one to three of `DEMO.md` — the screens replaced the terminal the first take
+gate, which is episodes one and two of `DEMO.md` — the screens replaced the terminal the first take
 used. [M7](../roadmap.md#m7--the-code-matches-the-design)'s is every earlier milestone's
 demonstration passing on the changed code, which is `go test ./...`, `go run ./cmd/depscheck` and
 `go run ./cmd/tracecheck` on a fresh clone and nothing to walk through by hand.

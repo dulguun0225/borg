@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/constraint"
+	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
@@ -33,7 +34,7 @@ func (c *calls) SupplyIntent(ctx context.Context, who principal.Principal, args 
 		return "", err
 	}
 	if strings.TrimSpace(args.Statement) == "" {
-		return "", errors.New("factory: an intent's statement is not empty")
+		return "", fmt.Errorf("%w: an intent's statement is not empty", screens.ErrRefused)
 	}
 	projectID, err := c.projectNamed(ctx, args.ProjectName)
 	if err != nil {
@@ -90,7 +91,7 @@ func (c *calls) AnswerQuestion(ctx context.Context, who principal.Principal, arg
 		return err
 	}
 	if strings.TrimSpace(args.Answer) == "" {
-		return errors.New("factory: an answer is what the interview's round is spent on, and this one is empty")
+		return fmt.Errorf("%w: an answer is what the interview's round is spent on, and this one is empty", screens.ErrRefused)
 	}
 	limit, err := intentAttemptLimit(ctx, c.p.d.pool, factorysettings.SubjectInterview)
 	if err != nil {
@@ -168,8 +169,8 @@ func (c *calls) AcceptDelivery(ctx context.Context, who principal.Principal, arg
 		return err
 	}
 	if accepted.Why != "" {
-		return fmt.Errorf("factory: commit %s was not accepted: %s (rejection row %s)",
-			args.Commit, accepted.Why, accepted.RejectionRow)
+		return fmt.Errorf("%w: commit %s was not accepted: %s (rejection row %s)",
+			screens.ErrRefused, args.Commit, accepted.Why, accepted.RejectionRow)
 	}
 	c.changed("service", svc.ID)
 	return nil
@@ -279,7 +280,7 @@ func (c *calls) ApproveThroughHold(ctx context.Context, who principal.Principal,
 		return err
 	}
 	if strings.TrimSpace(args.Reason) == "" {
-		return errors.New("factory: approving through a hold says why, and this one says nothing")
+		return fmt.Errorf("%w: approving through a hold says why, and this one says nothing", screens.ErrRefused)
 	}
 	if _, err := item.Get(ctx, c.p.d.pool, args.ItemID); err != nil {
 		return fmt.Errorf("%w: %s", screens.ErrNotFound, args.ItemID)
@@ -370,7 +371,7 @@ func (c *calls) SupplyIntentConstraint(ctx context.Context, who principal.Princi
 		return "", fmt.Errorf("%w: %s", screens.ErrNotFound, args.IntentID)
 	}
 	arriving, err := arrivingConstraint(args.Statement, constraint.ReachIntent, args.IntentID,
-		args.BindsFrom, args.ReviewDate, args.Zone)
+		args.BindsFrom, args.ReviewDate, args.Zone, args.RequiresSeam5Enforced)
 	if err != nil {
 		return "", err
 	}
@@ -407,6 +408,12 @@ func (c *calls) ClearCeiling(ctx context.Context, who principal.Principal, args 
 		return err
 	}
 	if err := c.p.dispatch.ClearCeiling(ctx, actor, args.Credential); err != nil {
+		// The two package dispatch names are refusals of what was asked and
+		// not faults: no ceiling stands on that credential, and clearing one
+		// is the owner's.
+		if errors.Is(err, dispatch.ErrNoCeilingHold) || errors.Is(err, dispatch.ErrNotTheOwner) {
+			return fmt.Errorf("%w: %v", screens.ErrRefused, err)
+		}
 		return err
 	}
 	c.changed("work", listAddressID)
@@ -416,16 +423,19 @@ func (c *calls) ClearCeiling(ctx context.Context, who principal.Principal, args 
 }
 
 // arrivingConstraint is one constraint as the writer takes it: the document
-// kind, the reach and the record it names, and the two calendar values with the
-// IANA zone the client sent beside them.
+// kind, the reach and the record it names, the two calendar values with the
+// IANA zone the client sent beside them, and whether it requires seam 5
+// enforced — the one field of a document-kind constraint dispatch reads, which
+// holds every item within the reach until the factory-wide settings record says
+// the factory enforces it.
 func arrivingConstraint(statement string, reach constraint.Reach, subjectID,
-	bindsFrom, reviewDate, zone string) (constraint.New, error) {
+	bindsFrom, reviewDate, zone string, requiresSeam5 bool) (constraint.New, error) {
 	if strings.TrimSpace(statement) == "" {
-		return constraint.New{}, errors.New("factory: a constraint states what it binds, and this one states nothing")
+		return constraint.New{}, fmt.Errorf("%w: a constraint states what it binds, and this one states nothing", screens.ErrRefused)
 	}
 	arriving := constraint.New{
 		Kind: constraint.KindDocument, Reach: reach, SubjectID: subjectID,
-		Statement: strings.TrimSpace(statement),
+		Statement: strings.TrimSpace(statement), RequiresSeam5Enforced: requiresSeam5,
 	}
 	if bindsFrom == "" && reviewDate == "" {
 		return arriving, nil

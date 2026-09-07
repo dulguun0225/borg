@@ -159,7 +159,7 @@ func (p *path) returnRejected(ctx context.Context, outcome mergequeue.Outcome) e
 // everything finishing it needs is a record — the item for its branch, the
 // environment for the directory its build ran in.
 func (p *path) candidateFor(ctx context.Context, itemID string) (*candidate, error) {
-	if c := p.byItem[itemID]; c != nil {
+	if c := p.heldCandidate(itemID); c != nil {
 		return c, nil
 	}
 	it, err := item.Get(ctx, p.d.pool, itemID)
@@ -180,8 +180,7 @@ func (p *path) candidateFor(ctx context.Context, itemID string) (*candidate, err
 		c.environmentDir = env.Targets[0].Address
 		c.tornDown = !env.Live()
 	}
-	p.byItem[itemID] = c
-	return c, nil
+	return p.refreshCandidate(itemID, c), nil
 }
 
 // tearDown stops the software on the candidate's environment and writes the time

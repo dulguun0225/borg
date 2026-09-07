@@ -55,6 +55,10 @@ export class PeopleFormsSection {
   // are authored on. Empty on an install where nothing is lent yet, and the
   // form then takes the name as text.
   readonly credentials = input.required<readonly string[]>();
+  // Whether the screen's one path is already sending a call; every
+  // submitting control here binds [disabled] to it so a second click while
+  // one is in flight has nothing to send.
+  readonly busy = input(false);
   readonly requested = output<CallRequest>();
 
   protected readonly duties = DUTIES;

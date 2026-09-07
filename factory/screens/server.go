@@ -158,11 +158,19 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-// statusFor is 404 for an address or a referenced record ErrNotFound names,
-// and 500 for anything else a view or a call returned.
+// statusFor is the status of one error a view or a call returned: 404 for an
+// address or a referenced record [ErrNotFound] names, 403 for a caller
+// [ErrNotPermitted] says acts nowhere, 422 for a refusal [ErrRefused] names,
+// and 500 for anything else, which is a fault of this server's own and not
+// something the caller can answer for.
 func statusFor(err error) int {
-	if errors.Is(err, ErrNotFound) {
+	switch {
+	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, ErrNotPermitted):
+		return http.StatusForbidden
+	case errors.Is(err, ErrRefused):
+		return http.StatusUnprocessableEntity
 	}
 	return http.StatusInternalServerError
 }

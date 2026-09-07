@@ -22,7 +22,7 @@ import (
 
 // policyCommand prints what is in force: every parameter, where its value came
 // from, the safeguards that reached it, and what reads it at this milestone. It
-// is the one place an owner sees that four of the eight are read by nothing yet.
+// is the one place an owner sees that one of the eight is read by nothing yet.
 func policyCommand(args []string) error {
 	flags := flag.NewFlagSet("policy", flag.ContinueOnError)
 	serviceName := flags.String("service", "", "read the service-scoped parameters of this service")

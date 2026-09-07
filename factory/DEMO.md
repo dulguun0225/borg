@@ -272,10 +272,13 @@ authored in. Duty 8 and duty 9 sit beside it at Factory: a parameter authored an
 
 Then take an intent in and watch Factory while the pass works it. The burn rate is the units spent so
 far against the period in force, and beside it is when spending at that rate projects to exhaust the
-ceiling — the reading that exists so the hold is not the first anyone hears of it. Author the ceiling
-again at an amount already spent, which is how one is lowered, and the next dispatch is what stops:
-nothing is reserved before a stage starts, so the run happens and the sum is what declines the one
-after it.
+ceiling and how many runs of the period returned a kind with no rate — the units of those runs are in
+no sum, so a burn rate with any of them is a lower bound. What exists so that the hold is not the
+first anyone hears of it is the notice beside the reading: past a fixed fraction of the amount
+authored, the factory delivers one, through the notifier and never as a page, once per credential and
+period. Author the ceiling again at an amount already spent, which is how one is lowered, and the next
+dispatch is what stops: nothing is reserved before a stage starts, so the run happens and the sum is
+what declines the one after it.
 
 The hold is written mid-stage by whoever could not proceed. It names the credential and never the
 entry — an owner may re-credential or delete an entry without changing what that row says — and it

@@ -51,7 +51,7 @@ func TestAnOpenIncidentWithNoOpenWindowPages(t *testing.T) {
 		t.Fatalf("writing what the running build emits: %v", err)
 	}
 
-	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
+	if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass stopped: %v\noutput so far:\n%s", err, out)
 	}
 
@@ -75,7 +75,7 @@ func TestAnOpenIncidentWithNoOpenWindowPages(t *testing.T) {
 	// exactly once, to the owner, and there is no second widening however many
 	// passes read the same incident.
 	for range 2 {
-		if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
+		if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 			t.Fatalf("a later pass stopped: %v", err)
 		}
 	}

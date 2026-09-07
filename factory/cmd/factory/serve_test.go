@@ -6,13 +6,17 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/clientdist"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/screens"
 )
 
@@ -28,11 +32,18 @@ func TestEveryPassRunsWithNothingToDo(t *testing.T) {
 	}
 	ps := newPasses(p, nil, nil)
 	for _, name := range passOrder {
-		if err := ps.Tick(ctx, name); err != nil {
+		moved, err := ps.Tick(ctx, name)
+		if err != nil {
 			t.Errorf("the %s pass with nothing to do: %v\noutput so far:\n%s", name, err, out)
 		}
+		// A pass with nothing to do announces nothing: every tick that
+		// announced would have an idle install re-reading the home view for
+		// ever, and every read of it appends a read event to the chained log.
+		if moved {
+			t.Errorf("the %s pass with nothing to do reports that it moved something:\n%s", name, out)
+		}
 	}
-	if err := ps.Tick(ctx, "no-such-pass"); err == nil {
+	if _, err := ps.Tick(ctx, "no-such-pass"); err == nil {
 		t.Error("a name no pass has was run rather than refused")
 	}
 }
@@ -56,7 +67,7 @@ func TestAPassResumesAnItemAHumanDecided(t *testing.T) {
 	itemID := only(t, s).itemID
 
 	ps := newPasses(p, nil, nil)
-	if err := ps.Tick(ctx, passAdvance); err != nil {
+	if _, err := ps.Tick(ctx, passAdvance); err != nil {
 		t.Fatalf("the first advance pass: %v\n%s", err, out)
 	}
 	pending, err := p.gate.Pending(ctx)
@@ -78,8 +89,10 @@ func TestAPassResumesAnItemAHumanDecided(t *testing.T) {
 	// A second pass with the row still pending performs nothing: the item is
 	// waiting on a human and the process is not stuck, it is shown as stuck.
 	before := out.Len()
-	if err := ps.Tick(ctx, passAdvance); err != nil {
+	if moved, err := ps.Tick(ctx, passAdvance); err != nil {
 		t.Fatalf("the second advance pass: %v\n%s", err, out)
+	} else if moved {
+		t.Error("a pass over an item waiting on a human announced a change")
 	}
 	if !strings.Contains(out.String()[before:], "Waiting in Work") {
 		t.Errorf("a pass over an item waiting on a human does not say so:\n%s", out.String()[before:])
@@ -98,8 +111,10 @@ func TestAPassResumesAnItemAHumanDecided(t *testing.T) {
 		t.Fatalf("the human acted on %d row(s), want the one pending", acted)
 	}
 
-	if err := ps.Tick(ctx, passAdvance); err != nil {
+	if moved, err := ps.Tick(ctx, passAdvance); err != nil {
 		t.Fatalf("the pass after the verdict: %v\n%s", err, out)
+	} else if !moved {
+		t.Error("the pass after a human's verdict announced nothing")
 	}
 	if !p.moved {
 		t.Error("the pass after a human's verdict moved nothing")
@@ -129,5 +144,112 @@ func TestHealthzAnswersWithTheFactoryVersion(t *testing.T) {
 	handler.ServeHTTP(other, httptest.NewRequest("POST", "/healthz", nil))
 	if other.Code == 200 {
 		t.Error("POST /healthz was served, and the route is a read")
+	}
+}
+
+// TestAPassAndTheScreensRunAtOnce is what the one process makes possible and
+// no subcommand did: [passes.Run] advances the path on its own goroutine while
+// package screens answers a view on another, both over the one composition. It
+// is run under -race, where a map read beside a map write is a failure and not
+// a flake — the three fields shared.go guards are reached from both sides.
+func TestAPassAndTheScreensRunAtOnce(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	screen := newScreens(t, ctx, d, out)
+	var s shipped
+	if err := screen.p.takeIn(ctx, &s, of(theStatement)); err != nil {
+		t.Fatalf("taking the intent in: %v\n%s", err, out)
+	}
+	ps := newPasses(screen.p, nil, nil)
+
+	passed := make(chan error, 1)
+	go func() {
+		for range 3 {
+			if _, err := ps.Tick(ctx, passAdvance); err != nil {
+				passed <- err
+				return
+			}
+		}
+		passed <- nil
+	}()
+	for range 20 {
+		screen.get(t, "/api/home", nil)
+		screen.get(t, "/api/work", nil)
+	}
+	if err := <-passed; err != nil {
+		t.Fatalf("the advance pass beside the screens: %v\n%s", err, out)
+	}
+}
+
+// TestAnIntervalOfZeroIsRefusedAtTheFlag: a ticker is made per pass at the
+// start of the run and [time.NewTicker] panics on an interval of zero or less,
+// so the flag that would set one is refused before the lease is taken and
+// before anything reads the store.
+func TestAnIntervalOfZeroIsRefusedAtTheFlag(t *testing.T) {
+	for _, given := range []string{"0", "-5s"} {
+		err := serveCommand([]string{
+			"-secrets", "unread", "-model", "unread", "-targets", "unread",
+			"-service", "one=/unread", "-every-" + passAdvance + "=" + given,
+		})
+		if err == nil {
+			t.Fatalf("-every-%s=%s was accepted", passAdvance, given)
+		}
+		if !strings.Contains(err.Error(), "-every-"+passAdvance) {
+			t.Errorf("the refusal of -every-%s=%s does not name the flag: %v", passAdvance, given, err)
+		}
+	}
+}
+
+// TestALeaseTakenStopsTheProcess is [renewals.after], which is what the
+// renewal goroutine decides on: exactly one instance runs, so a renewal
+// refused at the fence stops this one, and a renewal that failed for any other
+// reason is retried for as long as the lease still stands.
+func TestALeaseTakenStopsTheProcess(t *testing.T) {
+	began := time.Now()
+	unreachable := errors.New("the store is not reachable")
+
+	var fenced renewals
+	if err := fenced.after(fmt.Errorf("%w: current number 3, token 2", lease.ErrFenced), began); err == nil {
+		t.Error("a renewal refused at the fence left the process running")
+	} else if !errors.Is(err, lease.ErrFenced) {
+		t.Errorf("the failure the process stops on does not carry the refusal: %v", err)
+	}
+
+	var failing renewals
+	if err := failing.after(unreachable, began); err != nil {
+		t.Errorf("the first failed renewal stopped the process, and the lease stands for %v yet: %v", leaseTTL, err)
+	}
+	if err := failing.after(unreachable, began.Add(leaseTTL-time.Second)); err != nil {
+		t.Errorf("a renewal still failing inside the ttl stopped the process: %v", err)
+	}
+	if err := failing.after(nil, began.Add(leaseTTL-time.Second)); err != nil {
+		t.Errorf("a renewal that landed stopped the process: %v", err)
+	}
+	// The renewal that landed cleared the failure, so the count starts again.
+	if err := failing.after(unreachable, began.Add(leaseTTL)); err != nil {
+		t.Errorf("the first failure after a renewal that landed stopped the process: %v", err)
+	}
+	if err := failing.after(unreachable, began.Add(2*leaseTTL)); err == nil {
+		t.Error("renewals failing for longer than the ttl left the process running")
+	}
+}
+
+// TestARefusedRenewalIsReadAsTheLeaseBeingTaken drives the same decision from
+// package lease's own refusal rather than from an error this test wrote. The
+// fixture already holds the lease every writer of this schema carries; it is
+// released and taken by a second instance, which is the whole of what being
+// fenced is — the token this process holds is no longer the lease's number.
+func TestARefusedRenewalIsReadAsTheLeaseBeingTaken(t *testing.T) {
+	ctx, d, _ := newPath(t, "")
+	if err := lease.Release(ctx, d.pool, d.token); err != nil {
+		t.Fatalf("releasing the lease the fixture holds: %v", err)
+	}
+	if _, err := lease.Acquire(ctx, d.pool, "another-instance", leaseTTL); err != nil {
+		t.Fatalf("the second instance acquiring the released lease: %v", err)
+	}
+	var failing renewals
+	if err := failing.after(lease.Renew(ctx, d.pool, d.token, leaseTTL), time.Now()); err == nil {
+		t.Error("a renewal of a lease another instance holds left the process running")
+	} else if !errors.Is(err, lease.ErrFenced) {
+		t.Errorf("the failure the process stops on does not carry the refusal: %v", err)
 	}
 }

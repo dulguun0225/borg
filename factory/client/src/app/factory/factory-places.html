@@ -56,7 +56,59 @@
     }
   </div>
   <div class="actions">
-    <button type="submit">Write it</button>
+    <button type="submit" [disabled]="busy()">Write it</button>
+  </div>
+</form>
+
+<form (submit)="confirmEndProject($event)">
+  <div class="field">
+    <label for="end-project-name">
+      End a project — once every service in it is retired, and withdraws production's
+      environment for it in the same write
+    </label>
+    <input id="end-project-name" type="text" [formField]="endingForm.ProjectName" />
+    @for (problem of problems(endingForm.ProjectName().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  @if (endingConfirming()) {
+    <p class="marked">
+      Confirm ending {{ ending().ProjectName }} — this cannot be undone here.
+      <button type="button" [disabled]="busy()" (click)="disarmEndProject()">Never mind</button>
+    </p>
+  }
+  <div class="actions">
+    <button type="submit" [disabled]="busy()">
+      {{ endingConfirming() ? 'Confirm: end it' : 'End it' }}
+    </button>
+  </div>
+</form>
+
+<h3>Retire a service</h3>
+<form (submit)="confirmRetireService($event)">
+  <div class="field">
+    <label for="retire-service-id">Service</label>
+    <input id="retire-service-id" type="text" [formField]="retirementForm.ServiceID" />
+    @for (problem of problems(retirementForm.ServiceID().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="retire-service-environment">
+      Environment removed from, empty to write retired on the service record
+    </label>
+    <input id="retire-service-environment" type="text" [formField]="retirementForm.EnvironmentName" />
+  </div>
+  @if (retirementConfirming()) {
+    <p class="marked">
+      Confirm retiring {{ retirement().ServiceID }} — this cannot be undone here.
+      <button type="button" [disabled]="busy()" (click)="disarmRetireService()">Never mind</button>
+    </p>
+  }
+  <div class="actions">
+    <button type="submit" [disabled]="busy()">
+      {{ retirementConfirming() ? 'Confirm: retire it' : 'Retire it' }}
+    </button>
   </div>
 </form>
 
@@ -102,11 +154,11 @@
     <input id="area-project" type="text" [formField]="areaForm.ProjectName" />
   </div>
   <div class="actions">
-    <button type="submit">Declare it</button>
+    <button type="submit" [disabled]="busy()">Declare it</button>
   </div>
 </form>
 
-<h2>Constraints in force</h2>
+<h2 id="constraints">Constraints in force</h2>
 <p class="quiet">
   The three widest reaches, listed by reach. A constraint that arrived with a single
   intent is read and withdrawn at Work, on its intent.
@@ -123,6 +175,7 @@
         <th scope="col">Supplied</th>
         <th scope="col">Binds from</th>
         <th scope="col">Review date</th>
+        <th scope="col">Own address</th>
         <th scope="col">Withdraw</th>
       </tr>
     </thead>
@@ -148,8 +201,13 @@
             }
           </td>
           <td>
+            <a [routerLink]="['/factory', 'constraints', one.ID]">{{ one.ID }}</a>
+          </td>
+          <td>
             @if (one.WithdrawnAt === '') {
-              <button type="button" (click)="withdrawConstraint(one.ID)">Withdraw</button>
+              <button type="button" [disabled]="busy()" (click)="withdrawConstraint(one.ID)">
+                Withdraw
+              </button>
             } @else {
               withdrawn {{ at(one.WithdrawnAt) }}
             }
@@ -190,8 +248,19 @@
     <label for="constraint-review">Review date, empty for none</label>
     <input id="constraint-review" type="date" [formField]="constraintForm.ReviewDate" />
   </div>
+  <div class="field">
+    <label for="constraint-requires-seam5">
+      Requires seam 5 enforced — every item this constraint binds waits at dispatch
+      until seam 5 is turned on
+    </label>
+    <input
+      id="constraint-requires-seam5"
+      type="checkbox"
+      [formField]="constraintForm.RequiresSeam5Enforced"
+    />
+  </div>
   <p class="quiet">Both dates are sent in {{ zone }}, and every reader computes in it.</p>
   <div class="actions">
-    <button type="submit">Supply it</button>
+    <button type="submit" [disabled]="busy()">Supply it</button>
   </div>
 </form>

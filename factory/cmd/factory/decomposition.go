@@ -88,7 +88,7 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 		if err != nil {
 			return nil, err
 		}
-		p.serviceByID[svc.ID] = svc
+		p.keepService(svc)
 
 		var waitsOn []string
 		if previous != "" {
@@ -333,7 +333,7 @@ func (p *path) decompositionOutcome(ctx context.Context, in intent.Intent, set *
 			fmt.Fprintf(p.d.out, "  the %d share(s) item %s carried are superseded with it\n",
 				len(superseded), itemID)
 		}
-		if c := p.byItem[itemID]; c != nil {
+		if c := p.heldCandidate(itemID); c != nil {
 			c.superseded = true
 		}
 	}

@@ -52,10 +52,15 @@ export class DecisionScreen {
   private readonly failure = signal('');
   private readonly refusal = signal('');
   private readonly view = signal<Decision | null>(null);
+  // Set for the span of the one path every action takes, so a second click
+  // while one is already in flight has nothing to send: the template
+  // disables every submitting control on it.
+  private readonly working = signal(false);
 
   protected readonly machine = workMachine;
   protected readonly message = this.failure.asReadonly();
   protected readonly refused = this.refusal.asReadonly();
+  protected readonly busy = this.working.asReadonly();
   protected readonly decision = this.view.asReadonly();
   protected readonly pending = computed(() => {
     const row = this.view();
@@ -207,44 +212,54 @@ export class DecisionScreen {
 
   // The one path every action takes: refused while the subscription is down,
   // and refused where the open event was closed or abandoned since the row
-  // was drawn — the screen shows that state and sends nothing.
+  // was drawn — the screen shows that state and sends nothing. A second
+  // invocation while one is already in flight is ignored rather than queued:
+  // the template disables the control it came from while busy() is true.
   private async act(name: string, args: object): Promise<void> {
-    this.refusal.set('');
-    if (this.stream()?.state() === 'disconnected') {
-      this.refusal.set('the subscription is down, so nothing was sent');
+    if (this.working()) {
       return;
     }
-    const fresh = await this.api.get<Decision>(`/api/decision/${this.id()}`);
-    if (fresh.outcome === 'failed') {
-      this.refusal.set(`the row could not be re-read, so nothing was sent: ${fresh.message}`);
-      return;
+    this.working.set(true);
+    try {
+      this.refusal.set('');
+      if (this.stream()?.state() === 'disconnected') {
+        this.refusal.set('the subscription is down, so nothing was sent');
+        return;
+      }
+      const fresh = await this.api.get<Decision>(`/api/decision/${this.id()}`);
+      if (fresh.outcome === 'failed') {
+        this.refusal.set(`the row could not be re-read, so nothing was sent: ${fresh.message}`);
+        return;
+      }
+      if (fresh.outcome === 'absent') {
+        this.refusal.set('this row is no longer at this address, so nothing was sent');
+        this.view.set(null);
+        return;
+      }
+      if (fresh.outcome !== 'value') {
+        return;
+      }
+      this.view.set(fresh.value);
+      if (fresh.value.Closed !== null) {
+        this.refusal.set('this row was closed since it was drawn, so nothing was sent');
+        return;
+      }
+      if (fresh.value.Abandoned !== null) {
+        this.refusal.set('this row was abandoned since it was drawn, so nothing was sent');
+        return;
+      }
+      const result = await this.api.call(name, args);
+      if (result.outcome === 'absent') {
+        this.refusal.set('the factory holds no record at that address, so nothing changed');
+        return;
+      }
+      if (result.outcome === 'failed') {
+        this.refusal.set(result.message);
+        return;
+      }
+      await this.read();
+    } finally {
+      this.working.set(false);
     }
-    if (fresh.outcome === 'absent') {
-      this.refusal.set('this row is no longer at this address, so nothing was sent');
-      this.view.set(null);
-      return;
-    }
-    if (fresh.outcome !== 'value') {
-      return;
-    }
-    this.view.set(fresh.value);
-    if (fresh.value.Closed !== null) {
-      this.refusal.set('this row was closed since it was drawn, so nothing was sent');
-      return;
-    }
-    if (fresh.value.Abandoned !== null) {
-      this.refusal.set('this row was abandoned since it was drawn, so nothing was sent');
-      return;
-    }
-    const result = await this.api.call(name, args);
-    if (result.outcome === 'absent') {
-      this.refusal.set('the factory holds no record at that address, so nothing changed');
-      return;
-    }
-    if (result.outcome === 'failed') {
-      this.refusal.set(result.message);
-      return;
-    }
-    await this.read();
   }
 }

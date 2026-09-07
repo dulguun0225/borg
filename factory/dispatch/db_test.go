@@ -130,17 +130,40 @@ func (c *countingEscalation) Escalate(_ context.Context, _ record.Actor, itemID 
 	return nil
 }
 
-// countingNotifier records the wait an escalation left, standing in for the
-// notifier: components.md gives that call to dispatch, and this is what it is
-// made on.
+// countingNotifier records the wait an escalation left and the notice a
+// credential nearing its ceiling leaves, standing in for the notifier:
+// components.md gives both calls to dispatch, and this is what they are made
+// on. It keys nothing on the credential and the period the way the composition
+// does, so a test reads how often the call was made and not how often a
+// delivery went out.
 type countingNotifier struct {
 	items   []string
 	reasons []string
+	nearing []nearing
 }
 
 func (n *countingNotifier) Escalated(_ context.Context, itemID string, _ item.Stage, reason string) error {
 	n.items = append(n.items, itemID)
 	n.reasons = append(n.reasons, reason)
+	return nil
+}
+
+// nearing is one notice at a fraction of an authored ceiling, as the notifier
+// is handed it.
+type nearing struct {
+	credential  string
+	periodStart string
+	spent       float64
+	ceiling     float64
+	currency    string
+}
+
+func (n *countingNotifier) NearingASpendCeiling(_ context.Context, credentialName, periodStart string,
+	spent, ceiling float64, currency string) error {
+	n.nearing = append(n.nearing, nearing{
+		credential: credentialName, periodStart: periodStart,
+		spent: spent, ceiling: ceiling, currency: currency,
+	})
 	return nil
 }
 

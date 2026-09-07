@@ -159,6 +159,26 @@ describe('People screen', () => {
     fixture.destroy();
   });
 
+  it('sends one call when the erasure form is submitted twice while the first is in flight', async () => {
+    const fixture = await drive('ready');
+    const root = fixture.nativeElement as HTMLElement;
+    await fill(fixture, '#erasure-key', 'per-1');
+    const form = only(
+      only(root.querySelector('#erasure-key'), '#erasure-key').closest('form'),
+      'the erasure form',
+    );
+
+    // Both dispatches run synchronously, back to back: the first sets the
+    // screen's busy signal before it ever awaits anything, so the second
+    // reaches the same guard and sends nothing.
+    form.dispatchEvent(new Event('submit'));
+    form.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(net.sent('/api/call/deleteMapping').length).toBe(1);
+    fixture.destroy();
+  });
+
   it('keeps a half-written form through a change on the address', async () => {
     const fixture = await drive('ready');
     const root = fixture.nativeElement as HTMLElement;

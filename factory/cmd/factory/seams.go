@@ -186,6 +186,38 @@ func (g dispatchNotifier) Escalated(ctx context.Context, itemID string, stage it
 	return err
 }
 
+// NearingASpendCeiling is the notice at a fixed fraction of an authored spend
+// ceiling: a delivery and never a page, routed to the owner the way the hold at
+// the ceiling is, so the hold is not the first anyone hears of it.
+//
+// It goes out once per credential and period. Dispatch compares the sum at
+// every report and holds no record of what has been delivered, so the key is
+// composed here — the credential and the period's start are the row the
+// notifier's delivery record is written against, and a row that already has one
+// is not delivered again. A delivery the transport refused leaves a record too,
+// so a refusal is not retried at every dispatch for the rest of the period.
+func (g dispatchNotifier) NearingASpendCeiling(ctx context.Context, credentialName, periodStart string,
+	spent, ceiling float64, currency string) error {
+	if g.notifier == nil || g.path == nil {
+		return nil
+	}
+	row := "ceiling:" + credentialName + ":" + periodStart
+	already, err := notifier.DeliveriesOf(ctx, g.path.d.pool, row)
+	if err != nil {
+		return err
+	}
+	if len(already) > 0 {
+		return nil
+	}
+	_, err = g.notifier.Notify(ctx, notifier.Wait{
+		Row:  row,
+		Kind: notifier.KindSpendCeilingFraction,
+		Waiting: fmt.Sprintf("%s has spent %.2f %s of the %.2f %s ceiling authored on it, in the period beginning %s",
+			credentialName, spent, currency, ceiling, currency, periodStart),
+	})
+	return err
+}
+
 // intakeNotifier is [intent.Notifier]: the three calls intake makes on the
 // component that reaches humans — a round of interview questions, an intent
 // escalated, and the acceptance round that follows production. It is a type of

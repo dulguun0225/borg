@@ -115,6 +115,10 @@ type SupplyIntentConstraintArgs struct {
 	BindsFrom  string
 	ReviewDate string
 	Zone       string
+	// RequiresSeam5Enforced is the one thing a document-kind constraint makes
+	// dispatch read: every item decomposed from this intent waits at dispatch
+	// until [Factory.Seam5Enforced] says the factory enforces seam 5.
+	RequiresSeam5Enforced bool
 }
 
 // WithdrawConstraintArgs withdraws a constraint of any reach, including the

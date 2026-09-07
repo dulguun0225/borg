@@ -1,4 +1,4 @@
-import { Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiClient } from '../api/client';
 import { StreamReader } from '../api/stream';
@@ -79,6 +79,15 @@ export class FactoryScreen implements OnDestroy {
   private readonly refusal = signal('');
   private readonly view = signal<Factory | null>(null);
   private readonly home = signal<Home | null>(null);
+  // Set for the span of the one path every call takes, so a second click on
+  // any section's form while one is already in flight has nothing to send.
+  private readonly working = signal(false);
+  // The section a dead link elsewhere in the client names in its child
+  // route's data — "fleet" or "constraints" — and scrolls to once this
+  // screen is ready. Empty for the screen's own address, which scrolls
+  // nowhere.
+  readonly section = input('');
+  private readonly scrolledTo = signal('');
 
   // The instant a row deciding a record was opened here, in UTC, carried on
   // every verdict written from this screen. It is taken once, when the screen
@@ -89,6 +98,7 @@ export class FactoryScreen implements OnDestroy {
   protected readonly machine = factoryMachine;
   protected readonly message = this.failure.asReadonly();
   protected readonly refused = this.refusal.asReadonly();
+  protected readonly busy = this.working.asReadonly();
   protected readonly factory = this.view.asReadonly();
   protected readonly readiness = computed(() => this.home()?.Readiness ?? []);
   protected readonly stopped = computed(() => this.view()?.StoppedAtDispatch ?? []);
@@ -134,6 +144,18 @@ export class FactoryScreen implements OnDestroy {
       this.stream.changed();
       void this.read();
     });
+    effect(() => {
+      // A dead link elsewhere named a section of this screen rather than a
+      // route of its own; once this screen is ready and has rendered it,
+      // this is where it is shown. Scrolled to once per declared section,
+      // not on every re-read the subscription's own effect above causes.
+      const target = this.section();
+      if (target === '' || this.state() !== 'ready' || this.scrolledTo() === target) {
+        return;
+      }
+      document.getElementById(target)?.scrollIntoView();
+      this.scrolledTo.set(target);
+    });
   }
 
   ngOnDestroy(): void {
@@ -176,38 +198,48 @@ export class FactoryScreen implements OnDestroy {
 
   // The one path every call from this screen takes: refused while the
   // subscription is down, re-reading the address before it sends, and
-  // re-reading it after.
+  // re-reading it after. A second invocation while one is already in flight,
+  // from any section's form, is ignored: the template disables every
+  // submitting control while busy() is true.
   protected async send(request: CallRequest): Promise<void> {
-    this.refusal.set('');
-    if (this.disconnected()) {
-      this.refusal.set('the subscription is down, so nothing was sent');
+    if (this.working()) {
       return;
     }
-    const fresh = await this.api.get<Factory>('/api/factory');
-    if (fresh.outcome === 'failed') {
-      this.refusal.set(`the screen could not be re-read, so nothing was sent: ${fresh.message}`);
-      return;
+    this.working.set(true);
+    try {
+      this.refusal.set('');
+      if (this.disconnected()) {
+        this.refusal.set('the subscription is down, so nothing was sent');
+        return;
+      }
+      const fresh = await this.api.get<Factory>('/api/factory');
+      if (fresh.outcome === 'failed') {
+        this.refusal.set(`the screen could not be re-read, so nothing was sent: ${fresh.message}`);
+        return;
+      }
+      if (fresh.outcome === 'absent') {
+        this.refusal.set('the factory holds nothing at this address, so nothing was sent');
+        this.view.set(null);
+        return;
+      }
+      if (fresh.outcome !== 'value') {
+        return;
+      }
+      this.view.set(fresh.value);
+      const result = await this.api.call(request.name, request.args);
+      if (result.outcome === 'absent') {
+        this.refusal.set('the factory holds no record at that address, so nothing changed');
+        return;
+      }
+      if (result.outcome === 'failed') {
+        this.refusal.set(result.message);
+        return;
+      }
+      this.refusal.set('the factory took it');
+      await this.read();
+    } finally {
+      this.working.set(false);
     }
-    if (fresh.outcome === 'absent') {
-      this.refusal.set('the factory holds nothing at this address, so nothing was sent');
-      this.view.set(null);
-      return;
-    }
-    if (fresh.outcome !== 'value') {
-      return;
-    }
-    this.view.set(fresh.value);
-    const result = await this.api.call(request.name, request.args);
-    if (result.outcome === 'absent') {
-      this.refusal.set('the factory holds no record at that address, so nothing changed');
-      return;
-    }
-    if (result.outcome === 'failed') {
-      this.refusal.set(result.message);
-      return;
-    }
-    this.refusal.set('the factory took it');
-    await this.read();
   }
 
   protected requested(request: CallRequest): void {

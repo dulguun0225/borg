@@ -118,6 +118,12 @@ const (
 	// a rollback leaves production worse, and a provider account that has run out
 	// stops work rather than making anything live worse.
 	KindCredentialUnreachable Kind = "credential_unreachable"
+	// KindSpendCeilingFraction is a credential whose spend in the period has
+	// passed a fixed fraction of the ceiling an owner authored on it. It is a
+	// delivery and never a page: nothing deployed is worse for it, and what it
+	// exists for is that the hold at the ceiling is not the first anyone hears
+	// of it.
+	KindSpendCeilingFraction Kind = "spend_ceiling_fraction"
 	// KindFailedWithNoRollback is a failed analysis window that rolled
 	// nothing back: production is running a release the factory has just
 	// failed and no mechanism the factory has will improve it. The health
@@ -177,6 +183,7 @@ var Kinds = map[Kind]Pages{
 	KindIntentEscalated:          PagesIfWorse,
 	KindItemEscalated:            PagesIfWorse,
 	KindCredentialUnreachable:    PagesIfWorse,
+	KindSpendCeilingFraction:     PagesNever,
 	KindFailedWithNoRollback:     PagesAlways,
 	KindWindowCapUnevaluated:     PagesAlways,
 	KindRollbackIncomplete:       PagesAlways,

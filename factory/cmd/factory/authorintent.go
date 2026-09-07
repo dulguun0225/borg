@@ -226,7 +226,7 @@ func (p *path) decomposeSet(ctx context.Context, intentID string, set *decomposi
 		if c.hazard, err = p.hazardInForce(ctx, itsPromised); err != nil {
 			return nil, err
 		}
-		p.byItem[c.itemID] = c
+		p.holdCandidate(c)
 		p.authored[c.itemID] = true
 	}
 	p.moved = true

@@ -66,6 +66,15 @@ func serveCommand(args []string) error {
 	if len(services) == 0 {
 		return errors.New("factory serve: -service is required, at least once")
 	}
+	// A ticker is made per pass at the start of the run, and [time.NewTicker]
+	// panics on an interval of zero or less — so an interval no pass can run on
+	// is refused here, at the flag that set it and before the lease is taken,
+	// rather than as a panic after the process has started.
+	for _, name := range passOrder {
+		if set := every[name]; set != nil && *set <= 0 {
+			return fmt.Errorf("factory serve: -every-%s is %v, and a pass runs on an interval above zero", name, *set)
+		}
+	}
 
 	resolver, err := secretsResolver(*secrets)
 	if err != nil {
@@ -88,7 +97,7 @@ func serveCommand(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	token, stopLease, err := acquireLease(ctx, pool)
+	token, leaseLost, stopLease, err := acquireLease(ctx, pool)
 	if err != nil {
 		return err
 	}
@@ -142,6 +151,10 @@ func serveCommand(args []string) error {
 	screenServer := screens.New(views, made, factoryVersion, clientdist.Browser())
 	made.server = screenServer
 
+	// The header timeout is the server's and the body deadline is not: package
+	// screens sets one per request on the routes that read a body, because
+	// ReadTimeout here would also bound the connection a server-sent-events
+	// subscription holds open for as long as a screen is.
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", *port),
 		Handler:           served(screenServer),
@@ -167,6 +180,16 @@ func serveCommand(args []string) error {
 	select {
 	case <-ctx.Done():
 		fmt.Fprintln(os.Stdout, "A signal ended the process; the passes stop, the server shuts down, and the lease is released")
+	case err := <-leaseLost:
+		// Exactly one instance runs, and this one is no longer it: every write
+		// it makes from here is refused at the fence, and a process that went
+		// on advancing the path would be the second instance the lease exists
+		// to prevent. It is reported on stderr and is the exit error.
+		fmt.Fprintf(os.Stderr, "%v; the passes stop and the server shuts down\n", err)
+		stopSignals()
+		<-done
+		shutDown(server)
+		return err
 	case err := <-served:
 		if err != nil {
 			// The port is the one thing this process cannot do without: a

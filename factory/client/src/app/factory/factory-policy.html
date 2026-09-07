@@ -56,7 +56,7 @@
       }
     </div>
     <div class="actions">
-      <button type="submit">Decide it</button>
+      <button type="submit" [disabled]="busy()">Decide it</button>
     </div>
   </form>
 }
@@ -132,7 +132,7 @@
     <input id="parameter-project" type="text" [formField]="parameterForm.ProjectName" />
   </div>
   <div class="actions">
-    <button type="submit">Author it</button>
+    <button type="submit" [disabled]="busy()">Author it</button>
   </div>
 </form>
 
@@ -168,7 +168,7 @@
             }
           </td>
           <td>
-            <button type="button" (click)="withdrawSafeguard(one.ID)">Withdraw</button>
+            <button type="button" [disabled]="busy()" (click)="withdrawSafeguard(one.ID)">Withdraw</button>
           </td>
         </tr>
       }
@@ -231,7 +231,7 @@
     <input id="safeguard-human" type="text" [formField]="safeguardForm.RouteHuman" />
   </div>
   <div class="actions">
-    <button type="submit">Place it</button>
+    <button type="submit" [disabled]="busy()">Place it</button>
   </div>
 </form>
 
@@ -243,7 +243,7 @@
     @for (one of halts(); track one.ID) {
       <li>
         {{ one.Reason }}, set {{ at(one.At) }}
-        <button type="button" (click)="withdrawHalt(one.ID)">Withdraw</button>
+        <button type="button" [disabled]="busy()" (click)="withdrawHalt(one.ID)">Withdraw</button>
       </li>
     }
   </ul>
@@ -258,7 +258,7 @@
     }
   </div>
   <div class="actions">
-    <button type="submit">Set it</button>
+    <button type="submit" [disabled]="busy()">Set it</button>
   </div>
 </form>
 
@@ -270,7 +270,7 @@
     @for (one of legalHolds(); track one.ID) {
       <li>
         {{ one.Subject }}: {{ one.Reason }}, set {{ at(one.At) }}
-        <button type="button" (click)="withdrawLegalHold(one.ID)">Withdraw</button>
+        <button type="button" [disabled]="busy()" (click)="withdrawLegalHold(one.ID)">Withdraw</button>
       </li>
     }
   </ul>
@@ -297,6 +297,26 @@
     }
   </div>
   <div class="actions">
-    <button type="submit">Set it</button>
+    <button type="submit" [disabled]="busy()">Set it</button>
   </div>
 </form>
+
+<h3>Seam 5 enforcement</h3>
+@if (seam5Enforced()) {
+  <p class="quiet">Seam 5 is enforced.</p>
+} @else {
+  <p class="quiet">
+    Seam 5 is not enforced, so every actor recorded reads as claimed. Turning it on has
+    the factory check who is calling — a human signed in at a screen, an agent's dispatch
+    checked against its scope — and every actor recorded from then on reads as verified
+    rather than claimed. It cannot be turned off again.
+  </p>
+  <button
+    id="seam5-turn-on"
+    type="button"
+    [disabled]="busy()"
+    (click)="setSeam5Enforced()"
+  >
+    Turn it on
+  </button>
+}

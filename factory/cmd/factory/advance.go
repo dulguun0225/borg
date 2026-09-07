@@ -94,7 +94,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 	// paging hours held back, and the drift detector's store. They are
 	// per-factory rather than per-service and per-pass, so the path's own watch
 	// leaves them to here.
-	if err := p.notifierPasses(ctx); err != nil {
+	if _, err := p.notifierPasses(ctx); err != nil {
 		return s, err
 	}
 
@@ -103,7 +103,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 	// notifier, and the intent delivered where the factory raised it and there
 	// is nobody to ask. It runs after the passes because what makes an intent
 	// ready for it is its last item going live.
-	if err := p.acceptanceRounds(ctx, s.decompositions); err != nil {
+	if _, err := p.acceptanceRounds(ctx, s.decompositions); err != nil {
 		return s, err
 	}
 
@@ -112,7 +112,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 	// of a migration. It runs once at the end of a run rather than per pass, because
 	// what empties a list is a release deploying and the passes above are where those
 	// happened.
-	if err := p.raiseRemovals(ctx); err != nil {
+	if _, err := p.raiseRemovals(ctx); err != nil {
 		return s, err
 	}
 
@@ -124,7 +124,7 @@ func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
 		fmt.Fprintln(d.out, "Nothing reached production, so there is no deploy to walk back from")
 		return s, nil
 	}
-	if c := p.byItem[itemOfDeploy(ctx, d.pool, deployed)]; c != nil && c.svc.ID != "" {
+	if c := p.heldCandidate(itemOfDeploy(ctx, d.pool, deployed)); c != nil && c.svc.ID != "" {
 		if live, running, err := deploy.Current(ctx, d.pool, c.svc.ID, p.production.ID,
 			serviceAddresses(p.production, c.svc)); err == nil && running {
 			deployed = live.ID
@@ -193,7 +193,7 @@ func (p *path) takeIn(ctx context.Context, s *shipped, statements []asked) error
 		p.sets[set.intentID] = set
 		s.candidates = append(s.candidates, candidates...)
 		for _, c := range candidates {
-			p.byItem[c.itemID] = c
+			p.holdCandidate(c)
 			p.authored[c.itemID] = true
 		}
 	}
@@ -226,8 +226,8 @@ func (p *path) advance(ctx context.Context) (advanced, error) {
 	if err != nil {
 		return a, err
 	}
-	p.logRead = held
-	defer func() { p.logRead = nil }()
+	p.keepLog(held)
+	defer p.keepLog(nil)
 	if err := p.resumeSets(ctx); err != nil {
 		return a, err
 	}

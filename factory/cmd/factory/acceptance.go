@@ -27,23 +27,27 @@ import (
 // item goes live and nobody is asked whether the evidence was misread; and one
 // already dropped, delivered, escalated or sent back is not in the state the
 // round is asked from.
-func (p *path) acceptanceRounds(ctx context.Context, sets []*decompositionSet) error {
+// It reports whether it wrote anything — an intent delivered, or a round
+// asked — which is what the process's own pass announces on: an intent whose
+// items are not all live reaches no round and moves nothing.
+func (p *path) acceptanceRounds(ctx context.Context, sets []*decompositionSet) (bool, error) {
+	moved := false
 	for _, set := range sets {
 		in, err := intent.Get(ctx, p.d.pool, set.intentID)
 		if err != nil {
-			return err
+			return moved, err
 		}
 		if in.State != intent.StateRefined {
 			continue
 		}
 		live, of, err := p.liveItems(ctx, in.ID)
 		if err != nil {
-			return err
+			return moved, err
 		}
 		if of == 0 || len(live) != of {
 			partly, err := item.PartlyDelivered(ctx, p.d.pool, in.ID, live)
 			if err != nil {
-				return err
+				return moved, err
 			}
 			if partly {
 				fmt.Fprintf(p.d.out, "Intent %s is partly delivered: %d of %d item(s) live and the rest stopped\n",
@@ -58,26 +62,28 @@ func (p *path) acceptanceRounds(ctx context.Context, sets []*decompositionSet) e
 			// delivered when its last item goes live and carries no question,
 			// no answer and no outcome.
 			if err := p.intake.Delivered(ctx, intakeActor, intent.Delivery{IntentID: in.ID}); err != nil {
-				return err
+				return moved, err
 			}
+			moved = true
 			fmt.Fprintf(p.d.out, "Intent %s is delivered: the factory raised it, so it takes no acceptance round\n", in.ID)
 			continue
 		}
 
 		question, err := p.acceptanceQuestion(ctx, in)
 		if err != nil {
-			return err
+			return moved, err
 		}
 		asked, err := p.intake.AcceptanceRound(ctx, intakeActor, in.ID, question)
 		if err != nil {
-			return err
+			return moved, err
 		}
+		moved = true
 		fmt.Fprintf(p.d.out, "Acceptance round %s asked of intent %s, delivered by mail and chat and never a page\n",
 			asked.ID, in.ID)
 		fmt.Fprintf(p.d.out, "  %s\n", question)
 		fmt.Fprintln(p.d.out, "  it waits on the requester, unbounded and spending nothing; the requester confirms it at Work")
 	}
-	return nil
+	return moved, nil
 }
 
 // acceptanceQuestion is what the round asks: what was asked for, the intended

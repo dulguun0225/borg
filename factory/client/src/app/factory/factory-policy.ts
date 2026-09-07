@@ -44,6 +44,10 @@ function needed(message: string) {
 export class FactoryPolicySection {
   readonly view = input.required<Factory>();
   readonly openedInWorkAt = input.required<string>();
+  // Whether the screen's one path is already sending a call; every
+  // submitting control here binds [disabled] to it so a second click while
+  // one is in flight has nothing to send.
+  readonly busy = input(false);
   readonly requested = output<CallRequest>();
 
   protected readonly verdicts = RECORD_ROW_VERDICTS;
@@ -56,6 +60,7 @@ export class FactoryPolicySection {
   protected readonly safeguards = computed(() => this.view().Safeguards ?? []);
   protected readonly halts = computed(() => this.view().Halts ?? []);
   protected readonly legalHolds = computed(() => this.view().LegalHolds ?? []);
+  protected readonly seam5Enforced = computed(() => this.view().Seam5Enforced);
 
   protected readonly decision = signal({ RecordID: '', Verdict: 'approve', Reason: '' });
   protected readonly decisionForm = form(this.decision, (path) => {
@@ -194,5 +199,11 @@ export class FactoryPolicySection {
 
   protected withdrawLegalHold(id: string): void {
     this.requested.emit({ name: 'withdrawLegalHold', args: { LegalHoldID: id } });
+  }
+
+  // Seam 5 enforcement is one-way: off at install, turned on once here, and
+  // never off again, so the control offers only turning it on.
+  protected setSeam5Enforced(): void {
+    this.requested.emit({ name: 'setSeam5Enforced', args: { Enforced: true } });
   }
 }

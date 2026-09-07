@@ -14,9 +14,11 @@ needs a human, and it acts.
 
 The board's own read answers only what routes to a service's own address — which is what
 `../../../../screens/viewops.go` says of `ServiceSummary` — so the board reads each
-service's view beside it: one read of `/api/ops` and one per row. One subscription still
-covers the address, and a change on it re-reads the whole of that. A service whose own view
-could not be read leaves that row's readings withheld rather than the board failed.
+service's view beside it: one read of `/api/ops` and one per row, the per-row reads run
+together with `Promise.all` rather than one after another, so the board's wait is one round
+trip and not the sum of every row's. One subscription still covers the address, and a
+change on it re-reads the whole of that. A service whose own view could not be read leaves
+that row's readings withheld rather than the board failed.
 
 The shape every screen directory holds: `README.md`, `ops.ts`, `ops.html`, `ops.css`,
 `ops.spec.ts`, `ops.routes.ts`, and `format.ts`, with one further file pair per address

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -40,7 +39,12 @@ var _ screens.Calls = (*calls)(nil)
 // People makes before any screen-specific check: a People row holding no duty,
 // no obligation and lending no credential was added only so a human can read
 // the four screens, and it reads all four and acts nowhere.
-var ErrReadOnlyRow = errors.New("factory: this People row holds no duty, holds no obligation and lends no credential, so it reads the four screens and acts nowhere")
+//
+// It is the one authorization decision these calls make, so it wraps
+// [screens.ErrNotPermitted] and is answered 403 — a refusal about who the
+// caller is and not about what they asked for.
+var ErrReadOnlyRow = fmt.Errorf("%w: this People row holds no duty, holds no obligation and lends no credential, so it reads the four screens and acts nowhere",
+	screens.ErrNotPermitted)
 
 // acting is the actor an acting call is made as, and the one refusal every one
 // of them makes first.
@@ -89,10 +93,11 @@ func (c *calls) changed(kind, id string) {
 // whoever reads it next.
 func zoneNamed(zone string) error {
 	if zone == "" {
-		return errors.New("factory: a calendar value carries the IANA time zone it was authored in, and this one names none")
+		return fmt.Errorf("%w: a calendar value carries the IANA time zone it was authored in, and this one names none",
+			screens.ErrRefused)
 	}
 	if _, err := time.LoadLocation(zone); err != nil {
-		return fmt.Errorf("factory: %q is no IANA time zone: %w", zone, err)
+		return fmt.Errorf("%w: %q is no IANA time zone: %v", screens.ErrRefused, zone, err)
 	}
 	return nil
 }
@@ -122,11 +127,11 @@ func (c *calls) openRow(ctx context.Context, who principal.Principal, openEventI
 		}
 		switch row.Part {
 		case decisionlog.PartClose:
-			return gate.Opened{}, fmt.Errorf("row %s is already decided: close event %s carries %s",
-				openEventID, row.ID, row.Verdict)
+			return gate.Opened{}, fmt.Errorf("%w: row %s is already decided: close event %s carries %s",
+				screens.ErrRefused, openEventID, row.ID, row.Verdict)
 		case decisionlog.PartAbandonment:
-			return gate.Opened{}, fmt.Errorf("row %s is abandoned and no verdict is coming: %s",
-				openEventID, row.Reason)
+			return gate.Opened{}, fmt.Errorf("%w: row %s is abandoned and no verdict is coming: %s",
+				screens.ErrRefused, openEventID, row.Reason)
 		}
 	}
 	if !found {

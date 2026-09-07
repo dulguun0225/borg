@@ -51,6 +51,7 @@ type fakeCalls struct {
 	writeFleetEntry    func(context.Context, principal.Principal, screens.WriteFleetEntryArgs) (string, error)
 	withdrawFleetEntry func(context.Context, principal.Principal, screens.WithdrawFleetEntryArgs) error
 	supplyConstraint   func(context.Context, principal.Principal, screens.SupplyConstraintArgs) (string, error)
+	setSeam5Enforced   func(context.Context, principal.Principal, screens.SetSeam5EnforcedArgs) error
 	retireService      func(context.Context, principal.Principal, screens.RetireServiceArgs) error
 	endProject         func(context.Context, principal.Principal, screens.EndProjectArgs) error
 	decideRecordRow    func(context.Context, principal.Principal, screens.DecideRecordRowArgs) error
@@ -305,6 +306,13 @@ func (f *fakeCalls) SupplyConstraint(ctx context.Context, p principal.Principal,
 		return "", nil
 	}
 	return f.supplyConstraint(ctx, p, a)
+}
+
+func (f *fakeCalls) SetSeam5Enforced(ctx context.Context, p principal.Principal, a screens.SetSeam5EnforcedArgs) error {
+	if f.setSeam5Enforced == nil {
+		return nil
+	}
+	return f.setSeam5Enforced(ctx, p, a)
 }
 
 func (f *fakeCalls) RetireService(ctx context.Context, p principal.Principal, a screens.RetireServiceArgs) error {

@@ -126,7 +126,11 @@
     <p class="marked">{{ refused() }}</p>
   }
 
-  <factory-people-forms [credentials]="credentials()" (requested)="requested($event)" />
+  <factory-people-forms
+    [credentials]="credentials()"
+    [busy]="busy()"
+    (requested)="requested($event)"
+  />
 
   <div class="actions">
     <a routerLink="/factory">What the factory converts these rates into</a>

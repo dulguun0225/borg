@@ -89,9 +89,7 @@ const AUTHORED: Factory = {
       TakenBack: true,
     },
   ],
-  RolePrompts: [
-    { Role: 'implementer', VersionInForce: 'ver-9', AwaitingGateVersion: 'ver-10' },
-  ],
+  RolePrompts: [{ Role: 'implementer', VersionInForce: 'ver-9', AwaitingGateVersion: 'ver-10' }],
   FleetProposals: [],
   Constraints: [
     {
@@ -158,6 +156,7 @@ const AUTHORED: Factory = {
       BurnRate: 0,
       ProjectedExhaustion: '',
       Unbounded: true,
+      UnpricedRuns: 0,
     },
   ],
   PageChannel: {
@@ -184,6 +183,7 @@ const AUTHORED: Factory = {
     VersionID: 'ver-10',
     OpenedAt: '2026-09-06T09:00:00Z',
   },
+  Seam5Enforced: false,
 };
 
 const NOTHING_AUTHORED: Factory = {
@@ -360,9 +360,9 @@ describe('Factory screen', () => {
     const sent = net.sent('/api/call/writeFleetEntry');
     expect(sent.length).toBe(1);
     const args = JSON.parse(sent[0]?.body ?? '{}') as Record<string, unknown>;
-    expect(args['ScopeProjectID']).toBe('prj-1');
-    expect(args['ScopeServiceID']).toBe('payments');
-    expect(args['ScopeAreaID']).toBe('are-1');
+    expect(args['ScopeProjectName']).toBe('prj-1');
+    expect(args['ScopeServiceName']).toBe('payments');
+    expect(args['ScopeAreaName']).toBe('are-1');
     expect(args['Credential']).toBe('the-account');
     fixture.destroy();
   });

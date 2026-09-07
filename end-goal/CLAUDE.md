@@ -241,7 +241,7 @@ grep -rc "^# " --include='*.md' end-goal/ --exclude=CLAUDE.md | grep -v ':1$'   
 python3 -c "
 import os, re, glob
 for p in glob.glob('**/*.md', recursive=True):
-    if p.startswith('graphify-out/') or os.path.basename(p) == 'CLAUDE.md': continue
+    if p.startswith('graphify-out/') or '/node_modules/' in p or os.path.basename(p) == 'CLAUDE.md': continue
     for t in re.findall(r'\]\(([^)]+)\)', open(p).read()):
         f = t.split('#')[0]
         if not f or f.startswith('http'): continue

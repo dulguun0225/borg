@@ -67,7 +67,7 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 		t.Fatalf("writing what the running build emits: %v", err)
 	}
 
-	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
+	if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass stopped: %v\noutput so far:\n%s", err, out)
 	}
 
@@ -104,7 +104,7 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 
 	// A second crossing on the same service and release is an observation on the
 	// incident already open, and never a second intent.
-	if err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
+	if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the second pass stopped: %v", err)
 	}
 	again, err := incident.ForService(ctx, d.pool, res.serviceID)

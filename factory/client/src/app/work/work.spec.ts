@@ -65,7 +65,10 @@ const WORK_WITH_ROWS: Work = {
       Stop: {
         Cause: 'no fleet entry covers this role',
         Since: '2026-09-02T09:00:00Z',
-        LiftedAt: '/factory',
+        // The real value ../../../../cmd/factory/views.go's liftedAt emits for
+        // this cause — see app.spec.ts for the proof that this address
+        // resolves to a route and not the '**' redirect to Work.
+        LiftedAt: '/factory/fleet',
       },
     },
   ],
@@ -181,6 +184,21 @@ describe('Work screen', () => {
     fixture.destroy();
   });
 
+  it('sends one call when "I have this row" is clicked twice while the first is in flight', async () => {
+    const fixture = await driveDecision(PENDING_DECISION);
+    const root = fixture.nativeElement as HTMLElement;
+    const button = only(root.querySelector('button'), 'button');
+    // Both dispatches run synchronously, back to back: the first sets the
+    // screen's busy signal before it ever awaits anything, so the second
+    // reaches the same guard and sends nothing.
+    button.dispatchEvent(new Event('click'));
+    button.dispatchEvent(new Event('click'));
+    await fixture.whenStable();
+
+    expect(net.sent('/api/call/acknowledge').length).toBe(1);
+    fixture.destroy();
+  });
+
   it('refuses an action while the subscription is down and marks the view stale', async () => {
     const fixture = await driveDecision(PENDING_DECISION);
     sources[0]?.drop();
@@ -266,6 +284,28 @@ describe('Work screen', () => {
 
     expect(net.sent('/api/call/acknowledge')).toEqual([]);
     expect(root.textContent).toContain('this row was closed since it was drawn');
+    fixture.destroy();
+  });
+
+  it('puts every entry with no time of its own last, sorted stably by label', async () => {
+    const item: Item = {
+      ...ITEM_BASE,
+      Versions: [{ ID: 'v1', Kind: 'spec', AuthoredAt: '2026-09-01T00:00:00Z' }],
+      Windows: [{ ID: 'B', Exit: '' }],
+      Release: { ServiceID: 'aaa', Number: 9 },
+    };
+    const fixture = await driveItem(item);
+    const root = fixture.nativeElement as HTMLElement;
+    const rows = [...root.querySelectorAll('.row')].map((row) => row.textContent);
+
+    expect(rows.length).toBe(3);
+    expect(rows[0]).toContain('spec version v1');
+    // Neither the window nor the release carries a time of its own: both
+    // sort after the version, and between themselves by label — "aaa
+    // release 9" before "window B is open" — rather than by whichever the
+    // array happened to hold first.
+    expect(rows[1]).toContain('aaa release 9');
+    expect(rows[2]).toContain('window B is open');
     fixture.destroy();
   });
 

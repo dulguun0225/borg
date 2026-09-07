@@ -92,7 +92,7 @@
         {{ standing.StandingHours }} hours.
       </p>
       <div class="actions">
-        <button type="button" (click)="endMitigation(standing.ID)">End it</button>
+        <button type="button" [disabled]="busy()" (click)="endMitigation(standing.ID)">End it</button>
       </div>
     }
 
@@ -142,7 +142,7 @@
       }
     </div>
     <div class="actions">
-      <button type="submit">Undo it</button>
+      <button type="submit" [disabled]="busy()">Undo it</button>
     </div>
   </form>
 
@@ -172,7 +172,7 @@
       <input id="mitigation-count" type="number" [formField]="mitigationForm.Count" />
     </div>
     <div class="actions">
-      <button type="submit">Instruct it</button>
+      <button type="submit" [disabled]="busy()">Instruct it</button>
     </div>
   </form>
 
@@ -210,7 +210,7 @@
               }
             </td>
             <td>
-              <button type="button" (click)="markNotCaused(target.DeployID, $event)">
+              <button type="button" [disabled]="busy()" (click)="markNotCaused(target.DeployID, $event)">
                 Mark it
               </button>
             </td>
@@ -234,7 +234,7 @@
       answer the next one.
     </p>
     <div class="actions">
-      <button type="submit">Fire it</button>
+      <button type="submit" [disabled]="busy()">Fire it</button>
     </div>
   </form>
 

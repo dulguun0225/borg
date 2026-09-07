@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { FormField, form, submit } from '@angular/forms/signals';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { ApiClient } from './api/client';
@@ -23,7 +23,7 @@ import { principalKey, setPrincipalKey } from './api/principal';
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
-export class Shell {
+export class Shell implements OnDestroy {
   private readonly api = inject(ApiClient);
   private readonly streams = inject(StreamReader);
 
@@ -45,6 +45,10 @@ export class Shell {
       this.stream.changed();
       void this.readBadge();
     });
+  }
+
+  ngOnDestroy(): void {
+    this.stream.close();
   }
 
   protected declareWho(event: Event): void {

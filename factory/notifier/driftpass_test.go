@@ -1,8 +1,8 @@
 // driftpass_test.go is the notifier's own last check and its reads of the
 // drift detector's store: the one wait nothing calls it about, and the page
 // event a delivery made while the factory's process was down. Split out of
-// db_test.go, which fixtures_test.go's helpers are shared with, to keep both
-// files under the line bound.
+// db_test.go, which fixtures_test.go's helpers are shared with, to keep every
+// file of that split under the line bound.
 package notifier_test
 
 import (

@@ -72,7 +72,7 @@
             }
           </div>
           <div class="actions">
-            <button type="submit">Approve through the hold</button>
+            <button type="submit" [disabled]="busy()">Approve through the hold</button>
           </div>
         </form>
       }
@@ -152,8 +152,8 @@
         <input id="priority" type="number" [formField]="priorityForm.Priority" />
       </div>
       <div class="actions">
-        <button type="submit">Set priority</button>
-        <button type="button" (click)="endItem()">End this item for good</button>
+        <button type="submit" [disabled]="busy()">Set priority</button>
+        <button type="button" [disabled]="busy()" (click)="endItem()">End this item for good</button>
       </div>
     </form>
   }

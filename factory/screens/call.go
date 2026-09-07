@@ -2,7 +2,9 @@ package screens
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"time"
 )
 
 // handleCall is POST /api/call/{name}: an exhaustive switch over every call
@@ -230,6 +232,12 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 		}
 		id, err := s.calls.SupplyConstraint(ctx, p, args)
 		writeCallResult(w, id, err)
+	case "setSeam5Enforced":
+		var args SetSeam5EnforcedArgs
+		if !decodeBody(w, r, &args) {
+			return
+		}
+		writeCallError(w, s.calls.SetSeam5Enforced(ctx, p, args))
 	case "retireService":
 		var args RetireServiceArgs
 		if !decodeBody(w, r, &args) {
@@ -315,14 +323,51 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 		}
 		writeCallError(w, s.calls.DeleteMapping(ctx, p, args))
 	default:
-		writeError(w, http.StatusNotFound, "screens: no call named "+r.PathValue("name"))
+		// A call name is not an address: the switch above is every name this
+		// server performs, the client composes each of them from a method of
+		// [Calls], and one that resolves to nothing is a client built against
+		// a different shape. 404 would render as a record that is not there.
+		writeError(w, http.StatusBadRequest, "screens: no call named "+r.PathValue("name"))
 	}
 }
 
+// bodyLimit is the largest call body this server reads. The largest thing a
+// call carries is a document a human typed at a gate — a spec version, an
+// implementation plan — and a mebibyte is far above any of them, so the limit
+// is not a bound on what a human may author but a bound on what an unread
+// stream may cost.
+const bodyLimit = 1 << 20
+
+// bodyDeadline is how long the body of one call may take to arrive. It is set
+// per request rather than as the server's ReadTimeout because the same server
+// holds a server-sent-events connection open for as long as a screen is, and a
+// read deadline on the connection would end it.
+const bodyDeadline = 30 * time.Second
+
 // decodeBody decodes the request body into v, writing the 400 the design
 // gives a bad body and reporting false where it could not.
+//
+// A body over [bodyLimit] is refused with 413 and a body that does not arrive
+// inside [bodyDeadline] is refused as a bad body, so neither an unbounded
+// stream nor a stalled one holds a handler. An unknown field is refused too:
+// every call's arguments are one struct, the client composes each object from
+// that struct's own fields, and a field this server does not know is a client
+// built against a different shape — the same defect the version refusal
+// catches, met where the version happens to match.
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	// The error is discarded: not every ResponseWriter reaches a connection —
+	// a recorded response in a test does not — and one that cannot take a
+	// deadline is not a reason to refuse the call.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(bodyDeadline))
+	r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(v); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "screens: the call body is over the limit this server reads")
+			return false
+		}
 		writeError(w, http.StatusBadRequest, "screens: "+err.Error())
 		return false
 	}

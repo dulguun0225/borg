@@ -170,6 +170,28 @@ describe('Ops screen', () => {
     fixture.destroy();
   });
 
+  it('sends one call when a rollback is submitted twice while the first is in flight', async () => {
+    const fixture = await driveService('ready');
+    const root = fixture.nativeElement as HTMLElement;
+    const undo = only(root.querySelector('form'), 'the undo form');
+    const reason = only(undo.querySelector('textarea'), 'the reason');
+    reason.value = 'the error rate doubled on eu-1';
+    reason.dispatchEvent(new Event('input'));
+    reason.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    // Both dispatches run synchronously, back to back: the first sets the
+    // screen's busy signal before it ever awaits anything, so the second
+    // reaches the same guard and sends nothing, without needing a held
+    // response to hold the window open.
+    undo.dispatchEvent(new Event('submit'));
+    undo.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(net.sent('/api/call/rollBack').length).toBe(1);
+    fixture.destroy();
+  });
+
   it('ends the mitigation standing by its id, taken off the view and not typed', async () => {
     const fixture = await driveService('ready');
     const root = fixture.nativeElement as HTMLElement;

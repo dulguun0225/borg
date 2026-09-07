@@ -21,8 +21,9 @@
 // [HoldFormatVersion], the six conditions' constants, [RoutedToTheOwner],
 // [Open], [Rematch] and the document-kind constraint's own read. credential.go
 // is the two conditions a credential stops a dispatch on: [CredentialWait] and
-// its two kinds, [WantsARate], the arithmetic of a spend ceiling, and
-// [Dispatch.ClearCeiling] with [ErrNoCeilingHold] and [ErrNotTheOwner].
+// its two kinds, [WantsARate], the arithmetic of a spend ceiling with
+// [NotifiedAtFraction] and the notice at it, and [Dispatch.ClearCeiling] with
+// [ErrNoCeilingHold] and [ErrNotTheOwner].
 // paidfor.go is what the People declaration says about that credential at the
 // run, which every run record carries. admit.go is [Dispatch.Admit], the order
 // items are admitted in where more is ready than the infrastructure admits.
@@ -33,11 +34,12 @@
 // handed over as the run record names it.
 //
 // db_test.go is against the database, this component writing records through
-// four packages that own tables; hold_test.go, credential_test.go and
-// material_test.go are split from it by subject at the 500-line bound — the
-// holds with the role and scope vocabulary, the two credential conditions with
-// what a run records about whose account it spent, and the classes of material
-// — all sharing db_test.go's fixtures and package.
+// four packages that own tables; hold_test.go, credential_test.go,
+// ceiling_test.go and material_test.go are split from it by subject at the
+// 500-line bound — the holds with the role and scope vocabulary, the credential
+// a run could not reach with what a run records about whose account it spent,
+// the spend ceiling with the notice at a fraction of it, and the classes of
+// material — all sharing db_test.go's fixtures and package.
 //
 // # What one dispatch does
 //
@@ -119,8 +121,11 @@
 // [Escalation] is the composition's, because the abandonment of an item's
 // pending rows is the gate component's and this component's row in
 // ../../end-goal/components.md names no gate. The wait that follows it is this
-// component's own call, on [Notifier], which that row does name. Context
-// assembly, which it names too, is not built.
+// component's own call, on [Notifier], which that row does name, and so is the
+// notice at [NotifiedAtFraction] of an authored ceiling: this component compares
+// the sum at every report and holds no record of what has been delivered, so
+// the composition is what keys that delivery on the credential and the period
+// and drops the rest. Context assembly, which that row names too, is not built.
 //
 // # What defines it
 //

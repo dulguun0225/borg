@@ -16,8 +16,8 @@
     </select>
   </div>
   <div class="actions">
-    <button type="submit">Declare it</button>
-    <button type="button" (click)="withdrawDuty()">Withdraw it</button>
+    <button type="submit" [disabled]="busy()">Declare it</button>
+    <button type="button" [disabled]="busy()" (click)="withdrawDuty()">Withdraw it</button>
   </div>
 </form>
 
@@ -39,8 +39,8 @@
     </select>
   </div>
   <div class="actions">
-    <button type="submit">Declare it</button>
-    <button type="button" (click)="withdrawObligation()">Withdraw it</button>
+    <button type="submit" [disabled]="busy()">Declare it</button>
+    <button type="button" [disabled]="busy()" (click)="withdrawObligation()">Withdraw it</button>
   </div>
 </form>
 
@@ -72,8 +72,8 @@
     Taking a credential back lifts nothing on its own: an owner attaches another.
   </p>
   <div class="actions">
-    <button type="submit">Lend it</button>
-    <button type="button" (click)="takeBackCredential()">Take it back</button>
+    <button type="submit" [disabled]="busy()">Lend it</button>
+    <button type="button" [disabled]="busy()" (click)="takeBackCredential()">Take it back</button>
   </div>
 </form>
 
@@ -135,7 +135,7 @@
     The date is sent in {{ zone }}, and a period ends at that zone's midnight.
   </p>
   <div class="actions">
-    <button type="submit">Author it</button>
+    <button type="submit" [disabled]="busy()">Author it</button>
   </div>
 </form>
 
@@ -190,7 +190,7 @@
     Factory converts these into cost per feature and reports the number there.
   </p>
   <div class="actions">
-    <button type="submit">Author it</button>
+    <button type="submit" [disabled]="busy()">Author it</button>
   </div>
 </form>
 
@@ -211,7 +211,7 @@
     }
   </div>
   <div class="actions">
-    <button type="submit">Write it</button>
+    <button type="submit" [disabled]="busy()">Write it</button>
   </div>
 </form>
 
@@ -230,6 +230,6 @@
     hold reaches any record that key is written on.
   </p>
   <div class="actions">
-    <button type="submit">Erase it</button>
+    <button type="submit" [disabled]="busy()">Erase it</button>
   </div>
 </form>
