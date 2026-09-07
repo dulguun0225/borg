@@ -21,6 +21,7 @@ import (
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
@@ -78,11 +79,60 @@ func (p *path) watchTo(ctx context.Context, svc service.Service, deadline time.T
 	}
 }
 
-// watchPass is one evaluation of everything downstream of a deploy on one service:
-// every open window, the release whose window has closed, the incidents that have
-// settled, the incidents that have not and hold no window open, and the drift
-// detector's own store.
+// watchTo, with the health monitor's own readings alone. It is what the path's
+// pass watches with: the notifier's two passes are per-factory and not per
+// service, and a pass repeated per item would sweep the drift detector's store
+// several times for one run — which widens a page nobody has had a chance to
+// answer, the widening being what the second sweep after a delivered page
+// writes. [path.notifierPasses] is where a run performs them, once.
+func (p *path) watchWindowsTo(ctx context.Context, svc service.Service, deadline time.Time, every time.Duration) error {
+	for {
+		if err := p.watchWindows(ctx, svc); err != nil {
+			return err
+		}
+		open, err := window.CountOpen(ctx, p.d.pool, svc.ID)
+		if err != nil {
+			return err
+		}
+		if open == 0 {
+			return nil
+		}
+		if !time.Now().Add(every).Before(deadline) {
+			fmt.Fprintf(p.d.out, "%d analysis window(s) are still open on %s; `factory watch %s` continues from here\n",
+				open, svc.Name, svc.Name)
+			fmt.Fprintln(p.d.out, "  a window nothing closes reaches the window limit and holds this service's production deploys — a wait on the factory, which does not page")
+			return nil
+		}
+		time.Sleep(every)
+	}
+}
+
+// watchPass is one evaluation of everything downstream of a deploy on one
+// service, and the notifier's two passes beside it. It is what the watch
+// subcommand and the process's own watch pass make.
 func (p *path) watchPass(ctx context.Context, svc service.Service) error {
+	if err := p.watchWindows(ctx, svc); err != nil {
+		return err
+	}
+	return p.notifierPasses(ctx)
+}
+
+// notifierPasses is the notifier's own two: the pages a service's authored
+// paging hours held back, and the drift detector's store. Both are the
+// notifier's and per-factory rather than per-service, and a run performs them
+// once.
+func (p *path) notifierPasses(ctx context.Context) error {
+	if err := p.pagesHeldToTheHours(ctx); err != nil {
+		return err
+	}
+	return p.driftDetectorPages(ctx)
+}
+
+// watchWindows is one evaluation of everything downstream of a deploy on one
+// service: every open window, the release whose window has closed, the
+// incidents that have settled, and the incidents that have not and hold no
+// window open.
+func (p *path) watchWindows(ctx context.Context, svc service.Service) error {
 	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
 
 	watched, err := p.healthMonitor.Watch(ctx, w)
@@ -123,11 +173,7 @@ func (p *path) watchPass(ctx context.Context, svc service.Service) error {
 	for _, id := range paged {
 		fmt.Fprintf(p.d.out, "Incident %s still crosses with no window open, and the page went out: production is worse until a human ends it\n", id)
 	}
-
-	if err := p.pagesHeldToTheHours(ctx); err != nil {
-		return err
-	}
-	return p.driftDetectorPages(ctx)
+	return nil
 }
 
 // pagesHeldToTheHours is the notifier's own pass over the pages a service's
@@ -266,7 +312,14 @@ func liveIsWorse(source intent.Source) bool { return source != intent.SourceOwne
 // rollback leaves redelivers is the defect that was just removed, which is the most
 // damaging thing in the factory to approve through and the one most likely to be
 // tried during an incident.
-func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.Verdict, reason string) error {
+//
+// actor is the human at the screen, and openedInWorkAt is when they opened the
+// item there — the field no terminal can fill, carried onto the close event the
+// way every other verdict from a screen carries it. Its one caller is
+// [calls.ApproveThroughHold]: no subcommand fires this row, the hold being what
+// stops the pass firing it.
+func (p *path) approveThrough(ctx context.Context, actor record.Actor, itemID string,
+	verdict gate.Verdict, reason, openedInWorkAt string) error {
 	c, err := p.candidateFor(ctx, itemID)
 	if err != nil {
 		return err
@@ -303,7 +356,7 @@ func (p *path) approveThrough(ctx context.Context, itemID string, verdict gate.V
 
 	// The approve names the hold it is going through, which is the whole of what
 	// approving through one is: a bare approve while a hold stands is refused.
-	given := gate.Given{Actor: p.human, Verdict: verdict, Reason: reason}
+	given := gate.Given{Actor: actor, Verdict: verdict, Reason: reason, OpenedInWorkAt: openedInWorkAt}
 	if verdict == gate.VerdictApprove {
 		given.Holds = opened.Holds
 	}

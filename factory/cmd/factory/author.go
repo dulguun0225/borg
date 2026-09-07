@@ -18,6 +18,7 @@ import (
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
@@ -70,10 +71,10 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 
 		change, run, err := p.dispatch.Implementer(ctx, p.on(c, item.StageImplementation, !returned.Empty()),
 			[]inputmanifest.Material{
-				{Class: "spec", Reference: c.specArtifactID, Bytes: int64(len(c.spec))},
-				{Class: "implementation_plan", Reference: c.planArtifactID, Bytes: int64(len(c.plan))},
-				{Class: "tasks", Reference: c.tasksArtifactID, Bytes: int64(len(c.tasks))},
-				{Class: "repository_files", Reference: c.svc.Repository, Bytes: filesSize(current)},
+				{Class: fleetentry.ClassRunOutput, Reference: c.specArtifactID, Bytes: int64(len(c.spec))},
+				{Class: fleetentry.ClassRunOutput, Reference: c.planArtifactID, Bytes: int64(len(c.plan))},
+				{Class: fleetentry.ClassRunOutput, Reference: c.tasksArtifactID, Bytes: int64(len(c.tasks))},
+				{Class: fleetentry.ClassRepository, Reference: c.svc.Repository, Bytes: filesSize(current)},
 			},
 			agent.Implementing{
 				Criteria: rolePromptCriteria(inForce),
@@ -104,19 +105,19 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 		if c.compileFailure != "" {
 			check, found = gate.AutoRejectedByCompile, c.compileFailure
 		}
-		verdict, reason, err := p.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &c.implementationGate, check, found)
+		done, err := p.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &c.implementationGate, check, found)
 		if err != nil {
 			return err
 		}
-		if verdict == gate.VerdictApprove {
+		if done.waiting || done.verdict == gate.VerdictApprove {
 			return nil
 		}
 		if _, err := p.items.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(d.out, "Rejected at %s: %s\nItem %s builds again against what was found wrong\n",
-			gate.Implementation, reason, c.itemID)
-		returned = agent.Returned{Reason: reason, Version: c.commit}
+			gate.Implementation, done.reason, c.itemID)
+		returned = agent.Returned{Reason: done.reason, Version: c.commit}
 	}
 }
 

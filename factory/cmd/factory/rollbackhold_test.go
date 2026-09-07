@@ -3,14 +3,17 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/screens"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
@@ -34,7 +37,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	// then failed by its window lowers the threshold that row supplies — so rows
 	// that auto-passed before it are decided by a human after it, which is the loop
 	// working rather than the test fighting it.
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	d.model = interviewed(0)
 	held, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
@@ -56,7 +59,7 @@ func TestTheRollbackHoldsUntilTheRevertShips(t *testing.T) {
 	// rewrite offering no statement-keyed lookup [path.take] could resume it
 	// through otherwise — it is not held, and it deploys ahead of the release the
 	// hold is holding, which is the one place the number does not order deploys.
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	res, err := run(ctx, d, []asked{
 		{statement: theFourthStatement, services: []string{theService}},
 		{statement: rolled.revertStatement, services: []string{theService}, resumeIntentID: rolled.revertIntentID},
@@ -118,7 +121,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	// implementer rewrites every file whole, so it carries it by writing the same failing
 	// emitter again. The two are indistinguishable to everything downstream, which is what
 	// makes this the consequence the design names.
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	d.model = interviewed(2)
 	held, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
@@ -129,16 +132,43 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 		t.Fatalf("the change was not held: deploy %q hold %q\n%s", stuck.deployID, stuck.factoryHold, out)
 	}
 
-	path := p(ctx, t, d)
-	if err := path.approveThrough(ctx, stuck.itemID, gate.VerdictApprove,
-		"the incident is worse than the defect; ship it"); err != nil {
-		t.Fatalf("approving through the hold: %v\noutput so far:\n%s", err, out)
+	// The action is at Work, on the item: the hold stops the production deploy
+	// row being fired, so what a screen offers is firing it and approving it in
+	// one call rather than a verdict against a row already open.
+	s := newScreens(t, ctx, d, out)
+	var view screens.Item
+	s.get(t, "/api/item/"+stuck.itemID, &view)
+	if !strings.Contains(view.FactoryHold, gate.HoldRollbackAwaitingRevert) {
+		t.Fatalf("the item view reads the hold as %q, want the rollback's", view.FactoryHold)
 	}
+	if !view.ApprovableThrough {
+		t.Error("the item view offers no way through a hold the design keeps an emergency action at")
+	}
+	s.mustCall(t, "approveThroughHold", screens.ApproveThroughHoldArgs{
+		ItemID:         stuck.itemID,
+		Reason:         "the incident is worse than the defect; ship it",
+		OpenedInWorkAt: theOpenedInWorkAt,
+	})
 	if !strings.Contains(out.String(), "approving through accepts what the hold was preventing") {
 		t.Errorf("the run does not say what approving through accepts:\n%s", out)
 	}
 
-	// The deploy happened and a window opened over it.
+	// The close event carries the reason and when the actor opened the item in
+	// Work, which is the field no terminal could fill.
+	approving := productionDeployClose(t, ctx, d, stuck.itemID)
+	if approving.OpenedInWorkAt != theOpenedInWorkAt {
+		t.Errorf("the close event says the row was opened in Work at %q, want %q",
+			approving.OpenedInWorkAt, theOpenedInWorkAt)
+	}
+	if closing := closingPayload(t, approving); closing.Reason == "" {
+		t.Error("the close event carries no reason, and approving through a hold says why")
+	}
+
+	// The deploy happened and a window opened over it. The reads and the watch
+	// below are made on the composition behind the screens rather than on one
+	// composed here: composing a path restarts the health monitor, which
+	// evaluates every open window again — and the window this deploy just
+	// opened would be failed by that restart before the deploy is read.
 	current, running, err := deploy.Current(ctx, d.pool, held.serviceID, held.environmentID, []string{d.dir})
 	if err != nil || !running {
 		t.Fatalf("Current = running %v, %v", running, err)
@@ -150,7 +180,7 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 	// And the defect is back, which is what "redelivers" means: the change was built
 	// on the master that still holds the failed release's code, so the very next
 	// reading of its window fails it again.
-	if err := path.watchTo(ctx, theServiceRecord(t, ctx, path), time.Now().Add(theWatchFor), theWatchEvery); err != nil {
+	if err := s.p.watchTo(ctx, theServiceRecord(t, ctx, s.p), time.Now().Add(theWatchFor), theWatchEvery); err != nil {
 		t.Fatalf("the watch stopped: %v\noutput so far:\n%s", err, out)
 	}
 	w, watched, err := window.ForRelease(ctx, d.pool, stuck.releaseID)
@@ -161,4 +191,32 @@ func TestApprovingThroughARollbackHoldRedeliversTheDefect(t *testing.T) {
 		t.Errorf("the window over the approved-through release closed %q, and what was approved through was the defect itself",
 			w.Exit)
 	}
+}
+
+// productionDeployClose is the close event at one item's production deploy
+// row, read out of the log. The row is fired by the call that approves through
+// the hold and by no pass, so this is where what that call wrote is read.
+func productionDeployClose(t *testing.T, ctx context.Context, d deps, itemID string) decisionlog.Row {
+	t.Helper()
+	rows := readLog(t, ctx, d)
+	openingID := ""
+	for _, row := range rows {
+		if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpen {
+			continue
+		}
+		opening := openingPayload(t, row)
+		if opening.Gate == gate.DeployToProduction.String() && opening.ItemID == itemID {
+			openingID = row.ID
+		}
+	}
+	if openingID == "" {
+		t.Fatalf("the log holds no production deploy row for item %s", itemID)
+	}
+	for _, row := range rows {
+		if row.Part == decisionlog.PartClose && row.Closes == openingID {
+			return row
+		}
+	}
+	t.Fatalf("the production deploy row of item %s was never closed", itemID)
+	return decisionlog.Row{}
 }

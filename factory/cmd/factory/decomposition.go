@@ -9,7 +9,6 @@ import (
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/criterion"
-	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
@@ -255,37 +254,56 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	fmt.Fprintf(p.d.out, "  the set is %d item(s): %v\n", len(set.itemIDs), set.itemIDs)
 	fmt.Fprintln(p.d.out, "  the diff factors are unavailable here, decomposition happening before anything is built, so this row is scored on a vector with holes in it")
 
-	verdict, feedback := gate.VerdictReject, incomplete
-	var closing decisionlog.Row
 	if rejects {
 		// The factory's own reject, closed as the gate component and before a
 		// human is asked, because a mechanical check rejects on its own terms.
 		// It goes through [gate.Gate.AutoReject], which is what writes the check
 		// onto the close event as auto_rejected_by — so a reader of the log sees
 		// which of the row's two directions rejected and not only the reason.
-		closing, err = p.gate.AutoReject(ctx, opened, check, incomplete)
+		closing, err := p.gate.AutoReject(ctx, opened, check, incomplete)
 		if err != nil {
 			return false, err
 		}
 		fmt.Fprintf(p.d.out, "The set is incomplete, so the row rejects before a human is asked by %s: %s\n",
 			check, incomplete)
-	} else {
-		// [gate.Gate.Refer] re-fires this row over the set its own open event
-		// names, so the firing handed here carries the row and nothing else. A
-		// refer at it is still refused: the design names no duty for this row,
-		// so it waits on the owner from its first firing and a refer at a row
-		// already there has nobody left to reach — the human is asked again, and
-		// what they have left is a reject.
-		verdict, feedback, closing, err = p.settle(ctx, opened, gate.Firing{Row: gate.Decomposition})
-		if err != nil {
-			return false, err
-		}
+		set.fired = recordFiring(opened, closing)
+		return false, p.decompositionOutcome(ctx, in, set, gate.VerdictReject, incomplete)
 	}
-	set.fired = recordFiring(opened, closing)
+	// [gate.Gate.Refer] re-fires this row over the set its own open event
+	// names. A refer at it is still refused: the design names no duty for this
+	// row, so it waits on the owner from its first firing and a refer at a row
+	// already there has nobody left to reach — what that human has left is a
+	// reject.
+	done, err := p.settle(ctx, opened)
+	if err != nil {
+		return false, err
+	}
+	if done.waiting {
+		set.waiting = true
+		return false, nil
+	}
+	set.fired = recordFiring(opened, done.closing)
+	if err := p.decompositionOutcome(ctx, in, set, done.verdict, done.reason); err != nil {
+		return false, err
+	}
+	return set.approved, nil
+}
+
+// decompositionOutcome is what a verdict at the Decomposition row causes. It is
+// its own function because two callers reach it: the pass that fired the row and
+// settled it, and the pass that finds the verdict a human left at Work on a row
+// an earlier pass left open.
+//
+// A rejection supersedes every item of the set and counts a re-decomposition on
+// the intent. It does not re-decompose: that needs a stage which decides the
+// decomposition rather than one told what to produce, and this interface is
+// told.
+func (p *path) decompositionOutcome(ctx context.Context, in intent.Intent, set *decompositionSet,
+	verdict gate.Verdict, feedback string) error {
 	if verdict != gate.VerdictReject {
 		set.approved = true
 		fmt.Fprintf(p.d.out, "Approved; decomposition of intent %s stands\n", in.ID)
-		return true, nil
+		return nil
 	}
 
 	// Marking the intent re-decomposing is what stops every unmerged item of it
@@ -294,28 +312,30 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	// a field beside the interview's rounds and never the same one.
 	reDecompositions, err := p.intake.MarkReDecomposing(ctx, decompositionActor, in.ID)
 	if err != nil {
-		return false, err
+		return err
 	}
 	set.reDecompositions = reDecompositions
-	for _, c := range candidates {
+	for _, itemID := range set.itemIDs {
 		// Every item of the set is superseded and points at nothing, because no
 		// re-decomposition replaced it. What says why is the superseded stage beside the
 		// decision that rejected the set.
-		if _, err := p.decomposition.Supersede(ctx, decompositionActor, c.itemID, nil); err != nil {
-			return false, err
+		if _, err := p.decomposition.Supersede(ctx, decompositionActor, itemID, nil); err != nil {
+			return err
 		}
 		// The shares that item carried go with it, pointing at nothing for the
 		// same reason: a derived requirement is superseded with the item that
 		// carried it, and the two records have two writers.
-		superseded, err := p.intake.SupersedeDerived(ctx, decompositionActor, c.itemID, nil)
+		superseded, err := p.intake.SupersedeDerived(ctx, decompositionActor, itemID, nil)
 		if err != nil {
-			return false, err
+			return err
 		}
 		if len(superseded) > 0 {
 			fmt.Fprintf(p.d.out, "  the %d share(s) item %s carried are superseded with it\n",
-				len(superseded), c.itemID)
+				len(superseded), itemID)
 		}
-		c.superseded = true
+		if c := p.byItem[itemID]; c != nil {
+			c.superseded = true
+		}
 	}
 	fmt.Fprintf(p.d.out, "Rejected: %s\n", feedback)
 	fmt.Fprintf(p.d.out, "  every item of the set is superseded and re-decomposition %d is counted on intent %s\n", reDecompositions, in.ID)
@@ -323,21 +343,18 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 
 	limit, err := intentAttemptLimit(ctx, p.d.pool, factorysettings.SubjectDecomposition)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if reDecompositions > limit {
 		if _, err := p.intake.Escalate(ctx, decompositionActor, in.ID, limit); err != nil {
-			return false, err
+			return err
 		}
 		fmt.Fprintf(p.d.out, "  re-decomposition %d exceeds the limit of %d; intent %s is escalated\n", reDecompositions, limit, in.ID)
-		return false, nil
+		return nil
 	}
 	// Nothing here re-decomposes, so the Decomposition firing that stopped
 	// unmerged items closes with nothing having replaced them.
-	if err := p.intake.ClearReDecomposing(ctx, decompositionActor, in.ID); err != nil {
-		return false, err
-	}
-	return false, nil
+	return p.intake.ClearReDecomposing(ctx, decompositionActor, in.ID)
 }
 
 // intentAttemptLimit is the attempt limit in force for one of the two counts an

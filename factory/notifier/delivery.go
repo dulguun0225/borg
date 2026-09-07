@@ -20,7 +20,7 @@ const DeliveryTable = "notifier_delivery"
 const DeliveryIDPrefix = "ndl"
 
 // FormatVersionDelivery is written into format_version on every insert.
-const FormatVersionDelivery = "notifier_delivery/2"
+const FormatVersionDelivery = "notifier_delivery/3"
 
 // DeliveryDDL is this package's schema. [record.Columns] and
 // [record.Constraints] are composed rather than restated. The unique
@@ -39,6 +39,15 @@ const FormatVersionDelivery = "notifier_delivery/2"
 // service's paging hours held back is delivered from when those hours come
 // round: mail and chat went out, and the log holds no page event to rebuild
 // the wait from, so it is rebuilt from here.
+//
+// first_accepted_at is the one field the overwrite does not touch once it is
+// set: transport_accepted says only whether the latest attempt was accepted,
+// and [_The page channel_](../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md)
+// splits the human's load at the first delivery a transport accepted, which
+// a row overwritten per attempt could not answer. Empty until the transport
+// first accepts, and left exactly as it is on every attempt after — an
+// attempt refused after that does not clear it, since the split it answers
+// is when the channel first succeeded and not whether it still is.
 var DeliveryDDL = []string{
 	`create table if not exists ` + DeliveryTable + ` (
 	` + record.Columns + `,
@@ -51,11 +60,13 @@ var DeliveryDDL = []string{
 	waiting text not null default '',
 	holding text not null default '',
 	worse boolean not null default false,
+	first_accepted_at text not null default '',
 	` + record.Constraints + `,
 	constraint actor_is_the_notifier check (actor_kind = 'component'),
 	constraint row_id_present check (row_id <> ''),
 	constraint channel_known check (channel in ('mail', 'chat', 'page')),
-	constraint one_row_per_wait_channel_and_holder unique (row_id, channel, recipient_key)
+	constraint one_row_per_wait_channel_and_holder unique (row_id, channel, recipient_key),
+	constraint first_accepted_at_is_time_layout check (first_accepted_at = '' or first_accepted_at ~ '` + record.TimePattern + `')
 )`,
 }
 
@@ -78,6 +89,10 @@ type DeliveryRecord struct {
 	Waiting   string
 	Holding   string
 	Worse     bool
+	// FirstAcceptedAt is when the transport first accepted a delivery of this
+	// row, channel and recipient — empty where none ever has. It is set once
+	// and never overwritten, unlike every other field here.
+	FirstAcceptedAt string
 }
 
 // recordDelivery upserts the delivery record for one attempt: the row, the
@@ -90,11 +105,17 @@ func (n *Notifier) recordDelivery(ctx context.Context, d Delivery, accepted bool
 	if d.Wait.Holding != (people.Holding{}) {
 		holding = d.Wait.Holding.String()
 	}
+	at := record.Now()
+	firstAcceptedAt := ""
+	if accepted {
+		firstAcceptedAt = at
+	}
 	rec := DeliveryRecord{
-		ID: record.NewID(DeliveryIDPrefix), Actor: Actor, At: record.Now(),
+		ID: record.NewID(DeliveryIDPrefix), Actor: Actor, At: at,
 		RowID: d.Wait.Row, Channel: d.Channel, RecipientKey: d.To, TransportAccepted: accepted,
 		WaitKind: d.Wait.Kind, ServiceID: d.Wait.ServiceID,
 		Waiting: d.Wait.Waiting, Holding: holding, Worse: d.Wait.Worse,
+		FirstAcceptedAt: firstAcceptedAt,
 	}
 	tx, err := n.pool.Begin(ctx)
 	if err != nil {
@@ -106,15 +127,20 @@ func (n *Notifier) recordDelivery(ctx context.Context, d Delivery, accepted bool
 	}
 	_, err = tx.Exec(ctx, `insert into `+DeliveryTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, row_id, channel, recipient_key,
-		 transport_accepted, wait_kind, service_id, waiting, holding, worse)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		 transport_accepted, wait_kind, service_id, waiting, holding, worse, first_accepted_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		on conflict (row_id, channel, recipient_key) do update set
 			at = excluded.at, transport_accepted = excluded.transport_accepted,
 			wait_kind = excluded.wait_kind, service_id = excluded.service_id,
-			waiting = excluded.waiting, holding = excluded.holding, worse = excluded.worse`,
+			waiting = excluded.waiting, holding = excluded.holding, worse = excluded.worse,
+			first_accepted_at = case
+				when `+DeliveryTable+`.first_accepted_at <> '' then `+DeliveryTable+`.first_accepted_at
+				when excluded.transport_accepted then excluded.at
+				else ''
+			end`,
 		rec.ID, FormatVersionDelivery, string(rec.Actor.Kind), rec.Actor.Key, string(rec.Actor.Basis), rec.At,
 		rec.RowID, string(rec.Channel), rec.RecipientKey, rec.TransportAccepted,
-		string(rec.WaitKind), rec.ServiceID, rec.Waiting, rec.Holding, rec.Worse,
+		string(rec.WaitKind), rec.ServiceID, rec.Waiting, rec.Holding, rec.Worse, rec.FirstAcceptedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("notifier: recording the delivery of %s on %s: %w", d.Wait.Row, d.Channel, err)
@@ -163,4 +189,39 @@ func PagedRowsSince(ctx context.Context, pool *pgxpool.Pool, serviceID string, k
 		return 0, fmt.Errorf("notifier: counting what %s paged for %s: %w", kind, serviceID, err)
 	}
 	return count, nil
+}
+
+// DeliveriesOf is every delivery record of one row, on every channel and to
+// every recipient, in the order the rows were written — what the decision
+// view needs to say what reached whom about it.
+//
+// It is a read of this package's own table and takes the pool, the way every
+// record package's reads do.
+func DeliveriesOf(ctx context.Context, pool *pgxpool.Pool, rowID string) ([]DeliveryRecord, error) {
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, row_id, channel,
+		recipient_key, transport_accepted, wait_kind, service_id, waiting, holding, worse, first_accepted_at
+		from `+DeliveryTable+` where row_id = $1 order by at`, rowID)
+	if err != nil {
+		return nil, fmt.Errorf("notifier: reading the deliveries of %s: %w", rowID, err)
+	}
+	defer rows.Close()
+	var found []DeliveryRecord
+	for rows.Next() {
+		var d DeliveryRecord
+		var kind, basis, channel, waitKind string
+		if err := rows.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.RowID, &channel,
+			&d.RecipientKey, &d.TransportAccepted, &waitKind, &d.ServiceID, &d.Waiting, &d.Holding,
+			&d.Worse, &d.FirstAcceptedAt); err != nil {
+			return nil, fmt.Errorf("notifier: reading a delivery of %s: %w", rowID, err)
+		}
+		d.Actor.Kind = record.Kind(kind)
+		d.Actor.Basis = record.Basis(basis)
+		d.Channel = Channel(channel)
+		d.WaitKind = Kind(waitKind)
+		found = append(found, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("notifier: reading the deliveries of %s: %w", rowID, err)
+	}
+	return found, nil
 }

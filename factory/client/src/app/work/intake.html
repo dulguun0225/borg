@@ -1,0 +1,194 @@
+<h1>What a human supplies</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading the board.</p>
+  }
+  @case ('failed') {
+    <p class="danger">The board could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>No item is open, so the only thing to supply is an intent.</p>
+    <ng-container [ngTemplateOutlet]="report" />
+    <ng-container [ngTemplateOutlet]="intake" />
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped, so every action below is refused
+      until it is back.
+    </p>
+    <ng-container [ngTemplateOutlet]="report" />
+    <ng-container [ngTemplateOutlet]="intake" />
+    <ng-container [ngTemplateOutlet]="rest" />
+  }
+  @case ('ready') {
+    <p>{{ rows().length }} items are open.</p>
+    <ng-container [ngTemplateOutlet]="report" />
+    <ng-container [ngTemplateOutlet]="intake" />
+    <ng-container [ngTemplateOutlet]="rest" />
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<ng-template #report>
+  @if (reported() !== '') {
+    <p class="marked">{{ reported() }}</p>
+  }
+</ng-template>
+
+<ng-template #intake>
+  <h2>Supply an intent</h2>
+  <form (submit)="supplyIntent($event)">
+    <div class="field">
+      <label for="statement">What is being asked for</label>
+      <textarea id="statement" [formField]="intentForm.Statement"></textarea>
+    </div>
+    <div class="field">
+      <label for="services">Services this changes, separated by commas, empty for one</label>
+      <input id="services" type="text" [formField]="intentForm.Services" />
+    </div>
+    <div class="field">
+      <label for="project">Project, empty for the one the install runs</label>
+      <input id="project" type="text" [formField]="intentForm.ProjectName" />
+    </div>
+    <div class="actions">
+      <button type="submit">Supply it</button>
+    </div>
+  </form>
+</ng-template>
+
+<ng-template #rest>
+  <h2>Answer a question the factory asked</h2>
+  <form (submit)="answerQuestion($event)">
+    <div class="field">
+      <label for="question">Question</label>
+      <input id="question" type="text" [formField]="answerForm.QuestionID" />
+    </div>
+    <div class="field">
+      <label for="answer">Answer</label>
+      <textarea id="answer" [formField]="answerForm.Answer"></textarea>
+    </div>
+    <div class="actions">
+      <button type="submit">Answer</button>
+    </div>
+  </form>
+
+  <h2>Confirm the reading, once every item of an intent has shipped</h2>
+  <form (submit)="confirmReading($event)">
+    <div class="field">
+      <label for="read-intent">Intent</label>
+      <input id="read-intent" type="text" [formField]="readingForm.IntentID" />
+    </div>
+    <div class="field">
+      <label for="confirmed">What shipped is what was asked for</label>
+      <input id="confirmed" type="checkbox" [formField]="readingForm.Confirmed" />
+    </div>
+    <div class="field">
+      <label for="correction">Correction, which reopens the interview where it is not</label>
+      <textarea id="correction" [formField]="readingForm.Correction"></textarea>
+    </div>
+    <div class="actions">
+      <button type="submit">Confirm</button>
+    </div>
+  </form>
+
+  <h2>Accept a commit master holds that the queue did not make</h2>
+  <form (submit)="acceptDelivery($event)">
+    <div class="field">
+      <label for="service">Service</label>
+      <input id="service" type="text" [formField]="deliveryForm.ServiceID" />
+    </div>
+    <div class="field">
+      <label for="commit">Commit</label>
+      <input id="commit" type="text" [formField]="deliveryForm.Commit" />
+    </div>
+    <div class="actions">
+      <button type="submit">Accept it</button>
+    </div>
+  </form>
+
+  <h2>End an intent for good</h2>
+  <form (submit)="endIntent($event)">
+    <div class="field">
+      <label for="end-intent">Intent</label>
+      <input id="end-intent" type="text" [formField]="endingForm.IntentID" />
+    </div>
+    <div class="actions">
+      <button type="submit">End it</button>
+    </div>
+  </form>
+
+  <h2>Supply a constraint whose reach is one intent</h2>
+  <form (submit)="supplyConstraint($event)">
+    <div class="field">
+      <label for="constraint-intent">Intent</label>
+      <input
+        id="constraint-intent"
+        type="text"
+        [formField]="constraintForm.IntentID"
+      />
+    </div>
+    <div class="field">
+      <label for="constraint-statement">What it binds</label>
+      <textarea
+        id="constraint-statement"
+        [formField]="constraintForm.Statement"
+      ></textarea>
+    </div>
+    <div class="field">
+      <label for="binds-from">Binds from, empty to bind on arrival</label>
+      <input id="binds-from" type="date" [formField]="constraintForm.BindsFrom" />
+    </div>
+    <div class="field">
+      <label for="review-date">Review date, empty for none</label>
+      <input
+        id="review-date"
+        type="date"
+        [formField]="constraintForm.ReviewDate"
+      />
+    </div>
+    <p class="quiet">Both dates are sent in {{ zone }}, and every reader computes in it.</p>
+    <div class="actions">
+      <button type="submit">Supply it</button>
+    </div>
+  </form>
+
+  <h2>Withdraw a constraint</h2>
+  <form (submit)="withdrawConstraint($event)">
+    <div class="field">
+      <label for="withdraw-constraint">Constraint</label>
+      <input
+        id="withdraw-constraint"
+        type="text"
+        [formField]="withdrawalForm.ConstraintID"
+      />
+    </div>
+    <div class="actions">
+      <button type="submit">Withdraw it</button>
+    </div>
+  </form>
+
+  <h2>Clear a ceiling for the period standing</h2>
+  <form (submit)="clearCeiling($event)">
+    <div class="field">
+      <label for="credential">Credential</label>
+      <input id="credential" type="text" [formField]="ceilingForm.Credential" />
+    </div>
+    <p class="quiet">
+      This authorises the overage for the period standing on this credential alone. It
+      does not reset the sum a further report is compared against.
+    </p>
+    <div class="actions">
+      <button type="submit">Clear it</button>
+    </div>
+  </form>
+
+  <div class="actions">
+    <a routerLink="/work">What waits on a human</a>
+  </div>
+</ng-template>

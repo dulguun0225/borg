@@ -14,7 +14,7 @@ import (
 
 func namedService(ctx context.Context, pool *pgxpool.Pool, name string) (service.Service, error) {
 	if name == "" {
-		return service.Service{}, errors.New("factory: this parameter is a field of the service record, so -service is required")
+		return service.Service{}, errors.New("factory: this parameter is a field of the service record, so a service is required")
 	}
 	svc, found, err := service.ByName(ctx, pool, name)
 	if err != nil {
@@ -26,14 +26,14 @@ func namedService(ctx context.Context, pool *pgxpool.Pool, name string) (service
 	return svc, nil
 }
 
-// namedProject is the project of that name, resolved for a subcommand that
-// needs the record rather than only the name — production's environment,
-// which is scoped to the project rather than to the whole install. It is
-// never created here: [policy.Factory.Install] is the one write of a project
-// through this interface, at `factory run`.
+// namedProject is the project of that name, resolved for a caller that needs
+// the record rather than only the name — production's environment, which is
+// scoped to the project rather than to the whole install. It is never created
+// here: [policy.Factory.Install] is the one write of a project this process
+// makes on its own, and every project after it is written at Factory.
 func namedProject(ctx context.Context, pool *pgxpool.Pool, name string) (project.Project, error) {
 	if name == "" {
-		return project.Project{}, errors.New("factory: -project is required")
+		return project.Project{}, errors.New("factory: a project is required")
 	}
 	prj, found, err := project.ByName(ctx, pool, name)
 	if err != nil {
@@ -47,14 +47,14 @@ func namedProject(ctx context.Context, pool *pgxpool.Pool, name string) (project
 
 func namedArea(ctx context.Context, pool *pgxpool.Pool, name string) (area.Area, error) {
 	if name == "" {
-		return area.Area{}, errors.New("factory: this parameter is a field of the area record, so -area is required")
+		return area.Area{}, errors.New("factory: this parameter is a field of the area record, so an area is required")
 	}
 	ar, found, err := area.ByName(ctx, pool, name)
 	if err != nil {
 		return area.Area{}, err
 	}
 	if !found {
-		return area.Area{}, fmt.Errorf("factory: no area is named %q — declare it with `factory area %s`", name, name)
+		return area.Area{}, fmt.Errorf("factory: no area is named %q, and an area is declared at Factory", name)
 	}
 	return ar, nil
 }

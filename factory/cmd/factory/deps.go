@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -36,8 +37,17 @@ type deps struct {
 	// token is the fencing token this process holds the lease with, per
 	// ../../../end-goal/one-process.md: every writer the composition constructs, and
 	// every reader that appends a read event, carries it.
-	token     lease.Token
-	model     agent.Model
+	token lease.Token
+	// model is the client every fleet entry's agent calls where this
+	// composition names no [deps.modelFor]: one client for the whole factory,
+	// which is what a test composes.
+	model agent.Model
+	// modelFor is how one fleet entry's model version and credential name
+	// become a client to call. The provider is read off the credential name,
+	// which is [providerOf], the reverse of [modelCredentialNameFor]: the entry
+	// names the credential and the provider is a field of no record. Only run
+	// sets it, the resolver and the pace it needs being there.
+	modelFor  func(modelVersion, credentialName string) (agent.Model, error)
 	modelName string // the provider's model id, which is the author a per-author prior is kept on
 	// modelCredentialName is the credential name the model was reached
 	// through — model.openrouter or model.anthropic — carried so that every
@@ -64,9 +74,28 @@ type deps struct {
 	// own target is made under.
 	dir        string
 	credential secretref.Ref // the deploy credential, deploy.local
-	in         io.Reader     // what the human answers on
 	out        io.Writer
-	human      string // the deciding human's name
+	// withoutFleetEntries stops the composition writing an entry per role from
+	// the model flags. It exists because an install with no entry is a state
+	// the design has and the terminal's own stand-in for the owner's first act
+	// at Factory hides it: a test of the readiness reading has to compose a
+	// factory that dispatches nothing.
+	withoutFleetEntries bool
+	// answer is what this composition answers a round of the interview with,
+	// where a question is waiting and nothing else has answered it. It is
+	// run's -answer flag, and empty is a question left waiting in Work, which
+	// is what every composition that serves the screens is.
+	answer string
+	// decide is what closes the gate rows pending in Work between two passes of
+	// the path, in place of a human at a screen: it is given the composition,
+	// closes what it means to close through the gate component's own calls, and
+	// answers how many rows it closed. It is nil in every composition this
+	// binary makes — a verdict is given at a screen and this terminal has none,
+	// so a row a human decides waits and the run reports it waiting — and a test
+	// composes one, which is how the tests drive the same side of the gate the
+	// screens will.
+	decide func(ctx context.Context, p *path) (int, error)
+	human  string // the deciding human's name
 	// services is every service this install knows, with the repository each is.
 	// A statement names the services its intent changes, and a name not here is an
 	// error rather than a service the run invents.

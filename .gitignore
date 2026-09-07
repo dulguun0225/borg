@@ -9,3 +9,10 @@
 __pycache__
 factory/factory
 .env
+# The client's build output, embedded by factory/clientdist. .gitkeep is
+# what lets the directory embed on a fresh clone before the build has run.
+/factory/clientdist/browser/*
+!/factory/clientdist/browser/.gitkeep
+node_modules
+# The Angular build's own cache, written beside the client's sources.
+/factory/client/.angular

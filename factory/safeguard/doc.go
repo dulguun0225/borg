@@ -42,7 +42,9 @@
 // [GetWithdrawal], one withdrawal by id, which the gate row that decides it
 // reads before it fires — the actor on that record is the one human the row may
 // not route to, and the safeguard it names is what the row's routing is read
-// from:
+// from; and [WithdrawalsAwaitingADecision], every withdrawal no row has
+// approved yet, which is what Factory lists as the rows outside every item
+// pending a disposition:
 // a withdrawal is written pending and is not in force until a second write
 // approves it, the way the gate row A safeguard's withdrawal decides one, held
 // by a human always. Nothing here combines the two writes — the row is what

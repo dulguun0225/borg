@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
-	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/score"
@@ -26,7 +24,7 @@ import (
 // dependency becomes current, a window closes, a revert ships — so the deploy waits,
 // nothing is written, and the next firing recomputes; a gate fired for one of them
 // would ask a human to approve through something the factory is about to clear on
-// its own. Approving through them all the same is `factory approve`, which is the
+// its own. Approving through them all the same is [path.approveThrough], which is the
 // emergency action the design keeps at this row.
 //
 // The fifth is the drift detector's mismatch, and it is not computed here:
@@ -46,22 +44,46 @@ func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
 		c.factoryHold = held
 		fmt.Fprintf(d.out, "Release %s waits at %s: %s\n", c.releaseID, gate.DeployToProduction, held)
 		fmt.Fprintln(d.out, "  the factory set this hold over records that already exist, so nothing is written and it lifts itself")
-		fmt.Fprintf(d.out, "  a human may approve through it: `factory approve %s`\n", c.itemID)
+		fmt.Fprintln(d.out, "  a human may approve through it, which is the emergency action the design keeps at this row")
 		return nil
 	}
 
-	opened, firing, err := p.fireProduction(ctx, c)
+	// The verdict a human left at Work on a row an earlier pass fired, which is
+	// the ordinary case at this row: nothing here decides a row a human decides,
+	// so the approval that ships a release arrives between two passes.
+	if already, decided := c.rows[gate.KindDeployToProduction]; decided && already.subject() == c.reverifiedBuildID {
+		fmt.Fprintf(d.out, "%s of item %s was decided at Work as %s; row %s closed by %s %s\n",
+			gate.DeployToProduction, c.itemID, already.verdict, already.opened.Row.ID,
+			already.closing.Actor.Kind, already.closing.Actor.Key)
+		p.moved = true
+		c.deployGate = recordFiring(already.opened, already.closing)
+		if already.verdict == gate.VerdictHold {
+			c.held = true
+			c.heldAt = gate.DeployToProduction
+			fmt.Fprintf(d.out, "Held; release %s is minted and is not deployed, and the event stays queued\n", c.releaseID)
+			return nil
+		}
+		return p.putOnProduction(ctx, c, already.opened.Strategy)
+	}
+
+	opened, _, err := p.fireProduction(ctx, c)
 	if err != nil {
 		return err
 	}
+	p.moved = true
 	report(d.out, opened, c.criteria)
-	verdict, _, closing, err := p.settle(ctx, opened, firing)
+	done, err := p.settle(ctx, opened)
 	if err != nil {
 		return err
 	}
-	c.deployGate = recordFiring(opened, closing)
-	if verdict == gate.VerdictHold {
+	c.deployGate = recordFiring(opened, done.closing)
+	if done.waiting {
+		c.waiting = gate.DeployToProduction
+		return nil
+	}
+	if done.verdict == gate.VerdictHold {
 		c.held = true
+		c.heldAt = gate.DeployToProduction
 		fmt.Fprintf(d.out, "Held; release %s is minted and is not deployed, and the event stays queued\n", c.releaseID)
 		fmt.Fprintf(d.out, "No attempt is counted and the score learns nothing from a hold; item %s stays where it is\n", c.itemID)
 		return nil
@@ -299,83 +321,30 @@ func (p *path) factoryHolds(ctx context.Context, svc service.Service, it item.It
 	return p.objectiveHold(ctx, svc, it)
 }
 
-// objectiveHold is the two things a service level objective does, read from one
-// budget: the hold an exhausted budget sets on that service's production
-// deploys, and the intent the objective raises. The hold lifts itself when the
-// period rolls forward far enough to restore the budget, nothing is decided and
-// no page fires — the shape the hold a dependency that is not current sets
-// already has. A budget the store does not cover is uncomputed and holds the way
-// an exhausted one does, a budget taken as intact over records that are not
-// there being an absent input read as evidence.
-//
-// The raise is on the same reading because the two are one mechanism: the fix
-// for whatever exhausted the budget is itself a production deploy, and the item
-// that passes the hold on a service that crossed nothing is the one this raise
-// takes in. A budget read as exhausted with nothing raised on it would be a hold
-// no item could lift.
-//
-// Where an owner authored no objective there is no budget, nothing is held and
-// nothing is raised: that reading and the window are the whole of what protects
-// the service.
-func (p *path) objectiveHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
-	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
-	budget, err := p.healthMonitor.ErrorBudget(ctx, w)
+// factoryHoldsAsRead is [path.factoryHolds] for a caller that writes nothing:
+// the same four holds in the same order, with the error budget read and the
+// intent an exhausted budget calls for left unraised. Its caller is the item
+// view, which shows the hold standing at the row and offers approving through
+// it, and [views] writes nothing at all — so the chain is written out again
+// rather than shared, one call in the middle of it being what differs.
+func (p *path) factoryHoldsAsRead(ctx context.Context, svc service.Service, it item.Item) (string, error) {
+	held, err := p.dependencyHold(ctx, it)
+	if err != nil || held != "" {
+		return held, err
+	}
+	if held, err := p.windowHold(ctx, svc); err != nil || held != "" {
+		return held, err
+	}
+	if held, err := p.rollbackHold(ctx, svc, it); err != nil || held != "" {
+		return held, err
+	}
+	budget, err := p.healthMonitor.ErrorBudget(ctx, healthmonitor.Watching{
+		ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID,
+	})
 	if err != nil {
 		return "", err
 	}
-	if _, err := p.healthMonitor.RaiseObjectiveIntent(ctx, w, budget); err != nil {
-		return "", err
-	}
-	if !budget.Holds() {
-		return "", nil
-	}
-	passes, err := p.passesTheBudgetHold(ctx, svc, it)
-	if err != nil || passes {
-		return "", err
-	}
-	if !budget.Covered {
-		return fmt.Sprintf("%s — the store does not cover the objective's period of %.0f seconds, so the budget is uncomputed and holds the way a spent one does",
-			gate.HoldErrorBudgetExhausted, budget.PeriodSeconds), nil
-	}
-	return fmt.Sprintf("%s — %.0f%% of the allowance is left over a period of %.0f seconds",
-		gate.HoldErrorBudgetExhausted, budget.Remaining*100, budget.PeriodSeconds), nil
-}
-
-// passesTheBudgetHold is the two items the design lets past it: a revert, which
-// passes the hold a rollback leaves for the same reason, and an item whose intent
-// a detector raised on that service — the health monitor's at a crossing, or the
-// objective's own. Without the second the hold would stand hardest exactly where
-// production is worst, no item on a service that crossed nothing being able to
-// lift it.
-//
-// A request an owner raised on that service does not pass; the route is the
-// objective's intent, which exists whenever the budget is exhausted.
-func (p *path) passesTheBudgetHold(ctx context.Context, svc service.Service, it item.Item) (bool, error) {
-	if it.IntentID == "" {
-		return false, nil
-	}
-	_, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
-	if err != nil {
-		return false, err
-	}
-	if outstanding && it.IntentID == revertIntentID {
-		return true, nil
-	}
-	raised, err := intent.Get(ctx, p.d.pool, it.IntentID)
-	if err != nil {
-		return false, err
-	}
-	if raised.Source != intent.SourceDetector || raised.Evidence == "" {
-		return false, nil
-	}
-	// The evidence is stored as the key package intent composes, and the service
-	// it names is what says the detector raised this on this service and not on
-	// another.
-	var evidence intent.Evidence
-	if err := json.Unmarshal([]byte(raised.Evidence), &evidence); err != nil {
-		return false, fmt.Errorf("factory: reading the evidence on intent %s: %w", raised.ID, err)
-	}
-	return evidence.ServiceID == svc.ID, nil
+	return p.budgetHold(ctx, svc, it, budget)
 }
 
 // windowHold is the window limit: an open window blocks nothing until the service

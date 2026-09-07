@@ -5,9 +5,11 @@ package main
 import (
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -18,8 +20,11 @@ func TestPolicyReadsWhatIsInForce(t *testing.T) {
 	ctx, pool := newOwner(t)
 	install(t, ctx, pool)
 	decomposeService(t, ctx, pool, "checkout")
-	if err := areaCommand([]string{"payments"}); err != nil {
-		t.Fatalf("area: %v", err)
+	token := testToken(t, ctx, pool)
+	if _, err := area.NewWriter(pool, token).Declare(ctx,
+		owner(t, ctx, pool, token, "owner"), "payments",
+		area.InsideProject(theProjectID(t, ctx, pool)), area.Hazard{}); err != nil {
+		t.Fatalf("declaring the area: %v", err)
 	}
 
 	if err := policyCommand(nil); err != nil {
@@ -29,20 +34,26 @@ func TestPolicyReadsWhatIsInForce(t *testing.T) {
 		"-gate", "deploy_to_production", "-stage", "spec"}); err != nil {
 		t.Errorf("policy over every subject: %v", err)
 	}
-	if err := safeguardCommand([]string{"-parameter", "window_limit", "-subject", "service:checkout", "-bound", "2"}); err != nil {
-		t.Fatalf("safeguard: %v", err)
+	if err := policyCommand([]string{"-service", "nothing"}); err == nil {
+		t.Error("policy over a service nobody decomposed was accepted")
+	}
+
+	// A safeguard on the same service, placed through the function Factory's own
+	// PlaceSafeguard call reaches, so the print is read with one in force.
+	placing := freshLease(t, ctx, pool)
+	if _, err := placeSafeguard(ctx, pool, policy.NewFactory(pool, placing),
+		owner(t, ctx, pool, placing, "owner"), "window_limit", "service:checkout", "", "2",
+		safeguard.Routing{}); err != nil {
+		t.Fatalf("placing the safeguard: %v", err)
 	}
 	if err := policyCommand([]string{"-service", "checkout"}); err != nil {
 		t.Errorf("policy with a safeguard placed: %v", err)
-	}
-	if err := policyCommand([]string{"-service", "nothing"}); err == nil {
-		t.Error("policy over a service nobody decomposed was accepted")
 	}
 
 	// What the print reads is what the reader reads, so the assertion over its
 	// content is on the reader: every parameter resolves, and the two with a
 	// mechanism at this milestone say so.
-	effectives, err := policy.NewReader(pool, testToken(t, ctx, pool), score.Version{}).All(ctx, policy.Subjects{
+	effectives, err := policy.NewReader(pool, freshLease(t, ctx, pool), score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
 	if err != nil {

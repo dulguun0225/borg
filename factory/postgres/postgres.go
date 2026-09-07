@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/constraint"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/criterion"
@@ -18,6 +19,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/halt"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
@@ -105,6 +107,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"lease", lease.DDL},
 		{"decisionlog", decisionlog.DDL},
 		{"intent", intent.DDL},
+		{"constraint", constraint.DDL},
 		{"project", project.DDL},
 		{"service", service.DDL},
 		{"item", item.DDL},
@@ -127,6 +130,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"window", window.DDL},
 		{"incident", incident.DDL},
 		{"people", people.DDL},
+		{"fleetentry", fleetentry.DDL},
 		{"last_check", lastcheck.DDL},
 		{"notifier", notifier.DeliveryDDL},
 	} {

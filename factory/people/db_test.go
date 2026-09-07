@@ -421,3 +421,69 @@ func TestRederiveWritesBackADutyTheVersionNamesThatTheTableLost(t *testing.T) {
 		t.Errorf("a re-derivation over a table that agrees rewrote %v", again)
 	}
 }
+
+// TestRederiveRewritesTheAccountKindAndTheCeilingsPeriodAndStartTheTableLost
+// is the same repair the test above makes for a duty, made for a lent
+// credential's account kind and the ceiling's currency and period: the table
+// is put directly in the state it would be in had the write between the
+// version and the credential table stopped short, and Rederive is what a
+// version naming a ceiling the table does not hold repairs.
+func TestRederiveRewritesTheAccountKindAndTheCeilingsPeriodAndStartTheTableLost(t *testing.T) {
+	ctx, pool, token, w := newTable(t)
+	reader := policy.NewReader(pool, token, score.Version{})
+
+	if _, err := w.Lend(ctx, owner, "hk_alice", "model.anthropic", people.AccountOrganisation); err != nil {
+		t.Fatalf("Lend: %v", err)
+	}
+	if _, err := w.AuthorCeiling(ctx, owner, "model.anthropic", people.Ceiling{
+		Amount: 250, Currency: "EUR", Length: 1, Unit: people.PeriodMonth,
+		StartDate: "2026-01-15", StartZone: "America/New_York",
+	}); err != nil {
+		t.Fatalf("AuthorCeiling: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `update `+people.CredentialTable+`
+		set account_kind = 'person', currency = '', ceiling_amount = null,
+		    period_length = 0, period_unit = '', period_start_date = '', period_start_zone = ''
+		where credential_name = 'model.anthropic'`); err != nil {
+		t.Fatalf("corrupting the row directly: %v", err)
+	}
+	lost, _, err := people.CredentialNamed(ctx, pool, "model.anthropic")
+	if err != nil {
+		t.Fatalf("CredentialNamed: %v", err)
+	}
+	if lost.Kind != people.AccountPerson || lost.Ceiling.Authored() {
+		t.Fatalf("the row did not lose what the test set out to lose: %+v", lost)
+	}
+
+	rewritten, err := people.Rederive(ctx, pool, token, reader, ownerReading)
+	if err != nil {
+		t.Fatalf("Rederive: %v", err)
+	}
+	if len(rewritten) != 1 || rewritten[0] != "hk_alice" {
+		t.Errorf("Rederive rewrote %v, want [hk_alice]", rewritten)
+	}
+
+	restored, _, err := people.CredentialNamed(ctx, pool, "model.anthropic")
+	if err != nil {
+		t.Fatalf("CredentialNamed after Rederive: %v", err)
+	}
+	if restored.Kind != people.AccountOrganisation {
+		t.Errorf("Kind after Rederive = %q, want %q", restored.Kind, people.AccountOrganisation)
+	}
+	want := people.Ceiling{
+		Amount: 250, Currency: "EUR", Length: 1, Unit: people.PeriodMonth,
+		StartDate: "2026-01-15", StartZone: "America/New_York",
+	}
+	if restored.Ceiling != want {
+		t.Errorf("Ceiling after Rederive = %+v, want %+v", restored.Ceiling, want)
+	}
+
+	again, err := people.Rederive(ctx, pool, token, reader, ownerReading)
+	if err != nil {
+		t.Fatalf("Rederive again: %v", err)
+	}
+	if len(again) != 0 {
+		t.Errorf("a re-derivation over a table that agrees rewrote %v", again)
+	}
+}

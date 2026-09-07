@@ -3,76 +3,241 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// oneModelFleet is [dispatch.Fleet]: the entries this interface was composed
-// with. A run is given one model and one credential on the command line, so
-// every role's entry names them and every entry's scope is the whole factory —
-// which is what an install that has written no fleet entry has, the fleet entry
-// being a record nothing here writes.
-//
-// It answers for every role, so no dispatch of this interface holds on "a
-// stage no fleet entry covers". A composition that answered for fewer would
-// hold the rest, and dispatch's own tests are where that is demonstrated.
-type oneModelFleet struct {
-	model     agent.Model
-	modelName string
-	// effort is how long the model works before it answers, as -effort names it,
-	// and is empty where the run names none — which is an entry asking the
-	// provider for no effort at all. The factory does not check that the
-	// provider offers what is named: an entry asking for an effort nobody offers
-	// fails at the provider's own answer.
-	effort     string
-	credential string
+// models is [dispatch.Models]: the client one fleet entry's agent calls, which
+// is the one thing the fleet entry record cannot hold. A run builds it per
+// entry, from the entry's own model version and the provider its credential
+// name resolves to; a composition given a client outright answers every entry
+// with that client, which is what a test composes and what [deps.model] is.
+type models struct{ d deps }
+
+// For is the client for this entry.
+func (m models) For(_ context.Context, entry fleetentry.Entry) (agent.Model, error) {
+	if m.d.modelFor == nil {
+		return m.d.model, nil
+	}
+	return m.d.modelFor(entry.ModelVersion, entry.CredentialName)
 }
 
-// EntryFor is the entry for one role on one item, or on an intent for the two
-// roles put on one — which name no stage, so the stage is not what an entry is
-// looked up by.
-func (f oneModelFleet) EntryFor(_ context.Context, role dispatch.Role, on dispatch.On) (dispatch.Entry, bool, error) {
-	if _, err := role.Stage(); err != nil && !role.OnAnIntent() {
-		return dispatch.Entry{}, false, err
+// The two fields of a composed entry the command line is not told. How much the
+// model reads at once is a fact at the provider, which the owner writes beside
+// the credential; how many dispatches pass between evaluation-set runs is read
+// by nothing at this milestone, the evaluation set being content the product
+// does not ship. Each is written because the record refuses a value that is not
+// positive, and neither bounds anything here: the read-at-once bound is
+// recorded on every manifest and nothing truncates a read against it.
+const (
+	composedReadsAtOnce                     = 200_000
+	composedDispatchesBetweenEvaluationRuns = 50
+)
+
+// ensureFleetEntries is this terminal's stand-in for the owner's first act at
+// Factory: where the install holds no entry in force for a role, one is written
+// from -model, -provider, -effort and the credential that provider reads, as
+// the human -human names, scoped to the whole factory and naming every class of
+// material. So a fresh install dispatches, and an owner who wrote entries of
+// their own keeps them — a role already covered is left alone, whatever the
+// flags say.
+//
+// It returns the roles it wrote an entry for. doc.go says why `serve` will not
+// do this.
+func ensureFleetEntries(ctx context.Context, d deps, owner record.Actor) ([]string, error) {
+	covered, err := fleetentry.CoveredRoles(ctx, d.pool)
+	if err != nil {
+		return nil, err
 	}
-	scope := dispatch.Scope{}
-	if !scope.Covers(on) {
-		return dispatch.Entry{}, false, nil
+	writer := fleetentry.NewWriter(d.pool, d.token)
+	var written []string
+	for _, role := range dispatch.Roles {
+		if covered[string(role)] {
+			continue
+		}
+		if _, err := writer.Write(ctx, owner, fleetentry.New{
+			ModelVersion:                    d.modelName,
+			Effort:                          d.effort,
+			Role:                            string(role),
+			CredentialName:                  d.modelCredentialName,
+			ProcessingLocation:              processingLocationOf(d.modelCredentialName),
+			MaterialClasses:                 fleetentry.MaterialClasses,
+			ReadsAtOnce:                     composedReadsAtOnce,
+			DispatchesBetweenEvaluationRuns: composedDispatchesBetweenEvaluationRuns,
+		}); err != nil {
+			return nil, err
+		}
+		written = append(written, string(role))
 	}
-	return dispatch.Entry{
-		Role: role, Scope: scope, Model: f.model, Effort: f.effort,
-		ModelVersion: f.modelName, CredentialName: f.credential,
-	}, true, nil
+	return written, nil
+}
+
+// processingLocationOf is the processing location a composed entry names: the
+// provider the credential name resolves to, and no region. The design has the
+// owner write the provider and the region beside the credential, and this
+// terminal is told neither — so the entry names the provider it does know, and
+// what it costs is that a reading of where an item was processed is as coarse
+// as the provider on every entry this interface wrote.
+func processingLocationOf(credentialName string) string {
+	return strings.TrimPrefix(credentialName, "model.")
+}
+
+// roleReadiness is the readiness reading for one role: whether an entry in
+// force covers it, whether a role prompt version is in force, and how long the
+// oldest item dispatch holds unmatched has been held. A first install shows a
+// row for every role before anything is wrong, which is what the reading is
+// for.
+type roleReadiness struct {
+	role       dispatch.Role
+	entry      bool
+	rolePrompt bool
+	// oldestUnmatched is the age of the oldest open "no fleet entry covers this
+	// stage" row naming the role, and zero where none stands.
+	oldestUnmatched time.Duration
+}
+
+// readiness is the reading per role, in the order the path reaches the roles.
+// It is composed here rather than in either package because it reads two
+// records and the log: the entries in force are package fleetentry's, the
+// version in force is the artifact store's read this interface holds the
+// approved ids for, and the unmatched items are dispatch's own holds.
+//
+// The home view is what shows it, and the badge counts the roles it reads as
+// uncovered: a role with no matching entry is a wait on a human and not a pass
+// that merely ran late.
+func (p *path) readiness(ctx context.Context) ([]roleReadiness, error) {
+	covered, err := fleetentry.CoveredRoles(ctx, p.d.pool)
+	if err != nil {
+		return nil, err
+	}
+	held, rows, err := p.dispatch.Open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	oldest := map[dispatch.Role]time.Time{}
+	for n, one := range held {
+		if one.Condition != dispatch.HoldNoEntryCoversTheStage {
+			continue
+		}
+		at, err := record.ParseTime(rows[n].At)
+		if err != nil {
+			return nil, err
+		}
+		role := dispatch.Role(one.Role)
+		if was, seen := oldest[role]; !seen || at.Before(was) {
+			oldest[role] = at
+		}
+	}
+
+	now := time.Now()
+	reading := make([]roleReadiness, 0, len(dispatch.Roles))
+	for _, role := range dispatch.Roles {
+		_, inForce, err := p.prompts.InForce(ctx, role)
+		if err != nil {
+			return nil, err
+		}
+		one := roleReadiness{role: role, entry: covered[string(role)], rolePrompt: inForce}
+		if at, seen := oldest[role]; seen {
+			one.oldestUnmatched = now.Sub(at)
+		}
+		reading = append(reading, one)
+	}
+	return reading, nil
 }
 
 // rolePrompts is [dispatch.Prompts]: the role prompt version in force per
 // role. An install's entry is in force ungated and the store's own in-force
 // read finds it by the event that entered it. Every other version is in force
-// only once the gate every version fires has approved it, and this interface
-// fires no such row, so it names no approved version to the store's read.
+// only once the gate every version fires has approved it, so what this names
+// to the store's read is every version a close event at that row approved.
 //
-// So a chain whose head an upgrade entered reads as the version below it in
-// force until that row is decided, and a chain an upgrade started reads as
-// nothing in force, which is what the design says of an unapproved version.
+// A chain whose head an upgrade entered therefore reads as the version below it
+// in force until that row is decided at Factory, and the version in force moves
+// when it is.
+//
+// The approved ids are read once and kept for the life of the value, because
+// every read of the log appends a read event and the readiness reading asks
+// this of every role. [rolePrompts.forget] is what a decision at that row
+// calls, so an approval is in force at the next read rather than at the next
+// start of the process.
 type rolePrompts struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	token lease.Token
+	mu    sync.Mutex
+	// approved is the versions a close event at the role-prompt row approved,
+	// and read whether that list has been taken yet — an install with none
+	// approved is an empty list and not an unread one.
+	approved []string
+	read     bool
 }
 
 // InForce is the version in force for the role, read through the store's own
-// in-force query, which this composition names no approved version to.
-func (r rolePrompts) InForce(ctx context.Context, role dispatch.Role) (artifact.Artifact, bool, error) {
-	return artifact.InForce(ctx, r.pool, artifact.KindRolePrompt, string(role), "", nil)
+// in-force query with the approved versions this composition has read.
+func (r *rolePrompts) InForce(ctx context.Context, role dispatch.Role) (artifact.Artifact, bool, error) {
+	approved, err := r.approvedVersions(ctx)
+	if err != nil {
+		return artifact.Artifact{}, false, err
+	}
+	return artifact.InForce(ctx, r.pool, artifact.KindRolePrompt, string(role), "", approved)
 }
+
+// forget drops the approved versions this value read, so the next read takes
+// them again. A decision at the role-prompt row calls it.
+func (r *rolePrompts) forget() {
+	r.mu.Lock()
+	r.approved, r.read = nil, false
+	r.mu.Unlock()
+}
+
+// approvedVersions is every version a close event at the role-prompt row
+// approved, read off the log once.
+func (r *rolePrompts) approvedVersions(ctx context.Context) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.read {
+		return r.approved, nil
+	}
+	closed, err := decisionlog.NewReader(r.pool, r.token).ClosedDecisions(ctx, rolePromptReader)
+	if err != nil {
+		return nil, err
+	}
+	for _, one := range closed {
+		if one.CloseEvent.Verdict != string(gate.VerdictApprove) {
+			continue
+		}
+		opened, is := openingOn(one.OpenEvent, func(o gate.Opened) bool {
+			return o.Gate.Kind == gate.KindRolePromptOrSkill
+		})
+		if !is || opened.ArtifactID == "" {
+			continue
+		}
+		r.approved = append(r.approved, opened.ArtifactID)
+	}
+	r.read = true
+	return r.approved, nil
+}
+
+// rolePromptReader is who this read of the log is made as. Which version a
+// role runs on is the component that hands one to a role asking, so the read
+// event names dispatch and not the owner: no human asked.
+var rolePromptReader = principal.OfComponent("dispatch")
 
 // shippedPromptFor is the words the product ships for one role. It is the one
 // place package agent's six constants are read: what a run reads is the
@@ -115,17 +280,17 @@ func shippedPromptFor(role dispatch.Role) (string, error) {
 // here puts it in force — the words the install ran on stand until that row is
 // decided, and this interface fires none.
 func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpool.Pool,
-	actor record.Actor, bundle string) (rolePrompts, []string, error) {
-	prompts := rolePrompts{pool: pool}
+	token lease.Token, actor record.Actor, bundle string) (*rolePrompts, []string, error) {
+	prompts := &rolePrompts{pool: pool, token: token}
 	var entered []string
 	for _, role := range dispatch.Roles {
 		shipped, err := shippedPromptFor(role)
 		if err != nil {
-			return rolePrompts{}, nil, err
+			return nil, nil, err
 		}
 		last, found, err := artifact.NewestShipped(ctx, pool, artifact.KindRolePrompt, string(role), "")
 		if err != nil {
-			return rolePrompts{}, nil, err
+			return nil, nil, err
 		}
 		if found && (last.ShippedBundleIdentity == bundle || last.Content == shipped) {
 			continue
@@ -140,7 +305,7 @@ func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpo
 		}
 		if _, err := store.EnterShipped(ctx, actor, artifact.KindRolePrompt, string(role), "",
 			shipped, enteredBy, bundle); err != nil {
-			return rolePrompts{}, nil, err
+			return nil, nil, err
 		}
 		entered = append(entered, string(role))
 	}

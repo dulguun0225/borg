@@ -23,7 +23,7 @@ func TestAnEncodingDefectIsRejectedAtTheMergeRowBeforeAVerdict(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	path := p(ctx, t, d)
 	c := authorOne(t, ctx, path, theSecondStatement, out)
 	if err := path.candidateEnvironment(ctx, c); err != nil {
@@ -92,7 +92,7 @@ func TestAnEncodingCouldNotDerivePutsAHumanAtTheMergeRow(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	path := p(ctx, t, d)
 	c := authorOne(t, ctx, path, theSecondStatement, out)
 	if err := path.candidateEnvironment(ctx, c); err != nil {
@@ -123,9 +123,21 @@ func TestAnEncodingCouldNotDerivePutsAHumanAtTheMergeRow(t *testing.T) {
 	if !found {
 		t.Errorf("the open event's could_not_derive is %v, want it to carry %q", opened.CouldNotDerive, gate.CouldNotDeriveEncoding)
 	}
-	// The scripted input approves the row a human was put at, so the candidate
-	// still reaches the queue — the could-not-derive asked for a verdict and
-	// got one, rather than rejecting on its own terms.
+	// The scripted human approves the row the pass left pending, and the pass
+	// that finds that verdict is what performs it: the candidate still reaches
+	// the queue — the could-not-derive asked for a verdict and got one, rather
+	// than rejecting on its own terms.
+	if _, err := path.d.decide(ctx, path); err != nil {
+		t.Fatalf("approving the merge row at Work: %v\n%s", err, out)
+	}
+	fresh, err := path.rehydrate(ctx, c.itemID)
+	if err != nil {
+		t.Fatalf("reading the item back out of the records: %v", err)
+	}
+	*c = *fresh
+	if err := path.mergeGate(ctx, c); err != nil {
+		t.Fatalf("the Merge to master gate after the verdict: %v\noutput so far:\n%s", err, out)
+	}
 	if !c.queued {
 		t.Fatal("the candidate did not reach the merge queue after a human approved the could-not-derive row")
 	}

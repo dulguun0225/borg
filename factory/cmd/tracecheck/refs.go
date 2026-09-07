@@ -144,11 +144,14 @@ func Check(refs []Reference) []string {
 	return found
 }
 
-// Uncited returns every doc.go path in files that contributed no Reference,
-// in the order files gives them. A doc.go with nothing cited out of it has
-// no "What defines it" line, or one a Go comment never carries a path from —
-// either way, this is what tracecheck's own doc.go claims to check and
-// Check alone does not.
+// Uncited returns every doc.go path, and every screen README path
+// [isScreenReadme] names, in files that contributed no Reference, in the
+// order files gives them. A doc.go with nothing cited out of it has no
+// "What defines it" line, or one a Go comment never carries a path from; a
+// screen README with nothing cited out of it has no such line either — this
+// is the client's counterpart to a doc.go, so it is held to the same rule.
+// Either way, this is what tracecheck's own doc.go claims to check and Check
+// alone does not.
 func Uncited(files []string, refs []Reference) []string {
 	cited := make(map[string]bool)
 	for _, ref := range refs {
@@ -157,7 +160,7 @@ func Uncited(files []string, refs []Reference) []string {
 
 	var uncited []string
 	for _, file := range files {
-		if filepath.Base(file) == "doc.go" && !cited[file] {
+		if (filepath.Base(file) == "doc.go" || isScreenReadme(file)) && !cited[file] {
 			uncited = append(uncited, file)
 		}
 	}

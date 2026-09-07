@@ -1,0 +1,253 @@
+<h2>The fleet</h2>
+@if (entries().length === 0) {
+  <p class="quiet">
+    No fleet entry is written, so dispatch holds every item whose stage needs one.
+  </p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Model version</th>
+        <th scope="col">Effort</th>
+        <th scope="col">Role</th>
+        <th scope="col">Scope project</th>
+        <th scope="col">Scope service</th>
+        <th scope="col">Scope area</th>
+        <th scope="col">Credential</th>
+        <th scope="col">Processing location</th>
+        <th scope="col">Material classes</th>
+        <th scope="col">Reads at once</th>
+        <th scope="col">Dispatches between evaluation runs</th>
+        <th scope="col">Withdraw</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of entries(); track one.ID) {
+        <tr>
+          <td>{{ one.ModelVersion }}</td>
+          <td>{{ one.Effort === '' ? 'none asked for' : one.Effort }}</td>
+          <td>{{ one.Role }}</td>
+          <td>{{ one.ScopeProjectID === '' ? 'the whole factory' : one.ScopeProjectID }}</td>
+          <td>{{ one.ScopeServiceID === '' ? 'the whole factory' : one.ScopeServiceID }}</td>
+          <td>{{ one.ScopeAreaID === '' ? 'the whole factory' : one.ScopeAreaID }}</td>
+          <td>{{ one.Credential }}</td>
+          <td>{{ one.ProcessingLocation }}</td>
+          <td>
+            @if ((one.MaterialClasses ?? []).length === 0) {
+              none
+            } @else {
+              {{ (one.MaterialClasses ?? []).join(', ') }}
+            }
+          </td>
+          <td>{{ one.ReadAtOnceBound }}</td>
+          <td>{{ one.DispatchesBetweenEvalRuns }}</td>
+          <td>
+            <button type="button" (click)="withdrawEntry(one.ID)">Withdraw</button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h3>Write a fleet entry</h3>
+<form (submit)="writeEntry($event)">
+  <div class="field">
+    <label for="entry-model">Model version</label>
+    <input id="entry-model" type="text" [formField]="entryForm.ModelVersion" />
+    @for (problem of problems(entryForm.ModelVersion().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="entry-effort">Effort, empty where the provider offers none</label>
+    <input id="entry-effort" type="text" [formField]="entryForm.Effort" />
+  </div>
+  <div class="field">
+    <label for="entry-role">Role</label>
+    <select id="entry-role" [formField]="entryForm.Role">
+      <option value="">choose a role</option>
+      @for (role of roles(); track role) {
+        <option [value]="role">{{ role }}</option>
+      }
+    </select>
+    @for (problem of problems(entryForm.Role().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="entry-scope-project">
+      Scope project, empty where this entry is not narrowed to one
+    </label>
+    <input id="entry-scope-project" type="text" [formField]="entryForm.ScopeProjectID" />
+  </div>
+  <div class="field">
+    <label for="entry-scope-service">
+      Scope service, empty where this entry is not narrowed to one
+    </label>
+    <input id="entry-scope-service" type="text" [formField]="entryForm.ScopeServiceID" />
+  </div>
+  <div class="field">
+    <label for="entry-scope-area">
+      Scope area, empty where this entry is not narrowed to one
+    </label>
+    <input id="entry-scope-area" type="text" [formField]="entryForm.ScopeAreaID" />
+  </div>
+  <p class="quiet">All three empty scopes the entry to the whole factory.</p>
+  <div class="field">
+    <label for="entry-credential">Credential</label>
+    @if (credentials().length > 0) {
+      <select id="entry-credential" [formField]="entryForm.Credential">
+        <option value="">choose a credential</option>
+        @for (credential of credentials(); track credential) {
+          <option [value]="credential">{{ credential }}</option>
+        }
+      </select>
+    } @else {
+      <input id="entry-credential" type="text" [formField]="entryForm.Credential" />
+    }
+    @for (problem of problems(entryForm.Credential().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="entry-location">Processing location</label>
+    <input id="entry-location" type="text" [formField]="entryForm.ProcessingLocation" />
+    @for (problem of problems(entryForm.ProcessingLocation().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+
+  <h4>Material classes this entry may be handed</h4>
+  <div class="field">
+    <label for="class-intent">The intent's statement</label>
+    <input
+      id="class-intent"
+      type="checkbox"
+      [formField]="entryForm.MaterialClasses.intent_statement"
+    />
+  </div>
+  <div class="field">
+    <label for="class-reports">Reports</label>
+    <input id="class-reports" type="checkbox" [formField]="entryForm.MaterialClasses.reports" />
+  </div>
+  <div class="field">
+    <label for="class-answer">An owner's answer</label>
+    <input id="class-answer" type="checkbox" [formField]="entryForm.MaterialClasses.owner_answer" />
+  </div>
+  <div class="field">
+    <label for="class-repository">The repository</label>
+    <input
+      id="class-repository"
+      type="checkbox"
+      [formField]="entryForm.MaterialClasses.repository"
+    />
+  </div>
+  <div class="field">
+    <label for="class-output">Run output</label>
+    <input id="class-output" type="checkbox" [formField]="entryForm.MaterialClasses.run_output" />
+  </div>
+  <div class="field">
+    <label for="class-constraints">Constraints</label>
+    <input
+      id="class-constraints"
+      type="checkbox"
+      [formField]="entryForm.MaterialClasses.constraints"
+    />
+  </div>
+  <div class="field">
+    <label for="class-failures">An incident's copied failure records</label>
+    <input
+      id="class-failures"
+      type="checkbox"
+      [formField]="entryForm.MaterialClasses.failure_records"
+    />
+  </div>
+
+  <div class="field">
+    <label for="entry-reads">How much the model reads at once</label>
+    <input id="entry-reads" type="number" [formField]="entryForm.ReadAtOnceBound" />
+    @for (problem of problems(entryForm.ReadAtOnceBound().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="entry-dispatches">Dispatches between evaluation-set runs</label>
+    <input id="entry-dispatches" type="number" [formField]="entryForm.DispatchesBetweenEvalRuns" />
+    @for (problem of problems(entryForm.DispatchesBetweenEvalRuns().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="actions">
+    <button type="submit">Write it</button>
+  </div>
+</form>
+
+<h2>Role prompts</h2>
+@if (prompts().length === 0) {
+  <p class="quiet">No role has a role prompt version in force.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Role</th>
+        <th scope="col">Version in force</th>
+        <th scope="col">Awaiting its gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (prompt of prompts(); track prompt.Role) {
+        <tr>
+          <td>{{ prompt.Role }}</td>
+          <td>{{ prompt.VersionInForce === '' ? 'none in force' : prompt.VersionInForce }}</td>
+          <td>
+            {{ prompt.AwaitingGateVersion === '' ? 'none' : prompt.AwaitingGateVersion }}
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+@let row = gateRow();
+@if (row === null || row === undefined) {
+  <p class="quiet">No version of a role prompt is awaiting a decision.</p>
+} @else {
+  <h3>Decide the row {{ row.Role }}'s version {{ row.VersionID }} fired</h3>
+  <p class="quiet">Opened {{ at(row.OpenedAt) }}. This row names a version and no item.</p>
+  <form (submit)="decideRow($event)">
+    <div class="field">
+      <label for="row-verdict">Action</label>
+      <select id="row-verdict" [formField]="decisionForm.Verdict">
+        <option value="approve">approve</option>
+        <option value="reject">reject with feedback</option>
+        <option value="edit_in_place">edit in place</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="row-text">
+        The feedback a reject carries, or the version an edit in place writes
+      </label>
+      <textarea id="row-text" [formField]="decisionForm.Text"></textarea>
+      @for (problem of problems(decisionForm.Text().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <div class="actions">
+      <button type="submit">Decide it</button>
+    </div>
+  </form>
+}
+
+<h2>Fleet proposals</h2>
+<p class="quiet">
+  No fleet proposal is waiting on a disposition. Nothing writes one yet: the install's
+  first-start step and dispatch's argued run are both later than this factory.
+</p>
+@if (proposals().length > 0) {
+  <ul>
+    @for (proposal of proposals(); track proposal.ID) {
+      <li>{{ proposal.ID }}</li>
+    }
+  </ul>
+}

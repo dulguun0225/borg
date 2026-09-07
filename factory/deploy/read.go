@@ -159,6 +159,52 @@ func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID s
 	return current, true, nil
 }
 
+// CurrentOnTarget is the release one target of one environment is running: the
+// deploy of the highest-numbered release marked complete on that address, and
+// false where none is. It is what Ops reads per target, [Current] answering for
+// the service as a whole — a rollout that completed on one target and stalled
+// on the next leaves the two disagreeing, and which release each is running is
+// what the design puts on that screen.
+//
+// Every rule [Current] states holds here over the one address instead of over
+// every address the service runs on: the release number and never the
+// completion time orders them, because rollouts overlap and differ in length;
+// a removal complete on the address after that release's deploy is none, a
+// removal being what takes a service off an environment; only deploys naming a
+// release are read, a candidate's naming a build; and the record's own status
+// is not read, completion on the address being the whole of the rule — so a
+// target a rollback has advanced to rolled back is no longer complete on it.
+func CurrentOnTarget(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID, address string) (Deploy, bool, error) {
+	if address == "" {
+		return Deploy{}, false, nil
+	}
+	completeOn := ` and exists (select 1 from ` + TargetTable + ` t
+			where t.deploy_id = ` + Table + `.id and t.address = $3 and t.completion = $4)`
+
+	current, found, err := scanOne(ctx, pool, selectDeploy+`
+		where service_id = $1 and environment_id = $2 and release_id <> ''`+completeOn+`
+		order by (select number from `+release.Table+` r where r.id = release_id) desc nulls last,
+			number desc
+		limit 1`,
+		serviceID, environmentID, address, string(CompletionComplete))
+	if err != nil || !found {
+		return Deploy{}, false, err
+	}
+
+	removal, removed, err := scanOne(ctx, pool, selectDeploy+`
+		where service_id = $1 and environment_id = $2
+		and release_id = '' and build_id = ''`+completeOn+`
+		order by number desc limit 1`,
+		serviceID, environmentID, address, string(CompletionComplete))
+	if err != nil {
+		return Deploy{}, false, err
+	}
+	if removed && removal.Number > current.Number {
+		return Deploy{}, false, nil
+	}
+	return current, true, nil
+}
+
 // BackfillComplete is the deploy record that marks the backfill for one element
 // of one store contract complete, and false where none does. The element is
 // either side of the pair a backfill fills: the one it filled and the one it
@@ -199,6 +245,18 @@ func ByRelease(ctx context.Context, pool *pgxpool.Pool, environmentID, releaseID
 	}
 	return query(ctx, pool, "the deploys of release "+releaseID, selectDeploy+`
 		where environment_id = $1 and release_id = $2 order by number, id`, environmentID, releaseID)
+}
+
+// ForEnvironment is every deploy into one environment, oldest first. It is what
+// a reader of a candidate's environment asks: [Current] answers with the
+// release running and a deploy onto a candidate environment names a build and no
+// release, the number being minted one gate below that row.
+func ForEnvironment(ctx context.Context, pool *pgxpool.Pool, environmentID string) ([]Deploy, error) {
+	if environmentID == "" {
+		return nil, nil
+	}
+	return query(ctx, pool, "the deploys into environment "+environmentID, selectDeploy+`
+		where environment_id = $1 order by number, id`, environmentID)
 }
 
 // Unfinished is every deploy still started, oldest first, whatever the service

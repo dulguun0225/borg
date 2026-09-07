@@ -6,7 +6,7 @@
 //
 // schema.go is [Table], [IDPrefix], [FormatVersion] and [DDL]. writer.go is
 // [Area], [Inside], [Writer] and [NewWriter] with [Writer.Declare], [Insert]
-// and [SetItemSizeTarget], and the reads [Get], [ByName] and [Chain]. hazard.go is
+// and [SetItemSizeTarget], and the reads [Get], [ByName], [All] and [Chain]. hazard.go is
 // [Grade], [Grades], [Hazard] and [SeverityInForce]. The tests are db_test.go,
 // every one of them against the database.
 //

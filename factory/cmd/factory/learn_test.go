@@ -177,7 +177,7 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	// No interview rounds, so nothing consumes an answer and every line is a
 	// verdict — and a verdict is now needed at rows that auto-passed before the
 	// threshold fell.
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	d.model = interviewed(0)
 	res, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {

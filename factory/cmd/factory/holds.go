@@ -7,11 +7,14 @@ import (
 
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -211,4 +214,131 @@ func (p *path) IsARevert(ctx context.Context, it item.Item) (bool, error) {
 		return false, fmt.Errorf("factory: reading the evidence on intent %s: %w", raised.ID, err)
 	}
 	return evidence.ReleaseID != "", nil
+}
+
+// dependencyHold is the factory's own hold at both deploy rows: a declared
+// dependency that is not its service's current release. At the candidate deploy
+// row the question is whether it is live at all, the environment being composed
+// from it; at the production deploy row, whether it is live still.
+//
+// It returns the words the hold is reported with, and nothing where every
+// dependency is live. Nothing is written either way — a hold over a record that
+// already exists is recomputed at every firing.
+func (p *path) dependencyHold(ctx context.Context, it item.Item) (string, error) {
+	for _, waitsOn := range it.WaitsOn {
+		dependency, err := item.Get(ctx, p.d.pool, waitsOn)
+		if err != nil {
+			return "", err
+		}
+		addresses, err := p.addressesOf(ctx, dependency.ServiceID)
+		if err != nil {
+			return "", err
+		}
+		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID, addresses)
+		if err != nil {
+			return "", err
+		}
+		if !found {
+			return fmt.Sprintf("%s — %s is running nothing, so item %s is not live",
+				gate.HoldDependencyNotLive, dependency.ServiceID, waitsOn), nil
+		}
+		rel, err := release.Get(ctx, p.d.pool, current.ReleaseID)
+		if err != nil {
+			return "", err
+		}
+		if rel.ItemID != waitsOn {
+			return fmt.Sprintf("%s — %s is running release %d, which is item %s and not item %s",
+				gate.HoldDependencyNotLive, dependency.ServiceID, rel.Number, rel.ItemID, waitsOn), nil
+		}
+	}
+	return "", nil
+}
+
+// objectiveHold is the two things a service level objective does, read from one
+// budget: the hold an exhausted budget sets on that service's production
+// deploys, and the intent the objective raises. The hold lifts itself when the
+// period rolls forward far enough to restore the budget, nothing is decided and
+// no page fires — the shape the hold a dependency that is not current sets
+// already has. A budget the store does not cover is uncomputed and holds the way
+// an exhausted one does, a budget taken as intact over records that are not
+// there being an absent input read as evidence.
+//
+// The raise is on the same reading because the two are one mechanism: the fix
+// for whatever exhausted the budget is itself a production deploy, and the item
+// that passes the hold on a service that crossed nothing is the one this raise
+// takes in. A budget read as exhausted with nothing raised on it would be a hold
+// no item could lift.
+//
+// Where an owner authored no objective there is no budget, nothing is held and
+// nothing is raised: that reading and the window are the whole of what protects
+// the service.
+func (p *path) objectiveHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
+	w := healthmonitor.Watching{ID: svc.ID, Name: svc.Name, EnvironmentID: p.production.ID}
+	budget, err := p.healthMonitor.ErrorBudget(ctx, w)
+	if err != nil {
+		return "", err
+	}
+	if _, err := p.healthMonitor.RaiseObjectiveIntent(ctx, w, budget); err != nil {
+		return "", err
+	}
+	return p.budgetHold(ctx, svc, it, budget)
+}
+
+// budgetHold is the hold half of [path.objectiveHold], over a budget the
+// caller has already read. It is apart from that call because the raise beside
+// it is a write and [views] performs none: a screen reading which hold stands
+// at an item's production deploy row reads the budget and then this, and the
+// pass that fires the row raises the intent as well.
+func (p *path) budgetHold(ctx context.Context, svc service.Service, it item.Item,
+	budget healthmonitor.Budget) (string, error) {
+	if !budget.Holds() {
+		return "", nil
+	}
+	passes, err := p.passesTheBudgetHold(ctx, svc, it)
+	if err != nil || passes {
+		return "", err
+	}
+	if !budget.Covered {
+		return fmt.Sprintf("%s — the store does not cover the objective's period of %.0f seconds, so the budget is uncomputed and holds the way a spent one does",
+			gate.HoldErrorBudgetExhausted, budget.PeriodSeconds), nil
+	}
+	return fmt.Sprintf("%s — %.0f%% of the allowance is left over a period of %.0f seconds",
+		gate.HoldErrorBudgetExhausted, budget.Remaining*100, budget.PeriodSeconds), nil
+}
+
+// passesTheBudgetHold is the two items the design lets past it: a revert, which
+// passes the hold a rollback leaves for the same reason, and an item whose intent
+// a detector raised on that service — the health monitor's at a crossing, or the
+// objective's own. Without the second the hold would stand hardest exactly where
+// production is worst, no item on a service that crossed nothing being able to
+// lift it.
+//
+// A request an owner raised on that service does not pass; the route is the
+// objective's intent, which exists whenever the budget is exhausted.
+func (p *path) passesTheBudgetHold(ctx context.Context, svc service.Service, it item.Item) (bool, error) {
+	if it.IntentID == "" {
+		return false, nil
+	}
+	_, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
+	if err != nil {
+		return false, err
+	}
+	if outstanding && it.IntentID == revertIntentID {
+		return true, nil
+	}
+	raised, err := intent.Get(ctx, p.d.pool, it.IntentID)
+	if err != nil {
+		return false, err
+	}
+	if raised.Source != intent.SourceDetector || raised.Evidence == "" {
+		return false, nil
+	}
+	// The evidence is stored as the key package intent composes, and the service
+	// it names is what says the detector raised this on this service and not on
+	// another.
+	var evidence intent.Evidence
+	if err := json.Unmarshal([]byte(raised.Evidence), &evidence); err != nil {
+		return false, fmt.Errorf("factory: reading the evidence on intent %s: %w", raised.ID, err)
+	}
+	return evidence.ServiceID == svc.ID, nil
 }

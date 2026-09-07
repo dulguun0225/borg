@@ -13,7 +13,7 @@ import (
 // production, asks the round that follows it, and leaves the intent refined
 // with the question unanswered — the wait on a requester the design says is
 // unbounded and spends nothing. Answering it is what writes delivered and the
-// outcome, which is what `factory accept` performs at the terminal.
+// outcome, which is what Work's own answer performs.
 func TestTheAcceptanceRoundIsAskedAndDeliversTheIntent(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 

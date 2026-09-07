@@ -1,8 +1,10 @@
-// Tests of the author subcommand: which parameter reads which subject flag,
-// and what it refuses to resolve.
+// What an owner authors at Factory: which parameter reads which subject, what
+// the call refuses to resolve, and the policy version every write appends.
 package main
 
 import (
+	"context"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -11,59 +13,56 @@ import (
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/screens"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
-// TestNothingToAuthorOnBeforeTheFactoryIsInstalled: the two records an owner
-// authors on are created by the run's first take, and an error naming a missing
-// version says that badly on its own — so the subcommand says what to do.
-func TestNothingToAuthorOnBeforeTheFactoryIsInstalled(t *testing.T) {
+// TestNothingToReadBeforeTheFactoryIsInstalled: the two records an owner
+// authors on are created by the install, and an error naming a missing version
+// says that badly on its own — so the read says what to do.
+func TestNothingToReadBeforeTheFactoryIsInstalled(t *testing.T) {
 	_, _ = newOwner(t)
 
-	for _, c := range []struct {
-		name string
-		run  func() error
-	}{
-		{"policy", func() error { return policyCommand(nil) }},
-		{"author", func() error {
-			return authorCommand([]string{"-parameter", "attempt_limit", "-value", "5"})
-		}},
-	} {
-		err := c.run()
-		if err == nil {
-			t.Errorf("%s on a factory nobody installed was accepted", c.name)
-			continue
-		}
-		if !strings.Contains(err.Error(), "the factory is not installed") {
-			t.Errorf("%s says %q, and what an owner needs to know is that nothing is installed", c.name, err)
-		}
+	err := policyCommand(nil)
+	if err == nil {
+		t.Fatal("policy on a factory nobody installed was accepted")
+	}
+	if !strings.Contains(err.Error(), "the factory is not installed") {
+		t.Errorf("policy says %q, and what an owner needs to know is that nothing is installed", err)
 	}
 }
 
 // TestEachParameterReadsTheSubjectItsScopeNames: the record a parameter is a
-// field of is a fact of the parameter and not a choice, so the subcommand reads
-// the flag that parameter needs and refuses where the subject is missing.
+// field of is a fact of the parameter and not a choice, so the call reads the
+// subject that parameter names and refuses where it is missing.
 func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
-	ctx, pool := newOwner(t)
-	production := install(t, ctx, pool)
-	svc := decomposeService(t, ctx, pool, "checkout")
-	if err := areaCommand([]string{"payments"}); err != nil {
-		t.Fatalf("area: %v", err)
+	ctx, d, out := newPath(t, approvals)
+	s := newScreens(t, ctx, d, out)
+	production := s.p.production
+	svc, found, err := service.ByName(ctx, d.pool, theService)
+	if err != nil || !found {
+		t.Fatalf("ByName(%s) = found %v, %v", theService, found, err)
 	}
-	ar, _, err := area.ByName(ctx, pool, "payments")
+	if s.mustCall(t, "declareArea", screens.DeclareAreaArgs{Name: "billing"}) == "" {
+		t.Fatal("declareArea answered with no id")
+	}
+	ar, _, err := area.ByName(ctx, d.pool, "billing")
 	if err != nil {
-		t.Fatalf("ByName: %v", err)
+		t.Fatalf("ByName(billing): %v", err)
 	}
 
-	for _, c := range []struct {
-		args []string
+	before := len(versionsOf(t, ctx, d))
+	authorings := []struct {
+		args screens.AuthorParameterArgs
 		want float64
 		read func() (float64, bool)
 	}{
 		{
-			[]string{"-parameter", "risk_threshold", "-value", "0.2", "-gate", "merge_to_master"}, 0.2,
+			screens.AuthorParameterArgs{Parameter: "risk_threshold", Value: "0.2", GateRow: "merge_to_master"}, 0.2,
 			func() (float64, bool) {
-				authored, err := environment.GateThreshold(ctx, pool, production.ID, "merge_to_master")
+				authored, err := environment.GateThreshold(ctx, d.pool, production.ID, "merge_to_master")
 				if err != nil {
 					t.Fatalf("GateThreshold: %v", err)
 				}
@@ -71,9 +70,9 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "attempt_limit", "-value", "5", "-stage", "implementation"}, 5,
+			screens.AuthorParameterArgs{Parameter: "attempt_limit", Value: "5", Stage: "implementation"}, 5,
 			func() (float64, bool) {
-				fp, err := factorysettings.Get(ctx, pool)
+				fp, err := factorysettings.Get(ctx, d.pool)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
@@ -81,7 +80,7 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 				if err != nil {
 					t.Fatalf("OfStage: %v", err)
 				}
-				authored, err := factorysettings.AttemptLimit(ctx, pool, fp.ID, subject)
+				authored, err := factorysettings.AttemptLimit(ctx, d.pool, fp.ID, subject)
 				if err != nil {
 					t.Fatalf("AttemptLimit: %v", err)
 				}
@@ -89,9 +88,9 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "item_size_target", "-value", "400", "-area", "payments"}, 400,
+			screens.AuthorParameterArgs{Parameter: "item_size_target", Value: "400", AreaID: "billing"}, 400,
 			func() (float64, bool) {
-				read, err := area.Get(ctx, pool, ar.ID)
+				read, err := area.Get(ctx, d.pool, ar.ID)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
@@ -99,9 +98,9 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "window_limit", "-value", "2", "-service", "checkout"}, 2,
+			screens.AuthorParameterArgs{Parameter: "window_limit", Value: "2", ServiceID: theService}, 2,
 			func() (float64, bool) {
-				read, err := service.Get(ctx, pool, svc.ID)
+				read, err := service.Get(ctx, d.pool, svc.ID)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
@@ -109,9 +108,9 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "window_confidence", "-value", "0.99", "-service", "checkout"}, 0.99,
+			screens.AuthorParameterArgs{Parameter: "window_confidence", Value: "0.99", ServiceID: theService}, 0.99,
 			func() (float64, bool) {
-				read, err := service.Get(ctx, pool, svc.ID)
+				read, err := service.Get(ctx, d.pool, svc.ID)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
@@ -119,85 +118,97 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-parameter", "risk_threshold", "-value", "0.15", "-gate", gate.RolePromptOrSkill.String()}, 0.15,
+			screens.AuthorParameterArgs{Parameter: "risk_threshold", Value: "0.15", GateRow: gate.RolePromptOrSkill.String()}, 0.15,
 			func() (float64, bool) {
-				fp, err := factorysettings.Get(ctx, pool)
+				fp, err := factorysettings.Get(ctx, d.pool)
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
 				return fp.RolePromptOrSkillThreshold.Number, fp.RolePromptOrSkillThreshold.Present
 			},
 		},
-	} {
-		if err := authorCommand(c.args); err != nil {
-			t.Errorf("author %v: %v", c.args, err)
-			continue
-		}
+		{
+			// The allowed predicate kinds are the one list, and they are
+			// authored as one.
+			screens.AuthorParameterArgs{Parameter: "allowed_predicate_kinds", Value: "status,schema"}, 2,
+			func() (float64, bool) {
+				fp, err := factorysettings.Get(ctx, d.pool)
+				if err != nil {
+					t.Fatalf("Get: %v", err)
+				}
+				return float64(len(fp.AllowedPredicateKinds)), true
+			},
+		},
+	}
+	for _, c := range authorings {
+		s.mustCall(t, "authorParameter", c.args)
 		value, present := c.read()
 		if !present {
-			t.Errorf("author %v left nothing authored", c.args)
+			t.Errorf("authoring %+v left nothing authored", c.args)
 		}
 		if value != c.want {
-			t.Errorf("author %v stored %v, want %v", c.args, value, c.want)
+			t.Errorf("authoring %+v stored %v, want %v", c.args, value, c.want)
 		}
 	}
 
-	// The allowed predicate kinds are the one list, and they are authored as one.
-	if err := authorCommand([]string{"-parameter", "allowed_predicate_kinds", "-value", "status,schema"}); err != nil {
-		t.Fatalf("author the allowed: %v", err)
-	}
-	fp, err := factorysettings.Get(ctx, pool)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if len(fp.AllowedPredicateKinds) != 2 {
-		t.Errorf("the allowed reads %v, want the two authored", fp.AllowedPredicateKinds)
-	}
-
-	// Every authoring write appended a policy version, so the sequence is as long
-	// as the writes plus the three the install made — the factory-wide settings
-	// record, the project, and production's environment for it.
-	versions, err := policyVersions(t, ctx, pool)
-	if err != nil {
-		t.Fatalf("Versions: %v", err)
-	}
-	if len(versions) != 10 {
-		t.Errorf("%d policy versions exist, want three creations and seven authorings", len(versions))
+	// Every authoring write appended a policy version, and so did the area
+	// declared before them: the count is read as a difference, because the
+	// install and the window's four are authored by the fixture and a run of
+	// the path would author more.
+	after := len(versionsOf(t, ctx, d))
+	if after-before != len(authorings) {
+		t.Errorf("%d policy version(s) were appended by %d authoring write(s)", after-before, len(authorings))
 	}
 }
 
-// TestAuthoringRefusesWhatItCannotResolve: a parameter that is not one of the
+// TestAuthoringRefusesWhatItCannotResolve: a parameter that is none of the
 // eight, a value of the wrong shape, and a subject the parameter needs and the
 // owner did not give.
 func TestAuthoringRefusesWhatItCannotResolve(t *testing.T) {
-	ctx, pool := newOwner(t)
-	install(t, ctx, pool)
+	ctx, d, out := newPath(t, approvals)
+	s := newScreens(t, ctx, d, out)
 
+	before := len(versionsOf(t, ctx, d))
 	for _, c := range []struct {
 		name string
-		args []string
+		args screens.AuthorParameterArgs
 	}{
-		{"no parameter", []string{"-value", "2"}},
-		{"no value", []string{"-parameter", "k"}},
-		{"a parameter that does not exist", []string{"-parameter", "gut_feel", "-value", "2"}},
-		{"a word where a number belongs", []string{"-parameter", "window_limit", "-value", "two", "-service", "checkout"}},
-		{"no service for a service-scoped parameter", []string{"-parameter", "window_limit", "-value", "2"}},
-		{"no area for an area-scoped parameter", []string{"-parameter", "item_size_target", "-value", "400"}},
-		{"an area nobody declared", []string{"-parameter", "item_size_target", "-value", "400", "-area", "nothing"}},
-		{"a service nobody decomposed", []string{"-parameter", "window_limit", "-value", "2", "-service", "nothing"}},
+		{"no parameter", screens.AuthorParameterArgs{Value: "2"}},
+		{"no value", screens.AuthorParameterArgs{Parameter: "window_limit"}},
+		{"a parameter that does not exist", screens.AuthorParameterArgs{Parameter: "gut_feel", Value: "2"}},
+		{"a word where a number belongs", screens.AuthorParameterArgs{
+			Parameter: "window_limit", Value: "two", ServiceID: theService}},
+		{"no service for a service-scoped parameter", screens.AuthorParameterArgs{
+			Parameter: "window_limit", Value: "2"}},
+		{"no area for an area-scoped parameter", screens.AuthorParameterArgs{
+			Parameter: "item_size_target", Value: "400"}},
+		{"an area nobody declared", screens.AuthorParameterArgs{
+			Parameter: "item_size_target", Value: "400", AreaID: "nothing"}},
+		{"a service nobody decomposed", screens.AuthorParameterArgs{
+			Parameter: "window_limit", Value: "2", ServiceID: "nothing"}},
 	} {
-		if err := authorCommand(c.args); err == nil {
-			t.Errorf("author with %s was accepted", c.name)
+		if status, body := s.call(t, "authorParameter", c.args); status == http.StatusNoContent ||
+			status == http.StatusOK {
+			t.Errorf("authoring with %s was accepted: %s", c.name, body)
 		}
 	}
 
-	// Nothing was authored, so nothing moved the policy version past the
-	// install's three creations.
-	versions, err := policyVersions(t, ctx, pool)
+	// Nothing was authored, so nothing appended a policy version.
+	if after := len(versionsOf(t, ctx, d)); after != before {
+		t.Errorf("%d policy version(s) were appended by refused writes", after-before)
+	}
+}
+
+// versionsOf is every policy version, read through [policy.Reader] with the
+// lease the fixture holds — which is what makes a read after a screen's own
+// write readable, the token every writer and every read event carries being
+// the one this test's deps compose with.
+func versionsOf(t *testing.T, ctx context.Context, d deps) []policy.Version {
+	t.Helper()
+	versions, err := policy.NewReader(d.pool, d.token, score.Version{}).
+		Versions(ctx, asPrincipal(owner(t, ctx, d.pool, d.token, d.human)))
 	if err != nil {
-		t.Fatalf("Versions: %v", err)
+		t.Fatalf("reading the policy versions: %v", err)
 	}
-	if len(versions) != 3 {
-		t.Errorf("%d policy versions exist after refused writes, want the install's three", len(versions))
-	}
+	return versions
 }

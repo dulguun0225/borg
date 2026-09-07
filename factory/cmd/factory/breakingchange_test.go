@@ -28,7 +28,7 @@ func TestABreakingChangeIsRejectedAtTheMergeRowNamingTheConsumer(t *testing.T) {
 	ctx, d, out := newContractPath(t)
 	pair(t, ctx, d, out)
 
-	d.in = strings.NewReader(manyApprovals)
+	d.decide = scriptedAtWork(manyApprovals).decide
 	d.model = &retriedWithNoFix{inner: d.model}
 	res, err := run(ctx, d, []asked{across(breakStatement, theService)})
 	if err == nil {

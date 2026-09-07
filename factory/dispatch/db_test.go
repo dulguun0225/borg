@@ -24,10 +24,12 @@ import (
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/principal"
@@ -42,7 +44,16 @@ const (
 	// of the chain a scope is matched against.
 	theAreaAbove = "ar_11111111111111111111111111111111"
 	modelName    = "vendor/test-model"
+	// theCredential is the credential every entry these tests write runs on.
+	// Nobody has lent it on the People declaration unless a test declares it,
+	// which is a credential with no ceiling: unbounded, the way every install
+	// is before an owner authors one.
+	theCredential = "model.test"
 )
+
+// owner is who writes a fleet entry and the People declaration: an owner at
+// Factory, the one writer of both.
+var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
 
@@ -73,28 +84,13 @@ func (f *fakeModel) Complete(_ context.Context, p principal.Principal, call agen
 	return f.replies[n], err
 }
 
-// oneEntry is the fleet an owner composed for these tests: one entry per role
-// on the whole factory, all on one model.
-type oneEntry struct {
-	model *fakeModel
-	// covers is false where no entry covers the role, which is the first
-	// condition that stops a dispatch.
-	covers bool
-	scope  dispatch.Scope
-	// effort is what the entry asks the provider for, empty where the owner
-	// named none.
-	effort string
-}
+// oneModel is [dispatch.Models]: the client every entry of these tests is
+// answered with. The client is the one thing the fleet entry record cannot
+// hold, and which provider answers a credential is the composition's knowledge,
+// so a test composes a fake for every entry.
+type oneModel struct{ model *fakeModel }
 
-func (o *oneEntry) EntryFor(_ context.Context, role dispatch.Role, on dispatch.On) (dispatch.Entry, bool, error) {
-	if !o.covers || !o.scope.Covers(on) {
-		return dispatch.Entry{}, false, nil
-	}
-	return dispatch.Entry{
-		Role: role, Scope: o.scope, Model: o.model,
-		ModelVersion: modelName, CredentialName: "model.test", Effort: o.effort,
-	}, true, nil
-}
+func (o oneModel) For(context.Context, fleetentry.Entry) (agent.Model, error) { return o.model, nil }
 
 // shippedPrompts is the role prompt version in force per role, which the
 // composition reads off the artifact store. inForce is false where a role has
@@ -150,11 +146,24 @@ func (n *countingNotifier) Escalated(_ context.Context, itemID string, _ item.St
 
 // composed is everything one test drives.
 type composed struct {
-	ctx        context.Context
-	pool       *pgxpool.Pool
-	dispatch   *dispatch.Dispatch
-	items      *item.Dispatch
-	fleet      *oneEntry
+	ctx      context.Context
+	pool     *pgxpool.Pool
+	dispatch *dispatch.Dispatch
+	items    *item.Dispatch
+	// entries is the fleet entry's writer, an owner at Factory: the entries a
+	// dispatch matches against are records these tests write and no interface
+	// answers. lends is the People declaration's writer, which is where a
+	// credential's lender, its account kind, its rates and its spend ceiling
+	// are declared — composed with no policy factory, so a declaration these
+	// tests write appends no policy version, which is what a test of dispatch
+	// needs from it.
+	entries *fleetentry.Writer
+	lends   *people.Writer
+	// token and reader are what a test reads the log with itself: the two
+	// credential rows are not this component's per-item holds, so a test that
+	// asserts one reads the wait rows the way Work would.
+	token      lease.Token
+	reader     *decisionlog.Reader
 	prompts    *shippedPrompts
 	escalation *countingEscalation
 	told       *countingNotifier
@@ -204,7 +213,10 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 		ctx:        ctx,
 		pool:       pool,
 		items:      item.NewDispatch(pool, token),
-		fleet:      &oneEntry{model: model, covers: true},
+		entries:    fleetentry.NewWriter(pool, token),
+		lends:      people.NewWriter(pool, token, (*policy.Factory)(nil)),
+		token:      token,
+		reader:     decisionlog.NewReader(pool, token),
 		prompts:    &shippedPrompts{inForce: true, version: artifact.Artifact{ID: "art_role_prompt", Content: "the role prompt in force"}},
 		escalation: &countingEscalation{},
 		told:       &countingNotifier{},
@@ -213,10 +225,10 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 	}
 	c.dispatch, err = dispatch.New(dispatch.Composition{
 		Pool: pool, Token: token,
-		Fleet: c.fleet, Prompts: c.prompts, Items: c.items,
+		Models: oneModel{model: model}, Prompts: c.prompts, Items: c.items,
 		Policy:     fixedLimit{limit: limit},
 		Log:        decisionlog.NewWriter(pool, token),
-		Reader:     decisionlog.NewReader(pool, token),
+		Reader:     c.reader,
 		Manifests:  inputmanifest.NewWriter(pool, token),
 		Runs:       agentrun.NewWriter(pool, token),
 		Escalation: c.escalation,
@@ -226,7 +238,46 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 		t.Fatalf("New: %v", err)
 	}
 	c.decomposition = item.NewDecomposition(pool, token)
+	c.anEntryPerRole(t, "", fleetentry.MaterialClasses)
 	return c
+}
+
+// anEntryPerRole is the owner's first act at Factory as these tests make it:
+// one entry per role, in force over the whole factory, on one model and one
+// credential. A test that needs another effort or narrower classes withdraws
+// these and writes its own.
+func (c composed) anEntryPerRole(t *testing.T, effort string, classes []string) {
+	t.Helper()
+	for _, role := range dispatch.Roles {
+		if _, err := c.entries.Write(c.ctx, owner, fleetentry.New{
+			ModelVersion:                    modelName,
+			Effort:                          effort,
+			Role:                            string(role),
+			CredentialName:                  theCredential,
+			ProcessingLocation:              "vendor/test-region",
+			MaterialClasses:                 classes,
+			ReadsAtOnce:                     200000,
+			DispatchesBetweenEvaluationRuns: 50,
+		}); err != nil {
+			t.Fatalf("writing the entry for %s: %v", role, err)
+		}
+	}
+}
+
+// withdrawEveryEntry takes every entry out of force, which is the install that
+// has written none: a stage no fleet entry covers is the first of the six
+// conditions that stop a dispatch.
+func (c composed) withdrawEveryEntry(t *testing.T) {
+	t.Helper()
+	inForce, err := fleetentry.InForce(c.ctx, c.pool)
+	if err != nil {
+		t.Fatalf("InForce: %v", err)
+	}
+	for _, one := range inForce {
+		if _, err := c.entries.Withdraw(c.ctx, owner, one.ID); err != nil {
+			t.Fatalf("withdrawing %s: %v", one.ID, err)
+		}
+	}
 }
 
 // inSchema points a connection URL at one schema and nothing else.
@@ -246,7 +297,7 @@ func inSchema(t *testing.T, base, schema string) string {
 // the test names.
 func (c composed) oneItem(t *testing.T, state intent.State) item.Item {
 	t.Helper()
-	in, err := c.intake.TakeIn(c.ctx, record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed},
+	in, err := c.intake.TakeIn(c.ctx, owner,
 		intent.Arrival{Source: intent.SourceOwner, Statement: "a health endpoint", ProjectID: oneProject})
 	if err != nil {
 		t.Fatalf("TakeIn: %v", err)
@@ -284,11 +335,12 @@ func on(it item.Item) dispatch.On {
 // decomposition wrote.
 func TestOneDispatchWritesTheManifestTheRunAndTheTransition(t *testing.T) {
 	c := newDispatch(t, []agent.Reply{{Text: aSpec, Units: map[string]int64{agent.UnitsInput: 20, agent.UnitsOutput: 5}}}, nil, 3)
-	c.fleet.effort = "high"
+	c.withdrawEveryEntry(t)
+	c.anEntryPerRole(t, "high", fleetentry.MaterialClasses)
 	it := c.oneItem(t, intent.StateRefined)
 
 	refined, run, err := c.dispatch.SpecAuthor(c.ctx, on(it),
-		[]inputmanifest.Material{{Class: "intent", Reference: it.IntentID, Bytes: 17}}, agent.Refining{Statement: "s"})
+		[]inputmanifest.Material{{Class: fleetentry.ClassIntentStatement, Reference: it.IntentID, Bytes: 17}}, agent.Refining{Statement: "s"})
 	if err != nil {
 		t.Fatalf("SpecAuthor: %v", err)
 	}

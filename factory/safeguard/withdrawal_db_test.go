@@ -127,3 +127,62 @@ func TestNothingHereWithdrawsInOneCall(t *testing.T) {
 		t.Errorf("the withdrawal %s reads back approved with nothing having decided it", written.ID)
 	}
 }
+
+// TestWithdrawalsAwaitingADecisionAreWhatFactoryLists: the row outside every
+// item that decides a safeguard's withdrawal is fired and closed in the one
+// call that takes the verdict, so what waits for a disposition is a withdrawal
+// standing unapproved and not an open event.
+func TestWithdrawalsAwaitingADecisionAreWhatFactoryLists(t *testing.T) {
+	ctx, pool, token := newTable(t)
+
+	awaiting, err := safeguard.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 0 {
+		t.Fatalf("a store with no withdrawal has %d awaiting a decision", len(awaiting))
+	}
+
+	placed := place(t, ctx, pool, token, gatepolicy.WindowLimit, onAService, safeguard.Bound{Number: 2})
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	written, err := safeguard.InsertWithdrawal(ctx, tx, token, owner, placed.ID)
+	if err != nil {
+		t.Fatalf("InsertWithdrawal: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	awaiting, err = safeguard.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 1 || awaiting[0].ID != written.ID || awaiting[0].SafeguardID != placed.ID {
+		t.Fatalf("the withdrawals awaiting a decision are %+v, want the one just written", awaiting)
+	}
+	if awaiting[0].Actor.Key != owner.Key {
+		t.Errorf("the withdrawal awaiting a decision names %q, want the owner who wrote it — the one human its row may not route to",
+			awaiting[0].Actor.Key)
+	}
+
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if err := safeguard.ApproveWithdrawal(ctx, tx, token, written.ID); err != nil {
+		t.Fatalf("ApproveWithdrawal: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	awaiting, err = safeguard.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 0 {
+		t.Errorf("a withdrawal a row approved is still awaiting a decision: %+v", awaiting)
+	}
+}

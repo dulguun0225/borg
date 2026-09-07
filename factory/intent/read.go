@@ -76,6 +76,32 @@ func Waiting(ctx context.Context, pool *pgxpool.Pool, projectID, statement strin
 	return in, true, nil
 }
 
+// InProject is every intent of one project, oldest first, and every intent in
+// no project yet beside them — a detector's intent names none until it is
+// worked, the same reading [Waiting] makes. It is what a screen listing what
+// arrived needs: an intent taken in has no item until decomposition runs, so a
+// reader that walked the items would not see it at all.
+func InProject(ctx context.Context, pool *pgxpool.Pool, projectID string) ([]Intent, error) {
+	rows, err := pool.Query(ctx, `select `+intentColumns+` from `+Table+`
+		where project_id = $1 or project_id = '' order by at, id`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("intent: reading the intents of project %s: %w", projectID, err)
+	}
+	defer rows.Close()
+	var all []Intent
+	for rows.Next() {
+		in, err := scanIntent(rows)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, in)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("intent: reading the intents of project %s: %w", projectID, err)
+	}
+	return all, nil
+}
+
 // Questions is every question of one intent, in the order they were asked.
 // The order is the round and not the timestamp, because the round is what the
 // interview counts.

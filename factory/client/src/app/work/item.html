@@ -1,0 +1,160 @@
+@let record = item();
+
+<h1>Item {{ id() }}</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading the item.</p>
+  }
+  @case ('failed') {
+    <p class="danger">This item could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>There is no item at this address.</p>
+    <div class="actions">
+      <a routerLink="/work/all">Everything on the board</a>
+    </div>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What is below was read before it did,
+      it is not being kept true, and every action on it is refused until the subscription
+      is back.
+    </p>
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @case ('ready') {
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<ng-template #body>
+  @if (record !== null) {
+    <p>{{ record.IntentStatement }}</p>
+
+    @if (record.PartlyDelivered) {
+      <p class="marked">
+        The intent this item answers became more than one item, and they did not all
+        reach a release.
+      </p>
+    }
+
+    @let stop = record.Stop;
+    @if (stop !== null) {
+      <p class="marked">
+        The factory stopped this item: {{ stop.Cause }}, since {{ at(stop.Since) }}.
+        @if (stop.LiftedAt !== '') {
+          <a [routerLink]="stop.LiftedAt">Where lifting it is written</a>
+        }
+      </p>
+    }
+
+    @if (record.FactoryHold !== '') {
+      <p class="marked">
+        A hold stands at the production deploy row: {{ record.FactoryHold }}.
+      </p>
+      @if (record.ApprovableThrough) {
+        <form (submit)="approveThroughHold($event)">
+          <div class="field">
+            <label for="approve-through-reason">
+              Approve through the hold — this fires the row rather than deciding one
+              already open. Reason
+            </label>
+            <textarea id="approve-through-reason" [formField]="approvalForm.Reason"></textarea>
+            @for (problem of approvalErrors(); track problem) {
+              <p class="danger">{{ problem }}</p>
+            }
+          </div>
+          <div class="actions">
+            <button type="submit">Approve through the hold</button>
+          </div>
+        </form>
+      }
+    }
+
+    <h2>Timeline</h2>
+    <ol>
+      @for (entry of timeline(); track entry.kind + entry.label) {
+        <li class="row">
+          <span class="quiet">{{ entry.at === '' ? 'at the end' : at(entry.at) }}</span>
+          @let gate = entry.decision;
+          @if (gate !== null) {
+            <p>
+              <a [routerLink]="['/work', 'decision', gate.OpenEventID]">{{ entry.label }}</a>
+            </p>
+            @if (gate.Verdict === '') {
+              <p class="quiet">Pending. The vector this gate is decided on:</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Factor</th>
+                    <th scope="col">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (factor of vectorOf(gate); track factor.factor) {
+                    <tr>
+                      <td>{{ factor.factor }}</td>
+                      <td>{{ factor.value }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <p>
+                {{ gate.Verdict }}
+                @if (gate.Score !== null) {
+                  , scored {{ gate.Score }}
+                }
+              </p>
+            }
+            @if ((gate.Acknowledgements ?? []).length > 0) {
+              <p class="quiet">Acknowledged by:</p>
+              <ul>
+                @for (ack of gate.Acknowledgements ?? []; track ack.HumanKey + ack.At) {
+                  <li>{{ ack.HumanKey }}, {{ at(ack.At) }}</li>
+                }
+              </ul>
+            }
+            @if (gate.OpenEventID === diffAt() && record.ImplementationDiff !== '') {
+              <h3>The build's diff against master</h3>
+              <pre>{{ record.ImplementationDiff }}</pre>
+            }
+          } @else {
+            <p>{{ entry.label }}</p>
+          }
+        </li>
+      }
+    </ol>
+
+    @if (diffAt() === '' && record.ImplementationDiff !== '') {
+      <h2>The build's diff against master</h2>
+      <p class="quiet">
+        No decision on this item names the Implementation gate, so the diff is shown on
+        its own rather than withheld.
+      </p>
+      <pre>{{ record.ImplementationDiff }}</pre>
+    }
+
+    <h2>Actions</h2>
+    @if (refused() !== '') {
+      <p class="danger">{{ refused() }}</p>
+    }
+    <form (submit)="setPriority($event)">
+      <div class="field">
+        <label for="priority">Priority, which orders every queue this item waits in</label>
+        <input id="priority" type="number" [formField]="priorityForm.Priority" />
+      </div>
+      <div class="actions">
+        <button type="submit">Set priority</button>
+        <button type="button" (click)="endItem()">End this item for good</button>
+      </div>
+    </form>
+  }
+</ng-template>

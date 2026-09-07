@@ -350,3 +350,49 @@ func TestStandingIsEveryHoldWithNoApprovedWithdrawal(t *testing.T) {
 		t.Errorf("Standing after one withdrawal = %v, want the factory-wide hold alone", standing)
 	}
 }
+
+// TestWithdrawalsAwaitingADecisionAreWhatFactoryLists: the row outside every
+// item that decides a legal hold's ending is fired and closed in the one call
+// that takes the verdict, so what waits for a disposition is a withdrawal
+// standing unapproved and not an open event.
+func TestWithdrawalsAwaitingADecisionAreWhatFactoryLists(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	w := legalhold.NewWriter(pool, token)
+
+	awaiting, err := legalhold.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 0 {
+		t.Fatalf("a store with no withdrawal has %d awaiting a decision", len(awaiting))
+	}
+
+	placed, err := w.Insert(ctx, owner, legalhold.Subject{Kind: legalhold.SubjectService, ID: "svc_a"},
+		"a litigation hold on this service's records")
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	pending, err := w.InsertWithdrawal(ctx, owner, placed.ID)
+	if err != nil {
+		t.Fatalf("InsertWithdrawal: %v", err)
+	}
+
+	awaiting, err = legalhold.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 1 || awaiting[0].ID != pending.ID || awaiting[0].HoldID != placed.ID {
+		t.Fatalf("the withdrawals awaiting a decision are %+v, want the one just written", awaiting)
+	}
+
+	if err := w.ApproveWithdrawal(ctx, pending.ID); err != nil {
+		t.Fatalf("ApproveWithdrawal: %v", err)
+	}
+	awaiting, err = legalhold.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 0 {
+		t.Errorf("a withdrawal a row approved is still awaiting a decision: %+v", awaiting)
+	}
+}

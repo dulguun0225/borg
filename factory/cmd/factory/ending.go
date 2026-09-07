@@ -5,258 +5,70 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
-	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
-	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
-	"github.com/dulguun0225/borg/factory/service"
 )
 
 // The four ways a human ends something: an item or an intent dropped for good,
 // a commit accepted that the queue did not make, a mitigation performed and
 // ended on a target, and the log's retention enforced.
 
-// dropCommand is `factory drop <item-id|intent-id>`: a human ending work for
-// good. Work ends an item that escalated and nobody took over, or the intent
-// above it; Ops ends a revert item a mark made unnecessary. The value is
-// written by dispatch on an item and by intake on an intent, each being the
-// component that owns the record.
-//
-// A dropped item's candidate environment ends with it: the design has the
-// environment stay the item's until it merges, is dropped, or is superseded, so
-// an item is dropped through the deployer — `-secrets` and `-targets` — which
-// stops what runs there and tears the environment down with the reason. An
-// intent holds no environment and is dropped over the pool alone.
-func dropCommand(args []string) error {
-	flags := flag.NewFlagSet("drop", flag.ContinueOnError)
-	human := flags.String("human", "owner", "the human ending the work")
-	secrets := flags.String("secrets", "", "path of the secrets file (required for an item, whose environment is torn down)")
-	targets := flags.String("targets", "", "the directory the local target runs releases from (required for an item)")
-
-	id := ""
-	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
-		id, args = args[0], args[1:]
-	}
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if id == "" || flags.NArg() != 0 {
-		return errors.New("factory drop: one argument, the item or the intent, and then any flags")
-	}
-
-	if strings.HasPrefix(id, item.IDPrefix+"_") {
-		for _, required := range []struct{ name, value string }{{"secrets", *secrets}, {"targets", *targets}} {
-			if required.value == "" {
-				return fmt.Errorf("factory drop: -%s is required to drop an item, whose candidate environment is torn down with it", required.name)
-			}
-		}
-		return withPath(pathFlags{secrets: *secrets, targets: *targets, human: *human}, func(ctx context.Context, p *path) error {
-			actor, err := humanNamed(ctx, p.d.pool, p.d.token, *human)
-			if err != nil {
-				return err
-			}
-			dropped, err := item.NewDispatch(p.d.pool, p.d.token).Drop(ctx, actor, id)
-			if errors.Is(err, item.ErrEnded) {
-				// An item already dropped is not dropped twice, and its
-				// environment may still stand from a drop that could not reach
-				// the deployer; what follows tears that down.
-				if dropped, err = item.Get(ctx, p.d.pool, id); err != nil {
-					return err
-				}
-				if dropped.Stage != item.StageDropped {
-					return fmt.Errorf("factory drop: %s is %s, and only work still open or already dropped is dropped", id, dropped.Stage)
-				}
-				fmt.Printf("Item %s is already dropped\n", dropped.ID)
-			} else if err != nil {
-				return err
-			} else {
-				fmt.Printf("Item %s is dropped: work on it ends for good, and its branch is not merged\n", dropped.ID)
-				fmt.Println("Every row of its own the gate left open is abandoned by the next firing that reads them")
-			}
-			env, found, err := environment.ForItem(ctx, p.d.pool, dropped.ID)
-			if err != nil {
-				return err
-			}
-			if !found || !env.Live() || len(env.Targets) == 0 {
-				return nil
-			}
-			svc, err := p.serviceOf(ctx, dropped.ServiceID)
-			if err != nil {
-				return err
-			}
-			// Stopping comes first, so a record saying torn down never stands
-			// over a process still running — the order the merge's teardown keeps.
-			if _, err := p.d.targets.at(env.Targets[0].Address).Stop(ctx, deployerPrincipal, svc.Name, p.d.credential); err != nil {
-				return err
-			}
-			if err := p.candidates.TearDown(ctx, deployActor, env.ID, environment.ReasonDropped, environment.Rate{}); err != nil {
-				return err
-			}
-			fmt.Printf("Candidate environment %s torn down as dropped; the record is kept\n", env.ID)
-			return nil
-		})
-	}
-
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		actor, err := humanNamed(ctx, pool, token, *human)
-		if err != nil {
+// dropItem ends one item for good and tears its candidate environment down
+// with it. Two callers make the act — the subcommand above, and Work's own
+// EndItem — because the design has the environment stay the item's until it
+// merges, is dropped, or is superseded, so an item dropped anywhere reaches
+// the deployer the same way.
+func (p *path) dropItem(ctx context.Context, actor record.Actor, id string) error {
+	dropped, err := item.NewDispatch(p.d.pool, p.d.token).Drop(ctx, actor, id)
+	if errors.Is(err, item.ErrEnded) {
+		// An item already dropped is not dropped twice, and its environment
+		// may still stand from a drop that could not reach the deployer; what
+		// follows tears that down.
+		if dropped, err = item.Get(ctx, p.d.pool, id); err != nil {
 			return err
 		}
-		switch {
-		case strings.HasPrefix(id, intent.IDPrefix+"_"):
-			// Dropping leaves nothing waiting on a human, so this intake
-			// reaches none: the two calls intake makes are at a round of the
-			// interview and at an escalation, and this is neither.
-			if err := intent.NewIntake(pool, token, intent.NoNotifier{}).Drop(ctx, actor, id); err != nil {
-				return err
-			}
-			fmt.Printf("Intent %s is dropped: no item of it is dispatched and nothing below it moves\n", id)
-			return nil
-		default:
-			return fmt.Errorf("factory drop: %q is neither an item nor an intent", id)
+		if dropped.Stage != item.StageDropped {
+			return fmt.Errorf("factory: %s is %s, and only work still open or already dropped is dropped", id, dropped.Stage)
 		}
-	})
-}
-
-// acceptCommitCommand is `factory accept-commit <service> <commit>`: a human at
-// Work accepting a commit master holds that the queue did not make. It is what
-// ends the stop a commit the queue did not put there leaves — the queue mints
-// nothing for the service while it stands — and the release it mints is one no
-// gate decided.
-func acceptCommitCommand(args []string) error {
-	flags := flag.NewFlagSet("accept-commit", flag.ContinueOnError)
-	secrets := flags.String("secrets", "", "path of the secrets file (required)")
-	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
-	human := flags.String("human", "owner", "the human accepting the commit")
-
-	name, commit := "", ""
-	for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
-		if name == "" {
-			name = args[0]
-		} else if commit == "" {
-			commit = args[0]
-		} else {
-			break
-		}
-		args = args[1:]
+		fmt.Fprintf(p.d.out, "Item %s is already dropped\n", dropped.ID)
+	} else if err != nil {
+		return err
+	} else {
+		fmt.Fprintf(p.d.out, "Item %s is dropped: work on it ends for good, and its branch is not merged\n", dropped.ID)
+		fmt.Fprintln(p.d.out, "Every row of its own the gate left open is abandoned by the next firing that reads them")
 	}
-	if err := flags.Parse(args); err != nil {
+	env, found, err := environment.ForItem(ctx, p.d.pool, dropped.ID)
+	if err != nil {
 		return err
 	}
-	if name == "" || commit == "" || flags.NArg() != 0 {
-		return errors.New("factory accept-commit: two arguments, the service and the commit, and then any flags")
+	if !found || !env.Live() || len(env.Targets) == 0 {
+		return nil
 	}
-
-	return withPath(pathFlags{secrets: *secrets, targets: *targets, human: *human},
-		func(ctx context.Context, p *path) error {
-			svc, found, err := service.ByName(ctx, p.d.pool, name)
-			if err != nil {
-				return err
-			}
-			if !found {
-				return fmt.Errorf("factory accept-commit: no service named %q", name)
-			}
-			accepted, err := p.queue.AcceptCommit(ctx, p.human, svc.ID, commit)
-			if err != nil {
-				return err
-			}
-			if accepted.Why != "" {
-				fmt.Fprintf(p.d.out, "Commit %s was not accepted: %s (rejection row %s)\n",
-					commit, accepted.Why, accepted.RejectionRow)
-				return nil
-			}
-			fmt.Fprintf(p.d.out, "Commit %s accepted on %s by %s; release %d minted and the queue's stop is ended\n",
-				commit, svc.Name, p.d.human, accepted.Release.Number)
-			fmt.Fprintln(p.d.out, "  the release is one no gate decided, and its record says so")
-			return nil
-		})
-}
-
-// mitigateCommand is `factory mitigate <deploy-id>`: a human at Ops
-// instructing the deployer to perform one of the class's two operations on a
-// target, and ending one already standing. The factory performs neither on its
-// own — a mitigation is a human's instruction and the record says which human.
-// Ending every instance of a service on a target is not among them: retirement
-// is what calls for that, through the deployer's removal.
-func mitigateCommand(args []string) error {
-	flags := flag.NewFlagSet("mitigate", flag.ContinueOnError)
-	secrets := flags.String("secrets", "", "path of the secrets file (required)")
-	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
-	human := flags.String("human", "owner", "the named human at Ops instructing the deployer")
-	operation := flags.String("operation", "", "one of shift_traffic, set_instance_count")
-	share := flags.Float64("share", 0, "the share a traffic shift asks for")
-	count := flags.Int("count", 0, "the instance count a set_instance_count asks for")
-	end := flags.String("end", "", "the id of a standing mitigation to end, instead of performing one")
-
-	deployID := ""
-	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
-		deployID, args = args[0], args[1:]
-	}
-	if err := flags.Parse(args); err != nil {
+	svc, err := p.serviceOf(ctx, dropped.ServiceID)
+	if err != nil {
 		return err
 	}
-	if flags.NArg() != 0 {
-		return errors.New("factory mitigate: one argument, the deploy the mitigation is on, and then any flags")
+	// Stopping comes first, so a record saying torn down never stands over a
+	// process still running — the order the merge's teardown keeps.
+	if _, err := p.d.targets.at(env.Targets[0].Address).Stop(ctx, deployerPrincipal, svc.Name, p.d.credential); err != nil {
+		return err
 	}
-	if *end == "" && (deployID == "" || *operation == "") {
-		return errors.New("factory mitigate: a deploy id and -operation, or -end naming a mitigation to end")
+	if err := p.candidates.TearDown(ctx, deployActor, env.ID, environment.ReasonDropped, environment.Rate{}); err != nil {
+		return err
 	}
-
-	return withPath(pathFlags{secrets: *secrets, targets: *targets, human: *human},
-		func(ctx context.Context, p *path) error {
-			if *end != "" {
-				if err := p.deploys.EndMitigation(ctx, *end); err != nil {
-					return err
-				}
-				fmt.Fprintf(p.d.out, "Mitigation %s ended; what it did to the target stands until a deploy replaces it\n", *end)
-				return nil
-			}
-			dep, err := deploy.Get(ctx, p.d.pool, deployID)
-			if err != nil {
-				return err
-			}
-			svc, err := p.serviceOf(ctx, dep.ServiceID)
-			if err != nil {
-				return err
-			}
-			// The target the mitigation is performed on is one this service
-			// runs on, that being the set every reader of targets reads.
-			address := p.d.dir
-			if addresses := serviceAddresses(p.production, svc); len(addresses) > 0 {
-				address = addresses[0]
-			}
-			performed, err := deploy.Mitigate(ctx, p.deploys, deploy.Mitigating{
-				Actor:       p.human,
-				Principal:   deployerPrincipal,
-				Operation:   deploy.Operation(*operation),
-				Address:     address,
-				Target:      p.d.targets.at(address),
-				DeployID:    deployID,
-				ServiceName: svc.Name,
-				Build:       dep.BuildID,
-				Share:       *share,
-				Count:       *count,
-				Credential:  p.d.credential,
-			})
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(p.d.out, "Mitigation %s performed on %s by %s: %s\n",
-				performed.ID, address, p.d.human, *operation)
-			fmt.Fprintln(p.d.out, "  it stands until a human ends it, and the drift detector reads the target against the deploy record meanwhile")
-			return nil
-		})
+	fmt.Fprintf(p.d.out, "Candidate environment %s torn down as dropped; the record is kept\n", env.ID)
+	return nil
 }
 
 // truncateCommand is `factory truncate`: the decision log's retention pass. It

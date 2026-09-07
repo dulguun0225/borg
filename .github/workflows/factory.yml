@@ -65,6 +65,51 @@ jobs:
           go-version-file: factory/go.mod
           cache-dependency-path: factory/go.sum
 
+      # The client is the second toolchain, pinned in the same mise.toml and
+      # read from it here the way the Go step reads it. It is built before the
+      # Go steps because factory/clientdist embeds whatever browser/ holds, so
+      # the Go tests run against the client this commit produces rather than
+      # against an empty directory.
+      - name: mise.toml names the client's Node
+        id: node
+        run: |
+          mise=$(sed -n 's/^node = "\(.*\)"$/\1/p' ../mise.toml)
+          echo "mise.toml names node $mise"
+          [ -n "$mise" ]
+          echo "version=$mise" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          cache: npm
+          cache-dependency-path: factory/client/package-lock.json
+
+      - name: the client installs exactly its lockfile
+        working-directory: factory/client
+        run: npm ci
+
+      # The client carries the factory version on every call and the server
+      # refuses a call whose version is not its own, so the constant in the
+      # client and the constant in the binary have to agree. set-version
+      # copies one to the other; a diff here means they had drifted.
+      - name: the client and the binary name the same factory version
+        working-directory: factory/client
+        run: |
+          npm run set-version
+          git diff --exit-code src/environments/version.ts
+
+      - name: the client's lint wall
+        working-directory: factory/client
+        run: npm run lint
+
+      - name: the client's tests
+        working-directory: factory/client
+        run: npm test
+
+      - name: the client's build
+        working-directory: factory/client
+        run: npm run build
+
       - run: go vet ./...
 
       - run: go run ./cmd/depscheck

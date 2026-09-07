@@ -1,0 +1,106 @@
+<h1>Factory</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading the machine itself.</p>
+  }
+  @case ('failed') {
+    <p class="danger">The machine itself could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>
+      Nothing is authored here yet: no parameter, no safeguard, no environment, no fleet
+      entry, no project, and no constraint. A fresh install starts here.
+    </p>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What it held stays readable and is
+      not being kept true, and every action on it is refused until the subscription is
+      re-established.
+    </p>
+  }
+  @case ('ready') {
+    <p class="quiet">Kept true by the subscription on this address.</p>
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<!-- The rows and the forms are here rather than in the branches above. A
+     change on this address re-reads it, which moves the screen through
+     loading, and a dropped subscription moves it to disconnected: a body
+     rendered inside a branch would be destroyed and built again on either
+     move, and the sections below hold what a human has half written into a
+     form. It is withheld only while the read failed, which is the one state
+     that says nothing was read. -->
+@let view = factory();
+@if (view !== null && state() !== 'failed') {
+  <h2>Readiness</h2>
+  @if (readiness().length === 0) {
+    <p class="quiet">No role has a readiness reading.</p>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Role</th>
+          <th scope="col">Fleet entry</th>
+          <th scope="col">Role prompt</th>
+          <th scope="col">Oldest unmatched hold</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (role of readiness(); track role.Role) {
+          <tr>
+            <td>{{ role.Role }}</td>
+            <td>{{ role.EntryCovers ? 'covered' : 'no entry covers this role' }}</td>
+            <td>{{ role.RolePromptInForce ? 'a version is in force' : 'no version in force' }}</td>
+            <td>
+              @if (role.OldestUnmatchedHoldAgeSeconds > 0) {
+                {{ span(role.OldestUnmatchedHoldAgeSeconds) }}
+              } @else {
+                nothing held
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+
+  <h2>Items stopped at dispatch</h2>
+  @if (stopped().length === 0) {
+    <p class="quiet">Dispatch is holding no item.</p>
+  } @else {
+    <ul>
+      @for (cause of stopped(); track cause.Cause) {
+        <li>{{ cause.Count }} stopped: {{ cause.Cause }}</li>
+      }
+    </ul>
+  }
+
+  @if (refused() !== '') {
+    <p class="marked">{{ refused() }}</p>
+  }
+
+  <factory-fleet
+    [view]="view"
+    [openedInWorkAt]="openedInWorkAt"
+    (requested)="requested($event)"
+  />
+  <factory-gate-policy
+    [view]="view"
+    [openedInWorkAt]="openedInWorkAt"
+    (requested)="requested($event)"
+  />
+  <factory-places [view]="view" (requested)="requested($event)" />
+  <factory-numbers [view]="view" />
+
+  <div class="actions">
+    <a routerLink="/work">What waits on a human</a>
+  </div>
+}

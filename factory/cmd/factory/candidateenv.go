@@ -17,7 +17,6 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/release"
 )
 
 // PlatformWaitKind is what the wait row the platform's ceiling writes says it
@@ -34,6 +33,30 @@ type platformWait struct {
 	Condition string `json:"condition"`
 	Live      int    `json:"live_candidate_environments"`
 	Ceiling   int    `json:"ceiling"`
+}
+
+// platformWaitRow is the wait row already open for this item at the candidate
+// deploy row, and empty where none is. The platform's ceiling is a condition and
+// not a record, so the only place a wait about it is recorded is the log, and
+// this is the read that keeps one wait to one row.
+func (p *path) platformWaitRow(ctx context.Context, itemID string) (string, error) {
+	held, err := p.readLog(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, row := range held.rows {
+		if row.Shape != decisionlog.ShapeWait {
+			continue
+		}
+		var payload platformWait
+		if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+			continue
+		}
+		if payload.Kind == PlatformWaitKind && payload.ItemID == itemID {
+			return row.ID, nil
+		}
+	}
+	return "", nil
 }
 
 // candidateEnvironment is the Deploy to candidate environment row and everything
@@ -73,25 +96,35 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		return err
 	}
 	if live >= d.candidateCeiling {
-		payload, err := json.Marshal(platformWait{
-			Kind:      PlatformWaitKind,
-			ItemID:    c.itemID,
-			Gate:      gate.DeployToCandidateEnvironment.String(),
-			Condition: gate.HoldNoRoomOnThePlatform,
-			Live:      live,
-			Ceiling:   d.candidateCeiling,
-		})
-		if err != nil {
-			return fmt.Errorf("factory: marshalling the platform's wait for %s: %w", c.itemID, err)
-		}
-		row, err := p.log.AppendWaitOpen(ctx, decisionlog.Entry{Actor: deployActor, Payload: string(payload), FormatVersion: "wait/1"})
+		// The condition is recomputed at every firing, so a pass that meets it
+		// again writes no second row about one wait: what a reader of the log
+		// needs is one row per wait, and the row already there is that one.
+		waitRow, err := p.platformWaitRow(ctx, c.itemID)
 		if err != nil {
 			return err
 		}
+		if waitRow == "" {
+			payload, err := json.Marshal(platformWait{
+				Kind:      PlatformWaitKind,
+				ItemID:    c.itemID,
+				Gate:      gate.DeployToCandidateEnvironment.String(),
+				Condition: gate.HoldNoRoomOnThePlatform,
+				Live:      live,
+				Ceiling:   d.candidateCeiling,
+			})
+			if err != nil {
+				return fmt.Errorf("factory: marshalling the platform's wait for %s: %w", c.itemID, err)
+			}
+			row, err := p.log.AppendWaitOpen(ctx, decisionlog.Entry{Actor: deployActor, Payload: string(payload), FormatVersion: "wait/1"})
+			if err != nil {
+				return err
+			}
+			waitRow = row.ID
+		}
 		c.factoryHold = gate.HoldNoRoomOnThePlatform
-		c.holdWaitRow = row.ID
+		c.holdWaitRow = waitRow
 		fmt.Fprintf(d.out, "Item %s waits at %s: %s (%d live, ceiling %d); wait row %s\n",
-			c.itemID, gate.DeployToCandidateEnvironment, gate.HoldNoRoomOnThePlatform, live, d.candidateCeiling, row.ID)
+			c.itemID, gate.DeployToCandidateEnvironment, gate.HoldNoRoomOnThePlatform, live, d.candidateCeiling, waitRow)
 		return nil
 	}
 
@@ -118,24 +151,23 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		Measurement:     c.measurement,
 		Exposure:        reached,
 	}
-	opened, err := p.gate.Fire(ctx, firing)
+	done, opened, err := p.decideOrResume(ctx, firing, c, nil)
 	if err != nil {
 		return err
 	}
-	report(d.out, opened, nil)
-	verdict, feedback, closing, err := p.settle(ctx, opened, firing)
-	if err != nil {
-		return err
+	c.candidateGate = recordFiring(opened, done.closing)
+	if done.waiting {
+		c.waiting = gate.DeployToCandidateEnvironment
+		return nil
 	}
-	c.candidateGate = recordFiring(opened, closing)
-	switch verdict {
+	switch done.verdict {
 	case gate.VerdictReject:
 		c.rejected = true
 		if _, err := p.items.ReturnTo(ctx, p.human, c.itemID, item.StageImplementation); err != nil {
 			return err
 		}
 		fmt.Fprintf(d.out, "Rejected: %s\nItem %s goes back to %s with an attempt counted there\n",
-			feedback, c.itemID, item.StageImplementation)
+			done.reason, c.itemID, item.StageImplementation)
 		return nil
 	case gate.VerdictHold:
 		c.held = true
@@ -415,44 +447,6 @@ func (p *path) compositionFor(ctx context.Context, it item.Item) ([]environment.
 		})
 	}
 	return composed, nil
-}
-
-// dependencyHold is the factory's own hold at both deploy rows: a declared
-// dependency that is not its service's current release. At the candidate deploy
-// row the question is whether it is live at all, the environment being composed
-// from it; at the production deploy row, whether it is live still.
-//
-// It returns the words the hold is reported with, and nothing where every
-// dependency is live. Nothing is written either way — a hold over a record that
-// already exists is recomputed at every firing.
-func (p *path) dependencyHold(ctx context.Context, it item.Item) (string, error) {
-	for _, waitsOn := range it.WaitsOn {
-		dependency, err := item.Get(ctx, p.d.pool, waitsOn)
-		if err != nil {
-			return "", err
-		}
-		addresses, err := p.addressesOf(ctx, dependency.ServiceID)
-		if err != nil {
-			return "", err
-		}
-		current, found, err := deploy.Current(ctx, p.d.pool, dependency.ServiceID, p.production.ID, addresses)
-		if err != nil {
-			return "", err
-		}
-		if !found {
-			return fmt.Sprintf("%s — %s is running nothing, so item %s is not live",
-				gate.HoldDependencyNotLive, dependency.ServiceID, waitsOn), nil
-		}
-		rel, err := release.Get(ctx, p.d.pool, current.ReleaseID)
-		if err != nil {
-			return "", err
-		}
-		if rel.ItemID != waitsOn {
-			return fmt.Sprintf("%s — %s is running release %d, which is item %s and not item %s",
-				gate.HoldDependencyNotLive, dependency.ServiceID, rel.Number, rel.ItemID, waitsOn), nil
-		}
-	}
-	return "", nil
 }
 
 // describeComposition is what an environment was composed from, for a human

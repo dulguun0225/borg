@@ -389,7 +389,7 @@ func pair(t *testing.T, ctx context.Context, d deps, out *bytes.Buffer) shipped 
 // runOne is one episode: one intent on one service.
 func runOne(t *testing.T, ctx context.Context, d deps, out *bytes.Buffer, statement, on string) shipped {
 	t.Helper()
-	d.in = strings.NewReader(manyApprovals)
+	d.decide = scriptedAtWork(manyApprovals).decide
 	res, err := run(ctx, d, []asked{across(statement, on)})
 	if err != nil {
 		t.Fatalf("the run of %q stopped: %v\noutput:\n%s", statement, err, out)

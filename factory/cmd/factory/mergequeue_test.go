@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -135,7 +136,7 @@ func TestTwoCandidatesProceedAtOnce(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the two-candidate run stopped: %v\noutput so far:\n%s", err, out)
@@ -253,7 +254,7 @@ func TestTheQueueRejectsACandidateThatFailedItsOwnReverification(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	res, err := run(ctx, d, of(theSecondStatement, theThirdStatement))
 	if err != nil {
 		t.Fatalf("the run stopped, and a queue rejection is not an error: %v\noutput so far:\n%s", err, out)
@@ -365,7 +366,7 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 	// The priority is written between the Merge to master gate and the queue, which is what
 	// a screen would do: the run does both in one call, so this test drives the
 	// steps rather than run itself.
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	p, err := compose(ctx, d)
 	if err != nil {
 		t.Fatalf("composing the path: %v", err)
@@ -411,6 +412,11 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 // and the one that writes: the platform has no room for another environment, that
 // condition is not a record, and no parameter of an owner's limits it — so it goes
 // into the log as a wait with the deployer as caller and actor.
+//
+// The wait lifts itself, which is what a hold recomputed at every firing does:
+// the pass that finds room once the first candidate has merged and its
+// environment has been torn down composes the second one's. What the log holds
+// afterwards is one row per wait and not one per pass that met the condition.
 func TestThePlatformWithNoRoomWaits(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 	d.candidateCeiling = 1
@@ -424,17 +430,17 @@ func TestThePlatformWithNoRoomWaits(t *testing.T) {
 	if a.environmentID == "" {
 		t.Fatalf("the first candidate got no environment with room for one:\n%s", out)
 	}
-	if b.environmentID != "" {
-		t.Errorf("the second candidate got environment %s with the ceiling at one", b.environmentID)
+	// The second candidate met the ceiling and waited, which the run reports on
+	// the row it wrote, and got room once the first had merged.
+	if !strings.Contains(out.String(), fmt.Sprintf("Item %s waits at %s: %s (1 live, ceiling 1)",
+		b.itemID, gate.DeployToCandidateEnvironment, gate.HoldNoRoomOnThePlatform)) {
+		t.Errorf("the run does not report the second candidate waiting at the ceiling:\n%s", out)
 	}
-	if b.factoryHold != gate.HoldNoRoomOnThePlatform {
-		t.Errorf("the second candidate's hold is %q, want the platform's", b.factoryHold)
+	if b.environmentID == "" {
+		t.Errorf("the second candidate never got an environment, and the ceiling frees when the first is torn down:\n%s", out)
 	}
-	if b.candidateGate.opening != "" {
-		t.Error("the candidate deploy row fired for the held candidate, and a factory hold is not a verdict")
-	}
-	if b.releaseID != "" || b.deployID != "" {
-		t.Errorf("the held candidate minted release %q and deployed %q", b.releaseID, b.deployID)
+	if b.environmentID == a.environmentID {
+		t.Errorf("the two candidates share environment %s, and the ceiling is how many are live at once", a.environmentID)
 	}
 
 	rows := readLog(t, ctx, d)
@@ -444,9 +450,6 @@ func TestThePlatformWithNoRoomWaits(t *testing.T) {
 			continue
 		}
 		waits++
-		if row.ID != b.holdWaitRow {
-			t.Errorf("the wait row is %s, the run reported %s", row.ID, b.holdWaitRow)
-		}
 		if row.Actor.Key != "deploy" {
 			t.Errorf("the wait row's actor is %q, want the deployer that met the condition", row.Actor.Key)
 		}

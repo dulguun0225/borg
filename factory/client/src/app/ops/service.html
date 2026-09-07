@@ -1,0 +1,244 @@
+<h1>{{ serviceId() }} on {{ environmentId() }}</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading this service.</p>
+  }
+  @case ('failed') {
+    <p class="danger">This service could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>There is no service at this address on that environment.</p>
+    <div class="actions">
+      <a routerLink="/ops">What is running</a>
+    </div>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What it held stays readable and is
+      not being kept true, and every action on it is refused until the subscription is
+      re-established.
+    </p>
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @case ('ready') {
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<ng-template #body>
+  @let view = service();
+  @if (view !== null) {
+    @if (view.Unmeasured) {
+      <p class="danger">
+        Unmeasured: this service is missing one of the four fields the deployer populates
+        at decomposition, so its releases are running unwatched.
+      </p>
+    }
+    <p>
+      Emission version:
+      {{ view.EmissionVersion === '' ? 'no record carries one' : view.EmissionVersion }}
+    </p>
+
+    <h2>What this service is watched for</h2>
+    @if ((view.Windows ?? []).length === 0) {
+      <p class="quiet">No quantity of this service is under a window.</p>
+    } @else {
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Quantity</th>
+            <th scope="col">Size in force</th>
+            <th scope="col">Finest size reached</th>
+            <th scope="col">Confidence</th>
+            <th scope="col">Power</th>
+            <th scope="col">Passed</th>
+            <th scope="col">Average run length</th>
+            <th scope="col">Crossings admitted</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (window of view.Windows ?? []; track window.Quantity) {
+            <tr>
+              <td>{{ window.Quantity }}</td>
+              <td>{{ window.Size }}</td>
+              <td>{{ window.FinestSizeReached }}</td>
+              <td>{{ window.Confidence }}</td>
+              <td>{{ window.Power }}</td>
+              <td>
+                {{ window.PassedReachable ? 'reachable' : 'not reachable at all' }}
+              </td>
+              <td>{{ window.AverageRunLength }}</td>
+              <td>{{ window.AdmittedCrossings }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+
+    <h2>The mitigation standing</h2>
+    @let standing = view.Mitigation;
+    @if (standing === null) {
+      <p class="quiet">No mitigation stands on a target of this service here.</p>
+    } @else {
+      <p>
+        {{ standing.Operation }} on {{ standing.TargetID }}, standing
+        {{ standing.StandingHours }} hours.
+      </p>
+      <div class="actions">
+        <button type="button" (click)="endMitigation(standing.ID)">End it</button>
+      </div>
+    }
+
+    <h2>Contracts published</h2>
+    @if ((view.ContractsPublished ?? []).length === 0) {
+      <p class="quiet">This service publishes no contract.</p>
+    } @else {
+      <ul>
+        @for (contract of view.ContractsPublished ?? []; track contract) {
+          <li>{{ contract }}</li>
+        }
+      </ul>
+    }
+
+    @if (refused() !== '') {
+      <p class="danger">{{ refused() }}</p>
+    }
+
+    <ng-container [ngTemplateOutlet]="actions" />
+  }
+</ng-template>
+
+<ng-template #actions>
+  <h2>Undo a change after it shipped</h2>
+  <form (submit)="undoIt($event)">
+    <div class="field">
+      <label for="undo-form">Which form</label>
+      <select id="undo-form" [formField]="undoForm.Form">
+        <option value="rollBack">
+          roll back, while the build it returns to is still running
+        </option>
+        <option value="raiseRevert">raise a revert after</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="undo-release">The release that failed, which a revert names</label>
+      <input id="undo-release" type="text" [formField]="undoForm.ReleaseID" />
+      @for (problem of problems(undoForm.ReleaseID().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <div class="field">
+      <label for="undo-reason">Reason</label>
+      <textarea id="undo-reason" [formField]="undoForm.Reason"></textarea>
+      @for (problem of problems(undoForm.Reason().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <div class="actions">
+      <button type="submit">Undo it</button>
+    </div>
+  </form>
+
+  <h2>Instruct a mitigation</h2>
+  <form (submit)="startMitigation($event)">
+    <div class="field">
+      <label for="mitigation-target">Target</label>
+      <input id="mitigation-target" type="text" [formField]="mitigationForm.TargetID" />
+      @for (problem of problems(mitigationForm.TargetID().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <div class="field">
+      <label for="mitigation-operation">Operation</label>
+      <select id="mitigation-operation" [formField]="mitigationForm.Operation">
+        @for (operation of operations; track operation) {
+          <option [value]="operation">{{ operation }}</option>
+        }
+      </select>
+    </div>
+    <div class="field">
+      <label for="mitigation-share">Share, which shifting traffic reads</label>
+      <input id="mitigation-share" type="number" step="0.01" [formField]="mitigationForm.Share" />
+    </div>
+    <div class="field">
+      <label for="mitigation-count">Instance count, which setting the count reads</label>
+      <input id="mitigation-count" type="number" [formField]="mitigationForm.Count" />
+    </div>
+    <div class="actions">
+      <button type="submit">Instruct it</button>
+    </div>
+  </form>
+
+  <h2>Mark a rollback as not caused by the release</h2>
+  <div class="field">
+    <label for="not-caused-reason">Reason</label>
+    <textarea id="not-caused-reason" [formField]="notCausedForm.Reason"></textarea>
+    @for (problem of problems(notCausedForm.Reason().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <p class="quiet">
+    This excludes the release from the score and its learning pass from then on.
+  </p>
+  @if ((service()?.Targets ?? []).length === 0) {
+    <p class="quiet">No target holds a deploy record to mark.</p>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Target</th>
+          <th scope="col">Release</th>
+          <th scope="col">Deploying</th>
+          <th scope="col">Mark not caused</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (target of service()?.Targets ?? []; track target.TargetID) {
+          <tr>
+            <td>{{ target.TargetID }}</td>
+            <td>{{ target.ReleaseNumber }}</td>
+            <td>
+              @if (target.Deploying !== '') {
+                a deploy is still widening: {{ target.Deploying }}
+              }
+            </td>
+            <td>
+              <button type="button" (click)="markNotCaused(target.DeployID, $event)">
+                Mark it
+              </button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+
+  <h2>Fire a page on your own judgment</h2>
+  <form (submit)="firePage($event)">
+    <div class="field">
+      <label for="page-reason">Reason</label>
+      <textarea id="page-reason" [formField]="pageForm.Reason"></textarea>
+      @for (problem of problems(pageForm.Reason().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <p class="quiet">
+      Nothing else fires this page. A page nobody needed makes its recipient slower to
+      answer the next one.
+    </p>
+    <div class="actions">
+      <button type="submit">Fire it</button>
+    </div>
+  </form>
+
+  <div class="actions">
+    <a routerLink="/ops">What is running</a>
+  </div>
+</ng-template>

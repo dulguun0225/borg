@@ -34,7 +34,7 @@ func TestABadDeployIsCaughtByItsWindowAndRolledBack(t *testing.T) {
 
 	// The deliberately bad one: every other unit of work fails, and no criterion says
 	// anything about how often the work succeeds.
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	d.model = interviewed(2)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {

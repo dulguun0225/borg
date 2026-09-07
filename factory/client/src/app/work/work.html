@@ -1,0 +1,144 @@
+<h1>Work</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading what waits on a human.</p>
+  }
+  @case ('failed') {
+    <p class="danger">What waits on a human could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>Nothing waits on a human, no component owes a pass, and every role is covered.</p>
+    @let quiet = digest();
+    @if (quiet !== null) {
+      <h2>While nobody was looking</h2>
+      <ul>
+        <li>{{ quiet.Releases }} releases shipped</li>
+        <li>{{ quiet.Decisions }} decisions written</li>
+        <li>{{ quiet.AutoApprovals }} of them approved by the factory</li>
+      </ul>
+    }
+    <div class="actions">
+      <a routerLink="/work/intake">Supply an intent</a>
+      <a routerLink="/work/all">Everything on the board</a>
+    </div>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What is below was read before it did
+      and is not being kept true. The last check rows are withheld while it is down: a
+      screen that went on reporting them from a store it cannot reach would read
+      healthier the longer it stood.
+    </p>
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @case ('ready') {
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<ng-template #body>
+  @let count = badge();
+  @if (count !== null) {
+    <h2>Waiting on a human: {{ count.Total }}</h2>
+    <ul>
+      <li>{{ count.PendingGates }} pending gates</li>
+      <li>{{ count.UATAssignments }} UAT assignments</li>
+      <li>{{ count.InterviewQuestions }} interview questions</li>
+      <li>{{ count.Escalations }} escalations</li>
+      <li>{{ count.FactoryHoldsForAHuman }} holds only a human lifts</li>
+      <li>{{ count.ConstraintCausedStops }} constraint-caused stops</li>
+    </ul>
+  }
+
+  @if (state() !== 'disconnected') {
+    @if (lastChecks().length > 0) {
+      <h2>Components owing a pass</h2>
+      <ul>
+        @for (check of lastChecks(); track check.Component + check.Checks) {
+          <li>
+            the {{ check.Component }} has not checked {{ check.Checks }} since
+            {{ at(check.LastPass) }}
+          </li>
+        }
+      </ul>
+    }
+  }
+
+  @if (readiness().length > 0) {
+    <h2>Readiness</h2>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Role</th>
+          <th scope="col">Fleet entry</th>
+          <th scope="col">Role prompt</th>
+          <th scope="col">Oldest unmatched hold</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (role of readiness(); track role.Role) {
+          <tr>
+            <td>{{ role.Role }}</td>
+            <td>{{ role.EntryCovers ? 'covered' : 'no entry covers this role' }}</td>
+            <td>{{ role.RolePromptInForce ? 'a version is in force' : 'no version in force' }}</td>
+            <td>
+              @if (role.OldestUnmatchedHoldAgeSeconds > 0) {
+                {{ span(role.OldestUnmatchedHoldAgeSeconds) }}
+              } @else {
+                nothing held
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+
+  @if (rows().length > 0) {
+    <h2>Rows waiting on a human</h2>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Item</th>
+          <th scope="col">Stage</th>
+          <th scope="col">Priority</th>
+          <th scope="col">Waiting on</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.ItemID) {
+          <tr>
+            <td>
+              <a [routerLink]="['/work', 'item', row.ItemID]">{{ row.ItemID }}</a>
+            </td>
+            <td>{{ row.Stage }}</td>
+            <td>{{ row.Priority }}</td>
+            <td>
+              @let stop = row.Stop;
+              @if (stop !== null) {
+                <span>the factory stopped this item: {{ stop.Cause }}, since {{ at(stop.Since) }}</span>
+                @if (stop.LiftedAt !== '') {
+                  <a [routerLink]="stop.LiftedAt">Where lifting it is written</a>
+                }
+              } @else {
+                {{ row.Waiting === '' ? 'nothing' : row.Waiting }}
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+
+  <div class="actions">
+    <a routerLink="/work/intake">Supply an intent</a>
+    <a routerLink="/work/all">Everything on the board</a>
+  </div>
+</ng-template>

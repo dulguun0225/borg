@@ -97,8 +97,15 @@ func TestAStageOutOfAttemptsStops(t *testing.T) {
 	if model.callsMade != attemptLimit {
 		t.Errorf("the implementer was called %d times, the limit is %d", model.callsMade, attemptLimit)
 	}
-	if len(res.candidates) != 0 {
-		t.Errorf("the run reports %d candidates, a stage out of attempts finishes none", len(res.candidates))
+	// The candidate is reported because decomposition wrote its item before any
+	// stage ran, and it finished nothing: a stage out of attempts is the factory
+	// giving up on the item, not the item never having existed.
+	if len(res.candidates) != 1 {
+		t.Fatalf("the run reports %d candidates, one intent is one item", len(res.candidates))
+	}
+	if only(t, res).buildID != "" || only(t, res).queued {
+		t.Errorf("a stage out of attempts finished the candidate: build %q queued %v",
+			only(t, res).buildID, only(t, res).queued)
 	}
 
 	// The item carries one attempt per entry, which is what the limit was

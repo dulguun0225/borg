@@ -118,7 +118,7 @@ func (n *Notifier) waitOf(ctx context.Context, row string) (Wait, bool, error) {
 		if e.WaitKind == "" {
 			continue
 		}
-		wait := Wait{Row: row, Kind: Kind(e.WaitKind), Waiting: e.Waiting}
+		wait := Wait{Row: row, Kind: Kind(e.WaitKind), Waiting: e.Waiting, ServiceID: e.ServiceID}
 		if e.Holding != "" {
 			holding, err := holdingFrom(e.Holding)
 			if err != nil {

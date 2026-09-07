@@ -43,7 +43,7 @@ func twoRunsOnOneService(t *testing.T, firstVerdicts, secondInput string) (conte
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(secondInput)
+	d.decide = scriptedAtWork(secondInput).decide
 	second, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)
@@ -229,7 +229,7 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	// is built, the three over a build auto-pass on the number, and the seventh
 	// row, production, is where the safeguard puts one and where the verdict is
 	// hold.
-	d.in = strings.NewReader(strings.Repeat("approve\n", 3) + "hold the window before this one is still open\n")
+	d.decide = scriptedAtWork(strings.Repeat("approve\n", 3) + "hold the window before this one is still open\n").decide
 	res, err := run(ctx, d, of(theThirdStatement))
 	if err != nil {
 		t.Fatalf("the third run stopped, and a hold is not an error: %v", err)
@@ -324,12 +324,20 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 		t.Fatalf("writing the withdrawal: %v", err)
 	}
 	// The safeguard leaves force at the row that decides the withdrawal, closed by
-	// a human other than the one who wrote it — the row is routed away from them
-	// — and `factory approve` is what fires that row and writes the approval from
-	// its close event.
-	throughASubcommand(t, ctx, &d, func() error {
-		return approveCommand([]string{"-safeguard-withdrawal", written.ID, "-human", "reviewer"})
-	})
+	// a human other than the one who wrote it — the row is routed away from them —
+	// and the row's close event is what the approval is written from.
+	// The row is fired and closed through the function Factory's own
+	// DecideRecordRow call reaches, rather than over HTTP: what this test is
+	// about is the safeguard leaving force, and the entrance is tested where
+	// the safeguard itself is.
+	if err := decideOutsideEveryItemAt(ctx, d.pool, d.token,
+		owner(t, ctx, d.pool, d.token, "reviewer"), recordRow{
+			kind:     gate.SafeguardWithdrawal.String(),
+			recordID: written.ID,
+			verdict:  gate.VerdictApprove,
+		}); err != nil {
+		t.Fatalf("deciding the safeguard's withdrawal: %v", err)
+	}
 	applied, err := policy.NewReader(d.pool, d.token, score.Version{}).AtGate(ctx,
 		gate.ComponentPrincipal(gate.DeployToProduction), policy.Subjects{
 			GateRow:       gate.DeployToProduction.String(),

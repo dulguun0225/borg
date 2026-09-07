@@ -2,15 +2,14 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/intent"
@@ -31,9 +30,11 @@ import (
 // and the Spec gate over the version. Every item authors its own, on the first
 // entry and on every re-entry: the interview is the intent's, run by the role
 // put on the intent, and it authors no spec.
-func (p *path) specStage(ctx context.Context, c *candidate) error {
+// returned is what a row after this stage's own found wrong, where the pass that
+// re-enters the stage read a rejection off the log rather than taking one from
+// its own loop. It is the zero value on a stage entered for the first time.
+func (p *path) specStage(ctx context.Context, c *candidate, returned agent.Returned) error {
 	d := p.d
-	returned := agent.Returned{}
 	for {
 		authored, run, err := p.dispatch.SpecAuthor(ctx, p.on(c, item.StageSpec, !returned.Empty()),
 			p.specMaterial(c), p.refining(c, returned))
@@ -57,11 +58,14 @@ func (p *path) specStage(ctx context.Context, c *candidate) error {
 		if err != nil {
 			return err
 		}
-		verdict, reason, err := p.itemGate(ctx, c, gate.Spec, version, &c.specGate, check, found)
+		done, err := p.itemGate(ctx, c, gate.Spec, version, &c.specGate, check, found)
 		if err != nil {
 			return err
 		}
-		if verdict == gate.VerdictApprove {
+		if done.waiting {
+			return nil
+		}
+		if done.verdict == gate.VerdictApprove {
 			c.spec = authored.Spec
 			return nil
 		}
@@ -69,8 +73,8 @@ func (p *path) specStage(ctx context.Context, c *candidate) error {
 			return err
 		}
 		fmt.Fprintf(d.out, "Rejected at %s: %s\nItem %s authors its spec again against what was found wrong\n",
-			gate.Spec, reason, c.itemID)
-		returned = agent.Returned{Reason: reason, Version: authored.Spec}
+			gate.Spec, done.reason, c.itemID)
+		returned = agent.Returned{Reason: done.reason, Version: authored.Spec}
 	}
 }
 
@@ -178,8 +182,7 @@ func hazardFor(c *candidate, named string) string {
 
 // planStage is the item's implementation plan version and the Implementation
 // plan gate over it.
-func (p *path) planStage(ctx context.Context, c *candidate) error {
-	returned := agent.Returned{}
+func (p *path) planStage(ctx context.Context, c *candidate, returned agent.Returned) error {
 	for {
 		inForce, err := p.inForceFor(ctx, c.svc, []string{c.itemID})
 		if err != nil {
@@ -187,8 +190,8 @@ func (p *path) planStage(ctx context.Context, c *candidate) error {
 		}
 		planned, run, err := p.dispatch.Planner(ctx, p.on(c, item.StageImplementationPlan, !returned.Empty()),
 			[]inputmanifest.Material{
-				{Class: "spec", Reference: c.specArtifactID, Bytes: int64(len(c.spec))},
-				{Class: "criteria_in_force", Reference: c.svc.ID, Bytes: int64(len(inForce))},
+				{Class: fleetentry.ClassRunOutput, Reference: c.specArtifactID, Bytes: int64(len(c.spec))},
+				{Class: fleetentry.ClassRunOutput, Reference: c.svc.ID, Bytes: int64(len(inForce))},
 			},
 			agent.Planning{Spec: c.spec, Criteria: rolePromptCriteria(inForce), Returned: returned})
 		p.reportAttempts(dispatch.RoleImplementationPlanner, run)
@@ -203,11 +206,14 @@ func (p *path) planStage(ctx context.Context, c *candidate) error {
 		c.planArtifactID = version.ID
 		fmt.Fprintf(p.d.out, "Implementation plan %s submitted for item %s\n", version.ID, c.itemID)
 
-		verdict, reason, err := p.itemGate(ctx, c, gate.ImplementationPlan, version.ID, &c.planGate, "", "")
+		done, err := p.itemGate(ctx, c, gate.ImplementationPlan, version.ID, &c.planGate, "", "")
 		if err != nil {
 			return err
 		}
-		if verdict == gate.VerdictApprove {
+		if done.waiting {
+			return nil
+		}
+		if done.verdict == gate.VerdictApprove {
 			c.plan = planned.Text
 			return nil
 		}
@@ -215,8 +221,8 @@ func (p *path) planStage(ctx context.Context, c *candidate) error {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected at %s: %s\nItem %s plans again against what was found wrong\n",
-			gate.ImplementationPlan, reason, c.itemID)
-		returned = agent.Returned{Reason: reason, Version: planned.Text}
+			gate.ImplementationPlan, done.reason, c.itemID)
+		returned = agent.Returned{Reason: done.reason, Version: planned.Text}
 	}
 }
 
@@ -224,13 +230,12 @@ func (p *path) planStage(ctx context.Context, c *candidate) error {
 // the Tasks gate over it. A task is an internal step of the item: it has no
 // build, no number and no environment, so nothing here writes a record of one
 // beyond the version's own text.
-func (p *path) tasksStage(ctx context.Context, c *candidate) error {
-	returned := agent.Returned{}
+func (p *path) tasksStage(ctx context.Context, c *candidate, returned agent.Returned) error {
 	for {
 		divided, run, err := p.dispatch.TaskAuthor(ctx, p.on(c, item.StageTasks, !returned.Empty()),
 			[]inputmanifest.Material{
-				{Class: "implementation_plan", Reference: c.planArtifactID, Bytes: int64(len(c.plan))},
-				{Class: "spec", Reference: c.specArtifactID, Bytes: int64(len(c.spec))},
+				{Class: fleetentry.ClassRunOutput, Reference: c.planArtifactID, Bytes: int64(len(c.plan))},
+				{Class: fleetentry.ClassRunOutput, Reference: c.specArtifactID, Bytes: int64(len(c.spec))},
 			},
 			agent.Dividing{Plan: c.plan, Spec: c.spec, Returned: returned})
 		p.reportAttempts(dispatch.RoleTaskAuthor, run)
@@ -245,11 +250,14 @@ func (p *path) tasksStage(ctx context.Context, c *candidate) error {
 		c.tasksArtifactID = version.ID
 		fmt.Fprintf(p.d.out, "Tasks %s submitted for item %s: %d task(s)\n", version.ID, c.itemID, len(divided.Lines))
 
-		verdict, reason, err := p.itemGate(ctx, c, gate.Tasks, version.ID, &c.tasksGate, "", "")
+		done, err := p.itemGate(ctx, c, gate.Tasks, version.ID, &c.tasksGate, "", "")
 		if err != nil {
 			return err
 		}
-		if verdict == gate.VerdictApprove {
+		if done.waiting {
+			return nil
+		}
+		if done.verdict == gate.VerdictApprove {
 			c.tasks = divided.Text
 			return nil
 		}
@@ -257,8 +265,8 @@ func (p *path) tasksStage(ctx context.Context, c *candidate) error {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Rejected at %s: %s\nItem %s divides the plan again against what was found wrong\n",
-			gate.Tasks, reason, c.itemID)
-		returned = agent.Returned{Reason: reason, Version: divided.Text}
+			gate.Tasks, done.reason, c.itemID)
+		returned = agent.Returned{Reason: done.reason, Version: divided.Text}
 	}
 }
 
@@ -274,7 +282,7 @@ func (p *path) tasksStage(ctx context.Context, c *candidate) error {
 // factory's own reject closes it before a verdict is asked for — which is the
 // shape the merge row's own rejection takes.
 func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifactID string,
-	into *fired, check, found string) (gate.Verdict, string, error) {
+	into *fired, check, found string) (settled, error) {
 	firing := gate.Firing{
 		Row:           row,
 		ItemID:        c.itemID,
@@ -286,11 +294,11 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 	if row.Kind == gate.KindImplementation {
 		reached, err := p.exposureOf(ctx, c.buildID)
 		if err != nil {
-			return "", "", err
+			return settled{}, err
 		}
 		inForce, err := p.inForceFor(ctx, c.svc, []string{c.itemID})
 		if err != nil {
-			return "", "", err
+			return settled{}, err
 		}
 		firing.BuildID = c.buildID
 		firing.Measurement = c.measurement
@@ -310,13 +318,13 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 		// finding is what is reported and this one is left uncomputed.
 		screensInForce, err := screenstatemachine.InForce(ctx, p.d.pool, c.svc.ID, []string{c.itemID})
 		if err != nil {
-			return "", "", err
+			return settled{}, err
 		}
 		derivedScreens := screenstatemachine.DeriveTransitions(c.svc.Repository, screensInForce,
 			screenstatemachine.GoExtractor(factoryVersion))
 		derivedDrivers, err := screenstatemachine.DeriveDrivers(c.svc.Repository)
 		if err != nil {
-			return "", "", err
+			return settled{}, err
 		}
 		firing.Screens = derivedScreens
 		if check == "" {
@@ -325,25 +333,31 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 	}
 	opened, err := p.gate.Fire(ctx, firing)
 	if err != nil {
-		return "", "", err
+		return settled{}, err
 	}
+	p.moved = true
 	report(p.d.out, opened, nil)
 	if check != "" {
 		closing, err := p.gate.AutoReject(ctx, opened, check, found)
 		if err != nil {
-			return "", "", err
+			return settled{}, err
 		}
 		*into = recordFiring(opened, closing)
 		fmt.Fprintf(p.d.out, "Rejected by %s before a verdict was asked for: %s\n", check, found)
 		fmt.Fprintf(p.d.out, "  close event %s written as %s\n", closing.ID, closing.Actor.Key)
-		return gate.VerdictReject, found, nil
+		return settled{verdict: gate.VerdictReject, reason: found, closing: closing}, nil
 	}
-	verdict, reason, closing, err := p.settle(ctx, opened, firing)
+	done, err := p.settle(ctx, opened)
 	if err != nil {
-		return "", "", err
+		return settled{}, err
 	}
-	*into = recordFiring(opened, closing)
-	return verdict, reason, nil
+	// The firing is recorded whether or not it was decided here: a row left
+	// waiting in Work is a row that fired, and what the firing read is on it.
+	*into = recordFiring(opened, done.closing)
+	if done.waiting {
+		c.waiting = row
+	}
+	return done, nil
 }
 
 // on is the dispatch one of this item's stages is for: the item, the stage,
@@ -372,8 +386,8 @@ func (p *path) on(c *candidate, stage item.Stage, reentering bool) dispatch.On {
 // the manifest dispatch writes before the run.
 func (p *path) specMaterial(c *candidate) []inputmanifest.Material {
 	return []inputmanifest.Material{
-		{Class: "intent", Reference: c.intentID},
-		{Class: "service", Reference: c.svc.ID},
+		{Class: fleetentry.ClassIntentStatement, Reference: c.intentID},
+		{Class: fleetentry.ClassRepository, Reference: c.svc.ID},
 	}
 }
 
@@ -460,29 +474,4 @@ func (p *path) requirementFor(c *candidate, named, sentence string) string {
 		}
 	}
 	return ""
-}
-
-// reportAttempts says what a dispatch spent where it spent more than the one
-// entry that put the item on the stage: every attempt past the first is a
-// reply the protocol refused, and the item was entered again for each.
-func (p *path) reportAttempts(role dispatch.Role, run dispatch.Run) {
-	if len(run.AgentRunIDs) < 2 {
-		return
-	}
-	fmt.Fprintf(p.d.out, "The %s's reply was refused %d time(s); the stage was entered again for each, and the item stands at %d attempt(s)\n",
-		role, len(run.AgentRunIDs)-1, run.Attempts)
-}
-
-// escalatedHere reports whether the error is the factory giving up on the item
-// at this stage, which dispatch escalated before returning.
-func escalatedHere(err error) bool { return errors.Is(err, dispatch.ErrOutOfAttempts) }
-
-// heldHere reports whether a condition stopped the dispatch, which is a hold
-// and not a failure: no page fires and no attempt counts.
-func heldHere(err error) bool { return errors.Is(err, dispatch.ErrHeld) }
-
-// describeHold is what the terminal says about a dispatch that held.
-func describeHold(itemID string, stage item.Stage, err error) string {
-	return fmt.Sprintf("Item %s waits at %s: %s", itemID, stage,
-		strings.TrimPrefix(err.Error(), "dispatch: "))
 }

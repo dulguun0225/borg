@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/screens"
 )
 
 // TestAShorteningIsDecidedAtARowRoutedAwayFromWhoeverWroteIt: shortening
@@ -28,15 +30,11 @@ import (
 // author, the row that decides it is routed away from that author, and nothing
 // is in force until the row closes.
 func TestAShorteningIsDecidedAtARowRoutedAwayFromWhoeverWroteIt(t *testing.T) {
-	ctx, pool := newOwner(t)
-	install(t, ctx, pool)
+	ctx, d, out := newPath(t, approvals)
+	s := newScreens(t, ctx, d, out)
 
-	if err := authorCommand([]string{
-		"-parameter", "decision_log_retention", "-value", "1", "-human", "keeper",
-	}); err != nil {
-		t.Fatalf("author decision_log_retention: %v", err)
-	}
-	settings, err := factorysettings.Get(ctx, pool)
+	keeper := shortenAsKeeper(t, ctx, d, s)
+	settings, err := factorysettings.Get(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -44,15 +42,20 @@ func TestAShorteningIsDecidedAtARowRoutedAwayFromWhoeverWroteIt(t *testing.T) {
 		t.Fatal("the shorter value is in force with nothing having decided it")
 	}
 
-	written := pendingShortening(t, ctx, pool)
+	written := pendingShortening(t, ctx, d.pool)
 	if written.Seconds != 1 || written.Approved {
 		t.Fatalf("the pending shortening is %+v, want one second and unapproved", written)
 	}
-
-	if err := approveCommand([]string{"-retention-shortening", written.ID, "-human", "owner"}); err != nil {
-		t.Fatalf("approve -retention-shortening: %v", err)
+	if written.Actor.Key != keeper.Key {
+		t.Fatalf("the shortening names %q as its author, want the human who wrote the value, %q",
+			written.Actor.Key, keeper.Key)
 	}
-	settings, err = factorysettings.Get(ctx, pool)
+
+	s.mustCall(t, "decideRecordRow", screens.DecideRecordRowArgs{
+		RowKind: gate.DecisionLogRetentionShortening.String(), RecordID: written.ID,
+		Verdict: string(gate.VerdictApprove), OpenedInWorkAt: theOpenedInWorkAt,
+	})
+	settings, err = factorysettings.Get(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -64,7 +67,7 @@ func TestAShorteningIsDecidedAtARowRoutedAwayFromWhoeverWroteIt(t *testing.T) {
 	// The row named the record it decides and barred the human who wrote the
 	// value, which is what "routed to a human other than the one who authored
 	// the shorter value" comes to where the row names no duty.
-	opening := shorteningRow(t, ctx, pool)
+	opening := shorteningRow(t, ctx, d.pool, d.token)
 	if opening.RecordID != settings.ID {
 		t.Errorf("the open event names record %q, want the factory-wide settings record", opening.RecordID)
 	}
@@ -75,6 +78,34 @@ func TestAShorteningIsDecidedAtARowRoutedAwayFromWhoeverWroteIt(t *testing.T) {
 	if !opening.HumanDecides {
 		t.Error("the row auto-passed, and a human is at it always")
 	}
+	// The one field only a screen fills: when the actor opened the row in Work.
+	if closing := shorteningClose(t, ctx, d.pool, d.token); closing.OpenedInWorkAt != theOpenedInWorkAt {
+		t.Errorf("the close event says the row was opened in Work at %q, want %q",
+			closing.OpenedInWorkAt, theOpenedInWorkAt)
+	}
+}
+
+// theOpenedInWorkAt is what a screen reports as the moment the actor opened the
+// row, which is the one field on a close event no other caller has ever filled.
+const theOpenedInWorkAt = "2026-09-07T00:00:00.000000000Z"
+
+// shortenAsKeeper authors a decision-log retention of one second as a human
+// other than the owner, so the row that decides it is routed away from
+// somebody the test can then decide it as. It answers with that human.
+//
+// The duty is declared first because an acting call is refused on a People row
+// holding no duty, no obligation and no lent credential.
+func shortenAsKeeper(t *testing.T, ctx context.Context, d deps, s *screenServer) record.Actor {
+	t.Helper()
+	keeper := owner(t, ctx, d.pool, d.token, "keeper")
+	s.mustCall(t, "declareDuty", screens.DeclareDutyArgs{HumanKey: keeper.Key, Duty: 1})
+	was := s.principal
+	s.principal = keeper.Key
+	s.mustCall(t, "authorParameter", screens.AuthorParameterArgs{
+		Parameter: "decision_log_retention", Value: "1",
+	})
+	s.principal = was
+	return keeper
 }
 
 // TestTheRetentionPassNamesTheValuesAuthorAndTheVersionsInForce: the truncation
@@ -83,35 +114,34 @@ func TestAShorteningIsDecidedAtARowRoutedAwayFromWhoeverWroteIt(t *testing.T) {
 // boundary is checked against the value, so the row's claim is one the cut
 // obeyed.
 func TestTheRetentionPassNamesTheValuesAuthorAndTheVersionsInForce(t *testing.T) {
-	ctx, pool := newOwner(t)
-	install(t, ctx, pool)
+	ctx, d, out := newPath(t, approvals)
+	s := newScreens(t, ctx, d, out)
 
-	if err := authorCommand([]string{
-		"-parameter", "decision_log_retention", "-value", "1", "-human", "keeper",
-	}); err != nil {
-		t.Fatalf("author decision_log_retention: %v", err)
-	}
-	written := pendingShortening(t, ctx, pool)
-	if err := approveCommand([]string{"-retention-shortening", written.ID, "-human", "owner"}); err != nil {
-		t.Fatalf("approve -retention-shortening: %v", err)
-	}
+	shortenAsKeeper(t, ctx, d, s)
+	written := pendingShortening(t, ctx, d.pool)
+	s.mustCall(t, "decideRecordRow", screens.DecideRecordRowArgs{
+		RowKind: gate.DecisionLogRetentionShortening.String(), RecordID: written.ID,
+		Verdict: string(gate.VerdictApprove),
+	})
 
-	rows := logRows(t, ctx, pool)
+	rows := logRows(t, ctx, d.pool, d.token)
 	fresh := rows[len(rows)-1].ID
-	// A boundary written a moment ago is inside the value in force, and the cut
-	// that named it would remove rows that value keeps.
-	if err := truncateCommand([]string{"-boundary", fresh}); !errors.Is(err,
-		decisionlog.ErrBoundaryInsideTheRetention) {
-		t.Fatalf("cutting to a row inside the retention = %v, want ErrBoundaryInsideTheRetention", err)
-	}
-
-	time.Sleep(1100 * time.Millisecond)
-	if err := truncateCommand([]string{"-boundary", fresh, "-human", "owner"}); err != nil {
-		t.Fatalf("truncate: %v", err)
-	}
+	// Both cuts are made inside one handover of the lease: the pass is a
+	// subcommand and one process holds the lease at a time, so the fixture
+	// gives it up and takes it back with a token that fences the one before.
+	throughASubcommand(t, ctx, &d, func() error {
+		// A boundary written a moment ago is inside the value in force, and
+		// the cut that named it would remove rows that value keeps.
+		if err := truncateCommand([]string{"-boundary", fresh}); !errors.Is(err,
+			decisionlog.ErrBoundaryInsideTheRetention) {
+			return fmt.Errorf("cutting to a row inside the retention = %v, want ErrBoundaryInsideTheRetention", err)
+		}
+		time.Sleep(1100 * time.Millisecond)
+		return truncateCommand([]string{"-boundary", fresh, "-human", "owner"})
+	})
 
 	var truncation decisionlog.Row
-	for _, row := range logRows(t, ctx, pool) {
+	for _, row := range logRows(t, ctx, d.pool, d.token) {
 		if row.Shape == decisionlog.ShapeTruncation {
 			truncation = row
 		}
@@ -213,7 +243,7 @@ func TestTheRowNamesThePriorsTheCutWouldRestart(t *testing.T) {
 	}
 }
 
-// pendingShortening is the shortening the author subcommand wrote, read out of
+// pendingShortening is the shortening the authoring call wrote, read out of
 // its own table: package factorysettings has no read that lists them, there
 // being no caller for one but this.
 func pendingShortening(t *testing.T, ctx context.Context, pool *pgxpool.Pool) factorysettings.Shortening {
@@ -231,9 +261,9 @@ func pendingShortening(t *testing.T, ctx context.Context, pool *pgxpool.Pool) fa
 }
 
 // shorteningRow is the open event of the row that decided the shortening.
-func shorteningRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) gate.OpeningPayload {
+func shorteningRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) gate.OpeningPayload {
 	t.Helper()
-	for _, row := range logRows(t, ctx, pool) {
+	for _, row := range logRows(t, ctx, pool, token) {
 		if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpen {
 			continue
 		}
@@ -249,15 +279,42 @@ func shorteningRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) gate.O
 	return gate.OpeningPayload{}
 }
 
-// logRows is every row of the log, read the way [policyVersions] reads the
-// versions: the lease is taken again, each subcommand having taken one of its
-// own for the life of the command and released it when it ended.
-func logRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []decisionlog.Row {
+// shorteningClose is the close event of the row that decided the shortening,
+// found by the opening it closes: the close event's payload names no row, so
+// the opening is what says which row this is. When the actor opened the row in
+// Work is a column of the log's own row and not a field of the payload, which
+// is why this answers the row.
+func shorteningClose(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) decisionlog.Row {
 	t.Helper()
-	token, err := lease.Acquire(ctx, pool, defaultInstance(), -time.Second)
-	if err != nil {
-		t.Fatalf("acquiring the lease: %v", err)
+	rows := logRows(t, ctx, pool, token)
+	openingID := ""
+	for _, row := range rows {
+		if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpen {
+			continue
+		}
+		var opening gate.OpeningPayload
+		if json.Unmarshal([]byte(row.Payload), &opening) != nil {
+			continue
+		}
+		if opening.Gate == gate.DecisionLogRetentionShortening.String() {
+			openingID = row.ID
+		}
 	}
+	for _, row := range rows {
+		if row.Part == decisionlog.PartClose && row.Closes == openingID && openingID != "" {
+			return row
+		}
+	}
+	t.Fatal("the log holds no close event at the row that decides a shortening")
+	return decisionlog.Row{}
+}
+
+// logRows is every row of the log, read with the token the caller holds:
+// every read appends a read event of its own, which is a write and is fenced,
+// so a read made after a subcommand has taken and given back the lease reads
+// with the token the fixture took after it.
+func logRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) []decisionlog.Row {
+	t.Helper()
 	rows, err := decisionlog.NewReader(pool, token).
 		Read(ctx, asPrincipal(owner(t, ctx, pool, token, "owner")))
 	if err != nil {

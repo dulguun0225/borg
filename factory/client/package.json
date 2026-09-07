@@ -1,0 +1,40 @@
+{
+  "name": "factory-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The four screens the factory serves, built into ../clientdist/browser and embedded by the Go binary.",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "set-version": "node tools/set-version.mjs",
+    "lint": "ng lint",
+    "test": "ng test",
+    "build": "ng build",
+    "postbuild": "node tools/keep-embed-directory.mjs"
+  },
+  "dependencies": {
+    "@angular/common": "22.1.5",
+    "@angular/compiler": "22.1.5",
+    "@angular/core": "22.1.5",
+    "@angular/forms": "22.1.5",
+    "@angular/platform-browser": "22.1.5",
+    "@angular/router": "22.1.5",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.1.7",
+    "@angular/cli": "22.1.7",
+    "@angular/compiler-cli": "22.1.5",
+    "@eslint/js": "10.0.1",
+    "@types/jasmine": "6.0.0",
+    "angular-eslint": "22.2.0",
+    "eslint": "10.10.0",
+    "jasmine-core": "7.0.2",
+    "karma": "6.4.4",
+    "karma-chrome-launcher": "3.2.0",
+    "karma-jasmine": "5.1.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.69.0"
+  }
+}

@@ -93,11 +93,15 @@ const (
 // append naming a format version not in this table is refused: "the writer
 // refuses a row declaring no shape." format_version_matches_shape in [DDL]
 // lists the same pairs, and TestFormatVersionsMatchDDL is what keeps the two
-// agreeing. A shape may gain a second format version later, where a
-// serialisation or a field list needs to change; today each has exactly one.
+// agreeing. A shape may gain a second format version, where a serialisation or a
+// field list needs to change: the page event has two, page_event/2 carrying
+// the service id its wait is about, and every other shape has one. Both are
+// accepted, an append-only log holding rows written under every version it has
+// had.
 var Formats = map[string]Shape{
 	"decision/1":        ShapeDecision,
 	"page_event/1":      ShapePageEvent,
+	"page_event/2":      ShapePageEvent,
 	"wait/1":            ShapeWait,
 	"rework_request/1":  ShapeReworkRequest,
 	"queue_rejection/1": ShapeQueueRejection,

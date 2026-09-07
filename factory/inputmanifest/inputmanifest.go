@@ -44,6 +44,12 @@ type Manifest struct {
 // Material is one source named to the agent by reference: its class, the
 // reference itself, and its size, so a bound applied against it can be
 // checked against what actually reached the model.
+//
+// The class is one of the classes a fleet entry may name — package fleetentry
+// declares the list and this package does not import it, a manifest being
+// written for records that name no entry. Nothing here checks the class
+// against that list: the caller that dispatches does, because it is the caller
+// that matches a class against the entry's own.
 type Material struct {
 	Class     string
 	Reference string

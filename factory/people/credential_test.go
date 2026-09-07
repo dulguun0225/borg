@@ -380,3 +380,64 @@ func TestDDLListsEveryPeriodUnit(t *testing.T) {
 		t.Error("the store accepted a period unit outside people.PeriodUnits")
 	}
 }
+
+// TestThePolicyVersionNamesEverythingTheDeclarationHolds is M8's
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// rule: a policy version appended by a People write says everything the
+// declaration holds for the person it names — the obligation beside the
+// duties, the account kind of a lent credential, and the ceiling's currency
+// and period — and never a subset of it.
+func TestThePolicyVersionNamesEverythingTheDeclarationHolds(t *testing.T) {
+	ctx, pool, tok, w := newTable(t)
+	reader := policy.NewReader(pool, tok, score.Version{})
+
+	if _, err := w.Declare(ctx, owner, "hk_alice", people.OfObligation(people.ObligationFleet)); err != nil {
+		t.Fatalf("Declare: %v", err)
+	}
+	if _, err := w.Lend(ctx, owner, "hk_alice", "model.anthropic", people.AccountOrganisation); err != nil {
+		t.Fatalf("Lend: %v", err)
+	}
+	if _, err := w.AuthorCeiling(ctx, owner, "model.anthropic", people.Ceiling{
+		Amount: 250, Currency: "EUR", Length: 1, Unit: people.PeriodMonth,
+		StartDate: "2026-01-15", StartZone: "America/New_York",
+	}); err != nil {
+		t.Fatalf("AuthorCeiling: %v", err)
+	}
+
+	newest, err := reader.Newest(ctx, ownerReading)
+	if err != nil {
+		t.Fatalf("Newest: %v", err)
+	}
+
+	holdingRow, credentialRow := false, false
+	for _, p := range newest.Declaration.People {
+		if p.Key != "hk_alice" {
+			continue
+		}
+		if len(p.Obligations) == 1 && p.Obligations[0] == string(people.ObligationFleet) {
+			holdingRow = true
+		}
+		if p.CredentialName == "model.anthropic" {
+			credentialRow = true
+			if p.AccountKind != string(people.AccountOrganisation) {
+				t.Errorf("AccountKind = %q, want %q", p.AccountKind, people.AccountOrganisation)
+			}
+			if p.Currency != "EUR" {
+				t.Errorf("Currency = %q, want EUR", p.Currency)
+			}
+			if p.PeriodLength != 1 || p.PeriodUnit != string(people.PeriodMonth) {
+				t.Errorf("period = %d %q, want 1 month", p.PeriodLength, p.PeriodUnit)
+			}
+			if p.PeriodStartDate != "2026-01-15" || p.PeriodStartZone != "America/New_York" {
+				t.Errorf("start = %q in %q, want 2026-01-15 in America/New_York",
+					p.PeriodStartDate, p.PeriodStartZone)
+			}
+		}
+	}
+	if !holdingRow {
+		t.Errorf("the version's declaration = %+v, want hk_alice's obligation of fleet on it", newest.Declaration)
+	}
+	if !credentialRow {
+		t.Errorf("the version's declaration = %+v, want the lent credential on it", newest.Declaration)
+	}
+}

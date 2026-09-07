@@ -1,0 +1,136 @@
+<h1>Ops</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading what is running.</p>
+  }
+  @case ('failed') {
+    <p class="danger">What is running could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>The factory holds no service on an environment yet.</p>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What is below was read before it did
+      and is not being kept true. The last check ages are withheld while it is down: a
+      screen that went on reporting them from a store it cannot reach would read
+      healthier the longer it stood.
+    </p>
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @case ('ready') {
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<ng-template #body>
+  @for (row of rows(); track `${row.summary.ServiceID}/${row.summary.EnvironmentID}`) {
+    <section class="row">
+      <h2>{{ row.summary.ServiceID }} on {{ row.summary.EnvironmentID }}</h2>
+      <p>
+        Health: {{ row.summary.Health }}. Current release:
+        {{ row.summary.CurrentRelease }}.
+        <a
+          [routerLink]="['/ops', 'service', row.summary.ServiceID, 'on', row.summary.EnvironmentID]"
+        >
+          What this service is watched for
+        </a>
+      </p>
+
+      @let detail = row.detail;
+      @if (detail === null) {
+        <p class="quiet">This service's own view could not be read.</p>
+      } @else {
+        <h3>The release running per target</h3>
+        @if ((detail.Targets ?? []).length === 0) {
+          <p class="quiet">No target of this environment holds a deploy record.</p>
+        } @else {
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Target</th>
+                <th scope="col">Release</th>
+                <th scope="col">Deploy completed</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (target of detail.Targets ?? []; track target.TargetID) {
+                <tr>
+                  <td>{{ target.TargetID }}</td>
+                  <td>
+                    @if (detail.DriftMismatch === '') {
+                      {{ target.ReleaseNumber }}
+                    } @else {
+                      <span class="danger">
+                        the drift detector reads {{ detail.DriftMismatch }} here, over the
+                        deploy record's {{ target.ReleaseNumber }}
+                      </span>
+                    }
+                  </td>
+                  <td>
+                    {{ target.CompletedAt === '' ? 'not completed' : at(target.CompletedAt) }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+
+        <h3>Open incidents</h3>
+        @if ((detail.OpenIncidents ?? []).length === 0) {
+          <p class="quiet">No incident is open on this service and environment.</p>
+        } @else {
+          <ul>
+            @for (incident of detail.OpenIncidents ?? []; track incident.ID) {
+              <li>{{ incident.ID }} on {{ incident.Quantity }}, opened {{ at(incident.OpenedAt) }}</li>
+            }
+          </ul>
+        }
+
+        <h3>Rollouts in progress</h3>
+        @if ((detail.Rollouts ?? []).length === 0) {
+          <p class="quiet">No rollout of this service is in progress.</p>
+        } @else {
+          <ul>
+            @for (rollout of detail.Rollouts ?? []; track rollout.ReleaseNumber) {
+              <li>
+                release {{ rollout.ReleaseNumber }},
+                @if (rollout.ControlTargetID === '') {
+                  without a control
+                } @else {
+                  measured against {{ rollout.ControlTargetID }}
+                }
+              </li>
+            }
+          </ul>
+        }
+
+        @if (state() !== 'disconnected') {
+          <h3>Last checks</h3>
+          @if ((detail.LastChecks ?? []).length === 0) {
+            <p class="quiet">No component has written a last check record for this service.</p>
+          } @else {
+            <ul>
+              @for (check of detail.LastChecks ?? []; track check.Component + check.Checks) {
+                <li>
+                  the {{ check.Component }} has not checked {{ check.Checks }} since
+                  {{ at(check.LastPass) }}
+                  @if (check.FurtherPassOwed) {
+                    <span class="danger">, and a further pass is owed</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        }
+      }
+    </section>
+  }
+</ng-template>

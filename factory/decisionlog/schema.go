@@ -34,8 +34,8 @@ const AdvisoryLockKey int64 = 0x5888022f314e314d
 // most one first row.
 //
 // format_version_matches_shape is the CHECK named in doc.go: [Formats] and
-// this list have to agree, and TestFormatVersionsMatchDDL is what keeps them
-// that way. shape_known lists the same ten shapes as [Shapes];
+// [formatVersionMatchesShape] have to agree, and TestFormatVersionsMatchDDL is
+// what keeps them that way. shape_known lists the same ten shapes as [Shapes];
 // TestDDLListsEveryShape is what keeps those two agreeing.
 //
 // part_matches_shape allows a decision its four parts, a wait its two, and
@@ -88,18 +88,6 @@ var DDL = []string{
 		'decision', 'page_event', 'wait', 'rework_request', 'queue_rejection',
 		'truncation', 'policy_version', 'score_version', 'install_event', 'read_event'
 	)),
-	constraint format_version_matches_shape check (
-		(format_version = 'decision/1' and shape = 'decision')
-		or (format_version = 'page_event/1' and shape = 'page_event')
-		or (format_version = 'wait/1' and shape = 'wait')
-		or (format_version = 'rework_request/1' and shape = 'rework_request')
-		or (format_version = 'queue_rejection/1' and shape = 'queue_rejection')
-		or (format_version = 'truncation/1' and shape = 'truncation')
-		or (format_version = 'policy_version/1' and shape = 'policy_version')
-		or (format_version = 'score_version/1' and shape = 'score_version')
-		or (format_version = 'install_event/1' and shape = 'install_event')
-		or (format_version = 'read_event/1' and shape = 'read_event')
-	),
 	constraint part_matches_shape check (
 		(shape = 'decision' and part in ('opening', 'closing', 'abandonment', 'acknowledgement'))
 		or (shape = 'wait' and part in ('opening', 'closing'))
@@ -149,6 +137,10 @@ var DDL = []string{
 	)
 )`,
 
+	`alter table ` + Table + ` drop constraint if exists format_version_matches_shape`,
+	`alter table ` + Table + ` add constraint format_version_matches_shape check (` +
+		formatVersionMatchesShape + `) not valid`,
+
 	`create unique index if not exists decision_log_one_closing on ` + Table +
 		` (closes) where shape = 'decision' and part = 'closing'`,
 	`create unique index if not exists decision_log_one_ending on ` + Table +
@@ -156,3 +148,29 @@ var DDL = []string{
 	`create unique index if not exists decision_log_one_acknowledgement_per_human on ` + Table +
 		` (closes, actor_key) where part = 'acknowledgement'`,
 }
+
+// formatVersionMatchesShape is the CHECK's own expression, held apart because
+// [DDL] writes the constraint with an ALTER rather than inside the CREATE
+// TABLE: a shape that gains a format version widens this list, and an install
+// created before that version holds the narrower one — `create table if not
+// exists` alters nothing that is already there, so the constraint is dropped
+// and written again at every start, which is how an install written by one
+// version of the factory is read by the next.
+//
+// It is added NOT VALID, which validates every row appended after it and
+// scans none already there. Every widening of this list admits format versions
+// the narrower one refused, so the rows in the log were written under a
+// stricter rule than the one being added and a scan could find nothing.
+const formatVersionMatchesShape = `
+		(format_version = 'decision/1' and shape = 'decision')
+		or (format_version = 'page_event/2' and shape = 'page_event')
+		or (format_version = 'page_event/1' and shape = 'page_event')
+		or (format_version = 'wait/1' and shape = 'wait')
+		or (format_version = 'rework_request/1' and shape = 'rework_request')
+		or (format_version = 'queue_rejection/1' and shape = 'queue_rejection')
+		or (format_version = 'truncation/1' and shape = 'truncation')
+		or (format_version = 'policy_version/1' and shape = 'policy_version')
+		or (format_version = 'score_version/1' and shape = 'score_version')
+		or (format_version = 'install_event/1' and shape = 'install_event')
+		or (format_version = 'read_event/1' and shape = 'read_event')
+	`

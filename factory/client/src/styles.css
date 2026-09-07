@@ -1,0 +1,163 @@
+@import "./tokens.css";
+
+/* The whole of the client's appearance: rows, tables and forms in semantic
+   HTML. Every control carries the target-size floor and every text colour is
+   set against a stated surface, because the screen predicates are decided
+   over what this file resolves to and not over what a component asked for. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-page);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--type-body);
+  line-height: var(--line-height);
+}
+
+h1 {
+  font-size: var(--type-title);
+  margin: 0 0 var(--space-4);
+}
+
+h2 {
+  font-size: var(--type-heading);
+  margin: var(--space-6) 0 var(--space-2);
+}
+
+h3 {
+  font-size: var(--type-body);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+p,
+ul,
+ol,
+dl {
+  margin: 0 0 var(--space-3);
+}
+
+a {
+  color: var(--ink-link);
+  display: inline-block;
+  min-width: var(--control-min);
+  min-height: var(--control-min);
+  padding: var(--space-1) 0;
+  text-decoration: underline;
+}
+
+button {
+  color: var(--ink-inverse);
+  background: var(--surface-inverse);
+  border: 1px solid var(--surface-inverse);
+  border-radius: var(--radius);
+  font: inherit;
+  min-width: var(--control-min);
+  min-height: var(--control-min);
+  padding: var(--space-2) var(--space-3);
+}
+
+button:disabled {
+  color: var(--ink);
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
+}
+
+input,
+select,
+textarea {
+  color: var(--ink);
+  background: var(--surface-page);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font: inherit;
+  min-width: 6rem;
+  min-height: var(--control-min);
+  padding: var(--space-1) var(--space-2);
+}
+
+textarea {
+  min-height: 6rem;
+  width: 100%;
+}
+
+/* A checkbox is square at the target-size floor rather than as wide as the
+   text inputs beside it. */
+input[type="checkbox"] {
+  height: var(--control-min);
+  min-width: var(--control-min);
+  width: var(--control-min);
+}
+
+label {
+  color: var(--ink);
+  display: block;
+  font-size: var(--type-small);
+  margin-bottom: var(--space-1);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  padding: var(--space-2);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: var(--surface-raised);
+}
+
+pre {
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-family: var(--font-code);
+  font-size: var(--type-small);
+  margin: 0;
+  overflow-x: auto;
+  padding: var(--space-3);
+}
+
+.row {
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-3) 0;
+}
+
+.quiet {
+  color: var(--ink-quiet);
+  font-size: var(--type-small);
+}
+
+.danger {
+  color: var(--ink-danger);
+}
+
+.marked {
+  background: var(--surface-marked);
+  color: var(--ink);
+  padding: var(--space-3);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.field {
+  margin-bottom: var(--space-3);
+}

@@ -129,6 +129,59 @@ func TestAPageWritesOneReachedEventPerHolder(t *testing.T) {
 	verifyLog(t, ctx, pool, token)
 }
 
+// TestEveryPageEventNamesTheServiceTheWaitIsAbout: the service id is on the
+// payload, so a reader counting pages per service reads the page's own events
+// and not the record of whatever was waiting. The acknowledgement is the case
+// that matters — its caller has the row and nothing else, and the id is read
+// off the reached event the way the kind and the words already are, which is
+// what the wait it is called with naming no service is here to show.
+func TestEveryPageEventNamesTheServiceTheWaitIsAbout(t *testing.T) {
+	ctx, pool, token, n, _ := newNotifier(t)
+
+	waiting := notifier.Wait{
+		Row: "dm_1", Kind: notifier.KindDriftMismatch,
+		Waiting: "what runs is not what the record names", Worse: true,
+		ServiceID: "svc_a",
+	}
+	if _, err := n.Notify(ctx, waiting); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	acknowledging := notifier.Wait{
+		Row: waiting.Row, Kind: waiting.Kind, Waiting: waiting.Waiting, Worse: true,
+	}
+	if _, err := n.Acknowledge(ctx, acknowledging, "hk_ada"); err != nil {
+		t.Fatalf("Acknowledge over a wait naming no service: %v", err)
+	}
+	if _, err := n.Answered(ctx, waiting, "hk_ada"); err != nil {
+		t.Fatalf("Answered: %v", err)
+	}
+
+	read, err := n.EventsFor(ctx, waiting.Row)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	if len(read) != 3 {
+		t.Fatalf("the page's sequence is %d event(s) long, want the reached, the acknowledgement and the answer", len(read))
+	}
+	for _, e := range read {
+		if e.ServiceID != waiting.ServiceID {
+			t.Errorf("the %s event names service %q, want %q", e.Event, e.ServiceID, waiting.ServiceID)
+		}
+	}
+
+	// The field is the second format version of this shape, so every event
+	// written here declares that one.
+	for _, row := range readLog(t, ctx, pool, token) {
+		if row.Shape != decisionlog.ShapePageEvent {
+			continue
+		}
+		if row.FormatVersion != notifier.PageEventFormatVersion {
+			t.Errorf("page event %s declares %q, want %q", row.ID, row.FormatVersion, notifier.PageEventFormatVersion)
+		}
+	}
+	verifyLog(t, ctx, pool, token)
+}
+
 // TestADutyNobodyHoldsReachesTheOwner is a routing answer and not a missing one: the
 // page reaches the owner, who is the person that would have written the row.
 func TestADutyNobodyHoldsReachesTheOwner(t *testing.T) {

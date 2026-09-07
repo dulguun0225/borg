@@ -199,14 +199,16 @@ func (o Opened) Pages() bool {
 	return o.RevertWhileRollbackHolds && o.HumanDecides
 }
 
-// openedFrom reads one row of the log back into the [Opened] the closing calls
-// and [Gate.Reevaluate] take. It is what a caller holding a pending row rather
-// than the firing that wrote it uses.
+// OpenedFrom reads one row of the log back into the [Opened] the closing calls
+// and [Gate.Reevaluate] take. It is what a caller holding a row of the log
+// rather than the firing that wrote it uses: [Gate.Pending] for a row still
+// waiting, and a reader of a closed decision — a screen rendering it, a pass
+// resuming an item — for one already decided.
 //
 // A payload this package cannot read is an error here and not a skip, because
 // the caller named this row: [Gate.Pending] is where a row some other component
 // wrote in a shape this package does not know is passed over.
-func openedFrom(row decisionlog.Row) (Opened, error) {
+func OpenedFrom(row decisionlog.Row) (Opened, error) {
 	if row.Shape != decisionlog.ShapeDecision || row.Part != decisionlog.PartOpen {
 		return Opened{}, fmt.Errorf("%w: %s is shape %q part %q",
 			decisionlog.ErrNotAnOpening, row.ID, row.Shape, row.Part)

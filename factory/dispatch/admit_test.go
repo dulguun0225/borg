@@ -64,7 +64,7 @@ func (c composed) tiered(t *testing.T, tier, priority int, evidence string) item
 	if priority == 0 {
 		return it
 	}
-	it, err = c.items.SetPriority(c.ctx, record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed},
+	it, err = c.items.SetPriority(c.ctx, owner,
 		it.ID, priority)
 	if err != nil {
 		t.Fatalf("SetPriority: %v", err)

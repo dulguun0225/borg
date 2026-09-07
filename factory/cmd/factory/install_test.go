@@ -51,7 +51,7 @@ func TestAVersionAuthoredAtAGateNamesTheKeyAndNotTheName(t *testing.T) {
 		t.Fatalf("composing the path: %v", err)
 	}
 
-	by := p.authoredAtTheGate()
+	by := p.authoredAtTheGate(p.human)
 	if by.Authorship != artifact.AuthorshipGate {
 		t.Errorf("the authorship is %q, want the gate component's", by.Authorship)
 	}

@@ -1,0 +1,67 @@
+<h1>Everything on the board</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading the board.</p>
+  }
+  @case ('failed') {
+    <p class="danger">The board could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>No item is open.</p>
+    <div class="actions">
+      <a routerLink="/work/intake">Supply an intent</a>
+    </div>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What is below was read before it did
+      and is not being kept true.
+    </p>
+    <ng-container [ngTemplateOutlet]="rowsTable" />
+  }
+  @case ('ready') {
+    <ng-container [ngTemplateOutlet]="rowsTable" />
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<ng-template #rowsTable>
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Item</th>
+        <th scope="col">Stage</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Waiting on</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (row of rows(); track row.ItemID) {
+        <tr>
+          <td>
+            <a [routerLink]="['/work', 'item', row.ItemID]">{{ row.ItemID }}</a>
+          </td>
+          <td>{{ row.Stage }}</td>
+          <td>{{ row.Priority }}</td>
+          <td>
+            @let stop = row.Stop;
+            @if (stop !== null) {
+              <span>the factory stopped this item: {{ stop.Cause }}, since {{ at(stop.Since) }}</span>
+              @if (stop.LiftedAt !== '') {
+                <a [routerLink]="stop.LiftedAt">Where lifting it is written</a>
+              }
+            } @else {
+              {{ row.Waiting === '' ? 'nothing' : row.Waiting }}
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</ng-template>

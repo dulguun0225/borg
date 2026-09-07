@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"strings"
 	"testing"
 	"time"
 
@@ -41,7 +40,7 @@ func rollBackABadRelease(ctx context.Context, t *testing.T, d deps, out *bytes.B
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	d.model = interviewed(2)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {

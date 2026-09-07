@@ -182,3 +182,51 @@ func TestMultipleHaltsEachStandUntilTheirOwnWithdrawal(t *testing.T) {
 		t.Fatalf("the halts standing are %v, want only the second", standing)
 	}
 }
+
+// TestWithdrawalsAwaitingADecisionAreWhatFactoryLists: the row outside every
+// item that decides a halt's withdrawal is fired and closed in the one call
+// that takes the verdict, so what waits for a disposition is a withdrawal
+// standing unapproved and not an open event.
+func TestWithdrawalsAwaitingADecisionAreWhatFactoryLists(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	w := halt.NewWriter(pool, token)
+
+	awaiting, err := halt.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 0 {
+		t.Fatalf("a store with no withdrawal has %d awaiting a decision", len(awaiting))
+	}
+
+	set, err := w.Insert(ctx, owner, "an owner who has lost confidence in the factory itself")
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	pending, err := w.InsertWithdrawal(ctx, owner, set.ID)
+	if err != nil {
+		t.Fatalf("InsertWithdrawal: %v", err)
+	}
+
+	awaiting, err = halt.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 1 || awaiting[0].ID != pending.ID || awaiting[0].HaltID != set.ID {
+		t.Fatalf("the withdrawals awaiting a decision are %+v, want the one just written", awaiting)
+	}
+	if awaiting[0].Actor != owner {
+		t.Errorf("the withdrawal awaiting a decision names actor %+v, want the owner who wrote it", awaiting[0].Actor)
+	}
+
+	if err := w.ApproveWithdrawal(ctx, pending.ID); err != nil {
+		t.Fatalf("ApproveWithdrawal: %v", err)
+	}
+	awaiting, err = halt.WithdrawalsAwaitingADecision(ctx, pool)
+	if err != nil {
+		t.Fatalf("WithdrawalsAwaitingADecision: %v", err)
+	}
+	if len(awaiting) != 0 {
+		t.Errorf("a withdrawal a row approved is still awaiting a decision: %+v", awaiting)
+	}
+}

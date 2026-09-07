@@ -301,6 +301,34 @@ func Newest(ctx context.Context, pool *pgxpool.Pool, itemID string) (Build, bool
 	return b, true, nil
 }
 
+// ForItem is every build of one item, oldest first, which is the order they
+// were made in. A resumed pass reads it for the builds an item's own criteria
+// have been decided against: a rebuild is a new build, and that history is not
+// held anywhere else.
+func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]Build, error) {
+	if itemID == "" {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, selectBuild+` where item_id = $1 order by at, id`, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("build: reading the builds of %s: %w", itemID, err)
+	}
+	defer rows.Close()
+
+	var all []Build
+	for rows.Next() {
+		b, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("build: reading the builds of %s: %w", itemID, err)
+	}
+	return all, nil
+}
+
 // Resolved is what one build resolved, in the order the entries were written.
 // It is a read of the table this package owns and takes the pool for the reason
 // [Get] does.

@@ -26,7 +26,9 @@
 // [RemediationPeriod]. retention.go is [SetDecisionLogRetention],
 // [SetReportRetention], [SetBackupRetention] and [SetRetentionFloor].
 // shortening.go is [Shortening], the value pending as it is stored, with
-// [InsertShortening], [ApproveShortening] and [GetShortening] — the same
+// [InsertShortening], [ApproveShortening], [GetShortening] and
+// [ShorteningsAwaitingADecision], which is what Factory lists as the rows
+// outside every item pending a disposition — the same
 // pending-until-approved shape a safeguard's withdrawal has, and for the same
 // reason: the gate row that decides it is routed away from the actor this
 // record names. reports.go is [SetReportChannelRate], [SetServiceReportChannelRate],

@@ -46,7 +46,7 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	// own attempt limit is spent and the implementer's dispatch escalates — see
 	// [TestAStoresForwardPromiseRefusesAnAlwaysPopulatedColumn] for why this uses
 	// [retriedWithNoFix].
-	d.in = strings.NewReader(manyApprovals)
+	d.decide = scriptedAtWork(manyApprovals).decide
 	d.model = &retriedWithNoFix{inner: d.model}
 	res, err := run(ctx, d, []asked{across(removeStatement, theService)})
 	if err == nil {
@@ -98,9 +98,18 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writing the withdrawal: %v", err)
 	}
-	throughASubcommand(t, ctx, &d, func() error {
-		return approveCommand([]string{"-safeguard-withdrawal", written.ID, "-human", "reviewer"})
-	})
+	// The row is fired and closed through the function Factory's own
+	// DecideRecordRow call reaches, rather than over HTTP: what this test is
+	// about is the safeguard leaving force, and the entrance is tested where
+	// the safeguard itself is.
+	if err := decideOutsideEveryItemAt(ctx, d.pool, d.token,
+		owner(t, ctx, d.pool, d.token, "reviewer"), recordRow{
+			kind:     gate.SafeguardWithdrawal.String(),
+			recordID: written.ID,
+			verdict:  gate.VerdictApprove,
+		}); err != nil {
+		t.Fatalf("deciding the safeguard's withdrawal: %v", err)
+	}
 	// The escalated candidate is left as it is — clearing an escalation is not
 	// this milestone's concern — and a fresh item asking for the same removal is
 	// what confirms the predicate itself, and not the earlier candidate's own

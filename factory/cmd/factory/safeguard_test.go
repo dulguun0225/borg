@@ -1,81 +1,78 @@
-// Tests of the safeguard subcommand: a safeguard placed on a subject
-// written kind:name, and withdrawn by id.
+// A safeguard placed at Factory on a subject named by kind, and withdrawn at
+// the row that decides its withdrawal.
 package main
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/screens"
 )
 
 // TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById: the direction is never
-// typed, the subject is written kind:name, and withdrawing is what stops a
+// chosen, the subject is named by kind, and withdrawing is what stops a
 // mechanism reading it.
 func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
-	ctx, pool := newOwner(t)
-	install(t, ctx, pool)
-	decomposeService(t, ctx, pool, "checkout")
-	if err := areaCommand([]string{"payments"}); err != nil {
-		t.Fatalf("area: %v", err)
+	ctx, d, out := newPath(t, approvals)
+	s := newScreens(t, ctx, d, out)
+	if s.mustCall(t, "declareArea", screens.DeclareAreaArgs{Name: "billing"}) == "" {
+		t.Fatal("declareArea answered with no id")
 	}
 
-	for _, c := range []struct {
-		args      []string
-		parameter gatepolicy.Parameter
-		direction gatepolicy.Direction
-	}{
-		{[]string{"-parameter", "risk_threshold", "-subject", "gate_row:deploy_to_production", "-service", "checkout"},
-			gatepolicy.RiskThreshold, gatepolicy.DirectionAddsAHuman},
-		{[]string{"-parameter", "window_limit", "-subject", "service:checkout", "-bound", "2"},
-			gatepolicy.WindowLimit, gatepolicy.DirectionCeiling},
-		{[]string{"-parameter", "item_size_target", "-subject", "area:payments", "-bound", "300"},
-			gatepolicy.ItemSizeTarget, gatepolicy.DirectionCeiling},
-		{[]string{"-parameter", "allowed_predicate_kinds", "-subject", "factory_settings:", "-bound", "status,schema"},
-			gatepolicy.AllowedPredicateKinds, gatepolicy.DirectionFloor},
+	for _, args := range []screens.PlaceSafeguardArgs{
+		// A row-scoped safeguard is drawn on the service the row fires for and
+		// keyed by the row, which is why this one names both.
+		{Parameter: "risk_threshold", SubjectKind: "gate_row",
+			SubjectName: "deploy_to_production", ServiceName: theService},
+		{Parameter: "window_limit", SubjectKind: "service", SubjectName: theService, Bound: "2"},
+		{Parameter: "item_size_target", SubjectKind: "area", SubjectName: "billing", Bound: "300"},
+		{Parameter: "allowed_predicate_kinds", SubjectKind: "factory_settings", Bound: "status,schema"},
 	} {
-		if err := safeguardCommand(c.args); err != nil {
-			t.Fatalf("safeguard %v: %v", c.args, err)
+		if s.mustCall(t, "placeSafeguard", args) == "" {
+			t.Fatalf("placeSafeguard %+v answered with no id", args)
 		}
 	}
 
-	safeguards, err := safeguard.All(ctx, pool)
+	safeguards, err := safeguard.All(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
 	if len(safeguards) != 4 {
 		t.Fatalf("%d safeguards are placed, want four", len(safeguards))
 	}
-	for _, p := range safeguards {
-		if p.Withdrawn {
-			t.Errorf("safeguard %s is withdrawn the moment it was placed", p.ID)
+	for _, one := range safeguards {
+		if one.Withdrawn {
+			t.Errorf("safeguard %s is withdrawn the moment it was placed", one.ID)
 		}
-		if p.Subject.Kind == safeguard.SubjectService && !strings.HasPrefix(p.Subject.ID, "svc_") {
-			t.Errorf("the safeguard on a service names %q, want the record's id", p.Subject.ID)
+		if one.Subject.Kind == safeguard.SubjectService && !strings.HasPrefix(one.Subject.ID, "svc_") {
+			t.Errorf("the safeguard on a service names %q, want the record's id", one.Subject.ID)
 		}
-		if p.Subject.Kind == safeguard.SubjectArea && !strings.HasPrefix(p.Subject.ID, "ar_") {
-			t.Errorf("the safeguard on an area names %q, want the record's id", p.Subject.ID)
+		if one.Subject.Kind == safeguard.SubjectArea && !strings.HasPrefix(one.Subject.ID, "ar_") {
+			t.Errorf("the safeguard on an area names %q, want the record's id", one.Subject.ID)
 		}
 	}
 
 	// A safeguard on the factory-wide settings record names the record's id, because
 	// that is what the mechanism reading safeguards on it reads them by — a safeguard
 	// naming the word would apply to nothing.
-	fp, err := factorysettings.Get(ctx, pool)
+	fp, err := factorysettings.Get(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	onTheRecord := 0
-	for _, p := range safeguards {
-		if p.Subject.Kind == safeguard.SubjectPredicateKindsList {
+	for _, one := range safeguards {
+		if one.Subject.Kind == safeguard.SubjectPredicateKindsList {
 			onTheRecord++
-			if p.Subject.ID != fp.ID {
-				t.Errorf("the safeguard on the factory-wide settings record names %q, want %s", p.Subject.ID, fp.ID)
+			if one.Subject.ID != fp.ID {
+				t.Errorf("the safeguard on the factory-wide settings record names %q, want %s", one.Subject.ID, fp.ID)
 			}
 		}
 	}
@@ -86,7 +83,7 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	// The safeguard on the allowed predicate kinds reaches the parameter it was
 	// drawn on: what an owner reads afterwards is the union, which is the whole of
 	// what a safeguard on a list does.
-	allowed, err := policy.NewReader(pool, testToken(t, ctx, pool), score.Version{}).All(ctx, policy.Subjects{
+	allowed, err := policy.NewReader(d.pool, d.token, score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
 	if err != nil {
@@ -106,28 +103,34 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	}
 
 	// A safeguard leaves force at the row that decides its withdrawal, so it is
-	// two commands: the withdrawal written, and the row approved by a human other
-	// than the one who wrote it.
-	if err := safeguardCommand([]string{"-withdraw", safeguards[0].ID}); err != nil {
-		t.Fatalf("safeguard -withdraw: %v", err)
-	}
+	// two calls: the withdrawal written, and the row decided by a human other
+	// than the one who wrote it — the row is routed away from them, so the
+	// reviewer is given a duty first, an acting call being refused on a People
+	// row that holds nothing.
+	s.mustCall(t, "withdrawSafeguard", screens.WithdrawSafeguardArgs{SafeguardID: safeguards[0].ID})
 	// The withdrawal's id is read out of its own table: package safeguard has no
 	// read that lists withdrawals, there being no caller for one but this.
 	var withdrawalID string
-	if err := pool.QueryRow(ctx, `select id from `+safeguard.WithdrawalTable+
+	if err := d.pool.QueryRow(ctx, `select id from `+safeguard.WithdrawalTable+
 		` where safeguard_id = $1`, safeguards[0].ID).Scan(&withdrawalID); err != nil {
 		t.Fatalf("reading the withdrawal that was written: %v", err)
 	}
-	if err := approveCommand([]string{"-safeguard-withdrawal", withdrawalID, "-human", "reviewer"}); err != nil {
-		t.Fatalf("approve -safeguard-withdrawal: %v", err)
-	}
-	safeguards, err = safeguard.All(ctx, pool)
+	reviewer := owner(t, ctx, d.pool, d.token, "reviewer")
+	s.mustCall(t, "declareDuty", screens.DeclareDutyArgs{HumanKey: reviewer.Key, Duty: 1})
+	s.principal = reviewer.Key
+	s.mustCall(t, "decideRecordRow", screens.DecideRecordRowArgs{
+		RowKind: gate.SafeguardWithdrawal.String(), RecordID: withdrawalID,
+		Verdict: string(gate.VerdictApprove),
+	})
+	s.principal = s.p.human.Key
+
+	safeguards, err = safeguard.All(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
 	withdrawn := 0
-	for _, p := range safeguards {
-		if p.Withdrawn {
+	for _, one := range safeguards {
+		if one.Withdrawn {
 			withdrawn++
 		}
 	}
@@ -137,30 +140,39 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 }
 
 // TestASafeguardRefusesWhatItCannotBind: a subject naming a project nobody
-// declared, a subject that is not written kind:name, a bound of the wrong
-// shape, and a gate row that is not one of the rows built.
+// declared, a subject with no kind, a bound of the wrong shape, and a gate row
+// that is not one of the rows built.
 func TestASafeguardRefusesWhatItCannotBind(t *testing.T) {
-	ctx, pool := newOwner(t)
-	install(t, ctx, pool)
+	ctx, d, out := newPath(t, approvals)
+	s := newScreens(t, ctx, d, out)
 
 	for _, c := range []struct {
 		name string
-		args []string
+		call string
+		args any
 	}{
-		{"nothing at all", nil},
-		{"a project nobody declared", []string{"-parameter", "window_limit", "-subject", "project:payments", "-bound", "2"}},
-		{"a subject with no kind", []string{"-parameter", "window_limit", "-subject", "checkout", "-bound", "2"}},
-		{"a gate row nobody built", []string{"-parameter", "risk_threshold", "-subject", "gate_row:deploy_to_staging"}},
-		{"a word where a bound belongs", []string{"-parameter", "window_limit", "-subject", "factory_settings:", "-bound", "two"}},
-		{"a parameter that does not exist", []string{"-parameter", "gut_feel", "-subject", "factory_settings:", "-bound", "2"}},
-		{"a safeguard withdrawn that does not exist", []string{"-withdraw", "sfg_nothing"}},
+		{"nothing at all", "placeSafeguard", screens.PlaceSafeguardArgs{}},
+		{"a project nobody declared", "placeSafeguard", screens.PlaceSafeguardArgs{
+			Parameter: "window_limit", SubjectKind: "project", SubjectName: "payments", Bound: "2"}},
+		{"a subject with no kind", "placeSafeguard", screens.PlaceSafeguardArgs{
+			Parameter: "window_limit", SubjectName: theService, Bound: "2"}},
+		{"a gate row nobody built", "placeSafeguard", screens.PlaceSafeguardArgs{
+			Parameter: "risk_threshold", SubjectKind: "gate_row",
+			SubjectName: "deploy_to_staging", ServiceName: theService}},
+		{"a word where a bound belongs", "placeSafeguard", screens.PlaceSafeguardArgs{
+			Parameter: "window_limit", SubjectKind: "factory_settings", Bound: "two"}},
+		{"a parameter that does not exist", "placeSafeguard", screens.PlaceSafeguardArgs{
+			Parameter: "gut_feel", SubjectKind: "factory_settings", Bound: "2"}},
+		{"a safeguard withdrawn that does not exist", "withdrawSafeguard",
+			screens.WithdrawSafeguardArgs{SafeguardID: "sfg_nothing"}},
 	} {
-		if err := safeguardCommand(c.args); err == nil {
-			t.Errorf("safeguard with %s was accepted", c.name)
+		if status, body := s.call(t, c.call, c.args); status == http.StatusNoContent ||
+			status == http.StatusOK {
+			t.Errorf("a safeguard with %s was accepted: %s", c.name, body)
 		}
 	}
 
-	placed, err := safeguard.All(ctx, pool)
+	placed, err := safeguard.All(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}

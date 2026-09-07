@@ -190,11 +190,24 @@
 # item's dispatch either: components.md's row for the queue names no dispatch,
 # so the transition an outcome causes is the caller's write.
 #
-# cmd/factory imports nearly everything, because it is the command-line interface the
-# four screens are deferred with — the one place the whole path is composed,
-# the one place an owner can author a parameter or place a safeguard, and the
-# deployer the merge queue and the health monitor reach a repository, a
-# candidate environment, and a rollback through.
+# cmd/factory imports nearly everything, because it is the composition behind
+# the four screens — the one place the whole path is composed, the one place an
+# owner can author a parameter or place a safeguard, and the deployer the merge
+# queue and the health monitor reach a repository, a candidate environment, and
+# a rollback through.
+#
+# cmd/factory -> screens clientdist are the two edges the screens add. screens
+# is the interfaces this package implements — Views over every record it
+# already composes readers for, and Calls over every writer it already reaches
+# — plus the Server serve composes over them; what crosses that seam is the
+# screen's own view of a record and never the record, which is why the edge
+# goes this way and screens imports no record package. clientdist is the
+# directory the Angular build's output is embedded from, handed to
+# screens.New as the client the binary serves.
+#
+# cmd/factory -> constraint arrives with duty 2: a constraint is supplied at
+# Factory with the reach it binds and at Work on a single intent, and package
+# constraint owns that record.
 #
 # cmd/driftdetector imports what one pass reads: the production environment
 # record, the services, the current production deploy of each, the releases and
@@ -332,6 +345,24 @@
 # to each package's line as it is wired to call it, so a package's line naming
 # lease and one not yet naming it may sit side by side for a time.
 #
+# dispatch's own edges are the records one match is made against and the two the
+# holds it computes are read from. fleetentry is the match itself: the entry is a
+# record an owner writes at Factory, so the composition answers no interface for
+# it and this package reads the entries in force for the role and matches each
+# scope against the item. people and agentrun are the spend ceiling's two halves
+# — the ceiling, the currency, the period and the rates an owner authored, and
+# the sum of the converted amounts of the runs naming that credential since the
+# period's start — which is a comparison the design puts at dispatch and nowhere
+# else. people is also read for what a run record carries about whose account it
+# spent: the lender's per-person key and the account kind, read at the run and
+# copied onto the record. constraint and factorysettings are one condition
+# between them: a document-kind constraint in force over the item requiring seam
+# 5 enforced holds only while the factory-wide field says it is not, so neither
+# read answers it alone. What it does not import is a repository and a provider:
+# the client an entry's model version and credential are reached through is
+# behind the Models interface its caller implements, which is the arrangement
+# gate and healthmonitor already have for what a firing cannot read itself.
+#
 # decisionlog -> principal is the read event: it names the principal and what
 # was asked for, and a principal is more than the actor a record carries — an
 # agent's dispatch and the scope it was dispatched under travel with it. Every
@@ -339,6 +370,20 @@
 # principal to say who is reading: score, policy, gate, mergequeue,
 # notifier, healthmonitor and people, beside dispatch and cmd/factory, which
 # already had the edge.
+#
+# screens -> principal record is the one edge this package has, and it is
+# deliberately narrow: what crosses the seam into screens is the screen's own
+# view of a record and never the record, so the composition in cmd/factory
+# maps every record onto the view screens serves and screens imports no
+# record package. principal is every call's own carrier; record is not a
+# record package either but the seam's vocabulary one level below principal —
+# the actor kind and the claimed-or-verified basis version.go builds a
+# principal from, the header naming a key and nothing about the record graph.
+#
+# clientdist has no edge at all. It is the directory the Angular build's
+# outputPath points at, embedded with the standard library's embed, and
+# embedding is a build-time directive rather than an import of anything this
+# module writes.
 
 record
 gatepolicy
@@ -351,6 +396,7 @@ principal -> record
 secretref -> principal
 targetseam -> principal secretref
 intent -> record lease
+constraint -> record lease
 project -> record lease
 service -> record gatepolicy lease secretref
 item -> record lease
@@ -374,10 +420,11 @@ legalhold -> record lease service
 window -> boundary gatepolicy record lease
 incident -> record lease
 people -> record lease legalhold policy principal
+fleetentry -> record lease
 driftdetector -> record decisionlog lastcheck
 score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease principal release window
 policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold principal project safeguard score secretref service
-dispatch -> agent agentrun artifact decisionlog inputmanifest intent item lease policy principal record
+dispatch -> agent agentrun artifact constraint decisionlog factorysettings fleetentry inputmanifest intent item lease people policy principal record
 gate -> area artifact criterion decisionlog environment halt intent item lease people policy principal record score screenstatemachine service
 mergequeue -> build contract decisionlog environment gate halt intent item lease principal record release
 notifier -> decisionlog driftdetector factorysettings lastcheck lease people principal record service
@@ -385,15 +432,18 @@ healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item las
 contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item lastcheck policy record release service window
 agent -> secretref principal
 localtarget -> principal secretref targetseam
-postgres -> agentrun area artifact build consumercontract contract criterion decisionlog deploy environment factorysettings halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record release safeguard screenstatemachine service window
+screens -> principal record
+clientdist
+postgres -> agentrun area artifact build consumercontract constraint contract criterion decisionlog deploy environment factorysettings fleetentry halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record release safeguard screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent agentrun area artifact boundary build driftdetector consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release safeguard score screenstatemachine secretref securitypredicate service targetseam window
+cmd/factory -> agent agentrun area artifact boundary build clientdist driftdetector constraint consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings fleetentry gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release safeguard score screens screenstatemachine secretref securitypredicate service targetseam window
 cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
 test dispatch -> postgres
 test decisionlog -> secretref
 test intent -> postgres lease
+test constraint -> postgres lease
 test project -> postgres lease
 test service -> postgres lease
 test item -> postgres lease
@@ -418,10 +468,11 @@ test legalhold -> postgres lease service
 test window -> postgres lease
 test incident -> postgres lease
 test people -> postgres lease legalhold policy score
+test fleetentry -> postgres lease
 test notifier -> postgres decisionlog driftdetector factorysettings lastcheck lease people policy record service
 test healthmonitor -> postgres boundary build deploy item lease notifier people record release targetseam window
 test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lastcheck lease policy record release safeguard secretref service targetseam window
-test score -> postgres area artifact decisionlog intent item lease record release window
+test score -> postgres area artifact boundary decisionlog intent item lease record release window
 test policy -> postgres area decisionlog environment factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service
 test gate -> postgres area artifact criterion decisionlog environment factorysettings halt intent item lease people policy project record safeguard score secretref service
 test mergequeue -> build decisionlog environment gate halt intent item lease postgres record release

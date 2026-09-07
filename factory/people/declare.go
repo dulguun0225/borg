@@ -246,20 +246,19 @@ func withRate(current declared, name, unit, modelVersion, effort string, rate fl
 }
 
 // snapshotOf is the [policy.DeclarationSnapshot] the declaration reads as: one
-// [policy.PersonDeclaration] per key that still holds a duty, and one more per
-// credential that still stands, naming the key that lent it, the ceiling's
-// amount and the rates authored on it.
+// [policy.PersonDeclaration] per key that still holds a duty or an
+// obligation, and one more per credential that still stands, naming the key
+// that lent it, the account kind, the ceiling's currency and period, the
+// ceiling's amount and the rates authored on it — everything the declaration
+// holds for that key on the row, and never a subset of it.
 //
 // A credential is a row of its own because [policy.PersonDeclaration] holds
-// one credential name and a key may lend more than one. It carries no
-// obligation, no account kind, no currency and no period, none of which that
-// type has a field for. Extending it is package policy's, and this package
-// does not import it for writing.
+// one credential name and a key may lend more than one.
 func snapshotOf(state declared) policy.DeclarationSnapshot {
 	byKey := map[string]*policy.PersonDeclaration{}
 	var order []string
 	for _, d := range state.holdings {
-		if !d.Holds() || d.Duty == 0 {
+		if !d.Holds() {
 			continue
 		}
 		p, found := byKey[d.Key]
@@ -268,14 +267,21 @@ func snapshotOf(state declared) policy.DeclarationSnapshot {
 			byKey[d.Key] = p
 			order = append(order, d.Key)
 		}
-		if !slices.Contains(p.Duties, int(d.Duty)) {
-			p.Duties = append(p.Duties, int(d.Duty))
+		if d.Duty != 0 {
+			if !slices.Contains(p.Duties, int(d.Duty)) {
+				p.Duties = append(p.Duties, int(d.Duty))
+			}
+			continue
+		}
+		if !slices.Contains(p.Obligations, string(d.Obligation)) {
+			p.Obligations = append(p.Obligations, string(d.Obligation))
 		}
 	}
 	snap := policy.DeclarationSnapshot{}
 	for _, key := range order {
 		p := byKey[key]
 		slices.Sort(p.Duties)
+		slices.Sort(p.Obligations)
 		snap.People = append(snap.People, *p)
 	}
 	for _, c := range state.credentials {
@@ -283,7 +289,10 @@ func snapshotOf(state declared) policy.DeclarationSnapshot {
 			continue
 		}
 		lent := policy.PersonDeclaration{
-			Key: c.Key, CredentialName: c.Name, SpendCeiling: c.Ceiling.Amount,
+			Key: c.Key, CredentialName: c.Name, AccountKind: string(c.Kind),
+			SpendCeiling: c.Ceiling.Amount, Currency: c.Ceiling.Currency,
+			PeriodLength: c.Ceiling.Length, PeriodUnit: string(c.Ceiling.Unit),
+			PeriodStartDate: c.Ceiling.StartDate, PeriodStartZone: c.Ceiling.StartZone,
 		}
 		for _, r := range state.rates {
 			if r.CredentialName != c.Name {

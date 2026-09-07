@@ -156,9 +156,10 @@ func verifyLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token leas
 	}
 }
 
-// deliveryRow reads back one row of [notifier.DeliveryTable] directly: this
-// package exposes no reader of its own delivery record yet, and a direct
-// select is the test's own business rather than this package's public API.
+// deliveryRow reads back one row of [notifier.DeliveryTable] directly, by row
+// and channel alone: [notifier.DeliveriesOf] reads every channel and
+// recipient of a row, and a direct select for one is the test's own business
+// rather than this package's public API.
 func deliveryRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, rowID string, channel notifier.Channel) (string, bool, bool) {
 	t.Helper()
 	var recipient string

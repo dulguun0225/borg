@@ -37,6 +37,9 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 	if err != nil {
 		return nil, err
 	}
+	if len(pass.Outcomes) > 0 {
+		p.moved = true
+	}
 	fmt.Fprintf(p.d.out, "Master of %s is at %s; the newest release in the records names %s\n",
 		svc.Name, pass.Master.Head, pass.Master.NewestCommit)
 	if pass.Master.CompletedItemID != "" {

@@ -4,8 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
-	"flag"
 	"fmt"
 	"strings"
 
@@ -14,7 +12,6 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/release"
 )
 
@@ -78,7 +75,7 @@ func (p *path) acceptanceRounds(ctx context.Context, sets []*decompositionSet) e
 		fmt.Fprintf(p.d.out, "Acceptance round %s asked of intent %s, delivered by mail and chat and never a page\n",
 			asked.ID, in.ID)
 		fmt.Fprintf(p.d.out, "  %s\n", question)
-		fmt.Fprintf(p.d.out, "  it waits on the requester, unbounded and spending nothing: `factory accept %s` confirms it\n", in.ID)
+		fmt.Fprintln(p.d.out, "  it waits on the requester, unbounded and spending nothing; the requester confirms it at Work")
 	}
 	return nil
 }
@@ -137,62 +134,6 @@ func (p *path) liveItems(ctx context.Context, intentID string) ([]string, int, e
 	return live, len(items), nil
 }
 
-// acceptCommand is `factory accept <intent-id>`: the requester answering the
-// acceptance round at Work, which is the answering half of the round the run
-// asks. Confirmed, the intent is delivered and the answer is its outcome;
-// -correction attaches the correction instead and the interview reopens.
-//
-// It is this interface's stand-in for the screen the design answers the round
-// at, and the whole of what it stands in for: the round itself is written by
-// intake at the run, and this call writes only the answer.
-func acceptCommand(args []string) error {
-	flags := flag.NewFlagSet("accept", flag.ContinueOnError)
-	human := flags.String("human", "owner", "the requester answering the round")
-	answer := flags.String("answer", "the effect was had", "the requester's verdict on the intended effect")
-	correction := flags.String("correction", "", "what the factory got wrong, which reopens the interview instead")
-
-	id := ""
-	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
-		id, args = args[0], args[1:]
-	}
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if id == "" || flags.NArg() != 0 {
-		return errors.New("factory accept: one argument, the intent, and then any flags")
-	}
-
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		actor, err := humanNamed(ctx, pool, token, *human)
-		if err != nil {
-			return err
-		}
-		asked, err := outstandingRound(ctx, pool, id)
-		if err != nil {
-			return err
-		}
-		// Answering leaves nothing waiting on a human, so this intake reaches
-		// none: the three calls intake makes are at a round of the interview,
-		// at an escalation, and at the acceptance round, and this is none of
-		// them.
-		intake := intent.NewIntake(pool, token, intent.NoNotifier{})
-		if *correction != "" {
-			if err := intake.CorrectAcceptance(ctx, actor, id, asked.ID, *correction); err != nil {
-				return err
-			}
-			fmt.Printf("Intent %s goes back to unrefined: the correction attaches as evidence and the interview reopens\n", id)
-			return nil
-		}
-		if err := intake.Delivered(ctx, actor, intent.Delivery{
-			IntentID: id, QuestionID: asked.ID, Answer: *answer, Outcome: *answer,
-		}); err != nil {
-			return err
-		}
-		fmt.Printf("Intent %s is delivered; its outcome is the verdict on the intended effect: %s\n", id, *answer)
-		return nil
-	})
-}
-
 // outstandingRound is the acceptance round waiting to be answered: the intent's
 // newest question with no answer on it. An intent with none has not been asked,
 // which is what an intent whose items are not all live looks like here.
@@ -207,5 +148,5 @@ func outstandingRound(ctx context.Context, pool *pgxpool.Pool, intentID string) 
 		}
 	}
 	return intent.Question{}, fmt.Errorf(
-		"factory accept: intent %s has no round waiting on an answer; the acceptance round is asked once every item of it is live", intentID)
+		"factory: intent %s has no round waiting on an answer; the acceptance round is asked once every item of it is live", intentID)
 }

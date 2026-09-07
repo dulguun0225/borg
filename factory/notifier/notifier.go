@@ -21,7 +21,11 @@ const PageEventKind = "page_event"
 // PageEventFormatVersion is the format version every page event this package
 // appends carries, which is what tells [decisionlog.Writer] it is a page event
 // and not one of the log's other nine shapes.
-const PageEventFormatVersion = "page_event/1"
+//
+// It is the second version of this shape: page_event/1 carried no service id,
+// and a reader of a log an earlier factory wrote finds [Payload.ServiceID]
+// empty on those rows whether or not the wait was about a service.
+const PageEventFormatVersion = "page_event/2"
 
 // Payload is what a page event says. It names the wait, which per-person key
 // was reached, which of the four events it is, and whose wait it was —
@@ -37,6 +41,11 @@ type Payload struct {
 	// mapping to one is People's alone, kept outside the chain.
 	Reached string `json:"reached"`
 	Holding string `json:"holding"`
+	// ServiceID is the service the wait is about, where it is about one, so a
+	// reader can count the pages per service without the wait's own record.
+	// It is empty for a wait about no service and on every row written under
+	// page_event/1, which carried no such field.
+	ServiceID string `json:"service_id,omitempty"`
 	// At is set only on the page event the notifier appends to catch up the
 	// drift detector's own delivery at the factory's next start: the
 	// detector's own time for it, because the row's own append time is the
@@ -318,13 +327,14 @@ func (n *Notifier) deliver(ctx context.Context, d Delivery) (decisionlog.Row, er
 		holding = d.Wait.Holding.String()
 	}
 	payload, err := json.Marshal(Payload{
-		Kind:     PageEventKind,
-		Row:      d.Wait.Row,
-		WaitKind: string(d.Wait.Kind),
-		Waiting:  d.Wait.Waiting,
-		Event:    string(d.Event),
-		Reached:  d.To,
-		Holding:  holding,
+		Kind:      PageEventKind,
+		Row:       d.Wait.Row,
+		WaitKind:  string(d.Wait.Kind),
+		Waiting:   d.Wait.Waiting,
+		Event:     string(d.Event),
+		Reached:   d.To,
+		Holding:   holding,
+		ServiceID: d.Wait.ServiceID,
 	})
 	if err != nil {
 		return decisionlog.Row{}, fmt.Errorf("notifier: marshalling the page event about %s: %w", d.Wait.Row, err)
@@ -383,14 +393,16 @@ func reached(events []Payload, row string) error {
 // caller's own wait supplies whose it is, so a kind the caller could not know
 // is the recorded one and the routing stays the caller's. A reached event
 // exists only for a wait that paged, so what the page's condition answers for
-// that kind is what the rebuilt wait carries.
+// that kind is what the rebuilt wait carries. The service the wait is about is
+// read off the event too, and is empty for a page reached under page_event/1,
+// which carried no such field.
 func reachedWait(events []Payload, w Wait) (Wait, bool) {
 	for _, e := range events {
 		if Event(e.Event) != EventReached || e.WaitKind == "" {
 			continue
 		}
 		found := w
-		found.Kind, found.Waiting = Kind(e.WaitKind), e.Waiting
+		found.Kind, found.Waiting, found.ServiceID = Kind(e.WaitKind), e.Waiting, e.ServiceID
 		found.Worse = Kinds[found.Kind] != PagesNever
 		return found, true
 	}

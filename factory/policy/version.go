@@ -123,13 +123,30 @@ type AutoPassRate struct {
 }
 
 // PersonDeclaration is one row of the People declaration as a version names it:
-// by per-person key and never by name.
+// by per-person key and never by name, and everything the declaration holds
+// for that key on this row — never a subset of it.
 type PersonDeclaration struct {
-	Key            string     `json:"key"`
-	Duties         []int      `json:"duties,omitempty"`
-	CredentialName string     `json:"credential_name,omitempty"`
-	SpendCeiling   float64    `json:"spend_ceiling,omitempty"`
-	Rates          []UnitRate `json:"rates,omitempty"`
+	Key    string `json:"key"`
+	Duties []int  `json:"duties,omitempty"`
+	// Obligations is every obligation outside the twelve this key holds,
+	// held by name beside Duties: a key may hold several.
+	Obligations    []string `json:"obligations,omitempty"`
+	CredentialName string   `json:"credential_name,omitempty"`
+	// AccountKind is whether the account behind CredentialName is a
+	// person's own or an organisation's, empty where this row names no
+	// credential.
+	AccountKind  string  `json:"account_kind,omitempty"`
+	SpendCeiling float64 `json:"spend_ceiling,omitempty"`
+	// Currency is what SpendCeiling and Rates are authored in.
+	Currency string `json:"currency,omitempty"`
+	// PeriodLength and PeriodUnit are the ceiling's period as the owner
+	// authored it, and PeriodStartDate the date the first period starts,
+	// with PeriodStartZone the IANA zone it was authored in.
+	PeriodLength    int        `json:"period_length,omitempty"`
+	PeriodUnit      string     `json:"period_unit,omitempty"`
+	PeriodStartDate string     `json:"period_start_date,omitempty"`
+	PeriodStartZone string     `json:"period_start_zone,omitempty"`
+	Rates           []UnitRate `json:"rates,omitempty"`
 }
 
 // UnitRate is one rate an owner authored per kind of unit a provider returns,

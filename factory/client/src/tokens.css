@@ -1,0 +1,44 @@
+/* The factory's own design system, as far as the four screens need one: the
+   colour, spacing and type values every rule below is written in terms of.
+   Nothing here is a component library — the screens are semantic HTML.
+
+   Every text colour is paired with a surface colour whose contrast against it
+   is at least 4.5:1, which is the floor the screen predicates decide over the
+   rendered DOM. Changing a value here is checked by those tests and not by
+   reading. */
+:root {
+  --surface-page: #ffffff;
+  --surface-raised: #f2f4f7;
+  --surface-marked: #fdf3d4;
+  --surface-inverse: #14181d;
+
+  --ink: #14181d;
+  --ink-quiet: #4c545c;
+  --ink-inverse: #ffffff;
+  --ink-link: #0b4f9e;
+  --ink-danger: #9b1b2c;
+
+  --line: #b9c0c8;
+  --line-strong: #6b747d;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --type-body: 1rem;
+  --type-small: 0.875rem;
+  --type-heading: 1.25rem;
+  --type-title: 1.75rem;
+  --line-height: 1.5;
+
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* The smallest side of any control, which is the target-size predicate's
+     floor stated once. */
+  --control-min: 24px;
+  --radius: 3px;
+}

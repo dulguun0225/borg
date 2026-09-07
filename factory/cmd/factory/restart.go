@@ -13,10 +13,9 @@ import (
 
 // restart is every component's restart, run once at the end of [compose] and
 // before the path it composed reads a record. [compose] is its one caller, so a
-// subcommand that composes a path runs it — run, walk's deploy is read without
-// one, and watch, approve over an item, contracts, rollback, accept-commit and
-// mitigate compose one — and a subcommand that reaches the store through
-// withPool or opens the pool itself composes no component and runs none.
+// subcommand that composes a path runs it — serve, run, watch and contracts —
+// and a subcommand that reaches the store through withPool or opens the pool
+// itself composes no component and runs none.
 //
 // ../../../end-goal/one-process.md gives each of them and they are a read of
 // each component's own records rather than anything kept between runs: the

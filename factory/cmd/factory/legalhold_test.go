@@ -1,6 +1,6 @@
-// Tests of the legal-hold subcommand and of the row that ends a hold: a hold
-// set on a subject written kind:name, a withdrawal written pending, and the gate
-// row that decides it closed by a human.
+// A legal hold set at Factory and the row that ends one: a hold on a subject,
+// a withdrawal written pending, and the gate row that decides it closed by a
+// human.
 package main
 
 import (
@@ -10,24 +10,30 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/legalhold"
+	"github.com/dulguun0225/borg/factory/screens"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // TestALegalHoldEndsOnlyAtTheRowThatDecidesItsWithdrawal: writing the withdrawal
 // leaves the hold reaching its subject, and what lifts it is the close event of
 // the gate row — not the write, and not a field flipped in place.
 func TestALegalHoldEndsOnlyAtTheRowThatDecidesItsWithdrawal(t *testing.T) {
-	ctx, pool := newOwner(t)
-	install(t, ctx, pool)
-	svc := decomposeService(t, ctx, pool, "checkout")
+	ctx, d, out := newPath(t, approvals)
+	s := newScreens(t, ctx, d, out)
+	svc, found, err := service.ByName(ctx, d.pool, theService)
+	if err != nil || !found {
+		t.Fatalf("ByName(%s) = found %v, %v", theService, found, err)
+	}
 
-	if err := legalHoldCommand([]string{
-		"-subject", "service:checkout", "-reason", "counsel asked for it",
-	}); err != nil {
-		t.Fatalf("legal-hold: %v", err)
+	if s.mustCall(t, "setLegalHold", screens.SetLegalHoldArgs{
+		SubjectKind: "service", SubjectName: theService, Reason: "counsel asked for it",
+	}) == "" {
+		t.Fatal("setLegalHold answered with no id")
 	}
 	subject := legalhold.Subject{Kind: legalhold.SubjectService, ID: svc.ID}
-	reaching, err := legalhold.Reaching(ctx, pool, subject)
+	reaching, err := legalhold.Reaching(ctx, d.pool, subject)
 	if err != nil {
 		t.Fatalf("Reaching: %v", err)
 	}
@@ -35,25 +41,23 @@ func TestALegalHoldEndsOnlyAtTheRowThatDecidesItsWithdrawal(t *testing.T) {
 		t.Fatalf("the hold does not reach the service it was set on")
 	}
 
-	standing, err := legalhold.Standing(ctx, pool)
+	standing, err := legalhold.Standing(ctx, d.pool)
 	if err != nil {
 		t.Fatalf("Standing: %v", err)
 	}
 	if len(standing) != 1 {
 		t.Fatalf("%d holds stand, want the one that was set", len(standing))
 	}
-	if err := legalHoldCommand([]string{"-withdraw", standing[0].ID}); err != nil {
-		t.Fatalf("legal-hold -withdraw: %v", err)
-	}
+	s.mustCall(t, "withdrawLegalHold", screens.WithdrawLegalHoldArgs{LegalHoldID: standing[0].ID})
 
 	// The withdrawal's id is read out of its own table: package legalhold has no
 	// read that lists withdrawals, there being no caller for one but this.
 	var withdrawalID string
-	if err := pool.QueryRow(ctx, `select id from `+legalhold.WithdrawalTable+
+	if err := d.pool.QueryRow(ctx, `select id from `+legalhold.WithdrawalTable+
 		` where legal_hold_id = $1`, standing[0].ID).Scan(&withdrawalID); err != nil {
 		t.Fatalf("reading the withdrawal that was written: %v", err)
 	}
-	reaching, err = legalhold.Reaching(ctx, pool, subject)
+	reaching, err = legalhold.Reaching(ctx, d.pool, subject)
 	if err != nil {
 		t.Fatalf("Reaching: %v", err)
 	}
@@ -61,11 +65,12 @@ func TestALegalHoldEndsOnlyAtTheRowThatDecidesItsWithdrawal(t *testing.T) {
 		t.Errorf("writing the withdrawal lifted the hold on its own, with nothing having decided it")
 	}
 
-	before := decisionCount(t, ctx, pool)
-	if err := approveCommand([]string{"-legal-hold-withdrawal", withdrawalID}); err != nil {
-		t.Fatalf("approve -legal-hold-withdrawal: %v", err)
-	}
-	reaching, err = legalhold.Reaching(ctx, pool, subject)
+	before := decisionCount(t, ctx, d.pool)
+	s.mustCall(t, "decideRecordRow", screens.DecideRecordRowArgs{
+		RowKind: gate.LegalHoldWithdrawal.String(), RecordID: withdrawalID,
+		Verdict: string(gate.VerdictApprove),
+	})
+	reaching, err = legalhold.Reaching(ctx, d.pool, subject)
 	if err != nil {
 		t.Fatalf("Reaching: %v", err)
 	}
@@ -75,7 +80,7 @@ func TestALegalHoldEndsOnlyAtTheRowThatDecidesItsWithdrawal(t *testing.T) {
 
 	// The row fired and was closed: an open event and a close event, and the
 	// close says the one owner both wrote the withdrawal and decided it.
-	after := decisionCount(t, ctx, pool)
+	after := decisionCount(t, ctx, d.pool)
 	if after.opens != before.opens+1 || after.closes != before.closes+1 {
 		t.Errorf("the approval left %d openings and %d closings, want one more of each",
 			after.opens-before.opens, after.closes-before.closes)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/securitypredicate"
@@ -42,6 +43,17 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	if c.environmentID == "" {
 		fmt.Fprintf(p.d.out, "Item %s reached no candidate environment, so its Merge to master gate does not fire\n", c.itemID)
 		return nil
+	}
+	// The verdict a human left at Work on a row an earlier pass fired. The
+	// mechanical checks below are not re-read for it: they rejected before a
+	// verdict was asked for or they found nothing, and the row this reads is one
+	// they let through.
+	if already, decided := c.rows[gate.KindMergeToMaster]; decided && already.subject() == c.buildID {
+		fmt.Fprintf(p.d.out, "%s of item %s was decided at Work as %s; row %s closed by %s %s\n",
+			gate.MergeToMaster, c.itemID, already.verdict, already.opened.Row.ID,
+			already.closing.Actor.Kind, already.closing.Actor.Key)
+		p.moved = true
+		return p.mergeOutcome(ctx, c, already.opened, already.closing, already.verdict, already.reason)
 	}
 
 	checked, err := p.enforceContracts(ctx, c, c.buildID)
@@ -108,10 +120,26 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		return nil
 	}
 
-	verdict, feedback, closing, err := p.settle(ctx, opened, firing)
+	done, err := p.settle(ctx, opened)
 	if err != nil {
 		return err
 	}
+	if done.waiting {
+		c.mergeGate = recordFiring(opened, done.closing)
+		c.waiting = gate.MergeToMaster
+		return nil
+	}
+	return p.mergeOutcome(ctx, c, opened, done.closing, done.verdict, done.reason)
+}
+
+// mergeOutcome is what a verdict at the Merge to master row causes: a rejection
+// sends the item back to the implementation stage with an attempt counted there,
+// and an approval admits the candidate to the merge queue. It is its own function
+// because two callers reach it — the pass that fired the row and settled it, and
+// the pass that finds the verdict a human left at Work on a row an earlier pass
+// left open.
+func (p *path) mergeOutcome(ctx context.Context, c *candidate, opened gate.Opened,
+	closing decisionlog.Row, verdict gate.Verdict, feedback string) error {
 	c.mergeGate = recordFiring(opened, closing)
 	if verdict == gate.VerdictReject {
 		c.rejected = true
@@ -150,19 +178,28 @@ func (p *path) mergeUntilQueued(ctx context.Context, c *candidate) error {
 		if err := p.mergeGate(ctx, c); err != nil {
 			return err
 		}
+		if c.waiting != (gate.Row{}) {
+			return nil
+		}
 		if !c.autoRejected && !c.rejected {
 			return nil
 		}
 		reason := c.mergeRejectReason
 		c.sentBack = agent.Returned{Reason: reason, Version: c.commit}
 		c.resetForRebuild()
-		fmt.Fprintf(p.d.out, "Item %s goes back to implementation against what the Merge to master row found wrong: %s\n",
-			c.itemID, reason)
+		fmt.Fprintf(p.d.out, "Item %s goes back to implementation against what the %s row found wrong: %s\n",
+			c.itemID, gate.MergeToMaster, reason)
 		if err := p.implementationStage(ctx, c); err != nil {
 			return err
 		}
+		if c.waiting != (gate.Row{}) {
+			return nil
+		}
 		if err := p.candidateEnvironment(ctx, c); err != nil {
 			return err
+		}
+		if c.waiting != (gate.Row{}) || c.rejected || c.held || c.factoryHold != "" {
+			return nil
 		}
 	}
 }

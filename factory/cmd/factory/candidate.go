@@ -55,6 +55,10 @@ type decompositionSet struct {
 	// decided is whether the row fired at all, and approved whether it approved.
 	decided  bool
 	approved bool
+	// waiting is true where the row fired and a human decides it, so it is
+	// pending in Work and no verdict is on it yet. The pass that finds the
+	// verdict a human left is what performs what it causes.
+	waiting bool
 	// reDecompositions is the intent's re-decomposition count after a rejection, which is what the
 	// attempt limit is compared against.
 	reDecompositions int
@@ -68,6 +72,24 @@ type decompositionSet struct {
 type candidate struct {
 	intentID string
 	itemID   string
+	// waiting is the row this item is pending at in Work, and the zero row
+	// where none is. A row a human decides is left open by the pass that fired
+	// it, per ../../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md:
+	// the item stops there, and the next pass reads the verdict off the log and
+	// continues from it.
+	waiting gate.Row
+	// from is the step the pass performs first on this item, and rows the
+	// newest closed decision per gate row of it, both derived from records by
+	// [path.rehydrate]. pending is the row waiting in Work where one is. A
+	// candidate this run authored rather than read back enters at stepSpec with
+	// no rows, which is what a fresh item's records say too.
+	from    step
+	rows    map[gate.Kind]decided
+	pending *gate.Opened
+	// heldAt is the row a human held, and the zero row where none is held. A
+	// hold is a stop on the event: the row is closed, and it fires again when a
+	// holder of its duty releases the hold at Work.
+	heldAt gate.Row
 	// svc is the service record this item changes, and repo is that service's
 	// repository — the record's own field, so the run reads where the work is
 	// rather than being told twice.
@@ -147,7 +169,13 @@ type candidate struct {
 	// third: what changed between them is a release the author's work never saw.
 	approvedComposition []environment.Composed
 	candidateDeployID   string
-	criteria            []gate.CriterionResult
+	// candidateDeployBuild is the build the candidate's environment is running,
+	// read off that deploy record. It is a field beside the deploy's id because
+	// what says the approval at the candidate deploy row has been performed for
+	// the build the item holds now is which build runs there, and a rebuild puts
+	// a second one on the same environment.
+	candidateDeployBuild string
+	criteria             []gate.CriterionResult
 	// encodingDefect is what [path.checkEncodings] found wrong with the build's
 	// encodings against the criteria in force — a criterion with no encoding
 	// naming it, an encoding naming a criterion not in force or withdrawn, or
@@ -212,7 +240,11 @@ type candidate struct {
 	// superseded is true where the Decomposition row rejected the set this item
 	// was part of.
 	superseded bool
-	// held is true where the human held at a deploy row.
+	// held is true where this pass performs no further step on the item: a
+	// human held it at a deploy row, or a condition stopped its dispatch. Both
+	// are holds and in neither is there a step left to perform — the row fires
+	// again when a holder releases it at Work, and the dispatch is attempted
+	// again by a later pass once the condition the hold names has lifted.
 	held bool
 
 	// What the queue did.

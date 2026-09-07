@@ -398,6 +398,44 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 	}
 }
 
+// TestAllReadsEveryAreaWithWhatItLiesInside: Factory lists the areas an owner
+// declared, so the read is every row and not the one chain a caller holds an
+// id for.
+func TestAllReadsEveryAreaWithWhatItLiesInside(t *testing.T) {
+	ctx, pool, w := newTable(t)
+
+	if read, err := area.All(ctx, pool); err != nil || len(read) != 0 {
+		t.Fatalf("All over a store with no area = %v, %v, want none and no error", names(read), err)
+	}
+
+	outer, err := w.Declare(ctx, owner, "payments", area.InsideProject(aProject), area.Hazard{})
+	if err != nil {
+		t.Fatalf("Declare: %v", err)
+	}
+	inner, err := w.Declare(ctx, owner, "payments/refunds", area.InsideArea(outer.ID), area.Hazard{})
+	if err != nil {
+		t.Fatalf("Declare inside: %v", err)
+	}
+
+	read, err := area.All(ctx, pool)
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if len(read) != 2 {
+		t.Fatalf("All read %v, want both areas", names(read))
+	}
+	byID := map[string]area.Area{}
+	for _, one := range read {
+		byID[one.ID] = one
+	}
+	if byID[outer.ID].Inside.ProjectID != aProject || byID[outer.ID].Inside.AreaID != "" {
+		t.Errorf("the area at the top of the chain reads inside %+v, want the project alone", byID[outer.ID].Inside)
+	}
+	if byID[inner.ID].Inside.AreaID != outer.ID || byID[inner.ID].Inside.ProjectID != "" {
+		t.Errorf("the finer area reads inside %+v, want the area above it alone", byID[inner.ID].Inside)
+	}
+}
+
 // TestInsertIsFenced: [Writer.Declare] fences the transaction it opens for
 // itself with the token it was constructed with.
 func TestInsertIsFenced(t *testing.T) {

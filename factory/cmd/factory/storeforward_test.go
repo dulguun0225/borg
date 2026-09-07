@@ -63,7 +63,7 @@ func TestAStoresForwardPromiseRefusesAnAlwaysPopulatedColumn(t *testing.T) {
 	// the same terms until the stage's own attempt limit is spent and the
 	// implementer's dispatch escalates — the way it already does for the
 	// Implementation row's own loop, per [path.mergeUntilQueued]'s doc comment.
-	d.in = strings.NewReader(manyApprovals)
+	d.decide = scriptedAtWork(manyApprovals).decide
 	d.model = &retriedWithNoFix{inner: d.model}
 	_, err := run(ctx, d, []asked{across(storeBreak, theService)})
 	if err == nil {
@@ -78,7 +78,7 @@ func TestAStoresForwardPromiseRefusesAnAlwaysPopulatedColumn(t *testing.T) {
 	if !strings.Contains(out.String(), "rollback restores") {
 		t.Errorf("the rejection does not name the store's own consumer:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "goes back to implementation against what the Merge to master row found wrong") {
+	if !strings.Contains(out.String(), "goes back to implementation against what the "+gate.MergeToMaster.String()+" row found wrong") {
 		t.Errorf("the run does not show the item being built again against what the row found wrong:\n%s", out)
 	}
 

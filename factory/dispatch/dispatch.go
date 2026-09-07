@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
@@ -88,9 +89,11 @@ func (NoNotifier) Escalated(context.Context, string, item.Stage, string) error {
 type Composition struct {
 	Pool  *pgxpool.Pool
 	Token lease.Token
-	// Fleet is the entries an owner composed and Prompts the role prompt
-	// version in force per role: the two records a match is made against.
-	Fleet   Fleet
+	// Models is the client an entry's model version and credential are reached
+	// through, and Prompts the role prompt version in force per role. The
+	// entries themselves are a record this component reads through package
+	// fleetentry and no interface answers.
+	Models  Models
 	Prompts Prompts
 	// Items is the writer of the item's stage and the count beside it. This
 	// component is the item's writer after decomposition, so the transition
@@ -132,7 +135,7 @@ func New(c Composition) (*Dispatch, error) {
 		absent bool
 	}{
 		{"a pool", c.Pool == nil},
-		{"a fleet", c.Fleet == nil},
+		{"the model clients", c.Models == nil},
 		{"the role prompts in force", c.Prompts == nil},
 		{"the item's writer", c.Items == nil},
 		{"a policy reader", c.Policy == nil},
@@ -333,20 +336,42 @@ func (d *Dispatch) escalate(ctx context.Context, on On) error {
 // included — a refused attempt cost units too. The sources are the ones the
 // manifest was written from, so every call of one run names the material that
 // run was handed.
+//
+// What it ran on is the entry's own fields and what the People declaration said
+// at this run, both copied onto the record rather than resolved through either
+// later: an owner may re-credential an entry or correct a rate without changing
+// what a past record says.
 func (d *Dispatch) recordRun(ctx context.Context, run Run, on On, sources []string, units map[string]int64,
-	startedAt, finishedAt, outcome string) (string, error) {
+	paid paidFor, startedAt, finishedAt, outcome string) (string, error) {
+	amount, unpriced := people.Convert(paid.rates, run.Entry.ModelVersion, run.Entry.Effort, units)
+	// A run is priced where every kind it returned has a rate and the credential
+	// carries the currency those rates are authored in. Without a currency
+	// there is no amount to compare, and the currency is stored exactly where
+	// the amount is: a run with one and not the other is refused by the record.
+	priced := len(unpriced) == 0 && paid.currency != ""
+	currency := ""
+	if priced {
+		currency = paid.currency
+	}
 	recorded, err := d.c.Runs.Record(ctx, Actor, agentrun.New{
 		Role:                string(run.Role),
 		RolePromptVersionID: run.RolePromptVersionID,
 		ModelVersion:        run.Entry.ModelVersion,
 		Effort:              run.Entry.Effort,
 		CredentialName:      run.Entry.CredentialName,
+		ProcessingLocation:  run.Entry.ProcessingLocation,
+		LenderKey:           paid.lenderKey,
+		AccountKind:         paid.accountKind,
 		ItemID:              on.ItemID,
 		Stage:               string(on.Stage),
 		IntentID:            intentOf(on),
 		InputManifestID:     run.InputManifestID,
 		UnitsByKind:         units,
 		Sources:             sources,
+		RatesByKind:         paid.ratesFor(run.Entry.ModelVersion, run.Entry.Effort, units),
+		ConvertedAmount:     amount,
+		Priced:              priced,
+		Currency:            currency,
 		StartedAt:           startedAt,
 		FinishedAt:          finishedAt,
 		Outcome:             outcome,
@@ -376,6 +401,10 @@ func outcomeOf(err error) string {
 		return "authored"
 	case errors.Is(err, ErrOutOfAttempts):
 		return "gave up"
+	case unreachable(err):
+		// The credential and not the model: a run that never reached the
+		// provider refused nothing, and the row the failure leaves is a hold.
+		return "could not reach the credential"
 	default:
 		return "refused"
 	}

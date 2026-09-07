@@ -11,138 +11,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/lease"
-	"github.com/dulguun0225/borg/factory/people"
-	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// The three subcommands of everything downstream of a deploy: who a page reaches,
-// the watch that closes a window, and a human approving through a factory hold.
+// The watch over one service, and what every subcommand other than run needs
+// to compose the path.
 //
-// The first is the People declaration, which is the screen People will write and
-// this reaches until it exists. The second is the health monitor, which nothing else
-// closes a window with — so a run that left one open is finished here. The third is
-// the emergency action the design keeps at the production deploy row: approve now, not
-// skip.
-
-// peopleCommand declares that a human holds a duty or an obligation, withdraws one,
-// or prints the declaration. Nothing enforces it and nothing has to: a page or a gate
-// row with no holder recorded widens to the owner, who is the person that would have
-// written the row.
-//
-// The holding is written against a per-person key and the argument is a name, so
-// the name is resolved through the People mapping the same way -human is — and a
-// name nobody has a key for gets one, which is what makes `factory people alice
-// -duty 6` work on a fresh install. Printing resolves the other way, key back to
-// name, and prints the key itself where the mapping has been erased.
-func peopleCommand(args []string) error {
-	flags := flag.NewFlagSet("people", flag.ContinueOnError)
-	duty := flags.Int("duty", 0, "one of the owner's twelve duties, by number")
-	obligation := flags.String("obligation", "", "an obligation outside the twelve: hosting, driftdetector, or fleet")
-	withdraw := flags.Bool("withdraw", false, "end this holding rather than declaring it")
-	human := flags.String("human", "owner", "the owner writing the declaration")
-
-	// The name the holding is about is taken off the front, the way `area <name>` is.
-	// It is not -human: the owner writing the row and the human the row is about are two
-	// people as often as one.
-	holder := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		holder, args = args[0], args[1:]
-	}
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return errors.New("factory people: at most one argument, the human the holding is about, and then any flags")
-	}
-
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		if holder == "" {
-			return printPeople(ctx, pool)
-		}
-		holding := people.OfDuty(people.Duty(*duty))
-		if *obligation != "" {
-			holding = people.OfObligation(people.Obligation(*obligation))
-		}
-
-		actor, err := humanNamed(ctx, pool, token, *human)
-		if err != nil {
-			return err
-		}
-		// The holder's own key and mapping, minted where the name is new. A
-		// holding is written against a key and never a name, so this write is
-		// what makes the row readable back as a person.
-		held, err := humanNamed(ctx, pool, token, holder)
-		if err != nil {
-			return err
-		}
-
-		writer := people.NewWriter(pool, token, policy.NewFactory(pool, token))
-		if *withdraw {
-			standing, err := people.ByHolding(ctx, pool, held.Key, holding)
-			if err != nil {
-				return err
-			}
-			ended, err := writer.Withdraw(ctx, actor, standing.ID)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%s no longer holds %s, as of %s; the row is kept\n", holder, holding, ended.WithdrawnAt)
-			return nil
-		}
-
-		declared, err := writer.Declare(ctx, actor, held.Key, holding)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s holds %s, declared as %s by %s %s\n",
-			holder, holding, declared.ID, declared.Actor.Kind, *human)
-		fmt.Println("A page about a row belonging to this holding reaches every human who holds it at once, and widens once to the owner")
-		return nil
-	})
-}
-
-func printPeople(ctx context.Context, pool *pgxpool.Pool) error {
-	all, err := people.All(ctx, pool)
-	if err != nil {
-		return err
-	}
-	if len(all) == 0 {
-		fmt.Println("The People declaration is empty, so every page and every gate row reaches the owner directly")
-		return nil
-	}
-	for _, d := range all {
-		state := "holds it"
-		if !d.Holds() {
-			state = "withdrew at " + d.WithdrawnAt
-		}
-		fmt.Printf("  %s: %s — %s\n", nameOrKey(ctx, pool, d.Key), holdingOf(d), state)
-	}
-	return nil
-}
-
-// nameOrKey is one per-person key as a reader sees it: the name the mapping
-// gives it, and the key itself where the mapping was erased or never written.
-// A key with no name is not an error — the mapping is the one record an erasure
-// reaches, and the holding it left behind still routes.
-func nameOrKey(ctx context.Context, pool *pgxpool.Pool, key string) string {
-	name, err := people.NameOf(ctx, pool, key)
-	if err != nil {
-		return key
-	}
-	return name
-}
-
-// holdingOf is one declaration's holding, read back off the row's two columns.
-func holdingOf(d people.Declaration) people.Holding {
-	if d.Obligation != "" {
-		return people.OfObligation(d.Obligation)
-	}
-	return people.OfDuty(d.Duty)
-}
+// The health monitor is the one thing that closes an analysis window, so a run
+// that left one open is finished here.
 
 // watchCommand is the health monitor over one service, run against an existing
 // database until every window closes or the time allowed runs out.
@@ -220,61 +98,6 @@ func printWindows(ctx context.Context, p *path, svc service.Service) error {
 	return nil
 }
 
-// approveCommand is a human approving through a factory hold at the production
-// deploy row. The row fires with the hold on its open event and the human decides,
-// which is the emergency action the design keeps there — approve now, not skip.
-//
-// What approving through the hold a rollback leaves redelivers is the defect that was
-// just removed. That is the most damaging thing in the factory to approve through and
-// the one most likely to be tried during an incident, which is why the reason is
-// required and goes on the close event.
-func approveCommand(args []string) error {
-	flags := flag.NewFlagSet("approve", flag.ContinueOnError)
-	secrets := flags.String("secrets", "", "path of the secrets file (required)")
-	targets := flags.String("targets", "", "the directory the local target runs releases from (required)")
-	human := flags.String("human", "owner", "the human deciding")
-	verdict := flags.String("verdict", string(gate.VerdictApprove), "approve or hold")
-	reason := flags.String("reason", "", "what the human says with the verdict, which goes on the close event")
-	safeguardWithdrawal := flags.String("safeguard-withdrawal", "", "approve this safeguard's withdrawal instead, which is where a safeguard leaves force")
-	haltWithdrawal := flags.String("halt-withdrawal", "", "approve this halt's withdrawal instead, which is where a halt ends")
-	legalHoldWithdrawal := flags.String("legal-hold-withdrawal", "", "approve this legal hold's withdrawal instead, which is where a hold lifts")
-	retentionShortening := flags.String("retention-shortening", "",
-		"approve this pending shortening of decision-log retention, which `factory author -parameter decision_log_retention` wrote")
-
-	id := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		id, args = args[0], args[1:]
-	}
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	// The four rows outside every item take no item and no target: what they
-	// decide is a record, so they neither reach a deploy target nor read a
-	// secret, and withdrawal.go fires and closes them without composing the path.
-	if *safeguardWithdrawal != "" || *haltWithdrawal != "" || *legalHoldWithdrawal != "" || *retentionShortening != "" {
-		if id != "" {
-			return errors.New("factory approve: a withdrawal and a shortening decide a record and not an item, so neither takes one")
-		}
-		return approveWithdrawal(*safeguardWithdrawal, *haltWithdrawal, *legalHoldWithdrawal,
-			*retentionShortening, *human)
-	}
-	if id == "" || flags.NArg() != 0 {
-		return errors.New("factory approve: one argument, the item's id, and then any flags")
-	}
-	for _, required := range []struct{ name, value string }{
-		{"secrets", *secrets}, {"targets", *targets},
-	} {
-		if required.value == "" {
-			return fmt.Errorf("factory approve: -%s is required", required.name)
-		}
-	}
-
-	return withPath(pathFlags{secrets: *secrets, targets: *targets, human: *human},
-		func(ctx context.Context, p *path) error {
-			return p.approveThrough(ctx, id, gate.Verdict(*verdict), *reason)
-		})
-}
-
 // pathFlags is what a subcommand other than run needs to compose the path: enough to
 // reach the store and the targets, and no model — none of these authors anything.
 //
@@ -342,7 +165,6 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 			dir:              f.targets,
 			project:          projectName,
 			credential:       deployCredential(),
-			in:               strings.NewReader(""),
 			out:              os.Stdout,
 			human:            f.human,
 			services:         known,

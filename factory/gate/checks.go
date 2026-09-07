@@ -175,7 +175,7 @@ func (g *Gate) Pending(ctx context.Context) ([]Opened, error) {
 	}
 	var pending []Opened
 	for _, row := range rows {
-		opened, err := openedFrom(row)
+		opened, err := OpenedFrom(row)
 		if err != nil {
 			continue
 		}

@@ -26,8 +26,10 @@
 // [Intake.DeriveForItem], [Intake.SupersedeDerived] and
 // [Intake.MarkUnanswerable]. notifier.go holds [Notifier], [NoNotifier] and
 // [ErrNotifierNotComposed]. read.go holds [Get],
-// [OnEvidence], [Questions], [Requirements], [EveryRequirement], [ForItem] and
-// [Escaped].
+// [OnEvidence], [Waiting], [InProject] — every intent of one project, which is
+// what a screen listing what arrived reads, an intent having no item until
+// decomposition runs — [Questions], [Requirements], [EveryRequirement],
+// [ForItem] and [Escaped].
 //
 // A statement is written once and never updated; the state, the two counts,
 // and the fields the confirming round writes advance in place, an intent being

@@ -56,8 +56,10 @@
 // database.
 //
 // rederive.go holds [Rederive], called at the factory's start: it rewrites
-// every duty the newest policy version's declaration names that the table
-// does not already hold standing, and appends no version of its own.
+// every duty and every obligation the newest policy version's declaration
+// names that the table does not already hold standing, and, for a credential
+// it names, the account kind and the ceiling's currency and period where the
+// table disagrees, and appends no version of its own.
 //
 // Nothing enforces a duty's routing and nothing has to: a duty with no
 // holder is not an error, and an empty table is a working factory. The one
@@ -67,12 +69,12 @@
 // the sum over a period from [Ceiling.PeriodStartAt] is what a ceiling is
 // compared against. No caller does either yet.
 //
-// A version's snapshot carries less than these tables hold.
-// [policy.PersonDeclaration] has a field for the credential name, the ceiling
-// amount and the rates, and none for the obligation, the account kind, the
-// currency or the period, so a version names none of those four; a key that
-// lent two credentials is two rows of that snapshot. Extending that type is
-// package policy's, and this package does not import it for writing.
+// A version's snapshot names everything the declaration holds for a key: the
+// duties, the obligations, and, per credential a key lent, its name, its
+// account kind, its ceiling's amount, currency and period, and the rates
+// authored on it — a key that lent two credentials is two rows of that
+// snapshot. Extending [policy.PersonDeclaration] is package policy's, and
+// this package does not import it for writing.
 //
 // Who may write what: [Writer] inserts a holding and withdraws it, and it
 // refuses an actor that is not a human with [ErrNotAnOwner]. [Writer.Lend],

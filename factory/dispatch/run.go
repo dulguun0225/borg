@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/principal"
@@ -95,14 +97,18 @@ func (d *Dispatch) Implementer(ctx context.Context, on On, material []inputmanif
 //     an unrefined intent;
 //  2. the match — the item's stage against the role, its service and area
 //     against the scope, and the role prompt version in force;
-//  3. the transition onto the item, which counts the entry;
-//  4. the input manifest, written before the agent starts;
-//  5. the run, under the principal this dispatch is;
-//  6. the agent run record, written after each call;
-//  7. the item's own count for the stage against the limit in force, and the
+//  3. the three conditions the entry makes readable, in the design's order: a
+//     credential already known unreachable, one at its spend ceiling, and a
+//     document-kind constraint in force requiring seam 5 enforced;
+//  4. the transition onto the item, which counts the entry;
+//  5. the input manifest, written before the agent starts, with the classes of
+//     material the entry does not name withheld and recorded as excluded;
+//  6. the run, under the principal this dispatch is;
+//  7. the agent run record, written after each call;
+//  8. the item's own count for the stage against the limit in force, and the
 //     escalation over it.
 //
-// Anything that stops it before (5) is a hold: a row in the log, no page, no
+// Anything that stops it before (6) is a hold: a row in the log, no page, no
 // attempt counted, and [ErrHeld] returned with the run naming the condition.
 func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputmanifest.Material,
 	call func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error)) (Run, error) {
@@ -134,19 +140,19 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 			return run, err
 		}
 		if stopped != "" {
-			return d.hold(ctx, run, on, HoldTheIntentStops, stopped)
+			return d.hold(ctx, run, on, Hold{Condition: HoldTheIntentStops, State: stopped})
 		}
 	}
 
 	// 2. The match. Neither of these two is a judgment: an entry covers the
 	// role and the scope or it does not, and a version is in force or it is
 	// not.
-	entry, found, err := d.c.Fleet.EntryFor(ctx, role, on)
+	entry, found, err := d.entryFor(ctx, role, on)
 	if err != nil {
 		return run, err
 	}
 	if !found {
-		return d.hold(ctx, run, on, HoldNoEntryCoversTheStage, "")
+		return d.hold(ctx, run, on, Hold{Condition: HoldNoEntryCoversTheStage})
 	}
 	operations, err := role.Narrow(entry.Operations)
 	if err != nil {
@@ -160,10 +166,36 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 		return run, err
 	}
 	if !inForce {
-		return d.hold(ctx, run, on, HoldNoRolePromptInForce, "")
+		return d.hold(ctx, run, on, Hold{Condition: HoldNoRolePromptInForce})
 	}
 	run.RolePromptVersionID = prompt.ID
 	told := prompt.Content
+
+	// 3. The three the entry makes readable, in the design's order. The
+	// credential rows are read once here and handed on: a run that succeeds
+	// closes the row its own earlier failure left, and reading them again after
+	// the call would append a read event per call for an answer this read
+	// already has.
+	credentials, err := d.credentialWaits(ctx)
+	if err != nil {
+		return run, err
+	}
+	held, err := d.credentialStops(ctx, credentials, on, entry)
+	if err != nil {
+		return run, err
+	}
+	if held.Condition != "" {
+		return d.hold(ctx, run, on, held)
+	}
+	requiring, err := d.constraintRequiringSeam5(ctx, on)
+	if err != nil {
+		return run, err
+	}
+	if requiring != "" {
+		return d.hold(ctx, run, on, Hold{
+			Condition: HoldConstraintRequiresSeam5, ConstraintID: requiring,
+		})
+	}
 
 	// A dispatch that got this far is a match nothing is holding, so any hold
 	// this component left open is re-tested and the ones the match lifts are
@@ -172,35 +204,115 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 		return run, err
 	}
 
-	// 3. The transition, which counts the entry into the stage.
+	// 4. The transition, which counts the entry into the stage.
 	if on.ItemID != "" {
 		if err := d.enter(ctx, on); err != nil {
 			return run, err
 		}
 	}
 
-	// 4. The manifest, before the agent starts. Context assembly is the
-	// component that would select and write it; it is not built, so this
-	// component writes what the stage handed over and excludes nothing.
+	// 5. The manifest, before the agent starts, and the classes of material the
+	// entry does not name withheld before it. Context assembly is the component
+	// that would select what fits the read-at-once bound and write the manifest;
+	// it is not built, so this component writes what the stage handed over,
+	// withholds the classes the entry does not name, and excludes nothing else.
+	handed, withheld, err := withhold(entry, material)
+	if err != nil {
+		return run, err
+	}
+	readsAtOnce := entry.ReadsAtOnce
 	manifest, err := d.c.Manifests.Write(ctx, Actor, inputmanifest.New{
-		ItemID: on.ItemID, Stage: string(on.Stage), IntentID: on.IntentID, Materials: material,
+		ItemID: on.ItemID, Stage: string(on.Stage), IntentID: on.IntentID,
+		Materials: handed, ReadAtOnceBound: &readsAtOnce, Excluded: withheld,
 	})
 	if err != nil {
 		return run, err
 	}
 	run.InputManifestID = manifest.ID
 
+	paid, err := d.readPaidFor(ctx, entry.CredentialName)
+	if err != nil {
+		return run, err
+	}
 	limit, err := d.limitFor(ctx, role, stage)
 	if err != nil {
 		return run, err
 	}
-	return d.attempts(ctx, run, on, told, sourcesOf(material), limit, call)
+	return d.attempts(ctx, run, on, told, sourcesOf(handed), paid, credentials, limit, call)
+}
+
+// credentialStops is the two conditions the credential an entry names stops a
+// dispatch on, in the design's order: a credential already known unreachable,
+// and one at its spend ceiling. The cause returned is empty where neither
+// holds.
+//
+// The ceiling's row routes to the owner and not to whoever lent the credential,
+// because raising, clearing or lengthening the period is the owner's and a row
+// reaching the lender would reach somebody who cannot act on it. The credential
+// row it stands beside is opened here so that an owner has one row to clear per
+// credential and period, however many items are waiting on it.
+func (d *Dispatch) credentialStops(ctx context.Context, read credentialRows, on On, entry Entry) (Hold, error) {
+	if read.declines(on, entry.CredentialName) {
+		return Hold{Condition: HoldCredentialUnreachable, CredentialName: entry.CredentialName}, nil
+	}
+	reading, err := d.atCeiling(ctx, entry.CredentialName, read)
+	if err != nil {
+		return Hold{}, err
+	}
+	if !reading.reached {
+		return Hold{}, nil
+	}
+	if err := d.atCeilingRow(ctx, read, entry.CredentialName, reading.periodStart); err != nil {
+		return Hold{}, err
+	}
+	return Hold{
+		Condition: HoldCredentialAtCeiling, CredentialName: entry.CredentialName,
+		WantsARate: reading.wantsARate, RoutedTo: RoutedToTheOwner,
+	}, nil
+}
+
+// withhold is the material the entry may be handed and the material it may not,
+// which context assembly reads the classes for at every dispatch: a class the
+// entry does not name is withheld before any selection rule selects anything,
+// and the manifest records each withheld source as excluded with the entry as
+// the reason. An entry naming no class is handed nothing but the role prompt.
+//
+// A class outside [fleetentry.MaterialClasses] is [ErrMaterialClassUnknown] and
+// not silently withheld: the classes an entry names and the classes a stage
+// hands over are one vocabulary, so a class no entry could ever name is a
+// caller's mistake and not an owner's narrowing.
+//
+// What it withholds is what the manifest and the run record name. It is not
+// what the role sends the provider: the payload each of the five methods passes
+// is the caller's own, assembled from the same sources, and this strips nothing
+// out of it — doc.go says so, that being what context assembly would own.
+func withhold(entry Entry, material []inputmanifest.Material) ([]inputmanifest.Material,
+	[]inputmanifest.Exclusion, error) {
+	var handed []inputmanifest.Material
+	var withheld []inputmanifest.Exclusion
+	for _, one := range material {
+		if !slices.Contains(fleetentry.MaterialClasses, one.Class) {
+			return nil, nil, fmt.Errorf("%w: %q on %s", ErrMaterialClassUnknown, one.Class, one.Reference)
+		}
+		if slices.Contains(entry.MaterialClasses, one.Class) {
+			handed = append(handed, one)
+			continue
+		}
+		withheld = append(withheld, inputmanifest.Exclusion{
+			What:   one.Reference,
+			Reason: "withheld: the fleet entry " + entry.ID + " does not name class " + one.Class,
+		})
+	}
+	return handed, withheld, nil
 }
 
 // sourcesOf is the sources handed over, as the agent run record names them:
 // the reference of each material the manifest was written from, in the order
-// the stage handed them over. The manifest names what was withheld and the run
-// record names what was sent, and both name a source by reference.
+// the stage handed them over. It is called with what the entry's classes
+// admitted and never with what the stage offered, so a class the entry does not
+// name is on the manifest as excluded and on no run record as a source: the
+// manifest names what was withheld and the run record names what was sent, and
+// both name a source by reference.
 func sourcesOf(material []inputmanifest.Material) []string {
 	sources := make([]string, 0, len(material))
 	for _, one := range material {
@@ -209,7 +321,7 @@ func sourcesOf(material []inputmanifest.Material) []string {
 	return sources
 }
 
-// attempts is (5) to (7): the calls, one agent run record each, and the limit
+// attempts is (6) to (8): the calls, one agent run record each, and the limit
 // compared against the item's own stored count after each refused reply.
 //
 // What is retried is a reply the protocol refused and an answer the client
@@ -217,8 +329,13 @@ func sourcesOf(material []inputmanifest.Material) []string {
 // sample may say correctly. Nothing else is: a rate-limited or unauthorised
 // account is not an attempt at the work, and what the design does with an
 // account that has run out is a hold, so those return on the first failure
-// rather than spending the limit on a refusal that will not change.
-func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, sources []string, limit int,
+// rather than spending the limit on a refusal that will not change. This is
+// where that hold is written: a failure [unreachable] recognises opens the
+// credential's own row, with the agent that could not reach as the caller and
+// the actor, and a call that succeeds closes it and re-matches, which lifts
+// every item this component declined onto that credential.
+func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, sources []string,
+	paid paidFor, credentials credentialRows, limit int,
 	call func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error)) (Run, error) {
 	as := principal.OfAgent(run.Entry.ModelVersion, run.ID, run.Entry.Scope.String())
 	if err := as.Validate(); err != nil {
@@ -250,13 +367,33 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, so
 
 		startedAt := record.Now()
 		units, callErr := call(run.Entry, told, as)
-		recorded, err := d.recordRun(ctx, run, on, sources, units, startedAt, record.Now(), outcomeOf(callErr))
+		recorded, err := d.recordRun(ctx, run, on, sources, units, paid, startedAt, record.Now(), outcomeOf(callErr))
 		if err != nil {
 			return run, err
 		}
 		run.AgentRunIDs = append(run.AgentRunIDs, recorded)
 		if callErr == nil {
+			// The credential was reached, so a row saying it could not be is
+			// gone: the hold ends where the work resumes rather than waiting
+			// for the agent that stopped to close it.
+			closed, err := d.reached(ctx, credentials, run.Entry.CredentialName)
+			if err != nil {
+				return run, err
+			}
+			if closed {
+				if _, err := d.Rematch(ctx); err != nil {
+					return run, err
+				}
+			}
 			return run, nil
+		}
+		if unreachable(callErr) {
+			row, err := d.couldNotReach(ctx, as, on, run.Entry.CredentialName)
+			if err != nil {
+				return run, err
+			}
+			run.Held, run.HoldRow = HoldCredentialUnreachable, row
+			return run, fmt.Errorf("%w: %s: %w", ErrHeld, HoldCredentialUnreachable, callErr)
 		}
 		if !errors.Is(callErr, agent.ErrReply) && !errors.Is(callErr, agent.ErrAnswer) {
 			return run, callErr
@@ -272,6 +409,22 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, so
 		}
 		run.Attempts = counted + 1
 		last = callErr
+		// The ceiling is compared at each report the agent makes and not only
+		// at a stage's start, so overshoot is bounded to one report's worth of
+		// units: a stage whose last call put the sum past it is held here,
+		// mid-stage, by whoever could not proceed, rather than retrying on an
+		// account the owner bounded.
+		read, err := d.credentialWaits(ctx)
+		if err != nil {
+			return run, err
+		}
+		held, err := d.credentialStops(ctx, read, on, run.Entry)
+		if err != nil {
+			return run, err
+		}
+		if held.Condition != "" {
+			return d.hold(ctx, run, on, held)
+		}
 	}
 }
 

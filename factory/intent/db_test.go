@@ -428,3 +428,43 @@ func TestTheStoreRefusesAroundTheWriter(t *testing.T) {
 		t.Errorf("inserting a question naming no intent = %v, want a violation of intent_id_present", err)
 	}
 }
+
+// TestInProjectListsWhatArrivedBeforeAnyItem: an intent taken in has no item
+// until decomposition runs, so a screen listing what arrived reads the intents
+// and not the items. A detector's intent names no project until it is worked,
+// which is why one in no project is in the list too.
+func TestInProjectListsWhatArrivedBeforeAnyItem(t *testing.T) {
+	ctx, pool, in := newIntake(t)
+
+	mine, err := in.TakeIn(ctx, owner, intent.Arrival{
+		Source: intent.SourceOwner, Statement: "checkout should retry once", ProjectID: "pr_shop",
+	})
+	if err != nil {
+		t.Fatalf("TakeIn: %v", err)
+	}
+	elsewhere, err := in.TakeIn(ctx, owner, intent.Arrival{
+		Source: intent.SourceOwner, Statement: "billing should round to the cent", ProjectID: "pr_other",
+	})
+	if err != nil {
+		t.Fatalf("TakeIn in another project: %v", err)
+	}
+	detected := raised(t, ctx, in, crossing, "the error rate crossed on checkout")
+
+	all, err := intent.InProject(ctx, pool, "pr_shop")
+	if err != nil {
+		t.Fatalf("InProject: %v", err)
+	}
+	found := map[string]bool{}
+	for _, one := range all {
+		found[one.ID] = true
+	}
+	if !found[mine.ID] {
+		t.Errorf("InProject = %+v, want the project's own intent %s in it", all, mine.ID)
+	}
+	if !found[detected.ID] {
+		t.Errorf("InProject = %+v, want the detector's intent %s, which names no project until it is worked", all, detected.ID)
+	}
+	if found[elsewhere.ID] {
+		t.Errorf("InProject = %+v, want no intent of another project in it", all)
+	}
+}

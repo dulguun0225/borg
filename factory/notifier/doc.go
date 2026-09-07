@@ -50,9 +50,13 @@
 // [DeliveryTable], [DeliveryDDL], [DeliveryRecord], and the upsert beneath every
 // call to [Notifier.Notify], [Notifier.Widen], [Notifier.Acknowledge] and
 // [Notifier.Answered] — one row per waiting row, channel and recipient,
-// overwritten at each attempt — [Notifier.deliveredRows], which rows anything
-// has gone out about, and [PagedRowsSince], the count the harm mark's cap is
-// read against. harmmark.go is [harmMarkPagesOff], the off switch on the
+// overwritten at each attempt except for [DeliveryRecord.FirstAcceptedAt],
+// which is set once, on the attempt the transport first accepts, and left as
+// it is on every attempt after — [Notifier.deliveredRows], which rows
+// anything has gone out about, [PagedRowsSince], the count the harm mark's
+// cap is read against, and [DeliveriesOf], every delivery record of one row
+// on every channel and to every recipient, in the order they were written.
+// harmmark.go is [harmMarkPagesOff], the off switch on the
 // factory-wide settings record, and [Notifier.overHarmMarkCap] with
 // [Notifier.pageOverTheCap]: past a service's cap the marked intent's own page
 // channel is skipped and one page per interval goes out on [capRow] instead,

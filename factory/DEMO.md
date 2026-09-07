@@ -1,6 +1,22 @@
-# Demoing one change end to end
+# Demoing the factory end to end
 
-How to run milestone M1's demonstration, [_One change ships_](../roadmap.md#m1--one-change-ships), M2's, [_The factory decides_](../roadmap.md#m2--the-factory-decides), M3's, [_A candidate gets an environment_](../roadmap.md#m3--a-candidate-gets-an-environment), and M4's, [_The factory watches what it ships_](../roadmap.md#m4--the-factory-watches-what-it-ships), by hand: a real model authoring against a real git repository, a candidate running on an [environment](../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md) of its own, a human deciding at the three [gate](../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md) rows built so far, and a [release](../end-goal/how-the-factory-works/06-releases/02-the-release-record.md) left running as a local process — then a second change on the same service that ships with nobody deciding anything, which is what M2 is for, then two changes at once whose merges the [queue](../end-goal/how-the-factory-works/05-environments/03-the-merge-queue.md) orders, which is what M3 is for, and then a change that ships and is taken back off production by the factory itself, which is what M4 is for. The same paths run under `go test` as end-to-end tests in `cmd/factory`, with a fake model and scripted answers; this is the version with nothing faked, which is what there is to show somebody. [`README.md`](README.md) is the map of the code underneath it.
+How to run the demonstration of [M8](../roadmap.md#m8--the-screens-and-the-fleet) by hand — the
+setting up, the process, and the five episodes — with the takes below it in
+[`DEMO-M1-M7.md`](DEMO-M1-M7.md): a real model authoring against a real
+git repository, a candidate running on an
+[environment](../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md)
+of its own, a human deciding at every [gate](../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md)
+row at the four [screens](../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md),
+and a [release](../end-goal/how-the-factory-works/06-releases/02-the-release-record.md) left running
+as a local process. The same paths run under `go test` as end-to-end tests in `cmd/factory`, with a
+fake model and the verdicts typed through the same calls a screen makes; this is the version with
+nothing faked, which is what there is to show somebody. [`README.md`](README.md) is the map of the
+code underneath it.
+
+Every write a human makes is at a screen. `serve` is the process that serves them, and it is what
+this runbook starts: the eight subcommands are each a pass or a read, and none of them takes a
+verdict or an owner's write. So the shape of a take is `serve` running in one terminal, the client
+open in a browser, and the records read from a second terminal.
 
 Everything below is run from this directory.
 
@@ -12,6 +28,8 @@ Everything below is run from this directory.
 | An OpenRouter API key | [openrouter.ai/keys](https://openrouter.ai/keys) mints one, and the [agent](../end-goal/how-the-factory-works/10-fleet/README.md) sends it as a bearer token. This is the default provider because it reaches every model; the alternative, `-provider anthropic` with the token `claude setup-token` mints, is served `claude-haiku-4-5` and refused above it — see [_When it fails_](#when-it-fails) for what was measured. An API key against Anthropic's own endpoint goes in a header this code does not write and would answer 401. |
 | A directory outside this repository | The secrets file, the service's repository, and the directory releases run from — a candidate environment gets a directory of its own under that one. Nothing the demo creates belongs in `end-goal/`. |
 | Go and git | The build is `go build` in the service's repository and the encodings run as `go test` there, so the demo's service is a Go program. |
+| Node | The client is an Angular workspace and the binary embeds its build output, so the client is built before the binary that serves it. `mise.toml` at the repository root pins the version. |
+| A browser | The four screens are the interface. Anything with `EventSource` will do; the subscription is one server-sent-events stream per address. |
 
 ## Setting it up
 
@@ -28,10 +46,24 @@ chmod 600 ~/borg-demo/secrets
 
 Two secrets, by the names the run resolves. `model.openrouter` is the API key, read inside the model call and stored in no record — a run under `-provider anthropic` reads `model.anthropic` instead and never this one, so a file holding both is a file whose second line nothing resolves. `deploy.local` is the credential the [seam between the deployer and a deploy target](../end-goal/deferred.md#security-comes-last) requires on every operation and `localtarget` never reads — any value will do, and its being required is the point.
 
-## The run
+Then the client, once per checkout and again after any change to it:
 
 ```sh
-go run ./cmd/factory run \
+cd client && npm ci && npm run build && cd ..
+```
+
+`npm run build` writes into `clientdist/browser`, which the binary embeds with the standard
+library's `embed` — so a binary carries exactly the client built beside it and neither is upgraded
+alone. The output is the build's product and never committed: on a fresh clone `clientdist/browser`
+holds nothing but `.gitkeep`, and `serve` answers a request for a screen with "the client is not
+built" until this has run.
+
+## Starting the factory
+
+One terminal holds the process for the whole take:
+
+```sh
+go run ./cmd/factory serve \
   -secrets ~/borg-demo/secrets \
   -model deepseek/deepseek-v4-flash \
   -service greeter=~/borg-demo/greeter \
@@ -39,312 +71,309 @@ go run ./cmd/factory run \
   -targets ~/borg-demo/targets
 ```
 
-`-service` is a service as `<name>=<path>`, the path being its git repository and created when absent, and it is given once per service the install knows — one is every take up to M4's, and M5's needs two. `-provider` is which provider answers — `openrouter` by default, reading `model.openrouter`, or `anthropic`, reading `model.anthropic` — and it selects an implementation rather than configuring one, the two endpoints differing in their wire shape as well as their credential. `-model` is that provider's model id and has no default, because M1 requires the model named in configuration; OpenRouter's ids are namespaced — `deepseek/deepseek-v4-flash`, `anthropic/claude-opus-4.8` — and Anthropic's are not, so `-provider` and `-model` are set together or neither is. An id prefixed `~` is that provider's floating alias for a family's newest member; do not name one, because `-model` is the author every version records and a per-author prior is kept per model version, so an id that changes meaning underneath makes two versions recorded under one author that two models wrote. Not every model authors an implementation: `anthropic/claude-opus-5` refused the implementer's role prompt four times out of four on 2026-08-20, and `deepseek/deepseek-v4-flash` drove the whole path — spec, implementation, three gate rows, a release, a deploy without a control, and a clean chain walked back — in one attempt per stage on 2026-08-20, which is why it is named above; it is also the author every version this run writes names, a [per-author prior](../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md) being kept per model version. `-area` names the [area](../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md) the item is in and declares it where it does not exist — leave it out and the [score](../end-goal/how-the-factory-works/04-risk-score/README.md) can read neither of its context factors, which puts a human at every gate of that item. Every factor over a build is valued: package `exposure` derives what the change reaches from the diff and the build's resolved set, and the build record carries the list each of the four rows over a build reads it off. A service's first release is still decided by a human at every row — no earlier release to return to, an author nobody has approved, an area with no history — which is what the supplied threshold is calibrated to, and M2's second take is the item after it shipping with nobody at a gate. `-human` names the deciding human by name, resolved to the per-person key the People mapping holds and given one where the name is new — every record names a key and a person at a terminal types a name. They are also the owner every authoring write is made as, and it defaults to `owner`. `-pace` holds the model calls at least two seconds apart, so a take never sends requests in rapid succession — raise it if a provider is objecting, and leave it alone otherwise. `-candidate-environments` is how many candidate environments this platform has room for at once and defaults to eight; a candidate that meets it waits, and the wait is written into the log. `-watch` is how long the run keeps reading its own [analysis windows](../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md) before leaving what is still open, open — a minute by default, and `-watch-every` is how often it reads. A window's duration is measured and never set, so a run cannot know in advance how long to wait: what it gives up on, `factory watch <service>` continues. `-project` names the project this take installs and works in, `default` unless given.
+It acquires the lease and holds it for the life of the process, applies the schema, creates the
+[factory-wide settings](../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md)
+record, the project and production's [environment](../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md)
+for it where they do not exist, and then runs each component's pass on a ticker of its own while
+serving the screens on `:8080`. `GET /healthz` answers with the factory version and carries neither
+the version header nor a principal, because it is what a reader outside the process reads before it
+has either. `-every-<name>` sets any pass's interval — `-every-advance 5s` is the default and is
+worth lowering to `2s` for a demonstration, since it is how long a decision waits before the pass
+picks it up. `-port` moves the port. It exits on Ctrl-C, shutting the server down and releasing the
+lease, so the next start does not wait the lease out.
 
-The first run also installs what an owner authors on: the [factory-wide settings](../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md) record, which exists before any project does; the project itself, an owner's widest grouping of work; and production's [environment](../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md) record for it, which an owner does not choose because production exists everywhere. All three creations append a [policy version](../end-goal/what-the-factory-does/02-traceability.md), so the first line the run prints is the two versions in force — the policy's and the score's.
-
-It prompts for the [intent](../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md)'s statement. This one is written to survive a live run: it names the module, keeps the change inside the standard library, and asks for an encoding that does not bind the port, so a release still running from an earlier take cannot fail the next one's tests.
-
-> A Go HTTP service, module borg.demo/greeter, package main in main.go at the repository root, standard library only, with a go.mod. It answers GET /health with status 200 and the body ok, on port 8081. Test the handler through net/http/httptest rather than by binding the port.
-
-[_Statements that work_](#statements-that-work) below has three more and says what each part of one is for.
-
-Then eight prompts on the first take, and nothing else waits on a human:
-
-| Prompt | What to type |
-|---|---|
-| `The interviewer asks: …` | One line, any answer. A blank line is asked again — [the interview](../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md) is one round or none, and this is what the round is spent on. Some runs are not asked anything. |
-| `Verdict (…): ` at `spec` | `approve`, which confirms the acceptance criteria are the right ones — duty 6. `edit` authors the version yourself: type it in full and end with a line holding one full stop. |
-| `Verdict (…): ` at `implementation_plan` | `approve`. This is the row [_Implementation plan_](../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/03-implementation-plan.md) keeps `edit` for: the plan is a document, so a human who wants a different approach edits one into it rather than rejecting the item to get one. |
-| `Verdict (…): ` at `tasks` | `approve`, or `edit` to resequence or split a task without changing the plan above it. |
-| `Verdict (…): ` at `implementation` | `approve` what was built, or `reject <feedback>` to have it built differently. This is the one artifact gate with no `edit`: a human does not author a build at the row that decides it. |
-| `Verdict (…): ` at `deploy_to_candidate_environment` | `approve`, which is what creates the candidate's own environment and puts the build on it. `hold <a note>` leaves the item with no environment and nothing running; `reject <feedback>` sends the [item](../end-goal/how-the-factory-works/01-one-pipeline.md) back to implementation with an attempt counted there. |
-| `Verdict (…): ` at `merge_to_master` | `approve`, which admits the candidate to the merge queue. Or `reject <feedback>`, which stops the path with no release minted, no deploy recorded, and the item back at implementation with an attempt counted there — worth showing once, because a gate that cannot stop anything is not a gate. |
-| `Verdict (…): ` at `deploy_to_production` | `approve`. Or `hold <a note>`, which leaves the release minted and nothing deployed, with the event queued and the change still good — no attempt counted and nothing taught to the score, which is what separates a hold from a reject. |
-
-Every prompt lists what that row offers, which differs per row: `refer <what you could not judge>` is on all of them, because it is about the human and not the event, and `acknowledge` is beside them — it says a holder has the row, decides nothing, and the prompt comes again.
-
-Every verdict is asked for on a first take, and for two different reasons. At the four rows over a build the score puts a human there and says why at each: a service's first release has no earlier release to return to, its author has never been approved, its area has no history, and the diff touches every file in the tree. At the three rows above a build a human is there whatever the number, because the factor set those rows read holds the change's reach and nothing is built when they fire — a factor that cannot be computed is resolved, and a resolved vector is decided by a human. Nothing about either is a shortcut.
-
-What prints between the prompts is the demonstration, in order: the two versions in force, the area, the intent taken in and refined, the service and the item [decomposed](../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md) with its branch, the spec version and the [criterion](../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md) it introduces with its id and pattern, the implementation's commit, the build, then the candidate deploy row firing — the number against the threshold it was compared against and where that threshold came from, every factor with the quantity it was read from, and whether a human decides and why — the candidate environment composed with its directory and what it was composed from, the deploy onto it, the encodings checked in both directions and run twice there, the merge row firing with each criterion's outcome, the queue's order and its re-verification, master fast-forwarded, release number 1, the environment torn down, the deploy [without a control](../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md) to production, the analysis window opened over it — which on a service's first release says passed was never available to it — the health monitor reading until that window ends at its cap, and the walk from the deploy record back to the intent with every decision it crossed.
-
-## The second take, which is M2's demonstration
-
-First, author the analysis window's parameters on the service the first take created, because the first release's window is already open at the values the [score](../end-goal/how-the-factory-works/04-risk-score/README.md) supplies — a size of two in a hundred and a cap of a day, right for a real service and unwatchable here — and a window copies its values at the open, so nothing authored now moves that one. It stays open for its day, and the window limit the score supplies is one, so every later production deploy of this service would wait behind it; the limit is authored above it here, which is what [_When it fails_](#when-it-fails) says of that wait:
-
-```sh
-go run ./cmd/factory author -parameter window_size -value 0.1 -service greeter
-go run ./cmd/factory author -parameter window_confidence -value 0.95 -service greeter
-go run ./cmd/factory author -parameter window_cap -value 60 -service greeter
-go run ./cmd/factory author -parameter window_limit -value 3 -service greeter
-go run ./cmd/factory policy -service greeter
-```
-
-A size of `0.1` is one unit of work in ten failing above the baseline, and `60` is a minute before a window that will never reach its volume ends unresolved. `window_size` is authored per quantity — `-quantity` names which, `error_rate` unless given. What `policy` prints now is those four with a reader beside each, where it said nothing read them before. What authoring the limit costs is stated at the sixth take: a value an owner authored is not one the score's movement is read on.
-
-Then run the path again with the same `-service` and `-area`, on a statement that adds a route:
-
-> Add a second route to this service: it answers GET /version with status 200 and the body 1.0.0. Keep the existing route and its test as they are. Test the new handler through net/http/httptest rather than by binding the port.
-
-This one still asks a human at the three rows above a build — Spec, Implementation plan, Tasks — on every item, the way the first take's own text says. What it shows is the four rows over a build — Implementation, Deploy to candidate environment, Merge to master, Deploy to production — auto-passing: the first take's approvals narrowed the prior on the model that wrote the change and the history of the area it was in, its release gave the service something to return to, and the diff touches part of the tree rather than all of it — so the number is under the [threshold](../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md) at every one of those rows and the factory gives every verdict itself. Each close event's why it auto-passed reads threshold, and the row is written by the gate component rather than by a person.
-
-That is the whole of what M2 claims, and it is worth saying out loud while it runs: the factory earned this by having been watched once, and the evidence is in the log rather than in a setting.
-
-Then put a human back at a row and hold the deploy:
-
-```sh
-go run ./cmd/factory safeguard -parameter risk_threshold -subject gate_row:deploy_to_production -service greeter
-go run ./cmd/factory policy -service greeter -area greeting -gate deploy_to_production
-```
-
-The first places a [safeguard](../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md) (9) and prints the policy version it appended — `gate_row:` is drawn on `-service`, keyed by the row, package policy's own reader keying a row-scoped safeguard on the service the row fires for — and the second prints every parameter as it is in force, where its value came from, and the safeguards that reach it. Run the path a third time and the deploy row asks for a verdict again, saying the safeguard is why rather than the number — type `hold waiting to watch it` and nothing is deployed. `go run ./cmd/factory safeguard -withdraw <safeguard-id>` puts the row back in the score's hands.
-
-## The third take, which is M3's demonstration
-
-Two intents in one run, on the service the takes above already shipped. Each `-intent` is one candidate:
-
-```sh
-go run ./cmd/factory run \
-  -secrets ~/borg-demo/secrets \
-  -model deepseek/deepseek-v4-flash \
-  -service greeter=~/borg-demo/greeter \
-  -area greeting \
-  -targets ~/borg-demo/targets \
-  -intent 'Add a route answering GET /ready with status 200 and the body ready, in a new file ready.go with its test in ready_test.go, registering the route from an init function in ready.go. Change no existing file.' \
-  -intent 'Add a route answering GET /uptime with status 200 and the seconds since start as a decimal number, in a new file uptime.go with its test in uptime_test.go, registering the route from an init function in uptime.go. Change no existing file.'
-```
-
-Both statements say to change no existing file and to register the route from the new file, because a route registered in `main.go` is a change to an existing file, and that is the whole trick of this take: two candidates of one service are cut from the same master, so two changes to one file are two sides of a merge that conflicts — which the queue is right to reject and is not what this take is for. [_The queue rejecting a candidate_](#the-queue-rejecting-a-candidate) below is how to show that on purpose.
-
-What to watch, in the order it prints. Both items are authored and built before either reaches a gate. Then each gets its own environment, at its own directory under `-targets`, named for its item — `ls ~/borg-demo/targets` while it runs shows two of them, which is the milestone in one command. Each candidate's build is deployed to its own environment and its criteria are decided there, so nothing either candidate runs is anything the other can see. Then the queue prints its order and takes them one at a time: the first re-verifies against the master both were cut from, fast-forwards, and is minted a number; the second re-verifies against the master the first one just created, which is a build the implementation stage never made, and takes the number after it. Both environments are torn down at their merges — the records stay, because the deploy records naming them would otherwise point at nothing — and the two releases are deployed in the order the numbers were minted.
-
-### The queue rejecting a candidate
-
-Run the same two intents with both of them changing one existing file — drop the "Change no existing file" sentence and ask each to add its route to `main.go`. The first candidate merges; the second one's re-verification is a merge that conflicts, so the queue rejects it, sends the item back to implementation with an attempt counted there, and writes a wait row naming the merge queue as its actor. Nothing is minted for it and its environment stays its own, which is what the design says of an item that has not merged, been dropped, or been superseded.
-
-### Reordering the queue
-
-Between the Merge to master gates and the queue there is nothing to type, the run doing both in one call — so the priority is worth showing on the records rather than in a take:
-
-```sh
-go run ./cmd/factory priority <item-id> -priority 5
-```
-
-A greater number goes first. It orders every queue the item waits in as an item — the gates up to and including Merge to master, and the merge queue — and no deploy: numbered releases waiting to deploy are ordered by the number and by nothing else, so an owner who rushes an item has rushed it at every gate it has left and has no way at all to reorder a deploy.
-
-## The fourth take, which is M4's demonstration
-
-This one is the factory taking a change back off production on its own, so it needs three things set up first.
-
-**The analysis window's parameters** were authored at the second take, and every window since has opened with them; a window that opened before them — the first release's — runs to the cap it copied.
-
-**Drift detection, installed once.** It is a second process with a store of its own, and installing it beside the factory is substrate outside the twelve duties:
-
-```sh
-go run ./cmd/driftdetector pass -secrets ~/borg-demo/secrets
-go run ./cmd/driftdetector show
-```
-
-The first pass creates its schema and compares what each production target runs against what the factory recorded. `show` prints every mismatch and the last check per target — no mismatches is not health if the last check is old, which is why the second record exists at all. Run the factory without it and every check the factory makes reads a record it wrote itself; the run says so on its first line either way.
-
-On this interface the first pass finds one mismatch already: a stale component. The health monitor runs only inside a `run` or a `watch`, its last check names the interval it was reading on and owes a further pass while any window is open — the first release's is, for its day — and between runs nothing reads. That is the drift detector doing what it is for, on a substrate with no process to keep the monitor running until `serve` exists at M7, and it holds the service's production deploys until a human clears it:
-
-```sh
-go run ./cmd/driftdetector clear <mismatch-id> -human you
-```
-
-Expect it again at every later pass while that window is open.
-
-**Who a page reaches.** A mismatch belongs to none of [the twelve duties](../end-goal/what-humans-do.md), so the page it fires reaches whoever installed the drift detector:
-
-```sh
-go run ./cmd/factory people you -obligation driftdetector
-go run ./cmd/factory people you -duty 12
-go run ./cmd/factory people
-```
-
-Duty 12 is taking over issues the factory cannot fix on its own, which is the duty an escalation belongs to. With the declaration empty every page reaches the owner directly, which works and shows nothing about routing.
-
-### The bad change
-
-Then the take. A statement that ships something the criteria cannot see — the behaviour a criterion states is right, and a share of the work fails anyway:
-
-> Add a route answering GET /flaky with status 200 and the body ok, in a new file flaky.go with its test in flaky_test.go. The handler must return status 200 and the body ok on every request, and its test must check exactly that. Separately, change the loop that appends to the BORG_SIGNAL file so that every second line it appends is error rather than ok. Leave every other existing behaviour as it is.
-
-The two halves are the whole point. The criterion is about the route, the test decides the route, and both are right — so the build passes every criterion in force and the run reaches production with nobody deciding anything. What no criterion says anything about is how often the work succeeds, and that is what the window reads. This is the one take whose statement asks for the emitter by name: everywhere else the implementer's standing instruction is what puts it there, and here a demonstration needs a defect the criteria cannot see. Then the window: the run keeps reading until it closes, and what prints is the arithmetic — the units the release emitted and how many failed, the same for the release below it, the log of the likelihood ratio against the crossing the confidence set, and then `failed`. What follows has no human in it: an [incident](../end-goal/how-the-factory-works/08-operations/06-incidents.md) on production, the release failed and its deploy advanced to rolled back, the previous release's build put back on the target and waited for, a revert [intent](../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md) taken in from the detector, and the rollback reported on mail and chat. It fires no page, because the factory does not page to inform.
-
-`curl -s localhost:8081/health` still answers, and `curl -s localhost:8081/flaky` is gone — which is the demonstration in one command.
-
-### The hold, and shipping the revert
-
-Master still holds the change that was rolled back, so every production deploy of that service now waits:
-
-```sh
-go run ./cmd/factory run … -intent 'Add a route answering GET /extra with status 200 and the body extra, in a new file extra.go with its test in extra_test.go, registering the route from an init function in extra.go. Change no existing file.'
-```
-
-It merges, it is minted a number, and its deploy prints `waits at deploy_to_production: a rollback's revert has not shipped`. Nothing is written for that hold — it is computed from records that already exist and it lifts itself — and the line says which item to approve through it if you want to.
-
-The revert lifts it. Its intent is already waiting, taken in by the health monitor at the rollback, so give the run that intent's own statement and it works that one rather than taking in a second saying the same thing:
+Open `http://localhost:8080` and say who you are. Every call carries two headers: the factory
+version, which is enforced — a call whose version is not the store's is refused with a required
+reload rather than a failed action — and the per-person key of the human the client says it is,
+which is enforced by nothing. [Seam 5](../end-goal/deferred.md#security-comes-last) is where
+authentication attaches and this milestone attaches none, so an install where anybody can reach the
+port is anybody they name. Say the owner's own key: `-human` defaults to `owner`, and the key the
+mapping holds for that name is what the process's own writes are made as and the one key an acting
+call exempts from the read-only reading. Read it out of the store:
 
 ```sh
 docker compose exec -T postgres psql -U factory -d factory -tAc \
-  "select statement from intent where source = 'detector' and state = 'unrefined' order by at desc limit 1"
+  "select human_key from people_mapping where name = 'owner'"
 ```
 
-Pass that as `-intent` with the release the run is holding as a second `-intent`, and watch the order: the revert deploys ahead of the release the hold is holding, which is the one place the number does not order deploys. Then the hold lifts and the release behind it deploys.
+A second key is what shows routing, and it is written at People: a row with a name and nothing else
+reads all four screens and acts nowhere, and declaring one duty on it is what makes it act.
 
-### Approving through, which is the one to show carefully
+## Episode one: the install with nothing in it
 
-Before the revert ships, push the held release through by hand:
+With `serve` running against a fresh store, the home view is the readiness reading and nothing else:
+one row per [role](../end-goal/how-the-factory-works/01-one-pipeline.md), every one of them
+uncovered, and the badge counting them. An install holding no [fleet entry](../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md)
+for a role dispatches nothing, so this is what a fresh install is met with — not an error and not an
+empty screen. `serve` writes one entry per role from `-model`, `-provider` and `-effort` where the
+install holds none, which is the stand-in for the owner's first act on a composition no screen is
+open on; to see the reading empty as each entry is written, stop the process, drop the schema, and
+write the entries at Factory instead.
+
+The entry's form takes all nine fields the design gives it, and an entry written without one is an
+entry every later version has to migrate. Leave the project, the service and the area empty to scope
+it to the whole factory. One of the nine is stored and read by nothing — how many dispatches pass
+between [evaluation-set runs](../end-goal/how-the-factory-works/10-fleet/02-a-model-under-a-name.md),
+the evaluation set being content the product ships and this milestone shipping none.
+
+Duty 1 is at Work: an [intent](../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md)'s
+statement, and the services its decomposition yields items on. This one is written to survive a live
+run — it names the module, keeps the change inside the standard library, and asks for an encoding
+that does not bind the port, so a release still running from an earlier take cannot fail the next
+one's tests:
+
+> A Go HTTP service, module borg.demo/greeter, package main in main.go at the repository root, standard library only, with a go.mod. It answers GET /health with status 200 and the body ok, on port 8081. Test the handler through net/http/httptest rather than by binding the port.
+
+[_Statements that work_](#statements-that-work) below has three more and says what each part of one
+is for.
+
+Duty 2 is at Factory beside it: a [constraint](../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md)
+with the reach it binds — the factory, a project, or an area — which every item inside that reach is
+authored under until an owner withdraws it. A constraint whose reach is one intent is supplied at
+Work instead, on that intent.
+
+## Episode two: one item through the screens
+
+The advance pass takes the intent in hand on its next tick. What it does and where it stops is the
+same on the terminal `serve` prints to and on the screens, and the screens are where the verdicts
+go:
+
+| What waits | Where, and what to do |
+|---|---|
+| The [interview](../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md)'s question | Work, on the intent. One line, any answer — the interview is one round or none, and this is what the round is spent on. Some runs are not asked anything. |
+| The confirming round | Work, on the intent: whether what the factory understood is what was wanted. A correction reopens the interview instead. |
+| `spec` | Work, on the item. Approve, which confirms the acceptance criteria are the right ones — duty 6. Edit in place authors the version yourself. |
+| `implementation_plan` | Work. Approve, or edit in place: the plan is a document, so a human who wants a different approach edits one into it rather than rejecting the item to get one. |
+| `tasks` | Work. Approve, or edit in place to resequence or split a task without changing the plan above it. |
+| `implementation` | Work. Approve what was built, or reject with feedback to have it built differently. This is the one document row with no edit in place: a human does not author a build at the row that decides it. |
+| `deploy_to_candidate_environment` | Work. Approve, which creates the candidate's own environment and puts the build on it. Hold leaves the item with no environment and nothing running; reject sends the [item](../end-goal/how-the-factory-works/01-one-pipeline.md) back to implementation with an attempt counted there. |
+| `merge_to_master` | Work, and this is where [UAT](../end-goal/what-humans-do.md) is performed (7): the candidate is running on its own environment and its address is on the row. Approve admits it to the merge queue; reject stops the path with no release minted and the item back at implementation. |
+| `deploy_to_production` | Work. Approve, or hold, which leaves the release minted and nothing deployed — no attempt counted and nothing taught to the score, which is what separates a hold from a reject. |
+| The [acceptance](../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md) round | Work, on the intent, once every item of it is live: whether the intended effect was had. |
+
+Every row shows what it offers, which differs per row: refer is on all of them, because it is about
+the human and not the event, and acknowledge is beside them — it says a holder has the row, decides
+nothing, and the row stays in front of every other holder. Three of the ten duties are here: the
+question answered (3), the criteria confirmed (6), and UAT (7). Two more are one row each — an
+implementation plan written together with the factory through edit in place (11), and an item the
+factory gave up on taken over at its escalation (12), which is the row Work shows as escalated with
+a stage to return it to.
+
+Every verdict is asked for on a first take, and for two different reasons. At the four rows over a
+build the score puts a human there and says why at each: a service's first release has no earlier
+release to return to, its author has never been approved, its area has no history, and the diff
+touches every file in the tree. At the three rows above a build a human is there whatever the number,
+because the factor set those rows read holds the change's reach and nothing is built when they fire
+— a factor that cannot be computed is resolved, and a resolved vector is decided by a human. Nothing
+about either is a shortcut.
+
+Each close event carries one field no terminal could fill: when the actor opened the row in Work.
+The interval Factory reports as how long a row was open in front of a human is read from it, beside
+the wait and never in place of it — it is the screen's report of itself, and a client that lies about
+it is caught by nothing.
+
+Two things are worth doing on purpose here. Acknowledge a row from one key and watch it stay in front
+of the others, which is what acknowledging decides — nothing. And open one row in two browsers and
+decide it in the first: the second is told the record changed by its own subscription, before its
+human acts on it, which is what push not poll holds inside the product.
+
+What prints on `serve`'s terminal between the verdicts is the demonstration, in order: the two
+versions in force, the area, the intent taken in and refined, the service and the item
+[decomposed](../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md) with
+its branch, the spec version and the [criterion](../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md)
+it introduces, the implementation's commit, the build, each row firing with its number against the
+threshold and every factor with the quantity it was read from, the candidate environment composed
+and deployed to, the encodings checked in both directions and run twice there, the queue's order and
+its re-verification, master fast-forwarded, release number 1, the environment torn down, the deploy
+[without a control](../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md) to
+production, and the analysis window opened over it — which on a service's first release says passed
+was never available to it.
+
+## Episode three: silence
+
+With nothing waiting, the home view is the digest and the badge at zero: what shipped, what was
+decided, and what the factory auto-approved over the one factory-owned span. The digest is the part
+that appears only at zero, which is what makes an empty screen mean the factory is working.
+
+Then stop a component and watch a named row appear beside the digest rather than the same emptiness.
+The health monitor's own [last check](../end-goal/how-the-factory-works/08-operations/08-drift-detection.md)
+names the interval it was reading on and owes a further pass while any window is open, so raising the
+watch pass's interval past that interval is what makes it late:
 
 ```sh
-go run ./cmd/factory approve <item-id> \
-  -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets \
-  -reason 'the incident is worse than the defect'
+# Restart serve with the watch pass held off, and the last check row goes past its interval.
+go run ./cmd/factory serve … -every-watch 30m
 ```
 
-The row fires with the hold on its open event, the human's verdict and reason close it, and the deploy happens. What it accepts is the defect that was just removed — so the window that opens over it fails it again, and the run says so. It is the most damaging thing in the factory to approve through and the one most likely to be tried during an incident, which is the whole reason for showing it.
+The row sits above whatever is genuinely waiting and outside the badge: a component whose pass merely
+ran late is not a wait on a human, and it is shown rather than aggregated away. Beside it is the drift
+detector's own last check, read from the detector's own store — which is absent until the detector has
+run, and reads as a factory with no drift detector installed.
 
-### A mismatch, and the page
+## The takes below M8
 
-Change the target underneath the factory and let the drift detector find it:
+[`DEMO-M1-M7.md`](DEMO-M1-M7.md) holds the demonstrations of the milestones before this one: five
+takes driven by `run`, `watch` and `learn` rather than by `serve` — the analysis window's parameters
+authored and a change auto-passing under them, two candidates through the merge queue, the
+deliberately bad release the factory takes back off production on its own, contracts binding two
+services, and what the score learned from those outcomes. Episodes four and five below start from
+the fourth of them, so a take of the whole of it runs that file first.
+
+## Episode four: Ops
+
+The fourth take, in [`DEMO-M1-M7.md`](DEMO-M1-M7.md#the-fourth-take-which-is-m4s-demonstration), is
+the first half of this episode: the deliberately bad release deployed, its
+window failing, and the [rollback](../end-goal/how-the-factory-works/06-releases/06-rollback.md)
+performed by the watch pass with no human in it. The rest is duty 10 in both its forms and the three
+acts beside it, each at Ops on the service's own address — which reads the release running per
+target, the contracts it publishes, its open [incidents](../end-goal/how-the-factory-works/08-operations/06-incidents.md),
+the windows it is watched under, and the mitigation standing on a target while one does.
+
+**A rollback while the build it returns to is still running.** Two good releases first, so there is
+a release below the one running: take a second intent in and let it ship. Then roll back at Ops with
+a reason, which the record carries — the deployer returns production to the release below, and the
+source on the rollback's own record names the human who asked rather than the health monitor's
+reading. The address reads the release below on the target afterwards, which is the demonstration in
+one screen.
+
+**A revert raised after.** Once the build a rollback would return to is gone from master the undo is
+a revert instead: raise it at Ops naming the release that failed, and intake writes that link as the
+intent's evidence — the same link the detector's own revert carries in
+[_The hold, and shipping the revert_](DEMO-M1-M7.md#the-hold-and-shipping-the-revert), written the same way
+whichever of the two raised it.
+
+**A mitigation instructed and ended.** The factory performs neither of the class's two operations on
+its own — a mitigation is a human's instruction and the record says which human. On this platform the
+instance count is the one that can be performed and only at the count it already runs, one: it moves
+a process rather than traffic, so it serves no share. Ops shows the mitigation while it stands, and
+it stands until a human ends it — what it did to the target stays until a deploy replaces it, and the
+drift detector reads the target against the deploy record meanwhile.
+
+**A rollback marked as not caused by the release.** Where the comparison was confounded, say so at
+Ops with what caused it instead. The score and its learning pass exclude that release from then on,
+the revert item is dropped with Ops as the caller, and the hold the rollback set lifts — there is no
+defect on master for it to keep off production, so the next release from master carries the change,
+opens a window of its own and is measured again. The rollback and the incident stand: production was
+worse, whatever made it so.
+
+**A page fired on a human's own judgment.** The one action of the twelve duties no component ever
+performed. It routes the way every page about deployed software routes — to the holders of duty 12,
+widened once to the owner where nobody holds it — and nothing scores it and no bound applies to it.
+What limits it is that a page nobody needed makes its recipient slower to answer the next one.
+Factory counts them beside the page channel's other numbers.
+
+## Episode five: the money
+
+Lend the credential the fleet runs on at People, naming the human who lent it and whether the account
+is theirs or an organisation's; author a rate per kind of unit on it, per model version and effort;
+and author a [spend ceiling](../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md) on it
+— an amount in a currency over a period a length and a start date define, in the zone the date was
+authored in. Duty 8 and duty 9 sit beside it at Factory: a parameter authored and a safeguard placed.
+
+Then take an intent in and watch Factory while the pass works it. The burn rate is the units spent so
+far against the period in force, and beside it is when spending at that rate projects to exhaust the
+ceiling — the reading that exists so the hold is not the first anyone hears of it. Author the ceiling
+again at an amount already spent, which is how one is lowered, and the next dispatch is what stops:
+nothing is reserved before a stage starts, so the run happens and the sum is what declines the one
+after it.
+
+The hold is written mid-stage by whoever could not proceed. It names the credential and never the
+entry — an owner may re-credential or delete an entry without changing what that row says — and it
+routes to the owner, raising or clearing one being the owner's, so no row of the three credential
+holds reaches a human who cannot act on it. Work shows the item stopped at its credential's ceiling,
+and Factory counts what is stopped at dispatch by cause.
+
+Clearing it is at Work, on the credential: it authorises an overage for the period in force alone and
+does not reset the sum. The period is derived at the read from the start date in force, so
+re-anchoring the ceiling is what makes the next period next — author it again with yesterday's date
+over two days and the same units stop the credential again, in a period nothing has cleared. That is
+the whole of what clearing for that period alone means.
+
+A run whose converted amount is absent because a kind it returned has no rate fails closed the same
+way, naming the kind, the model version and the effort; authoring the rate is what clears that one,
+not authorising an overage.
+
+## The five more things
+
+**The upgrade.** A shipped [role prompt](../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md)
+whose words an upgrade changed enters the chain at the first start on the new version, and the
+version below it stands in force until the row every version fires is decided. Factory reads both:
+the version in force per role, and the version awaiting its gate. Approving it there moves the
+version in force. The row's third action is not a verdict: an edit in place authors a version with
+the human as its author and fires the row again over what they wrote. Nothing here authors a version
+any other way, so the only version this row ever sees is one the product shipped.
+
+**The People declaration as a chain.** Declare a duty on two keys and route a safeguard's rows to
+that duty — only a safeguard that adds a human at a gate carries a routing, which is the risk
+threshold and no other parameter. One holder writes the safeguard's withdrawal; the row is routed
+away from them, so while the second holder stands they cannot decide it. Withdraw the second holding
+and they can: the row fires to them, closes, and the close carries the self-approval count, which is
+what an install that cannot separate who wrote a record from who decides it records instead of
+refusing. Restore the holding afterwards and People reads both holding again — that the row closed at
+a moment when only one did is in the chain of policy versions and nowhere else. Then erase a mapping:
+the key stands on every record it was written to, the chain and its counts are undisturbed, and
+People resolves no name for it.
+
+### The four rows outside every item
+
+A safeguard's withdrawal, a halt's withdrawal, a legal hold's ending, and a shortening of
+decision-log retention are each decided at Factory, and each is routed away from the actor on the
+record it decides. Write each as one human and decide it as another: place a safeguard and withdraw
+it, set a halt and withdraw it, set a legal hold and withdraw it, and author `decision_log_retention`
+at a shorter value than the one in force — that last one is written pending rather than authored in
+force, because shortening removes a protection. Factory lists all four awaiting a disposition.
+Approving each is what takes the record it decides out of force, which writing the withdrawal alone
+does not: each is an open event, a close event, and then the record's own approval, and package
+`policy` refuses an approval naming no close event. The row that decides a shortening names one thing
+more — every author whose per-author prior stands drifted and whose held-out decisions the cut would
+remove, so the human at the row reads whose prior restarts before they approve it.
+
+Then the pass the shortening was for:
 
 ```sh
-sed -i 's/ [0-9]*$/ 999999/' ~/borg-demo/targets/greeter.running
-go run ./cmd/driftdetector pass -secrets ~/borg-demo/secrets
+go run ./cmd/factory truncate -boundary <row-id>
 ```
 
-That file is how the local target records the build it started and its process id — editing it is a target changed underneath, which is one of the three things the drift detector exists to catch. The pass prints `MISMATCH`. Then run the factory again on any statement: the production deploy row fires with what disagreed on its open event and a human at it whatever the number reads, the page reaches whoever the declaration says installed the drift detector, and a second pass of the watch widens it once to the owner. Nothing the factory can gather lifts this one:
+The truncation row is appended first and stays: it names the boundary, the value being enforced, who
+authored that value, and the two versions in force at the cut. It is the one write in the factory
+that destroys evidence, which is why the row that records it is written before anything goes. It is
+refused where a legal hold stands, where nobody has authored a retention value, and where the
+boundary is inside the retention.
 
-```sh
-go run ./cmd/driftdetector clear <mismatch-id> -human you
-go run ./cmd/factory watch greeter -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets -for 5s
-```
+**The client's own machines.** Each of the four screens declares empty, loading, failed and
+disconnected, and the client's own test suite decides the four
+[predicates a candidate environment decides](../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md)
+over each — a contrast floor, a name on every control, a focus order, and a target size. `cd client
+&& npm test` is that suite. The disconnected state is the one to show by hand: stop `serve` with a
+screen open, and what it held stays readable and marked stale while every action is refused.
+Re-establishing re-reads the address whole rather than resuming.
 
-Clearing it is a human's act inside the drift detector and there is no way to do it from the factory: that would make the factory a writer of the record that says the factory is wrong. The `watch` above is what writes the page's answered event, because the store that was cleared calls nothing.
+**The version refusal.** Leave a screen open, stop `serve`, and start it again from a binary built
+under another version — or simply change `factoryVersion` and rebuild. The next call the open screen
+makes is refused with a required reload rather than a failed action, on every call and not on the
+load alone. What it costs is a human mid-edit at a gate losing the edit to a reload.
 
-## The fifth take, which is M5's demonstration
+## What an owner writes, and where
 
-This one needs a second service, which is what a contract is for: an interface has consumers, and the consumers are other services in the same factory. Nothing else is set up — the window's parameters from the fourth take are enough, and both services get them.
+Every write an owner makes is at Factory or at People, and
+[`README.md`](README.md#running-it) lists them all. Duty 8 and duty 9 are at Factory: a project with
+production's environment in the same write, an area, every authored parameter, a safeguard, a halt, a
+legal hold, a fleet entry, a permanent constraint (2), a service retired, a project ended, and the
+five rows that decide a record rather than an item. The declaration is at People: the duties, the
+obligations, the credentials each human lent with the ceiling and the rates on one, and the mapping
+from a key to a name. Each is one form and each appends a
+[policy version](../end-goal/what-the-factory-does/02-traceability.md) — the mapping is the one
+exception, kept outside the chain so an erasure deletes it alone.
 
-```sh
-go run ./cmd/factory author -parameter window_size -value 0.1 -service reader
-go run ./cmd/factory author -parameter window_confidence -value 0.95 -service reader
-go run ./cmd/factory author -parameter window_cap -value 60 -service reader
-```
-
-That authors on a service decomposition has not written yet, so do it after the first run below rather than before — or leave it out, and the reader's windows end at the cap the score supplies, which holds nothing here because the window limit is per service.
-
-**One intent, two items, two services.** The statement names the services its decomposition yields items on, before a colon, in the order decomposition declares them waiting on each other:
-
-```sh
-go run ./cmd/factory run \
-  -secrets ~/borg-demo/secrets \
-  -model deepseek/deepseek-v4-flash \
-  -service greeter=~/borg-demo/greeter \
-  -service reader=~/borg-demo/reader \
-  -area greeting \
-  -targets ~/borg-demo/targets \
-  -intent 'greeter,reader: greeter publishes a health interface with Status, always populated, and Detail; reader reads both of them. Each is a Go HTTP service, module borg.demo/<the service>, package main at the repository root, standard library only, with a go.mod naming that module and go 1.24. The published interface is one exported struct type in contract.health.go; the mirror reader holds is one exported struct type in consume.greeter.health.go, and reader'"'"'s own code reads every field it declares there.'
-```
-
-What to watch for, in the order it goes past. **Decomposition fires** — the one row where approving admits several timelines at once, and it fires here because decomposition yielded two items. Its vector has holes in it and the run says why: the change factors are computed from a build's diff and decomposition happens before anything is built, so an unavailable factor puts a human at the row. That is the design's rule for an unavailable factor rather than a decision the row takes.
-
-Then the layers. **The producer ships first**, all the way to a running release, before the consumer's candidate environment is composed — because that environment is composed from its dependencies' current releases, and the hold at the candidate deploy row is what would otherwise make this two runs. The producer's release line says what it published: `contract health created and published at 1.0.0`, written by the queue inside the transaction that minted the number.
-
-Then **the consumer contract**, derived from its build and printed as it is written: `Consumer contract art_… derived from the build: N predicate(s)`. What is in it is the mirror's fields the consumer's own code reads, and nothing else — a field it carries and never reads declares nothing.
-
-**The breaking change.** Run again on the producer alone, on a statement that drops `Detail`:
-
-```sh
-go run ./cmd/factory run … -intent 'greeter: greeter publishes a health interface with Status alone, always populated. …'
-```
-
-Every criterion in force passes — the removal is in no criterion's path — and the merge row rejects it anyway, before a verdict is asked for: `Rejected by the producer's own contract diff before a verdict was asked for`, naming `health.Detail` and the reader that still declares it. The item is back at Implementation with an attempt counted there. This is the take to show slowly: nothing about it was a judgment, and the consumer it would break was answered by a query rather than by somebody remembering.
-
-**The three items that get it through**, one run each: the producer adds `DetailText` beside `Detail` and marks `Detail` deprecated (`published at 1.1.0` — an addition and a mark break nothing); the reader migrates onto `DetailText`; and then the run prints `The list on health.Detail has emptied; intent … taken in by the detector`. That intent is the third item, and nobody had to remember it. Run it with the statement the detector wrote — `factory contracts` prints it — and the removal passes the same check that rejected the second run, minting `2.0.0`.
-
-**The graph, read as a query.** This is where the milestone's claim is checked rather than asserted:
-
-```sh
-go run ./cmd/factory contracts -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets
-go run ./cmd/factory contracts -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets -breaks <item-id>
-```
-
-The first prints every contract with its versions and the elements of the newest, which version production is running — and so which one a producer's own diff is against — the consumer contracts in force per service with the release range they were derived over, and the deprecation list per marked element. The second answers what one candidate would break and whom.
-
-**The safeguard's predicate**, which is the blind case an owner covers by hand. Where a consumer reads a field through something the derivation cannot see, an owner asserts it:
-
-```sh
-go run ./cmd/factory safeguard -parameter safeguard_predicate -subject contract_element:greeter/health/Detail -bound read
-```
-
-The detector still raises the removal — a safeguard never stops the item existing, only passing — and the removal candidate is rejected at its merge row naming the safeguard and its author, which is the blocked removal asking the consumer to confirm. `safeguard -withdraw <safeguard-id>` is the confirmation, and the next candidate goes through.
-
-## The sixth take, which is M6's demonstration
-
-This one needs no new service and no new statement. What it needs is outcomes, which the fourth take already produces — so run that one first, all the way through the rollback, and then ask the score what it learned:
-
-```sh
-go run ./cmd/factory learn
-go run ./cmd/factory learn -dry     # the same reading, appending nothing
-```
-
-The pass prints every value the score supplies, the subject each was learned about, and the evidence behind it — and it marks each one that has moved away from the version in force. After the fourth take there is at least one movement and it is the threshold: the bad release was auto-passed on the number at three rows and its window failed it, so each of those rows now supplies a threshold one band below the number it passed it at. The line says so in as many words: `1 change(s) auto-passed on the number at this row turned out badly, the lowest of them scoring 0.14, so the threshold is one band below it`.
-
-Then run anything again. Every row over a build now reads the moved threshold and the firing prints why it is what it is; a change scoring in the band the bad one scored in asks for a verdict where it auto-passed before, and a smaller change — two new files and nothing touched — still passes under it, which is the movement being one band and not a closed gate. That is the milestone: a supplied parameter moved because outcomes moved it, and the same change is decided differently afterwards.
-
-**The window limit, which is the value the design spells out.** It rises per three windows closing without failing a release and falls at a rollback that swept — and it only rises where nobody authored it. The window limit was authored at the second take, so its rise is not read as in force here; what `learn` prints is the value the score supplies beside the authored one, and the rise is read there. Let three windows close:
-
-```sh
-go run ./cmd/factory watch greeter -secrets ~/borg-demo/secrets -targets ~/borg-demo/targets
-go run ./cmd/factory learn
-go run ./cmd/factory policy -service greeter
-```
-
-`policy` is where what is in force is read, and here it reads `window_limit = 3 (authored)`: the score's own value is not in force at all where an owner authored one, which is the division the design draws. The movement is read in `learn`, which prints the value the score supplies — `window_limit = 2, moved by outcomes on svc_…` — with the evidence under it; on a service with no authored limit the same line is what `policy` reads as in force.
-
-**The movement as records.** A supplied value is a field of a score version, and every decision names the version it was decided under — so the movement is read by following a decision to its version and that version to the one it superseded:
-
-```sh
-docker compose exec -T postgres psql -U factory -d factory \
-  -c "select id, formula_version, supersedes, jsonb_pretty(supplied::jsonb) from score_version order by at"
-
-# What each window closed on, which is what an exit is recomputable from — and what
-# says whether the size it watched at was reachable by this service's traffic.
-docker compose exec -T postgres psql -U factory -d factory \
-  -c "select service_id, size, exit, closed_on_units, closed_on_failures, closed_on_baseline_units from analysis_window order by at"
-```
-
-The superseded version still says what it said. A decision taken before the movement is readable against the value it was decided under and not against today's, which is what an append-only record is for.
-
-**The held-out sample**, which is the one thing here that changes what the factory decides rather than what it supplies. It is random — one firing in ten of those the score would have gated — so it cannot be summoned, and it is worth watching for rather than demonstrating. When it selects, the firing reads:
-
-```
-  held out: the score's sample selected this item at this firing
-  no human decides: the score held this item out of a gate it would have gated, which is the one thing in the factory that removes a human from a row
-```
-
-and the deploy that follows says `its window runs to the cap — the longest watch there is`. Every row below that one on the same item reads `selected this item at an earlier gate`: the sample selects an item, not a firing, so an item selected once reaches production with a human removed at each gate the score would have gated. `learn` lists the items it has selected — and says so where it has selected none, because a factory that has never sampled has a threshold that can fall and cannot rise. A row a safeguard reached keeps its human however the draw falls — `safeguard -parameter risk_threshold -subject gate_row:merge_to_master` and the sample never passes that row again, which is the one guarantee a safeguard has to keep.
-
-## Authoring gate policy
-
-Eight subcommands are duty 8, duty 9, the priority a queue is reordered with, and the People declaration a page routes on, none of which has a screen of its own until M7. Five of them are in the demonstration; `safeguard`, `halt` and `legal-hold` are not:
-
-```sh
-go run ./cmd/factory area payments -inside greeting
-go run ./cmd/factory author -parameter risk_threshold -value 0.2 -gate merge_to_master
-go run ./cmd/factory author -parameter attempt_limit -value 5 -stage implementation
-go run ./cmd/factory author -parameter window_limit -value 2 -service greeter
-go run ./cmd/factory policy -service greeter -area greeting
-go run ./cmd/factory priority <item-id> -priority 5
-go run ./cmd/factory people you -duty 12
-```
-
-`author` asks for the subject the parameter needs and no other, the record a parameter is a field of being a fact of the parameter: a threshold is authored on an environment for one gate row, an [attempt limit](../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md) on the factory-wide settings record for one stage, an [item-size target](../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md) on an area, and the [analysis window](../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md)'s four on a service. Authoring the threshold down to `0.2` before the second take is the other way to show a gate deciding — the item that auto-passed at `0.3` reads over `0.2` and a human is asked again.
-
-What `policy` says about one of the eight parameters is that nothing reads it yet: the item-size target waits for a decomposition that sizes anything. Authoring it changes nothing today, and the print says so rather than leaving somebody to find out. The [list of allowed predicate kinds](../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md) was the other until M5, and it is also the one parameter whose unauthored value is neither the score's nor nothing: it is the five kinds of predicate the factory can decide, which is what an owner extends rather than replaces, and the print names that source. The other seven name their reader — and `window_limit = 2` above is worth authoring before a take with two intents, because at the one the score supplies the second release merges and its deploy waits behind the first one's window.
+Authoring the threshold down to `0.2` before the second take is the other way to show a gate
+deciding — the item that auto-passed at `0.3` reads over `0.2` and a human is asked again. What
+Factory says about one of the eight parameters is that nothing reads it yet: the item-size target
+waits for a decomposition that sizes anything, so authoring it changes nothing today and the reading
+says so rather than leaving somebody to find out. The
+[list of allowed predicate kinds](../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md)
+was the other until M5, and it is also the one parameter whose unauthored value is neither the
+score's nor nothing: it is the five kinds of predicate the factory can decide, which is what an owner
+extends rather than replaces, and the reading names that source.
 
 ## Statements that work
 
@@ -358,19 +387,19 @@ The statement is the whole of what a human gives the factory, and what it says d
 | One behaviour, stated as a rule | The spec is one [criterion](../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/README.md), so a statement naming three behaviours still yields one, and the other two ship with nothing deciding them. |
 | A test that does not bind the port | The encodings run as `go test` on this machine, where a release from an earlier take may still be holding it. |
 
-Any of these four is a whole take. Each one is one behaviour a sentence can state and a test can decide, which is what makes a criterion out of it:
+Any of these is a whole take. Each one is one behaviour a sentence can state and a test can decide, which is what makes a criterion out of it:
 
 > A Go HTTP service, module borg.demo/greeter, package main in main.go at the repository root, standard library only, with a go.mod. It answers GET /health with status 200 and the body ok, on port 8081. Test the handler through net/http/httptest rather than by binding the port.
 
 > A Go HTTP service, module borg.demo/clock, package main in main.go at the repository root, standard library only, with a go.mod. It answers GET /time with status 200 and the current time as RFC 3339 in UTC, on port 8082. Test the handler through net/http/httptest rather than by binding the port.
 
-> A Go HTTP service, module borg.demo/adder, package main in main.go at the repository root, standard library only, with a go.mod. It answers GET /sum?a=1&b=2 with status 200 and the sum as a decimal number, on port 8083. Test the handler through net/http/httptest rather than by binding the port.
+Two more of the same shape work: `borg.demo/adder` answering `GET /sum?a=1&b=2` with the sum on port
+8083, and `borg.demo/echo` answering `POST /echo` with the request body unchanged on port 8084. What
+changes between them is the route, the module and the port, and nothing else.
 
-> A Go HTTP service, module borg.demo/echo, package main in main.go at the repository root, standard library only, with a go.mod. It answers POST /echo with status 200 and the request body unchanged, on port 8084. Test the handler through net/http/httptest rather than by binding the port.
+One more kind of statement is the second change on a service already shipped, which is [_The second take_](DEMO-M1-M7.md#the-second-take-which-is-m2s-demonstration). Watch the spec stage on that one. The implementation role is told every criterion in force for its build — the ones the merged items introduced and the one this spec adds — and the build is refused unless an encoding names each, which is the check that makes the criterion id the thing the whole demonstration is followed along.
 
-One more kind of statement is the second change on a service already shipped, which is [_The second take_](#the-second-take-which-is-m2s-demonstration) above. Watch the spec stage on that one. The implementation role is told every criterion in force for its build — the ones the merged items introduced and the one this spec adds — and the build is refused unless an encoding names each, which is the check that makes the criterion id the thing the whole demonstration is followed along.
-
-A statement for [_The third take_](#the-third-take-which-is-m3s-demonstration) has one more part: which files the change may touch. Two candidates of one service are cut from the same master, so what decides whether the queue can merge both is whether they wrote to the same file — and saying so in the statement is the only place a run of this interface can say it.
+A statement for [_The third take_](DEMO-M1-M7.md#the-third-take-which-is-m3s-demonstration) has one more part: which files the change may touch. Two candidates of one service are cut from the same master, so what decides whether the queue can merge both is whether they wrote to the same file — and saying so in the statement is the only place a run of this interface can say it.
 
 What not to ask for, on a day people are watching: anything needing a dependency, a database, a container, or a port something else holds; a change to two services, since decomposition here writes one item on one service; and a program that exits as soon as it starts, which deploys correctly and then shows nothing running.
 
@@ -424,7 +453,7 @@ Dropping the schema drops the score version, the policy version, every safeguard
 | What you see | What it is |
 |---|---|
 | `The implementer's reply was refused; N attempt(s) left` | Not a failure. The model wrote prose around its file blocks, the protocol refused it rather than repairing it, and the stage is retrying inside its [attempt limit](../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md). The take carries on if a later attempt parses. |
-| `used all 3 attempts … stuck on this item` | The limit is spent and the factory is saying it cannot do this one. The item keeps the count and the spend of every attempt, refused ones included, which is what an escalation is read from once [_Work_](../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) exists to read it on at M7. Run the take again, or run it on a stronger model — `claude-haiku-4-5` was refused three times out of three on 2026-08-18, which is the model a subscription take is held to and the reason the default provider is the other one. |
+| `used all 3 attempts … stuck on this item` | The limit is spent and the factory is saying it cannot do this one. The item keeps the count and the spend of every attempt, refused ones included, and [Work](../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) shows it escalated with a stage to return it to, which is duty 12. Run the take again, or run it on a stronger model — `claude-haiku-4-5` was refused three times out of three on 2026-08-18, which is the model a subscription take is held to and the reason the default provider is the other one. |
 | `go build … no required module provides` | The model reached outside the standard library. The statement above says not to; say it again more plainly. |
 | `./main.go:N: undefined: X` or `imported and not used` | The model wrote Go that does not compile. The [Implementation gate](../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md) is where the design rejects a build for exactly this, with Reject with feedback as an action, and that gate now does: the build runner's refusal is caught mechanically, `gate.AutoRejectedByCompile`, with an attempt counted at implementation and the compiler's own words carried back as the feedback the implementer builds against next — the run stops only once the attempt limit is spent. Measured on 2026-08-20: `deepseek/deepseek-v4-flash` produced a non-compiling `main.go` on three takes of four — a `httptest` call with no import, an unused `fmt` — while every other part of the path held. |
 | `go: cannot find main module, but found .git/config` | The model wrote no `go.mod`, so there is nothing to build — the same refusal `compiles` returns for a missing module as for one that will not compile, so this rejects at the Implementation row the same way: mechanically, with an attempt counted and the implementer building again. The cause was found on 2026-08-20 and is not the implementer: the spec author was compressing the statement to its behaviour and dropping every constraint around it — the module, the layout, the go.mod the statement asks for in as many words — and the implementation stage is given the spec and never the statement, so it wrote what it was told. Measured across three models, the spec came back at 52 bytes on `deepseek/deepseek-v4-flash` and 71 on `deepseek/deepseek-v4-pro` from a four-sentence statement. [`agent/specauthor.go`](agent/specauthor.go)'s prompt now requires the spec to restate every constraint the statement makes, and the same model then authored a 451-byte spec and a `go.mod` with it. `claude-haiku-4-5` left it out on both takes of 2026-08-18, before that was understood. If it recurs, read the spec the run printed before blaming the implementer. |
@@ -433,14 +462,16 @@ Dropping the schema drops the score version, the policy version, every safeguard
 | `go.mod:3: invalid go version '1.x'` | The statement asked for "a Go version" and the model wrote the placeholder rather than choosing one. Measured on 2026-08-20 with `deepseek/deepseek-v4-flash`. An underdetermined request is what the [interview](../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md) exists for and the model did not ask, so what is fixed is the request: name the version, which is an owner supplying a constraint (2). |
 | `The encodings ran twice on the candidate environment and failed both times` | Not an error. The merge row fires, reads the failed criterion, and rejects the candidate on the criterion's own terms before a verdict is asked for — naming which criterion and its outcome — so there is nothing to approve over. The item goes back to implementation with an attempt counted there. |
 | `The encodings disagreed between two runs, so every criterion is undecided` | The suite is not deterministic. Undecided is read at the merge row the way a failure is, so the same mechanical rejection fires as above, naming every criterion undecided; the way out is to author the encoding again rather than to run it again. |
-| `the queue rejected item … merging master into the candidate branch failed` | Two candidates wrote to one file. The item is back at implementation with an attempt counted there, which is the queue working; see [_The queue rejecting a candidate_](#the-queue-rejecting-a-candidate). |
+| `the queue rejected item … merging master into the candidate branch failed` | Two candidates wrote to one file. The item is back at implementation with an attempt counted there, which is the queue working; see [_The queue rejecting a candidate_](DEMO-M1-M7.md#the-queue-rejecting-a-candidate). |
 | `waits at deploy_to_candidate_environment: the platform has no room for another candidate environment` | `-candidate-environments` is set lower than the number of intents. The wait is in the log with the deployer as its actor, and it lifts when an item merges and frees one. |
 | `bind: address already in use` | A release from an earlier take still holds the port. `pkill -f borg-demo/targets`. |
-| `waits at deploy_to_production: the service holds as many analysis windows open as the window limit allows` | The window limit is doing its work. One window open per service is where the score starts, and it rises only after three of that service's windows have closed without failing a release, so the next release waits for that window to close — a wait on the factory, which writes nothing and pages nobody. `go run ./cmd/factory watch greeter …` closes what is open, or author the window limit higher. |
-| `waits at deploy_to_production: a rollback's revert has not shipped` | Master still holds the change that was rolled back, so deploying anything built on it would redeliver the defect. The revert is not held and deploys ahead of this; `approve <item-id>` pushes it through and accepts the defect. |
+| `waits at deploy_to_production: the service holds as many analysis windows open as the window limit allows` | The window limit is doing its work. One window open per service is where the score starts, and it rises only after three of that service's windows have closed without failing a release, so the next release waits for that window to close — a wait on the factory, which writes nothing and pages nobody. The watch pass closes what is open, or author the window limit higher at Factory. |
+| `waits at deploy_to_production: a rollback's revert has not shipped` | Master still holds the change that was rolled back, so deploying anything built on it would redeliver the defect. The revert is not held and deploys ahead of this. Marking the rollback as not caused by the release at Ops is what lifts it without the revert. |
 | `neither exit is reachable: the release has no baseline` | A service's first release, or a release whose baseline's window has not closed yet. Nothing about it is discovered by watching and its window ends at the cap, which is the design's own account rather than a fault. |
 | `N analysis window(s) are still open` at the end of a run | The run gave up before they closed, which a window's duration being measured and never set makes normal. `go run ./cmd/factory watch <service> …` continues from there, and nothing else closes one. |
 | `MISMATCH` from the drift detector | What the factory recorded is not what the target runs. It holds that service's production deploys and pages, and only `driftdetector clear` ends it — the factory cannot, by design. |
+| A call answered `409` with `reload_required` | The client was built from a factory version the store no longer holds. Reload the page; a screen open across an upgrade is stopped by this on every call and not on the load alone. |
+| A call answered with the read-only refusal | The People key the client says it is holds no duty, no obligation and no lent credential, so it reads all four screens and acts nowhere. Declare one duty on it at People. |
 | `the model API answered 401` or `403` | The secrets file has no key in it for the provider named, or the credential has expired — mint another at [openrouter.ai/keys](https://openrouter.ai/keys), or `claude setup-token` again under `-provider anthropic`. A 403 on a credential that is current is the account not entitling this call, which is an account question and not a code one. |
 | `the model refused the request` | The model declined on its provider's policy grounds, and the sentence after the colon is the model's own. It is not retried — the request's shape is not what is wrong, and a stage that retried it would spend its attempt limit on a verdict already given. Measured on 2026-08-20: `anthropic/claude-opus-5` is served the spec stage and refuses the implementer's role prompt four times out of four under the cyber category, for a role prompt asking for a health-check HTTP handler, its own reasoning showing it part-way through writing that handler when the classifier stopped it. `deepseek/deepseek-v4-flash`, `anthropic/claude-opus-4.8` and `anthropic/claude-sonnet-5` author the same role prompt. Name a different model. |
 | `the model API answered 200 carrying an error` | Only `-provider openrouter` answers this way: the request reached OpenRouter and the provider it routed to refused. The code and the message the body carried are in the error — an upstream rate limit, a model not serving, a request the upstream would not take. Nothing about the factory's own request is wrong, and the model id is the first thing to check. |
@@ -450,7 +481,7 @@ A failure stops the run and damages nothing: each step writes its record before 
 
 ## What it does not show
 
-Say this out loud to anyone watching, because the run looks more complete than the factory is. Every row of the default path fires — Decomposition where decomposition yielded more than one item, and Spec, Implementation plan, Tasks, Implementation, Deploy to candidate environment, Merge to master and Deploy to production on every item — and the three rows outside every item do not: a role prompt or a skill, a safeguard's withdrawal, and a halt's withdrawal are decided by `approve` writing the record's own approval rather than by a firing. A human is at Spec, Implementation plan and Tasks on every item, because the factor set those rows read holds the change's reach and nothing is built when they fire, so a factor that cannot be computed is resolved and a human decides whatever the formula returns. The third action the production deploy row has, a safeguard on the [strategy](../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md), is refused with its reason: a target that runs a release as a local process moves a process rather than traffic, so the strategy that keeps a [control](../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md) is unavailable here and every deploy goes without a control.
+Say this out loud to anyone watching, because the run looks more complete than the factory is. Every row of the default path fires — Decomposition where decomposition yielded more than one item, and Spec, Implementation plan, Tasks, Implementation, Deploy to candidate environment, Merge to master and Deploy to production on every item — and so do all five that belong to no item — a role prompt or a skill, a safeguard's withdrawal, a halt's withdrawal, a legal hold's ending, and a shortening of decision-log retention — each fired at Factory and each closed by a human, the record's own approval written from that close event. A human is at Spec, Implementation plan and Tasks on every item, because the factor set those rows read holds the change's reach and nothing is built when they fire, so a factor that cannot be computed is resolved and a human decides whatever the formula returns. The third action the production deploy row has, a safeguard on the [strategy](../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md), is refused with its reason: a target that runs a release as a local process moves a process rather than traffic, so the strategy that keeps a [control](../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md) is unavailable here and every deploy goes without a control.
 
 Four things about the watching are worth saying plainly, and all four follow from that. **No control is ever started**, so the [comparison](../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md) is the weak fallback the design names: the release is read against the recent history of the release a rollback from it would return to, and the difference age makes between a process just started and one that has been running for a week is in that reading and unanswered. **Every [rollback](../end-goal/how-the-factory-works/06-releases/06-rollback.md) is the slow one**, the target's build redeployed and waited for, because there is no control to shift traffic onto. **The traffic is the release exercising itself** — these targets receive none, so the implementation role is told to append a line per unit of work it does, and a window passed says the boundary works rather than that the service is well. And **an explicit health threshold is not built**: the design lets an owner state one absolutely beside the comparison, which is the only thing that could fail a service's first release, and this factory has no parameter to state it on.
 
@@ -460,4 +491,4 @@ Two things about the candidate environment are worth saying plainly. It is compo
 
 Three things about the score are worth saying plainly. Its formula is authored and stays authored — the weights and the breakpoints were written by hand and calibrated so a first release is decided by a human and the item after it is not, and what learning moves is the seven values the score supplies rather than how the number is computed, which is the division [gate policy](../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/README.md) draws. **Five of the seven values move both ways and two move one way.** Both ends of each parameter are evidence: one end is something going wrong, the other is the parameter costing more than it returns, which gate policy's own table states for every row. So the cap follows how long a window of that service actually takes, the attempt limit falls where nothing has ever needed a second try, and the window's size is never finer than the traffic can rule anything out at — a size finer than that ends every window at the cap and protects nothing. The two that move one way say so where the rule is published: nothing here shows that a confidence was too high, and nothing measures the other end of an item-size target. And **the sample gets half of what the design gives it**: a held-out release should take a strategy that keeps a [control](../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md), and every deploy here goes without a control — so it is watched by the same confounded comparison as every other release and the longest watch available is all it gets. What its evidence supports is that a comparison was available, not that an unsampled release on the same author would have read the same.
 
-And the terminal is the whole interface: the four [screens](../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) come at M7, and a command-line interface until then is what deferring them costs.
+Two of the twelve duties are not performed here at all. [Duties 4 and 5](../end-goal/what-humans-do.md) belong to end users, who never open this product: what they send is a [report](../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md) through the way in shipped inside each deployed service, and neither that way in, nor the report store, nor the grouper is built — so Work has no report to show under any intent, and those two are demonstrated as absent rather than performed. Factory holds a list of [fleet proposals](../end-goal/how-the-factory-works/10-fleet/07-a-fleet-proposal.md) awaiting a disposition and the list is always empty, both of its writers being M14's; the [evaluation set](../end-goal/how-the-factory-works/10-fleet/02-a-model-under-a-name.md) a fleet entry names a dispatch count for is content the product ships and this milestone ships none; and the principal every call carries is claimed and verified by nothing, so an install where anybody can reach the port is anybody they name.

@@ -96,6 +96,19 @@ func testToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool) lease.Toke
 // entry is dropped when that test ends.
 var tokens map[*pgxpool.Pool]lease.Token
 
+// freshLease is the lease taken again, for a fixture write made after a
+// subcommand has run: each subcommand takes one of its own for the life of the
+// command and releases it when it ends, so the token this test held before is
+// fenced out by the last of them.
+func freshLease(t *testing.T, ctx context.Context, pool *pgxpool.Pool) lease.Token {
+	t.Helper()
+	token, err := lease.Acquire(ctx, pool, defaultInstance(), -time.Second)
+	if err != nil {
+		t.Fatalf("acquiring the lease: %v", err)
+	}
+	return token
+}
+
 // install is what the run's first take does, which everything an owner authors on
 // depends on.
 func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.Environment {
@@ -124,6 +137,17 @@ func policyVersions(t *testing.T, ctx context.Context, pool *pgxpool.Pool) ([]po
 		t.Fatalf("acquiring the lease: %v", err)
 	}
 	return policy.NewReader(pool, token, score.Version{}).Versions(ctx, asPrincipal(owner(t, ctx, pool, token, "owner")))
+}
+
+// theProjectID is the project the install created, for a fixture write whose
+// subject is a record inside it.
+func theProjectID(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+	prj, found, err := project.ByName(ctx, pool, defaultProjectName)
+	if err != nil || !found {
+		t.Fatalf("ByName(%s) = found %v, %v; call install(t, ctx, pool) first", defaultProjectName, found, err)
+	}
+	return prj.ID
 }
 
 func decomposeService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) service.Service {

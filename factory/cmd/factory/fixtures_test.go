@@ -165,6 +165,19 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 		}
 	})
 
+	// The script is the verdicts, and the interview's answer is [theAnswer].
+	// A test that scripted an answer wrote it as the first line, because the
+	// terminal read the answer and the verdicts off one stream; that line is
+	// cut here so those call sites are unchanged, and a leading blank line is
+	// how a test says this composition answers no round at all.
+	answer, verdicts := theAnswer, input
+	switch {
+	case strings.HasPrefix(input, theAnswer+"\n"):
+		verdicts = strings.TrimPrefix(input, theAnswer+"\n")
+	case strings.HasPrefix(input, "\n"):
+		answer, verdicts = "", strings.TrimPrefix(input, "\n")
+	}
+
 	out := &bytes.Buffer{}
 	d := deps{
 		pool:                pool,
@@ -175,16 +188,22 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 		targets:             targets,
 		dir:                 t.TempDir(),
 		credential:          credential,
-		in:                  strings.NewReader(input),
-		out:                 out,
-		human:               "owner",
-		services:            known,
-		area:                theArea,
-		project:             defaultProjectName,
-		install:             true,
-		candidateCeiling:    theCeiling,
-		watchFor:            theWatchFor,
-		watchEvery:          theWatchEvery,
+		// The scripted human, split the way the two halves of the script are:
+		// the first line is what a round of the interview is answered with,
+		// which the composition supplies where a screen would, and every line
+		// after it is a verdict at one pending gate row, closed between two
+		// passes through the calls a screen makes.
+		answer:           answer,
+		decide:           scriptedAtWork(verdicts).decide,
+		out:              out,
+		human:            "owner",
+		services:         known,
+		area:             theArea,
+		project:          defaultProjectName,
+		install:          true,
+		candidateCeiling: theCeiling,
+		watchFor:         theWatchFor,
+		watchEvery:       theWatchEvery,
 		// No draw selects: the sample is one firing in ten and a test that ran on
 		// the runtime's own generator would pass or fail by chance, an item held out
 		// being an item with no human at the row a test asserted one at. The test
@@ -278,15 +297,14 @@ func owner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.To
 	return actor
 }
 
-// throughASubcommand runs one subcommand inside a test that also drives the path
-// directly, and takes the lease back for the fixture afterwards.
+// throughASubcommand runs one subcommand inside a test that also drives the
+// path directly, and takes the lease back for the fixture afterwards.
 //
 // One process holds the lease at a time, so the fixture hands it over and takes
 // it back: the lease it holds is released here, the subcommand opens its own
-// pool from the environment — which points at this test's own schema — and
-// acquires the lease for itself, and it releases the lease when it returns. The
-// fixture then takes a new one, which fences the token it held before, and every
-// write it makes after this is fenced by the new one. The deps are taken by
+// pool from the environment — which points at this test's own schema — acquires
+// the lease for itself, and releases it when it returns. The fixture then takes
+// a new one, which fences the token it held before. The deps are taken by
 // pointer for that reason: the token is a field of the value every later step
 // composes from.
 func throughASubcommand(t *testing.T, ctx context.Context, d *deps, run func() error) {
@@ -477,5 +495,6 @@ func authorOne(t *testing.T, ctx context.Context, p *path, statement string, out
 	c := candidates[0]
 	p.byItem[c.itemID] = c
 	p.authored[c.itemID] = true
+	authorStages(t, ctx, p, c, out)
 	return c
 }

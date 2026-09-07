@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,8 +13,8 @@ import (
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
-	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/safeguard"
 )
 
@@ -23,102 +22,54 @@ import (
 // it puts a human at and the row that withdraws it are routed by. A safeguard
 // naming neither routes to the owner, which is where every unheld row goes.
 
-// safeguardCommand places a safeguard or withdraws one. The direction is not a
-// flag: it differs per parameter and points the same way in each, so an owner
-// chooses the subject and the bound and never which way the bound points.
-func safeguardCommand(args []string) error {
-	flags := flag.NewFlagSet("safeguard", flag.ContinueOnError)
-	name := flags.String("parameter", "", "the parameter to bind")
-	subject := flags.String("subject", "", "what the safeguard is drawn on, as kind:name — stage:x, service:x, project:x, area:x, gate_row:merge_to_master, contract_element:<service>/<contract>/<element>, design_system_component:x, factory_settings:, report_store:, drift_detector_last_check:")
-	serviceName := flags.String("service", "", "the service, for a safeguard on the risk threshold — a row-scoped safeguard is drawn on the service the row fires for")
-	bound := flags.String("bound", "", "the number the safeguard bounds by, a comma-separated list for the list of allowed predicate kinds, or kind[=argument] for a safeguard's predicate; a safeguard on the risk threshold takes none")
-	withdraw := flags.String("withdraw", "", "the id of a safeguard to withdraw instead of placing one")
-	human := flags.String("human", "owner", "the owner placing it")
-	routeDuty := flags.Int("route-duty", 0, "route this safeguard's rows to one of the owner's twelve duties")
-	routeHuman := flags.String("route-human", "", "route this safeguard's rows to this human, by name")
-	if err := flags.Parse(args); err != nil {
-		return err
+// placeSafeguard places one safeguard, and is the whole of the dispatch on
+// which of the three shapes the parameter's bound takes. Two callers make the
+// act: the safeguard subcommand and Factory's own PlaceSafeguard call.
+//
+// The direction is not an argument: it differs per parameter and points the
+// same way in each, so an owner chooses the subject and the bound and never
+// which way the bound points.
+func placeSafeguard(ctx context.Context, pool *pgxpool.Pool, factory *policy.Factory,
+	actor record.Actor, name, subject, serviceName, bound string,
+	routing safeguard.Routing) (safeguard.Safeguard, error) {
+	if name == "" || subject == "" {
+		return safeguard.Safeguard{}, errors.New("factory: a safeguard names the parameter it binds and the subject it is drawn on")
+	}
+	parameter := gatepolicy.Parameter(name)
+	definition, err := gatepolicy.Define(parameter)
+	if err != nil {
+		return safeguard.Safeguard{}, err
+	}
+	on, err := safeguardSubject(ctx, pool, subject, serviceName)
+	if err != nil {
+		return safeguard.Safeguard{}, err
 	}
 
-	return withPool(func(ctx context.Context, pool *pgxpool.Pool, token lease.Token) error {
-		factory := policy.NewFactory(pool, token)
-		actor, err := humanNamed(ctx, pool, token, *human)
+	var of safeguard.Bound
+	switch {
+	case definition.Direction == gatepolicy.DirectionAddsAHuman:
+		// A safeguard on the risk threshold adds a human and bounds no value.
+	case definition.Kind == gatepolicy.KindStrategy:
+		// A safeguard on the strategy default keeps a control and bounds no
+		// value: of the two strategies only the one with a control adds
+		// anything, so the parameter is the whole of what it says.
+	case definition.Kind == gatepolicy.KindList:
+		of.List = strings.Split(bound, ",")
+	case definition.Kind == gatepolicy.KindPredicate:
+		kind, argument, _ := strings.Cut(bound, "=")
+		of.Predicate = safeguard.Predicate{
+			Kind: gatepolicy.PredicateKind(strings.TrimSpace(kind)), Argument: strings.TrimSpace(argument),
+		}
+	default:
+		of.Number, err = strconv.ParseFloat(bound, 64)
 		if err != nil {
-			return err
+			return safeguard.Safeguard{}, fmt.Errorf(
+				"factory: a safeguard on %s takes a number as its bound, not %q", parameter, bound)
 		}
-		// The routing names a human by their per-person key and an owner types a
-		// name, so the name is resolved through the People mapping the way -human
-		// is — the same crossing, at the one place a safeguard names a person.
-		routing := safeguard.Routing{Duty: *routeDuty}
-		if *routeHuman != "" {
-			routed, err := humanNamed(ctx, pool, token, *routeHuman)
-			if err != nil {
-				return err
-			}
-			routing.HumanKey = routed.Key
-		}
-		if err := routing.Validate(); err != nil {
-			return err
-		}
+	}
 
-		// Withdrawing writes the withdrawal record and takes the safeguard out of
-		// nothing: a safeguard leaves force at the gate row A safeguard's
-		// withdrawal, decided by a human always and routed away from whoever wrote
-		// it. `factory approve` is where that row fires.
-		if *withdraw != "" {
-			written, version, err := factory.WriteSafeguardWithdrawal(ctx, actor, *withdraw)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Withdrawal %s written for safeguard %s; policy version %s\n",
-				written.ID, *withdraw, version.ID)
-			fmt.Printf("The safeguard stands until the row that decides it closes: `factory approve -safeguard-withdrawal %s`\n", written.ID)
-			return nil
-		}
-		if *name == "" || *subject == "" {
-			return errors.New("factory safeguard: -parameter and -subject are required, or -withdraw <safeguard-id>")
-		}
-
-		parameter := gatepolicy.Parameter(*name)
-		definition, err := gatepolicy.Define(parameter)
-		if err != nil {
-			return err
-		}
-		on, err := safeguardSubject(ctx, pool, *subject, *serviceName)
-		if err != nil {
-			return err
-		}
-
-		var of safeguard.Bound
-		switch {
-		case definition.Direction == gatepolicy.DirectionAddsAHuman:
-			// A safeguard on the risk threshold adds a human and bounds no value.
-		case definition.Kind == gatepolicy.KindStrategy:
-			// A safeguard on the strategy default keeps a control and bounds no
-			// value: of the two strategies only the one with a control adds
-			// anything, so the parameter is the whole of what it says.
-		case definition.Kind == gatepolicy.KindList:
-			of.List = strings.Split(*bound, ",")
-		case definition.Kind == gatepolicy.KindPredicate:
-			kind, argument, _ := strings.Cut(*bound, "=")
-			of.Predicate = safeguard.Predicate{
-				Kind: gatepolicy.PredicateKind(strings.TrimSpace(kind)), Argument: strings.TrimSpace(argument),
-			}
-		default:
-			of.Number, err = strconv.ParseFloat(*bound, 64)
-			if err != nil {
-				return fmt.Errorf("factory safeguard: a safeguard on %s takes a number as its bound, not %q", parameter, *bound)
-			}
-		}
-
-		placed, version, err := factory.AddSafeguard(ctx, actor, parameter, on, of, routing)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Safeguard %s placed: %s on %s as a %s; policy version %s\n",
-			placed.ID, parameter, on, placed.Direction, version.ID)
-		return nil
-	})
+	placed, _, err := factory.AddSafeguard(ctx, actor, parameter, on, of, routing)
+	return placed, err
 }
 
 // safeguardSubject reads a subject written as kind:name and resolves the name
@@ -133,7 +84,7 @@ func safeguardCommand(args []string) error {
 func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceName string) (safeguard.Subject, error) {
 	kind, name, found := strings.Cut(written, ":")
 	if !found {
-		return safeguard.Subject{}, fmt.Errorf("factory safeguard: a subject is written kind:name, not %q", written)
+		return safeguard.Subject{}, fmt.Errorf("factory: a safeguard's subject is written kind:name, not %q", written)
 	}
 	if kind == "gate_row" {
 		row, err := gate.RowFrom(name)
@@ -154,7 +105,7 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceN
 		// A stage names no record of its own; the design reaches the gate row
 		// that decides a role prompt version for it by the name alone.
 		if name == "" {
-			return safeguard.Subject{}, fmt.Errorf("factory safeguard: a stage subject names the stage, not %q", written)
+			return safeguard.Subject{}, fmt.Errorf("factory: a stage subject names the stage, not %q", written)
 		}
 		return safeguard.Subject{Kind: safeguard.SubjectStage, ID: name}, nil
 	case safeguard.SubjectService:
@@ -180,7 +131,7 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceN
 		// safeguard's doc.go says this kind's value is stored and read by
 		// nothing at this milestone — so the name is stored as given.
 		if name == "" {
-			return safeguard.Subject{}, fmt.Errorf("factory safeguard: a design-system-component subject names the component, not %q", written)
+			return safeguard.Subject{}, fmt.Errorf("factory: a design-system-component subject names the component, not %q", written)
 		}
 		return safeguard.Subject{Kind: safeguard.SubjectDesignSystemComponent, ID: name}, nil
 	case safeguard.SubjectReportStore:
@@ -201,7 +152,7 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceN
 		parts := strings.Split(name, "/")
 		if len(parts) != 3 {
 			return safeguard.Subject{}, fmt.Errorf(
-				"factory safeguard: a contract element is written <service>/<contract>/<element>, not %q", name)
+				"factory: a contract element is written <service>/<contract>/<element>, not %q", name)
 		}
 		svc, err := namedService(ctx, pool, parts[0])
 		if err != nil {
@@ -213,7 +164,7 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceN
 		}
 		if !found {
 			return safeguard.Subject{}, fmt.Errorf(
-				"factory safeguard: %s publishes no contract named %q, and a contract exists from the merge that first published it",
+				"factory: %s publishes no contract named %q, and a contract exists from the merge that first published it",
 				parts[0], parts[1])
 		}
 		return safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, parts[2])}, nil

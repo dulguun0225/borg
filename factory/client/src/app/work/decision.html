@@ -1,0 +1,208 @@
+@let row = decision();
+
+<h1>Decision {{ id() }}</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading the row.</p>
+  }
+  @case ('failed') {
+    <p class="danger">This row could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>There is no decision at this address.</p>
+    <div class="actions">
+      <a routerLink="/work">What waits on a human</a>
+    </div>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What is below was read before it did,
+      it is not being kept true, and every action on it is refused until the subscription
+      is back.
+    </p>
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @case ('ready') {
+    <ng-container [ngTemplateOutlet]="body" />
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<ng-template #body>
+  @if (row !== null) {
+    <p>
+      {{ row.GateRow }} on
+      <a [routerLink]="['/work', 'item', row.ItemID]">item {{ row.ItemID }}</a>, opened
+      {{ at(row.OpenedAt) }}
+    </p>
+
+    @let closed = row.Closed;
+    @let abandoned = row.Abandoned;
+    @if (closed !== null) {
+      <p>
+        {{ closed.Verdict }} by {{ closed.Actor }}, {{ at(closed.At) }}
+        @if (row.Score !== null) {
+          , scored {{ row.Score }}
+        }
+      </p>
+      @if (closed.Reason !== '') {
+        <p>{{ closed.Reason }}</p>
+      }
+    } @else if (abandoned !== null) {
+      <p>
+        No verdict is coming: this row was abandoned {{ at(abandoned.At) }} —
+        {{ abandoned.Reason }}
+      </p>
+    } @else {
+      <h2>The vector this gate is decided on</h2>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Factor</th>
+            <th scope="col">Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (factor of vector(); track factor.factor) {
+            <tr>
+              <td>{{ factor.factor }}</td>
+              <td>{{ factor.value }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+
+    <h2>Where it routes</h2>
+    <p>
+      @if (row.RoutedToHuman !== '') {
+        To {{ row.RoutedToHuman }}, on duty {{ row.RoutedToDuty }}.
+      } @else {
+        To whoever holds duty {{ row.RoutedToDuty }}.
+      }
+    </p>
+
+    @if ((row.Acknowledgements ?? []).length > 0) {
+      <h2>Acknowledged</h2>
+      <ul>
+        @for (ack of row.Acknowledgements ?? []; track ack.HumanKey + ack.At) {
+          <li>
+            {{ ack.HumanKey }}, {{ at(ack.At) }} — it decides nothing and the row stays in
+            front of every other holder
+          </li>
+        }
+      </ul>
+    }
+
+    @if ((row.VersionsInForce ?? []).length > 0) {
+      <h2>Versions in force at the firing</h2>
+      <ul>
+        @for (version of row.VersionsInForce ?? []; track version) {
+          <li>{{ version }}</li>
+        }
+      </ul>
+    }
+
+    @if ((row.Deliveries ?? []).length > 0) {
+      <h2>What reached a human</h2>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Channel</th>
+            <th scope="col">Recipient</th>
+            <th scope="col">Accepted</th>
+            <th scope="col">First accepted</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (delivery of row.Deliveries ?? []; track delivery.Channel + delivery.Recipient) {
+            <tr>
+              <td>{{ delivery.Channel }}</td>
+              <td>{{ delivery.Recipient }}</td>
+              <td>{{ delivery.Accepted ? 'yes' : 'no' }}</td>
+              <td>{{ delivery.FirstAcceptedAt === '' ? 'none yet' : at(delivery.FirstAcceptedAt) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+
+    @if (refused() !== '') {
+      <p class="danger">{{ refused() }}</p>
+    }
+
+    @if (pending()) {
+      <ng-container [ngTemplateOutlet]="actions" />
+    } @else {
+      <p class="quiet">
+        This row is decided, so nothing here can be written against it. The log refuses a
+        second close, and the screen refuses it first.
+      </p>
+    }
+  }
+</ng-template>
+
+<ng-template #actions>
+  <h2>Actions</h2>
+
+  <div class="actions">
+    <button type="button" (click)="acknowledge()">I have this row</button>
+  </div>
+
+  <form (submit)="decide($event)">
+    <div class="field">
+      <label for="verdict">Verdict</label>
+      <select id="verdict" [formField]="verdictForm.Verdict">
+        <option value="approve">approve</option>
+        <option value="reject">reject</option>
+        <option value="hold">hold</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="reason">Reason, which a reject and a hold each carry</label>
+      <textarea id="reason" [formField]="verdictForm.Reason"></textarea>
+      @for (problem of reasonErrors(); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <div class="actions">
+      <button type="submit">Write this verdict</button>
+    </div>
+  </form>
+
+  <form (submit)="refer($event)">
+    <div class="field">
+      <label for="referral">Refer this row, which re-fires it</label>
+      <textarea id="referral" [formField]="referralForm.Reason"></textarea>
+    </div>
+    <div class="actions">
+      <button type="submit">Refer</button>
+    </div>
+  </form>
+
+  <form (submit)="editInPlace($event)">
+    <div class="field">
+      <label for="version">Edit in place: the version this writes into the chain</label>
+      <textarea id="version" [formField]="editForm.VersionText"></textarea>
+    </div>
+    <div class="actions">
+      <button type="submit">Write this version</button>
+    </div>
+  </form>
+
+  <form (submit)="takeItOver($event)">
+    <div class="field">
+      <label for="stage">Take the item over and return it to a stage</label>
+      <input id="stage" type="text" [formField]="takeOverForm.Stage" />
+    </div>
+    <div class="actions">
+      <button type="submit">Take over</button>
+    </div>
+  </form>
+</ng-template>

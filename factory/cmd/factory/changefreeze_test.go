@@ -88,7 +88,7 @@ func TestAChangeFreezePassesARevert(t *testing.T) {
 	path := p(ctx, t, d)
 	svc := frozenService(ctx, t, path)
 
-	if err := path.revertIntent(ctx, svc, shipped.releaseID, "it broke checkout"); err != nil {
+	if err := path.revertIntent(ctx, path.human, svc, shipped.releaseID, "it broke checkout"); err != nil {
 		t.Fatalf("revertIntent: %v", err)
 	}
 	revert, found, err := intent.OnEvidence(ctx, d.pool, intent.Evidence{ServiceID: svc.ID, ReleaseID: shipped.releaseID})

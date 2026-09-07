@@ -11,11 +11,13 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/agentrun"
+	"github.com/dulguun0225/borg/factory/constraint"
 	"github.com/dulguun0225/borg/factory/dispatch"
+	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/record"
 )
 
 // TestAnIntentThatStopsWorkIsAHoldAndNotARun: dispatch reads the intent's
@@ -56,7 +58,7 @@ func TestAnIntentThatStopsWorkIsAHoldAndNotARun(t *testing.T) {
 func TestAStageNoEntryCoversAndARoleWithNoPromptAreHolds(t *testing.T) {
 	t.Run("no entry covers the stage", func(t *testing.T) {
 		c := newDispatch(t, []agent.Reply{{Text: aSpec}}, nil, 3)
-		c.fleet.covers = false
+		c.withdrawEveryEntry(t)
 		it := c.oneItem(t, intent.StateRefined)
 
 		_, run, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"})
@@ -252,7 +254,7 @@ func TestARolePutOnAnIntentRunsWhileTheIntentIsUnrefined(t *testing.T) {
 		Text:  "READING:\nREQUIREMENT: When the charge fails, the system shall retry it once.",
 		Units: map[string]int64{agent.UnitsOutput: 4},
 	}}, nil, 3)
-	in, err := c.intake.TakeIn(c.ctx, record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed},
+	in, err := c.intake.TakeIn(c.ctx, owner,
 		intent.Arrival{Source: intent.SourceOwner, Statement: "checkout should retry", ProjectID: oneProject})
 	if err != nil {
 		t.Fatalf("TakeIn: %v", err)
@@ -260,7 +262,7 @@ func TestARolePutOnAnIntentRunsWhileTheIntentIsUnrefined(t *testing.T) {
 
 	on := dispatch.On{IntentID: in.ID, ProjectID: oneProject, CountedSoFar: 1}
 	read, run, err := c.dispatch.Interviewer(c.ctx, on,
-		[]inputmanifest.Material{{Class: "intent", Reference: in.ID, Bytes: 21}},
+		[]inputmanifest.Material{{Class: fleetentry.ClassIntentStatement, Reference: in.ID, Bytes: 21}},
 		agent.Interviewing{Statement: in.Statement})
 	if err != nil {
 		t.Fatalf("Interviewer on an unrefined intent: %v", err)
@@ -300,5 +302,75 @@ func TestARolePutOnAnIntentRunsWhileTheIntentIsUnrefined(t *testing.T) {
 	onAnItem := dispatch.On{ItemID: it.ID, IntentID: it.IntentID, ProjectID: oneProject}
 	if _, _, err := c.dispatch.Interviewer(c.ctx, onAnItem, nil, agent.Interviewing{Statement: "s"}); !errors.Is(err, dispatch.ErrRoleNamesNoStage) {
 		t.Errorf("the interviewer put on an item = %v, want ErrRoleNamesNoStage", err)
+	}
+}
+
+// TestAConstraintRequiringSeam5HoldsUntilTheSettingIsOn is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md's
+// document-kind constraint that "may also require seam 5 enforced, read at
+// dispatch": the row names the constraint, and the hold lifts when the field
+// turns on.
+func TestAConstraintRequiringSeam5HoldsUntilTheSettingIsOn(t *testing.T) {
+	c := newDispatch(t, []agent.Reply{{Text: aSpec}}, nil, 3)
+	supplied := c.aConstraintRequiringSeam5(t)
+	it := c.oneItem(t, intent.StateRefined)
+
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"})
+	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldConstraintRequiresSeam5 {
+		t.Fatalf("SpecAuthor under a constraint requiring seam 5 = %v holding %q, want the seam 5 hold",
+			err, run.Held)
+	}
+	held, found := c.holdOn(t, it.ID, dispatch.HoldConstraintRequiresSeam5)
+	if !found || held.ConstraintID != supplied {
+		t.Fatalf("the hold is %+v, %v; want the constraint named", held, found)
+	}
+	if c.model.calls != 0 {
+		t.Error("an agent ran on an item a constraint requiring seam 5 holds")
+	}
+
+	c.enforceSeam5(t)
+	if _, err := c.dispatch.Rematch(c.ctx); err != nil {
+		t.Fatalf("Rematch: %v", err)
+	}
+	if _, found := c.holdOn(t, it.ID, dispatch.HoldConstraintRequiresSeam5); found {
+		t.Error("the hold still stands after seam 5 was turned on")
+	}
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"}); err != nil {
+		t.Fatalf("SpecAuthor once seam 5 is enforced: %v", err)
+	}
+}
+
+// aConstraintRequiringSeam5 supplies one document-kind constraint over the
+// whole factory requiring seam 5 enforced, and answers with its id.
+func (c composed) aConstraintRequiringSeam5(t *testing.T) string {
+	t.Helper()
+	supplied, err := constraint.NewWriter(c.pool, c.token).Arrive(c.ctx, owner, constraint.New{
+		Kind: constraint.KindDocument, Reach: constraint.ReachFactory,
+		Statement: "nothing leaves the region", RequiresSeam5Enforced: true,
+	})
+	if err != nil {
+		t.Fatalf("supplying the constraint: %v", err)
+	}
+	return supplied.ID
+}
+
+// enforceSeam5 turns the factory-wide field on, which is the one thing that
+// clears the constraint's hold. It is turned on once and never off.
+func (c composed) enforceSeam5(t *testing.T) {
+	t.Helper()
+	settings, err := factorysettings.NewWriter(c.pool, c.token).Ensure(c.ctx, owner)
+	if err != nil {
+		t.Fatalf("Ensure the settings record: %v", err)
+	}
+	tx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(c.ctx) }()
+	if err := factorysettings.SetSeam5Enforced(c.ctx, tx, settings.ID, true); err != nil {
+		t.Fatalf("SetSeam5Enforced: %v", err)
+	}
+	if err := tx.Commit(c.ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
 	}
 }

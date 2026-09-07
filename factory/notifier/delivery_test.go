@@ -1,8 +1,10 @@
 // delivery_test.go is the three channels and what a delivery records: a
 // refused send on one channel not stopping the next, one delivery record per
 // holder, which of the two kinds a wait is, and the harm mark's cap. It is one
-// external test package with db_test.go and driftpass_test.go, split by
-// subject so each file stays under the line bound.
+// external test package with db_test.go, driftpass_test.go and
+// deliveryread_test.go, split by subject so each file stays under the line
+// bound — deliveryread_test.go holds [notifier.DeliveryRecord.FirstAcceptedAt]
+// and [notifier.DeliveriesOf].
 package notifier_test
 
 import (

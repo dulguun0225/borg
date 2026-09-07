@@ -26,7 +26,7 @@ func TestAnOpenIncidentWithNoOpenWindowPages(t *testing.T) {
 	if _, err := run(ctx, d, of(theStatement)); err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {
 		t.Fatalf("the second run stopped: %v\noutput so far:\n%s", err, out)

@@ -102,15 +102,15 @@ func TestAForbiddenTransitionIsRejectedAtImplementation(t *testing.T) {
 		"start", "begin", "not-active")
 	writeScreenFile(t, c.svc.Repository, screenID, forbidden)
 
-	verdict, reason, err := path.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &fired{}, "", "")
+	done, err := path.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &fired{}, "", "")
 	if err != nil {
 		t.Fatalf("itemGate: %v\n%s", err, out)
 	}
-	if verdict != gate.VerdictReject {
-		t.Fatalf("the verdict is %s, want reject: %s\n%s", verdict, reason, out)
+	if done.verdict != gate.VerdictReject {
+		t.Fatalf("the verdict is %s, want reject: %s\n%s", done.verdict, done.reason, out)
 	}
-	if !strings.Contains(reason, "the machine declares") {
-		t.Errorf("the rejection does not read as the transition check's own: %q", reason)
+	if !strings.Contains(done.reason, "the machine declares") {
+		t.Errorf("the rejection does not read as the transition check's own: %q", done.reason)
 	}
 	if !strings.Contains(out.String(), gate.AutoRejectedByForbiddenTransition) {
 		t.Errorf("the run does not name the forbidden-transition check:\n%s", out)
@@ -134,9 +134,12 @@ func TestAConstructTheExtractorCannotFollowResolvesAHuman(t *testing.T) {
 	writeScreenFile(t, c.svc.Repository, screenID, notFollowed)
 
 	var into fired
-	verdict, _, err := path.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &into, "", "")
+	done, err := path.itemGate(ctx, c, gate.Implementation, c.implArtifactID, &into, "", "")
 	if err != nil {
 		t.Fatalf("itemGate: %v\n%s", err, out)
+	}
+	if !done.waiting {
+		t.Fatalf("the row did not wait on a human, so nothing was left for one to decide:\n%s", out)
 	}
 	if !into.humanDecided {
 		t.Fatalf("a screen the extractor could not derive did not put a human at the row:\n%s", out)
@@ -150,8 +153,19 @@ func TestAConstructTheExtractorCannotFollowResolvesAHuman(t *testing.T) {
 	if !found {
 		t.Errorf("the marks are %v, want the resolved factor a could-not-derive screen puts there", into.marks)
 	}
-	if verdict != gate.VerdictApprove {
-		t.Errorf("the scripted human's approve was not read as the verdict: %s", verdict)
+	// The scripted human at Work, which is what closes a row this pass left
+	// pending, and the verdict read back off the log the way the next pass reads
+	// it.
+	if _, err := path.d.decide(ctx, path); err != nil {
+		t.Fatalf("deciding the row at Work: %v\n%s", err, out)
+	}
+	rows, _, err := path.closedRows(ctx, c.itemID)
+	if err != nil {
+		t.Fatalf("reading the rows that closed: %v", err)
+	}
+	if rows[gate.KindImplementation].verdict != gate.VerdictApprove {
+		t.Errorf("the scripted human's approve was not read as the verdict: %s",
+			rows[gate.KindImplementation].verdict)
 	}
 	if !strings.Contains(out.String(), "could not derive") {
 		t.Errorf("the run does not report the screen as could not derive:\n%s", out)

@@ -2,7 +2,11 @@
 // documentation into a Markdown file that points at nothing — a target
 // whose file or directory does not exist, or a "#anchor" matching no
 // heading in the file it names — and on a doc.go that names no target at
-// all. Run it from factory/.
+// all. It holds a screen's README.md under factory/client/src/app/ to the
+// same rule as a doc.go, because that file is the client's counterpart to
+// one: it fails on a screen README naming no target, and on one of the four
+// screen directories — work, ops, factory, people — missing its README.md
+// altogether. Run it from factory/.
 //
 // It walks the working directory and reads every *.go and *.md file under
 // it, extracting a reference two ways. A Markdown link — a target in
@@ -19,14 +23,18 @@
 //
 // refs.go is [Reference] with [ExtractFile], which reads the references out
 // of one file, [Check], which decides each against the tree, and [Uncited],
-// the doc.go that contributed none, with the heading slugs beneath them;
-// main.go is the entry point and the walk that collects every *.go and *.md
-// file. The tests are refs_test.go, which needs no database.
+// the doc.go or screen README that contributed none, with the heading
+// slugs beneath them; client.go is [isScreenReadme], which [Uncited] uses to
+// tell a screen README from any other, and [MissingScreenReadmes], which
+// finds a screen directory with no README.md at all; main.go is the entry
+// point and the walk that collects every *.go and *.md file. The tests are
+// refs_test.go and client_test.go, neither needing a database.
 //
-// Three things are an error: a target whose file or directory does not
+// Four things are an error: a target whose file or directory does not
 // exist; where the target names an anchor and the target is Markdown, an
-// anchor matching no heading in that file; and a doc.go, anywhere under
-// the walk, that contributed no reference at all. A heading is slugged
+// anchor matching no heading in that file; a doc.go or a screen README,
+// anywhere under the walk, that contributed no reference at all; and one of
+// the four screen directories with no README.md in it. A heading is slugged
 // the way the consistency pass slugs one — lowercase, every letter,
 // digit, space, and hyphen kept, everything else dropped, and each space
 // turned to a hyphen — so the two agree; that differs from GitHub, which

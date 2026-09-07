@@ -10,7 +10,10 @@
 // own transaction for a caller — a test, today — that holds none of its own;
 // [GetWithdrawal], one withdrawal by id, which the gate row that decides it
 // reads before it fires, the actor on that record being the one human the row
-// may not route to; and [Standing], every halt with no approved withdrawal.
+// may not route to; [WithdrawalsAwaitingADecision], every withdrawal no row
+// has approved yet, which is what Factory lists as the rows outside every
+// item pending a disposition; and [Standing], every halt with no approved
+// withdrawal.
 //
 // A withdrawal is written pending and is not in force until a second write
 // approves it, the way the gate row A halt's withdrawal decides one, held by

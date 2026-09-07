@@ -126,7 +126,7 @@ func TestARejectStopsThePath(t *testing.T) {
 	if rejects != attemptLimit {
 		t.Errorf("the log holds %d reject close event(s), want %d — one per attempt the merge row rejected", rejects, attemptLimit)
 	}
-	if !strings.Contains(out.String(), "goes back to implementation against what the Merge to master row found wrong") {
+	if !strings.Contains(out.String(), "goes back to implementation against what the "+gate.MergeToMaster.String()+" row found wrong") {
 		t.Errorf("the run does not print the re-entry line:\n%s", out)
 	}
 }
@@ -151,7 +151,7 @@ func TestARejectThenASecondRunShips(t *testing.T) {
 	}
 	first := only(t, firstRes)
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	d.model = &fakeModel{}
 	secondRes, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {

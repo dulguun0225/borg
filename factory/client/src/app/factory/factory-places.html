@@ -1,0 +1,197 @@
+<h2>Environments</h2>
+@if (environments().length === 0) {
+  <p class="quiet">No environment is written. Writing a project writes production's.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Environment</th>
+        <th scope="col">Kind</th>
+        <th scope="col">Targets</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of environments(); track one.ID) {
+        <tr>
+          <td>{{ one.ID }}</td>
+          <td>{{ one.Kind }}</td>
+          <td>
+            @if ((one.Targets ?? []).length === 0) {
+              no target
+            } @else {
+              {{ (one.Targets ?? []).join(', ') }}
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h2>Projects and areas</h2>
+<p class="quiet">
+  A project is the root every area chain ends at, and the widest reach short of the
+  factory a constraint, a safeguard, or a fleet entry's scope may name. Writing one
+  writes production's environment for it in the same event, and no project is ever
+  deleted.
+</p>
+@if (projects().length === 0) {
+  <p class="quiet">
+    No project is written, so decomposition cannot create a service yet.
+  </p>
+} @else {
+  <ul>
+    @for (one of projects(); track one.ID) {
+      <li>{{ one.Name }} ({{ one.ID }})</li>
+    }
+  </ul>
+}
+
+<form (submit)="createProject($event)">
+  <div class="field">
+    <label for="project-name">Write a project</label>
+    <input id="project-name" type="text" [formField]="projectForm.Name" />
+    @for (problem of problems(projectForm.Name().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="actions">
+    <button type="submit">Write it</button>
+  </div>
+</form>
+
+@if (areas().length === 0) {
+  <p class="quiet">No area is declared.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">Inside</th>
+        <th scope="col">Project</th>
+        <th scope="col">Severity</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of areas(); track one.ID) {
+        <tr>
+          <td>{{ one.Name }}</td>
+          <td>{{ one.Inside }}</td>
+          <td>{{ one.ProjectID }}</td>
+          <td>{{ one.Severity }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<form (submit)="declareArea($event)">
+  <div class="field">
+    <label for="area-name">Declare an area</label>
+    <input id="area-name" type="text" [formField]="areaForm.Name" />
+    @for (problem of problems(areaForm.Name().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="area-inside">Inside this area, empty to sit directly inside the project</label>
+    <input id="area-inside" type="text" [formField]="areaForm.InsideAreaID" />
+  </div>
+  <div class="field">
+    <label for="area-project">Project</label>
+    <input id="area-project" type="text" [formField]="areaForm.ProjectName" />
+  </div>
+  <div class="actions">
+    <button type="submit">Declare it</button>
+  </div>
+</form>
+
+<h2>Constraints in force</h2>
+<p class="quiet">
+  The three widest reaches, listed by reach. A constraint that arrived with a single
+  intent is read and withdrawn at Work, on its intent.
+</p>
+@if (constraints().length === 0) {
+  <p class="quiet">No constraint is in force.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Reach</th>
+        <th scope="col">Kind</th>
+        <th scope="col">Statement</th>
+        <th scope="col">Supplied</th>
+        <th scope="col">Binds from</th>
+        <th scope="col">Review date</th>
+        <th scope="col">Withdraw</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of constraints(); track one.ID) {
+        <tr>
+          <td>{{ one.Reach }}</td>
+          <td>{{ one.Kind }}</td>
+          <td>{{ one.Statement }}</td>
+          <td>{{ at(one.SuppliedAt) }}</td>
+          <td>
+            @if (one.BindsFrom === '') {
+              on arrival
+            } @else {
+              {{ onDate(one.BindsFrom) }} in {{ one.Zone }}
+            }
+          </td>
+          <td>
+            @if (one.ReviewDate === '') {
+              none
+            } @else {
+              {{ onDate(one.ReviewDate) }} in {{ one.Zone }}
+            }
+          </td>
+          <td>
+            @if (one.WithdrawnAt === '') {
+              <button type="button" (click)="withdrawConstraint(one.ID)">Withdraw</button>
+            } @else {
+              withdrawn {{ at(one.WithdrawnAt) }}
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<form (submit)="supplyConstraint($event)">
+  <div class="field">
+    <label for="constraint-statement">Supply a constraint</label>
+    <textarea id="constraint-statement" [formField]="constraintForm.Statement"></textarea>
+    @for (problem of problems(constraintForm.Statement().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="constraint-reach">Reach</label>
+    <select id="constraint-reach" [formField]="constraintForm.ReachKind">
+      @for (reach of reaches; track reach) {
+        <option [value]="reach">{{ reach }}</option>
+      }
+    </select>
+  </div>
+  <div class="field">
+    <label for="constraint-reach-name">
+      The project or area it reaches, empty where the reach is the factory
+    </label>
+    <input id="constraint-reach-name" type="text" [formField]="constraintForm.ReachName" />
+  </div>
+  <div class="field">
+    <label for="constraint-binds">Binds from, empty to bind on arrival</label>
+    <input id="constraint-binds" type="date" [formField]="constraintForm.BindsFrom" />
+  </div>
+  <div class="field">
+    <label for="constraint-review">Review date, empty for none</label>
+    <input id="constraint-review" type="date" [formField]="constraintForm.ReviewDate" />
+  </div>
+  <p class="quiet">Both dates are sent in {{ zone }}, and every reader computes in it.</p>
+  <div class="actions">
+    <button type="submit">Supply it</button>
+  </div>
+</form>

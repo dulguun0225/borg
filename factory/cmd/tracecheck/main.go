@@ -34,12 +34,19 @@ func run() error {
 	var findings []string
 	findings = append(findings, Check(refs)...)
 	for _, file := range Uncited(files, refs) {
+		if isScreenReadme(file) {
+			findings = append(findings, fmt.Sprintf("%s: a screen README carrying no reference at all", file))
+			continue
+		}
 		findings = append(findings, fmt.Sprintf("%s: a doc.go carrying no reference at all", file))
+	}
+	for _, path := range MissingScreenReadmes(".", files) {
+		findings = append(findings, fmt.Sprintf("%s: a screen README that does not exist", path))
 	}
 	if len(findings) == 0 {
 		return nil
 	}
-	return errors.New("tracecheck: a reference points at nothing, or a doc.go carries none:\n\t" + strings.Join(findings, "\n\t"))
+	return errors.New("tracecheck: a reference points at nothing, a doc.go or a screen README carries none, or a screen README does not exist:\n\t" + strings.Join(findings, "\n\t"))
 }
 
 // walkFiles returns every *.go and *.md file under root, in the order
@@ -51,7 +58,9 @@ func walkFiles(root string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			// node_modules is the client's package tree, whose Markdown is
+			// not this repository's and whose links point at nothing here.
+			if d.Name() == ".git" || d.Name() == "node_modules" {
 				return filepath.SkipDir
 			}
 			return nil

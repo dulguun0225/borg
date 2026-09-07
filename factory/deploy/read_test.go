@@ -111,6 +111,85 @@ func TestARolloutOnSomeTargetsIsNotCurrent(t *testing.T) {
 	}
 }
 
+// TestCurrentOnTargetIsPerTargetWhileARolloutIsWidening: a rollout complete on
+// one target of two leaves the two running different releases, which is what
+// [deploy.CurrentOnTarget] answers and what [deploy.Current] cannot — its rule
+// is completion on every target, so it names the release below throughout.
+func TestCurrentOnTargetIsPerTargetWhileARolloutIsWidening(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	addresses := addressesOf(twoTargets)
+
+	first := mintRelease(t, ctx, pool, token, serviceID)
+	second := mintRelease(t, ctx, pool, token, serviceID)
+
+	begin := func(r release.Release) deploy.Deploy {
+		t.Helper()
+		d, err := w.Start(ctx, deployer, deploy.Beginning{
+			ServiceID: serviceID, EnvironmentID: productionID,
+			What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+			IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+		})
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		return d
+	}
+
+	// Nothing has completed anywhere, so no target is running anything.
+	if _, found, err := deploy.CurrentOnTarget(ctx, pool, serviceID, productionID, addresses[0]); err != nil || found {
+		t.Fatalf("CurrentOnTarget before any deploy = found %v, %v, want none", found, err)
+	}
+
+	landed := begin(first)
+	completeOn(t, ctx, w, landed.ID, addresses...)
+	if err := w.Complete(ctx, landed.ID); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	widening := begin(second)
+	completeOn(t, ctx, w, widening.ID, addresses[0])
+
+	running, found, err := deploy.CurrentOnTarget(ctx, pool, serviceID, productionID, addresses[0])
+	if err != nil || !found {
+		t.Fatalf("CurrentOnTarget on the target the rollout reached = found %v, %v", found, err)
+	}
+	if running.ReleaseID != second.ID {
+		t.Errorf("the target the rollout completed on runs release %s, want the one widening, %s",
+			running.ReleaseID, second.ID)
+	}
+	behind, found, err := deploy.CurrentOnTarget(ctx, pool, serviceID, productionID, addresses[1])
+	if err != nil || !found {
+		t.Fatalf("CurrentOnTarget on the target the rollout has not reached = found %v, %v", found, err)
+	}
+	if behind.ReleaseID != first.ID {
+		t.Errorf("the target the rollout has not reached runs release %s, want the one below, %s",
+			behind.ReleaseID, first.ID)
+	}
+	if _, found, err := deploy.CurrentOnTarget(ctx, pool, serviceID, productionID, "/srv/nowhere"); err != nil || found {
+		t.Errorf("CurrentOnTarget on an address nothing deployed to = found %v, %v, want none", found, err)
+	}
+
+	// A removal complete on one target takes the service off that target and
+	// leaves the other running, the same rule [deploy.Current] applies over
+	// every address at once.
+	removal, err := w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRemoval(), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+	})
+	if err != nil {
+		t.Fatalf("Start of a removal: %v", err)
+	}
+	completeOn(t, ctx, w, removal.ID, addresses[1])
+	if _, found, err := deploy.CurrentOnTarget(ctx, pool, serviceID, productionID, addresses[1]); err != nil || found {
+		t.Errorf("the target the removal completed on = found %v, %v, want none", found, err)
+	}
+	if _, found, err := deploy.CurrentOnTarget(ctx, pool, serviceID, productionID, addresses[0]); err != nil || !found {
+		t.Errorf("the target the removal has not reached = found %v, %v, want the release still running", found, err)
+	}
+}
+
 // TestCurrentIsCompletionOnTheServicesOwnTargets: a service's current release is
 // the one its deploy record marks complete on every production target the
 // service runs on. Which of the environment's targets that is is a field of the

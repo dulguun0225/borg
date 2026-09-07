@@ -23,8 +23,14 @@ var component = record.Actor{Kind: record.KindComponent, Key: "score", Basis: re
 var componentPrincipal = principal.OfComponent("score")
 
 // ErrChangeIncomplete is returned by [Score.Assess] for a change naming no item
-// or no service. Every firing has both, so a blank is a caller's defect and not
-// a factor to resolve.
+// or no service on a set whose factors are read from them. A blank there is a
+// caller's defect and not a factor to resolve.
+//
+// [SetRolePromptOrSkill] is the one set it does not apply to: that row decides a
+// version of what an agent is told, which belongs to no item and no service, so
+// its firing names neither and the factors that would have read them resolve the
+// way an unavailable factor always does — a human deciding whatever the formula
+// returns.
 var ErrChangeIncomplete = errors.New("score: a change names an item and a service")
 
 // ChurnWindow is how far back area churn is read. Two weeks is long enough that
@@ -331,7 +337,7 @@ func (s *Score) Assess(ctx context.Context, c Change) (Assessment, error) {
 // scope and not always the newest. What resolves that is [InForceAt], and the
 // caller that read it hands the answer here.
 func (s *Score) AssessUnder(ctx context.Context, version Version, c Change) (Assessment, error) {
-	if c.ItemID == "" || c.ServiceID == "" {
+	if c.FactorSet != SetRolePromptOrSkill && (c.ItemID == "" || c.ServiceID == "") {
 		return Assessment{}, fmt.Errorf("%w: item %q, service %q", ErrChangeIncomplete, c.ItemID, c.ServiceID)
 	}
 	definitions := definitionsOf(c.FactorSet)

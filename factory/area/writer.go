@@ -198,6 +198,30 @@ func ByName(ctx context.Context, pool *pgxpool.Pool, name string) (Area, bool, e
 	return a, true, nil
 }
 
+// All is every area declared, oldest first, with the area or the project each
+// lies inside. It is what Factory lists: an owner reads the areas they
+// declared, and a reader holding one area's id reads [Get] instead.
+func All(ctx context.Context, pool *pgxpool.Pool) ([]Area, error) {
+	rows, err := pool.Query(ctx, selectArea+` order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("area: reading the areas: %w", err)
+	}
+	defer rows.Close()
+
+	var read []Area
+	for rows.Next() {
+		a, err := scan(rows, "an area")
+		if err != nil {
+			return nil, err
+		}
+		read = append(read, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("area: reading the areas: %w", err)
+	}
+	return read, nil
+}
+
 // Chain is the area of that id and every area it lies inside, narrowest first,
 // with the id of the project the chain ends at. A mechanism a safeguard binds
 // reads the chain rather than the one area, because a safeguard drawn on any

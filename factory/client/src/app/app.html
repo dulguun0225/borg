@@ -1,0 +1,51 @@
+@if (reloadRequired()) {
+  <main class="reload">
+    <h1>This screen was built for an earlier factory</h1>
+    <p>
+      The factory was upgraded while this screen was open. Nothing was sent, and an
+      unsaved edit at a gate is lost. Reload to get the screen this factory serves.
+    </p>
+    <button type="button" (click)="reloadNow()">Reload</button>
+  </main>
+} @else {
+  <div class="shell">
+    <nav class="nav">
+      <a routerLink="/work" routerLinkActive="here" [routerLinkActiveOptions]="{ exact: false }">
+        Work
+      </a>
+      @if (badge() !== null) {
+        <span class="badge">{{ badge() }} waiting on a human</span>
+      } @else {
+        <span class="quiet">badge unread</span>
+      }
+      <a routerLink="/ops" routerLinkActive="here">Ops</a>
+      <a routerLink="/factory" routerLinkActive="here">Factory</a>
+      <a routerLink="/people" routerLinkActive="here">People</a>
+
+      <form class="who" (submit)="declareWho($event)">
+        <div>
+          <label for="principal">Acting as</label>
+          <input id="principal" type="text" [formField]="whoForm.key" />
+        </div>
+        <button type="submit">Declare</button>
+      </form>
+    </nav>
+
+    @if (!declared()) {
+      <p class="marked">
+        Nothing can be read until you say who you are. The key is a row of the People
+        declaration, and every call carries it.
+      </p>
+    }
+
+    @if (disconnected()) {
+      <p class="marked">
+        The subscription to the badge has dropped. What is shown was read before it did.
+      </p>
+    }
+
+    <main>
+      <router-outlet />
+    </main>
+  </div>
+}

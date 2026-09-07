@@ -1,0 +1,302 @@
+<h2>Rows that decide a record</h2>
+<p class="quiet">
+  Four rows belong to no item: a safeguard's withdrawal, a halt's withdrawal, a legal
+  hold's ending, and a shortening of decision-log retention. Each is decided here, and
+  the factory refuses the verdict of the human who wrote the withdrawal — a withdrawal is
+  routed away from its author.
+</p>
+@if (rows().length === 0) {
+  <p class="quiet">No row deciding a record is pending.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Kind</th>
+        <th scope="col">Record</th>
+        <th scope="col">Opened</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (row of rows(); track row.RecordID) {
+        <tr>
+          <td>{{ row.Kind }}</td>
+          <td>{{ row.RecordID }}</td>
+          <td>{{ at(row.OpenedAt) }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+
+  <form (submit)="decideRow($event)">
+    <div class="field">
+      <label for="row-record">Row</label>
+      <select id="row-record" [formField]="decisionForm.RecordID">
+        <option value="">choose a row</option>
+        @for (row of rows(); track row.RecordID) {
+          <option [value]="row.RecordID">{{ row.Kind }} on {{ row.RecordID }}</option>
+        }
+      </select>
+      @for (problem of problems(decisionForm.RecordID().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <div class="field">
+      <label for="row-decision-verdict">Verdict</label>
+      <select id="row-decision-verdict" [formField]="decisionForm.Verdict">
+        @for (verdict of verdicts; track verdict) {
+          <option [value]="verdict">{{ verdict }}</option>
+        }
+      </select>
+    </div>
+    <div class="field">
+      <label for="row-decision-reason">Reason</label>
+      <textarea id="row-decision-reason" [formField]="decisionForm.Reason"></textarea>
+      @for (problem of problems(decisionForm.Reason().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+    <div class="actions">
+      <button type="submit">Decide it</button>
+    </div>
+  </form>
+}
+
+<h2>Gate policy</h2>
+@if (parameters().length === 0) {
+  <p class="quiet">No parameter is authored, so every gate reads its default.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Parameter</th>
+        <th scope="col">Subject</th>
+        <th scope="col">Effective value</th>
+        <th scope="col">Which read it came from</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of parameters(); track `${one.Name}/${one.Subject}`) {
+        <tr>
+          <td>{{ one.Name }}</td>
+          <td>{{ one.Subject === '' ? 'the whole factory' : one.Subject }}</td>
+          <td>{{ one.Value }}</td>
+          <td>{{ one.Source }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h3>Author a parameter</h3>
+<p class="quiet">
+  Which subject a parameter needs is a fact of the parameter and not a choice: the record
+  it is a field of decides that, and the rest are left empty.
+</p>
+<form (submit)="authorParameter($event)">
+  <div class="field">
+    <label for="parameter-name">Parameter</label>
+    <input id="parameter-name" type="text" [formField]="parameterForm.Parameter" />
+    @for (problem of problems(parameterForm.Parameter().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="parameter-value">Value</label>
+    <input id="parameter-value" type="text" [formField]="parameterForm.Value" />
+    @for (problem of problems(parameterForm.Value().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="parameter-service">Service</label>
+    <input id="parameter-service" type="text" [formField]="parameterForm.ServiceID" />
+  </div>
+  <div class="field">
+    <label for="parameter-area">Area</label>
+    <input id="parameter-area" type="text" [formField]="parameterForm.AreaID" />
+  </div>
+  <div class="field">
+    <label for="parameter-gate">Gate row</label>
+    <input id="parameter-gate" type="text" [formField]="parameterForm.GateRow" />
+  </div>
+  <div class="field">
+    <label for="parameter-stage">Stage</label>
+    <input id="parameter-stage" type="text" [formField]="parameterForm.Stage" />
+  </div>
+  <div class="field">
+    <label for="parameter-quantity">Quantity</label>
+    <input id="parameter-quantity" type="text" [formField]="parameterForm.Quantity" />
+  </div>
+  <div class="field">
+    <label for="parameter-project">Project</label>
+    <input id="parameter-project" type="text" [formField]="parameterForm.ProjectName" />
+  </div>
+  <div class="actions">
+    <button type="submit">Author it</button>
+  </div>
+</form>
+
+<h3>Safeguards</h3>
+@if (safeguards().length === 0) {
+  <p class="quiet">No safeguard is placed, so no parameter is clamped.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Parameter</th>
+        <th scope="col">Subject</th>
+        <th scope="col">Direction</th>
+        <th scope="col">Bound</th>
+        <th scope="col">Rows route to</th>
+        <th scope="col">Withdraw</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of safeguards(); track one.ID) {
+        <tr>
+          <td>{{ one.Parameter }}</td>
+          <td>{{ one.Subject }}</td>
+          <td>{{ one.Direction }}</td>
+          <td>{{ one.Bound }}</td>
+          <td>
+            @if (one.RoutedToHuman !== '') {
+              {{ one.RoutedToHuman }}
+            } @else if (one.RoutedToDuty > 0) {
+              duty {{ one.RoutedToDuty }}
+            } @else {
+              the owner
+            }
+          </td>
+          <td>
+            <button type="button" (click)="withdrawSafeguard(one.ID)">Withdraw</button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<form (submit)="placeSafeguard($event)">
+  <div class="field">
+    <label for="safeguard-parameter">Parameter</label>
+    <input id="safeguard-parameter" type="text" [formField]="safeguardForm.Parameter" />
+    @for (problem of problems(safeguardForm.Parameter().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="safeguard-kind">Subject kind</label>
+    <select id="safeguard-kind" [formField]="safeguardForm.SubjectKind">
+      @for (kind of safeguardSubjects; track kind) {
+        <option [value]="kind">{{ kind }}</option>
+      }
+    </select>
+  </div>
+  <div class="field">
+    <label for="safeguard-subject">
+      Subject
+      @if (safeguard().SubjectKind === gateRowSubjectKind) {
+        — the gate row this safeguard keys on
+      }
+    </label>
+    <input id="safeguard-subject" type="text" [formField]="safeguardForm.SubjectName" />
+    @for (problem of problems(safeguardForm.SubjectName().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  @if (safeguard().SubjectKind === gateRowSubjectKind) {
+    <div class="field">
+      <label for="safeguard-service">
+        Service, which names the service the row fires for
+      </label>
+      <input id="safeguard-service" type="text" [formField]="safeguardForm.ServiceName" />
+      @for (problem of problems(safeguardForm.ServiceName().errors()); track problem) {
+        <p class="danger">{{ problem }}</p>
+      }
+    </div>
+  }
+  <div class="field">
+    <label for="safeguard-bound">Bound, which points the one way this parameter allows</label>
+    <input id="safeguard-bound" type="text" [formField]="safeguardForm.Bound" />
+    @for (problem of problems(safeguardForm.Bound().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="safeguard-duty">Duty its rows route to, zero for the owner</label>
+    <input id="safeguard-duty" type="number" [formField]="safeguardForm.RouteDuty" />
+  </div>
+  <div class="field">
+    <label for="safeguard-human">Human its rows route to, empty for the duty</label>
+    <input id="safeguard-human" type="text" [formField]="safeguardForm.RouteHuman" />
+  </div>
+  <div class="actions">
+    <button type="submit">Place it</button>
+  </div>
+</form>
+
+<h3>Halts</h3>
+@if (halts().length === 0) {
+  <p class="quiet">The factory is not halted.</p>
+} @else {
+  <ul>
+    @for (one of halts(); track one.ID) {
+      <li>
+        {{ one.Reason }}, set {{ at(one.At) }}
+        <button type="button" (click)="withdrawHalt(one.ID)">Withdraw</button>
+      </li>
+    }
+  </ul>
+}
+
+<form (submit)="setHalt($event)">
+  <div class="field">
+    <label for="halt-reason">Halt the factory, and why</label>
+    <textarea id="halt-reason" [formField]="haltForm.Reason"></textarea>
+    @for (problem of problems(haltForm.Reason().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="actions">
+    <button type="submit">Set it</button>
+  </div>
+</form>
+
+<h3>Legal holds</h3>
+@if (legalHolds().length === 0) {
+  <p class="quiet">No legal hold reaches anything.</p>
+} @else {
+  <ul>
+    @for (one of legalHolds(); track one.ID) {
+      <li>
+        {{ one.Subject }}: {{ one.Reason }}, set {{ at(one.At) }}
+        <button type="button" (click)="withdrawLegalHold(one.ID)">Withdraw</button>
+      </li>
+    }
+  </ul>
+}
+
+<form (submit)="setLegalHold($event)">
+  <div class="field">
+    <label for="hold-kind">Subject kind</label>
+    <select id="hold-kind" [formField]="legalHoldForm.SubjectKind">
+      @for (kind of holdSubjects; track kind) {
+        <option [value]="kind">{{ kind }}</option>
+      }
+    </select>
+  </div>
+  <div class="field">
+    <label for="hold-subject">Subject, empty where the subject is the whole factory</label>
+    <input id="hold-subject" type="text" [formField]="legalHoldForm.SubjectName" />
+  </div>
+  <div class="field">
+    <label for="hold-reason">Reason</label>
+    <textarea id="hold-reason" [formField]="legalHoldForm.Reason"></textarea>
+    @for (problem of problems(legalHoldForm.Reason().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="actions">
+    <button type="submit">Set it</button>
+  </div>
+</form>

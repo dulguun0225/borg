@@ -50,6 +50,17 @@
 // [HeldOut] and [HeldOutItems]. It selects an item and not a firing, and it
 // passes nothing a safeguard put a human at and nothing a resolution did.
 //
+// report.go is the two read-time reporting queries a screen asks for beside
+// the pair it already publishes, neither writing anything: [RealizedAutoPass]
+// and [ThresholdRealized] are the realized auto-pass rate at each risk
+// threshold in force, per factor set, against the rate a [policy] version
+// recorded at the write, which the caller supplies onto
+// [ThresholdRealized.RecordedRate] because this package does not import
+// policy; [HeldOutByBand] and [BandOutcome] are the share of held-out
+// releases whose windows failed within each band of the number, factory-wide,
+// over the span the caller names, excluding a release [markedReleases] finds
+// marked, the same exclusion [Learn]'s own pass applies.
+//
 // marks.go is [Marks], what a named human at Ops marked as not caused by the
 // release. The record is package window's rollback mark, written by a named
 // human at Ops; it is an interface here rather than a read of that package
@@ -118,6 +129,8 @@
 // ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md;
 // the hazard severity the context group reads is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md;
-// and the score version as a row of the chained log is seam 2 of
-// ../../end-goal/deferred.md.
+// the score version as a row of the chained log is seam 2 of
+// ../../end-goal/deferred.md; and the two read-time reporting queries
+// report.go adds are
+// ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md.
 package score

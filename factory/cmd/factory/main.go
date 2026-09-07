@@ -1,20 +1,19 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/driftdetector"
-	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -69,6 +68,53 @@ func modelCredentialNameFor(provider string) string {
 	return openRouterCredentialName
 }
 
+// providerOf is which provider answers a credential name, the reverse of
+// [modelCredentialNameFor]: a fleet entry names the credential and no record
+// names the provider, so an entry on the anthropic credential is answered by
+// the anthropic client and one on the OpenRouter credential by OpenRouter's. A
+// credential neither of them is refused rather than sent to whichever came
+// first.
+func providerOf(credentialName string) (string, error) {
+	switch credentialName {
+	case anthropicCredentialName:
+		return "anthropic", nil
+	case openRouterCredentialName:
+		return "openrouter", nil
+	default:
+		return "", fmt.Errorf("factory: no provider of this install answers the credential %q; it reads %s and %s",
+			credentialName, anthropicCredentialName, openRouterCredentialName)
+	}
+}
+
+// modelsPerEntry is how a fleet entry's model version and credential name
+// become a client to call, one client per pair and kept for the life of the
+// process. Kept because [agent.Paced] holds the time of the last call: a client
+// built afresh per dispatch would pace nothing, its first call never waiting,
+// and the interval -pace names would bound no rate at all.
+func modelsPerEntry(resolver *secretref.Resolver, pace time.Duration) func(string, string) (agent.Model, error) {
+	var mu sync.Mutex
+	made := map[string]agent.Model{}
+	return func(modelVersion, credentialName string) (agent.Model, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		key := credentialName + " " + modelVersion
+		if already, found := made[key]; found {
+			return already, nil
+		}
+		named, err := providerOf(credentialName)
+		if err != nil {
+			return nil, err
+		}
+		provided, err := newModel(named, modelVersion, resolver)
+		if err != nil {
+			return nil, err
+		}
+		paced := agent.NewPaced(provided, pace)
+		made[key] = paced
+		return paced, nil
+	}
+}
+
 // newModel is the one place a provider name becomes a model. The switch is
 // exhaustive and its default is an error, so a name this interface does not
 // implement is refused at the flag rather than reaching a request.
@@ -91,70 +137,6 @@ func newModel(provider, modelName string, resolver *secretref.Resolver) (agent.M
 	}
 }
 
-// leaseTTL is how long an acquired lease stands before it lapses, and
-// leaseRenewEvery is how often the renewal goroutine renews it — a third of the
-// ttl, so a delay of a couple of renewals still lands before the lease would
-// lapse. Both are this interface's own choice: the design names the lease and
-// the fencing token and leaves the numbers to whoever runs the process.
-const (
-	leaseTTL        = 30 * time.Second
-	leaseRenewEvery = leaseTTL / 3
-)
-
-// defaultInstance is this process's own identity for the lease: the machine's
-// hostname and this process's id, which tells one instance from another without
-// any configuration.
-func defaultInstance() string {
-	host, err := os.Hostname()
-	if err != nil {
-		host = "unknown-host"
-	}
-	return fmt.Sprintf("%s:%d", host, os.Getpid())
-}
-
-// acquireLease creates package lease's own table and takes the lease for this
-// process, per ../../../end-goal/one-process.md: every subcommand reaches the
-// store while it runs, whether it writes or only reads — a read appends a read
-// event, which is itself a write of the log — so every subcommand acquires it
-// before anything else touches the store. The lease's own table is the one
-// thing created first, because a lease cannot be taken in a store whose lease
-// table does not exist; every other table is created by [postgres.Start] after
-// this returns. A held lease is a start failure.
-//
-// It returns the token every writer and every reader below this point carries,
-// and a stop function, deferred by every caller, that ends the goroutine
-// renewing the lease every leaseRenewEvery and then releases the lease, so the
-// next subcommand starts rather than waiting out the ttl this one left behind.
-func acquireLease(ctx context.Context, pool *pgxpool.Pool) (lease.Token, func(), error) {
-	if err := postgres.ApplyLease(ctx, pool); err != nil {
-		return 0, nil, err
-	}
-	token, err := lease.Acquire(ctx, pool, defaultInstance(), leaseTTL)
-	if err != nil {
-		if errors.Is(err, lease.ErrHeld) {
-			return 0, nil, fmt.Errorf("another instance holds the lease: %w", err)
-		}
-		return 0, nil, err
-	}
-	stop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(leaseRenewEvery)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				_ = lease.Renew(ctx, pool, token, leaseTTL)
-			}
-		}
-	}()
-	return token, func() {
-		close(stop)
-		_ = lease.Release(context.WithoutCancel(ctx), pool, token)
-	}, nil
-}
-
 func main() {
 	if err := chosen(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -163,28 +145,23 @@ func main() {
 }
 
 // subcommands is what the command-line interface offers, in the order the usage
-// message lists them. run and walk are the path and the link walk; watch is the
-// health monitor, which is the one thing that closes an analysis window; learn
-// is the score's own pass over the outcomes; approve is the emergency action at
-// the production deploy row; contracts is every query contracts make.
+// message lists them. serve is the process the lease was always for: it holds
+// the lease for its own life, runs each component's pass on its own interval,
+// and serves the four screens over HTTP between them, where every other
+// subcommand acquires the lease, makes one pass, and exits.
 //
-// The seven after those are the duties a human performs on something already
-// running: rollback and its -revert are duty 10, drop ends an item or an intent
-// for good, accept answers the acceptance round the run asked once every item
-// of an intent went live, accept-commit ends the queue's stop over a commit it
-// did not make,
-// mark-rollback says a rollback was not caused by the release, mitigate is the
-// deployer acting on a human's instruction, and truncate is the log's retention
-// pass. Two more end things for good rather than for now: retire is the owner's
-// write on a service record, which is the one thing that ends a service, and
-// end-project ends a project once every service in it is retired. The last eight
-// are duty 8, duty 9, the priority an owner reorders a
-// queue with, and the People declaration a page routes on — none of which has a
-// screen yet.
-const subcommands = "run, walk <deploy-id>, watch <service>, learn, approve <item-id>, contracts, " +
-	"rollback <service>, drop <item|intent>, accept <intent-id>, accept-commit <service> <commit>, mark-rollback <deploy-id>, " +
-	"mitigate <deploy-id>, truncate, retire <service>, end-project, " +
-	"area <name>, author, safeguard, halt, legal-hold, policy, priority <item-id>, people [<human>]"
+// The seven beside it are a pass or a read: run is the path's own pass, walk is
+// the link walk from a deploy back to its intent, watch is the health monitor,
+// which is the one thing that closes an analysis window, learn is the score's
+// pass over the outcomes, contracts is every query contracts make, policy
+// prints every parameter as it is in force, and truncate is the decision log's
+// retention pass.
+//
+// Every write a human makes is at a screen and reaches the same writer through
+// package screens' own call: what a subcommand acted on is an item, an intent,
+// a service, a project, a record or the People declaration, and each of those
+// has an address a human can be on.
+const subcommands = "serve, run, walk <deploy-id>, watch <service>, learn, contracts, policy, truncate"
 
 // chosen is the switch on the subcommand name. It is not called dispatch:
 // dispatch is the component that puts an agent on a stage, and a function of
@@ -194,6 +171,8 @@ func chosen(args []string) error {
 		return errors.New("factory: a subcommand is required — " + subcommands)
 	}
 	switch args[0] {
+	case "serve":
+		return serveCommand(args[1:])
 	case "run":
 		return runCommand(args[1:])
 	case "walk":
@@ -202,44 +181,12 @@ func chosen(args []string) error {
 		return watchCommand(args[1:])
 	case "learn":
 		return learnCommand(args[1:])
-	case "approve":
-		return approveCommand(args[1:])
 	case "contracts":
 		return contractsCommand(args[1:])
-	case "rollback":
-		return rollbackCommand(args[1:])
-	case "drop":
-		return dropCommand(args[1:])
-	case "accept":
-		return acceptCommand(args[1:])
-	case "accept-commit":
-		return acceptCommitCommand(args[1:])
-	case "mark-rollback":
-		return markRollbackCommand(args[1:])
-	case "mitigate":
-		return mitigateCommand(args[1:])
-	case "truncate":
-		return truncateCommand(args[1:])
-	case "retire":
-		return retireCommand(args[1:])
-	case "end-project":
-		return endProjectCommand(args[1:])
-	case "area":
-		return areaCommand(args[1:])
-	case "author":
-		return authorCommand(args[1:])
-	case "safeguard":
-		return safeguardCommand(args[1:])
-	case "halt":
-		return haltCommand(args[1:])
-	case "legal-hold":
-		return legalHoldCommand(args[1:])
 	case "policy":
 		return policyCommand(args[1:])
-	case "priority":
-		return priorityCommand(args[1:])
-	case "people":
-		return peopleCommand(args[1:])
+	case "truncate":
+		return truncateCommand(args[1:])
 	default:
 		return fmt.Errorf("factory: %q is none of %s", args[0], subcommands)
 	}
@@ -308,6 +255,7 @@ func runCommand(args []string) error {
 	areaName := flags.String("area", "", "the area the item is in, declared where it does not exist; without one the score reads no context factor and a human decides every gate of the item")
 	var raw stringList
 	flags.Var(&raw, "intent", "an intent's statement, given once per decomposition; `svcA,svcB: statement` decomposes one item per service named, each waiting on the one before it")
+	answer := flags.String("answer", "", "what to answer a round of the interview with; empty leaves the round waiting in Work, where a screen answers it")
 	pace := flags.Duration("pace", 2*time.Second, "the least time between two model calls; 0 sends them back to back")
 	ceiling := flags.Int("candidate-environments", 8, "how many candidate environments this platform has room for at once; a candidate that meets it waits, and the wait is written into the log")
 	watchFor := flags.Duration("watch", time.Minute, "how long to watch this run's own windows before leaving what is open, open; `factory watch` continues from there")
@@ -336,8 +284,10 @@ func runCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	provided, err := newModel(*provider, *model, resolver)
-	if err != nil {
+	// The provider is resolved here for the flag's sake alone: a -provider this
+	// interface does not implement is refused at the flag rather than at the
+	// first dispatch. What a run calls is built per fleet entry, below.
+	if _, err := newModel(*provider, *model, resolver); err != nil {
 		return err
 	}
 
@@ -361,19 +311,8 @@ func runCommand(args []string) error {
 	}
 	defer shut()
 
-	// One buffered reader over standard input, shared between the prompt
-	// below and the path: a second reader would lose whatever this one has
-	// already buffered.
-	in := bufio.NewReader(os.Stdin)
 	if len(intents) == 0 {
-		fmt.Print("The intent's statement: ")
-		line, err := in.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("factory run: reading the statement: %w", err)
-		}
-		if err := intents.setFor(line, services); err != nil {
-			return fmt.Errorf("factory run: %w", err)
-		}
+		return errors.New("factory run: -intent is required, at least once")
 	}
 
 	_, err = run(ctx, deps{
@@ -386,10 +325,12 @@ func runCommand(args []string) error {
 		// The effort the one composed fleet entry names, sent to the provider on
 		// every call and recorded on every agent run.
 		effort: *effort,
-		// Paced around the provider client, so every call a stage makes —
-		// including a retry after a refused reply, which would otherwise follow
-		// the refusal with nothing in between — waits out the interval.
-		model: agent.NewPaced(provided, *pace),
+		// One client per fleet entry, built from the entry's own model version
+		// and the provider its credential resolves to, and paced, so every call
+		// a stage makes — including a retry after a refused reply, which would
+		// otherwise follow the refusal with nothing in between — waits out the
+		// interval.
+		modelFor: modelsPerEntry(resolver, *pace),
 		// One target per environment: production's is the directory named here, and
 		// each candidate environment's is a directory of its own under it.
 		targets: newTargetSet(localTargetAt),
@@ -401,7 +342,7 @@ func runCommand(args []string) error {
 		install: true,
 
 		credential:       deployCredential(),
-		in:               in,
+		answer:           *answer,
 		out:              os.Stdout,
 		human:            *human,
 		services:         services,

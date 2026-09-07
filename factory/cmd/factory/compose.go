@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -73,7 +72,6 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	p := &path{
 		d:             d,
 		human:         human,
-		lines:         bufio.NewScanner(d.in),
 		policy:        policy.NewReader(d.pool, d.token, scoreVersion),
 		log:           decisionlog.NewWriter(d.pool, d.token),
 		store:         artifact.NewStore(d.pool, d.token),
@@ -85,7 +83,9 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		factory:       policy.NewFactory(d.pool, d.token),
 		byItem:        map[string]*candidate{},
 		authored:      map[string]bool{},
+		sets:          map[string]*decompositionSet{},
 		serviceByID:   map[string]service.Service{},
+		servicesOf:    map[string][]string{},
 	}
 	p.candidates = environment.NewCandidates(d.pool, d.token)
 	// Retiring a service is an owner's write that calls the deployer, and the
@@ -156,7 +156,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// start as the actor and the author pair empty, where the chain does not
 	// already hold those words. What a run reads is the version in force, so
 	// this happens before the component that hands one to a role exists.
-	prompts, entered, err := enterShippedPrompts(ctx, p.store, d.pool, installActor, factoryVersion)
+	prompts, entered, err := enterShippedPrompts(ctx, p.store, d.pool, d.token, installActor, factoryVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -165,15 +165,31 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		fmt.Fprintf(d.out, "The shipped role prompt entered the chain for %v, under bundle %s\n", entered, factoryVersion)
 	}
 
+	// The fleet, which is a record an owner writes at Factory and this terminal
+	// has no Factory: where the install holds no entry in force for a role, one
+	// is written from the command line as the human -human names, so a fresh
+	// install dispatches. An owner's own entries are left alone.
+	//
+	// A composition that says so writes none, which is what an install with no
+	// entry is and what the readiness reading on the home view is for.
+	if !d.withoutFleetEntries {
+		entries, err := ensureFleetEntries(ctx, d, human)
+		if err != nil {
+			return nil, err
+		}
+		if len(entries) > 0 {
+			fmt.Fprintf(d.out, "A fleet entry on %s through %s was written for %v\n",
+				d.modelName, d.modelCredentialName, entries)
+		}
+	}
+
 	// Dispatch: the match of an item's stage against a role and of its service
-	// and area against a scope, and what runs an agent. The fleet is this
-	// interface's own composition — one model and one credential from the
-	// command line, an entry per role over the whole factory — the fleet entry
-	// being a record nothing here writes.
+	// and area against a scope, and what runs an agent. The entries are read
+	// through package fleetentry, and what the composition supplies is the
+	// client each entry's model version and credential are reached through.
 	p.dispatch, err = dispatch.New(dispatch.Composition{
 		Pool: d.pool, Token: d.token,
-		Fleet: oneModelFleet{model: d.model, modelName: d.modelName,
-			effort: d.effort, credential: d.modelCredentialName},
+		Models:     models{d: d},
 		Prompts:    p.prompts,
 		Items:      p.items,
 		Policy:     intentLimits{reader: p.policy, pool: d.pool},
@@ -366,11 +382,19 @@ func (p *path) subjectsFor(c *candidate) policy.Subjects {
 // ships, so making the revert wait behind them by number would be the same deadlock
 // one step further out.
 func (p *path) deployOrder(ctx context.Context, svc service.Service, candidates []*candidate) ([]*candidate, error) {
+	// One entry per item: the pass reads every live item back out of the
+	// records and the queue answers with the ones it adopted, so one candidate
+	// reaches this list from both — and a release deployed twice in one pass
+	// would fire the row that decides it twice.
 	var minted []*candidate
+	seen := map[string]bool{}
 	for _, c := range candidates {
-		if c.releaseID != "" && c.svc.ID == svc.ID && c.deployID == "" && !c.held && c.factoryHold == "" {
-			minted = append(minted, c)
+		if c.releaseID == "" || c.svc.ID != svc.ID || c.deployID != "" || c.held ||
+			c.factoryHold != "" || c.waiting != (gate.Row{}) || seen[c.itemID] {
+			continue
 		}
+		seen[c.itemID] = true
+		minted = append(minted, c)
 	}
 	for a := 1; a < len(minted); a++ {
 		for b := a; b > 0 && minted[b].releaseNumber < minted[b-1].releaseNumber; b-- {

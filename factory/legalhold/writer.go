@@ -327,3 +327,31 @@ func Reaching(ctx context.Context, pool *pgxpool.Pool, subject Subject) (bool, e
 	}
 	return n > 0, nil
 }
+
+// WithdrawalsAwaitingADecision is every withdrawal no row has approved yet, oldest
+// first. It is what Factory lists as the rows outside every item pending a
+// disposition: the withdrawal is the record an owner decides, and the gate row
+// that decides it is fired and closed in the one call that takes the verdict,
+// so a pending row is a withdrawal standing unapproved and not an open event.
+func WithdrawalsAwaitingADecision(ctx context.Context, pool *pgxpool.Pool) ([]Withdrawal, error) {
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, legal_hold_id
+		from `+WithdrawalTable+` where not approved order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("legalhold: reading the withdrawals awaiting a decision: %w", err)
+	}
+	defer rows.Close()
+	var awaiting []Withdrawal
+	for rows.Next() {
+		var w Withdrawal
+		var kind, basis string
+		if err := rows.Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At, &w.HoldID); err != nil {
+			return nil, fmt.Errorf("legalhold: reading the withdrawals awaiting a decision: %w", err)
+		}
+		w.Actor.Kind, w.Actor.Basis = record.Kind(kind), record.Basis(basis)
+		awaiting = append(awaiting, w)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("legalhold: reading the withdrawals awaiting a decision: %w", err)
+	}
+	return awaiting, nil
+}

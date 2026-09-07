@@ -68,7 +68,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// anything is built, and every row over a build auto-passes for the second
 	// item on this service — so the mismatch is the only thing putting a human
 	// at a row that decides a deploy, which is what this test is about.
-	d.in = strings.NewReader("approve\napprove\napprove\nacknowledge I have this row\nhold the record is wrong and I am checking the target\n")
+	d.decide = scriptedAtWork("approve\napprove\napprove\nacknowledge I have this row\nhold the record is wrong and I am checking the target\n").decide
 	d.model = interviewed(0)
 	res, err := run(ctx, d, of(theSecondStatement))
 	if err != nil {

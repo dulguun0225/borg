@@ -2,11 +2,12 @@
 package main
 
 import (
-	"strings"
+	"net/http"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/screens"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -24,18 +25,16 @@ func TestARevertARequestNamesPassesTheEvidenceOn(t *testing.T) {
 	}
 	shipped := only(t, res)
 
-	p, err := compose(ctx, d)
-	if err != nil {
-		t.Fatalf("composing the path: %v", err)
-	}
+	s := newScreens(t, ctx, d, out)
+	p := s.p
 	svc, err := service.Get(ctx, d.pool, shipped.svc.ID)
 	if err != nil {
 		t.Fatalf("reading the service: %v", err)
 	}
 
-	if err := p.revertIntent(ctx, svc, shipped.releaseID, "it broke checkout"); err != nil {
-		t.Fatalf("revertIntent: %v", err)
-	}
+	s.mustCall(t, "raiseRevert", screens.RaiseRevertArgs{
+		ServiceID: svc.ID, ReleaseID: shipped.releaseID, Reason: "it broke checkout",
+	})
 	revert, found, err := intent.OnEvidence(ctx, d.pool, intent.Evidence{ServiceID: svc.ID, ReleaseID: shipped.releaseID})
 	if err != nil || !found {
 		t.Fatalf("OnEvidence over the revert = found %v, %v", found, err)
@@ -75,15 +74,29 @@ func TestARevertARequestNamesPassesTheEvidenceOn(t *testing.T) {
 	}
 }
 
-// TestRollbackRevertRefusedWithoutARelease is the CLI's own refusal: -revert
-// names the release it undoes, and asking for one without naming it is refused
-// before anything opens the store.
-func TestRollbackRevertRefusedWithoutARelease(t *testing.T) {
-	err := rollbackCommand([]string{"demo", "-reason", "it broke checkout", "-revert"})
-	if err == nil {
-		t.Fatal("rollback -revert with no -release was accepted")
+// TestARevertIsRefusedWithoutAReasonOrTheRightRelease is what Ops refuses
+// before anything is written: the record says what the undo was for, and the
+// release it undoes is a release of the service it names.
+func TestARevertIsRefusedWithoutAReasonOrTheRightRelease(t *testing.T) {
+	ctx, d, out := newPathOn(t, theAnswer+"\n"+approvals, theService, theSecondService)
+	s := newScreens(t, ctx, d, out)
+	svc, found, err := service.ByName(ctx, d.pool, theService)
+	if err != nil || !found {
+		t.Fatalf("ByName(%s) = found %v, %v", theService, found, err)
 	}
-	if want := "-release"; !strings.Contains(err.Error(), want) {
-		t.Errorf("the refusal is %q, want it to name %q", err.Error(), want)
+	other, found, err := service.ByName(ctx, d.pool, theSecondService)
+	if err != nil || !found {
+		t.Fatalf("ByName(%s) = found %v, %v", theSecondService, found, err)
+	}
+
+	if status, body := s.call(t, "raiseRevert", screens.RaiseRevertArgs{
+		ServiceID: svc.ID, ReleaseID: "rel_1",
+	}); status == http.StatusNoContent || status == http.StatusOK {
+		t.Errorf("a revert with no reason was accepted: %s", body)
+	}
+	if status, body := s.call(t, "raiseRevert", screens.RaiseRevertArgs{
+		ServiceID: other.ID, ReleaseID: "rel_1", Reason: "it broke checkout",
+	}); status == http.StatusNoContent || status == http.StatusOK {
+		t.Errorf("a revert naming a release nobody minted was accepted: %s", body)
 	}
 }

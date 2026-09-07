@@ -12,11 +12,12 @@
 // transaction for a caller — a test, today — that holds none of its own;
 // [GetWithdrawal], one withdrawal by id, which the gate row that decides it
 // reads before it fires, the actor on that record being the one human the row
-// may not route to; and
-// [Reaching], whether a hold stands over one subject, a hold on the whole
-// factory reaching every subject asked about and a hold on a project reaching
-// every service in it; and [Standing], every hold in force, which is what a
-// truncation of the decision log is refused against.
+// may not route to; [Reaching], whether a hold stands over one subject, a hold
+// on the whole factory reaching every subject asked about and a hold on a
+// project reaching every service in it; [WithdrawalsAwaitingADecision], every
+// withdrawal no row has approved yet, which is what Factory lists as the rows
+// outside every item pending a disposition; and [Standing], every hold in
+// force, which is what a truncation of the decision log is refused against.
 //
 // A withdrawal is written pending and is not in force until a second write
 // approves it: it ends only at the gate row [gate.KindLegalHoldWithdrawal], held by a

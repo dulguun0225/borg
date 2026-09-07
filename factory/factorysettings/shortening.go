@@ -131,3 +131,31 @@ func GetShortening(ctx context.Context, pool *pgxpool.Pool, id string) (Shorteni
 // routed away from whoever authored the value, so a caller that combined the
 // two writes would be the mechanism that row exists to refuse: evidence
 // destroyed with no decision on it.
+
+// ShorteningsAwaitingADecision is every shortening no row has approved yet, oldest
+// first. It is what Factory lists as the rows outside every item pending a
+// disposition: the shortening is the record an owner decides, and the gate row
+// that decides it is fired and closed in the one call that takes the verdict,
+// so a pending row is a shortening standing unapproved and not an open event.
+func ShorteningsAwaitingADecision(ctx context.Context, pool *pgxpool.Pool) ([]Shortening, error) {
+	rows, err := pool.Query(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, seconds
+		from `+ShorteningTable+` where not approved order by at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("factorysettings: reading the shortenings awaiting a decision: %w", err)
+	}
+	defer rows.Close()
+	var awaiting []Shortening
+	for rows.Next() {
+		var w Shortening
+		var kind, basis string
+		if err := rows.Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At, &w.Seconds); err != nil {
+			return nil, fmt.Errorf("factorysettings: reading the shortenings awaiting a decision: %w", err)
+		}
+		w.Actor.Kind, w.Actor.Basis = record.Kind(kind), record.Basis(basis)
+		awaiting = append(awaiting, w)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("factorysettings: reading the shortenings awaiting a decision: %w", err)
+	}
+	return awaiting, nil
+}

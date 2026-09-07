@@ -26,8 +26,9 @@
 // [Writer.DeleteSnapshot].
 //
 // read.go is every read that takes the pool and not the writer: [Get],
-// [Targets], [CompleteOnEvery], [Current], [BackfillComplete], [ByRelease],
-// [Unfinished], [Rollbacks] and [NewestRollback]. rollout.go is the ordinary
+// [Targets], [CompleteOnEvery], [Current], [CurrentOnTarget],
+// [BackfillComplete], [ByRelease], [Unfinished], [Rollbacks] and
+// [NewestRollback]. rollout.go is the ordinary
 // rollout: [Reach], [Bake] and [Notifier] as interfaces the caller implements,
 // [Performance] and [Perform], [DigestConfiguration], and the errors
 // [ErrSnapshotRefused] and [ErrTargetRefused]. schemastep.go is the step before

@@ -1,0 +1,307 @@
+<h2>The numbers</h2>
+<p class="quiet">
+  Computed at read time over the one span the factory owns and nobody authors, the same
+  span the digest reports over.
+</p>
+
+<h3>Throughput</h3>
+@if (throughput().length === 0) {
+  <p class="quiet">No service has shipped a release in the span.</p>
+} @else {
+  <ul>
+    @for (one of throughput(); track one.name) {
+      <li>{{ one.name }}: {{ one.value }} releases</li>
+    }
+  </ul>
+}
+
+<h3>Rework rate</h3>
+<p>{{ numbers().ReworkRate }} — items with more than one attempt at any stage, over items reaching a release.</p>
+
+<h3>Gate rejection rate</h3>
+@if (rejectionRate().length === 0) {
+  <p class="quiet">No gate row has fired in the span.</p>
+} @else {
+  <ul>
+    @for (one of rejectionRate(); track one.name) {
+      <li>{{ one.name }}: {{ one.value }}</li>
+    }
+  </ul>
+}
+
+<h3>Cost per feature</h3>
+@if (!numbers().CostMeasured) {
+  <p class="marked">
+    The factory does not measure cost: a rate is missing for some kind of unit a feature
+    ran on, so the figure below is units per intent, per model version, and not a
+    converted total.
+  </p>
+}
+@if (costs().length === 0) {
+  <p class="quiet">Nothing was spent on models in the span.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Model version</th>
+        <th scope="col">{{ numbers().CostMeasured ? 'Amount' : 'Units per intent' }}</th>
+        <th scope="col">Currency</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (cost of costs(); track `${cost.ModelVersion}/${cost.IsTotal}`) {
+        <tr>
+          <td>{{ cost.IsTotal ? 'the converted total across models' : cost.ModelVersion }}</td>
+          <td>{{ cost.Amount }}</td>
+          <td>{{ cost.Currency === '' ? 'units' : cost.Currency }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h2>Gates a resolved factor put a human at</h2>
+<p class="quiet">
+  Grouped by which factor the vector names, so a fault in whatever supplies one reads as
+  a single group rising. A group standing at a steady height is not by itself a fault.
+</p>
+@if (resolvedFactors().length === 0) {
+  <p class="quiet">No factor resolved rather than valued in the span.</p>
+} @else {
+  <ul>
+    @for (one of resolvedFactors(); track one.Factor) {
+      <li>{{ one.Factor }}: {{ one.Count }}</li>
+    }
+  </ul>
+}
+
+<h2>The human's load</h2>
+@if (load().length === 0) {
+  <p class="quiet">No row has waited on a human in the span.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Duty</th>
+        <th scope="col">Human</th>
+        <th scope="col">Waiting now</th>
+        <th scope="col">How long a decided row waited</th>
+        <th scope="col">How long it was open in front of them</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of load(); track `${one.Duty}/${one.HumanKey}`) {
+        <tr>
+          <td>{{ one.Duty === 0 ? 'no duty named' : one.Duty }}</td>
+          <td>{{ one.HumanKey === '' ? 'nobody named' : one.HumanKey }}</td>
+          <td>{{ one.WaitingNow }}</td>
+          <td>{{ span(one.MedianWaitSeconds) }}</td>
+          <td>{{ span(one.MedianOpenInFrontSeconds) }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <p class="quiet">
+    The wait and the deciding are one interval: a row opened on Friday night and decided
+    on Monday reads as the weekend, so the number is how long the factory stood waiting on
+    a human and never how long a human spent.
+  </p>
+}
+
+<h3>What was approved and what was later undone</h3>
+@let whole = wholeFactory();
+@if (whole === null) {
+  <p class="quiet">Nothing was approved in the span.</p>
+} @else {
+  <p>
+    The factory as a whole: {{ whole.Approved }} approved, {{ whole.Undone }} later undone
+    or rolled back.
+  </p>
+}
+@if (perHuman().length > 0) {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Human</th>
+        <th scope="col">Approved</th>
+        <th scope="col">Undone</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (pair of perHuman(); track pair.HumanKey) {
+        <tr>
+          <td>{{ pair.HumanKey }}</td>
+          <td>{{ pair.Approved }}</td>
+          <td>{{ pair.Undone }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h3>Self-approvals</h3>
+@if (selfApprovals().length === 0) {
+  <p class="quiet">No approval was of its approver's own edit.</p>
+} @else {
+  <ul>
+    @for (one of selfApprovals(); track one.HumanKey) {
+      <li>{{ one.HumanKey }}: {{ one.Count }} of their own edit</li>
+    }
+  </ul>
+}
+
+<h2>The auto-pass rate against the rate the threshold was authored at</h2>
+<p class="quiet">
+  Both per factor set, the scale a threshold is read on being fitted per set. Read
+  together with the bands below they separate a score that got better from a score whose
+  meaning moved under the threshold.
+</p>
+@if (autoPass().length === 0) {
+  <p class="quiet">No threshold is in force.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Factor set</th>
+        <th scope="col">Threshold</th>
+        <th scope="col">Realized</th>
+        <th scope="col">Recorded on the policy version that set it</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of autoPass(); track `${one.FactorSet}/${one.Threshold}`) {
+        <tr>
+          <td>{{ one.FactorSet }}</td>
+          <td>{{ one.Threshold }}</td>
+          <td>{{ one.Realized }}</td>
+          <td>{{ one.Recorded }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h3>Held-out outcomes by band</h3>
+@if (bands().length === 0) {
+  <p class="quiet">No held-out window has resolved.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Factor set</th>
+        <th scope="col">Band</th>
+        <th scope="col">Share whose windows failed</th>
+        <th scope="col">Resolved held-out windows behind it</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of bands(); track `${one.FactorSet}/${one.Band}`) {
+        <tr>
+          <td>{{ one.FactorSet }}</td>
+          <td>{{ one.Band }}</td>
+          <td>{{ one.FailedShare }}</td>
+          <td>{{ one.ResolvedCount }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h2>Spend ceilings</h2>
+@if (ceilings().length === 0) {
+  <p class="quiet">No credential is lent.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Credential</th>
+        <th scope="col">Ceiling</th>
+        <th scope="col">Burn rate</th>
+        <th scope="col">Projected exhaustion</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of ceilings(); track one.Credential) {
+        <tr>
+          <td>{{ one.Credential }}</td>
+          <td>
+            @if (one.Unbounded) {
+              unbounded
+            } @else {
+              {{ one.Ceiling }} {{ one.Currency }}
+            }
+          </td>
+          <td>{{ one.BurnRate }}</td>
+          <td>
+            @if (one.ProjectedExhaustion === '') {
+              not projected
+            } @else {
+              {{ at(one.ProjectedExhaustion) }}
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h2>The page channel</h2>
+<ul>
+  <li>
+    Pages per service:
+    @for (one of pagesPerService(); track one.name) {
+      <span>{{ one.name }} {{ one.value }}; </span>
+    } @empty {
+      none
+    }
+  </li>
+  <li>
+    Pages per named human:
+    @for (one of pagesPerHuman(); track one.name) {
+      <span>{{ one.name }} {{ one.value }}; </span>
+    } @empty {
+      none
+    }
+  </li>
+  <li>Share unacknowledged when they widened: {{ channel().ShareUnacknowledgedAtWiden }}</li>
+  <li>
+    From acknowledged to answered:
+    {{ span(channel().AcknowledgedToAnsweredSeconds) }}
+  </li>
+  <li>Pages a human fired at Ops on their own judgment: {{ channel().HumanFiredPages }}</li>
+</ul>
+
+<h3>What reached whom</h3>
+<p class="quiet">
+  The wait split at the first delivery a transport accepted and again at the first
+  acknowledgement: before the first delivery the wait is the channel's, between the first
+  delivery and the first acknowledgement it is the shared duty's, and after it one
+  human's. A transport that accepts a message and never delivers it reads here as
+  delivered.
+</p>
+@if (splits().length === 0) {
+  <p class="quiet">No row has been delivered in the span.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Duty</th>
+        <th scope="col">Human</th>
+        <th scope="col">Before the first accepted delivery</th>
+        <th scope="col">Between the delivery and the acknowledgement</th>
+        <th scope="col">After the first acknowledgement</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of splits(); track `${one.Duty}/${one.HumanKey}`) {
+        <tr>
+          <td>{{ one.Duty === 0 ? 'no duty named' : one.Duty }}</td>
+          <td>{{ one.HumanKey === '' ? 'nobody named' : one.HumanKey }}</td>
+          <td>{{ span(one.BeforeFirstDeliverySeconds) }}</td>
+          <td>{{ span(one.BetweenDeliveryAndAcknowledgementSeconds) }}</td>
+          <td>{{ span(one.AfterFirstAcknowledgementSeconds) }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}

@@ -23,12 +23,12 @@
 // through the fleet entry or the People declaration, because the owner may
 // change either later without changing what a past record says.
 //
-// What no run carries yet, each because the record it would be read off is
-// not reached: the processing location and the skill versions, which are the
-// fleet entry's, and the fleet entry is not a record here; and the lender key,
-// the account kind, the rates and the converted amount, which package people
-// holds and dispatch does not read. The effort is carried: dispatch writes it
-// on every run record from the entry the composition supplied.
+// What every run carries is what dispatch reads at the run: the model version,
+// the effort and the processing location off the fleet entry it matched, and
+// the lender's per-person key, the account kind, the rates per kind and the
+// amount they convert to off the People declaration naming the credential. The
+// skill versions are the one field of the four groups still empty: a skill is a
+// record nothing writes.
 //
 // What a run served is one of five, and this table takes an item or an intent:
 // a stage's run names the item and its stage, and an interview round and a

@@ -54,8 +54,8 @@ func TestOneChangeShips(t *testing.T) {
 		t.Errorf("intent rounds = %d, the question, the answer and the acceptance round are three", in.Rounds)
 	}
 	// The intent stays refined until the requester answers: the acceptance
-	// round is asked here and answered at Work, which `factory accept` is this
-	// interface's stand-in for.
+	// round is asked here and answered at Work, through the call that confirms
+	// a reading.
 	if in.State != intent.StateRefined {
 		t.Errorf("intent state = %s, the interview marked it refined and the acceptance round is unanswered", in.State)
 	}

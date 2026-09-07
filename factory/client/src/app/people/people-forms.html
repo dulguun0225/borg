@@ -1,0 +1,235 @@
+<h2>Declare or withdraw a duty</h2>
+<form (submit)="declareDuty($event)">
+  <div class="field">
+    <label for="duty-key">Per-person key</label>
+    <input id="duty-key" type="text" [formField]="dutyForm.HumanKey" />
+    @for (problem of problems(dutyForm.HumanKey().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="duty-number">Duty</label>
+    <select id="duty-number" [formField]="dutyForm.Duty">
+      @for (duty of duties; track duty) {
+        <option [value]="duty">{{ duty }}</option>
+      }
+    </select>
+  </div>
+  <div class="actions">
+    <button type="submit">Declare it</button>
+    <button type="button" (click)="withdrawDuty()">Withdraw it</button>
+  </div>
+</form>
+
+<h2>Declare or withdraw an obligation outside the twelve</h2>
+<form (submit)="declareObligation($event)">
+  <div class="field">
+    <label for="obligation-key">Per-person key</label>
+    <input id="obligation-key" type="text" [formField]="obligationForm.HumanKey" />
+    @for (problem of problems(obligationForm.HumanKey().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="obligation-name">Obligation</label>
+    <select id="obligation-name" [formField]="obligationForm.Obligation">
+      @for (obligation of obligations; track obligation) {
+        <option [value]="obligation">{{ obligation }}</option>
+      }
+    </select>
+  </div>
+  <div class="actions">
+    <button type="submit">Declare it</button>
+    <button type="button" (click)="withdrawObligation()">Withdraw it</button>
+  </div>
+</form>
+
+<h2>Lend or take back a credential</h2>
+<form (submit)="lendCredential($event)">
+  <div class="field">
+    <label for="lend-key">Per-person key</label>
+    <input id="lend-key" type="text" [formField]="lendingForm.HumanKey" />
+    @for (problem of problems(lendingForm.HumanKey().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="lend-credential">Credential</label>
+    <input id="lend-credential" type="text" [formField]="lendingForm.Credential" />
+    @for (problem of problems(lendingForm.Credential().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="lend-kind">The account behind it</label>
+    <select id="lend-kind" [formField]="lendingForm.Kind">
+      @for (kind of accountKinds; track kind) {
+        <option [value]="kind">{{ kind }}</option>
+      }
+    </select>
+  </div>
+  <p class="quiet">
+    Taking a credential back lifts nothing on its own: an owner attaches another.
+  </p>
+  <div class="actions">
+    <button type="submit">Lend it</button>
+    <button type="button" (click)="takeBackCredential()">Take it back</button>
+  </div>
+</form>
+
+<h2>Author a spend ceiling</h2>
+<form (submit)="authorCeiling($event)">
+  <div class="field">
+    <label for="ceiling-credential">Credential</label>
+    @if (credentials().length > 0) {
+      <select id="ceiling-credential" [formField]="ceilingForm.Credential">
+        <option value="">choose a credential</option>
+        @for (credential of credentials(); track credential) {
+          <option [value]="credential">{{ credential }}</option>
+        }
+      </select>
+    } @else {
+      <input id="ceiling-credential" type="text" [formField]="ceilingForm.Credential" />
+    }
+    @for (problem of problems(ceilingForm.Credential().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="ceiling-amount">Amount</label>
+    <input id="ceiling-amount" type="number" step="0.01" [formField]="ceilingForm.Amount" />
+    @for (problem of problems(ceilingForm.Amount().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="ceiling-currency">Currency</label>
+    <input id="ceiling-currency" type="text" [formField]="ceilingForm.Currency" />
+    @for (problem of problems(ceilingForm.Currency().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="ceiling-unit">Period unit</label>
+    <select id="ceiling-unit" [formField]="ceilingForm.PeriodUnit">
+      @for (unit of periodUnits; track unit) {
+        <option [value]="unit">{{ unit }}</option>
+      }
+    </select>
+  </div>
+  <div class="field">
+    <label for="ceiling-length">Period length, in those units</label>
+    <input id="ceiling-length" type="number" [formField]="ceilingForm.Length" />
+    @for (problem of problems(ceilingForm.Length().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="ceiling-start">The date the first period starts</label>
+    <input id="ceiling-start" type="date" [formField]="ceilingForm.StartDate" />
+    @for (problem of problems(ceilingForm.StartDate().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <p class="quiet">
+    The date is sent in {{ zone }}, and a period ends at that zone's midnight.
+  </p>
+  <div class="actions">
+    <button type="submit">Author it</button>
+  </div>
+</form>
+
+<h2>Author a rate</h2>
+<form (submit)="authorRate($event)">
+  <div class="field">
+    <label for="rate-credential">Credential</label>
+    @if (credentials().length > 0) {
+      <select id="rate-credential" [formField]="rateForm.Credential">
+        <option value="">choose a credential</option>
+        @for (credential of credentials(); track credential) {
+          <option [value]="credential">{{ credential }}</option>
+        }
+      </select>
+    } @else {
+      <input id="rate-credential" type="text" [formField]="rateForm.Credential" />
+    }
+    @for (problem of problems(rateForm.Credential().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="rate-kind">Kind of unit the provider counts apart</label>
+    <input id="rate-kind" type="text" [formField]="rateForm.Kind" />
+    @for (problem of problems(rateForm.Kind().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="rate-model">Model version</label>
+    <input id="rate-model" type="text" [formField]="rateForm.ModelVersion" />
+    @for (problem of problems(rateForm.ModelVersion().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="rate-effort">Effort, empty where the provider offers none</label>
+    <input id="rate-effort" type="text" [formField]="rateForm.Effort" />
+  </div>
+  <div class="field">
+    <label for="rate-amount">The price of one unit</label>
+    <input id="rate-amount" type="number" step="0.000001" [formField]="rateForm.Amount" />
+  </div>
+  <div class="field">
+    <label for="rate-currency">Currency</label>
+    <input id="rate-currency" type="text" [formField]="rateForm.Currency" />
+    @for (problem of problems(rateForm.Currency().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <p class="quiet">
+    Factory converts these into cost per feature and reports the number there.
+  </p>
+  <div class="actions">
+    <button type="submit">Author it</button>
+  </div>
+</form>
+
+<h2>Write a mapping from a key to a name</h2>
+<form (submit)="writeMapping($event)">
+  <div class="field">
+    <label for="mapping-key">Per-person key</label>
+    <input id="mapping-key" type="text" [formField]="mappingForm.HumanKey" />
+    @for (problem of problems(mappingForm.HumanKey().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="mapping-name">Name</label>
+    <input id="mapping-name" type="text" [formField]="mappingForm.Name" />
+    @for (problem of problems(mappingForm.Name().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="actions">
+    <button type="submit">Write it</button>
+  </div>
+</form>
+
+<h2>Erase a mapping</h2>
+<form (submit)="deleteMapping($event)">
+  <div class="field">
+    <label for="erasure-key">Per-person key</label>
+    <input id="erasure-key" type="text" [formField]="erasureForm.HumanKey" />
+    @for (problem of problems(erasureForm.HumanKey().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <p class="quiet">
+    This deletes the mapping and nothing else: the key stands on every record it was ever
+    written to. The factory refuses the deletion, and records the refusal, while a legal
+    hold reaches any record that key is written on.
+  </p>
+  <div class="actions">
+    <button type="submit">Erase it</button>
+  </div>
+</form>

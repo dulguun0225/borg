@@ -26,7 +26,7 @@ func TestAFailedCriterionIsRejectedAtTheMergeRowBeforeAVerdict(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	path := p(ctx, t, d)
 	c := authorOne(t, ctx, path, theSecondStatement, out)
 	if err := path.candidateEnvironment(ctx, c); err != nil {
@@ -104,7 +104,7 @@ func TestAnUnreliableCriterionsFailureDoesNotRejectAtTheMergeRow(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	path := p(ctx, t, d)
 	c := authorOne(t, ctx, path, theSecondStatement, out)
 	if err := path.candidateEnvironment(ctx, c); err != nil {
@@ -144,7 +144,7 @@ func TestAFailedCriterionAtMergeSendsTheItemBackAndBuildsAgain(t *testing.T) {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	// The model corrupts only the implementer reply that introduces the second
 	// item's own criterion, and only the first time — the shape a real defect
 	// the criteria catch takes, and the shape a rebuild against the row's own
@@ -228,7 +228,7 @@ func TestAFailedCriterionAtMergeSendsTheItemBackAndBuildsAgain(t *testing.T) {
 		t.Errorf("item %s is not a member of the merge queue after its rebuild was approved", c.itemID)
 	}
 
-	if !strings.Contains(out.String(), "goes back to implementation against what the Merge to master row found wrong") {
+	if !strings.Contains(out.String(), "goes back to implementation against what the "+gate.MergeToMaster.String()+" row found wrong") {
 		t.Errorf("the run does not print the re-entry line:\n%s", out)
 	}
 }

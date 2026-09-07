@@ -1,0 +1,134 @@
+<h1>People</h1>
+
+@switch (state()) {
+  @case ('loading') {
+    <p class="quiet">Reading the declaration.</p>
+  }
+  @case ('failed') {
+    <p class="danger">The declaration could not be read: {{ message() }}</p>
+    <div class="actions">
+      <button type="button" (click)="read()">Read again</button>
+    </div>
+  }
+  @case ('empty') {
+    <p>
+      The declaration holds no row, so nothing routes anywhere and no credential is lent.
+    </p>
+  }
+  @case ('disconnected') {
+    <p class="marked">
+      The subscription to this address has dropped. What it held stays readable and is
+      not being kept true, and every action on it is refused until the subscription is
+      re-established.
+    </p>
+  }
+  @case ('ready') {
+    <p class="quiet">Kept true by the subscription on this address.</p>
+  }
+  @default {
+    <p class="danger">This screen is in a state its machine does not declare.</p>
+  }
+}
+
+<!-- The rows and the forms are here rather than in the branches above. A
+     change on this address re-reads it, which moves the screen through
+     loading, and a dropped subscription moves it to disconnected: a body
+     rendered inside a branch would be destroyed and built again on either
+     move, and the section below holds what a human has half written into a
+     form. It is withheld only while the read failed, which is the one state
+     that says nothing was read. -->
+@if (declaration() !== null && state() !== 'failed') {
+  @for (row of rows(); track row.Key) {
+    <section class="row">
+      <h2>{{ row.Name === '' ? row.Key : row.Name }}</h2>
+      <p class="quiet">
+        Key {{ row.Key }}. Nothing enforces this row: the name is claimed the way every
+        other row's is.
+      </p>
+      @if (!row.ActsAnywhere) {
+        <p>
+          This row acts nowhere: it was added only so a human can read the four screens
+          without gating, approving, or otherwise acting anywhere.
+        </p>
+      }
+
+      <p>
+        Duties:
+        @if ((row.Duties ?? []).length === 0) {
+          none
+        } @else {
+          {{ (row.Duties ?? []).join(', ') }}
+        }
+      </p>
+      <p>
+        Obligations outside the twelve:
+        @if ((row.Obligations ?? []).length === 0) {
+          none
+        } @else {
+          {{ (row.Obligations ?? []).join(', ') }}
+        }
+      </p>
+
+      <h3>Credentials lent</h3>
+      @if ((row.Credentials ?? []).length === 0) {
+        <p class="quiet">This row lent no credential.</p>
+      } @else {
+        @for (credential of row.Credentials ?? []; track credential.Name) {
+          <h4>{{ credential.Name }}</h4>
+          <p>The account is {{ credential.Kind === 'person' ? "a person's own" : "an organisation's" }}.</p>
+          @let ceiling = credential.Ceiling;
+          @if (ceiling === null) {
+            <p>
+              Unbounded: no ceiling is authored, so the provider's quota is the only
+              stop.
+            </p>
+          } @else {
+            <p>
+              Ceiling {{ ceiling.Amount }} {{ ceiling.Currency }} per {{ ceiling.Period }},
+              from {{ onDate(ceiling.StartDate) }} in {{ ceiling.Zone }}. A period ends at
+              that zone's midnight.
+            </p>
+          }
+          @if ((credential.Rates ?? []).length === 0) {
+            <p class="quiet">
+              No rate is authored on this credential, so nothing converts its units.
+            </p>
+          } @else {
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Kind of unit</th>
+                  <th scope="col">Model version</th>
+                  <th scope="col">Effort</th>
+                  <th scope="col">Rate</th>
+                  <th scope="col">Currency</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (rate of credential.Rates ?? []; track `${rate.Kind}/${rate.ModelVersion}/${rate.Effort}`) {
+                  <tr>
+                    <td>{{ rate.Kind }}</td>
+                    <td>{{ rate.ModelVersion }}</td>
+                    <td>{{ rate.Effort === '' ? 'none' : rate.Effort }}</td>
+                    <td>{{ rate.Amount }}</td>
+                    <td>{{ rate.Currency }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        }
+      }
+    </section>
+  }
+
+  @if (refused() !== '') {
+    <p class="marked">{{ refused() }}</p>
+  }
+
+  <factory-people-forms [credentials]="credentials()" (requested)="requested($event)" />
+
+  <div class="actions">
+    <a routerLink="/factory">What the factory converts these rates into</a>
+  </div>
+}

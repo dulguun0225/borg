@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
@@ -26,7 +22,6 @@ import (
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
-	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -73,7 +68,6 @@ func (p *path) implementerActor() record.Actor {
 type path struct {
 	d          deps
 	human      record.Actor
-	lines      *bufio.Scanner
 	production environment.Environment
 	projectID  string
 	areaID     string
@@ -97,7 +91,7 @@ type path struct {
 	dispatch *dispatch.Dispatch
 	// prompts is the role prompt version in force per role, which the first
 	// start entered.
-	prompts    rolePrompts
+	prompts    *rolePrompts
 	builds     *build.Writer
 	deploys    *deploy.Writer
 	checks     *lastcheck.Writer
@@ -131,6 +125,28 @@ type path struct {
 	// serviceByID is every service record this run has read, so the steps that start
 	// from an item read it once.
 	serviceByID map[string]service.Service
+	// servicesOf is which services each intent's decomposition yields items
+	// on, by intent id: what this interface is told and never what it decides.
+	// An intent no caller of this process named — one a screen took in, one a
+	// detector raised — is not in it, and the services are read off the
+	// statement's own prefix instead.
+	servicesOf map[string][]string
+	// sets is the decomposition of each intent this run took in, by intent id,
+	// so the pass that finds the Decomposition row decided at Work can perform
+	// what that verdict causes and record it where the run reports it.
+	sets map[string]*decompositionSet
+	// logRead is the log as this pass read it, held for the length of one pass and
+	// cleared at the start of the next: the rows pending and the decisions that
+	// have closed are both reads of the whole log, and every item of a pass asks
+	// the same two questions of them. It is nil outside a pass, so a caller
+	// driving one item reads the log as it stands.
+	logRead *read
+	// moved is whether this pass performed a step: a gate row fired, a verdict
+	// a human left acted on, a merge, or a deploy. [path.advance] clears it and
+	// returns it, and a pass that ends with it unset is what says every live
+	// item is waiting on a human, held, or done — which is where the run's loop
+	// ends.
+	moved bool
 }
 
 // The seams this value implements. Every one of them is a thing the package
@@ -145,133 +161,6 @@ var (
 	_ contractcheck.StoreState = (*path)(nil)
 	_ gate.Holds               = (*path)(nil)
 )
-
-// run walks the whole path once for each intent it is given, from a statement to
-// a running release, stopping with the first error.
-//
-// Every candidate of one dependency layer reaches each step before any of them
-// reaches the next, which is what makes two of them live at once — and the merge
-// queue, which is the one step that is not per candidate, is where their order is
-// decided. Layers exist because an item may wait on another: a consumer's candidate
-// environment is composed from its producer's current release, so the producer has
-// to have shipped before the consumer can be verified at all. What a layer does is
-// what the hold at the candidate deploy row would otherwise make happen across two
-// runs.
-func run(ctx context.Context, d deps, statements []asked) (shipped, error) {
-	var s shipped
-	if len(statements) == 0 {
-		return s, errors.New("factory: a run needs at least one intent")
-	}
-
-	p, err := compose(ctx, d)
-	if err != nil {
-		return s, err
-	}
-	s.environmentID = p.production.ID
-	s.areaID = p.areaID
-
-	// 1. Every intent taken in, refined, decomposed into its items, ratified at
-	// Decomposition where it yielded more than one, and every item's spec,
-	// implementation, and build authored.
-	for n, one := range statements {
-		set, candidates, err := p.authorIntent(ctx, one, fmt.Sprintf("%d of %d", n+1, len(statements)))
-		if err != nil {
-			return s, err
-		}
-		s.decompositions = append(s.decompositions, set)
-		s.candidates = append(s.candidates, candidates...)
-		for _, c := range candidates {
-			p.byItem[c.itemID] = c
-			p.authored[c.itemID] = true
-		}
-	}
-	for _, name := range d.serviceNames() {
-		svc, found, err := service.ByName(ctx, d.pool, name)
-		if err != nil {
-			return s, err
-		}
-		if found {
-			s.serviceIDs = append(s.serviceIDs, svc.ID)
-		}
-	}
-	if len(s.serviceIDs) > 0 {
-		s.serviceID = s.serviceIDs[0]
-	}
-
-	// 2. The path below decomposition, one dependency layer at a time. A superseded
-	// candidate is left out: the Decomposition row rejected the set it was part of,
-	// so it has no artifact below decomposition and nothing under it fires.
-	var live []*candidate
-	for _, c := range s.candidates {
-		if !c.superseded {
-			live = append(live, c)
-		}
-	}
-	deployed := ""
-	for _, one := range layers(live) {
-		last, adopted, err := p.layer(ctx, one)
-		// The adopted candidates are reported whether or not the layer finished:
-		// an item another run left queued is one this run touched, and a run that
-		// stopped after touching it should still say so.
-		s.candidates = append(s.candidates, adopted...)
-		if err != nil {
-			return s, err
-		}
-		if last != "" {
-			deployed = last
-		}
-	}
-
-	// 3. The acceptance round, per intent every item of which is live: the one
-	// round that follows production, asked by intake and delivered by the
-	// notifier, and the intent delivered where the factory raised it and there
-	// is nobody to ask. It runs after the layers because what makes an intent
-	// ready for it is its last item going live.
-	if err := p.acceptanceRounds(ctx, s.decompositions); err != nil {
-		return s, err
-	}
-
-	// 4. The detector: every deprecation-marked element whose derived consumer
-	// contracts are gone gets a removal intent, so nobody has to remember step three
-	// of a migration. It runs once at the end of a run rather than per layer, because
-	// what empties a list is a release deploying and the layers above are where those
-	// happened.
-	if err := p.raiseRemovals(ctx); err != nil {
-		return s, err
-	}
-
-	// 5. The walk, the demonstration's direction: from the last deploy back to
-	// the intent, every step a field and none reconstructed. A run whose release was
-	// failed walks the rollback's own deploy record, which is the deploy that is
-	// live at the end of it.
-	if deployed == "" {
-		fmt.Fprintln(d.out, "Nothing reached production, so there is no deploy to walk back from")
-		return s, nil
-	}
-	if c := p.byItem[itemOfDeploy(ctx, d.pool, deployed)]; c != nil && c.svc.ID != "" {
-		if live, running, err := deploy.Current(ctx, d.pool, c.svc.ID, p.production.ID,
-			serviceAddresses(p.production, c.svc)); err == nil && running {
-			deployed = live.ID
-		}
-	}
-	return s, walk(ctx, d.pool, d.out, d.token, asPrincipal(p.human), deployed)
-}
-
-// itemOfDeploy is the item a deploy's release was cut from, and empty where the
-// deploy or the release cannot be read. It is used to find which service's current
-// deploy the walk should start from, and a failure to read it leaves the walk
-// starting where it already was.
-func itemOfDeploy(ctx context.Context, pool *pgxpool.Pool, deployID string) string {
-	dep, err := deploy.Get(ctx, pool, deployID)
-	if err != nil || dep.ReleaseID == "" {
-		return ""
-	}
-	rel, err := release.Get(ctx, pool, dep.ReleaseID)
-	if err != nil {
-		return ""
-	}
-	return rel.ItemID
-}
 
 // layers is the run's candidates grouped so that an item comes after every item of
 // this run it waits on. A candidate that waits on nothing this run authored is in
@@ -359,20 +248,47 @@ func inRun(candidates []*candidate, itemID string) bool {
 }
 
 // layer is the whole path below decomposition for one dependency layer: every
-// candidate's own environment, every Merge to master gate, the queue once per service, the
-// production deploys in the number's order, and the watch.
+// candidate's authoring stages from wherever the records say it stands, every
+// candidate's own environment, every Merge to master gate, the queue once per
+// service, the production deploys in the number's order, and the watch.
 //
 // It returns the last production deploy it wrote, which is where the link walk
 // starts, and every candidate it adopted — an item another run left queued, which
 // this run finishes and has to report like any other.
 func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*candidate, error) {
+	// The four authoring stages per item, each with its own gate row: the spec
+	// and the criteria it introduces, the implementation plan, the tasks the
+	// plan divides into, and the implementation with the build and the consumer
+	// contract derived from it. Each is entered where the records say the item
+	// has not passed it, so a pass performs only what is left.
+	for _, c := range candidates {
+		_, err := p.authorFrom(ctx, c)
+		if err == nil {
+			continue
+		}
+		if !heldHere(err) {
+			return "", nil, p.gaveUp(c.itemID, err)
+		}
+		// A condition stopped this item's dispatch, and dispatch wrote the hold
+		// row before it returned. It is reported and the pass goes on to the
+		// next item, for the reason ../../../end-goal/one-process.md gives
+		// every component's own pass — one process is not one failure — and
+		// because the condition is the credential's or the fleet's and not
+		// this item's: twelve items waiting on one ceiling are twelve rows in
+		// Work and a count at Factory, which a pass that ended at the first of
+		// them would never write. Nothing further is performed on the item
+		// this pass, a hold being what says there is no step left to take.
+		fmt.Fprintln(p.d.out, describeHold(c.itemID, "", err))
+		c.held = true
+	}
+
 	// Every candidate's own environment: the gate that decides its deploy creates
 	// one, the build goes on it, and the criteria are decided there. The order is
 	// dispatch's, because what limits how many move at once is the platform's own
 	// room for candidate environments: dispatch orders admission by the tier of
 	// the intent each item was decomposed from, an item's priority breaking a tie
 	// within one, so what waits at the ceiling is what a tier put last.
-	admitted, err := p.admissionOrder(ctx, candidates)
+	admitted, err := p.admissionOrder(ctx, readyFor(candidates, stepCandidateEnvironment))
 	if err != nil {
 		return "", nil, err
 	}
@@ -383,15 +299,17 @@ func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*c
 	}
 
 	// Every candidate's Merge to master gate, fired again against a new build for
-	// as long as it keeps rejecting: what it reads is the candidate's own run — the
-	// criteria, every consumer contract, and the producer's own contract diff —
-	// and the last two reject on their own terms before a verdict is asked for.
-	// [path.mergeUntilQueued] is what builds the candidate again rather than
-	// leaving it at Implementation for good; it ends when the row approves or
-	// when the implementer's own attempt limit escalates. What is not looped here
-	// is the merge queue's own rejection at re-verification, inside runQueue
-	// below — see [path.mergeUntilQueued]'s doc comment for why.
-	for _, c := range candidates {
+	// as long as it keeps rejecting mechanically: what it reads is the candidate's
+	// own run — the criteria, every consumer contract, and the producer's own
+	// contract diff — and the last two reject on their own terms before a verdict
+	// is asked for. [path.mergeUntilQueued] is what builds the candidate again
+	// rather than leaving it at Implementation for good; it ends when the row
+	// approves, when a human decides it, or when the implementer's own attempt
+	// limit escalates.
+	for _, c := range readyFor(candidates, stepMerge) {
+		if c.environmentID == "" {
+			continue
+		}
 		if err := p.mergeUntilQueued(ctx, c); err != nil {
 			return "", nil, err
 		}
@@ -447,7 +365,7 @@ func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*c
 	}
 
 	// The watch: everything downstream of a deploy, read until every window this
-	// layer opened has closed. A window's duration is measured and never set, so what
+	// pass opened has closed. A window's duration is measured and never set, so what
 	// this gives up on is left open for `factory watch` to finish rather than waited
 	// out here. It runs before the next layer, because a layer below is composed from
 	// what this one is running and a consumer contract in force is read over a range
@@ -460,9 +378,23 @@ func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*c
 		if !found {
 			continue
 		}
-		if err := p.watchTo(ctx, svc, time.Now().Add(p.d.watchFor), p.d.watchEvery); err != nil {
+		if err := p.watchWindowsTo(ctx, svc, time.Now().Add(p.d.watchFor), p.d.watchEvery); err != nil {
 			return deployed, adoptedAll, err
 		}
 	}
 	return deployed, adoptedAll, nil
+}
+
+// readyFor is the candidates this pass may perform one step on: those the
+// records place at that step or above it, and no candidate waiting on a human,
+// held, or done.
+func readyFor(candidates []*candidate, at step) []*candidate {
+	var ready []*candidate
+	for _, c := range candidates {
+		if c.waiting != (gate.Row{}) || c.held || c.from > at {
+			continue
+		}
+		ready = append(ready, c)
+	}
+	return ready
 }

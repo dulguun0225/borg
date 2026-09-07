@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -35,15 +36,29 @@ func TestARunThatStoppedLeavesAnItemTheNextQueueFinishes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the item the run left: %v", err)
 	}
-	if it.Stage != item.StageQueued {
-		t.Fatalf("the first item is at %s, and the run stopped after its Merge to master gate approved", it.Stage)
+	// What the stopped run left is the verdict and not the transition it causes:
+	// the pass fires the row and leaves it pending in Work, the human closes it,
+	// and the pass after that is what admits the candidate to the queue — and
+	// that pass is the one the input never reached. So the item stands at
+	// implementation with its Merge to master row closed as an approval, which is
+	// what the next run's own pass picks up.
+	if it.Stage != item.StageImplementation {
+		t.Fatalf("the first item is at %s, and the run stopped after the human approved its Merge to master row", it.Stage)
+	}
+	rows, _, err := p(ctx, t, d).closedRows(ctx, left.itemID)
+	if err != nil {
+		t.Fatalf("reading the rows that closed: %v", err)
+	}
+	if rows[gate.KindMergeToMaster].verdict != gate.VerdictApprove {
+		t.Fatalf("the Merge to master row of the item the run left reads %q, want the approval it stopped after",
+			rows[gate.KindMergeToMaster].verdict)
 	}
 
 	// A later run on the same service: its queue holds the item left behind and its
 	// own, and it finishes both. It is asked for verdicts because the stopped run
 	// minted no release, so the service still has nothing to return to and its number
 	// still reads over the threshold.
-	d.in = strings.NewReader(approvals)
+	d.decide = scriptedAtWork(approvals).decide
 	next, err := run(ctx, d, of(theFourthStatement))
 	if err != nil {
 		t.Fatalf("the next run stopped on an item the earlier one left queued: %v\noutput so far:\n%s", err, out)
