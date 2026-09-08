@@ -67,7 +67,7 @@ A new agent, `.claude/agents/drift-reviewer.md`, on Opus. It is dispatched cold 
 |---|---|---|
 | Not implemented | A cited claim the code does not do | The edit is not finished |
 | Implemented differently | A cited claim the code does in a way the sentence does not describe, with file and line | The session decides: the code moves, or the claim is re-pinned to a corrected sentence. The design wins a conflict. |
-| Claimed nowhere | A mechanism, field, state, or rule the code or `doc.go` states that no cited claim covers | The edit is not finished |
+| Claimed nowhere | A mechanism, field, state, or rule the code or `doc.go` states that no cited claim covers | The session decides: a claim is added, the code is removed, or the mechanism is recorded in the commit as the design's own vocabulary. |
 
 It runs from two sides:
 
@@ -77,6 +77,8 @@ It runs from two sides:
 No headless run and no model call in CI.
 
 Cost: a reworded sentence cited by five packages costs five Opus reads even when the meaning is unchanged. The bound is that a claim is one sentence, so a reword touches few claims.
+
+Claimed nowhere was a blocking list in the first version of this rule; the first live run showed it names mechanisms the design states in sentences the extraction did not take, so it became a session decision.
 
 ## 4. Bootstrap
 
@@ -95,7 +97,7 @@ About seventy Opus dispatches once, no batch above six.
 | File | Change |
 |---|---|
 | Root `CLAUDE.md` | "The map ships with the code" says a `doc.go` cites claim ids and lists what tracecheck fails on. "Code coins no second name" gains its check. The Code section gains the `drift-reviewer` rule on a `doc.go` or screen `README.md` edit. The two-files table adds `claims.txt` beside `terms.txt` as an inventory, not a third decision file. Delegate-by-default lists `drift-reviewer` among the Opus workers. |
-| `end-goal/CLAUDE.md` | `claims.txt` described beside `terms.txt`: fields, statuses, the two fence commands, and the drift step in the judgment section with the three lists and which mean the edit is not finished. |
+| `end-goal/CLAUDE.md` | `claims.txt` described beside `terms.txt`: fields, statuses, the two fence commands, and the drift step in the judgment section with the three lists and which one means the edit is not finished. |
 | `factory/README.md` | Tracecheck's entry lists what it checks. |
 | `roadmap.md` | One sentence in the intro: the claims a milestone builds are the `unbuilt Mn` lines naming it. |
 | `.claude/agents/` | New `drift-reviewer.md`. `coder.md` gains the drift run before returning. |

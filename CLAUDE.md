@@ -235,8 +235,8 @@ counterparts:
 An edit to a `doc.go` outside `cmd/`, or to a screen `README.md`, is followed, before its
 commit, by one dispatch of `drift-reviewer` from `.claude/agents/` on that directory, given
 the directory and the current sentence of every claim it cites and nothing else. Its **Not
-implemented** and **Claimed nowhere** lists must be empty before the commit; its
-**Implemented differently** list is decided in the session, and the design wins. `coder`
+implemented** list must be empty before the commit; its **Implemented differently** and
+**Claimed nowhere** lists are decided in the session, and the design wins. `coder`
 reports the directories it changed so the session can run this.
 
 Duplicate a line rather than share a helper across packages: locality is paid for in

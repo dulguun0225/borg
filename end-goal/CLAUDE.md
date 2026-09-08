@@ -598,24 +598,28 @@ ordinal attached at merge, contracts versioned alongside it.
 
 ### The drift check
 
-The claims reading above lists every claim whose line this edit changed and the package or
-screen directories citing it. The session drops from that list a claim whose sentence is
+The claims reading above lists every claim whose line this edit changed, and beside each
+claim the package or screen directories citing it. The session drops from that list a claim whose sentence is
 unchanged (a path or status edit) before dispatching. For each directory remaining,
 dispatch one `drift-reviewer` from `.claude/agents/` with no other context: the directory's
 path and the current `claims.txt` line of every claim that directory cites, as `id`, a tab,
 and the sentence. It reads the directory alone and returns three lists.
 
-**Not implemented** and **Claimed nowhere** are failures: the edit is not finished while
-either is non-empty. The remedy for the first is a change to the code in the same commit,
-or the claim's status moved to `unbuilt Mn` and its citation struck from the directory in
-the same edit. A doc.go or screen README that then cites no claim fails the build, and that
-is the finding it should be — a package implementing no design claim is code the design
-does not have, and the document comes first. Claimed nowhere excludes what the code rules
+**Not implemented** is a failure: the edit is not finished while it is non-empty. The
+remedy is a change to the code in the same commit, or the claim's status moved to
+`unbuilt Mn` and its citation struck from the directory in the same edit. A doc.go or
+screen README that then cites no claim fails the build, and that failure is the right
+finding: a package implementing no design claim is code the design does not have, and the
+document comes first. **Implemented differently** and **Claimed nowhere** are judgments
+for the session, not failures, because a doc.go summarises many design files and the
+inventory holds only the sentences the extraction took, so a mechanism the design does
+state can still appear in Claimed nowhere. Claimed nowhere excludes what the code rules
 already require a doc.go to state, which is the doc.go's own duty and not a claim. The
-remedy for the second is a claim added to `claims.txt` and the sentence that states it
-added to the owning file, or the code removed. **Implemented differently** is a judgment
-for the session: the code moves to the sentence, or the sentence is corrected and the claim
-re-pinned to it. The document wins the conflict, per the root `CLAUDE.md`.
+session answers it in one of three ways: a claim is added to `claims.txt` and its sentence
+to the owning file; the code is removed; or the mechanism is recorded in the commit as the
+design's own vocabulary. Implemented differently is answered as before: the
+code moves to the sentence, or the sentence is corrected and the claim re-pinned to it.
+The document wins the conflict, per the root `CLAUDE.md`.
 
 What the check costs is one Opus read per citing directory per edit, each read over every
 claim that directory cites, bounded by the directory's citation list.
