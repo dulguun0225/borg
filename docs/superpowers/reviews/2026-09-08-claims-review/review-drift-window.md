@@ -1,0 +1,5 @@
+# drift-reviewer live test on factory/window (Task 10 step 7)
+Not implemented: C1990 (no close at the open for a measures-nothing window).
+Implemented differently: C1975 (QuantitiesOutside stored, no effect), C1982 (At is insert time, not the deploy's), C1986 (power and run length passed to nothing), C1999 (ClosedAtTheVersionInForce admits every exit), C2022 (pooled operations not recorded).
+Claimed nowhere: build_id required on every window; HeldOut; FinestSizeReached and the coarser-size rule; window limit vs open windows per service; AllOpen order as rollback/health-monitor order; restart values on a boundary-version change; WriteMark in the caller's transaction; lease.Token fencing; numeric bounds in opening.go; skipped exit refused a read; mark carries service_id.
+Ruling: recorded for the owner, not fixed here — the live test proves the agent returns the three lists in the agreed shape; acting on them is the design-or-code decision the spec leaves to the session that edits, and this session's scope was the mechanism. Costs if wrong: known drift in window sits until the owner acts.

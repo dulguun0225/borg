@@ -1,0 +1,56 @@
+C0112	localtarget	contradicts: every operation takes the principal (local.go:143-146) but this target records it nowhere and reads nothing in it (doc.go:95-96), so nothing is recorded beside what was asked for
+C0260	intent	contradicts: intake calls one component and it is the notifier (doc.go:95), and no write here sets a retention floor on any settings record
+C0278	intent	contradicts: the notifier makes three calls and no fourth (notifier.go:9), and SetDeadline tells nobody
+C0530	intent	contradicts: the tier has no small fixed scale here — intent.go:102 states the design does not fix how many values it has and nothing bounds it above
+C0602	intent	contradicts: the state is read back on every write as a precondition (interview.go:89, state.go:76, acceptance.go:46)
+C0653	item	contradicts: Advance counts an entry at every authoring stage (dispatch.go:86), so the stages below a rework target count an attempt when they re-author
+C0671	item	contradicts: Supersede writes the superseded stage itself (decomposition.go:252) rather than reporting the transition to dispatch
+C0686	score	contradicts - nothing forces a control or the widening schedule in an irreversible area; a release there below the control bound is picked without a control (strategy.go:158)
+C0717	service	contradicts — Writer.Create opens and commits a transaction of its own (writer.go:170), so no item write can share that write
+C0756	gate	contradicts DecompositionChecks (set.go:46-55) is declared every check that rejects at that row and holds no cycle rejection
+C0759	item	contradicts: the caller reads the hold's edges and passes them in, and the refusal names the edge rather than the hold (graph.go:77)
+C0770	item	contradicts: Create writes an item with requirements_answered empty and refuses nothing for it (decomposition.go:120)
+C0777	intent	contradicts: decomposition also writes the intent through SetProject (intake.go:216) and ClearReDecomposing (state.go:93), so the re-decomposition count is not its one write
+C0790	gate	contradicts set.go:346-361 reads only the first member's area, so a safeguard on another member's area adds no human at this row
+C0793	item	contradicts: Supersede opens its own transaction and has no Tx variant, so the pointer cannot be written in the same write that creates the replacements (decomposition.go:230)
+C0871	decisionlog	contradicts — ErrNotAnOpening refuses a close beside the five, and only three of the five are checked here
+C0892	gate	contradicts payload.go:184-200 says a row that found a mismatch pages nobody
+C0951	screen-work	contradicts decision.html:161-165 offers reject on every row, with no bound at the merge to master
+C0954	gate	contradicts row.go:183-190 makes Implementation an artifact gate, so fire.go:319-336 permits Edit in place over a build
+C1010	item	contradicts: ReturnTo accepts a merged item, merged being in StageOrder with every authoring stage above it (dispatch.go:157)
+C1024	item	contradicts: Advance counts an entry at every authoring stage below the target when the item walks down again (dispatch.go:86)
+C1119	gate	contradicts ImplementationChecks (implementation.go:36-38) is declared exhaustive and holds no encoding-against-criterion check in either direction
+C1120	gate	contradicts ImplementationChecks (implementation.go:36-38) is declared exhaustive and holds no emission check
+C1121	gate	contradicts ImplementationChecks (implementation.go:36-38) is declared exhaustive and holds no hazardous-operation emission check
+C1255	score	contradicts - hazardReading also resolves at the deploy-to-production row where a target serves no share (factorread.go:179)
+C1266	score	contradicts - the role-prompt set drops context.protection_withdrawn, so its context group is not the one the other two sets weigh (factorsets.go:60)
+C1275	score	contradicts - five of the ten supplied rows move on nothing here: the confidence, the exposure bound, the advisory severity, the held-out rate and the review rate (rules.go:98)
+C1280	score	contradicts - the band width is a package constant and not a field of the version (bands.go:12)
+C1356	score	contradicts - the threshold step is thresholdBand 0.05 (rules.go:174) while a band of the number is bandWidth 0.10 (bands.go:12)
+C1357	score	contradicts - the rise and the fall share thresholdBand 0.05, which is not the band width, and no band width is a field of the version (bands.go:12)
+C1446	exposure	contradicts: reach.go:216 compares versions alone and Package (derive.go:25) carries no digest, so a digest moved under an unchanged version reads as no dependency change
+C1461	exposure	contradicts: Checkout (derive.go:41) carries the two resolved sets with no coverage beside them, so this reader of the set cannot read the coverage with it
+C1461	mergequeue	contradicts - resolvedSetDiffers compares the two resolved sets without reading their coverage, so a set that could not derive compares as clean
+C1464	exposure	contradicts: a could-not-derive set arrives as an empty Resolved and reach.go:214 then yields no dependency changes, nothing setting Unavailable for it
+C1512	lastcheck	contradicts Stale at factory/lastcheck/lastcheck.go:248 returns every stale record including the deployer's platform rows, which the third comparison is to leave alone
+C1640	release	contradicts — what stops two mints taking one number here is this package's per-service advisory lock (writer.go:155) and the unique constraint, not the queue's per-service ordering; master's inbound path is not this directory's
+C1675	targetseam	contradicts Target as the whole of what the deployer may do to a target: retention deletion and an owner-called deletion of a snapshot have no operation, and Ops is locked to seven
+C1679	localtarget	contradicts: the store is a directory per service inside each target's own directory (store.go:28), so an environment with plural targets (doc.go:19-24) holds one store per target rather than one per service per environment
+C1920	healthmonitor	contradicts: every control is started at the window's open over the whole target set (factory/healthmonitor/open.go:205-219) rather than on each target as the rollout reaches it, and doc.go:98-101 records that the deploy record names no control per target
+C1950	localtarget	contradicts: doc.go:81-83 states one line per unit of work in the signal file, the finish time and the outcome, with no arrival record beside the completion
+C1987	score	contradicts - the per-author prior reads window.ForRelease rather than the exits at the boundary version in force (prior.go:162)
+C1988	score	contradicts - the prior's counts survive a boundary-version change, reading window.ForRelease and not the exits at the version in force (prior.go:162)
+C1990	healthmonitor	contradicts: the measures-nothing window is returned open (factory/healthmonitor/open.go:73-78) and closed timed out only on a later Watch pass (watch.go:115), not at the open
+C2050	window	contradicts — neither query reads the deploy record; read.go:134-136 and read.go:158-159 hand that descent to the caller instead
+C2071	healthmonitor	contradicts: a search deploy names OntoReleaseID as its one delivered release (factory/healthmonitor/healthmonitor.go:186-192), read back off that field at search.go:321-324, so its record does name a release
+C2231	safeguard	contradicts: a numeric bound of zero is refused as a missing bound (factory/safeguard/safeguard.go:354), so a rate cannot be narrowed to zero
+C2231	gatepolicy	contradicts: the report channel rate is KindCount, defined at parameter.go:205 as a whole number above zero, so the zero that closes one service's way in is outside its kind
+C2235	score	contradicts - InForceAt reads the policy version rows off the decision log to decide which score version fires a gate (inforce.go:67)
+C2243	factorysettings	contradicts — doc.go:44-45 has every authoring call run inside the one transaction that appends the policy version, so the field and the version commit together rather than the version first and the field second
+C2342	gate	contradicts checks.go:277-296 identifies the exception by whether the health monitor raised the intent, which is the source
+C2463	dispatch	contradicts: dispatch itself opens the credential row - Dispatch.couldNotReach (credential.go:242) called from the run loop (run.go:391) - so it does see an account exhausted part-way through a stage
+C2475	dispatch	contradicts in part: nothing here distinguishes an exhausted account from one taken back - one row kind covers both (credential.go:31) - so no code makes this hold unliftable
+C2675	screen-factory	contradicts — the numbers render the raw HumanKey (factory-numbers.html:96, 133, 147) and resolve no name through the mapping
+C2689	screen-work	contradicts work.ts holds no clock comparison and the row changes only when the subscription reports a change, so a record nothing overwrites never crosses its interval on an open screen
+C2706	screen-factory	contradicts — send() re-reads the whole address and then calls anyway (factory.ts:215-229); no open event is re-read and no close or abandonment stops the call
+C2707	screen-factory	contradicts — a second close is not met at the screen; the verdict is sent and the refusal left to the factory (factory.ts:229-237)
