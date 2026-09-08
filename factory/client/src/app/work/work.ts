@@ -3,7 +3,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ApiClient } from '../api/client';
 import { StreamReader } from '../api/stream';
-import { Home, Work } from '../api/types';
+import { Home, IntentAwaitingAdmission, ReportSummary, Work } from '../api/types';
 import { ScreenMachine, ScreenState, screenState } from '../state/screen-state';
 import { atInstant, spanOf } from './format';
 
@@ -58,6 +58,8 @@ export class WorkScreen implements OnDestroy {
   private readonly failure = signal('');
   private readonly home = signal<Home | null>(null);
   private readonly waiting = signal<Work | null>(null);
+  private readonly working = signal(false);
+  private readonly refusal = signal('');
 
   protected readonly machine = workMachine;
   protected readonly message = this.failure.asReadonly();
@@ -65,6 +67,19 @@ export class WorkScreen implements OnDestroy {
   protected readonly digest = computed(() => this.home()?.Digest ?? null);
   protected readonly readiness = computed(() => this.home()?.Readiness ?? []);
   protected readonly rows = computed(() => this.waiting()?.Rows ?? []);
+  protected readonly busy = this.working.asReadonly();
+  protected readonly refused = this.refusal.asReadonly();
+
+  // What a safeguard on the report store is holding. Both lists are empty
+  // where an owner placed neither safeguard, which is an install where nothing
+  // waits, and neither has an item to route to: an unadmitted report is
+  // grouped into nothing and an unadmitted intent is decomposed into nothing.
+  protected readonly awaitingReports = computed<ReportSummary[]>(
+    () => this.home()?.Awaiting.Reports ?? [],
+  );
+  protected readonly awaitingIntents = computed<IntentAwaitingAdmission[]>(
+    () => this.home()?.Awaiting.Intents ?? [],
+  );
 
   // Only the rows whose component owes a further pass. A pass that merely ran
   // late is a named row here and reaches neither the badge nor the filter.
@@ -77,7 +92,11 @@ export class WorkScreen implements OnDestroy {
       this.reading(),
       this.failure() !== '',
       this.stream.state() === 'disconnected',
-      this.rows().length === 0 && this.lastChecks().length === 0 && this.readiness().length === 0,
+      this.rows().length === 0 &&
+        this.lastChecks().length === 0 &&
+        this.readiness().length === 0 &&
+        this.awaitingReports().length === 0 &&
+        this.awaitingIntents().length === 0,
     ),
   );
 
@@ -130,5 +149,47 @@ export class WorkScreen implements OnDestroy {
     this.failure.set('');
     this.home.set(home.value);
     this.waiting.set(waiting.value);
+  }
+
+  // The two admissions, each one action and each re-read after it: one report
+  // at a time, and one action on the intent, the group already being one
+  // intent. They are on this screen and not only on an item's, because what
+  // they hold has no item to be a row of.
+  protected admitReport(reportID: string): void {
+    void this.act('admitReport', { ReportID: reportID });
+  }
+
+  protected admitIntent(intentID: string): void {
+    void this.act('admitIntent', { IntentID: intentID });
+  }
+
+  // Every action refuses while the subscription is down, because a screen
+  // holding what it can no longer be told about is not a screen an action may
+  // be taken from. A second invocation while one is in flight is ignored: the
+  // template disables the control it came from while busy() is true.
+  private async act(name: string, args: object): Promise<void> {
+    if (this.working()) {
+      return;
+    }
+    this.working.set(true);
+    try {
+      this.refusal.set('');
+      if (this.stream.state() === 'disconnected') {
+        this.refusal.set('the subscription is down, so nothing was sent');
+        return;
+      }
+      const result = await this.api.call(name, args);
+      if (result.outcome === 'absent') {
+        this.refusal.set('the factory holds no record at that address, so nothing changed');
+        return;
+      }
+      if (result.outcome === 'failed') {
+        this.refusal.set(result.message);
+        return;
+      }
+      await this.read();
+    } finally {
+      this.working.set(false);
+    }
   }
 }

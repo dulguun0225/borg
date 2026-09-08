@@ -17,10 +17,12 @@ type Manifest struct {
 
 	// ItemID and Stage are what the dispatch was for where it was for an item;
 	// IntentID where it was for an intent — an interview round or a
-	// decomposition. One of the two is always set.
-	ItemID   string
-	Stage    string
-	IntentID string
+	// decomposition; ProjectID where it was for a project, which is the
+	// grouper, the one role put on neither. Exactly one of the three is set.
+	ItemID    string
+	Stage     string
+	IntentID  string
+	ProjectID string
 
 	// Materials is everything named to the agent: the intent, each report,
 	// each constraint, each artifact version, the commit and the paths of the

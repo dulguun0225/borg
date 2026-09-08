@@ -43,6 +43,18 @@ var (
 	// version it was in force under are written together.
 	ErrTierIncomplete = errors.New("intent: a tier is a value and the policy version it is in force under")
 
+	// ErrRecurrenceNotFromReports is returned by [Intake.TakeIn] for an
+	// arrival that recurs on another intent and is not grouped from reports.
+	// A recurrence is what a report matching finished work raises, and no
+	// other source arrives in a quantity that recurs.
+	ErrRecurrenceNotFromReports = errors.New("intent: only an intent grouped from reports recurs on another")
+
+	// ErrAdmissionNotFromReports is returned by [Intake.Admit] for an intent
+	// no report raised. Only a report-derived intent waits for a human's
+	// admission, so an admission written on any other source would record a
+	// human act nothing ever asked for.
+	ErrAdmissionNotFromReports = errors.New("intent: only an intent grouped from reports is admitted")
+
 	// ErrProjectIDEmpty is returned by [Intake.SetProject] for a fill naming
 	// no project.
 	ErrProjectIDEmpty = errors.New("intent: the project id is empty")

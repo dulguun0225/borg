@@ -28,6 +28,8 @@ type Calls interface {
 	ConfirmReading(ctx context.Context, p principal.Principal, args ConfirmReadingArgs) error
 	AcceptDelivery(ctx context.Context, p principal.Principal, args AcceptDeliveryArgs) error
 	EndIntent(ctx context.Context, p principal.Principal, args EndIntentArgs) error
+	AdmitIntent(ctx context.Context, p principal.Principal, args AdmitIntentArgs) error
+	AdmitReport(ctx context.Context, p principal.Principal, args AdmitReportArgs) error
 	SetPriority(ctx context.Context, p principal.Principal, args SetPriorityArgs) error
 	EndItem(ctx context.Context, p principal.Principal, args EndItemArgs) error
 	Decide(ctx context.Context, p principal.Principal, args DecideArgs) error

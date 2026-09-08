@@ -189,6 +189,15 @@ type Intent struct {
 	// computed once at the intent's close, and empty on an intent the factory
 	// raised.
 	Outcome string
+	// RecurrenceOf is the intent this one recurs on, and empty where it recurs
+	// on none. A report matching work already finished is a new intent linked
+	// to the first as a recurrence and never a reopening of it, so the link is
+	// written at the arrival and never afterwards.
+	RecurrenceOf string
+	// AdmittedAt is when a human admitted this intent at Work, and empty where
+	// none has. Only an intent grouped from reports carries one, and only the
+	// safeguard on the report store makes one wait for it.
+	AdmittedAt string
 }
 
 // Question is one question of an intent's interview as it is stored. Answer

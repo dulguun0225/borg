@@ -280,16 +280,19 @@ func TestTheTwelveOnTheServiceRecord(t *testing.T) {
 	}
 }
 
-// TestTheTwoParametersOnlyASafeguardSetsSayWhatReadsThem:
+// TestTheParametersOnlyASafeguardSetsSayWhatReadsThem:
 // [Definition.ReaderAtThisMilestone] is what an owner reads to see whether a
 // bound they place changes anything, so a parameter nothing reads yet names
 // nothing rather than the mechanism that would read it. A safeguard's predicate
 // reaches enforcement; a maximum age on the drift detector's last check reaches
-// nothing, no hold at the production deploy row carrying one.
-func TestTheTwoParametersOnlyASafeguardSetsSayWhatReadsThem(t *testing.T) {
+// nothing, no hold at the production deploy row carrying one; and each of the
+// two admissions on the report store reaches the one mechanism it stops.
+func TestTheParametersOnlyASafeguardSetsSayWhatReadsThem(t *testing.T) {
 	readers := map[Parameter]string{
 		SafeguardPredicate:           "enforcement, beside the consumer contracts derived from a consumer's build",
 		DriftDetectorLastCheckMaxAge: "",
+		ReportAdmission:              "the grouper, which reads only admitted reports while one stands",
+		ReportDerivedIntentAdmission: "dispatch, which puts no agent on such an intent while one stands",
 	}
 	if len(SafeguardOnly) != len(readers) {
 		t.Fatalf("SafeguardOnly holds %d parameters, the test names %d", len(SafeguardOnly), len(readers))

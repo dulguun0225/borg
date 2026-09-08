@@ -49,6 +49,18 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeCallError(w, s.calls.EndIntent(ctx, p, args))
+	case "admitIntent":
+		var args AdmitIntentArgs
+		if !decodeBody(w, r, &args) {
+			return
+		}
+		writeCallError(w, s.calls.AdmitIntent(ctx, p, args))
+	case "admitReport":
+		var args AdmitReportArgs
+		if !decodeBody(w, r, &args) {
+			return
+		}
+		writeCallError(w, s.calls.AdmitReport(ctx, p, args))
 	case "setPriority":
 		var args SetPriorityArgs
 		if !decodeBody(w, r, &args) {

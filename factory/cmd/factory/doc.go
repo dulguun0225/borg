@@ -20,23 +20,22 @@
 // imports no record package, what crosses that seam being the screen's own view
 // of a record and never the record, so both mappings are here.
 //
-// One call is new and one field is. The call is a page a human fires on their own
-// judgment, [calls.FirePage], which package notifier already defines. The field
-// is [gate.Given.OpenedInWorkAt] — when the actor opened the row in Work, which
-// decisionlog has carried on every close event since the log's shapes were
-// written and which nothing else has ever filled.
+// One call is new and one field is. The call is a page a human fires on their
+// own judgment, [calls.FirePage], which package notifier already defines. The
+// field is [gate.Given.OpenedInWorkAt] — when the actor opened the row in Work,
+// which decisionlog has carried on every close event since the log's shapes
+// were written and which nothing else has ever filled.
 //
-// Two refusals are every call's, before any screen-specific check. [calls.acting]
-// refuses the read-only row — a People row holding no duty, no obligation and
-// lending no credential — and says why the owner's own key is the one it exempts.
-// [calls.openRow] re-reads the open event at the submit and refuses a row a close
-// event or an abandonment has reached since it was drawn, which is the refusal
-// the log holds for a second close, met at the screen.
-//
-// After every successful write the call tells every subscriber on the addresses
-// it touched, through [screens.Server.Changed]; a pass announces the home view
-// and the lists it could have moved on a tick that moved something, which is what
-// makes push not poll hold inside the product.
+// Two refusals are every call's, before any screen-specific check.
+// [calls.acting] refuses the read-only row — a People row holding no duty, no
+// obligation and lending no credential — and says why the owner's own key is
+// exempt. [calls.openRow] re-reads the open event at the submit and refuses a
+// row a close event or an abandonment has reached since it was drawn, which is
+// the log's refusal of a second close, met at the screen. After a successful
+// write the call tells every subscriber on the addresses it touched, through
+// [screens.Server.Changed]; a pass announces the home view and the lists it
+// could have moved on a tick that moved something, which is what makes push
+// not poll hold inside the product.
 //
 // # The subcommands
 //
@@ -50,41 +49,38 @@
 // instead.
 //
 // "run" walks the whole path once — the install, every component's restart, the
-// intent stage, the four authoring stages per item with the gate row of each, the
-// build and the contracts derived from it, the merge, the release, the production
-// deploy, the watch, the acceptance rounds, and the deprecation detector —
-// stopping with the first error.
+// intent stage, the four authoring stages per item with the gate row of each,
+// the build and the contracts derived from it, the merge, the release, the
+// production deploy, the watch, the acceptance rounds, and the deprecation
+// detector — stopping with the first error.
 //
-// It asks for no verdict. Where a firing puts a human at the row the pass writes
-// nothing, the row stays pending in Work, and the run reports the item waiting
-// there — so an install with no screen open is not stuck but shown as
-// stuck, which is what ../../../roadmap.md#m8--the-screens-and-the-fleet
-// requires of this subcommand. What continues such an item is the next pass: a
-// run is [path.takeIn] and then [path.advance] repeated until nothing moves, and
-// each pass reads every live item back out of the records rather than out of
-// memory. resume.go's own comment sets out that reading, what has no record
-// behind it, and what it costs; rehydrate.go is the read.
+// It asks nothing: standard input is read by nothing here, a round of the
+// interview is answered by "-answer" or waits in Work, and where a firing puts
+// a human at a row the pass writes nothing and reports the item waiting there,
+// so an install with no screen open is not stuck but shown as stuck — what
+// ../../../roadmap.md#m8--the-screens-and-the-fleet requires of this
+// subcommand. What continues such an item is the next pass: a run is
+// [path.takeIn] then [path.advance] repeated until nothing moves, each pass
+// reading every live item back out of the records. resume.go's own comment sets
+// out that reading, what has no record behind it, and what it costs;
+// rehydrate.go is the read.
 //
-// It asks nothing at all, in fact: standard input is read by nothing here, and a
-// round of the interview is answered by "-answer" where the run names one and
-// waits in Work where it does not.
-//
-// It knows more than one service. "-service name=path" is given once per service,
-// and an intent that changes several names them before its statement —
-// "svcA,svcB: what is wanted", which is also what the statement carries on the
-// record, the intent record holding no service. Where an item waits on another,
-// the run takes the layers in order, a consumer's environment being composed from
-// its producer's current release.
+// It knows more than one service. "-service name=path" is given once per
+// service, and an intent that changes several names them before its statement —
+// "svcA,svcB: what is wanted", which the statement carries on the record too,
+// the intent record holding no service. Where an item waits on another, the run
+// takes the layers in order, a consumer's environment being composed from its
+// producer's current release.
 //
 // Every subcommand but "run" and "serve" reads the services out of the store
-// rather than taking a name and a repository: both are the service record's own
-// fields, a flag naming a repository could disagree with the record, and a flag
-// naming one service would leave a two-service install's other one unknown.
+// rather than taking a name and a repository: both are the service record's
+// own fields, a flag naming a repository could disagree with the record, and
+// one naming a service would leave a two-service install's other unknown.
 //
 // -project, on "run", "serve" and "policy", names the project a subcommand works
-// in and defaults to "default"; the first two create it where it does not exist,
-// in the same event as production's environment for it, and "policy" refuses
-// where it does not. Every project after that one is written at Factory, through
+// in and defaults to "default"; the first two create it and production's
+// environment for it in one event where it does not exist, and "policy" refuses
+// where it does not. Every project after that is written at Factory, through
 // [calls.CreateProject].
 //
 // # The files
@@ -105,35 +101,42 @@
 //     is the entrance's [wayin.Store], the five values implementing the
 //     interfaces that store reaches the graph through, two of them empty until
 //     the erasure step, and the address a deployed service's way in posts to.
+//   - grouping.go — the grouper as "serve" composes it: groupsThroughTheFleet,
+//     servicesInAProject and admissionSafeguards, the three seams package
+//     grouper reaches the factory through, with newGrouper and groupReports.
+//   - admission.go — the two safeguards on the report store: awaiting, with
+//     reportsAwaitingAdmission, intentsAwaitingAdmission and
+//     intentAwaitsAdmission, what each is holding as Work shows it; and
+//     calls.AdmitIntent and calls.AdmitReport, the writes that end each wait.
 //   - views.go, viewwork.go, viewops.go, viewfactory.go, viewfleet.go,
-//     viewnumbers.go, viewpeople.go — [views], one file per screen, with
-//     Factory's fleet and its spend ceilings split off at the 500-line bound.
+//     viewnumbers.go, viewpeople.go — [views], one file per screen, Factory's
+//     fleet and its spend ceilings split off at the 500-line bound.
 //   - calls.go, callswork.go, callsops.go, callsfactory.go, callsfleet.go,
 //     callspeople.go — [calls], one file per screen, over the two refusals in
 //     calls.go; callsfleet.go is Factory's writes dispatch re-matches on.
 //   - recordrows.go — the five rows that decide a record rather than an item,
-//     every one of them decided at Factory: decideOutsideEveryItemAt for the
-//     four withdrawals and shortenings, decideRolePrompt with
-//     fireRolePromptRow for the row every version of what an agent is told
-//     fires, and decideOutsideEveryItem with alreadyOpen, which decides a row
-//     already open on the record rather than firing a second one.
+//     every one of them at Factory: decideOutsideEveryItemAt for the four
+//     withdrawals and shortenings, decideRolePrompt with fireRolePromptRow for
+//     the row every version of what an agent is told fires, and
+//     decideOutsideEveryItem with alreadyOpen, which decides a row already
+//     open rather than firing a second one.
 //   - interview.go — the confirming round as two halves in two passes: the
 //     format the pass states the reading in and the round at Work reads back,
 //     and servicesFor.
 //   - passes.go — pass and passes with newPasses, Run and Tick: one ticker per
 //     component's pass and one goroutine running them, so no two run at once —
 //     what an HTTP handler reaches beside them is locked in shared.go; the
-//     eight intervals and the "-every-<name>" flag per pass; announce, which
+//     nine intervals and the "-every-<name>" flag per pass; announce, which
 //     tells every subscriber the addresses a tick that moved something could
-//     have moved; and the four passes that exist only here — watchServices,
+//     have moved; and the four passes that exist in this file alone — watchServices,
 //     reevaluatePending (the first caller [gate.Gate.ReevaluatePending] has
 //     ever had), acceptancePass and ensureScore.
 //   - lease.go — leaseTTL, leaseRenewEvery, defaultInstance and acquireLease,
-//     which every subcommand calls before it touches the store and which
-//     "serve" holds for the life of the process; and renewals.after, what a
-//     refused renewal means — a lease another instance took ends "serve".
+//     which every subcommand calls before it touches the store and "serve"
+//     holds for the life of the process; and renewals.after: a lease another
+//     instance took ends "serve".
 //   - flags.go — serviceFlag and statements, the two repeated flags "run" and
-//     "serve" take, with namesService beneath them; statements is also what the
+//     "serve" take, with namesService beneath them; statements is what the
 //     intent stage reads an intent's services back off its statement with.
 //
 // The run's composition and configuration:
@@ -304,10 +307,10 @@
 //   - reverify.go — the whole of [mergequeue.Repository]: Head and Holds, the
 //     two readings of master; Reverify; Confirm; FastForward; and VerifyCommit,
 //     a commit a human accepted at Work.
-//   - queuerun.go — runQueue, running the merge queue once for a service and
-//     tearing down what it merged; candidateFor, tearDown.
+//   - queuerun.go — runQueue, the merge queue run once for a service and what
+//     it merged torn down; candidateFor, tearDown.
 //   - reliability.go — markUnreliable, the criteria a candidate's run just
-//     decided read against their own outcome history and marked in place; and
+//     decided read against their own outcome history and marked in place, and
 //     raiseUnreliable, the intent one becoming unreliable raises.
 //   - productiondeploy.go — productionDeploy, the Deploy to production row
 //     and its five factory holds; fireProduction, putOnProduction,
@@ -345,8 +348,8 @@
 //     forms, and markRollback, the mark that a rollback was not caused by the
 //     release, the revert item it ends and the hold it lifts. Ops reaches all
 //     three through calls.go.
-//   - ending.go — dropItem, an item ended for good with its candidate
-//     environment torn down, and truncateCommand, the log's retention pass.
+//   - ending.go — dropItem, an item ended for good with its candidate torn
+//     down, and truncateCommand, the log's retention pass.
 //   - retirement.go — removeService, the [policy.Factory.Removal] this
 //     composition supplies; path.retire and path.removeFromEnvironment, the
 //     owner's write that ends a service and the removal performed for one
@@ -378,22 +381,20 @@
 //     resolving a subject to what it binds — "gate_row:" is drawn on a service,
 //     keyed by the row, because package policy's own reader keys a row-scoped
 //     safeguard that way.
-//   - legalhold.go — legalHoldSubject, resolving a legal hold's subject
-//     written kind:name.
-//   - namedsubject.go — namedService, namedProject and namedArea, resolving a
-//     name to its record, shared by the parameter and safeguard writes and by
-//     "policy".
+//   - legalhold.go — legalHoldSubject, a legal hold's subject as kind:name.
+//   - namedsubject.go — namedService, namedProject and namedArea, a name
+//     resolved to its record, shared by the parameter and safeguard writes and
+//     by "policy".
 //
 // The reads and reporting:
 //
-//   - policy.go — policyCommand, printing every parameter as it is in force,
-//     where its value came from, the safeguards that reached it, and what
-//     reads it.
+//   - policy.go — policyCommand, every parameter as it is in force, where its
+//     value came from, the safeguards that reached it, and what reads it.
 //   - contracts.go — contractsCommand, every query contracts make;
 //     printContracts and printBreaks, what one candidate would break and
 //     whom.
-//   - learn.go — learnCommand, the score's own pass over the outcomes,
-//     printing what moved and what moved it; printHeldOut.
+//   - learn.go — learnCommand, the score's pass over the outcomes, printing
+//     what moved and what moved it; printHeldOut.
 //   - walk.go — walk, following the links from a deploy record back to its
 //     intent and printing every decision the item's gates left in the log.
 //
@@ -406,12 +407,11 @@
 // was opened. The script is the value's own, and a test's one string is split by
 // newPath into [deps.answer] and the verdicts after it. screensfixtures_test.go
 // is the four screens as a test drives them: the real composition behind package
-// screens' handler, over HTTP, with both headers on every call, which is what
-// every screens*_test.go beside it drives the demonstration through. The rest
-// are one subject each. Three keep the name they were written under — main_test.go the
-// end-to-end demonstration, watch_test.go the bad deploy rolled back,
-// contracts_test.go the two-service pair — and every other one is named for its
-// subject.
+// screens' handler, over HTTP, with both headers on every call, which every
+// screens*_test.go beside it drives the demonstration through. The rest are one
+// subject each, named for it — except three that keep the name they were
+// written under: main_test.go the end-to-end demonstration, watch_test.go the
+// bad deploy rolled back, contracts_test.go the two-service pair.
 //
 // Who may write what: nothing of its own. Every record the run causes to exist is
 // written by the package that owns it; this command composes the writers and

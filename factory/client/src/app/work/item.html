@@ -38,6 +38,52 @@
   @if (record !== null) {
     <p>{{ record.IntentStatement }}</p>
 
+    @if (reports().length > 0) {
+      <h2>What end users reported</h2>
+      <p class="quiet">
+        The reports grouped into this intent, under the intent and on no address of their
+        own.
+      </p>
+      <ul>
+        @for (report of reports(); track report.ID) {
+          <li class="row">
+            <p class="quiet">{{ report.Kind }}, {{ at(report.CollectedAt) }}</p>
+            @if (report.HarmMarked) {
+              <p class="marked">The reporter marked this as the software harming a person.</p>
+            }
+            <p>{{ report.Text }}</p>
+            <p class="quiet">
+              @if (report.NoticeID !== '') {
+                It was shown notice {{ report.NoticeID }}.
+              } @else {
+                No notice was in force when it arrived.
+              }
+            </p>
+            @if (report.Admitted) {
+              <p class="quiet">A human has admitted this report.</p>
+            } @else {
+              <div class="actions">
+                <button type="button" [disabled]="busy()" (click)="admitReport(report.ID)">
+                  Admit this report
+                </button>
+              </div>
+            }
+          </li>
+        }
+      </ul>
+      @if (intentWaiting()) {
+        <p class="marked">
+          This intent came from reports and no human has admitted it, so nothing is being
+          spent on it.
+        </p>
+        <div class="actions">
+          <button type="button" [disabled]="busy()" (click)="admitIntent()">
+            Admit this intent
+          </button>
+        </div>
+      }
+    }
+
     @if (record.PartlyDelivered) {
       <p class="marked">
         The intent this item answers became more than one item, and they did not all

@@ -38,6 +38,23 @@ type EndIntentArgs struct {
 	IntentID string
 }
 
+// AdmitIntentArgs is the admission a safeguard on the report store makes a
+// report-derived intent wait for: with one in force the intent arrives and
+// waits, no agent is put on it and no interview round runs, until a human
+// admits it here. It is one action per group, the group already being one
+// intent.
+type AdmitIntentArgs struct {
+	IntentID string
+}
+
+// AdmitReportArgs is the admission the second safeguard on the report store
+// makes one arrived report wait for: with it in force the report waits
+// ungrouped until a human admits it, and only an admitted report reaches the
+// grouper.
+type AdmitReportArgs struct {
+	ReportID string
+}
+
 // SetPriorityArgs writes the one field that orders every queue an item waits
 // in.
 type SetPriorityArgs struct {

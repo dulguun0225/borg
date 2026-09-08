@@ -7,6 +7,12 @@ type Home struct {
 	Badge      Badge
 	LastChecks []LastCheck
 	Readiness  []RoleReadiness
+	// Awaiting is what a safeguard on the report store is holding: an arrived
+	// report waiting ungrouped, and an intent grouped from reports waiting
+	// before anything is spent on it. Both are empty where an owner placed
+	// neither safeguard, which is an install where nothing waits, and both sit
+	// here rather than on the board because neither has an item to be a row of.
+	Awaiting AwaitingAdmission
 	// Digest is nil unless Badge.Total is zero: the digest is the part of
 	// the home view that appears only at zero, so an empty screen means the
 	// factory is working and a stopped component is the named row above,
@@ -33,6 +39,43 @@ type Badge struct {
 	Escalations           int64
 	FactoryHoldsForAHuman int64
 	ConstraintCausedStops int64
+	// Admissions is what a safeguard on the report store is holding: one per
+	// report waiting ungrouped and one per report-derived intent waiting, which
+	// is what [Home.Awaiting] renders. It is zero where an owner placed neither
+	// safeguard.
+	Admissions int64
+}
+
+// AwaitingAdmission is what the two safeguards on the report store are
+// holding. It is the one thing that waits on a human with no item behind it:
+// an unadmitted report has not been grouped into an intent yet, and an
+// unadmitted intent has not been decomposed into items.
+type AwaitingAdmission struct {
+	// Reports is every arrived report waiting ungrouped, oldest first, with
+	// its words, its kind, its harm mark and when it arrived. [Calls.AdmitReport]
+	// is what admits one.
+	Reports []ReportSummary
+	// Intents is every intent grouped from reports waiting before an agent is
+	// put on it, oldest first. [Calls.AdmitIntent] is what admits one, and it
+	// is one action per group, the group already being one intent.
+	Intents []IntentAwaitingAdmission
+}
+
+// IntentAwaitingAdmission is one intent grouped from reports that no human has
+// admitted, as Work renders it while the safeguard holding one stands.
+type IntentAwaitingAdmission struct {
+	IntentID string
+	// Statement is what the group of reports it was raised from says, which
+	// intake wrote at the arrival and nothing rewrites.
+	Statement string
+	// ArrivedAt is when intake wrote the intent, in RFC 3339 UTC.
+	ArrivedAt string
+	// Reports is how many reports are grouped into it, which is the size of the
+	// group this one action admits.
+	Reports int
+	// HarmMarked is whether any report of the group says a person is being
+	// harmed by the software. Nothing infers it: it is the reporters' own field.
+	HarmMarked bool
 }
 
 // LastCheck is one component's own record of its most recent pass, read
@@ -91,10 +134,18 @@ type WorkRow struct {
 // spec, plan, tasks, implementation, rollout, and the release it ends in
 // happened, with each gate shown inline at the point where it fired.
 type Item struct {
-	ID              string
+	ID string
+	// IntentID is the intent this item answers, empty where the item names
+	// none. It is what [Calls.AdmitIntent] names.
+	IntentID        string
 	IntentStatement string
-	Versions        []ArtifactVersion
-	Decisions       []DecisionSummary
+	// Reports is the end-user reports grouped into this item's intent,
+	// oldest first, and empty for an intent no report raised. They are
+	// rendered under the intent's own entry and nowhere else: a browsable
+	// list of them is the one place the design refuses to put them.
+	Reports   []ReportSummary
+	Versions  []ArtifactVersion
+	Decisions []DecisionSummary
 	// ImplementationDiff is the build's diff against master, shown at the
 	// Implementation gate and empty before it — the one place the product
 	// renders code.
@@ -122,6 +173,34 @@ type Item struct {
 	// so this action fires it rather than deciding a row already open, and
 	// [Calls.ApproveThroughHold] is what it calls.
 	ApprovableThrough bool
+	// IntentAwaitsAdmission is true where this item's intent was grouped from
+	// reports and no human has admitted it, while the safeguard holding one
+	// stands. It is what offers [Calls.AdmitIntent] here as well as on the home
+	// view, for an item whose intent was admitted after it was decomposed.
+	IntentAwaitsAdmission bool
+}
+
+// ReportSummary is one end user's report as Work renders it under the intent
+// it was grouped into. It names no person: the channel carries no identity,
+// and the opaque key the report may carry is not on this view.
+type ReportSummary struct {
+	ID string
+	// Kind is the reporter's own word for it: a bug report or a complaint.
+	Kind string
+	// HarmMarked is the one field the reporter sets beside the kind: whether
+	// the software is harming a person. Nothing infers it.
+	HarmMarked  bool
+	CollectedAt string // RFC 3339 UTC, the instant the way in collected it
+	// NoticeID is the notice in force when the report was collected, and
+	// empty where none was — which the view says as much as it says which
+	// one was shown.
+	NoticeID string
+	// Admitted is false where a human has still to admit the report, which
+	// only one of the two safeguards on the report store makes it wait for.
+	Admitted bool
+	// Text is the words the reporter wrote, read through every redaction
+	// naming this report.
+	Text string
 }
 
 // ArtifactVersion is one artifact version authored for an item: a spec, a

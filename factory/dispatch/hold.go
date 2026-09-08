@@ -42,6 +42,12 @@ const (
 	// the item requiring seam 5 enforced where the factory does not enforce
 	// it.
 	HoldConstraintRequiresSeam5 = "a constraint in force requires seam 5 enforced, and this factory does not enforce it"
+	// HoldIntentAwaitsAdmission is an intent grouped from reports that no human
+	// has admitted, while the safeguard on the report store that holds one
+	// stands. It is not one of the design's six: an owner who placed that
+	// safeguard asked for the wait, so what it records is the wait and not a
+	// condition of the factory's own.
+	HoldIntentAwaitsAdmission = "the intent was grouped from reports and waits for a human's admission at Work"
 )
 
 // RoutedToTheOwner is who a hold row routes to where the design routes it away
@@ -260,6 +266,12 @@ func (d *Dispatch) stillHolds(ctx context.Context, held Hold, credentials creden
 	case HoldTheIntentStops:
 		stopped, err := d.intentStops(ctx, on)
 		return stopped != "", err
+	case HoldIntentAwaitsAdmission:
+		in, found, err := d.intentFor(ctx, on)
+		if err != nil || !found {
+			return false, err
+		}
+		return d.awaitsAdmission(ctx, in)
 	case HoldCredentialUnreachable:
 		return credentials.standing(KindCredentialUnreachable, held.CredentialName), nil
 	case HoldCredentialAtCeiling:
@@ -281,22 +293,53 @@ func (d *Dispatch) stillHolds(ctx context.Context, held Hold, credentials creden
 // cannot be read, are not a stop: the state is a reason to hold and its absence
 // is not.
 func (d *Dispatch) intentStops(ctx context.Context, on On) (string, error) {
+	in, found, err := d.intentFor(ctx, on)
+	if err != nil || !found {
+		return "", err
+	}
+	return stops(string(in.State)), nil
+}
+
+// intentFor is the intent this dispatch is for: the one it names, or the one
+// the item it names was decomposed from. It answers false where the dispatch
+// reaches no intent at all — a run put on a project, an item decomposed from
+// nothing, and an id naming no record, which the tests build and which reaches
+// an intent no more than an empty one does.
+func (d *Dispatch) intentFor(ctx context.Context, on On) (intent.Intent, bool, error) {
 	intentID := on.IntentID
 	if intentID == "" && on.ItemID != "" {
 		it, err := item.Get(ctx, d.c.Pool, on.ItemID)
 		if err != nil {
-			return "", err
+			return intent.Intent{}, false, err
 		}
 		intentID = it.IntentID
 	}
 	if intentID == "" {
-		return "", nil
+		return intent.Intent{}, false, nil
 	}
 	in, err := intent.Get(ctx, d.c.Pool, intentID)
-	if err != nil {
-		return "", err
+	if errors.Is(err, intent.ErrIntentNotFound) {
+		return intent.Intent{}, false, nil
+	} else if err != nil {
+		return intent.Intent{}, false, err
 	}
-	return stops(string(in.State)), nil
+	return in, true, nil
+}
+
+// awaitsAdmission reports whether this intent is waiting for a human to admit
+// it at Work, which stops every role: no agent is put on it and no interview
+// round runs, so nothing is spent refining what a human would never admit.
+//
+// Three things have to hold and the safeguard is read last, so an install that
+// placed none pays one field comparison per dispatch and no query: the intent
+// came from reports, no human has admitted it, and the safeguard that holds one
+// is in force. Reading the safeguard in force rather than a mark left at the
+// arrival is what makes withdrawing it release what was waiting.
+func (d *Dispatch) awaitsAdmission(ctx context.Context, in intent.Intent) (bool, error) {
+	if in.Source != intent.SourceReports || in.AdmittedAt != "" {
+		return false, nil
+	}
+	return d.c.Admissions.HoldsReportDerivedIntents(ctx)
 }
 
 // constraintRequiringSeam5 is the id of a document-kind constraint in force

@@ -17,7 +17,7 @@
 // sentinel this package returns.
 //
 // intake.go holds [Intake], [NewIntake], [Arrival], [Intake.TakeIn],
-// [Intake.SetDeadline] and [Intake.SetProject]. interview.go holds [Intake.OpenRound], [Intake.Ask]
+// [Intake.SetDeadline], [Intake.SetProject] and [Intake.Admit]. interview.go holds [Intake.OpenRound], [Intake.Ask]
 // and [Intake.Answer]. confirm.go holds [Confirmation], [Intake.Confirm],
 // [Correction] and [Intake.Correct]. state.go holds [Intake.SendBack],
 // [Intake.MarkReDecomposing], [Intake.ClearReDecomposing], [Intake.Escalate]
@@ -57,6 +57,26 @@
 // The bytes are overwritten in place and the length is unchanged, so the row,
 // its links and every count over it stand with the words gone. The erasure is
 // the one exception to the sentence below.
+//
+// # The admission and the recurrence link
+//
+// [Intake.Admit] records that a human admitted the intent at Work, which is
+// what a report-derived intent waits for while the safeguard on the report
+// store stands: until it is written, dispatch puts no agent on the intent and
+// no interview round runs. Only [SourceReports] takes one — no other source
+// arrives through a channel a stranger writes into — and admitting one already
+// admitted changes nothing, so the instant on the row is the first admission's.
+// Nothing here reads the safeguard: whether the wait is owed at all is gate
+// policy's, read by the component that would spend on the intent.
+//
+// [Arrival.RecurrenceOf] is the intent a new one recurs on, written at the
+// arrival and never afterwards. It is what the grouper writes where a report
+// matches work whose timeline is finished: the fix shipped, so evidence that
+// it did not work is a new intent and never a reopening, and the link is what
+// keeps the two readable as one run of the same problem. It is refused on any
+// source but [SourceReports], in the writer and again by [DDL], no other source
+// arriving in a quantity that recurs; nothing here reads the link back, the
+// screens being what render it.
 //
 // A statement is written once and never updated; the state, the two counts,
 // and the fields the confirming round writes advance in place, an intent being
@@ -187,9 +207,10 @@
 // (C0765, C0771, C0772, C0775, C0776, C0779, C0782, C0787);
 //
 // the redaction of a statement, the pass that destroys it and the replay after
-// a restore are
+// a restore, the recurrence link a report matching finished work raises, and
+// the admission a report-derived intent waits for at Work, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0447, C0448, C0449, C0456);
+// (C0399, C0438, C0447, C0448, C0449, C0456);
 //
 // the six patterns are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md

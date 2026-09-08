@@ -48,7 +48,14 @@ func (v *views) Home(ctx context.Context, who principal.Principal) (screens.Home
 	if err != nil {
 		return screens.Home{}, err
 	}
-	badge, err := v.badge(ctx, reading)
+	// What a safeguard on the report store is holding is read once and handed
+	// to the badge for the same reason: the rows and the count are one reading,
+	// and the badge counts what the view already renders.
+	waiting, err := v.awaiting(ctx, who)
+	if err != nil {
+		return screens.Home{}, err
+	}
+	badge, err := v.badge(ctx, reading, waiting)
 	if err != nil {
 		return screens.Home{}, err
 	}
@@ -65,7 +72,7 @@ func (v *views) Home(ctx context.Context, who principal.Principal) (screens.Home
 			OldestUnmatchedHoldAgeSeconds: int64(one.oldestUnmatched / time.Second),
 		})
 	}
-	home := screens.Home{Badge: badge, LastChecks: checks, Readiness: rows}
+	home := screens.Home{Badge: badge, LastChecks: checks, Readiness: rows, Awaiting: waiting}
 	if badge.Total != 0 {
 		return home, nil
 	}
@@ -83,9 +90,13 @@ func (v *views) Home(ctx context.Context, who principal.Principal) (screens.Home
 // total is the sum of the parts.
 //
 // reading is the readiness the caller has already taken, a role with no
-// matching entry being a wait on a human and so a part of the badge.
-func (v *views) badge(ctx context.Context, reading []roleReadiness) (screens.Badge, error) {
+// matching entry being a wait on a human and so a part of the badge; waiting is
+// what a safeguard on the report store is holding, taken by the same caller,
+// each report and each intent of it being one more wait.
+func (v *views) badge(ctx context.Context, reading []roleReadiness,
+	waiting screens.AwaitingAdmission) (screens.Badge, error) {
 	var badge screens.Badge
+	badge.Admissions = int64(len(waiting.Reports) + len(waiting.Intents))
 	pending, err := v.p.gate.Pending(ctx)
 	if err != nil {
 		return badge, err
@@ -139,7 +150,8 @@ func (v *views) badge(ctx context.Context, reading []roleReadiness) (screens.Bad
 	}
 
 	badge.Total = badge.PendingGates + badge.UATAssignments + badge.InterviewQuestions +
-		badge.Escalations + badge.FactoryHoldsForAHuman + badge.ConstraintCausedStops
+		badge.Escalations + badge.FactoryHoldsForAHuman + badge.ConstraintCausedStops +
+		badge.Admissions
 	return badge, nil
 }
 

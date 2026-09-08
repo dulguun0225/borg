@@ -13,14 +13,16 @@ import (
 
 // columns is every column of the table, in the order [scan] reads them.
 const columns = `id, actor_kind, actor_key, actor_key_basis, at,
-	item_id, stage, intent_id, materials, read_at_once_bound, selection_rule_version, excluded`
+	item_id, stage, intent_id, project_id, materials, read_at_once_bound,
+	selection_rule_version, excluded`
 
 func scan(row pgx.Row) (Manifest, error) {
 	var m Manifest
 	var kind, basis, materials, excluded string
 	var bound *int64
 	err := row.Scan(&m.ID, &kind, &m.Actor.Key, &basis, &m.At,
-		&m.ItemID, &m.Stage, &m.IntentID, &materials, &bound, &m.SelectionRuleVersion, &excluded)
+		&m.ItemID, &m.Stage, &m.IntentID, &m.ProjectID, &materials, &bound,
+		&m.SelectionRuleVersion, &excluded)
 	if err != nil {
 		return Manifest{}, err
 	}

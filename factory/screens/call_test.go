@@ -91,6 +91,40 @@ func TestApproveThroughHoldReachesTheDecodedStruct(t *testing.T) {
 	}
 }
 
+// TestTheTwoAdmissionsReachTheirOwnDecodedStructs: the two safeguards on the
+// report store are two calls and not one, so admitting a report-derived
+// intent and admitting an arrived report before the grouper reads it each
+// reach their own method with their own argument struct.
+func TestTheTwoAdmissionsReachTheirOwnDecodedStructs(t *testing.T) {
+	var gotIntent screens.AdmitIntentArgs
+	var gotReport screens.AdmitReportArgs
+	var gotPrincipal principal.Principal
+	calls := &fakeCalls{
+		admitIntent: func(_ context.Context, p principal.Principal, a screens.AdmitIntentArgs) error {
+			gotIntent, gotPrincipal = a, p
+			return nil
+		},
+		admitReport: func(_ context.Context, _ principal.Principal, a screens.AdmitReportArgs) error {
+			gotReport = a
+			return nil
+		},
+	}
+	s := screens.New(&fakeViews{}, calls, theVersion, noClient)
+
+	if rec := post(t, s, "admitIntent", screens.AdmitIntentArgs{IntentID: "int_1"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("admitIntent: status = %d, want 204, body %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(t, s, "admitReport", screens.AdmitReportArgs{ReportID: "rep_1"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("admitReport: status = %d, want 204, body %s", rec.Code, rec.Body.String())
+	}
+	if gotIntent.IntentID != "int_1" || gotReport.ReportID != "rep_1" {
+		t.Errorf("the admissions took %+v and %+v, want the decoded bodies", gotIntent, gotReport)
+	}
+	if gotPrincipal.Actor.Key != "hk_caller" {
+		t.Errorf("principal = %s, want the caller's key", gotPrincipal)
+	}
+}
+
 // TestEditRecordRowReachesTheDecodedStruct: POST /api/call/editRecordRow
 // reaches Calls.EditRecordRow with the body decoded into
 // screens.EditRecordRowArgs.

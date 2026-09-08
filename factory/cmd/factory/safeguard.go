@@ -135,9 +135,15 @@ func safeguardSubject(ctx context.Context, pool *pgxpool.Pool, written, serviceN
 		}
 		return safeguard.Subject{Kind: safeguard.SubjectDesignSystemComponent, ID: name}, nil
 	case safeguard.SubjectReportStore:
-		// The report store is not built and takes no name, the way the
-		// factory-wide settings record's own subject below does.
-		return safeguard.Subject{Kind: safeguard.SubjectReportStore}, nil
+		// The store takes no name and has no record, so it is stored against
+		// the factory-wide settings record's id — the treatment the predicate
+		// kinds list below already has, and what a mechanism reading a
+		// safeguard on this subject reads it by.
+		settings, err := factorysettings.Get(ctx, pool)
+		if err != nil {
+			return safeguard.Subject{}, err
+		}
+		return safeguard.Subject{Kind: safeguard.SubjectReportStore, ID: settings.ID}, nil
 	case safeguard.SubjectDriftDetectorLastCheck:
 		// The drift detector's store is outside this module and nothing
 		// derives a safeguard reading it yet; the name, where given, is a

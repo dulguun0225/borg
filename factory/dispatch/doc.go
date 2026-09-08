@@ -20,8 +20,10 @@
 // [Actor], [On] and [Run], and the reads a dispatch makes: the
 // attempt limit in force, the item's own count for the stage, the transition
 // onto the item, and the agent run record. hold.go is [Hold] with [HoldKind],
-// [HoldFormatVersion], the six conditions' constants, [RoutedToTheOwner],
-// [Open], [Rematch] and the document-kind constraint's own read. credential.go
+// [HoldFormatVersion], the conditions' constants — the six the design gives and
+// [HoldIntentAwaitsAdmission] beside them — [RoutedToTheOwner], [Open],
+// [Rematch], the intent this dispatch reaches with the two readings of it, and
+// the document-kind constraint's own read. credential.go
 // is the two conditions a credential stops a dispatch on: [CredentialWait] and
 // its two kinds, [WantsARate], the arithmetic of a spend ceiling with
 // [NotifiedAtFraction] and the notice at it, and [Dispatch.ClearCeiling] with
@@ -29,11 +31,11 @@
 // paidfor.go is what the People declaration says about that credential at the
 // run, which every run record carries. admit.go is [Dispatch.Admit], the order
 // items are admitted in where more is ready than the infrastructure admits.
-// run.go is the five dispatches — [Dispatch.Interviewer],
-// [Dispatch.SpecAuthor], [Dispatch.Planner], [Dispatch.TaskAuthor] and
-// [Dispatch.Implementer] — the sequence they share, the withholding of the
-// classes of material an entry does not name, and [sourcesOf], the material
-// handed over as the run record names it.
+// run.go is the six dispatches — [Dispatch.Grouper],
+// [Dispatch.Interviewer], [Dispatch.SpecAuthor], [Dispatch.Planner],
+// [Dispatch.TaskAuthor] and [Dispatch.Implementer] — the sequence they share,
+// the withholding of the classes of material an entry does not name, and
+// [sourcesOf], the material handed over as the run record names it.
 //
 // db_test.go is against the database, this component writing records through
 // four packages that own tables; hold_test.go, credential_test.go,
@@ -67,11 +69,14 @@
 //
 // [RoleGrouper] is the third kind of subject: it is put on a project, which is
 // the whole of what a scope matches it on and the whole of what its run record
-// names, and it is dispatched before there is an intent — so one naming an item
-// or an intent is [ErrRoleNamesNoStage] the same way. Its entry is read out of
-// the record by role like every other, and the operation it carries is
-// [OperationReadTheReports], the reports of that project being what it reads
-// and a checkout being what it does not.
+// and its input manifest name, and it is dispatched before there is an intent —
+// so one naming an item or an intent is [ErrRoleNamesNoStage] the same way. Its
+// entry is read out of the record by role like every other, and the operation
+// it carries is [OperationReadTheReports], the reports of that project being
+// what it reads and a checkout being what it does not. Gate policy authors an
+// attempt limit per subject and names none for it, so [Dispatch.Grouper] is
+// counted against [Limits.RoundsOnAnIntent] like a role put on an intent; what
+// that costs is stated at limitFor.
 //
 // The scope's area is matched against the item's area chain and not against
 // its own area alone, so an entry drawn on a coarser area covers an item in a
@@ -92,8 +97,9 @@
 //
 // # Which callers are not built
 //
-// Five of the six conditions that stop a dispatch are computed here, and so is
-// the intent's own state, which stops one before the six: a stage no fleet
+// Five of the six conditions that stop a dispatch are computed here, and so are
+// the intent's own state and the admission a report-derived intent waits for,
+// each of which stops one before the six: a stage no fleet
 // entry covers, a stage whose role has no role prompt version in force, a
 // credential already known unreachable, a credential at its spend ceiling, and
 // a constraint of the document kind requiring seam 5 enforced. The sixth is a
@@ -122,17 +128,22 @@
 // credential are reached through is the one thing the record cannot hold, and
 // which provider a credential resolves to is the composition's knowledge.
 //
-// The grouper has no method here either, and for the same kind of reason: what
-// would put an agent in that role is the pass that reads a project's reports
-// and calls intake per group, which is not built. The role and its match are,
-// so an owner's entry for it is matched, and a dispatch on it with no role
-// prompt version in force is a hold rather than a run.
-//
 // The decomposer is matched, prompted and dispatched like any other role and
 // nothing calls it: the component that would put an agent in that role is a
 // stage that decides a decomposition, and the factory is told its
 // decomposition. So there is no method for it here, and package agent has the
 // words the product ships for it and no type that runs them.
+//
+// [Admissions] is the composition's for a related reason: a safeguard is gate
+// policy's record, read through the component that writes it, and this
+// component's row names no such call. What it answers is whether the safeguard
+// drawn on the report store that holds a report-derived intent stands, and it
+// is read in force at every dispatch rather than marked at the intent's
+// arrival, so withdrawing the safeguard releases what was waiting on it. Where
+// it stands, a report-derived intent no human has admitted is
+// [HoldIntentAwaitsAdmission] at every role — the interview included, so no
+// round runs and nothing is spent refining what a human would never admit — and
+// the row closes when the admission is written or the safeguard is withdrawn.
 //
 // [Escalation] is the composition's, because the abandonment of an item's
 // pending rows is the gate component's and this component's row in
@@ -150,9 +161,11 @@
 // C0821).
 //
 // The role put on a project, whose scope is that project and which is an agent
-// under a fleet entry like any other, is
+// under a fleet entry like any other, and the intent grouped from reports on
+// which this component puts no agent while it waits for a human's admission,
+// are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0378, C0379).
+// (C0378, C0379, C0438).
 //
 // The role, the two roles put on an intent, the scope, the operations a role
 // carries, the principal every call is made under, and what a stage hands an

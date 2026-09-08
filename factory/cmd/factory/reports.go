@@ -10,8 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/constraint"
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/reportstore"
@@ -48,8 +50,13 @@ var _ wayin.Store = (*reportChannel)(nil)
 // erasureList is where the erasure list lives on this host. Nothing writes to
 // it until the redaction pass exists; the store is the one writer of it, so
 // the path is chosen here and by nobody else.
+//
+// token is the lease this process holds, carried by the reader of the decision
+// log the store appends its read events through: a read of a report's words is
+// a write of that log, so it is fenced the way every write this composition
+// makes is.
 func openReportStore(ctx context.Context, url, erasureList string,
-	pool *pgxpool.Pool) (*reportChannel, func(), error) {
+	pool *pgxpool.Pool, token lease.Token) (*reportChannel, func(), error) {
 	reports, err := reportstore.Open(ctx, url)
 	if err != nil {
 		return nil, func() {}, err
@@ -62,7 +69,7 @@ func openReportStore(ctx context.Context, url, erasureList string,
 		deploysTheTokenNames{pool: pool},
 		reportRatesAnOwnerAuthored{pool: pool},
 		holdsOverAService{pool: pool},
-		readEventsOfAReport{},
+		readEventsOfAReport{log: decisionlog.NewReader(pool, token)},
 		redactionsOverReports{})
 	return &reportChannel{store: store, pool: pool}, reports.Close, nil
 }
@@ -191,13 +198,17 @@ func (h holdsOverAService) ReachingService(ctx context.Context, serviceID string
 }
 
 // readEventsOfAReport is [reportstore.ReadEvents], the read event the store
-// appends before it answers with a report's words. It appends none yet: what
-// appends one is package decisionlog's own read event, unexported until the
-// erasure step exports it, and what a read event makes answerable — who had
-// already read words a redaction later destroyed — is that step's too.
-type readEventsOfAReport struct{}
+// appends before it answers with a report's words — at Work, under the intent
+// a report was grouped into, and at every pass of the grouper. It is the log's
+// own tenth shape and not a second kind of record: the words a redaction
+// reaches are in a store the log never reads, so the reader that serves them
+// appends the event and the log writes it.
+type readEventsOfAReport struct{ log *decisionlog.Reader }
 
-func (readEventsOfAReport) Append(context.Context, principal.Principal, string) error { return nil }
+// Append appends the read event naming the principal and the report read.
+func (r readEventsOfAReport) Append(ctx context.Context, p principal.Principal, read string) error {
+	return r.log.AppendReadEvent(ctx, p, read)
+}
 
 // redactionsOverReports is [reportstore.Redactions]. It answers with none:
 // the redaction record is the erasure step's, and until it exists there is no

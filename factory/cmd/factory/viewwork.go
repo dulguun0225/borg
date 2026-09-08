@@ -45,7 +45,15 @@ func (v *views) Item(ctx context.Context, who principal.Principal, id string) (s
 		if err != nil {
 			return screens.Item{}, err
 		}
-		view.IntentStatement = in.Statement
+		view.IntentID, view.IntentStatement = in.ID, in.Statement
+		if in.Source == intent.SourceReports {
+			if view.Reports, err = v.reportsUnder(ctx, who, in.ID); err != nil {
+				return screens.Item{}, err
+			}
+			if view.IntentAwaitsAdmission, err = v.intentAwaitsAdmission(ctx, in); err != nil {
+				return screens.Item{}, err
+			}
+		}
 		live, of, err := v.p.liveItems(ctx, in.ID)
 		if err != nil {
 			return screens.Item{}, err
@@ -119,6 +127,40 @@ func (v *views) Item(ctx context.Context, who principal.Principal, id string) (s
 	}
 	view.ApprovableThrough = view.FactoryHold != ""
 	return view, nil
+}
+
+// reportsUnder is the reports grouped into one intent, which Work renders
+// under that intent's own entry and nowhere else. A composition with no
+// report store renders none: the store's URL has no default, so a subcommand
+// that makes one pass has no store to read them from.
+//
+// The words are taken one report at a time through the store's own read,
+// which appends a read event naming the principal first — what makes who had
+// already read them answerable after a redaction. The enumeration answers
+// with ids for the same reason, so a list of the group serves no words.
+func (v *views) reportsUnder(ctx context.Context, who principal.Principal,
+	intentID string) ([]screens.ReportSummary, error) {
+	store := v.p.d.reports
+	if store == nil {
+		return nil, nil
+	}
+	grouped, err := store.ByIntent(ctx, intentID)
+	if err != nil {
+		return nil, err
+	}
+	under := make([]screens.ReportSummary, 0, len(grouped))
+	for _, id := range grouped {
+		one, err := store.Get(ctx, who, id)
+		if err != nil {
+			return nil, err
+		}
+		under = append(under, screens.ReportSummary{
+			ID: one.ID, Kind: string(one.Kind), HarmMarked: one.HarmMarked,
+			CollectedAt: one.CollectedAt, NoticeID: one.NoticeID,
+			Admitted: one.AdmittedAt != "", Text: one.Text,
+		})
+	}
+	return under, nil
 }
 
 // holdAtTheProductionDeploy is the hold standing at one item's production

@@ -1,0 +1,103 @@
+// Package grouper owns the pass that turns reports into intents: it reads the
+// reports that arrived under one project, dispatches the grouper role over
+// them, and applies the answer, so five hundred reports of one slow button are
+// one intent and not five hundred.
+//
+// It owns no table. What it writes is written through the packages that own
+// the records: the intent through intake, the link from a report to its intent
+// through the report store, and the page a harm mark fires through the
+// notifier.
+//
+// # The files
+//
+// grouper.go is [Fleet], [Services] and [Admission] with [AdmitsEverything],
+// the three seams the composition supplies; [Composition] and [Grouper] with
+// [New]; [Grouped], what one pass did; and [Grouper.Pass]. grouping.go is what
+// one group causes: apply, [Grouper.finished], raise, page, and statementOf
+// with the bound on how many reports a statement quotes.
+//
+// It is a package and not a pass inside the composition because a doc.go under
+// cmd/ cites no claim, and the claims below need a home.
+//
+// # What one pass does
+//
+// The pass reads how many of the project's reports are linked to no intent
+// before it reads any words, so a pass with nothing to group makes no model
+// call and appends no read event. Where there is something, every report of
+// the project is read — the grouped ones beside the ungrouped ones, a report
+// that arrived after a group was raised being one the role can only match
+// against the reports of that group — and the role is dispatched over all of
+// them through [Fleet].
+//
+// Each group the role answers with is applied against the reports it names, in
+// the order they arrived. Where no report of a group is grouped yet, the group
+// raises an intent through intake, whose statement summarizes the reports;
+// where the group already names an intent that has not finished, the arriving
+// reports attach to it and raise its count, and nothing about it is rewritten.
+//
+// A group naming an intent whose timeline is finished — delivered or dropped —
+// raises a new intent linked to that one as a recurrence. The fix shipped, so
+// evidence that it did not work is a new intent and never a reopening.
+//
+// What is not built is the other half of the design's boundary: before
+// decomposition the role may split a group it got wrong, and here it cannot,
+// because a report already linked is never moved — the report store writes that
+// link once. So a report the first pass misgrouped stays where it was put, and
+// what repairs it is the repair the design gives it one stage down, where
+// decomposition yields an item per problem or a spec comes back too large. The
+// pass reads no decomposition state at all for that reason, and what tells its
+// three cases apart is the intent's own.
+//
+// A report the reply left in no group stays ungrouped and is counted as such at
+// Factory, which is the answer to a report nobody sees; the next pass reads it
+// again.
+//
+// Nothing waits for a batch or a count. Grouping is deduplication and not
+// triage: one report from one end user is an intent, and the count of reports
+// under one is evidence on it rather than a rank this package orders anything
+// by.
+//
+// # What it does not do
+//
+// It fires no gate and writes no artifact version. Grouping takes no gate and
+// moves no per-author prior, and both are absences held by a test in the
+// composition rather than by code here: this package reaches neither the gate
+// component nor the artifact store, and its line in ../../deps.txt is what
+// says so.
+//
+// The two safeguards on the report store are the composition's to read.
+// [Admission] is whether an arrived report waits for a human before this pass
+// may read it: with one in force the pass reads the admitted reports alone, so
+// a report nobody has admitted is never grouped and its words never leave the
+// install. That is the whole of what this pass does about a safeguard — the
+// second, which holds a report-derived intent until a human admits it at Work,
+// stops the component that puts an agent on it and never this one, which has
+// already finished by then.
+//
+// # Who may write what
+//
+// Nothing of its own, and every write goes through the record's own writer.
+// The intent is intake's, written as the actor the composition names —
+// ../../end-goal/components.md gives the grouper no row, it being an agent and
+// not a component, so the actor on the row and the principal a read event names
+// are the composition's to supply and not names this package coins. The link
+// from a report to the intent it was grouped into is the report store's, which
+// keeps the report rather than deleting it: the rate of reports before and
+// after the release meant to fix what they describe is what keeping them makes
+// possible.
+//
+// [Fleet] is an interface because the material an input manifest names and the
+// reply an agent parses are the fleet's own vocabulary, and a pass that named
+// either would import the whole of what runs an agent to make one call. What
+// the composition wires it to is the dispatch of the role put on a project,
+// which is what writes the run record naming the project and the processing
+// location the credential resolved to, and the input manifest beside it.
+//
+// What defines it: the grouper, what a group raises and what a later report
+// attaches to, the recurrence, the statement, the page a harm mark fires, the
+// admitted report being the only one it reads, and the two absences are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0377, C0382, C0384, C0385, C0393, C0395, C0396, C0399, C0400, C0432,
+// C0439); the agent that calls intake before an intent exists is
+// ../../end-goal/components.md (C0031).
+package grouper

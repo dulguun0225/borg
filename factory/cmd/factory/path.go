@@ -15,6 +15,7 @@ import (
 	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/grouper"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
@@ -22,6 +23,7 @@ import (
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -39,6 +41,15 @@ var (
 	installActor = record.Actor{Kind: record.KindComponent, Key: "install", Basis: record.BasisClaimed}
 	deployActor  = record.Actor{Kind: record.KindComponent, Key: "deploy", Basis: record.BasisClaimed}
 )
+
+// grouperPrincipal is who the grouper's pass reads a project's reports as, and
+// the name the read event that read carries.
+//
+// ../../../end-goal/components.md gives the grouper no row, an agent not being
+// a component, so no package below coins this name: package reportstore is
+// handed a principal and package grouper is handed one, and this composition is
+// where the pass that made the read is named.
+var grouperPrincipal = principal.OfComponent("grouper")
 
 // The four authoring roles, each an agent rather than a component: a model in
 // a role dispatch put on a stage, keyed by the model version this run was
@@ -90,6 +101,10 @@ type path struct {
 	// and writes the transition through it.
 	items    *item.Dispatch
 	dispatch *dispatch.Dispatch
+	// grouper is the pass that turns reports into intents. It is nil in every
+	// composition that opened no report store, which is every subcommand but
+	// the process that serves the entrance.
+	grouper *grouper.Grouper
 	// prompts is the role prompt version in force per role, which the first
 	// start entered.
 	prompts    *rolePrompts

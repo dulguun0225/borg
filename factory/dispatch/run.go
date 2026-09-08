@@ -14,12 +14,28 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// The five dispatches, one per role a run is made in. Each is the same
+// The six dispatches, one per role a run is made in. Each is the same
 // sequence — the match, the transition, the manifest, the run, the record, the
 // limit — around one role's own call, and each is written out rather than
 // reached through a dispatch on a name, so a reader of one knows what the
-// others do. The sixth role, the decomposer, has no method here: doc.go says
+// others do. The seventh role, the decomposer, has no method here: doc.go says
 // what would call it.
+
+// Grouper puts an agent on a project and returns the groups it read the
+// project's reports into. It names no item, no stage and no intent: the role
+// runs before an intent exists, and what a group becomes is written by intake.
+func (d *Dispatch) Grouper(ctx context.Context, on On, material []inputmanifest.Material,
+	of agent.Grouping) (agent.Groups, Run, error) {
+	var read agent.Groups
+	run, err := d.put(ctx, RoleGrouper, on, material,
+		func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error) {
+			groups, err := agent.Grouper{Model: entry.Model, Prompt: prompt, Effort: entry.Effort}.
+				Group(ctx, as, of)
+			read = groups
+			return groups.Units, err
+		})
+	return read, run, err
+}
 
 // Interviewer puts an agent on an intent and returns the reading or the
 // question it replied with. It names no stage and no item: the interview runs
@@ -94,9 +110,10 @@ func (d *Dispatch) Implementer(ctx context.Context, on On, material []inputmanif
 // put on — an item and its stage, an intent, or a project — and the sequence
 // is:
 //
-//  1. the intent's state, read before an agent is put on a stage — and not
-//     before a role put on the intent itself, the interview being what refines
-//     an unrefined intent;
+//  1. the human's admission a report-derived intent waits for, read before
+//     every role including the interview, and then the intent's state, read
+//     before an agent is put on a stage and not before a role put on the intent
+//     itself, the interview being what refines an unrefined intent;
 //  2. the match — the item's stage against the role, its service and area
 //     against the scope, and the role prompt version in force;
 //  3. the three conditions the entry makes readable, in the design's order: a
@@ -147,16 +164,38 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 		return run, errors.New("dispatch: a dispatch is for an item or for an intent, and this one names neither")
 	}
 
-	// 1. The intent's state. It is read for a run on an item: a role put on an
-	// intent is the interview, which runs while the intent is unrefined and is
-	// what refines it.
-	if on.ItemID != "" {
-		stopped, err := d.intentStops(ctx, on)
+	// 1. The intent, where this dispatch reaches one. Two things about it stop
+	// a dispatch, and they are read apart.
+	//
+	// The human's admission is read first, and for every role including the
+	// interview: an owner who placed the safeguard asked that nothing be spent
+	// refining what they would never admit. It is read first because it is the
+	// one of the two a human can end — an intent waiting for an admission is
+	// always unrefined, the interview being what refines one and what the wait
+	// stops, so a row naming the state would name the consequence and hide the
+	// cause.
+	//
+	// The state is read after it and for a run on an item alone: a role put on
+	// an intent is the interview, which runs while the intent is unrefined and
+	// is what refines it.
+	if on.ItemID != "" || on.IntentID != "" {
+		in, found, err := d.intentFor(ctx, on)
 		if err != nil {
 			return run, err
 		}
-		if stopped != "" {
-			return d.hold(ctx, run, on, Hold{Condition: HoldTheIntentStops, State: stopped})
+		if found {
+			awaits, err := d.awaitsAdmission(ctx, in)
+			if err != nil {
+				return run, err
+			}
+			if awaits {
+				return d.hold(ctx, run, on, Hold{Condition: HoldIntentAwaitsAdmission})
+			}
+		}
+		if found && on.ItemID != "" {
+			if stopped := stops(string(in.State)); stopped != "" {
+				return d.hold(ctx, run, on, Hold{Condition: HoldTheIntentStops, State: stopped})
+			}
 		}
 	}
 
@@ -239,6 +278,7 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 	readsAtOnce := entry.ReadsAtOnce
 	manifest, err := d.c.Manifests.Write(ctx, Actor, inputmanifest.New{
 		ItemID: on.ItemID, Stage: string(on.Stage), IntentID: on.IntentID,
+		ProjectID: projectOf(on),
 		Materials: handed, ReadAtOnceBound: &readsAtOnce, Excluded: withheld,
 	})
 	if err != nil {

@@ -199,8 +199,16 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Runs:       agentrun.NewWriter(d.pool, d.token),
 		Escalation: gateEscalation{gate: p.gate},
 		Notifier:   p.escalations,
+		Admissions: admissionSafeguards{p: p},
 	})
 	if err != nil {
+		return nil, err
+	}
+
+	// The grouper, where this composition opened a report store. It is the pass
+	// that turns reports into intents and it dispatches a role, so it is
+	// composed after the component that runs one.
+	if p.grouper, err = newGrouper(p); err != nil {
 		return nil, err
 	}
 

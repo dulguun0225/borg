@@ -14,11 +14,15 @@
 // [Settings], [Holds], [ReadEvents] and [Redactions] — and [Store] with
 // [NewStore]. submit.go is arrival: [Store.Submit], [RatePeriod],
 // [HarmMarkedShare] and [SourceShare], and the counters a refusal and an
-// unreadable submission are counted on. read.go is [Store.Get] and [Count]
-// with [Store.Counts]. grouping.go is [Store.Link], [Store.Admit] and
-// [Store.Ungrouped]. retention.go is [Retired] and [Store.Retire]. redact.go
-// is [Store.AppendErasure], [Store.Redact], [Store.RedactionPass] and
-// [Store.Replay].
+// unreadable submission are counted on. read.go is [Store.Get], [Count] with
+// [Store.Counts], and the two reads the pass that groups reports makes —
+// [Store.UngroupedIn], which says whether it has anything to group, and
+// [Store.Reports], which answers with the words — and [Store.AwaitingAdmission],
+// the reports Work renders while the safeguard holding one stands. grouping.go
+// is [Store.Link], [Store.Admit], [Store.ByIntent], [Group] with
+// [Store.Grouped] and [Store.Ungrouped]. retention.go is
+// [Retired] and [Store.Retire]. redact.go is [Store.AppendErasure],
+// [Store.Redact], [Store.RedactionPass] and [Store.Replay].
 //
 // The tests are db_test.go, submit_test.go, retention_test.go and
 // redact_test.go, every one of them against the database.
@@ -99,10 +103,18 @@
 // was grouped into and keeps it, which is what the rate of reports before and
 // after a release rests on.
 //
+// [Store.Reports] answers with the grouped reports beside the ungrouped ones,
+// because deciding which reports are one problem is a decision over all of
+// them, and it admits only the reports a human has admitted where its caller
+// says the admission safeguard is in force. Which of the two that is is not
+// read here: a safeguard is a record of the factory's graph and this store is
+// a second database.
+//
 // What is not built here: the way in that presents a submission, the entrance
-// it reaches, the grouper that reads these reports, and the notice a report
-// names are each their own package or their own step, and this store is
-// reached through [Store.Submit] and the reads above by all of them.
+// it reaches, the notice a report names, and the safeguard that makes a report
+// wait for a human's admission are each their own package or their own step,
+// and this store is reached through [Store.Submit] and the reads above by all
+// of them.
 //
 // What defines it: the report, the store, arrival, the counters, retention
 // and the erasure are

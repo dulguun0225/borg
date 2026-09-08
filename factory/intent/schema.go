@@ -54,6 +54,16 @@ const FormatVersionRequirement = "requirement/1"
 // the factory's own and optional on the other two, a request carrying it only
 // where the request is a revert naming the release it undoes.
 //
+// admitted_at is when a human admitted the intent at Work, and empty where
+// none has. Only the safeguard on the report store makes an intent wait for
+// it, and only an intent grouped from reports can carry one: no other source
+// arrives through a channel a stranger writes into.
+//
+// recurrence_of is the intent this one recurs on: a report matching work
+// already finished raises a new intent linked to the first, and never a
+// reopening. It is refused on any source but reports, no other source arriving
+// in a quantity that recurs, and an intent may not be its own recurrence.
+//
 // A requirement's pattern is one of the six or empty, and empty is admitted
 // only with an escape reason, which is what [Escaped] counts. superseded_at
 // and superseded_by are written together: an empty pointer with a time is a
@@ -76,6 +86,8 @@ var DDL = []string{
 	constraint_id text not null,
 	sent_back_by text not null,
 	outcome text not null,
+	recurrence_of text not null default '',
+	admitted_at text not null default '',
 	` + record.Constraints + `,
 	constraint source_known check (source in ('owner', 'reports', 'detector')),
 	constraint statement_present check (statement <> ''),
@@ -89,7 +101,11 @@ var DDL = []string{
 	constraint outcome_not_on_the_factorys_own check (source <> 'detector' or outcome = ''),
 	constraint deadline_is_time_layout check (deadline = '' or deadline ~ '` + record.TimePattern + `'),
 	constraint sent_back_by_known check (sent_back_by in
-		('', 'rework_request', 'gate_reject', 'replacement_constraint', 'acceptance_correction'))
+		('', 'rework_request', 'gate_reject', 'replacement_constraint', 'acceptance_correction')),
+	constraint recurrence_only_from_reports check (recurrence_of = '' or source = 'reports'),
+	constraint recurrence_is_not_itself check (recurrence_of <> id),
+	constraint admitted_only_from_reports check (admitted_at = '' or source = 'reports'),
+	constraint admitted_at_is_time_layout check (admitted_at = '' or admitted_at ~ '` + record.TimePattern + `')
 )`,
 
 	`create table if not exists ` + QuestionTable + ` (

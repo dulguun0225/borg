@@ -36,7 +36,7 @@ func NewIntake(pool *pgxpool.Pool, token lease.Token, notifier Notifier) *Intake
 // them, written once so a select and its scan cannot drift apart.
 const intentColumns = `id, actor_kind, actor_key, actor_key_basis, at, source, statement, state,
 	rounds, re_decompositions, tier, tier_policy_version, project_id, intended_effect,
-	evidence, deadline, constraint_id, sent_back_by, outcome`
+	evidence, deadline, constraint_id, sent_back_by, outcome, recurrence_of, admitted_at`
 
 // scanIntent reads one row of [intentColumns] into an [Intent].
 func scanIntent(row pgx.Row) (Intent, error) {
@@ -44,7 +44,8 @@ func scanIntent(row pgx.Row) (Intent, error) {
 	var kind, basis, source, state, sentBackBy string
 	err := row.Scan(&in.ID, &kind, &in.Actor.Key, &basis, &in.At, &source, &in.Statement, &state,
 		&in.Rounds, &in.ReDecompositions, &in.Tier.Value, &in.Tier.PolicyVersion, &in.ProjectID,
-		&in.IntendedEffect, &in.Evidence, &in.Deadline, &in.ConstraintID, &sentBackBy, &in.Outcome)
+		&in.IntendedEffect, &in.Evidence, &in.Deadline, &in.ConstraintID, &sentBackBy, &in.Outcome,
+		&in.RecurrenceOf, &in.AdmittedAt)
 	if err != nil {
 		return Intent{}, err
 	}
@@ -100,6 +101,11 @@ type Arrival struct {
 	// Deadline is the trigger's own time plus a constraint's period, an
 	// instant in UTC, where the arrival is itself the trigger.
 	Deadline string
+	// RecurrenceOf is the intent this one recurs on, written only on an intent
+	// grouped from reports: a report matching work already finished raises a
+	// new intent linked to the first, the timeline being finished and evidence
+	// that the fix did not work being a new intent and never a reopening.
+	RecurrenceOf string
 }
 
 // TakeIn writes an intent as it arrives: unrefined, zero rounds, zero
@@ -137,6 +143,10 @@ func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, arrival Arrival
 	if arrival.Source != SourceDetector && arrival.Tier.Written() {
 		return Intent{}, fmt.Errorf("%w: a tier is proposed at the confirming round", ErrRequesterOwed)
 	}
+	if arrival.RecurrenceOf != "" && arrival.Source != SourceReports {
+		return Intent{}, fmt.Errorf("%w: %s recurs on %s", ErrRecurrenceNotFromReports,
+			arrival.Source, arrival.RecurrenceOf)
+	}
 
 	in := Intent{
 		ID:           record.NewID(IDPrefix),
@@ -150,6 +160,7 @@ func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, arrival Arrival
 		Evidence:     evidence,
 		Deadline:     arrival.Deadline,
 		ConstraintID: arrival.ConstraintID,
+		RecurrenceOf: arrival.RecurrenceOf,
 	}
 
 	tx, err := i.pool.Begin(ctx)
@@ -164,11 +175,12 @@ func (i *Intake) TakeIn(ctx context.Context, actor record.Actor, arrival Arrival
 	_, err = tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, source, statement, state,
 		 rounds, re_decompositions, tier, tier_policy_version, project_id, intended_effect,
-		 evidence, deadline, constraint_id, sent_back_by, outcome)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, $10, $11, $12, '', $13, $14, $15, '', '')`,
+		 evidence, deadline, constraint_id, sent_back_by, outcome, recurrence_of, admitted_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, $10, $11, $12, '', $13, $14, $15, '', '', $16, '')`,
 		in.ID, FormatVersion, string(in.Actor.Kind), in.Actor.Key, string(in.Actor.Basis), in.At,
 		string(in.Source), in.Statement, string(in.State),
 		in.Tier.Value, in.Tier.PolicyVersion, in.ProjectID, in.Evidence, in.Deadline, in.ConstraintID,
+		in.RecurrenceOf,
 	)
 	if err != nil {
 		return Intent{}, fmt.Errorf("intent: taking in %s: %w", in.ID, err)
@@ -228,6 +240,33 @@ func (i *Intake) SetProject(ctx context.Context, actor record.Actor, intentID, p
 			return fmt.Errorf("%w: %s is in %s", ErrProjectAlreadyWritten, in.ID, in.ProjectID)
 		}
 		_, err := tx.Exec(ctx, `update `+Table+` set project_id = $1 where id = $2`, projectID, in.ID)
+		return err
+	})
+}
+
+// Admit records that a human admitted the intent at Work, which is what a
+// report-derived intent waits for while the safeguard on the report store
+// stands: until it is written, dispatch puts no agent on the intent and no
+// interview round runs. It is one action per group, the group already being
+// one intent.
+//
+// Only an intent grouped from reports takes one — no other source arrives
+// through a channel a stranger writes into — and admitting an intent already
+// admitted changes nothing, so the instant on the row is the first admission's
+// and not the last caller's.
+func (i *Intake) Admit(ctx context.Context, actor record.Actor, intentID string) error {
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	return i.write(ctx, intentID, "admitting", func(ctx context.Context, tx pgx.Tx, in Intent) error {
+		if in.Source != SourceReports {
+			return fmt.Errorf("%w: %s came from %s", ErrAdmissionNotFromReports, in.ID, in.Source)
+		}
+		if in.AdmittedAt != "" {
+			return nil
+		}
+		_, err := tx.Exec(ctx, `update `+Table+` set admitted_at = $1 where id = $2`,
+			record.Now(), in.ID)
 		return err
 	})
 }

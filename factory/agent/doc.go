@@ -1,6 +1,7 @@
-// Package agent owns the roles an agent is put on — [Interviewer], which runs
-// on an intent, and the four authoring roles [SpecAuthor], [Planner],
-// [TaskAuthor] and [Implementer] — the [Model] interface every role calls, and
+// Package agent owns the roles an agent is put on — [Grouper], which runs on a
+// project, [Interviewer], which runs on an intent, and the four authoring roles
+// [SpecAuthor], [Planner], [TaskAuthor] and [Implementer] — the [Model]
+// interface every role calls, and
 // the two implementations of it, [OpenRouter] and [Anthropic]. The words the
 // product ships per role are exported constants,
 // [ShippedGrouperPrompt], [ShippedInterviewerPrompt],
@@ -20,8 +21,10 @@
 // interviewer.go is [ShippedInterviewerPrompt], [Interviewer], the
 // [Interviewing] it takes, and the [Reading] it returns — a question or the
 // statements the requester confirms — with the parse of the reply.
-// decomposer.go is [ShippedDecomposerPrompt] and nothing else, and grouper.go
-// is [ShippedGrouperPrompt] and nothing else.
+// decomposer.go is [ShippedDecomposerPrompt] and nothing else. grouper.go is
+// [ShippedGrouperPrompt], [Grouper], the [Grouping] it takes with the [Report]
+// values that are the whole of what it is given, and the [Groups] it returns,
+// with the parse of the reply.
 // specauthor.go is [ShippedSpecAuthorPrompt], [SpecAuthor], the [Refining] it
 // takes with its [Question], [Requirement], [Constraint], [Hazard] and
 // [Returned] values, the [Refined] it returns with its [DraftCriterion] values,
@@ -165,9 +168,10 @@
 // (C2428, C2429, C2430, C2443), and what a version may be authored from is
 // ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/01-what-a-version-is-authored-from.md
 // beside it. The grouper's words, versioned and decided at that same gate so
-// that a safeguard there reaches the words a report is read by, are
+// that a safeguard there reaches the words a report is read by, and the
+// direction those words lean when the role is unsure, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0381). The units a provider returns per kind are
+// (C0381, C0394). The units a provider returns per kind are
 // ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
 // (C2358, C2364, C2365, C2367, C2386).
 //

@@ -13,7 +13,9 @@
 // with the row names as constants. notamongtheeleven.go is [NotAmongTheEleven],
 // what an owner authors on the factory-wide settings record, on production's
 // environment record and on the service record that is not gate policy, and
-// [SafeguardOnly], the two parameters nobody authors.
+// [SafeguardOnly], the four parameters nobody authors — two of them the
+// admissions a safeguard on the report store makes a report and a
+// report-derived intent wait for.
 //
 // quantity.go is [Quantity] and [Quantities], the numbers the health monitor
 // reads, with [DecidableQuantity] refusing a name outside them: the analysis

@@ -68,10 +68,11 @@
 // ../../end-goal/how-the-factory-works/10-fleet/04-paid-for-is-not-authored-by.md
 // (C2452).
 //
-// The run put on a project, and the processing location every run names, the
+// The run put on a project, the named credential every run of report-derived
+// work spends through, and the processing location every run names, the
 // grouper's own reads of arriving reports included, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0379, C0462).
+// (C0379, C0461, C0462).
 //
 // Also ../../end-goal/records.md (C2834).
 package agentrun

@@ -21,8 +21,8 @@ import (
 // -every-<name>, and an error is reported against the same name. They are the
 // component's own words and not this file's invention — the path's advance, the
 // watch, the pending holds re-evaluated, the pages the paging hours held back,
-// the drift sweep, the deprecation list, the acceptance rounds, and the score's
-// own pass over the outcomes.
+// the drift sweep, the deprecation list, the acceptance rounds, the score's own
+// pass over the outcomes, and the grouping of the reports that arrived.
 const (
 	passAdvance      = "advance"
 	passWatch        = "watch"
@@ -32,14 +32,16 @@ const (
 	passDeprecations = "deprecations"
 	passAcceptance   = "acceptance"
 	passScore        = "score"
+	passGrouper      = "grouper"
 )
 
 // The intervals each pass runs on where an owner sets none. They are this
 // interface's own choice and not the design's: the design says each component is
 // a pass of its own and leaves the numbers to whoever runs the process. The two
 // that move an item — the path's advance, which carries the merge queue and the
-// production deploys inside it — run oftenest; the readings that only report run
-// on the minute; and the two that walk every record of a class run on five.
+// production deploys inside it — run oftenest; the readings that only report,
+// the grouping of what arrived among them, run on the minute; and the two that
+// walk every record of a class run on five.
 var defaultIntervals = map[string]time.Duration{
 	passAdvance:      5 * time.Second,
 	passWatch:        30 * time.Second,
@@ -49,6 +51,7 @@ var defaultIntervals = map[string]time.Duration{
 	passDeprecations: 300 * time.Second,
 	passAcceptance:   60 * time.Second,
 	passScore:        300 * time.Second,
+	passGrouper:      60 * time.Second,
 }
 
 // intervals is what each pass runs on, by name.
@@ -70,7 +73,7 @@ func intervalFlags(flags *flag.FlagSet) intervals {
 // follows a deploy, then what walks a class of record.
 var passOrder = []string{
 	passAdvance, passWatch, passReevaluate, passDeferred,
-	passDrift, passDeprecations, passAcceptance, passScore,
+	passDrift, passDeprecations, passAcceptance, passScore, passGrouper,
 }
 
 // pass is one component's pass: the name its interval flag and its errors are
@@ -131,6 +134,7 @@ func newPasses(p *path, every intervals, changed func(kind, id string)) *passes 
 		passDrift:        p.driftDetectorPages,
 		passDeprecations: p.raiseRemovals,
 		passAcceptance:   p.acceptancePass,
+		passGrouper:      p.groupReports,
 	}
 	for _, name := range passOrder {
 		interval := defaultIntervals[name]
@@ -228,6 +232,11 @@ func (ps *passes) announce(name string) {
 	case passAcceptance:
 		ps.changed("work", listAddressID)
 	case passScore, passDeferred:
+		ps.changed("factory", listAddressID)
+	case passGrouper:
+		// An intent raised from reports is a timeline in Work, and the reports
+		// still in no group are a number on Factory.
+		ps.changed("work", listAddressID)
 		ps.changed("factory", listAddressID)
 	}
 }

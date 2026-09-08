@@ -101,6 +101,17 @@ const (
 	// safeguard on that record and nothing else, and it is listed in
 	// [SafeguardOnly] for that reason.
 	DriftDetectorLastCheckMaxAge Parameter = "drift_detector_last_check_max_age"
+	// ReportAdmission is the safeguard that holds an arrived report ungrouped
+	// until a human admits it at Work, so only an admitted report reaches the
+	// grouper. Its subject is the report store, and it bounds nothing: what it
+	// adds is the human.
+	ReportAdmission Parameter = "report_admission"
+	// ReportDerivedIntentAdmission is the safeguard that holds an intent
+	// grouped from reports until a human admits it at Work: with one in force
+	// the intent arrives and waits, dispatch putting no agent on it and no
+	// interview round running. It is one action per group, the group already
+	// being one intent.
+	ReportDerivedIntentAdmission Parameter = "report_derived_intent_admission"
 	// ExplicitThreshold is the absolute number a service's quantity is read
 	// against beside the comparison, with [ExplicitThresholdSize] as the smallest
 	// change from it worth catching. Both are fields of the service record, and
@@ -222,6 +233,11 @@ const (
 	// own kind because the value is a name and not a number, and the only
 	// parameter that takes it is the strategy default.
 	KindStrategy Kind = "strategy"
+	// KindNothing is no value at all: the parameter names a safeguard that adds
+	// a human and bounds nothing, so there is no shape for a bound to take. It
+	// is [ScopeNothing] one column over — no record to author on, and nothing
+	// to author there.
+	KindNothing Kind = "nothing"
 	// KindPredicate is one predicate on one element of a contract: a
 	// [PredicateKind] and, where that kind takes one, its argument. It is the shape a
 	// safeguard's predicate takes as its bound and of nothing else, and it is not a

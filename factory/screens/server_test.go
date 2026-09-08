@@ -91,6 +91,43 @@ func TestEveryReadRouteDecodesToItsOwnViewType(t *testing.T) {
 	}
 }
 
+// TestTheItemViewCarriesTheReportsGroupedIntoItsIntent: the report reaches
+// Work under the intent it was grouped into, on the item address and on no
+// address of its own, with the fields a human decides an admission on.
+func TestTheItemViewCarriesTheReportsGroupedIntoItsIntent(t *testing.T) {
+	views := &fakeViews{
+		item: func(context.Context, principal.Principal, string) (screens.Item, error) {
+			return screens.Item{
+				ID: "it_1", IntentID: "int_1",
+				Reports: []screens.ReportSummary{{
+					ID: "rep_1", Kind: "bug", HarmMarked: true,
+					CollectedAt: "2026-09-04T07:00:00Z", NoticeID: "con_1",
+					Text: "the export button does nothing",
+				}},
+			}, nil
+		},
+	}
+	s := screens.New(views, &fakeCalls{}, theVersion, noClient)
+
+	rec := get(t, s, "/api/item/it_1", "hk_caller")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body.String())
+	}
+	var view screens.Item
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(view.Reports) != 1 {
+		t.Fatalf("the item view carries %d reports, want the one grouped into its intent", len(view.Reports))
+	}
+	one := view.Reports[0]
+	if one.ID != "rep_1" || one.Kind != "bug" || !one.HarmMarked || one.Admitted ||
+		one.NoticeID != "con_1" || one.Text != "the export button does nothing" ||
+		one.CollectedAt != "2026-09-04T07:00:00Z" {
+		t.Errorf("the report reads %+v, want every field the view was given", one)
+	}
+}
+
 // TestAMissingOrWrongVersionIsRefused: every /api/ route refuses a call
 // whose version does not match the server's, with the reload_required
 // shape and never the answer.

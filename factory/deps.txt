@@ -449,6 +449,25 @@
 # the three names a started process is told the token, the entrance and the
 # socket through: the shipped source is what reads them, so they are spelled
 # there and the target that sets them imports them.
+#
+# grouper is the pass that turns reports into intents, and its four arrows are
+# the four records one group touches: reportstore for the reads it makes and the
+# link it writes on a report it grouped, intent for the intake call that raises
+# the one an intent grouped from reports is, notifier for the page a
+# harm-marked report fires, and record and principal for the actor a write
+# carries and the principal a read of words is made as. It has no arrow to
+# dispatch, though what it does is dispatch a role: the material an input
+# manifest names and the reply an agent parses are the fleet's own vocabulary,
+# so a pass that named either would import the whole of what runs an agent to
+# make one call, and the dispatch reaches it through an interface the
+# composition implements instead. It has no arrow to gate or artifact either,
+# and that absence is the point: grouping takes no gate and writes no artifact
+# version, so the two claims are held by this line as well as by a test.
+#
+# grouper -> intent is the pool too: the state of an intent a group already
+# names decides whether an arriving report attaches to it or raises a
+# recurrence, and that state is a field of the intent record read the way every
+# other reader reads it.
 
 record
 gatepolicy
@@ -499,6 +518,7 @@ mergequeue -> build contract decisionlog environment gate halt intent item lease
 notifier -> decisionlog driftdetector factorysettings lastcheck lease people principal record service
 healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy principal record release service window
 contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item lastcheck policy record release service window
+grouper -> intent notifier principal record reportstore
 agent -> secretref principal
 localtarget -> principal secretref targetseam wayin
 screens -> principal record
@@ -506,7 +526,7 @@ clientdist
 postgres -> agentrun area artifact build consumercontract constraint contract criterion decisionlog deploy environment factorysettings fleetentry halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record redaction release safeguard screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent agentrun area artifact boundary build clientdist driftdetector constraint consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings fleetentry gate gatepolicy halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release reportstore safeguard score screens screenstatemachine secretref securitypredicate service targetseam wayin window
+cmd/factory -> agent agentrun area artifact boundary build clientdist driftdetector constraint consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings fleetentry gate gatepolicy grouper halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release reportstore safeguard score screens screenstatemachine secretref securitypredicate service targetseam wayin window
 cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
 test dispatch -> postgres

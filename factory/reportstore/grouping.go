@@ -60,6 +60,30 @@ func (s *Store) Admit(ctx context.Context, reportID string) error {
 	return nil
 }
 
+// Group is what one intent's reports amount to without their words: how many
+// were grouped into it, and whether any of them says a person is being harmed
+// by the software.
+type Group struct {
+	Reports    int
+	HarmMarked bool
+}
+
+// Grouped is [Group] for one intent. It reads no words and appends no read
+// event: a count and a mark are facts about the group and not what the
+// reporters wrote, so a screen showing how large a group is serves nothing
+// anybody has to be answerable for having read.
+func (s *Store) Grouped(ctx context.Context, intentID string) (Group, error) {
+	if intentID == "" {
+		return Group{}, ErrIntentIDEmpty
+	}
+	var g Group
+	if err := s.pool.QueryRow(ctx, `select count(*), coalesce(bool_or(harm_marked), false)
+		from `+ReportTable+` where intent_id = $1`, intentID).Scan(&g.Reports, &g.HarmMarked); err != nil {
+		return Group{}, fmt.Errorf("reportstore: reading the group of %s: %w", intentID, err)
+	}
+	return g, nil
+}
+
 // Ungrouped is how many reports are linked to no intent, which is the number
 // Factory reads: a report that is never grouped is work nobody sees, so every
 // report is either linked or counted here.
@@ -90,4 +114,37 @@ func (s *Store) whyNoRow(ctx context.Context, reportID string, already error) er
 		return fmt.Errorf("%w: %s", already, reportID)
 	}
 	return nil
+}
+
+// ByIntent is the ids of the reports grouped into one intent, oldest first,
+// which is what Work renders under that intent's own entry.
+//
+// It answers with ids and never with the reports: every read here that returns
+// words appends a read event naming who read them — [Store.Get] one report at a
+// time, [Store.Reports] and [Store.AwaitingAdmission] one per report they
+// answer with — and an enumeration that carried the words would serve them with
+// nobody answerable for the read.
+func (s *Store) ByIntent(ctx context.Context, intentID string) ([]string, error) {
+	if intentID == "" {
+		return nil, ErrIntentIDEmpty
+	}
+	rows, err := s.pool.Query(ctx, `select id from `+ReportTable+`
+		where intent_id = $1 order by collected_at, id`, intentID)
+	if err != nil {
+		return nil, fmt.Errorf("reportstore: reading the reports grouped into %s: %w", intentID, err)
+	}
+	defer rows.Close()
+
+	var grouped []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("reportstore: reading a report grouped into %s: %w", intentID, err)
+		}
+		grouped = append(grouped, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reportstore: reading the reports grouped into %s: %w", intentID, err)
+	}
+	return grouped, nil
 }

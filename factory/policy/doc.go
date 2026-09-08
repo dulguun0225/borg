@@ -47,6 +47,8 @@
 // where a safeguard on the explicit threshold writes the number and the size
 // beside it onto the service record, and
 // [Factory.WriteSafeguardWithdrawal] and [Factory.ApproveSafeguardWithdrawal].
+// admission.go is [Admissions] with [Reader.ReportStoreAdmissions], the two
+// safeguards drawn on the report store read in force.
 // stop.go is the halt and the legal hold with the same three calls each.
 // redaction.go is [Factory.WriteRedaction], the record one erasure writes:
 // the erasure-list row it names is appended before the call is made, so the
@@ -136,9 +138,10 @@
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/README.md
 // (C2328).
 //
-// The redaction is
+// The redaction, and the safeguard whose subject is the report store with each
+// of the two waits an owner adds a human with, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0445).
+// (C0438, C0439, C0445).
 //
 // The legal hold is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md

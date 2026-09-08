@@ -150,8 +150,9 @@ const (
 	// this yet.
 	KindAdvisoryRemediation Kind = "advisory_remediation"
 	// KindHarmMarkedReport is a report marked as describing harm to a
-	// person. Unbuilt: nothing raises this yet, and [Notifier.Notify]
-	// still reads the factory-wide settings' off switch and cap for it.
+	// person. The pass that groups reports raises it, one per intent a
+	// marked report was grouped into, and [Notifier.Notify] reads the
+	// factory-wide settings' off switch and cap for it.
 	KindHarmMarkedReport Kind = "harm_marked_report"
 	// KindIncidentBoundExceeded is an incident-raised item worked past the
 	// bound an owner authors on the service record. Unbuilt: nothing raises

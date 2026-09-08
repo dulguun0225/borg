@@ -13,9 +13,9 @@ import (
 
 var (
 	// ErrNamedNothing is returned by [Writer.Write] for a manifest naming
-	// neither an item nor an intent. A manifest is written for a dispatch, and
-	// a dispatch is always for one of the two.
-	ErrNamedNothing = errors.New("inputmanifest: the manifest names neither an item nor an intent")
+	// neither an item, an intent, nor a project. A manifest is written for a
+	// dispatch, and a dispatch is always for one of the three.
+	ErrNamedNothing = errors.New("inputmanifest: the manifest names neither an item, an intent, nor a project")
 	// ErrStageWithoutAnItem is returned for a stage on a manifest that names
 	// no item. A stage is the item's, so one without an item names nothing.
 	ErrStageWithoutAnItem = errors.New("inputmanifest: the manifest names a stage and no item")
@@ -47,9 +47,10 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 // New is what the dispatch knows before the run: what it is for, what it
 // handed over, and what it left out.
 type New struct {
-	ItemID   string
-	Stage    string
-	IntentID string
+	ItemID    string
+	Stage     string
+	IntentID  string
+	ProjectID string
 
 	Materials            []Material
 	ReadAtOnceBound      *int64
@@ -64,7 +65,7 @@ func (w *Writer) Write(ctx context.Context, actor record.Actor, n New) (Manifest
 	if err := actor.Validate(); err != nil {
 		return Manifest{}, err
 	}
-	if n.ItemID == "" && n.IntentID == "" {
+	if n.ItemID == "" && n.IntentID == "" && n.ProjectID == "" {
 		return Manifest{}, ErrNamedNothing
 	}
 	if n.Stage != "" && n.ItemID == "" {
@@ -91,6 +92,7 @@ func (w *Writer) Write(ctx context.Context, actor record.Actor, n New) (Manifest
 		ItemID:               n.ItemID,
 		Stage:                n.Stage,
 		IntentID:             n.IntentID,
+		ProjectID:            n.ProjectID,
 		Materials:            n.Materials,
 		ReadAtOnceBound:      n.ReadAtOnceBound,
 		SelectionRuleVersion: n.SelectionRuleVersion,
@@ -121,10 +123,11 @@ func (w *Writer) Write(ctx context.Context, actor record.Actor, n New) (Manifest
 
 	_, err = tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at,
-		item_id, stage, intent_id, materials, read_at_once_bound, selection_rule_version, excluded)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		item_id, stage, intent_id, project_id, materials, read_at_once_bound,
+		selection_rule_version, excluded)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		m.ID, FormatVersion, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At,
-		m.ItemID, m.Stage, m.IntentID, materials, bound, m.SelectionRuleVersion, excluded,
+		m.ItemID, m.Stage, m.IntentID, m.ProjectID, materials, bound, m.SelectionRuleVersion, excluded,
 	)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("inputmanifest: writing %s: %w", m.ID, err)

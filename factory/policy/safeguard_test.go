@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"context"
 	"slices"
 	"testing"
 
@@ -162,4 +163,94 @@ func TestASafeguardOnAnAreaReachesAnItemInTheChain(t *testing.T) {
 	if !applied.HumanBySafeguard {
 		t.Error("a safeguard on the outer area does not reach an item in the inner one")
 	}
+}
+
+// TestTheTwoAdmissionsOnTheReportStore: an owner places each admission the way
+// they place any safeguard — one parameter, the report store as the subject,
+// no bound — and the mechanism that reads it sees it in force. Neither is read
+// where neither was placed, which is what an install that never asked for the
+// wait costs.
+//
+// The subject is the factory-wide settings record's id, the report store having
+// no record of its own, so a safeguard drawn on anything else reaches nothing.
+func TestTheTwoAdmissionsOnTheReportStore(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	store := safeguard.Subject{Kind: safeguard.SubjectReportStore, ID: in.settings.ID}
+	admissions, err := in.reader.ReportStoreAdmissions(ctx)
+	if err != nil {
+		t.Fatalf("ReportStoreAdmissions: %v", err)
+	}
+	if admissions.ArrivingReports || admissions.ReportDerivedIntents {
+		t.Errorf("an install with no such safeguard reads %+v, want nothing waiting", admissions)
+	}
+
+	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.ReportAdmission,
+		store, safeguard.Bound{}, safeguard.Routing{}); err != nil {
+		t.Fatalf("placing the safeguard on arriving reports: %v", err)
+	}
+	if admissions, err = in.reader.ReportStoreAdmissions(ctx); err != nil {
+		t.Fatalf("ReportStoreAdmissions: %v", err)
+	}
+	if !admissions.ArrivingReports || admissions.ReportDerivedIntents {
+		t.Errorf("one safeguard placed reads %+v, want the arriving reports held alone", admissions)
+	}
+
+	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.ReportDerivedIntentAdmission,
+		store, safeguard.Bound{}, safeguard.Routing{}); err != nil {
+		t.Fatalf("placing the safeguard on report-derived intents: %v", err)
+	}
+	if admissions, err = in.reader.ReportStoreAdmissions(ctx); err != nil {
+		t.Fatalf("ReportStoreAdmissions: %v", err)
+	}
+	if !admissions.ArrivingReports || !admissions.ReportDerivedIntents {
+		t.Errorf("both safeguards placed read %+v, want both held", admissions)
+	}
+
+	// A safeguard drawn on a service reaches nothing here: the report store is
+	// one store and the subject an owner names for it is the store itself.
+	elsewhere, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.ReportAdmission,
+		safeguard.Subject{Kind: safeguard.SubjectService, ID: in.service.ID},
+		safeguard.Bound{}, safeguard.Routing{})
+	if err != nil {
+		t.Fatalf("placing a safeguard on a service: %v", err)
+	}
+	if elsewhere.Subject.Kind != safeguard.SubjectService {
+		t.Errorf("the safeguard drawn elsewhere reads %+v", elsewhere.Subject)
+	}
+
+	// Withdrawing one is how the wait is taken back: what was waiting on it
+	// moves on the next pass rather than waiting for a human nobody owes.
+	if err := withdraw(t, ctx, in, gatepolicy.ReportAdmission, store); err != nil {
+		t.Fatalf("withdrawing the safeguard on arriving reports: %v", err)
+	}
+	if admissions, err = in.reader.ReportStoreAdmissions(ctx); err != nil {
+		t.Fatalf("ReportStoreAdmissions: %v", err)
+	}
+	if admissions.ArrivingReports || !admissions.ReportDerivedIntents {
+		t.Errorf("after the withdrawal the admissions read %+v, want the intents' alone", admissions)
+	}
+}
+
+// withdraw withdraws every safeguard on one parameter and subject, which is
+// what an owner does at Factory to take a wait back. A withdrawal is decided at
+// a row and not merely written, so this writes it and then approves it the way
+// that row's verdict does.
+func withdraw(t *testing.T, ctx context.Context, in installed,
+	parameter gatepolicy.Parameter, subject safeguard.Subject) error {
+	t.Helper()
+	placed, err := safeguard.BySubjects(ctx, in.pool, parameter, []safeguard.Subject{subject})
+	if err != nil {
+		return err
+	}
+	for _, one := range placed {
+		written, _, err := in.factory.WriteSafeguardWithdrawal(ctx, owner, one.ID)
+		if err != nil {
+			return err
+		}
+		if _, err := in.factory.ApproveSafeguardWithdrawal(ctx, owner, written.ID, "dl_a_close_event"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

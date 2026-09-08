@@ -111,6 +111,15 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agen
 				}, nil
 			}
 		}
+		// An intent the grouper raised, whose statement is the summary the pass
+		// wrote over the reports it was raised from. The interviewer reads the
+		// statement, which is all it ever has.
+		if strings.Contains(user, groupedStatement) {
+			return agent.Reply{
+				Text:  "READING:\nREQUIREMENT: When the form is saved, the system shall answer inside a second.",
+				Units: map[string]int64{agent.UnitsOutput: 8},
+			}, nil
+		}
 		// A revert, whose intent the health monitor wrote at a rollback. The
 		// interviewer reads the statement, which is all it ever has.
 		if strings.Contains(user, "failed its analysis window and was rolled back") {
@@ -146,6 +155,8 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agen
 			}, nil
 		}
 		return agent.Reply{}, fmt.Errorf("fake model: the spec author's prompt names no statement this fake authors for")
+	case agent.ShippedGrouperPrompt:
+		return groupsOf(user)
 	case agent.ShippedPlannerPrompt:
 		// The plan is prose and the gate over it takes Edit in place, so what
 		// this fake writes is one paragraph naming what the implementer will
@@ -172,6 +183,49 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agen
 		return agent.Reply{Text: text, Units: map[string]int64{agent.UnitsOutput: 37}}, nil
 	}
 	return agent.Reply{}, fmt.Errorf("fake model: the system prompt is neither role's")
+}
+
+// groupedStatement is what the pass that groups reports opens every statement
+// it writes with, which is how this fake tells an intent the grouper raised
+// from one somebody typed. The two spellings are one search apart: the other is
+// statementOf in ../../grouper/grouping.go.
+const groupedStatement = "end-user report(s) grouped as one problem"
+
+// reportLine picks the reports out of the grouper's user message: one line per
+// report, its id, its kind, and the words, which is the shape agent.Grouper
+// renders them in.
+var reportLine = regexp.MustCompile(`(?m)^(rep_[0-9a-f]{32}) (bug|complaint): (.*)$`)
+
+// groupsOf is the grouper's reply for the reports the user message lists: one
+// group per first word of a report's words. Deciding whether two free-text
+// reports are one problem is what the real model is for, so this fake groups on
+// something a test can write, and every test that drives the grouper says which
+// reports are one problem by starting them with the same word.
+//
+// Every report the message lists is in a group, which is what the role's prompt
+// requires: a report that goes with no other is a group of its own.
+func groupsOf(user string) (agent.Reply, error) {
+	listed := reportLine.FindAllStringSubmatch(user, -1)
+	if len(listed) == 0 {
+		return agent.Reply{}, fmt.Errorf("fake model: the grouper's prompt lists no report")
+	}
+	var order []string
+	together := map[string][]string{}
+	for _, one := range listed {
+		words := strings.Fields(one[3])
+		if len(words) == 0 {
+			return agent.Reply{}, fmt.Errorf("fake model: report %s carries no words", one[1])
+		}
+		if _, seen := together[words[0]]; !seen {
+			order = append(order, words[0])
+		}
+		together[words[0]] = append(together[words[0]], one[1])
+	}
+	text := "GROUPS:"
+	for _, word := range order {
+		text += "\n" + strings.Join(together[word], " ")
+	}
+	return agent.Reply{Text: text, Units: map[string]int64{agent.UnitsOutput: 5}}, nil
 }
 
 // answers is what goes between the word CRITERION and the colon: the id of the

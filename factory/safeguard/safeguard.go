@@ -59,8 +59,15 @@ const (
 	// exists; a mechanism reading this subject does not read that record's
 	// other fields through it.
 	SubjectPredicateKindsList SubjectKind = "factory_settings"
-	// SubjectReportStore is the report store. Nothing derives a safeguard
-	// reading it yet: the report store is not built.
+	// SubjectReportStore is the report store, which the two admissions are
+	// drawn on: one holding an arrived report ungrouped until a human admits
+	// it, and one holding a report-derived intent until a human admits that.
+	// The store has no record of its own, so a safeguard on it is stored
+	// against the factory-wide settings record's id, the way
+	// [SubjectPredicateKindsList] is and for the same reason: the rates and
+	// the retention that bound this store are fields of that record, and a
+	// mechanism reading this subject does not read its other fields through
+	// the id.
 	SubjectReportStore SubjectKind = "report_store"
 	// SubjectDriftDetectorLastCheck is the drift detector's last check, which a
 	// safeguard binds a maximum age on through

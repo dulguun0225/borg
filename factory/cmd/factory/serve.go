@@ -135,7 +135,7 @@ func serveCommand(args []string) error {
 	// install runs releases from, which is the one host directory this process
 	// is given, and this is the one place it is named.
 	channel, closeReports, err := openReportStore(ctx, reportURL,
-		filepath.Join(*targets, "erasure-list"), pool)
+		filepath.Join(*targets, "erasure-list"), pool, token)
 	if err != nil {
 		return err
 	}

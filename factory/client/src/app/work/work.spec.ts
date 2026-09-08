@@ -1,13 +1,17 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { ApiClient } from '../api/client';
-import { Decision, Home, Item, Work } from '../api/types';
+import { AwaitingAdmission, Decision, Home, Item, Work } from '../api/types';
 import { ScreenState, malformations } from '../state/screen-state';
 import { predicateViolations } from '../state/predicates';
 import { FakeEventSource, FakeFetch, installFakes, restoreFakes } from '../../testing/fakes';
 import { WorkScreen, workMachine } from './work';
 import { DecisionScreen } from './decision';
 import { ItemScreen } from './item';
+
+// An install where an owner placed neither safeguard on the report store:
+// nothing waits for an admission, which is every home view but the one below.
+const NOTHING_AWAITING: AwaitingAdmission = { Reports: null, Intents: null };
 
 const HOME_WITH_ROWS: Home = {
   Badge: {
@@ -18,6 +22,7 @@ const HOME_WITH_ROWS: Home = {
     Escalations: 0,
     FactoryHoldsForAHuman: 0,
     ConstraintCausedStops: 0,
+    Admissions: 0,
   },
   LastChecks: [
     {
@@ -36,6 +41,7 @@ const HOME_WITH_ROWS: Home = {
       OldestUnmatchedHoldAgeSeconds: 7200,
     },
   ],
+  Awaiting: NOTHING_AWAITING,
   Digest: null,
 };
 
@@ -48,9 +54,11 @@ const HOME_AT_ZERO: Home = {
     Escalations: 0,
     FactoryHoldsForAHuman: 0,
     ConstraintCausedStops: 0,
+    Admissions: 0,
   },
   LastChecks: [],
   Readiness: [],
+  Awaiting: NOTHING_AWAITING,
   Digest: { Releases: 4, Decisions: 9, AutoApprovals: 7 },
 };
 
@@ -95,7 +103,10 @@ const PENDING_DECISION: Decision = {
 
 const ITEM_BASE: Item = {
   ID: 'I1',
+  IntentID: '',
   IntentStatement: 'let a customer export their invoices',
+  Reports: null,
+  IntentAwaitsAdmission: false,
   Versions: [],
   Decisions: [],
   ImplementationDiff: '',
@@ -110,6 +121,9 @@ const ITEM_BASE: Item = {
 
 const ITEM_APPROVABLE: Item = { ...ITEM_BASE, ApprovableThrough: true };
 
+// One report waiting on a human and one already admitted, which is every state
+// a report is rendered in: the harm mark and the notice on the first, neither
+// on the second.
 describe('Work screen', () => {
   let net: FakeFetch;
   let sources: FakeEventSource[];
@@ -339,6 +353,8 @@ describe('Work screen', () => {
     expect(args['OpenedInWorkAt']).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
     fixture.destroy();
   });
+
+
 
   async function driveHome(state: ScreenState): Promise<ComponentFixture<WorkScreen>> {
     TestBed.resetTestingModule();

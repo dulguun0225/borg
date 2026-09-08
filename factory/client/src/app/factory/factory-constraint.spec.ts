@@ -84,9 +84,11 @@ const NOTHING_WAITS: Home = {
     Escalations: 0,
     FactoryHoldsForAHuman: 0,
     ConstraintCausedStops: 0,
+    Admissions: 0,
   },
   LastChecks: [],
   Readiness: [],
+  Awaiting: { Reports: null, Intents: null },
   Digest: null,
 };
 

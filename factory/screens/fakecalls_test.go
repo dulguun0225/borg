@@ -18,6 +18,8 @@ type fakeCalls struct {
 	confirmReading         func(context.Context, principal.Principal, screens.ConfirmReadingArgs) error
 	acceptDelivery         func(context.Context, principal.Principal, screens.AcceptDeliveryArgs) error
 	endIntent              func(context.Context, principal.Principal, screens.EndIntentArgs) error
+	admitIntent            func(context.Context, principal.Principal, screens.AdmitIntentArgs) error
+	admitReport            func(context.Context, principal.Principal, screens.AdmitReportArgs) error
 	setPriority            func(context.Context, principal.Principal, screens.SetPriorityArgs) error
 	endItem                func(context.Context, principal.Principal, screens.EndItemArgs) error
 	decide                 func(context.Context, principal.Principal, screens.DecideArgs) error
@@ -103,6 +105,20 @@ func (f *fakeCalls) EndIntent(ctx context.Context, p principal.Principal, a scre
 		return nil
 	}
 	return f.endIntent(ctx, p, a)
+}
+
+func (f *fakeCalls) AdmitIntent(ctx context.Context, p principal.Principal, a screens.AdmitIntentArgs) error {
+	if f.admitIntent == nil {
+		return nil
+	}
+	return f.admitIntent(ctx, p, a)
+}
+
+func (f *fakeCalls) AdmitReport(ctx context.Context, p principal.Principal, a screens.AdmitReportArgs) error {
+	if f.admitReport == nil {
+		return nil
+	}
+	return f.admitReport(ctx, p, a)
 }
 
 func (f *fakeCalls) SetPriority(ctx context.Context, p principal.Principal, a screens.SetPriorityArgs) error {

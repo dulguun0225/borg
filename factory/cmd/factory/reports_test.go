@@ -14,9 +14,11 @@ import (
 	"time"
 
 	"github.com/dulguun0225/borg/factory/constraint"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/reportstore"
+	"github.com/dulguun0225/borg/factory/screens"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/wayin"
 )
@@ -299,4 +301,127 @@ func (nowhere) NoticeInForce(context.Context, string) (wayin.Notice, error) {
 
 func (nowhere) Submit(context.Context, wayin.Submission, time.Time) (wayin.Result, error) {
 	return wayin.Result{}, nil
+}
+
+// TestAReportAppearsUnderItsIntentAndIsAdmittedThere is the other end of the
+// channel: what a stranger wrote reaches Work under the intent it was grouped
+// into and under no address of its own, and the two admissions a safeguard on
+// the report store makes an owner perform are made from there — one report,
+// and one action over the group the intent already is.
+func TestAReportAppearsUnderItsIntentAndIsAdmittedThere(t *testing.T) {
+	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
+	reports := newReports(t, ctx, &d)
+
+	res, err := run(ctx, d, of(theStatement))
+	if err != nil {
+		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
+	}
+	svc, err := service.Get(ctx, d.pool, res.serviceID)
+	if err != nil {
+		t.Fatalf("reading the service: %v", err)
+	}
+	const theNotice = "what you write here reaches the people who make this software"
+	authored, err := constraint.NewWriter(d.pool, d.token).Arrive(ctx,
+		owner(t, ctx, d.pool, d.token, d.human), constraint.New{
+			Kind: constraint.KindNotice, Reach: constraint.ReachProject,
+			SubjectID: svc.ProjectID, Statement: theNotice,
+		})
+	if err != nil {
+		t.Fatalf("authoring the notice: %v", err)
+	}
+
+	// Two reports of one problem, both through the way in the deploy placed.
+	socket := localtarget.WayInSocket(d.dir, theService)
+	waitForTheWayIn(t, socket)
+	client := overTheSocket(socket)
+	shown := openSession(t, client)
+	for _, words := range []string{"the export button does nothing", "exporting invoices fails"} {
+		result := submit(t, client, `{"kind":"bug","harm_marked":true,"text":"`+words+`",`+
+			`"session":"`+shown.Session+`","notice_id":"`+shown.NoticeID+`"}`)
+		if !result.Accepted {
+			t.Fatalf("the way in rendered %+v for %q, want it accepted", result, words)
+		}
+	}
+	arrived := reports.ids(t, ctx)
+	if len(arrived) != 2 {
+		t.Fatalf("the store holds %d reports, want the two that were submitted", len(arrived))
+	}
+
+	// The intent the grouper raises from them, decomposed into the item whose
+	// timeline they are read under. The grouping is written here because the
+	// grouper is its own step; what this test is about is the screen.
+	s := newScreens(t, ctx, d, out)
+	raised, err := s.p.intake.TakeIn(ctx, owner(t, ctx, d.pool, d.token, d.human), intent.Arrival{
+		Source: intent.SourceReports, ProjectID: svc.ProjectID,
+		Statement: theService + ": " + theSecondStatement,
+	})
+	if err != nil {
+		t.Fatalf("raising the intent the reports were grouped into: %v", err)
+	}
+	_, candidates, err := s.p.authorIntent(ctx, asked{
+		statement: theSecondStatement, services: []string{theService},
+		resumeIntentID: raised.ID,
+	}, "grouped from reports")
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("decomposing the report-derived intent = %d items, %v\n%s", len(candidates), err, out)
+	}
+	itemID := candidates[0].itemID
+	for _, id := range arrived {
+		if err := reports.channel.store.Link(ctx, id, raised.ID); err != nil {
+			t.Fatalf("linking %s to %s: %v", id, raised.ID, err)
+		}
+	}
+
+	// The timeline carries both, oldest first, each waiting on a human.
+	var view screens.Item
+	s.get(t, "/api/item/"+itemID, &view)
+	if view.IntentID != raised.ID {
+		t.Errorf("the item view names intent %q, want %s", view.IntentID, raised.ID)
+	}
+	if len(view.Reports) != 2 {
+		t.Fatalf("the item view carries %d reports, want the two grouped into its intent: %+v", len(view.Reports), view.Reports)
+	}
+	first := view.Reports[0]
+	if first.ID != arrived[0] || first.Kind != string(reportstore.KindBug) || !first.HarmMarked ||
+		first.NoticeID != authored.ID || first.CollectedAt == "" || first.Admitted ||
+		first.Text != "the export button does nothing" {
+		t.Errorf("the first report reads %+v, want the words, the mark, the notice and no admission", first)
+	}
+
+	// One report admitted on its own, which is what the safeguard holding a
+	// report before the grouper reads it makes a human do. It is one report at
+	// a time: such a report is ungrouped and belongs to no intent, so there is
+	// no group for one action to cover.
+	s.mustCall(t, "admitReport", screens.AdmitReportArgs{ReportID: arrived[0]})
+	s.get(t, "/api/item/"+itemID, &view)
+	if !view.Reports[0].Admitted || view.Reports[1].Admitted {
+		t.Errorf("after admitting %s the reports read %+v, want that one admitted and no other", arrived[0], view.Reports)
+	}
+
+	// The intent's own admission, which the other safeguard makes a human write
+	// and which is one action over the group the intent already is. It is the
+	// intent record's field and moves no report: the two admissions are
+	// separate, and a group whose every report is admitted may still be an
+	// intent nobody has admitted.
+	s.mustCall(t, "admitIntent", screens.AdmitIntentArgs{IntentID: raised.ID})
+	s.get(t, "/api/item/"+itemID, &view)
+	if !view.Reports[0].Admitted || view.Reports[1].Admitted {
+		t.Errorf("admitting the intent moved a report's own admission: %+v", view.Reports)
+	}
+	admitted, err := intent.Get(ctx, d.pool, raised.ID)
+	if err != nil {
+		t.Fatalf("reading the admitted intent: %v", err)
+	}
+	if admitted.AdmittedAt == "" {
+		t.Error("the admitted intent carries no admission")
+	}
+
+	// A report id naming nothing is a 404 and not a fault of the server's own,
+	// and so is an intent id naming nothing.
+	if status, _ := s.call(t, "admitReport", screens.AdmitReportArgs{ReportID: "rep_nothing"}); status != http.StatusNotFound {
+		t.Errorf("admitting a report the store does not hold answered %d, want 404", status)
+	}
+	if status, _ := s.call(t, "admitIntent", screens.AdmitIntentArgs{IntentID: "in_nothing"}); status != http.StatusNotFound {
+		t.Errorf("admitting an intent the store does not hold answered %d, want 404", status)
+	}
 }

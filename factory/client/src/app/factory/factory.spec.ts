@@ -17,16 +17,13 @@ const NOTHING_WAITS: Home = {
     Escalations: 0,
     FactoryHoldsForAHuman: 0,
     ConstraintCausedStops: 0,
+    Admissions: 0,
   },
   LastChecks: [],
   Readiness: [
-    {
-      Role: 'implementer',
-      EntryCovers: false,
-      RolePromptInForce: true,
-      OldestUnmatchedHoldAgeSeconds: 7200,
-    },
+    { Role: 'implementer', EntryCovers: false, RolePromptInForce: true, OldestUnmatchedHoldAgeSeconds: 7200 },
   ],
+  Awaiting: { Reports: null, Intents: null },
   Digest: null,
 };
 

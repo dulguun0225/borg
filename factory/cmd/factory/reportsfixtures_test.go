@@ -64,7 +64,7 @@ func newReports(t *testing.T, ctx context.Context, d *deps) *reports {
 	// appends a row at every redaction and People's deletion of a mapping
 	// appends through the same store, so one file holds everything erased.
 	list := filepath.Join(t.TempDir(), "erasure-list")
-	channel, closeStore, err := openReportStore(ctx, url, list, d.pool)
+	channel, closeStore, err := openReportStore(ctx, url, list, d.pool, d.token)
 	if err != nil {
 		t.Fatalf("opening the report store at %s: %v", url, err)
 	}
@@ -183,6 +183,32 @@ func (r *reports) stored(t *testing.T, ctx context.Context) []stored {
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("reading the reports: %v", err)
+	}
+	return read
+}
+
+// ids is every report in the store by id, oldest first. A test names a report
+// by reading it back here because nothing else can: the way in renders no id
+// in the session that submitted, the channel carrying nothing back that could
+// identify a submission later.
+func (r *reports) ids(t *testing.T, ctx context.Context) []string {
+	t.Helper()
+	rows, err := r.reads.Query(ctx, `select id from `+reportstore.ReportTable+
+		` order by collected_at, id`)
+	if err != nil {
+		t.Fatalf("reading the report ids: %v", err)
+	}
+	defer rows.Close()
+	var read []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("reading a report id: %v", err)
+		}
+		read = append(read, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("reading the report ids: %v", err)
 	}
 	return read
 }

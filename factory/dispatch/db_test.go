@@ -192,6 +192,11 @@ type composed struct {
 	told       *countingNotifier
 	model      *fakeModel
 	intake     *intent.Intake
+	// admissions is what this composition answers dispatch's reading of the
+	// safeguard holding a report-derived intent with. A test that wants the
+	// wait turns it on; every other test leaves it off, which is an install
+	// where an owner placed no such safeguard.
+	admissions *heldIntents
 
 	decomposition *item.Decomposition
 }
@@ -245,6 +250,7 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 		told:       &countingNotifier{},
 		model:      model,
 		intake:     intent.NewIntake(pool, token, intent.NoNotifier{}),
+		admissions: &heldIntents{},
 	}
 	c.dispatch, err = dispatch.New(dispatch.Composition{
 		Pool: pool, Token: token,
@@ -256,6 +262,7 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 		Runs:       agentrun.NewWriter(pool, token),
 		Escalation: c.escalation,
 		Notifier:   c.told,
+		Admissions: c.admissions,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

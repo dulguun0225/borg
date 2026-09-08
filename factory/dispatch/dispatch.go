@@ -87,6 +87,30 @@ type Notifier interface {
 		spent, ceiling float64, currency string) error
 }
 
+// Admissions is whether the safeguard on the report store that holds a
+// report-derived intent is in force. With one, such an intent waits until a
+// human admits it at Work and this component puts no agent on it — not on the
+// intent itself, so no interview round runs, and not on anything decomposed
+// from it.
+//
+// It is an interface rather than a second method on [Limits] because [Limits]
+// is the one value this component reads out of gate policy, the attempt limit,
+// and because a safeguard is read through the component that writes gate
+// policy, which ../../end-goal/components.md's row for this component does not
+// name.
+type Admissions interface {
+	HoldsReportDerivedIntents(ctx context.Context) (bool, error)
+}
+
+// NoAdmissionSafeguard is what a dispatch composed with no reading uses:
+// nothing waits, which is an install where an owner placed no such safeguard.
+type NoAdmissionSafeguard struct{}
+
+// HoldsReportDerivedIntents reports that nothing waits.
+func (NoAdmissionSafeguard) HoldsReportDerivedIntents(context.Context) (bool, error) {
+	return false, nil
+}
+
 // NoNotifier is what a dispatch composed with no notifier uses: nothing is
 // delivered, and an escalation reaches Work through the item's stage alone.
 type NoNotifier struct{}
@@ -128,6 +152,10 @@ type Composition struct {
 	// Notifier is what the wait an item escalated leaves reaches a human
 	// through. A nil value is [NoNotifier].
 	Notifier Notifier
+	// Admissions is whether a report-derived intent waits for a human's
+	// admission before an agent is put on it. A nil value is
+	// [NoAdmissionSafeguard].
+	Admissions Admissions
 }
 
 // Dispatch is the component: the match of an item's stage against a role and
@@ -167,6 +195,9 @@ func New(c Composition) (*Dispatch, error) {
 	}
 	if c.Notifier == nil {
 		c.Notifier = NoNotifier{}
+	}
+	if c.Admissions == nil {
+		c.Admissions = NoAdmissionSafeguard{}
 	}
 	return &Dispatch{c: c}, nil
 }
@@ -260,15 +291,22 @@ func stops(state string) string {
 }
 
 // limitFor is the attempt limit in force for this dispatch: the stage's where
-// the role names one, and the intent's rounds where the role is put on an
-// intent. It is read once per dispatch rather than once per attempt: an owner
-// re-authoring the limit while a stage is retrying would otherwise change the
-// number the stage is being held to half way through it.
+// the role names one, and the intent's rounds where the role names none. It is
+// read once per dispatch rather than once per attempt: an owner re-authoring
+// the limit while a stage is retrying would otherwise change the number the
+// stage is being held to half way through it.
+//
+// A role put on a project is counted against the intent's rounds too. Gate
+// policy authors an attempt limit per subject and names no subject for the
+// grouper, and a stage's limit cannot be read for a role that names no stage —
+// so the nearest authored value is the one for work put on no item. What that
+// costs is that an owner shortening the interview's limit shortens what the
+// grouper is retried inside as well.
 func (d *Dispatch) limitFor(ctx context.Context, role Role, stage item.Stage) (int, error) {
 	at := string(stage)
 	effective, err := d.c.Policy.AttemptLimit(ctx, policy.Subjects{Stage: stage})
-	if role.OnAnIntent() {
-		at = "the rounds of an intent"
+	if role.OnAnIntent() || role.OnAProject() {
+		at = "a role put on no item"
 		effective, err = d.c.Policy.RoundsOnAnIntent(ctx)
 	}
 	if err != nil {

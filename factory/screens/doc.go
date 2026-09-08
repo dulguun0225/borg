@@ -108,7 +108,15 @@
 //
 // Two audiences, designed for silence, and push not poll:
 // ../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md
-// (C2680, C2681, C2682, C2683, C2686, C2687, C2688, C2691, C2693).
+// (C2678, C2680, C2681, C2682, C2683, C2686, C2687, C2688, C2691, C2693).
+//
+// The report under the intent it was grouped into and nowhere else, the two
+// admissions a safeguard on the report store makes a report-derived intent and
+// an arrived report wait for, and each wait as a row of the home view —
+// [AwaitingAdmission] on [Home], counted in [Badge.Admissions], neither having
+// an item to be a row of:
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0438, C0439, C0473).
 //
 // The client as one address per screen, the subscription and its disconnected
 // state, the version refusal, and the principal:
@@ -135,6 +143,6 @@
 //
 // The twelve duties this package's calls perform:
 // ../../end-goal/what-humans-do.md (C2850, C2851, C2857, C2858, C2860, C2862,
-// C2863, C2864, C2867, C2868, C2870, C2873, C2874, C2875, C2878, C2880, C2881,
+// C2863, C2864, C2867, C2868, C2870, C2873, C2875, C2878, C2880, C2881,
 // C2882, C2883, C2884).
 package screens

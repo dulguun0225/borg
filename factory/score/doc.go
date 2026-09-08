@@ -152,8 +152,17 @@
 // ../../end-goal/deferred.md (C0066, C0069, C0071); and the two read-time
 // reporting queries report.go adds are
 // ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md
-// (C2723, C2724, C2725); and the empty author of a shipped role prompt or
+// (C2723, C2724, C2725); the empty author of a shipped role prompt or
 // skill version, read by prior.go as the unavailable factor a human decides,
 // is ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
-// (C2447).
+// (C2447);
+//
+// and the intent grouped from reports, whose source factorread.go resolves at
+// Spec rather than weighing — so a human confirms the criteria whatever the
+// rest of the vector says, and sample.go's held-out draw cannot select past
+// what a resolved factor put there — is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0401, C0402, C0403) and
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
+// (C0371).
 package score

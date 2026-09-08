@@ -54,6 +54,64 @@
       <li>{{ count.Escalations }} escalations</li>
       <li>{{ count.FactoryHoldsForAHuman }} holds only a human lifts</li>
       <li>{{ count.ConstraintCausedStops }} constraint-caused stops</li>
+      <li>{{ count.Admissions }} waiting for an admission</li>
+    </ul>
+  }
+
+  @if (refused() !== '') {
+    <p class="danger">{{ refused() }}</p>
+  }
+
+  @if (awaitingReports().length > 0) {
+    <h2>Reports waiting to be admitted</h2>
+    <p class="quiet">
+      A safeguard on the report store holds an arrived report ungrouped until a human
+      admits it, so only an admitted report reaches the grouper.
+    </p>
+    <ul>
+      @for (report of awaitingReports(); track report.ID) {
+        <li class="row">
+          <p class="quiet">{{ report.Kind }}, {{ at(report.CollectedAt) }}</p>
+          @if (report.HarmMarked) {
+            <p class="marked">The reporter marked this as the software harming a person.</p>
+          }
+          <p>{{ report.Text }}</p>
+          <div class="actions">
+            <button type="button" [disabled]="busy()" (click)="admitReport(report.ID)">
+              Admit this report
+            </button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+
+  @if (awaitingIntents().length > 0) {
+    <h2>Intents waiting to be admitted</h2>
+    <p class="quiet">
+      A safeguard on the report store holds an intent grouped from reports until a human
+      admits it: no agent is put on it and no interview round runs meanwhile. It is one
+      action per group, the group already being one intent.
+    </p>
+    <ul>
+      @for (waiting of awaitingIntents(); track waiting.IntentID) {
+        <li class="row">
+          <p class="quiet">
+            {{ waiting.Reports }} report(s) grouped, arrived {{ at(waiting.ArrivedAt) }}
+          </p>
+          @if (waiting.HarmMarked) {
+            <p class="marked">
+              A report of this group marked the software as harming a person.
+            </p>
+          }
+          <p>{{ waiting.Statement }}</p>
+          <div class="actions">
+            <button type="button" [disabled]="busy()" (click)="admitIntent(waiting.IntentID)">
+              Admit this intent
+            </button>
+          </div>
+        </li>
+      }
     </ul>
   }
 

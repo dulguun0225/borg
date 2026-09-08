@@ -293,3 +293,58 @@ func TestAReportIsLinkedOrCounted(t *testing.T) {
 		t.Errorf("Ungrouped = %d, %v; want the linked report no longer counted", ungrouped, err)
 	}
 }
+
+// TestTheGroupsReportsAreReadByIntent: the reports of one intent are the ids
+// Work renders under it, oldest first and none of another intent's. The read
+// answers ids and never the words, so nothing here appends a read event, and
+// each report's own admission is a write of its own — the intent's admission is
+// the intent record's and not this store's.
+func TestTheGroupsReportsAreReadByIntent(t *testing.T) {
+	ctx, _, store, s := newStore(t)
+	d := deploy()
+	s.place("tok", d)
+
+	collected := time.Now()
+	var ids []string
+	for n := 0; n < 3; n++ {
+		written, err := store.Submit(ctx, submission("tok"), collected.Add(time.Duration(n)*time.Minute))
+		if err != nil || !written.Accepted {
+			t.Fatalf("Submit %d = %+v, %v", n, written, err)
+		}
+		ids = append(ids, written.Report.ID)
+	}
+	// Two of the three are one group; the third is another intent's, so a
+	// read by intent that answered with every report would be caught here.
+	for _, id := range ids[:2] {
+		if err := store.Link(ctx, id, "int_a"); err != nil {
+			t.Fatalf("Link %s: %v", id, err)
+		}
+	}
+	if err := store.Link(ctx, ids[2], "int_b"); err != nil {
+		t.Fatalf("Link %s: %v", ids[2], err)
+	}
+
+	grouped, err := store.ByIntent(ctx, "int_a")
+	if err != nil {
+		t.Fatalf("ByIntent: %v", err)
+	}
+	if len(grouped) != 2 || grouped[0] != ids[0] || grouped[1] != ids[1] {
+		t.Errorf("ByIntent read %v, want %v oldest first", grouped, ids[:2])
+	}
+	if len(s.reads) != 0 {
+		t.Errorf("the read events are %v, want none: an enumeration serves no words", s.reads)
+	}
+
+	if err := store.Admit(ctx, ids[0]); err != nil {
+		t.Fatalf("Admit: %v", err)
+	}
+	for n, id := range ids {
+		read, err := store.Get(ctx, principal.OfComponent("grouper"), id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", id, err)
+		}
+		if admitted := read.AdmittedAt != ""; admitted != (n == 0) {
+			t.Errorf("report %d is admitted %v, want %v: the one admitted and no other", n, admitted, n == 0)
+		}
+	}
+}

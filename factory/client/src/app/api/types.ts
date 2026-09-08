@@ -30,6 +30,32 @@ export interface Badge {
   Escalations: number;
   FactoryHoldsForAHuman: number;
   ConstraintCausedStops: number;
+  // Admissions is what a safeguard on the report store is holding: one per
+  // report waiting ungrouped and one per report-derived intent waiting. It is
+  // zero where an owner placed neither safeguard.
+  Admissions: number;
+}
+
+// One intent grouped from reports that no human has admitted, which only a
+// safeguard on the report store makes wait.
+export interface IntentAwaitingAdmission {
+  IntentID: string;
+  Statement: string;
+  ArrivedAt: Instant;
+  // Reports is how many reports are grouped into it, which is the size of the
+  // group one admission covers.
+  Reports: number;
+  // HarmMarked is whether any report of the group says a person is being
+  // harmed by the software.
+  HarmMarked: boolean;
+}
+
+// What the two safeguards on the report store are holding. Neither list has an
+// item behind it: an unadmitted report is grouped into nothing, and an
+// unadmitted intent is decomposed into nothing.
+export interface AwaitingAdmission {
+  Reports: ReportSummary[] | null;
+  Intents: IntentAwaitingAdmission[] | null;
 }
 
 export interface LastCheck {
@@ -57,6 +83,7 @@ export interface Home {
   Badge: Badge;
   LastChecks: LastCheck[] | null;
   Readiness: RoleReadiness[] | null;
+  Awaiting: AwaitingAdmission;
   Digest: Digest | null;
 }
 
@@ -116,9 +143,37 @@ export interface WindowSummary {
   Exit: string;
 }
 
+// One end user's report as Work renders it, under the intent it was grouped
+// into and nowhere else. It names no person: the channel carries no identity,
+// and the opaque key a report may carry is not on this shape.
+export interface ReportSummary {
+  ID: string;
+  // Kind is the reporter's own word for it: a bug report or a complaint.
+  Kind: string;
+  // HarmMarked is the one field the reporter sets beside the kind: whether the
+  // software is harming a person. Nothing infers it.
+  HarmMarked: boolean;
+  CollectedAt: Instant;
+  // NoticeID is the notice in force when the report was collected, empty where
+  // none was.
+  NoticeID: string;
+  // Admitted is false where a human has still to admit the report, which only
+  // a safeguard on the report store makes it wait for.
+  Admitted: boolean;
+  Text: string;
+}
+
 export interface Item {
   ID: string;
+  // IntentID is the intent this item answers, which AdmitIntentArgs names.
+  IntentID: string;
   IntentStatement: string;
+  // Reports is the end-user reports grouped into this item's intent, oldest
+  // first, and empty for an intent no report raised.
+  Reports: ReportSummary[] | null;
+  // IntentAwaitsAdmission is true where this item's intent came from reports
+  // and no human has admitted it, while the safeguard holding one stands.
+  IntentAwaitsAdmission: boolean;
   Versions: ArtifactVersion[] | null;
   Decisions: DecisionSummary[] | null;
   ImplementationDiff: string;
@@ -215,6 +270,19 @@ export interface AcceptDeliveryArgs {
 
 export interface EndIntentArgs {
   IntentID: string;
+}
+
+// AdmitIntentArgs is the admission a safeguard on the report store makes a
+// report-derived intent wait for: one action per group, the group already
+// being one intent.
+export interface AdmitIntentArgs {
+  IntentID: string;
+}
+
+// AdmitReportArgs is the admission the second safeguard makes one arrived
+// report wait for before the grouper reads it.
+export interface AdmitReportArgs {
+  ReportID: string;
 }
 
 export interface SetPriorityArgs {

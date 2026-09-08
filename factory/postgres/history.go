@@ -139,6 +139,27 @@ var Changes = []Change{
 	},
 	{
 		Version: 1,
+		ID:      "the intent carries a recurrence link",
+		Text: "intent carries recurrence_of, the intent a new one recurs on, refused on any " +
+			"source but reports and refused where it names the intent itself",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the intent carries a human's admission",
+		Text: "intent carries admitted_at, the instant a human admitted a report-derived intent " +
+			"at Work, refused on any other source",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the input manifest names a project",
+		Text: "input_manifest carries project_id, and its served_names_something check admits a " +
+			"manifest that names a project and neither an item nor an intent",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
 		ID:      "the redaction record",
 		Text: "redaction carries the target a redaction names, the spans it removes, its reason " +
 			"and the key of the erasure-list row appended before it",

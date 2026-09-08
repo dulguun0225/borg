@@ -24,22 +24,24 @@ const FormatVersion = "input_manifest/1"
 // selection_rule_version is an empty string for the same reason on the
 // selection rule.
 //
-// item_id, stage, and intent_id repeat the shape package agentrun's DDL
-// documents: served_names_something is the design's "one of the five and
-// never none", narrowed to the two a dispatch exists for today, and a stage
-// names nothing without an item.
+// item_id, stage, intent_id and project_id repeat the shape package agentrun's
+// DDL documents: served_names_something is the design's "one of the five and
+// never none", narrowed to the three a dispatch exists for today — an item, an
+// intent, or the project a role put on one serves — and a stage names nothing
+// without an item.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
 	item_id text not null,
 	stage text not null,
 	intent_id text not null,
+	project_id text not null default '',
 	materials text not null,
 	read_at_once_bound bigint,
 	selection_rule_version text not null,
 	excluded text not null,
 	` + record.Constraints + `,
-	constraint served_names_something check (item_id <> '' or intent_id <> ''),
+	constraint served_names_something check (item_id <> '' or intent_id <> '' or project_id <> ''),
 	constraint stage_only_with_an_item check (stage = '' or item_id <> ''),
 	constraint read_at_once_bound_nonnegative check (read_at_once_bound is null or read_at_once_bound >= 0)
 )`,

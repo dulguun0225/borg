@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { FormField, form, requiredError, submit, validate } from '@angular/forms/signals';
 import { ApiClient } from '../api/client';
 import { AddressStream, StreamReader } from '../api/stream';
-import { DecisionSummary, Item } from '../api/types';
+import { DecisionSummary, Item, ReportSummary } from '../api/types';
 import { ScreenState, screenState } from '../state/screen-state';
 import { atInstant } from './format';
 import { workMachine } from './work';
@@ -92,6 +92,19 @@ export class ItemScreen {
     );
     return at?.OpenEventID ?? '';
   });
+
+  // The end-user reports grouped into this item's intent, rendered under the
+  // intent's own entry — the statement this screen opens with — and nowhere
+  // else. There is no address of their own: a browsable list of reports is
+  // what the design refuses.
+  protected readonly reports = computed<ReportSummary[]>(() => this.view()?.Reports ?? []);
+
+  // True where this item's intent is itself still waiting for a human's
+  // admission, which is the first of the two safeguards on the report store.
+  // It is the intent's own field and not a reading over the reports: the two
+  // admissions are separate, and a group whose reports are all admitted may
+  // still be an intent nobody has admitted.
+  protected readonly intentWaiting = computed(() => this.view()?.IntentAwaitsAdmission ?? false);
 
   protected readonly timeline = computed<Entry[]>(() => {
     const item = this.view();
@@ -202,6 +215,17 @@ export class ItemScreen {
       await this.act('setPriority', { ItemID: this.id(), Priority: this.priority().Priority });
       return null;
     });
+  }
+
+  // The two admissions, each sent through the one call path every action on
+  // this screen takes: one report at a time, and one action on the intent, the
+  // group already being one intent.
+  protected admitReport(reportID: string): void {
+    void this.act('admitReport', { ReportID: reportID });
+  }
+
+  protected admitIntent(): void {
+    void this.act('admitIntent', { IntentID: this.view()?.IntentID ?? '' });
   }
 
   protected endItem(): void {

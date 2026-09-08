@@ -212,7 +212,7 @@ var NotAmongTheEleven = []Definition{
 }
 
 // SafeguardOnly is every parameter that a safeguard binds and nobody authors.
-// There are two. It is a list of its own rather than a row of [Definitions]
+// There are four. It is a list of its own rather than a row of [Definitions]
 // because gate policy is what an owner authors — eleven rows, counted by
 // TestElevenRows — and a parameter only a safeguard sets, listed among them,
 // would make that count twelve while changing nothing about what an owner may
@@ -225,6 +225,12 @@ var NotAmongTheEleven = []Definition{
 // whose writer is the merge queue. So the direction comes from the rule the whole
 // list is an instance of — a safeguard can only add — and a safeguard's predicate
 // adds a consumer contract and removes none, which is a floor.
+//
+// The two admissions are derived the same way and land on the other direction:
+// each adds a human where there was none, which is [DirectionAddsAHuman], and
+// each bounds nothing at all, which is why their kind is [KindNothing] and
+// their unit is empty. Their subject is the report store, a subject the design
+// names and no record answers to.
 var SafeguardOnly = []Definition{
 	{
 		Parameter: SafeguardPredicate,
@@ -244,5 +250,21 @@ var SafeguardOnly = []Definition{
 		// would be read at, because an owner reading the name would take the
 		// bound as one in force.
 		ReaderAtThisMilestone: "",
+	},
+	{
+		Parameter: ReportAdmission,
+		Kind:      KindNothing, Direction: DirectionAddsAHuman, Scope: ScopeNothing, Key: KeyNone,
+		Limits: "whether an arrived report waits ungrouped until a human admits it at Work, " +
+			"so that no report's words leave the install unread",
+		Unit:                  "",
+		ReaderAtThisMilestone: "the grouper, which reads only admitted reports while one stands",
+	},
+	{
+		Parameter: ReportDerivedIntentAdmission,
+		Kind:      KindNothing, Direction: DirectionAddsAHuman, Scope: ScopeNothing, Key: KeyNone,
+		Limits: "whether an intent grouped from reports waits for a human's admission at Work " +
+			"before anything is spent refining it",
+		Unit:                  "",
+		ReaderAtThisMilestone: "dispatch, which puts no agent on such an intent while one stands",
 	},
 }
