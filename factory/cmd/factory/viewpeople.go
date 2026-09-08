@@ -8,9 +8,16 @@ import (
 	"github.com/dulguun0225/borg/factory/screens"
 )
 
-// People: every row of the declaration — the duties each key holds, the
-// obligations outside the twelve, the credentials each lent with the ceiling
-// and the rates on them, and whether the row acts anywhere at all.
+// People: the owner's row first, and then every row of the declaration — the
+// duties each key holds, the obligations outside the twelve, the credentials
+// each lent with the ceiling and the rates on them, and whether the row acts
+// anywhere at all.
+//
+// The owner's row is no entry of the declaration: its key is the one this
+// process was made as and its name is the mapping the install wrote for it. A
+// fresh install's declaration is empty, so the key every acting call is
+// exempted on would otherwise be readable nowhere. It is first because a human
+// who has not yet declared anything is looking for it.
 //
 // A name is resolved through the mapping and never held: the declaration is
 // the one place a per-person key maps to a name, and the key is carried beside
@@ -41,6 +48,12 @@ func (v *views) People(ctx context.Context, _ principal.Principal) (screens.Peop
 		rows[key], order = row, append(order, key)
 		return row
 	}
+
+	// The owner's row before any other, so what the rest of this adds to it is
+	// added to a row that is already first. It acts anywhere whatever the
+	// declaration holds, which is what the exemption in ./calls.go reads.
+	ownerRow := rowFor(v.p.human.Key)
+	ownerRow.Owner, ownerRow.ActsAnywhere = true, true
 
 	for _, one := range declarations {
 		if !one.Holds() {

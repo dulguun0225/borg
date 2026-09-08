@@ -21,19 +21,14 @@
 // provider; the name is what makes a run that did fail at its own answer
 // rather than spend a credential.
 //
-// It answers one route of its own, on 8091, with the owner's per-person key.
-// That key is what an acting call is exempted by, -human names the owner by
-// name rather than by key, and the key the name resolves to is written at the
-// install and read nowhere a screen can reach — so a browser run that wrote
-// anything would have to be told it. Playwright waits on that route rather
-// than on the factory's own /healthz, which is what leaves no window in which
-// a test could ask for the key before this has it.
+// -human names the owner by name, and the key that name resolves to is what an
+// acting call is exempted on. Nothing here reads that key: the People view
+// holds the owner's row, so a test reads it the way a human at the screen
+// does.
 import { existsSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setTimeout as after } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -80,8 +75,8 @@ if (dropped.status !== 0) {
 const child = new URL(url);
 child.searchParams.set('search_path', SCHEMA);
 
-// The name -human gives the owner, and the name the mapping written at the
-// install carries. The key it resolves to is what the browser declares.
+// The name -human gives the owner. The key it resolves to is written at the
+// install, and the People view is where a test reads it.
 const OWNER = 'e2e-owner';
 
 const dir = join(tmpdir(), 'factory-e2e');
@@ -93,21 +88,10 @@ const service = join(dir, 'e2e-service');
 writeFileSync(secrets, 'model.openrouter=e2e-no-model\ndeploy.local=e2e-credential\n');
 mkdirSync(targets);
 
-// The route this answers with the owner's key, opened once there is a key to
-// answer with.
-let answering = null;
-// True where this process is ending on something it refused rather than on the
-// factory's own exit: the factory is ended by a signal from here, and a signal
-// is no exit code, so without this the refusal would exit 0.
-let failing = false;
-
 // The directory goes on every path out this process can act on — a refusal
 // above, the factory's own exit, and a signal it is given. A signal it cannot
 // handle is what the start's removal is for.
 const clean = () => {
-  const open = answering;
-  answering = null;
-  open?.close();
   rmSync(dir, { recursive: true, force: true });
 };
 process.on('exit', clean);
@@ -148,63 +132,9 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   });
 }
 serving.on('exit', (code, signal) => {
-  if (failing) {
-    process.exit(1);
-  }
   process.exit(code ?? (signal === null ? 1 : 0));
 });
 serving.on('error', (cause) => {
   console.error(`the factory did not start: ${cause.message}`);
   process.exit(1);
 });
-
-// The factory's own /healthz, which answers once the install has run and the
-// server is listening. The budget is two minutes, under Playwright's own for
-// this command, so a factory that never serves is said so here rather than
-// reported as a web server that never came up. The mapping the owner's key is
-// read from is written before /healthz answers, so one read of the store after
-// this is enough.
-async function serves() {
-  for (let attempt = 0; attempt < 600; attempt++) {
-    try {
-      if ((await fetch('http://127.0.0.1:8090/healthz')).ok) {
-        return true;
-      }
-    } catch {
-      // Not listening yet, which is what the next attempt is for.
-    }
-    await after(200);
-  }
-  return false;
-}
-
-// Ends the factory and this process with it, on something this refused.
-const refuse = (said) => {
-  console.error(said);
-  failing = true;
-  serving.kill('SIGTERM');
-};
-
-if (!(await serves())) {
-  refuse('the factory did not answer GET /healthz on 8090 within two minutes');
-} else {
-  const read = spawnSync(
-    'psql',
-    [url, '-t', '-A', '-v', 'ON_ERROR_STOP=1',
-      '-c', `select person_key from ${SCHEMA}.people_mapping where name = '${OWNER}' limit 1`],
-    { env: quiet, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
-  );
-  const key = read.status === 0 ? read.stdout.trim() : '';
-  if (key === '') {
-    refuse(`no per-person key is mapped to ${OWNER}, and the browser run declares that key to act`);
-  } else {
-    answering = createServer((_, response) => {
-      response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-      response.end(key);
-    });
-    answering.on('error', (cause) => {
-      refuse(`nothing can answer the owner's key on 8091: ${cause.message}`);
-    });
-    answering.listen(8091, '127.0.0.1');
-  }
-}

@@ -90,7 +90,7 @@ Run these from `factory/client/`.
 | `npm run set-version` | Copies `factoryVersion` from `../cmd/factory/main.go` into `src/environments/version.ts` |
 | `npm run lint` | The lint wall, over `src/**/*.ts`, `src/**/*.html` and `playwright.config.ts` |
 | `npm test` | One headless run of every spec |
-| `npm run e2e` | The browser run: the shell and the four screens driven in Chromium against a factory this commit builds. It needs the client built, `psql` on the path, a reachable `DATABASE_URL`, and ports 8090 and 8091 free. Two runs on one `DATABASE_URL` cannot overlap: both use the schema `factory_e2e`, and the second drops it under the first |
+| `npm run e2e` | The browser run: the shell and the four screens driven in Chromium against a factory this commit builds. It needs the client built, `psql` on the path, a reachable `DATABASE_URL`, and port 8090 free. Two runs on one `DATABASE_URL` cannot overlap: both use the schema `factory_e2e`, and the second drops it under the first |
 | `npm run build` | Builds into `../clientdist/browser/`, then puts `.gitkeep` back |
 | `npm start` | The development server, for a screen served without the factory |
 
@@ -135,6 +135,10 @@ every run begins on an empty one, and left in the database when the run ends. A 
 told to use a model name no provider answers, and nothing dispatches an agent unless an
 intent is supplied — no test supplies one, which is what keeps the run away from a
 provider.
+
+The key a test declares at the top of a screen is the owner's, and each file reads it
+from the People view the way a human does: that view holds the owner's row before
+anything is declared, and the owner's is the one key an acting call is exempt on.
 
 ## What defines it
 

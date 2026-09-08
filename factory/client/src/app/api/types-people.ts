@@ -37,6 +37,7 @@ export interface PersonRow {
   Duties: number[] | null;
   Obligations: string[] | null;
   Credentials: LentCredential[] | null;
+  Owner: boolean;
   ActsAnywhere: boolean;
 }
 

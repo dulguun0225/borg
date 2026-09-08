@@ -4,6 +4,7 @@ import { ApiClient } from '../api/client';
 import { People } from '../api/types-people';
 import { ScreenState, malformations } from '../state/screen-state';
 import { predicateViolations } from '../state/predicates';
+import { setPrincipalKey } from '../api/principal';
 import { FakeEventSource, FakeFetch, installFakes, restoreFakes } from '../../testing/fakes';
 import { PeopleScreen, peopleMachine } from './people';
 
@@ -42,6 +43,7 @@ const DECLARED: People = {
           Rates: [],
         },
       ],
+      Owner: true,
       ActsAnywhere: true,
     },
     {
@@ -50,6 +52,7 @@ const DECLARED: People = {
       Duties: [],
       Obligations: [],
       Credentials: [],
+      Owner: false,
       ActsAnywhere: false,
     },
   ],
@@ -94,6 +97,47 @@ describe('People screen', () => {
     expect(text).toContain("The account is an organisation's");
     expect(text).toContain('Ceiling 400 EUR per monthly');
     expect(text).toContain('in Europe/Berlin');
+    fixture.destroy();
+  });
+
+  it("says which row is the owner's, that row being the key an acting call is exempt on", async () => {
+    const fixture = await drive('ready');
+    expect(wordsOf(fixture)).toContain('This row is the owner this install was made as, and it acts everywhere though it holds no duty and lends nothing.');
+    fixture.destroy();
+  });
+
+  it('re-reads the address when a key is declared after the screen was mounted', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+    net.reset();
+    sources.length = 0;
+    net.answering('/api/people', DECLARED);
+    // Mounted before anybody said who they are. The client refuses the read
+    // itself rather than spending a request the server would refuse, so the
+    // screen is in its failed state and no subscription is open.
+    globalThis.localStorage.removeItem('factory.principal');
+    const fixture = TestBed.createComponent(PeopleScreen);
+    // Twice, here and after the declaration below. A read refused for want of
+    // a key costs no request, so the first stability the fixture reports can
+    // be reached before the refused read's own continuation has cleared the
+    // screen's loading signal; every other spec here is settled by a fake
+    // fetch, which takes longer than that.
+    await fixture.whenStable();
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent).toContain('no People key is declared');
+    expect(sources.length).toBe(0);
+
+    // The declaration re-establishes the subscription, and re-establishing one
+    // re-reads the address whole: the screen leaves the state its refused read
+    // left it in without a human reading it again.
+    setPrincipalKey('per-1');
+    await fixture.whenStable();
+    await fixture.whenStable();
+
+    expect(root.textContent).not.toContain('no People key is declared');
+    expect(root.textContent).toContain('Kept true by the subscription on this address.');
+    expect(sources.length).toBe(1);
     fixture.destroy();
   });
 

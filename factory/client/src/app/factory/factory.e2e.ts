@@ -25,12 +25,19 @@ async function declareAs(page: Page, key: string): Promise<void> {
   await page.getByRole('button', { name: 'Declare', exact: true }).click();
 }
 
-// The owner's per-person key, which ../../../tools/e2e-factory.mjs read from
-// the store and answers with. It is the one key an acting call is exempt on: a
-// fresh install's declaration is empty, so every other key holds nothing and
-// acts nowhere. Duplicated across the five files for the reason above.
+// The owner's per-person key, read from the People view the way a human at the
+// screen reads it: the owner is that view's first row, and theirs is the one
+// key an acting call is exempt on — every other key holds nothing on a fresh
+// install and acts nowhere. A read is refused for no principal and for no
+// factory version, and for nothing else, so any key at all opens this one.
+// Duplicated across the five files for the reason above.
 async function ownerKey(page: Page): Promise<string> {
-  return (await (await page.request.get('http://127.0.0.1:8091/owner')).text()).trim();
+  const version = (await (await page.request.get('/healthz')).text()).trim();
+  const answer = await page.request.get('/api/people', {
+    headers: { 'X-Factory-Version': version, 'X-Factory-Principal': 'e2e-reader' },
+  });
+  const view = (await answer.json()) as { Rows: { Key: string; Owner: boolean }[] };
+  return view.Rows.find((row) => row.Owner)?.Key ?? '';
 }
 
 test('Factory leaves loading and renders the readiness reading', async ({ page }) => {

@@ -45,6 +45,9 @@
         Key {{ row.Key }}. Nothing enforces this row: the name is claimed the way every
         other row's is.
       </p>
+      @if (row.Owner) {
+        <p>This row is the owner this install was made as, and it acts everywhere though it holds no duty and lends nothing.</p>
+      }
       @if (!row.ActsAnywhere) {
         <p>
           This row acts nowhere: it was added only so a human can read the four screens

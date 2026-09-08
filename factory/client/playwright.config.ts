@@ -31,14 +31,11 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
     command: 'node tools/e2e-factory.mjs',
-    // The harness's own route rather than the factory's /healthz: it answers
-    // only once the factory serves and the owner's per-person key has been
-    // read, and a test that acts declares that key.
-    url: 'http://127.0.0.1:8091/owner',
+    url: 'http://127.0.0.1:8090/healthz',
     reuseExistingServer: false,
-    // Above the harness's own two-minute wait on the factory, so a factory
-    // that never serves is reported in the harness's words; what the rest of
-    // this budget is for is the go build the harness runs first.
+    // Five minutes, because what this waits on is not the server alone: the
+    // harness builds the binary of this commit first, and the install the
+    // process makes before it listens writes the records a fresh factory has.
     timeout: 300000,
     stdout: 'pipe',
     stderr: 'pipe',

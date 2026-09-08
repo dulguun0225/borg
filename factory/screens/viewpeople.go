@@ -6,14 +6,22 @@ type People struct {
 }
 
 // PersonRow is one human: the duties they hold, the obligation they hold
-// outside the twelve, the credentials they lent, and whether the row acts
-// anywhere at all.
+// outside the twelve, the credentials they lent, whether the row is the
+// owner's, and whether the row acts anywhere at all.
 type PersonRow struct {
 	Key         string
 	Name        string
 	Duties      []int64
 	Obligations []string
 	Credentials []LentCredential
+	// Owner is true for the one row that is the owner this install was made
+	// as. The owner is the person the design gives no record, so the row
+	// holds nothing on a fresh install and acts everywhere regardless: every
+	// unheld row widens to them, and theirs is the one key an acting call
+	// exempts before it reads the declaration. It is a field of the view
+	// because the key is what a call carries and this is the one place a
+	// human at a screen can read it.
+	Owner bool
 	// ActsAnywhere is false for a row added only so a human can read the
 	// four screens without gating, approving, or otherwise acting anywhere.
 	ActsAnywhere bool

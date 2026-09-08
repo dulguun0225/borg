@@ -20,9 +20,13 @@ export interface AddressStream {
   // transport that accepts the request and never delivers, which reads as
   // connected for as long as it lasts.
   readonly state: Signal<StreamState>;
-  // Increments on every change the address reports and once more on every
-  // reconnection, because re-establishing re-reads the address whole rather
-  // than resuming from what the screen held.
+  // Increments on every change the address reports, once more on every
+  // reconnection, and once on every declaration, because re-establishing a
+  // subscription re-reads the address whole rather than resuming from what
+  // the screen held. A declaration is one of those: the subscription it
+  // re-opens is a new one, and the screen holding a read made before it — a
+  // read the factory refused for want of a key, most of the time — has to
+  // make that read again.
   readonly changed: Signal<number>;
   close(): void;
 }
@@ -107,6 +111,14 @@ export class StreamReader {
 
     const unlisten = onPrincipalDeclared(() => {
       open();
+      // A declaration re-establishes this subscription, and re-establishing
+      // one re-reads the address whole. It is reported here rather than left
+      // to the connection's own 'open' event, which reports a reconnection
+      // only where the state had already gone to 'disconnected': a screen
+      // mounted before any key was declared is not disconnected — its first
+      // read was refused for want of one — and without this it would hold
+      // that refusal until a human read it again.
+      changed.update((n) => n + 1);
     });
 
     open();

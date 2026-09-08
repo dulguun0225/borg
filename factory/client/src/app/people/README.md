@@ -6,6 +6,12 @@ organisation lent with the account kind beside each, the ceiling and the rates a
 those credentials, and whether the row acts anywhere at all. A row that acts nowhere was
 added only so a human can read the four screens.
 
+The owner's row is first and is no entry of the declaration: its key is the one the
+install was made as and its name is the mapping the install wrote for it. A fresh
+install's declaration is empty, so the key an acting call is exempted on would otherwise
+be readable on no screen; the view holds that row so a human can read it here, marked as
+the owner's and acting anywhere whatever the declaration holds.
+
 Declared, not enforced: the declaration is what routes work, and it is the seam
 authentication attaches to later. The one field the factory does enforce is the spend
 ceiling, which holds work when reached. Factory converts the rates into cost per feature
@@ -50,5 +56,5 @@ verifies it until seam 5 is built.
 
 ## What defines it
 
-[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2654, C2657, C2658, C2660, C2673);
+[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2654, C2657, C2658, C2660, C2673, C2995);
 [The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994).
