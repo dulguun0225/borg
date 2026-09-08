@@ -29,6 +29,7 @@ keeps both true.
 | `factory-places.ts`, `.html` | The environments, the projects and areas with their forms and the project each area's chain ends at, ending a project and retiring a service — each armed by a first click and sent by a second on the same typed name — and the constraints in force with the three widest reaches listed by reach and a link to each one's own address |
 | `factory-numbers.ts`, `.html` | Throughput, rework rate, gate rejection rate, cost per feature, the gates a resolved factor put a human at, the human's load with the approve-and-undone pair and the self-approval counts, the auto-pass rates against the recorded ones with the held-out bands, the spend ceilings, and the page channel |
 | `request.ts` | What a section asks the screen to send |
+| `factory.e2e.ts` | The browser run: the screen driven in Chromium against the factory's own process |
 
 The screen is split into sections because one component for all of it would pass the
 500-line bound. A section is not a fifth screen: it holds no address, no subscription and
@@ -45,12 +46,12 @@ written into a form. It is withheld only in the failed state, which is the one s
 says nothing was read.
 
 The shape every screen directory holds: `README.md`, `factory.ts`, `factory.html`,
-`factory.css`, `factory.spec.ts`, `factory.routes.ts`, and `format.ts`, with one further
-file pair — `factory-constraint.ts`, `.html` — for the address under it, the way Work and
-Ops each hold one for theirs. `format.ts` is a copy of the same file in the other three
-screen directories, and `request.ts` is a copy of the one under `../people/`; a screen
-imports `api/` and `state/` and nothing else outside its own directory, and those copies
-are what the boundary costs.
+`factory.css`, `factory.spec.ts`, `factory.e2e.ts`, `factory.routes.ts`, and `format.ts`,
+with one further file pair — `factory-constraint.ts`, `.html` — for the address under it,
+the way Work and Ops each hold one for theirs. `format.ts` is a copy of the same file in
+the other three screen directories, and `request.ts` is a copy of the one under
+`../people/`; a screen imports `api/` and `state/` and nothing else outside its own
+directory, and those copies are what the boundary costs.
 
 Tests for `factory-constraint.ts`, and for the two child routes that scroll `factory.ts` to
 a section, are in `factory-constraint.spec.ts` rather than in `factory.spec.ts`: that file
@@ -79,4 +80,4 @@ rejected split by what put them at the row.
 [Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2572, C2588, C2589, C2593, C2607, C2608, C2612, C2613, C2620, C2624, C2629, C2631, C2632, C2633, C2634, C2638, C2650, C2651, C2652, C2653);
 [What the factory auto-approved, and what was undone](../../../../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md) (C2719, C2722, C2724, C2725);
 [The page channel, and what reached a human](../../../../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md) (C2730, C2731, C2732, C2733, C2734, C2736, C2738);
-[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716).
+[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994).

@@ -36,9 +36,10 @@ is the state machine type the four screens declare and the four predicates their
 decide, and each of `src/app/work/`, `src/app/ops/`, `src/app/factory/` and
 `src/app/people/` is one screen. Each screen directory holds the same file names —
 `README.md`, `<screen>.ts`, `<screen>.html`, `<screen>.css`, `<screen>.spec.ts`,
-`<screen>.routes.ts`, `format.ts` — and Work, Ops and Factory each hold one further file
-pair per address under them. Each screen's `README.md` says what it owns and names the
-`end-goal/` file it implements, which is this client's counterpart to a package's `doc.go`.
+`<screen>.e2e.ts`, `<screen>.routes.ts`, `format.ts` — and Work, Ops and Factory each hold
+one further file pair per address under them. Each screen's `README.md` says what it owns
+and names the `end-goal/` file it implements, which is this client's counterpart to a
+package's `doc.go`.
 
 `format.ts` is one file duplicated across the four screen directories, and `request.ts` is
 a second such copy, in the two screen directories that hold one. A screen imports `api/`
@@ -64,6 +65,8 @@ per block with the reason beside it, as a `no-restricted-imports` pattern that f
 - a screen's spec additionally imports the fakes under `src/testing/`;
 - `api/` and `state/` import nothing of the app, except `src/environments/version.ts`;
 - the shell imports the four screens' routes and nothing else of a screen;
+- an end-to-end file imports nothing of the app: it reaches the client through the
+  browser, over HTTP, the way a human does;
 - nothing under `src/app/`, `src/main.ts`, `src/testing/`, or
   `src/environments/` imports `rxjs`, `zone.js`, `@angular/localize`, or
   `@angular/material`.
@@ -85,8 +88,9 @@ Run these from `factory/client/`.
 |---|---|
 | `npm ci` | Installs exactly the lockfile. Every version in `package.json` is pinned exact |
 | `npm run set-version` | Copies `factoryVersion` from `../cmd/factory/main.go` into `src/environments/version.ts` |
-| `npm run lint` | The lint wall, over `src/**/*.ts` and `src/**/*.html` |
+| `npm run lint` | The lint wall, over `src/**/*.ts`, `src/**/*.html` and `playwright.config.ts` |
 | `npm test` | One headless run of every spec |
+| `npm run e2e` | The browser run: the shell and the four screens driven in Chromium against a factory this commit builds. It needs the client built, `psql` on the path, a reachable `DATABASE_URL`, and ports 8090 and 8091 free. Two runs on one `DATABASE_URL` cannot overlap: both use the schema `factory_e2e`, and the second drops it under the first |
 | `npm run build` | Builds into `../clientdist/browser/`, then puts `.gitkeep` back |
 | `npm start` | The development server, for a screen served without the factory |
 
@@ -116,6 +120,21 @@ rendered state: a contrast floor of 4.5:1 computed from the resolved tokens, an
 accessible name on every control, a focus order with no positive `tabindex` and every
 tabbable element able to take focus, and a target size of at least 24×24 CSS pixels.
 They are in `src/app/state/predicates.ts` so all four screens decide the same four.
+
+`npm run e2e` is the second run and drives what a spec cannot: `playwright.config.ts`
+starts `tools/e2e-factory.mjs`, which builds the binary of this commit and serves the
+client this build embedded on 8090, and five files drive that in one headless Chromium.
+`src/app/app.e2e.ts` decides the shell's part — that a screen is served by the process,
+that the declaration is carried on every call and held across a reload, and that the
+version refusal is rendered as the required reload — and each `<screen>.e2e.ts` decides
+its own screen's, `people.e2e.ts` among them deciding that a write reaching a record is
+carried back to a screen that did not make it.
+
+The store is the schema `factory_e2e`: dropped and created before the process starts, so
+every run begins on an empty one, and left in the database when the run ends. A run is
+told to use a model name no provider answers, and nothing dispatches an agent unless an
+intent is supplied — no test supplies one, which is what keeps the run away from a
+provider.
 
 ## What defines it
 

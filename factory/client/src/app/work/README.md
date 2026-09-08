@@ -18,12 +18,13 @@ the readiness reading per role. Only where nothing waits does the digest appear.
 | `/work/intake` | `intake.ts`, `intake.html` | What a human supplies: an intent, an interview answer, the reading confirmed, a commit master holds, an intent ended, an intent-reach constraint and its withdrawal, a ceiling cleared |
 | `/work/item/:id` | `item.ts`, `item.html` | One item's timeline, its priority, ending it, and, where a hold of the factory's own stands at the production deploy row and is approvable from here, approving through it |
 | `/work/decision/:id` | `decision.ts`, `decision.html` | One gate: acknowledge, approve, reject, hold, refer, edit in place, take over |
+| — | `work.e2e.ts` | The browser run: the screen driven in Chromium against the factory's own process |
 
 The shape every screen directory holds: `README.md`, `work.ts`, `work.html`, `work.css`,
-`work.spec.ts`, `work.routes.ts`, and `format.ts`. Work holds one further file pair per
-address above; the other three screens have fewer addresses and so fewer pairs.
-`format.ts` is a copy of the same file in the other three screen directories, which is
-what the import boundary costs.
+`work.spec.ts`, `work.e2e.ts`, `work.routes.ts`, and `format.ts`. Work holds one further
+file pair per address above; the other three screens have fewer addresses and so fewer
+pairs. `format.ts` is a copy of the same file in the other three screen directories, which
+is what the import boundary costs.
 
 `workMachine` is declared in `work.ts` and is the machine every address of this screen
 declares: the five states, the transitions between them, and no terminal state.
@@ -48,6 +49,6 @@ decisions name none — never withheld.
 
 [Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2565, C2566, C2567, C2568, C2569, C2576, C2577, C2578, C2579, C2580, C2584, C2585, C2590, C2592, C2593, C2595);
 [Three properties every screen needs](../../../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md) (C2679, C2680, C2683, C2686, C2688, C2690, C2691, C2693);
-[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2701, C2702, C2703, C2704, C2705, C2706, C2707, C2711, C2712, C2713, C2714, C2715, C2716);
+[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2701, C2702, C2703, C2704, C2705, C2706, C2707, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994);
 [Actions at each gate](../../../../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md) (C0940);
 [What humans do](../../../../../end-goal/what-humans-do.md) (C2862, C2863, C2870, C2883, C2884).

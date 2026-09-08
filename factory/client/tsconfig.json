@@ -25,5 +25,9 @@
     "enableI18nLegacyMessageIdFormat": false
   },
   "files": [],
-  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.spec.json" }]
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.spec.json" },
+    { "path": "./tsconfig.e2e.json" }
+  ]
 }

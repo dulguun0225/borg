@@ -16,6 +16,7 @@ and reports the number there rather than here.
 | `people.ts`, `people.html` | The screen: the machine, the read, every row of the declaration, and the one path every call takes |
 | `people-forms.ts`, `.html` | The ten writes: a duty declared or withdrawn, an obligation declared or withdrawn, a credential lent or taken back, a ceiling authored, a rate authored, and a mapping written or erased |
 | `request.ts` | What the forms section asks the screen to send |
+| `people.e2e.ts` | The browser run: the screen driven in Chromium against the factory's own process |
 
 The screen is split into a section because one component for all of it would pass the
 500-line bound. A section is not a fifth screen: it holds no address, no subscription and
@@ -34,10 +35,11 @@ taken from `Intl.DateTimeFormat().resolvedOptions().timeZone`, because every rea
 value computes in that zone and no other: a period ends at that zone's midnight.
 
 The shape every screen directory holds: `README.md`, `people.ts`, `people.html`,
-`people.css`, `people.spec.ts`, `people.routes.ts`, and `format.ts`. `format.ts` is a copy
-of the same file in the other three screen directories, and `request.ts` is a copy of the
-one under `../factory/`; a screen imports `api/` and `state/` and nothing else outside its
-own directory, and those copies are what the boundary costs.
+`people.css`, `people.spec.ts`, `people.e2e.ts`, `people.routes.ts`, and `format.ts`.
+`format.ts` is a copy of the same file in the other three screen directories, and
+`request.ts` is a copy of the one under `../factory/`; a screen imports `api/` and
+`state/` and nothing else outside its own directory, and those copies are what the
+boundary costs.
 
 `peopleMachine` is declared in `people.ts`: the five states, the transitions between them,
 and no terminal state.
@@ -49,4 +51,4 @@ verifies it until seam 5 is built.
 ## What defines it
 
 [Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2654, C2657, C2658, C2660, C2673);
-[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716).
+[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994).

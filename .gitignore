@@ -19,6 +19,9 @@ factory/factory
 node_modules
 # The Angular build's own cache, written beside the client's sources.
 /factory/client/.angular/
+# What the browser run writes: the last run's result on every run, and the
+# trace and the page it failed on where a test failed.
+/factory/client/test-results/
 
 # Scratch of the plan-execution tooling: ledgers, briefs, review packages.
 .superpowers/

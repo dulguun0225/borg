@@ -91,7 +91,10 @@ npm ci                         # the package tree, from the lock file
 npm run lint                   # the lint wall: what the compiler does not refuse and the code rules forbid
 npm test                       # the client's own suite
 npm run build                  # writes ../clientdist/browser, which the binary embeds
+npm run e2e                    # the four screens in a browser, against a factory this commit builds
 ```
+
+`npm run e2e` runs after `npm run build`, the binary embedding whatever `clientdist/browser` holds: it needs `psql` on the path, a reachable `DATABASE_URL`, and ports 8090 and 8091 free. It drops and creates the schema `factory_e2e` on that database at the start and leaves it there at the end, so two runs on one `DATABASE_URL` cannot overlap — the second drops the schema the first is serving from.
 
 `npm run build`'s output is the build's product and never committed, the way the Go compiler's is; `clientdist/browser` holds nothing but `.gitkeep` on a fresh clone, and `serve` answers a request for a screen with "the client is not built" until the build has run. `cmd/tracecheck` reads each screen's `README.md` the way it reads a `doc.go`: a screen directory with no `README.md`, one citing no claim, or one whose reference points at nothing, fails the build.
 

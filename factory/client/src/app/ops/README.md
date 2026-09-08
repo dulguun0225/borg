@@ -11,6 +11,7 @@ needs a human, and it acts.
 |---|---|---|
 | `/ops` | `ops.ts`, `ops.html` | The board: every service on every environment, with the release per target, the drift mismatch over it, the incidents, the rollouts and the last checks |
 | `/ops/service/:serviceId/on/:environmentId` | `service.ts`, `service.html` | One service on one environment: the window parameters per quantity, the emission version, unmeasured, the mitigation standing, the contracts published, how far a deploy still widening on a target has reached, and the five actions |
+| — | `ops.e2e.ts` | The browser run: the screen driven in Chromium against the factory's own process |
 
 The board's own read answers only what routes to a service's own address — which is what
 `../../../../screens/viewops.go` says of `ServiceSummary` — so the board reads each
@@ -21,9 +22,9 @@ change on it re-reads the whole of that. A service whose own view could not be r
 that row's readings withheld rather than the board failed.
 
 The shape every screen directory holds: `README.md`, `ops.ts`, `ops.html`, `ops.css`,
-`ops.spec.ts`, `ops.routes.ts`, and `format.ts`, with one further file pair per address
-under the first. `format.ts` is a copy of the same file in the other three screen
-directories; a screen imports `api/` and `state/` and nothing else outside its own
+`ops.spec.ts`, `ops.e2e.ts`, `ops.routes.ts`, and `format.ts`, with one further file pair
+per address under the first. `format.ts` is a copy of the same file in the other three
+screen directories; a screen imports `api/` and `state/` and nothing else outside its own
 directory, and that copy is what the boundary costs.
 
 `opsMachine` is declared in `ops.ts` and is the machine both addresses declare: the five
@@ -44,4 +45,4 @@ reach would read healthier the longer it stood.
 
 [Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2596, C2597, C2599, C2600, C2601, C2602, C2604, C2605, C2606, C2627);
 [Three properties every screen needs](../../../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md) (C2688, C2690, C2693);
-[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2700, C2702, C2703, C2704, C2705, C2711, C2712, C2713, C2714, C2715).
+[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2700, C2702, C2703, C2704, C2705, C2711, C2712, C2713, C2714, C2715, C2992, C2993, C2994).

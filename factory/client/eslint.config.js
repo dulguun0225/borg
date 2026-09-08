@@ -1,6 +1,6 @@
 // The lint wall. Whatever the compilers do not refuse and the client profile
 // forbids is a rule here, and a rule here fails the build: `npm run lint` is
-// one of the four commands every change runs.
+// one of the five commands every change runs.
 //
 // The import-boundary block at the end is this client's deps.txt. One allowed
 // edge per line with its reason, and an import not on the list fails.
@@ -202,6 +202,20 @@ module.exports = tseslint.config(
         // ./people/people.routes   -- the People screen's own routes
         regex: '^\\./(work|ops|factory|people)/(?!(work|ops|factory|people)\\.routes$)',
         message: 'The shell imports the four screens\' routes only.',
+      }),
+    },
+  },
+  {
+    // The browser run reaches this client the way a human does — over HTTP,
+    // through a rendered page — so it imports no file of it at all. The
+    // pattern refuses every relative import and leaves the package ones the
+    // blocks above already restrict.
+    files: ['src/**/*.e2e.ts', 'playwright.config.ts'],
+    rules: {
+      'no-restricted-imports': noRestrictedImports({
+        regex: '^\\.',
+        message:
+          'An end-to-end file reaches the client through the browser and imports nothing of it.',
       }),
     },
   },

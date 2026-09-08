@@ -124,7 +124,10 @@ func walkFiles(root string) ([]string, error) {
 		if d.IsDir() {
 			// node_modules is the client's package tree, whose Markdown is
 			// not this repository's and whose links point at nothing here.
-			if d.Name() == ".git" || d.Name() == "node_modules" {
+			// test-results is the browser run's output, written by a failing
+			// run and never committed, and its Markdown is the same kind of
+			// thing: not this repository's, and pointing at nothing here.
+			if d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "test-results" {
 				return filepath.SkipDir
 			}
 			return nil

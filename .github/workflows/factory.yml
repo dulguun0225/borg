@@ -126,4 +126,20 @@ jobs:
         working-directory: .
         run: tools/consistency-commands.sh
 
+      # A browser and the system libraries a hosted runner does not carry for
+      # it. These two steps are last of the client's because the run needs the
+      # client built and the binary buildable, and because it is the slowest
+      # step this job runs on the client: the cheap checks above fail first.
+      - name: the client's browser
+        working-directory: factory/client
+        run: npx playwright install --with-deps chromium
+
+      # The four screens driven in that browser against a factory this commit
+      # builds, over the schema factory_e2e on the job's database. psql is on
+      # the runner and DATABASE_URL above is what the harness drops and creates
+      # that schema on.
+      - name: the client's browser run
+        working-directory: factory/client
+        run: npm run e2e
+
       - run: go test -count=1 ./...

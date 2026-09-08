@@ -9,6 +9,7 @@
     "set-version": "node tools/set-version.mjs",
     "lint": "ng lint",
     "test": "ng test",
+    "e2e": "playwright test",
     "build": "ng build",
     "postbuild": "node tools/keep-embed-directory.mjs"
   },
@@ -27,6 +28,7 @@
     "@angular/cli": "22.1.7",
     "@angular/compiler-cli": "22.1.5",
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
     "@types/jasmine": "6.0.0",
     "angular-eslint": "22.2.0",
     "eslint": "10.10.0",
