@@ -5,9 +5,9 @@
 //
 // local.go is the process: [Local] and [New], [Local.Dir], the seam operations
 // [Local.Deploy], [Local.Stop] and [Local.ReadRunning], [Local.DrainWait] with
-// [DefaultDrainWait], the files [RunningFile], [SignalFile] and [ExchangeFile]
-// with the [SignalEnv], [ExchangeEnv], [DeployEnv] and [WayInEnv] variables
-// that name what a started process is told, and [ErrBuildNotLocal] and
+// [DefaultDrainWait], the files [RunningFile], [SignalFile], [ExchangeFile]
+// and [WayInSocket] with the [SignalEnv], [ExchangeEnv] and [DeployEnv]
+// variables that name what a started process is told, and [ErrBuildNotLocal] and
 // [ErrServiceNotLocal]. store.go is the service's store: [DataDir],
 // [HistoryFile], [SchemaScript] and [SnapshotDir], the operations
 // [Local.ApplySchemaChange] and [Local.Snapshot], and [ErrNoSchemaScript],
@@ -86,8 +86,16 @@
 // and enforcement each read one through an interface knowing neither. Beside
 // them the process is told the deploy record's identity through [DeployEnv],
 // which is what tells the instances one deploy placed from the instances of the
-// same build another placed, and the way-in token through [WayInEnv] where the
-// deployment carries one.
+// same build another placed.
+//
+// The way in the factory injected into the build is told three things where
+// the deployment carries them: the way-in token, the entrance to present it
+// at, and [WayInSocket], a socket in this directory named by the service the
+// way [RunningFile] is, whose own comment says what bounds its length. The
+// three variable names are package wayin's, the shipped source being what
+// reads them, and this target sets them and spells none of them itself. A
+// deployment naming no entrance is told none of the three beyond the token,
+// and the way in in that build listens nowhere.
 //
 // The seam requires a credential reference on every operation and this target
 // refuses its absence, but it never resolves the name: nothing sits behind this
@@ -117,7 +125,7 @@
 // (C0914); the schema change, its script and the snapshot before a destructive
 // one are
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
-// (C1664, C1670, C1672, C1674, C1678), and the history's own row, with the
+// (C1664, C1670, C1672, C1678), and the history's own row, with the
 // release that shipped each change and the mark that says the store arrived
 // carrying it, is
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
@@ -129,6 +137,6 @@
 // ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
 // (C1953), the exchange document a consumer contract is decided against is
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md,
-// and the way-in token handed to a deployed service is seam 5 of
-// ../../end-goal/deferred.md#security-comes-last.
+// and the way-in token handed to a deployed service, beside the entrance it is
+// presented at, is seam 5 of ../../end-goal/deferred.md#security-comes-last.
 package localtarget

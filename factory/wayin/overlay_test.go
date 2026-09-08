@@ -267,8 +267,11 @@ func shortDir(t *testing.T) string {
 func wayInAt(t *testing.T, binary, entrance string) *http.Client {
 	t.Helper()
 	socket := filepath.Join(shortDir(t), "way-in.sock")
-	start(t, binary, "BORG_WAY_IN=token-1", "BORG_WAY_IN_STORE="+entrance,
-		"BORG_WAY_IN_LISTEN="+socket)
+	// The three names are the exported ones and not literals: what this test
+	// starts is the shipped source, so setting them through the constants a
+	// deploy target sets is what holds the two spellings together.
+	start(t, binary, wayin.TokenEnv+"=token-1", wayin.StoreEnv+"="+entrance,
+		wayin.ListenEnv+"="+socket)
 	waitForTheSocket(t, socket)
 	return overTheSocket(socket)
 }

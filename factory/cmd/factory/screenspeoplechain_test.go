@@ -1,7 +1,7 @@
 // The People declaration as a chain, over HTTP: a duty declared on two keys,
 // the second holder withdrawn so one row can be closed with a self-approval
 // count and restored after, and the mapping erased with the key standing on
-// every record it was written to.
+// every record it was written to and the erasure-list row landing before it.
 package main
 
 import (
@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/erasurelist"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/safeguard"
@@ -34,6 +35,9 @@ const theRoutedDuty = 6
 // chain of policy versions and nowhere else.
 func TestASecondHolderIsWhatMakesAWithdrawalDecidable(t *testing.T) {
 	ctx, d, out := newPath(t, approvals)
+	// The report store, because erasing a mapping appends a row of the erasure
+	// list and that store is the list's one writer.
+	erased := newReports(t, ctx, &d)
 	s := newScreens(t, ctx, d, out)
 
 	alice := owner(t, ctx, d.pool, d.token, "alice")
@@ -134,6 +138,19 @@ func TestASecondHolderIsWhatMakesAWithdrawalDecidable(t *testing.T) {
 	s.mustCall(t, "deleteMapping", screens.DeleteMappingArgs{HumanKey: alice.Key})
 	if _, err := people.NameOf(ctx, d.pool, alice.Key); err == nil {
 		t.Error("the mapping still resolves the erased key to a name")
+	}
+	// The erasure-list row landed before the deletion, keyed by the mapping's
+	// key and naming the mapping, so a restore that brought the name back is
+	// replayed against it.
+	rows, err := erasurelist.ReadKind(erased.list, erasurelist.KindMapping)
+	if err != nil {
+		t.Fatalf("reading the erasure list: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Key != alice.Key {
+		t.Fatalf("the erasure list holds %+v, want one row keyed by the erased mapping", rows)
+	}
+	if strings.Contains(rows[0].Removed, "alice") {
+		t.Errorf("the erasure-list row says %q, and it carries the name it removed", rows[0].Removed)
 	}
 	var declaration screens.People
 	s.get(t, "/api/people", &declaration)

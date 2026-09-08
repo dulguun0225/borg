@@ -20,9 +20,9 @@
 // take a pool and no [Writer]: [Get], [ByHolding], [Holders] — the
 // notifier's read, returning keys — and [All], what the command-line interface
 // prints. mapping.go holds [Mapping], [WriteMapping], [DeleteMapping],
-// [GetMapping], [NameOf], the read every screen and every page event resolves
-// a key through, and [KeyNamed], the same read the other way for a caller
-// handed a name and holding no key.
+// [Replay], what a restore is served through, [GetMapping], [NameOf], the read
+// every screen and every page event resolves a key through, and [KeyNamed],
+// the same read the other way for a caller handed a name and holding no key.
 //
 // credential.go holds the lent credential: [AccountKind] with
 // [AccountKinds], [PeriodUnit] with [PeriodUnits], [Ceiling] with
@@ -83,9 +83,18 @@
 // and [DeleteMapping] are the mapping's only writer, also refusing a
 // non-human actor; [DeleteMapping] takes a caller-supplied check for
 // whether a legal hold reaches a record the key is written on, because this
-// package holds no join from a key to the records that name it — that walk
-// is the erasure list's, and it is not built, so a nil check never refuses.
-// A withdrawal of a legal hold, once built, is what would call it with one.
+// package holds no join from a key to the records that name it, so a nil check
+// never refuses.
+//
+// [DeleteMapping] takes its erasure-list appender from the caller for the same
+// kind of reason: the erasure list has one writer and it is the report store,
+// which this package does not import. The row lands before the deletion, keyed by the key, so a deletion made again
+// appends nothing; a call supplying no appender is refused with
+// [ErrNoErasureList], the row being what says the name must not come back with
+// a restore. Both legal-hold checks are made before it, so a refused deletion
+// appends no row. [Replay] is the other side of the same seam: the composition
+// reads the rows naming a mapping and hands this the keys, and each is deleted
+// again against whatever a restore brought back.
 //
 // What defines it: the twelve duties and the three obligations outside them are
 // ../../end-goal/what-humans-do.md (C2850, C2852, C2855, C2856, C2857, C2858,
@@ -106,7 +115,10 @@
 // the notifier routes all three channels on it; the mapping's deletion refused
 // under a legal hold is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md
-// (C2323); the opaque per-person key and the claimed-or-verified basis beside
+// (C2323); the erasure-list row a deletion appends first, the one writer it
+// meets and the replay after a restore are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0446, C0453, C0456); the opaque per-person key and the claimed-or-verified basis beside
 // it are seam 1 of ../../end-goal/deferred.md#security-comes-last (C0041,
 // C0065, C0085).
 package people

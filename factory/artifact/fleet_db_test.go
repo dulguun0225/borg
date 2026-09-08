@@ -1,7 +1,7 @@
-// The database tests of [artifact.Store.SubmitFleet], [artifact.Store.EnterShipped],
-// [artifact.InForce] and [artifact.Store.Redact] — the fleet kinds' chains, the
-// ungated shipped entry, and the one exception to insert-and-never-update. They
-// share db_test.go's newStore and the actors and drafts it declares.
+// The database tests of [artifact.Store.SubmitFleet], [artifact.Store.EnterShipped]
+// and [artifact.InForce] — the fleet kinds' chains and the ungated shipped
+// entry. They share db_test.go's newStore and the actors and drafts it
+// declares; the erasure's are in redact_db_test.go.
 package artifact_test
 
 import (
@@ -164,45 +164,6 @@ func TestInForceReadsTheNewestApprovedVersion(t *testing.T) {
 	_, ok, err = artifact.InForce(ctx, pool, artifact.KindRolePrompt, "spec_author", "", nil)
 	if err != nil || ok {
 		t.Errorf("InForce with nothing approved = ok %v, %v, want false", ok, err)
-	}
-}
-
-// TestRedactDestroysASpanAndRecomputesTheDigest is the one exception to
-// insert-and-never-update.
-func TestRedactDestroysASpanAndRecomputesTheDigest(t *testing.T) {
-	ctx, pool, s := newStore(t)
-
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "the secret is 12345 and nothing else", "")
-	if err != nil {
-		t.Fatalf("SubmitImplementation: %v", err)
-	}
-
-	if err := s.Redact(ctx, factoryStart, impl.ID, []artifact.Span{{Start: 14, End: 19}}); err != nil {
-		t.Fatalf("Redact: %v", err)
-	}
-
-	read, err := artifact.Get(ctx, pool, impl.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if read.Content != "the secret is xxxxx and nothing else" {
-		t.Errorf("the redacted content is %q", read.Content)
-	}
-	if read.ContentDigest == impl.ContentDigest {
-		t.Error("the content digest did not change after redaction")
-	}
-}
-
-func TestRedactRefusesASpanOutsideTheContent(t *testing.T) {
-	ctx, _, s := newStore(t)
-
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "short", "")
-	if err != nil {
-		t.Fatalf("SubmitImplementation: %v", err)
-	}
-	err = s.Redact(ctx, factoryStart, impl.ID, []artifact.Span{{Start: 0, End: 50}})
-	if !errors.Is(err, artifact.ErrSpanOutOfRange) {
-		t.Errorf("Redact with an out-of-range span = %v, want ErrSpanOutOfRange", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/erasurelist"
 	"github.com/dulguun0225/borg/factory/principal"
 )
 
@@ -179,6 +180,17 @@ type ReadEvents interface {
 	Append(ctx context.Context, p principal.Principal, read string) error
 }
 
+// The four kinds of record an erasure reaches, named here so a caller of
+// [Store.AppendErasure] names one without importing the erasure list this
+// store is the one writer of. Each is that package's own constant and not a
+// second spelling of it.
+const (
+	ErasureKindReport          = erasurelist.KindReport
+	ErasureKindStatement       = erasurelist.KindStatement
+	ErasureKindArtifactVersion = erasurelist.KindArtifactVersion
+	ErasureKindMapping         = erasurelist.KindMapping
+)
+
 // Span is a half-open byte range of a report's text, [Start, End), the unit a
 // redaction names and [Store.Redact] destroys.
 type Span struct {
@@ -186,13 +198,18 @@ type Span struct {
 }
 
 // Redaction is one redaction record naming a report, in the fields this store
-// needs to destroy what it names. ID is the redaction's own id, which is also
-// the key its erasure-list row is written under, so the same redaction
-// applied twice appends one row.
+// needs to destroy what it names. ErasureKey is the key the action that
+// performs the erasure computed, which its erasure-list row is appended
+// under, so the same erasure performed twice appends one row; it is not the
+// redaction's id, because the row lands before the record exists. ID is the
+// redaction's own id, which is what a read served through it names. This
+// store is a second database and holds neither the key's derivation nor the
+// record: both arrive across the [Redactions] seam as strings.
 type Redaction struct {
-	ID       string
-	ReportID string
-	Spans    []Span
+	ID         string
+	ErasureKey string
+	ReportID   string
+	Spans      []Span
 }
 
 // Redactions is every redaction naming a report. The composition implements

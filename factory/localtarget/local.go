@@ -17,6 +17,7 @@ import (
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/targetseam"
+	"github.com/dulguun0225/borg/factory/wayin"
 )
 
 // Local is a [targetseam.Target] that runs each service's build as one local
@@ -82,12 +83,25 @@ func ExchangeFile(dir, build string) string { return filepath.Join(dir, build+".
 // build an earlier deploy placed — the control's among them.
 const DeployEnv = "BORG_DEPLOY"
 
-// WayInEnv is the environment variable the way-in token is handed to the started
-// process through, beside the service's own credentials. The deployer mints the
-// token at every deploy and writes only its digest on the deploy record, so this
-// is the one value this target is handed rather than a reference. The way in
-// that would send it and the report store that would digest it are not built.
-const WayInEnv = "BORG_WAY_IN"
+// WayInSocket is where the way in inside the service running in dir listens: a
+// Unix socket in the target's own directory, named by the service the way
+// [RunningFile] is and not by the build the way [SignalFile] and
+// [ExchangeFile] are. Those two are per build because a release's counts are
+// read against the counts of the build that ran there before it; a socket
+// accumulates nothing, one process runs per service here, and the shorter
+// name is what keeps the path inside the bound below.
+//
+// A Unix socket path is bounded at about a hundred characters, which is the
+// operating system's bound and not this package's. A directory deep enough to
+// pass it — a candidate environment's, whose name carries the item's
+// identifier — leaves that build's way in unable to listen, which the started
+// process reports on its own log and which costs it its way in and nothing
+// else.
+//
+// The three names the started process is told the token, the entrance and
+// this path through are package wayin's, the shipped source being what reads
+// them; this target sets them and spells none of them itself.
+func WayInSocket(dir, service string) string { return filepath.Join(dir, service+".way-in") }
 
 // RunningFile is where the target records what it started for one service: the
 // build, a space, and the process id. It is a file rather than a field, so that
@@ -126,7 +140,8 @@ func (l *Local) Dir() string { return l.dir }
 // makes the software the factory wrote observable at all, and the one it writes
 // its exchange documents into, which is what a consumer contract is
 // decided against. Beside them it is told the deploy record's own identity and,
-// where the deployment carries one, the way-in token and every value of the
+// where the deployment carries them, the way-in token with the entrance it is
+// presented at and the socket the way in listens on, and every value of the
 // resolved configuration.
 //
 // The instance it replaces is drained where it can be: it is asked to end, which
@@ -168,7 +183,16 @@ func (l *Local) Deploy(_ context.Context, p principal.Principal, d targetseam.De
 		ExchangeEnv+"="+ExchangeFile(l.dir, d.Build),
 		DeployEnv+"="+d.DeployID)
 	if d.WayInToken != "" {
-		cmd.Env = append(cmd.Env, WayInEnv+"="+d.WayInToken)
+		cmd.Env = append(cmd.Env, wayin.TokenEnv+"="+d.WayInToken)
+		// The way in starts only where all three are set, so the entrance and
+		// the socket go together: a deployment carrying no address is a
+		// factory serving no entrance, and the way in in this build listens
+		// nowhere rather than dialling something that is not there.
+		if d.WayInAddress != "" {
+			cmd.Env = append(cmd.Env,
+				wayin.StoreEnv+"="+d.WayInAddress,
+				wayin.ListenEnv+"="+WayInSocket(l.dir, d.Service))
+		}
 	}
 	for n, name := range d.Configuration.Names {
 		cmd.Env = append(cmd.Env, name+"="+d.Configuration.Values[n])

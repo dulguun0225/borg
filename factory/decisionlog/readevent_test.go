@@ -108,6 +108,41 @@ func TestAReadEventIsRefusedForAnIncompletePrincipal(t *testing.T) {
 	}
 }
 
+// TestAReadOfStoredReportTextAppendsAReadEvent: the tenth shape's other half.
+// The words a redaction reaches are not in this log — a report is in a second
+// database, and a statement and an artifact version have writers of their own
+// — so the reader that serves them appends the event through this call, which
+// is what makes who had already read them answerable.
+func TestAReadOfStoredReportTextAppendsAReadEvent(t *testing.T) {
+	ctx, pool, _, token := newLog(t)
+	reader := decisionlog.NewReader(pool, token)
+
+	before := readEventCount(t, ctx, pool)
+	if err := reader.AppendReadEvent(ctx, ownerReading, "report rep_1"); err != nil {
+		t.Fatalf("AppendReadEvent: %v", err)
+	}
+	if after := readEventCount(t, ctx, pool); after != before+1 {
+		t.Errorf("a read of stored report text appended %d read events, want 1", after-before)
+	}
+	key, payload := lastReadEvent(t, ctx, pool)
+	if key != ownerReading.Actor.Key {
+		t.Errorf("the read event names actor %q, want the principal %q", key, ownerReading.Actor.Key)
+	}
+	var said struct {
+		Read string `json:"read"`
+	}
+	if err := json.Unmarshal([]byte(payload), &said); err != nil {
+		t.Fatalf("the read event payload does not parse: %v", err)
+	}
+	if said.Read != "report rep_1" {
+		t.Errorf("the read event says %q was read", said.Read)
+	}
+
+	if err := reader.AppendReadEvent(ctx, principal.Principal{}, "report rep_1"); err == nil {
+		t.Error("a read of stored report text as nobody was accepted")
+	}
+}
+
 func readEventCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int {
 	t.Helper()
 	var count int

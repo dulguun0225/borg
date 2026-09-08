@@ -20,9 +20,15 @@ var (
 	ErrMappingNotFound = errors.New("people: no mapping has that key")
 	// ErrLegalHoldReaches is returned by [DeleteMapping] where the caller's
 	// own check reports a legal hold reaching a record this key is written
-	// on. The refusal is recorded by the erasure list, once built; today it
-	// is this error, for a caller to record.
+	// on. Recording the refusal is not built; today it is this error, for a
+	// caller to record. Nothing is appended to the erasure list for it, so no
+	// restore is needed to undo the refusal.
 	ErrLegalHoldReaches = errors.New("people: a legal hold reaches a record this key is written on, so the mapping stands")
+	// ErrNoErasureList is returned by [DeleteMapping] for a call supplying no
+	// appender. The erasure-list row is what says the name must not come back
+	// with a restore, so a deletion that cannot append one is refused rather
+	// than performed without it.
+	ErrNoErasureList = errors.New("people: deleting a mapping appends an erasure-list row, and no appender was supplied")
 )
 
 // Mapping is the one place a per-person key maps to a name, kept outside
@@ -98,12 +104,26 @@ func WriteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, ac
 // install reaches every mapping there is, and this package reads that one
 // itself through [legalhold.Reaching]. A hold on one service or one project
 // reaches a mapping only through the records that key is written on, which is
-// the erasure list's walk and is not built — so that half is reaches, the
-// caller's own check, and a nil reaches never refuses.
+// the walk this package cannot make — so that half is reaches, the caller's
+// own check, and a nil reaches never refuses. Both are made before anything is
+// written, so a refused deletion appends no erasure-list row and no restore is
+// needed to undo it.
+//
+// appendErasure appends that row, and it lands before the deletion: a stop
+// between the two leaves a row saying a name was removed and the name still
+// there, which is the event visibly owing rather than visibly done, and the row
+// is what a restore is replayed against. It is the caller's because the erasure
+// list has one writer and it is the report store, which this package does not
+// import; key is what the row is written under, so the same deletion made again
+// appends nothing. A call supplying none is [ErrNoErasureList].
 func DeleteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, key string,
-	reaches func(ctx context.Context) (bool, error)) error {
+	reaches func(ctx context.Context) (bool, error),
+	appendErasure func(ctx context.Context, key string) error) error {
 	if key == "" {
 		return ErrKeyEmpty
+	}
+	if appendErasure == nil {
+		return fmt.Errorf("%w: %s", ErrNoErasureList, key)
 	}
 	held, err := legalhold.Reaching(ctx, pool, legalhold.Subject{Kind: legalhold.SubjectFactory})
 	if err != nil {
@@ -122,21 +142,62 @@ func DeleteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, k
 		}
 	}
 
+	if err := appendErasure(ctx, key); err != nil {
+		return fmt.Errorf("people: appending the erasure-list row for %s: %w", key, err)
+	}
+	if _, err := deleteMapping(ctx, pool, token, key); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Replay deletes again the mappings the erasure list says were erased, and
+// returns how many it deleted. It is what this store runs against whatever a
+// restore brought back before it serves again: the list is never rolled back,
+// so a backup taken before a deletion carries the name and this is what takes
+// it out again.
+//
+// erased is the keys the rows of kind mapping name, read and handed in by the
+// composition — the list has one writer and it is the report store, and this
+// package imports neither. No legal hold is read here: the deletion already
+// happened and was not refused, and a hold placed since does not put a name
+// back that is gone everywhere but in a backup.
+func Replay(ctx context.Context, pool *pgxpool.Pool, token lease.Token, erased []string) (int, error) {
+	deleted := 0
+	for _, key := range erased {
+		if key == "" {
+			return deleted, ErrKeyEmpty
+		}
+		found, err := deleteMapping(ctx, pool, token, key)
+		if err != nil {
+			return deleted, err
+		}
+		if found {
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
+// deleteMapping is the delete itself, fenced and in its own transaction, and
+// whether there was a row to delete.
+func deleteMapping(ctx context.Context, pool *pgxpool.Pool, token lease.Token, key string) (bool, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("people: beginning: %w", err)
+		return false, fmt.Errorf("people: beginning: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lease.Fence(ctx, tx, token); err != nil {
-		return err
+		return false, err
 	}
-	if _, err := tx.Exec(ctx, `delete from `+MappingTable+` where person_key = $1`, key); err != nil {
-		return fmt.Errorf("people: deleting the mapping of %s: %w", key, err)
+	tag, err := tx.Exec(ctx, `delete from `+MappingTable+` where person_key = $1`, key)
+	if err != nil {
+		return false, fmt.Errorf("people: deleting the mapping of %s: %w", key, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("people: committing: %w", err)
+		return false, fmt.Errorf("people: committing: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // GetMapping is the mapping for one key, or [ErrMappingNotFound].

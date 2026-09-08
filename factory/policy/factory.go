@@ -79,14 +79,15 @@ func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory {
 
 // Created is what a write that creates a record hands back to the version that
 // names it: the scope the record is, and the id where the record is a
-// safeguard, a halt, a legal hold, a withdrawal of one, or a shortening of
-// decision-log retention written pending.
+// safeguard, a halt, a legal hold, a withdrawal of one, a redaction, or a
+// shortening of decision-log retention written pending.
 type Created struct {
 	Scope        Scope
 	SafeguardID  string
 	HaltID       string
 	LegalHoldID  string
 	WithdrawalID string
+	RedactionID  string
 	ShorteningID string
 }
 
@@ -140,8 +141,9 @@ type write struct {
 
 	// keyExtra is what a write whose value is not a number or a list adds to
 	// its own key, so that two such writes differing in what they carry derive
-	// two keys: the People declaration is the one, and its key is a digest of
-	// what the version will name.
+	// two keys. There are two: the People declaration, whose key is a digest
+	// of what the version will name, and a redaction, whose key is the one its
+	// erasure-list row was appended under.
 	keyExtra string
 
 	// confirmsScoreVersion is the score version a threshold write confirms or
@@ -220,7 +222,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		}
 		version.SafeguardID, version.HaltID = created.SafeguardID, created.HaltID
 		version.LegalHoldID, version.WithdrawalID = created.LegalHoldID, created.WithdrawalID
-		version.ShorteningID = created.ShorteningID
+		version.RedactionID, version.ShorteningID = created.RedactionID, created.ShorteningID
 		version.Safeguards = withID(version.Safeguards, created.SafeguardID)
 		version.Halts = withID(version.Halts, created.HaltID)
 		version.LegalHolds = withID(version.LegalHolds, created.LegalHoldID)

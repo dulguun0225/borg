@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/dulguun0225/borg/factory/clientdist"
 	"github.com/dulguun0225/borg/factory/postgres"
+	"github.com/dulguun0225/borg/factory/reportstore"
 	"github.com/dulguun0225/borg/factory/screens"
+	"github.com/dulguun0225/borg/factory/wayin"
 )
 
 // serve is the process the lease was always for, per
@@ -25,8 +28,14 @@ import (
 //
 // What it serves is the four screens: package screens' own handler over the
 // views and the calls this composition implements, with the client's build
-// output embedded beside them, and GET /healthz beside that — the one route a
-// reader outside the process compares the factory version on.
+// output embedded beside them, GET /healthz beside that — the one route a
+// reader outside the process compares the factory version on — and the way
+// in's entrance, which is the one address outside the factory reaches and the
+// one thing this process serves that no screen is behind.
+//
+// It is the only subcommand that opens the report store: a submission arrives
+// at the entrance, and a subcommand that makes one pass and exits serves no
+// address for one to arrive at.
 
 // defaultPort is where the screens will be served from, and where /healthz is
 // served from until they are. It is a flag because an install may already be
@@ -76,6 +85,15 @@ func serveCommand(args []string) error {
 		}
 	}
 
+	// The report store is named before the lease is taken and before anything
+	// is opened. Every submission the entrance takes is written there and the
+	// store has no default of its own, so a URL nobody set is a channel with
+	// nowhere to write, refused here rather than at the first report.
+	reportURL, err := reportstore.URL()
+	if err != nil {
+		return fmt.Errorf("factory serve: %w, and every report the way in takes is written there", err)
+	}
+
 	resolver, err := secretsResolver(*secrets)
 	if err != nil {
 		return err
@@ -111,6 +129,18 @@ func serveCommand(args []string) error {
 	}
 	defer shut()
 
+	// The report store, its schema applied by whatever opens it, and the
+	// channel the entrance is served over. The erasure list is a file on this
+	// host and outside the recovery unit, so it lives beside the targets this
+	// install runs releases from, which is the one host directory this process
+	// is given, and this is the one place it is named.
+	channel, closeReports, err := openReportStore(ctx, reportURL,
+		filepath.Join(*targets, "erasure-list"), pool)
+	if err != nil {
+		return err
+	}
+	defer closeReports()
+
 	p, err := compose(ctx, deps{
 		pool:                pool,
 		token:               token,
@@ -120,7 +150,10 @@ func serveCommand(args []string) error {
 		modelFor:            modelsPerEntry(resolver, *pace),
 		targets:             newTargetSet(localTargetAt),
 		dir:                 *targets,
-		project:             *projectName,
+		// The store is here for the erasure list it is the one writer of:
+		// People's deletion of a mapping appends its row through it.
+		reports: channel.store,
+		project: *projectName,
 		// The process installs the way run does: it is the process an install
 		// starts, so the project and production's environment for it are
 		// created here where they do not exist.
@@ -137,6 +170,9 @@ func serveCommand(args []string) error {
 		// waiting a deadline out inside a tick.
 		watchFor:   0,
 		watchEvery: *watchEvery,
+		// The entrance this process serves, handed to every deploy so that the
+		// way in shipped inside the service knows where to present its token.
+		wayInAddress: wayInAddressOn(*port),
 	})
 	if err != nil {
 		return err
@@ -157,7 +193,7 @@ func serveCommand(args []string) error {
 	// subscription holds open for as long as a screen is.
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", *port),
-		Handler:           served(screenServer),
+		Handler:           served(screenServer, wayin.NewEntrance(channel)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	served := make(chan error, 1)
@@ -206,19 +242,26 @@ func serveCommand(args []string) error {
 	return nil
 }
 
-// served is what this process answers on its port: the four screens, and
-// GET /healthz beside them.
+// served is what this process answers on its port: the four screens, the way
+// in's entrance, and GET /healthz beside them.
 //
 // /healthz is not one of the screens' own routes and carries neither the
 // factory version nor a principal, because it is what a reader outside the
 // process reads before it has either: an upgrade is applied by whoever hosts
 // the install, and this is how they see which version is running.
-func served(screenServer *screens.Server) http.Handler {
+//
+// The entrance is mounted at the way in's own two paths rather than under a
+// prefix spelled here, so the routes this process serves and the routes the
+// shipped source calls are one pair of constants. Nothing about it is a
+// screen's: it carries no principal, no factory version, and no session.
+func served(screenServer *screens.Server, entrance http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintln(w, factoryVersion)
 	})
+	mux.Handle(wayin.NoticePath, entrance)
+	mux.Handle(wayin.SubmitPath, entrance)
 	mux.Handle("/", screenServer)
 	return mux
 }

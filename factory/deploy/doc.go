@@ -164,8 +164,9 @@
 // ask holds nowhere whatever the volume is.
 // way_in_token_digest is written at every deploy and read by
 // [ByWayInTokenDigest], which is the report store's resolution of a
-// submission's token to the deploy that placed the way in. The way in that
-// sends the token to the deployed service is not built.
+// submission's token to the deploy that placed the way in. The token itself
+// crosses the seam with [Performance.WayInAddress], the entrance the way in
+// presents it at, which this package carries and never reads.
 // [Mitigating.Principal] is the deployer's
 // own principal, supplied by the caller — the command-line interface, until
 // Ops is a screen.

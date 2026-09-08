@@ -57,6 +57,9 @@ const (
 	ActionHaltSet Action = "halt_set"
 	// ActionLegalHoldSet is an owner setting a legal hold.
 	ActionLegalHoldSet Action = "legal_hold_set"
+	// ActionRedacted is an owner performing one erasure: the redaction record,
+	// written after the erasure-list row the same action appended.
+	ActionRedacted Action = "redacted"
 	// ActionWithdrawalWritten is a withdrawal of a safeguard, a halt or a legal
 	// hold written pending. What it withdraws stands until the gate row that
 	// decides it approves it.
@@ -185,6 +188,10 @@ type Version struct {
 	HaltID       string
 	LegalHoldID  string
 	WithdrawalID string
+	// RedactionID is the redaction one erasure wrote, and empty on every
+	// other write. There is no list of redactions in force beside it: a
+	// redaction is performed and never stands, the bytes being gone.
+	RedactionID string
 	// ShorteningID is the shorter decision-log retention value written pending,
 	// on the write that wrote it and on the approval that put it in force, and
 	// empty on every other write.
@@ -235,6 +242,7 @@ type payload struct {
 	HaltID        string               `json:"halt_id,omitempty"`
 	LegalHoldID   string               `json:"legal_hold_id,omitempty"`
 	WithdrawalID  string               `json:"withdrawal_id,omitempty"`
+	RedactionID   string               `json:"redaction_id,omitempty"`
 	ShorteningID  string               `json:"shortening_id,omitempty"`
 	Decision      string               `json:"decision,omitempty"`
 	Key           string               `json:"key"`
@@ -255,8 +263,8 @@ func (v Version) marshal() (string, error) {
 	body, err := json.Marshal(payload{
 		Caller: v.Caller, Action: v.Action, Parameter: v.Parameter, Scope: v.Scope,
 		Number: v.Number, List: v.List, SafeguardID: v.SafeguardID, HaltID: v.HaltID,
-		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, ShorteningID: v.ShorteningID,
-		Decision: v.Decision, Key: v.Key,
+		LegalHoldID: v.LegalHoldID, WithdrawalID: v.WithdrawalID, RedactionID: v.RedactionID,
+		ShorteningID: v.ShorteningID, Decision: v.Decision, Key: v.Key,
 		Authored: v.Authored, Safeguards: v.Safeguards, Halts: v.Halts, LegalHolds: v.LegalHolds,
 		Declaration: v.Declaration, AutoPassRates: v.AutoPassRates,
 		ConfirmsScoreVersion: v.ConfirmsScoreVersion,
@@ -281,8 +289,8 @@ func versionOf(row decisionlog.Row) (Version, error) {
 		ID: row.ID, Actor: row.Actor, At: row.At,
 		Caller: p.Caller, Action: p.Action, Parameter: p.Parameter, Scope: p.Scope,
 		Number: p.Number, List: p.List, SafeguardID: p.SafeguardID, HaltID: p.HaltID,
-		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, ShorteningID: p.ShorteningID,
-		Decision: p.Decision, Key: p.Key,
+		LegalHoldID: p.LegalHoldID, WithdrawalID: p.WithdrawalID, RedactionID: p.RedactionID,
+		ShorteningID: p.ShorteningID, Decision: p.Decision, Key: p.Key,
 		Authored: p.Authored, Safeguards: p.Safeguards, Halts: p.Halts, LegalHolds: p.LegalHolds,
 		Declaration: p.Declaration, AutoPassRates: p.AutoPassRates,
 		ConfirmsScoreVersion: p.ConfirmsScoreVersion,

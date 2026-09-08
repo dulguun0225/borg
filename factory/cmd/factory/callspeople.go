@@ -10,6 +10,7 @@ import (
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/reportstore"
 	"github.com/dulguun0225/borg/factory/screens"
 )
 
@@ -185,15 +186,30 @@ func (c *calls) WriteMapping(ctx context.Context, who principal.Principal, args 
 // preserves. Package people reads the hold over the whole install itself and
 // takes the narrower reading from the caller, which is this: a hold on any
 // service or project this key has a record under reaches it too.
+//
+// The erasure-list row is appended before the deletion, and the report store
+// is what appends it: the list has one writer and two callers, and this is the
+// second of them. The row is keyed by the mapping's key, so the same deletion
+// made again appends nothing, and it names the mapping and never the name —
+// the key stands on every record it was written to either way. A composition
+// with no report store, which is every subcommand that makes one pass, hands
+// package people no appender and the deletion is refused there rather than
+// performed with nothing on the list.
 func (c *calls) DeleteMapping(ctx context.Context, who principal.Principal, args screens.DeleteMappingArgs) error {
 	actor, err := c.acting(ctx, who)
 	if err != nil {
 		return err
 	}
+	var appendErasure func(context.Context, string) error
+	if store := c.p.d.reports; store != nil {
+		appendErasure = func(_ context.Context, key string) error {
+			return store.AppendErasure(reportstore.ErasureKindMapping, key, "the mapping of "+key)
+		}
+	}
 	if err := people.DeleteMapping(ctx, c.p.d.pool, c.p.d.token, args.HumanKey,
 		func(ctx context.Context) (bool, error) {
 			return c.holdReaching(ctx, actor, args.HumanKey)
-		}); err != nil {
+		}, appendErasure); err != nil {
 		return err
 	}
 	c.changed("people", listAddressID)

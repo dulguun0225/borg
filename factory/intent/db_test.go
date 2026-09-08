@@ -3,8 +3,12 @@
 // test package is a separate package to the compiler, so the edge is a test
 // edge and not a cycle. deps.txt records it as "test intent -> postgres".
 //
-// The package's own DDL is applied statement by statement rather than through
-// postgres.Apply, so these tests depend on this package's schema alone.
+// The DDL is applied statement by statement rather than through
+// postgres.Apply, so these tests depend on the schemas newIntakeTold names and
+// no others. Three of the five are not this package's: a read of an intent
+// serves its statement through the redactions naming it, and a redaction is
+// refused while a legal hold stands, which is read against the service
+// record.
 //
 // None of these tests skips when the database is unreachable. The milestone is
 // demonstrated by them running, so an unreachable database fails the run.
@@ -25,8 +29,11 @@ import (
 
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/redaction"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // tellings is the notifier these tests compose an intake with: it records
@@ -91,14 +98,20 @@ func newIntakeTold(t *testing.T) (context.Context, *pgxpool.Pool, *intent.Intake
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
-	for n, statement := range lease.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying lease statement %d: %v", n+1, err)
-		}
-	}
-	for n, statement := range intent.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying intent statement %d: %v", n+1, err)
+	for _, applying := range []struct {
+		name string
+		ddl  []string
+	}{
+		{"lease", lease.DDL},
+		{"intent", intent.DDL},
+		{"service", service.DDL},
+		{"legalhold", legalhold.DDL},
+		{"redaction", redaction.DDL},
+	} {
+		for n, statement := range applying.ddl {
+			if _, err := pool.Exec(ctx, statement); err != nil {
+				t.Fatalf("applying %s statement %d: %v", applying.name, n+1, err)
+			}
 		}
 	}
 	token, err := lease.Acquire(ctx, pool, "test", time.Minute)

@@ -91,6 +91,7 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 			IntoProduction:  true,
 			StrategyPicked:  deploy.StrategyWithoutControl,
 			Credential:      p.d.credential,
+			WayInAddress:    p.d.wayInAddress,
 			Reaches:         p.reaches(p.production, svc),
 			UndoneDeployIDs: undone,
 		},

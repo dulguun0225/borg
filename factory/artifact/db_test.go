@@ -3,9 +3,10 @@
 // external test package keeps that a test edge rather than an import of the
 // package that will one day apply this schema. Every DDL this package's
 // writer reaches is applied here with pool.Exec, statement by statement —
-// criterion's and screenstatemachine's first, because the store writes into
-// those tables too — since postgres.Apply does not know any of the three
-// until integration.
+// criterion's and screenstatemachine's because the store writes into those
+// tables too, and redaction's with the legal hold and the service its refusal
+// is read against, because the redaction pass reads what a test of it has to
+// write.
 //
 // None of these tests skips when the database is unreachable. The milestone
 // is demonstrated by them running, so an unreachable database fails the run.
@@ -27,13 +28,16 @@ import (
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/redaction"
 	"github.com/dulguun0225/borg/factory/screenstatemachine"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
-// newStore gives a test a schema of its own with the criterion,
-// screenstatemachine and artifact DDL applied inside it, and a store over it.
+// newStore gives a test a schema of its own with the DDL it names applied
+// inside it, and a store over it.
 // The schema is dropped when the test ends, so a rerun on a database a
 // previous run left dirty starts clean.
 func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *artifact.Store) {
@@ -63,24 +67,22 @@ func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *artifact.Store) {
 	if _, err := pool.Exec(ctx, `create schema `+pgx.Identifier{schema}.Sanitize()); err != nil {
 		t.Fatalf("creating schema %s: %v", schema, err)
 	}
-	for n, statement := range lease.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying lease statement %d: %v", n+1, err)
-		}
-	}
-	for n, statement := range criterion.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying criterion statement %d: %v", n+1, err)
-		}
-	}
-	for n, statement := range screenstatemachine.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying screenstatemachine statement %d: %v", n+1, err)
-		}
-	}
-	for n, statement := range artifact.DDL {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("applying artifact statement %d: %v", n+1, err)
+	for _, applying := range []struct {
+		name string
+		ddl  []string
+	}{
+		{"lease", lease.DDL},
+		{"criterion", criterion.DDL},
+		{"screenstatemachine", screenstatemachine.DDL},
+		{"artifact", artifact.DDL},
+		{"service", service.DDL},
+		{"legalhold", legalhold.DDL},
+		{"redaction", redaction.DDL},
+	} {
+		for n, statement := range applying.ddl {
+			if _, err := pool.Exec(ctx, statement); err != nil {
+				t.Fatalf("applying %s statement %d: %v", applying.name, n+1, err)
+			}
 		}
 	}
 	token, err := lease.Acquire(ctx, pool, "test", time.Minute)

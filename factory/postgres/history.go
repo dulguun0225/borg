@@ -137,6 +137,13 @@ var Changes = []Change{
 			"that names a project and neither an item nor an intent",
 		Effect: EffectWidening,
 	},
+	{
+		Version: 1,
+		ID:      "the redaction record",
+		Text: "redaction carries the target a redaction names, the spans it removes, its reason " +
+			"and the key of the erasure-list row appended before it",
+		Effect: EffectWidening,
+	},
 }
 
 // HistoryDDL is the schema history's own table, applied before the history is

@@ -9,14 +9,16 @@
 // [FormatVersionReport], [Shape] with [Shapes], [Kind] with [Kinds], [DDL],
 // and this store's own [URLEnv], [URL], [Open] and [Apply]. reportstore.go is
 // [Report] as it is stored, [Submission], [Refusal] and [Result], [Span] and
-// [Redaction], the five interfaces the composition implements — [Deploys],
+// [Redaction], the four kinds an erasure reaches, [ErasureKindReport] and its
+// neighbours, the five interfaces the composition implements — [Deploys],
 // [Settings], [Holds], [ReadEvents] and [Redactions] — and [Store] with
 // [NewStore]. submit.go is arrival: [Store.Submit], [RatePeriod],
 // [HarmMarkedShare] and [SourceShare], and the counters a refusal and an
 // unreadable submission are counted on. read.go is [Store.Get] and [Count]
 // with [Store.Counts]. grouping.go is [Store.Link], [Store.Admit] and
 // [Store.Ungrouped]. retention.go is [Retired] and [Store.Retire]. redact.go
-// is [Store.Redact], [Store.RedactionPass] and [Store.Replay].
+// is [Store.AppendErasure], [Store.Redact], [Store.RedactionPass] and
+// [Store.Replay].
 //
 // The tests are db_test.go, submit_test.go, retention_test.go and
 // redact_test.go, every one of them against the database.
@@ -70,9 +72,13 @@
 //
 // A redaction is a record of the factory's graph, and this store is a second
 // database, so the composition hands the redactions across through
-// [Redactions] rather than their writer reaching in here. [Store.Redact]
-// appends the erasure-list row first, keyed by the redaction's id so a step
-// taken again writes nothing, and then destroys the named spans in place.
+// [Redactions] rather than their writer reaching in here. [Store.Redact] reads
+// the spans against the report's own words, appends the erasure-list row —
+// keyed by the erasure key the action computed and handed across, so a step
+// taken again writes nothing — and then destroys the named spans in place.
+// That order is the event's: the row, the destruction, and the redaction
+// record last, so a stop leaves it visibly owing rather than visibly done, and
+// a span outside the words fails before any row lands.
 // [Store.RedactionPass] is this store's own pass over every redaction naming
 // a report, and [Store.Replay] destroys again what the list says was removed,
 // which is what a restore is served through before this store serves anything.
@@ -82,8 +88,11 @@
 //
 // # Who may write what
 //
-// [Store] is the one writer of every row here and the one caller of
-// erasurelist.Append this package makes. Nothing else may remove a report:
+// [Store] is the one writer of every row here and, through
+// [Store.AppendErasure], the one writer of the erasure list in the factory:
+// nothing else calls that list's own append. Its two callers are the ones the
+// design gives it — Factory at a redaction, for whichever of the three records
+// the redaction names, and People at a mapping deletion. Nothing else may remove a report:
 // [Store.Retire] is retention's own pass, refused for a service a legal hold
 // reaches and removing nothing at all where an owner authored no retention.
 // Grouping removes nothing — [Store.Link] marks the report with the intent it

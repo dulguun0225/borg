@@ -123,6 +123,12 @@ type Performance struct {
 	// It is empty on every deploy that undoes nothing.
 	UndoneDeployIDs []string
 
+	// WayInAddress is the entrance the way in inside the deployed service
+	// presents its token at, handed across the seam beside the token. It is
+	// the caller's, this package minting the token and knowing no address,
+	// and it is empty where the factory serves no entrance.
+	WayInAddress string
+
 	// Credential is the environment record's, resolved on the far side of the
 	// seam and never here.
 	Credential secretref.Ref
@@ -215,6 +221,7 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 		Credential:    p.Credential,
 		Configuration: p.Configuration,
 		WayInToken:    wayInToken,
+		WayInAddress:  p.WayInAddress,
 		DeployID:      d.ID,
 	}
 
@@ -458,9 +465,9 @@ func DigestConfiguration(values targetseam.ValueSet) string {
 
 // mintWayInToken is the token the deployer mints for the way in at every deploy
 // and the digest it writes on the record. The token is handed to the service in
-// its configuration and stored nowhere; the digest is what the report store
-// finds the deploy record by, through [ByWayInTokenDigest]. The way in that
-// carries the token to the deployed service is not built.
+// its configuration and stored nowhere, beside [Performance.WayInAddress],
+// which is where the way in presents it; the digest is what the report store
+// finds the deploy record by, through [ByWayInTokenDigest].
 func mintWayInToken() (token, digest string, err error) {
 	var bytes [32]byte
 	if _, err := rand.Read(bytes[:]); err != nil {

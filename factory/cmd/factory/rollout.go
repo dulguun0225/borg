@@ -66,6 +66,7 @@ func (p *path) intoCandidate(ctx context.Context, c *candidate, buildID string) 
 		EnvironmentID: c.environmentID,
 		What:          deploy.OfBuild(buildID),
 		Credential:    p.d.credential,
+		WayInAddress:  p.d.wayInAddress,
 		Reaches: []deploy.Reach{{
 			Address: c.environmentDir,
 			Target:  p.d.targets.at(c.environmentDir),
@@ -90,6 +91,7 @@ func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick)
 		IntoProduction: true,
 		StrategyPicked: strategyOf(pick),
 		Credential:     p.d.credential,
+		WayInAddress:   p.d.wayInAddress,
 		Reaches:        p.reaches(p.production, c.svc),
 	})
 }

@@ -24,12 +24,39 @@
 // and [Intake.Drop]. acceptance.go holds [Intake.AcceptanceRound], [Delivery],
 // [Intake.Delivered] and [Intake.CorrectAcceptance]. requirementwrite.go holds
 // [Intake.DeriveForItem], [Intake.SupersedeDerived] and
-// [Intake.MarkUnanswerable]. notifier.go holds [Notifier], [NoNotifier] and
+// [Intake.MarkUnanswerable]. redact.go holds [Intake.Redact],
+// [Intake.RedactionPass] and [Intake.Replay]. notifier.go holds [Notifier], [NoNotifier] and
 // [ErrNotifierNotComposed]. read.go holds [Get],
 // [OnEvidence], [Waiting], [InProject] — every intent of one project, which is
 // what a screen listing what arrived reads, an intent having no item until
 // decomposition runs — [Questions], [Requirements], [EveryRequirement],
 // [ForItem] and [Escaped].
+//
+// # The statement's erasure
+//
+// The statement summarizing a group of reports is one of the three things a
+// redaction names, and intake is what destroys its bytes: [Intake.Redact]
+// overwrites the spans one redaction names, [Intake.RedactionPass] is this
+// package's own pass over the redactions naming statements — a record package
+// redaction writes and this one reads, so no component writes another's
+// record — and [Intake.Replay] destroys again what the erasure list says was
+// removed, which is what a restore is served through before this package
+// serves anything.
+//
+// Neither write writes a row of that list: it has one writer and it is the
+// report store, and the row for a statement is appended through that store by
+// the erasure action at Factory, keyed by the key the action computed, before
+// the redaction record exists and before anything here is called. So the row
+// lands first and the record last, a step taken again appends nothing, and a
+// stop leaves the event visibly owing. [Intake.Replay] reads that list, which
+// is a read and not a write.
+//
+// Every read here that returns an intent serves its statement through the
+// redactions naming it, from the moment the redaction exists and whether or
+// not the pass has run, so a lagging destruction serves nothing meanwhile.
+// The bytes are overwritten in place and the length is unchanged, so the row,
+// its links and every count over it stand with the words gone. The erasure is
+// the one exception to the sentence below.
 //
 // A statement is written once and never updated; the state, the two counts,
 // and the fields the confirming round writes advance in place, an intent being
@@ -158,6 +185,11 @@
 // are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
 // (C0765, C0771, C0772, C0775, C0776, C0779, C0782, C0787);
+//
+// the redaction of a statement, the pass that destroys it and the replay after
+// a restore are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0447, C0448, C0449, C0456);
 //
 // the six patterns are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md

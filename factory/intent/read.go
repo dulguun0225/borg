@@ -7,7 +7,42 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/dulguun0225/borg/factory/redaction"
 )
+
+// throughRedactions serves one intent's statement through the redactions
+// naming it. Every read here that returns an intent goes through it, so the
+// words are read through the redactions from the moment a redaction exists,
+// whether or not [Intake.RedactionPass] has reached the row — a store whose
+// destruction lags serves nothing meanwhile. What it costs is a second query
+// per read of an intent, which is the read-through the erasure is paid for
+// with.
+func throughRedactions(ctx context.Context, pool *pgxpool.Pool, in Intent) (Intent, error) {
+	redactions, err := redaction.ForTarget(ctx, pool,
+		redaction.Target{Kind: redaction.KindStatement, ID: in.ID})
+	if err != nil {
+		return Intent{}, err
+	}
+	return served(in, redactions)
+}
+
+// served is [throughRedactions] over redactions already read, which is what a
+// read returning many intents uses: it reads the redactions over every
+// statement once rather than once per row.
+func served(in Intent, redactions []redaction.Redaction) (Intent, error) {
+	for _, r := range redactions {
+		if r.Target.ID != in.ID {
+			continue
+		}
+		destroyed, err := destroySpans(in.Statement, r.Spans)
+		if err != nil {
+			return Intent{}, fmt.Errorf("intent: serving %s through redaction %s: %w", in.ID, r.ID, err)
+		}
+		in.Statement = destroyed
+	}
+	return in, nil
+}
 
 // Get is one intent by id. It takes the pool and not an [Intake], because
 // reading an intent is not a reason to be handed the thing that writes them.
@@ -18,7 +53,7 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Intent, error) {
 	} else if err != nil {
 		return Intent{}, fmt.Errorf("intent: reading %s: %w", id, err)
 	}
-	return in, nil
+	return throughRedactions(ctx, pool, in)
 }
 
 // OnEvidence is the oldest intent on this evidence that has not finished, and
@@ -54,6 +89,10 @@ func OnEvidence(ctx context.Context, pool *pgxpool.Pool, evidence Evidence) (Int
 	} else if err != nil {
 		return Intent{}, false, fmt.Errorf("intent: reading the intent on an evidence: %w", err)
 	}
+	in, err = throughRedactions(ctx, pool, in)
+	if err != nil {
+		return Intent{}, false, err
+	}
 	return in, true, nil
 }
 
@@ -72,6 +111,10 @@ func Waiting(ctx context.Context, pool *pgxpool.Pool, projectID, statement strin
 		return Intent{}, false, nil
 	} else if err != nil {
 		return Intent{}, false, fmt.Errorf("intent: reading the intent waiting on a statement: %w", err)
+	}
+	in, err = throughRedactions(ctx, pool, in)
+	if err != nil {
+		return Intent{}, false, err
 	}
 	return in, true, nil
 }
@@ -98,6 +141,16 @@ func InProject(ctx context.Context, pool *pgxpool.Pool, projectID string) ([]Int
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("intent: reading the intents of project %s: %w", projectID, err)
+	}
+
+	redactions, err := redaction.OverKind(ctx, pool, redaction.KindStatement)
+	if err != nil {
+		return nil, err
+	}
+	for n, in := range all {
+		if all[n], err = served(in, redactions); err != nil {
+			return nil, err
+		}
 	}
 	return all, nil
 }

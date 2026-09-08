@@ -1,6 +1,7 @@
 package reportstore_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -31,7 +32,7 @@ func TestARedactionAppendsTheErasureRowFirstAndThenDestroysTheWords(t *testing.T
 	}
 
 	redaction := reportstore.Redaction{
-		ID: "red_a", ReportID: written.Report.ID,
+		ID: "red_a", ErasureKey: "ers_a", ReportID: written.Report.ID,
 		Spans: []reportstore.Span{{Start: 11, End: 16}},
 	}
 	if err := store.Redact(ctx, redaction); err != nil {
@@ -53,8 +54,8 @@ func TestARedactionAppendsTheErasureRowFirstAndThenDestroysTheWords(t *testing.T
 	if err != nil {
 		t.Fatalf("ReadKind: %v", err)
 	}
-	if len(rows) != 1 || rows[0].Key != "red_a" {
-		t.Fatalf("the erasure list holds %+v, want one row keyed by the redaction", rows)
+	if len(rows) != 1 || rows[0].Key != "ers_a" {
+		t.Fatalf("the erasure list holds %+v, want one row keyed by the erasure", rows)
 	}
 	if strings.Contains(rows[0].Removed, "ruins") {
 		t.Errorf("the erasure-list row says %q, and it carries the words it removed", rows[0].Removed)
@@ -94,9 +95,12 @@ func TestTheRedactionPassDestroysWhatEveryRedactionNames(t *testing.T) {
 	}
 
 	s.redactions = []reportstore.Redaction{
-		{ID: "red_a", ReportID: one.Report.ID, Spans: []reportstore.Span{{Start: 0, End: 3}}},
-		{ID: "red_b", ReportID: two.Report.ID, Spans: []reportstore.Span{{Start: 7, End: 10}}},
-		{ID: "red_c", ReportID: "rep_gone", Spans: []reportstore.Span{{Start: 0, End: 1}}},
+		{ID: "red_a", ErasureKey: "ers_a", ReportID: one.Report.ID,
+			Spans: []reportstore.Span{{Start: 0, End: 3}}},
+		{ID: "red_b", ErasureKey: "ers_b", ReportID: two.Report.ID,
+			Spans: []reportstore.Span{{Start: 7, End: 10}}},
+		{ID: "red_c", ErasureKey: "ers_c", ReportID: "rep_gone",
+			Spans: []reportstore.Span{{Start: 0, End: 1}}},
 	}
 	destroyed, err := store.RedactionPass(ctx)
 	if err != nil {
@@ -130,7 +134,8 @@ func TestAReplayDestroysWhatARestoreBroughtBack(t *testing.T) {
 		t.Fatalf("Submit: %+v, %v", written, err)
 	}
 	if err := store.Redact(ctx, reportstore.Redaction{
-		ID: "red_a", ReportID: written.Report.ID, Spans: []reportstore.Span{{Start: 2, End: 5}},
+		ID: "red_a", ErasureKey: "ers_a", ReportID: written.Report.ID,
+		Spans: []reportstore.Span{{Start: 2, End: 5}},
 	}); err != nil {
 		t.Fatalf("Redact: %v", err)
 	}
@@ -165,5 +170,31 @@ func TestAnErasureListWithNoRowsReplaysNothing(t *testing.T) {
 	replayed, err := store.Replay(ctx)
 	if err != nil || replayed != 0 {
 		t.Errorf("Replay = %d, %v; want nothing replayed", replayed, err)
+	}
+}
+
+// TestARedactionNamingNoErasureKeyIsRefused: the key is what the row is
+// appended under, so a redaction without one is a row that could be appended
+// twice — and the words would be destroyed with nothing on the list to stop a
+// restore putting them back.
+func TestARedactionNamingNoErasureKeyIsRefused(t *testing.T) {
+	ctx, _, store, s := newStore(t)
+	s.place("tok", deploy())
+
+	sub := submission("tok")
+	sub.Text = "the button ruins everything"
+	written, err := store.Submit(ctx, sub, time.Now())
+	if err != nil || !written.Accepted {
+		t.Fatalf("Submit = %+v, %v", written, err)
+	}
+	err = store.Redact(ctx, reportstore.Redaction{
+		ID: "red_a", ReportID: written.Report.ID, Spans: []reportstore.Span{{Start: 0, End: 3}},
+	})
+	if !errors.Is(err, reportstore.ErrErasureKeyEmpty) {
+		t.Errorf("a redaction naming no erasure key = %v, want ErrErasureKeyEmpty", err)
+	}
+	read, err := store.Get(ctx, principal.OfComponent("factory"), written.Report.ID)
+	if err != nil || read.Text != sub.Text {
+		t.Errorf("the report reads %q, %v; want the words standing", read.Text, err)
 	}
 }

@@ -33,6 +33,18 @@ const (
 	TokenHeader = "X-Borg-Way-In"
 )
 
+// The three names the factory hands a deployed service, which the shipped
+// source reads and a deploy target sets: the token the deployer minted, the
+// entrance to reach, and the socket to listen on. They are here rather than
+// in the target that sets them because the reader of all three is this
+// package's own source, and ShippedSource carries the same three strings for
+// the reason it carries the routes above.
+const (
+	TokenEnv  = "BORG_WAY_IN"
+	StoreEnv  = "BORG_WAY_IN_STORE"
+	ListenEnv = "BORG_WAY_IN_LISTEN"
+)
+
 // Source is the shipped source with identity filled in, which is what
 // [Overlay] writes and a service's build compiles. An empty identity is an
 // error: the identity is what says which release built the way in, and a

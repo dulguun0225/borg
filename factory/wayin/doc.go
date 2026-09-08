@@ -9,14 +9,15 @@
 // # The files
 //
 // shipped.go holds [ShippedSource] and [Source] that fills it, with
-// [FileName], [Shape] and the three strings both sides share, [NoticePath],
-// [SubmitPath] and [TokenHeader]. overlay.go holds [Overlay] and
-// [OverlayName]. entrance.go holds [Notice], [Submission], [Result], [Store]
-// and [Entrance] with [NewEntrance]. sourcekey.go holds the one shape a
-// source key may have. The tests are entrance_test.go and overlay_test.go,
-// neither of them against a database, and the second of them against a Go
-// toolchain: it writes a module of its own, builds it with the overlay, and
-// runs the binary.
+// [FileName], [Shape], the three strings both sides share — [NoticePath],
+// [SubmitPath] and [TokenHeader] — and the three names the factory hands a
+// deployed service, [TokenEnv], [StoreEnv] and [ListenEnv]. overlay.go holds
+// [Overlay] and [OverlayName]. entrance.go holds [Notice], [Submission],
+// [Result], [Store] and [Entrance] with [NewEntrance]. sourcekey.go holds the
+// one shape a source key may have. The tests are entrance_test.go and
+// overlay_test.go, neither of them against a database, and the second of them
+// against a Go toolchain: it writes a module of its own, builds it with the
+// overlay, and runs the binary.
 //
 // # The shipped source
 //
@@ -81,11 +82,13 @@
 // channel offers.
 //
 // The source key is derived in the deployed software and not here: the way in
-// mints a session at the open and a salt once per process, digests the two
-// together, and sends the key, so the session never leaves the service and
-// the key covers one process of one deployed service and no longer. A session
-// the way in minted none for, and a process that could mint no salt, send no
-// key at all rather than a weak one.
+// mints a session at the open, hands it to the page, takes it back at the
+// submit, and digests it with a salt minted once per process, sending the
+// key. The salt never leaves the process, so the key covers one process of
+// one deployed service and no longer, and a page that returns a session other
+// than the one it was handed is keyed as another source, which links nothing
+// it should not. A submission carrying no session, and a process that could
+// mint no salt, send no key at all rather than a weak one.
 //
 // What this side does with a key is forward it as received and hold it to the
 // one shape a derived key has. The entrance derives nothing, because a key
@@ -103,9 +106,10 @@
 // which the composition implements — the notice in force for the service the
 // token resolves to, and what one submission did.
 //
-// What is not built here: the two build sites that call [Overlay], the mount
-// that serves [Entrance], and the environment names a deploy target hands a
-// started process are the composition's and the deploy target's own.
+// What is not built here: the two build sites that call [Overlay] and the
+// mount that serves [Entrance] are the composition's. The three environment
+// names are this package's, because the shipped source is what reads them,
+// and putting them on a started process is the deploy target's own.
 //
 // What defines it: the way in, the notice at the open, the submit result and
 // the source key are

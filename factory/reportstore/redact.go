@@ -16,26 +16,52 @@ var (
 	// ErrSpanOutOfRange is returned where a redaction names a span that does
 	// not fall inside the report's text.
 	ErrSpanOutOfRange = errors.New("reportstore: a redaction span is outside the text")
-	// ErrRedactionIDEmpty is returned by [Store.Redact] for a redaction with
-	// no id. The id is the key its erasure-list row is written under, so a
+	// ErrErasureKeyEmpty is returned by [Store.Redact] for a redaction naming
+	// no erasure key. The key is what the row is appended under, so a
 	// redaction without one is a row that could be appended twice.
-	ErrRedactionIDEmpty = errors.New("reportstore: the redaction id is empty")
+	ErrErasureKeyEmpty = errors.New("reportstore: the redaction names no erasure key")
 	// ErrErasureRow is returned where a row of the erasure list naming a
 	// report cannot be read back as a report and its spans.
 	ErrErasureRow = errors.New("reportstore: the erasure-list row does not name a report and its spans")
 )
 
+// AppendErasure appends one row of the erasure list, which this store is the
+// one writer of. It is the whole of that writership: nothing else in the
+// module calls the list's own Append, and the two callers the design gives it
+// reach it here — Factory at a redaction, for the report, the statement or the
+// artifact version it names, and People at a mapping deletion, through the
+// appender it takes from its caller.
+//
+// kind is one of the four [ErasureKindReport] and its neighbours name, key is
+// the key the action computed, so a step taken again appends nothing, and
+// removed is what went, described by the caller in the form that caller's own
+// replay reads back — and never the words.
+func (s *Store) AppendErasure(kind, key, removed string) error {
+	if err := erasurelist.Append(s.erasureList, key, kind, removed); err != nil {
+		return fmt.Errorf("reportstore: appending the erasure-list row for %s: %w", key, err)
+	}
+	return nil
+}
+
 // Redact destroys the spans one redaction names inside the report it names,
-// after appending the matching erasure-list row. The row lands first, keyed
-// by the redaction's id so the same redaction applied again appends nothing,
-// because it is what says the words must not come back with a restore.
+// after appending the matching erasure-list row. The row lands first, keyed by
+// the erasure key the action computed, because it is what says the words must
+// not come back with a restore; a step taken again appends nothing under that
+// key. The redaction record is written after this returns, so the row is the
+// first of the event's steps and the record the last: a stop between them
+// leaves the event visibly owing.
+//
+// The spans are read against the report's own length before the row is
+// appended, so a span that falls outside the words fails with nothing written:
+// a row naming an erasure that never happened would be replayed against every
+// restore for as long as the list keeps it.
 //
 // The bytes are overwritten in place and the report's length is unchanged, so
 // a redaction applied twice destroys the same range twice and the second time
 // changes nothing.
 func (s *Store) Redact(ctx context.Context, redaction Redaction) error {
-	if redaction.ID == "" {
-		return ErrRedactionIDEmpty
+	if redaction.ErasureKey == "" {
+		return ErrErasureKeyEmpty
 	}
 	if redaction.ReportID == "" {
 		return ErrIDEmpty
@@ -43,19 +69,39 @@ func (s *Store) Redact(ctx context.Context, redaction Redaction) error {
 	if len(redaction.Spans) == 0 {
 		return nil
 	}
-	if err := erasurelist.Append(s.erasureList, redaction.ID, erasurelist.KindReport,
-		removed(redaction)); err != nil {
-		return fmt.Errorf("reportstore: appending the erasure-list row for %s: %w", redaction.ID, err)
-	}
-
-	found, err := s.destroy(ctx, redaction.ReportID, redaction.Spans)
+	text, found, err := s.text(ctx, redaction.ReportID)
 	if err != nil {
 		return err
 	}
 	if !found {
 		return fmt.Errorf("%w: %s", ErrNotFound, redaction.ReportID)
 	}
+	if _, err := destroySpans(text, redaction.Spans); err != nil {
+		return fmt.Errorf("reportstore: destroying spans of %s: %w", redaction.ReportID, err)
+	}
+	if err := s.AppendErasure(erasurelist.KindReport, redaction.ErasureKey,
+		removed(redaction)); err != nil {
+		return err
+	}
+
+	if _, err := s.destroy(ctx, redaction.ReportID, redaction.Spans); err != nil {
+		return err
+	}
 	return nil
+}
+
+// text is one report's words and whether the report is there at all, read
+// before a redaction's spans are checked against them.
+func (s *Store) text(ctx context.Context, reportID string) (string, bool, error) {
+	var text string
+	err := s.pool.QueryRow(ctx, `select text from `+ReportTable+` where id = $1`, reportID).Scan(&text)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	} else if err != nil {
+		return "", false, fmt.Errorf("reportstore: reading %s to destroy what a redaction names: %w",
+			reportID, err)
+	}
+	return text, true, nil
 }
 
 // RedactionPass destroys what every redaction naming a report names, and

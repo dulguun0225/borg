@@ -1,6 +1,6 @@
 // Package policy is Factory — the one component every authored value, every
-// safeguard, every halt and every legal hold goes through — and the read of the
-// value in force.
+// safeguard, every halt, every legal hold and every redaction goes through —
+// and the read of the value in force.
 //
 // # The code
 //
@@ -48,8 +48,13 @@
 // beside it onto the service record, and
 // [Factory.WriteSafeguardWithdrawal] and [Factory.ApproveSafeguardWithdrawal].
 // stop.go is the halt and the legal hold with the same three calls each.
-// people.go is [Factory.AppendPeopleVersion], the append a write at People
-// calls for.
+// redaction.go is [Factory.WriteRedaction], the record one erasure writes:
+// the erasure-list row it names is appended before the call is made, so the
+// key redaction.Key derives is what a step taken again is recognised by —
+// this write finds the record the first performance wrote and appends
+// nothing. It is refused while a legal hold reaches the target, half of that
+// reading being the caller's. people.go is [Factory.AppendPeopleVersion], the
+// append a write at People calls for.
 //
 // Four of those writes are decided at a gate row rather than authored — the
 // three withdrawals' approvals and the shortening of decision-log retention —
@@ -130,6 +135,10 @@
 // shortening are
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/README.md
 // (C2328).
+//
+// The redaction is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0445).
 //
 // The legal hold is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md

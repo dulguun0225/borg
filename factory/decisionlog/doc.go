@@ -28,7 +28,10 @@
 // [Reader.Read], [Reader.Verify], [Reader.ClosedDecisions], [Reader.Pending],
 // [Reader.ByShape], each of which takes a [principal.Principal] and appends a
 // read event naming it before it answers — the actor's three fields in the
-// row's own columns and the dispatch and the scope in the payload. verify.go holds the
+// row's own columns and the dispatch and the scope in the payload — and
+// [Reader.AppendReadEvent], the same append for a reader of stored report text
+// a redaction could reach, whose words are not in this log and whose store is
+// not this one. verify.go holds the
 // chain walk beneath [Reader.Verify], with [Break] and [BrokenError] naming
 // the first row that breaks it. closed.go holds [Closed] and the pairing
 // beneath [Reader.ClosedDecisions].
@@ -168,6 +171,11 @@
 // The wait's two rows and the three kinds of hold are
 // ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md
 // (C0965, C0974, C0976, C0977, C0978).
+//
+// The read event a reading of stored report text appends, which is what makes
+// who had already read the words answerable after a redaction, is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0444).
 //
 // A page event is
 // ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2113). The

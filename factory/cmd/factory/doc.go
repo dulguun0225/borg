@@ -97,10 +97,14 @@
 //     deploy-credential helpers, and runCommand/walkCommand, which parse those
 //     two subcommands' flags.
 //   - serve.go — serveCommand, the process: the pool, the lease held for its
-//     life, the schema, the composition, the views and the calls over it, the
-//     handler [screens.New] composes over those with the client's embedded
-//     build, the passes, and the HTTP server; served, that handler plus GET
-//     /healthz; and shutDown.
+//     life, the schema, the report store, the composition, the views and the
+//     calls over it, the handler [screens.New] composes over those with the
+//     client's embedded build, the passes, and the HTTP server; served, that
+//     handler plus GET /healthz and the way in's entrance; and shutDown.
+//   - reports.go — the report store as serve opens it: the reportChannel that
+//     is the entrance's [wayin.Store], the five values implementing the
+//     interfaces that store reaches the graph through, two of them empty until
+//     the erasure step, and the address a deployed service's way in posts to.
 //   - views.go, viewwork.go, viewops.go, viewfactory.go, viewfleet.go,
 //     viewnumbers.go, viewpeople.go — [views], one file per screen, with
 //     Factory's fleet and its spend ceilings split off at the 500-line bound.
@@ -266,8 +270,8 @@
 //     People's re-derivation from the newest policy version, and dispatch's
 //     re-match of its open holds.
 //   - repo.go — the git and filesystem operations a stage needs: masterHead,
-//     compiles, buildInto, runEncodings, repoFiles, copyFile; and createBuild,
-//     resolvedGoModules and readGoModule.
+//     compiles, buildInto, the wayInOverlay both are handed, runEncodings,
+//     repoFiles, copyFile; and createBuild, resolvedGoModules and readGoModule.
 //   - measure.go — measure, the build's diff taken once at firing and handed
 //     to the score, and the numstat parsing beneath it; destroysStoredData with
 //     DestructiveStatements, the reading the reversibility factor resolves on;
@@ -394,21 +398,17 @@
 //     intent and printing every decision the item's gates left in the log.
 //
 // The tests: fixtures_test.go, atworkfixtures_test.go, fakemodel_test.go,
-// screensfixtures_test.go, screensworkfixtures_test.go, and the three files
-// named <subject>fixtures_test.go (authoringfixtures_test.go,
-// contractsfixtures_test.go, watchfixtures_test.go) hold the fixtures every other
-// test shares. atworkfixtures_test.go is the human at Work: atWork closes each
-// pending row with the next token of its script through the same [screens.Calls]
-// a screen reaches, so every verdict carries when the row was opened. The script
-// is the value's own, and a test's one string is split by newPath into
-// [deps.answer] and the verdicts after it. screensfixtures_test.go is the four
-// screens as a test drives them: the real composition behind package screens'
-// handler, over HTTP, with both headers on every call, which is what every
-// screensepisode*_test.go, screensdecision_test.go, screensopsepisode_test.go,
-// screensmoneyepisode_test.go, screensrecordrows_test.go,
-// screenspeoplechain_test.go, screensfleetwrites_test.go and
-// screensoverall_test.go drive the demonstration through. The rest are one
-// subject each. Three keep the name they were written under — main_test.go the
+// screensfixtures_test.go, screensworkfixtures_test.go and the four files named
+// <subject>fixtures_test.go — authoring, contracts, watch and reports — hold the
+// fixtures every other test shares. atworkfixtures_test.go is the human at Work:
+// atWork closes each pending row with the next token of its script through the
+// same [screens.Calls] a screen reaches, so every verdict carries when the row
+// was opened. The script is the value's own, and a test's one string is split by
+// newPath into [deps.answer] and the verdicts after it. screensfixtures_test.go
+// is the four screens as a test drives them: the real composition behind package
+// screens' handler, over HTTP, with both headers on every call, which is what
+// every screens*_test.go beside it drives the demonstration through. The rest
+// are one subject each. Three keep the name they were written under — main_test.go the
 // end-to-end demonstration, watch_test.go the bad deploy rolled back,
 // contracts_test.go the two-service pair — and every other one is named for its
 // subject.

@@ -152,5 +152,8 @@
 // ../../end-goal/deferred.md (C0066, C0069, C0071); and the two read-time
 // reporting queries report.go adds are
 // ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md
-// (C2723, C2724, C2725).
+// (C2723, C2724, C2725); and the empty author of a shipped role prompt or
+// skill version, read by prior.go as the unavailable factor a human decides,
+// is ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
+// (C2447).
 package score

@@ -83,9 +83,10 @@ type Target interface {
 
 // Deployment is what one deploy names: the service, the build, the credential
 // to reach the target with, the resolved configuration the build runs under,
-// the token the deployer minted for the way in, and the identity of the deploy
-// record this deploy is. The credential is a reference and there is no field on
-// this struct that could hold its value.
+// the token the deployer minted for the way in with the entrance that token is
+// presented at, and the identity of the deploy record this deploy is. The
+// credential is a reference and there is no field on this struct that could
+// hold its value.
 //
 // What crosses the seam is the build and not the release. A release is the name a
 // build has on master, which is a fact of the store and not of the target, and a
@@ -109,6 +110,12 @@ type Deployment struct {
 	// that carries a value rather than a reference: the token is minted here
 	// and stored nowhere, so there is no name to resolve it by.
 	WayInToken string
+	// WayInAddress is the entrance the way in inside the deployed service
+	// posts to, which is what makes the token above reach anything. It is
+	// empty where the factory serves no entrance, and a target hands the
+	// service nothing to reach then: the way in in its build listens nowhere
+	// and the service is unaffected.
+	WayInAddress string
 	// DeployID is the deploy record's own identity, handed to every instance
 	// the deploy places, which is what the health monitor's emission names to
 	// tell these instances from the ones of the same build an earlier deploy

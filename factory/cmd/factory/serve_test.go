@@ -8,6 +8,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -131,7 +132,7 @@ func TestAPassResumesAnItemAHumanDecided(t *testing.T) {
 // principal, because it is what a reader outside the process reads before it
 // has either.
 func TestHealthzAnswersWithTheFactoryVersion(t *testing.T) {
-	handler := served(screens.New(nil, nil, factoryVersion, clientdist.Browser()))
+	handler := served(screens.New(nil, nil, factoryVersion, clientdist.Browser()), http.NotFoundHandler())
 	recorded := httptest.NewRecorder()
 	handler.ServeHTTP(recorded, httptest.NewRequest("GET", "/healthz", nil))
 	if recorded.Code != 200 {

@@ -48,6 +48,20 @@ type readEventPayload struct {
 	Read     string `json:"read"`
 }
 
+// AppendReadEvent appends the tenth shape's other half: the read event a
+// reader of stored report text appends before it answers with words, which is
+// what makes who had already read them answerable after a redaction. what
+// names what was read — a report, a statement, an artifact version — and
+// never a screen opened.
+//
+// It is the same append every read below makes, exported because the text a
+// redaction reaches is not in this log: the report store is a second database
+// and each of the other targets has its own writer, so the reader that serves
+// the words is not a reader of the log and has no other way to append here.
+func (r *Reader) AppendReadEvent(ctx context.Context, p principal.Principal, what string) error {
+	return r.appendReadEvent(ctx, p, what)
+}
+
 // appendReadEvent is the one read event every method below appends. It refuses
 // a principal [principal.Principal.Validate] refuses, so a read event naming an
 // agent without the scope it was dispatched under is not written.

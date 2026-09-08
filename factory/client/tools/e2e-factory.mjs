@@ -2,10 +2,13 @@
 // started here, serving the client's own build output on 8090. Playwright's
 // webServer runs this and kills it when the run ends.
 //
-// The store is one fixed schema, factory_e2e, dropped and created here before
-// the process starts and left in the database after the run: the run writes
+// The store is two fixed schemas on one server, factory_e2e and the report
+// store's own factory_e2e_reports, both dropped and created here before the
+// process starts and left in the database after the run: the run writes
 // records through the screens, and a run that started on what the last one
-// left would decide from rows it did not write. It is not the way a database
+// left would decide from rows it did not write. The second is a schema and
+// not a second database because the report store is a store of its own by its
+// URL, and one server is what a browser run has. It is not the way a database
 // test in ../../ makes its store — those name a schema per run and drop it at
 // cleanup — so two runs on one DATABASE_URL are what this cannot survive: the
 // second drops the schema the first is serving from.
@@ -46,6 +49,10 @@ if (!existsSync(index)) {
 const DEFAULT_URL = 'postgres://factory:factory@localhost:5433/factory';
 const url = process.env['DATABASE_URL'] ?? DEFAULT_URL;
 const SCHEMA = 'factory_e2e';
+// The report store's own, named by REPORTSTORE_DATABASE_URL below. serve
+// refuses to start without one: it is the one address outside the factory
+// reaches, and every report it takes is written there.
+const REPORTS_SCHEMA = 'factory_e2e_reports';
 
 // A drop that cascades names every table it reaches, one notice per table, and
 // the run's log is the factory's own output — so the server is asked for
@@ -56,7 +63,8 @@ const dropped = spawnSync(
   'psql',
   [url, '-v', 'ON_ERROR_STOP=1',
     '-c', `drop schema if exists ${SCHEMA} cascade`,
-    '-c', `create schema ${SCHEMA}`],
+    '-c', `create schema ${SCHEMA}`,
+    '-c', `drop schema if exists ${REPORTS_SCHEMA} cascade`],
   { env: quiet, stdio: ['ignore', 'ignore', 'inherit'] },
 );
 if (dropped.error !== undefined && dropped.error.code === 'ENOENT') {
@@ -64,7 +72,7 @@ if (dropped.error !== undefined && dropped.error.code === 'ENOENT') {
   process.exit(1);
 }
 if (dropped.status !== 0) {
-  console.error(`psql could not drop and create schema ${SCHEMA} on ${url}: the database has to be reachable and the schema is this run's own`);
+  console.error(`psql could not drop and create the schemas ${SCHEMA} and ${REPORTS_SCHEMA} on ${url}: the database has to be reachable and both schemas are this run's own`);
   process.exit(1);
 }
 
@@ -74,6 +82,11 @@ if (dropped.status !== 0) {
 // hands a subcommand a schema of its own.
 const child = new URL(url);
 child.searchParams.set('search_path', SCHEMA);
+
+// The report store is a second URL on the same server, and it applies its own
+// schema at the open — which is why the drop above creates none for it.
+const reports = new URL(url);
+reports.searchParams.set('search_path', REPORTS_SCHEMA);
 
 // The name -human gives the owner. The key it resolves to is written at the
 // install, and the People view is where a test reads it.
@@ -123,7 +136,15 @@ const serving = spawn(
     // other key holds nothing and acts nowhere.
     '-human', OWNER,
     '-targets', targets],
-  { cwd: factory, stdio: 'inherit', env: { ...process.env, DATABASE_URL: child.toString() } },
+  {
+    cwd: factory,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      DATABASE_URL: child.toString(),
+      REPORTSTORE_DATABASE_URL: reports.toString(),
+    },
+  },
 );
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

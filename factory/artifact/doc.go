@@ -16,8 +16,9 @@
 // [Store.SubmitFleet] and [Store.EnterShipped], the two calls that write a
 // [FleetKinds] version. query.go is [Get], [Newest], [NewestShipped] and
 // [InForce]. author.go is
-// [NewestOfKind], [IDsByAuthor] and [ItemsByAuthor]. redact.go is [Span] and
-// [Store.Redact]. schema.go is [Table], [IDPrefix] and [DDL].
+// [NewestOfKind], [IDsByAuthor] and [ItemsByAuthor]. redact.go is [Span],
+// [Store.Redact], [Store.RedactionPass] and [Store.Replay]. schema.go is
+// [Table], [IDPrefix] and [DDL].
 //
 // The tests are db_test.go for the submissions and the chain,
 // author_db_test.go for who authored a version and what it was authored from,
@@ -113,10 +114,24 @@
 //
 // [Store.Redact] is the one exception to "insert and never update": it
 // destroys the named [Span]s of a version's content in place and recomputes
-// content_digest, for erasure rather than correction. Its caller is this
-// store's own pass over the redactions naming the versions it writes, one of
-// the three passes ../../end-goal/records.md gives a redaction's targets, and
-// it is not built: the redaction record has no package here.
+// content_digest, for erasure rather than correction. Its caller is
+// [Store.RedactionPass], this store's own pass over the redactions naming the
+// versions it writes, one of the three passes ../../end-goal/records.md gives
+// a redaction's targets — a record package redaction writes and this one
+// reads, so no component writes another's record. [Store.Replay] destroys
+// again what the erasure list says was removed, which is what a restore is
+// served through before this store serves anything: the list is outside the
+// recovery unit and a backup taken before an erasure still carries the words.
+//
+// Neither write writes a row of that list: it has one writer and it is the
+// report store, and the row for an artifact version is appended through that
+// store by the erasure action at Factory, keyed by the key the action
+// computed, before the redaction record exists and before anything here is
+// called. So the row lands first and the record last, a step taken again
+// appends nothing, and a stop leaves the event visibly owing. [Store.Replay]
+// reads that list, which is a read and not a write. The content's length is
+// unchanged by all of it, so the version chain and everything that names a
+// version stand.
 //
 // # What a version was authored from
 //
@@ -146,7 +161,12 @@
 // they share, and the ungated entry the factory writes are
 // ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
 // (C2429, C2434, C2436, C2437, C2438, C2440, C2443, C2444, C2445, C2446,
-// C2447, C2450).
+// C2450).
+//
+// the pass that destroys what a redaction names and the replay after a restore
+// are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0447, C0448, C0456).
 //
 // Also ../../end-goal/records.md (C2799, C2801, C2802, C2803, C2804).
 package artifact

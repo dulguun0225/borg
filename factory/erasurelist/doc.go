@@ -58,10 +58,11 @@
 //
 // Who may write what: [Append] and [Retire] are this package's own, and the
 // only way any row here is written or removed. Nothing here reaches a
-// database. reportstore is the design's one writer of the file through this
-// package — Factory calls it at a redaction and people.DeleteMapping takes
-// an appender the composition supplies — neither of which this package
-// knows about or imports.
+// database. reportstore is the one writer of the file through this package —
+// Factory calls it at a redaction, for the report, the statement or the
+// artifact version the redaction names, and people.DeleteMapping takes an
+// appender the composition supplies over the same store — neither of which
+// this package knows about or imports.
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md

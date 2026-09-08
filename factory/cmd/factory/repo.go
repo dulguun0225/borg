@@ -17,6 +17,7 @@ import (
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/service"
+	"github.com/dulguun0225/borg/factory/wayin"
 )
 
 // inDir runs one command in dir and returns its combined output. On an error
@@ -108,6 +109,36 @@ func masterCommit(repo string) (string, error) {
 	return "", err
 }
 
+// wayInOverlay writes the way in into a directory of its own and returns the
+// overlay "go build" is handed and what removes that directory. Every build of
+// a service's checkout goes through it: the way in is content the factory
+// ships and versions with itself, and a service's build is where it is
+// injected, so the two build sites below make the same call and neither
+// writes anything into the checkout.
+//
+// The identity is factoryVersion, which is what createBuild writes on the
+// build record as the shipped-bundle identity — one name for that value, so
+// the record and the way in shipped inside the binary cannot disagree about
+// which release built it.
+//
+// The overlay two builds of one commit are handed differs in the directory it
+// was written in and in nothing else. That directory does not reach the
+// binary: the go command reads the overlaid file under the path it replaces,
+// so the two builds this milestone relies on being byte-identical still are.
+func wayInOverlay(repo string) (overlay string, remove func(), err error) {
+	dir, err := os.MkdirTemp("", "borg-way-in-")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("factory: making a directory to write the way in in: %w", err)
+	}
+	remove = func() { _ = os.RemoveAll(dir) }
+	overlay, err = wayin.Overlay(repo, dir, factoryVersion)
+	if err != nil {
+		remove()
+		return "", func() {}, err
+	}
+	return overlay, remove, nil
+}
+
 // ErrDoesNotCompile marks a failure of "go build" as the candidate's own code
 // failing to compile rather than an infrastructure failure, which is what lets
 // a caller that treats a repository's own compile failure as a soft outcome —
@@ -129,8 +160,13 @@ func compiles(repo string) (string, error) {
 		return "", fmt.Errorf("factory: making a directory to compile into: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
+	overlay, remove, err := wayInOverlay(repo)
+	if err != nil {
+		return "", err
+	}
+	defer remove()
 	compiled := filepath.Join(dir, "compiled")
-	if _, err := inDir(repo, "go", "build", "-o", compiled, "."); err != nil {
+	if _, err := inDir(repo, "go", "build", "-overlay", overlay, "-o", compiled, "."); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrDoesNotCompile, err)
 	}
 	content, err := os.ReadFile(compiled)
@@ -153,7 +189,12 @@ func buildInto(repo, dir, buildID string) error {
 	if err != nil {
 		return fmt.Errorf("factory: resolving where to build %s: %w", buildID, err)
 	}
-	_, err = inDir(repo, "go", "build", "-o", absolute, ".")
+	overlay, remove, err := wayInOverlay(repo)
+	if err != nil {
+		return err
+	}
+	defer remove()
+	_, err = inDir(repo, "go", "build", "-overlay", overlay, "-o", absolute, ".")
 	return err
 }
 

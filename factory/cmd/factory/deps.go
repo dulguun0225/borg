@@ -11,6 +11,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/reportstore"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/targetseam"
@@ -72,7 +73,14 @@ type deps struct {
 	targets *targetSet
 	// dir is production's target, and the directory each candidate environment's
 	// own target is made under.
-	dir        string
+	dir string
+	// reports is the report store, which is a second database and the one
+	// writer of the erasure list beside it. It is here for that second duty:
+	// People's deletion of a mapping appends a row through it. Only the
+	// process that serves the screens composes one — the store's URL has no
+	// default, so a subcommand that makes one pass has none, and a call that
+	// needs the list is refused rather than performed without a row.
+	reports    *reportstore.Store
 	credential secretref.Ref // the deploy credential, deploy.local
 	out        io.Writer
 	// withoutFleetEntries stops the composition writing an entry per role from
@@ -119,6 +127,13 @@ type deps struct {
 	// wait: what it gives up on, `factory watch` continues.
 	watchFor   time.Duration
 	watchEvery time.Duration
+	// wayInAddress is the entrance the way in inside a deployed service posts
+	// to, handed to every deploy this composition performs. Only serve sets it:
+	// it is the address of a server this process is serving, so a subcommand
+	// that makes one pass and exits would hand a deployed service an address
+	// nothing answers on — and a deployment carrying none tells its target
+	// nothing, which is a service whose way in listens nowhere.
+	wayInAddress string
 	// draw is what the score's held-out sample is drawn from. It is nil in a run,
 	// which is the runtime's own generator: the sample is one in ten of the firings
 	// the score would have gated, and a run that composed a fixed draw would either

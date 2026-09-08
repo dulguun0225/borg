@@ -31,6 +31,7 @@ import (
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/project"
+	"github.com/dulguun0225/borg/factory/redaction"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/screenstatemachine"
@@ -127,6 +128,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 		{"safeguard", safeguard.DDL},
 		{"halt", halt.DDL},
 		{"legalhold", legalhold.DDL},
+		{"redaction", redaction.DDL},
 		{"window", window.DDL},
 		{"incident", incident.DDL},
 		{"people", people.DDL},

@@ -28,10 +28,9 @@
 // carrying none and reads nothing in one that does.
 //
 // The way-in token is the one value that crosses this seam. The deployer mints
-// it at every deploy and hands it to the service in its configuration; the
-// deploy record holds a digest of it and never the token, and the [Fake]
-// records neither. The service side that would send it — the way in, and the
-// report store that digests it — is not built.
+// it at every deploy and hands it to the service in its configuration, beside
+// the address of the entrance the service presents it at; the deploy record
+// holds a digest of it and never the token, and the [Fake] records neither.
 //
 // Who may write what: this package writes no record. The component that
 // deploys calls the seam and writes the deploy record itself.

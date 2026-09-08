@@ -44,9 +44,12 @@ jobs:
 
     # The drift detector's store is a URL of its own: the same server here, a
     # schema of its own, the way factory/driftdetector's doc.go describes it.
+    # The report store is the third, for the same reason and with no default of
+    # its own: serve refuses to start where nothing names it.
     env:
       DATABASE_URL: postgres://factory:factory@localhost:5432/factory
       DRIFTDETECTOR_DATABASE_URL: postgres://factory:factory@localhost:5432/factory?search_path=driftdetector
+      REPORTSTORE_DATABASE_URL: postgres://factory:factory@localhost:5432/factory?search_path=reportstore
 
     steps:
       - uses: actions/checkout@v4
