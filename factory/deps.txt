@@ -384,6 +384,11 @@
 # outputPath points at, embedded with the standard library's embed, and
 # embedding is a build-time directive rather than an import of anything this
 # module writes.
+#
+# erasurelist -> record is for the timestamp alone: record.Now writes the
+# instant each row carries and record.ParseTime reads it back, the same
+# layout every record in the graph uses, though this package owns no table
+# — the erasure list is a file, the departure its own doc.go states.
 
 record
 gatepolicy
@@ -391,6 +396,7 @@ boundary
 exposure
 securitypredicate
 lease -> record
+erasurelist -> record
 decisionlog -> record lease principal
 principal -> record
 secretref -> principal
