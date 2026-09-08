@@ -60,9 +60,14 @@
 // What defines it: what shares this record, and the retention values and rates
 // beside them, are
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
-// and ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md;
+// (C2200, C2233, C2234, C2246, C2256, C2257, C2258, C2259, C2260, C2261, C2262,
+// C2263, C2264, C2265, C2266, C2269, C2273) and
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
+// (C2296, C2297, C2298, C2302, C2308, C2312, C2314, C2315);
+//
 // the attempt limit itself is
-// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md; the harm
-// mark's page cap and its off switch are
-// ../../end-goal/how-the-factory-works/08-operations/07-pages.md.
+// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md (C0994,
+// C0998); the harm mark's page cap and its off switch are
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2127,
+// C2129).
 package factorysettings

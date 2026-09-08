@@ -145,29 +145,47 @@
 // What defines it: a role — what an agent is put on, naming the work of one
 // stage or put on an intent before there is an item — and the material a stage
 // hands an agent, the reject or rework request among it, are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md. The interview the
-// interviewer runs, its rounds, and the reading written as a set of statements
-// in the six patterns are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md,
-// and what the decomposer would cut is
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md. The role prompt as
-// a versioned record the factory enters what shipped into is
-// ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md,
-// and what a version may be authored from is 01-what-a-version-is-authored-from.md
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0158, C0161, C0167,
+// C0177, C0181, C0182, C0184, C0185, C0186, C0187, C0188, C0195). The interview
+// the interviewer runs, its rounds, and the reading written as a set of
+// statements in the six patterns are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
+// (C0524, C0525, C0526, C0539, C0544, C0549, C0550, C0559), and what the
+// decomposer would cut is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0710, C0712, C0713, C0750, C0752, C0763, C0764, C0765, C0772). The role
+// prompt as a versioned record the factory enters what shipped into is
+// ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
+// (C2428, C2429, C2430, C2443), and what a version may be authored from is
+// ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/01-what-a-version-is-authored-from.md
 // beside it. The units a provider returns per kind are
-// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md.
+// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
+// (C2358, C2364, C2365, C2367, C2386).
+//
 // What the spec author authors — several criteria, the withdrawals, and the
 // requirement each answers — is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/README.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/README.md
+// (C1100, C1101);
+//
 // a criterion's provenance, which the drafting stage names and the artifact
-// store writes in the same call, is 01-the-record.md beside it; and the screen's
+// store writes in the same call, is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md
+// (C1042, C1043, C1044, C1045, C1048, C1049, C1050) beside it; and the screen's
 // state machine, with the transition that leaves the screen, is
-// 04-the-screen-state-machine.md.
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md
+// (C1082, C1083, C1084, C1093, C1098).
+//
 // The plan is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/03-implementation-plan.md
-// and the tasks are 04-tasks.md. The encoding's place, the emission, and the
-// Implementation gate rejecting in both directions are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md.
+// (C1102) and the tasks are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/04-tasks.md
+// (C1104, C1105).
+//
+// The encoding's place, the emission, and the Implementation gate rejecting in
+// both directions are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md
+// (C1115, C1116, C1117, C1122, C1123, C1127).
+//
 // The fleet behind the roles is
 // ../../end-goal/how-the-factory-works/10-fleet/README.md.
 package agent

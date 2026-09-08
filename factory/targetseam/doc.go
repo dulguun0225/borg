@@ -38,15 +38,21 @@
 //
 // What defines it: the seam between the deployer and a deploy target, and the
 // mitigation's operations at it, are seam 4 of "Security comes last",
-// ../../end-goal/deferred.md#security-comes-last; the principal on every call
-// is seam 5 of the same file. The replacement that drains and the cut recorded
-// as a drain, and the share of traffic a control's schedule shifts, are
-// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md.
+// ../../end-goal/deferred.md#security-comes-last (C0096, C0098, C0103, C0105,
+// C0110, C0112, C0119); the principal on every call is seam 5 of the same file.
+// The replacement that drains and the cut recorded as a drain, and the share of
+// traffic a control's schedule shifts, are
+// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
+// (C0914).
+//
 // The schema change applied before a build takes traffic, and the snapshot
 // taken and verified before a change that destroys stored data, are
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md.
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
+// (C1664, C1670, C1678).
+//
 // The schema history's row — the release that shipped the change, the change's
 // identity, a checksum of its text, and the mark that says the store arrived
 // carrying it — is
-// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
+// (C1861, C1862, C1867, C1868, C1869).
 package targetseam

@@ -90,10 +90,12 @@
 //
 // What defines it: the Implementation gate in
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md,
-// the first gate that decides over a build; the build record, the resolved
-// set, its coverage, the notice file, and the design system constraint field
-// in
-// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md;
+// the first gate that decides over a build; the build record, the resolved set,
+// its coverage, the notice file, and the design system constraint field in
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1433, C1439, C1440, C1441, C1443, C1444, C1448, C1449, C1450, C1460, C1465,
+// C1467, C1478);
+//
 // what a build is called and the search's builds in
 // ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md;
 // the exposure list read from a diff and a build record in
@@ -102,5 +104,6 @@
 // environment performs on it in
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
 // and where the criterion's run happens, in
-// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md.
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md
+// (C1596).
 package build

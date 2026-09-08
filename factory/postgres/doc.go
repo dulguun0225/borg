@@ -62,7 +62,7 @@
 // the first record with no migration framework is
 // ../../roadmap.md#m0--the-graph-and-the-log. The schema history, the forward
 // promise it carries, and what a version's first start refuses are
-// ../../end-goal/one-process.md; the shape that promise takes for a service's
-// own store is
+// ../../end-goal/one-process.md (C2754, C2768, C2769, C2770, C2774, C2775,
+// C2776, C2779); the shape that promise takes for a service's own store is
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
 package postgres

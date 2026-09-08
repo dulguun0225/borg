@@ -50,12 +50,17 @@
 // that builds its writer.
 //
 // What defines it:
-// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md,
-// which sets the shape every last check record has — the interval on the record,
-// the further pass owed, and the third comparison that reads them all;
-// ../../end-goal/records.md for the eight components each writing its own;
-// ../../end-goal/one-process.md for why the health monitor keeps one per service
-// rather than one for itself; and
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md
+// (C2153), which sets the shape every last check record has — the interval on
+// the record, the further pass owed, and the third comparison that reads them
+// all;
+//
+// ../../end-goal/records.md (C2826) for the eight components each writing its
+// own;
+//
+// ../../end-goal/one-process.md (C2746, C2757) for why the health monitor keeps
+// one per service rather than one for itself; and
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
-// for the three counts the deployer's platform record reports.
+// (C1507, C1508, C1511) for the three counts the deployer's platform record
+// reports.
 package lastcheck

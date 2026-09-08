@@ -109,21 +109,25 @@
 // and none of them is a record of the factory's.
 //
 // What defines it: seam 4 of "Security comes last" in
-// ../../end-goal/deferred.md#security-comes-last — the deployer reaches a deploy
-// target through a small set of named operations and no agent reaches one at
-// all, the seam being where policy attaches later. The replacement that drains
-// and the platform that serves no share are
-// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md; the
-// schema change, its script and the snapshot before a destructive one are
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md,
-// and the history's own row, with the release that shipped each change and the
-// mark that says the store arrived carrying it, is
-// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
+// ../../end-goal/deferred.md#security-comes-last (C0096, C0099, C0105, C0110) —
+// the deployer reaches a deploy target through a small set of named operations
+// and no agent reaches one at all, the seam being where policy attaches later.
+// The replacement that drains and the platform that serves no share are
+// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
+// (C0914); the schema change, its script and the snapshot before a destructive
+// one are
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
+// (C1664, C1670, C1672, C1674, C1678), and the history's own row, with the
+// release that shipped each change and the mark that says the store arrived
+// carrying it, is
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
+// (C1861, C1862, C1867, C1868, C1869).
+//
 // What reads [Local.ReadRunning] from outside the factory is
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md, the
 // quantity the started process emits is
-// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md, the
-// exchange document a consumer contract is decided against is
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1953), the exchange document a consumer contract is decided against is
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md,
 // and the way-in token handed to a deployed service is seam 5 of
 // ../../end-goal/deferred.md#security-comes-last.

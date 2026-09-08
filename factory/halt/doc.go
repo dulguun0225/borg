@@ -31,7 +31,10 @@
 // applying the refusal or the stop itself.
 //
 // What defines it: the halt itself is
-// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
+// (C2334, C2335, C2349).
+//
 // Its withdrawal's gate row is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/11-a-halts-withdrawal.md.
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/11-a-halts-withdrawal.md
+// (C1206).
 package halt

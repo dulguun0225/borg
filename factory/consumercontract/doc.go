@@ -84,16 +84,27 @@
 //
 // What defines it: the predicate, the allowed kinds on both sides, the
 // derivation, its authority, and the two baselines are
-// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md; the
-// consumer contract being checked against the candidate, and the third outcome,
-// are ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md;
+// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md
+// (C1797, C1798, C1799, C1800, C1801, C1802, C1805, C1806, C1807, C1808, C1813,
+// C1820, C1821, C1822, C1823); the consumer contract being checked against the
+// candidate, and the third outcome, are
+// ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md
+// (C1788, C1791, C1794);
+//
 // what the record says about the derivation itself, and deriving again at an
 // upgrade, are
-// ../../end-goal/how-the-factory-works/07-contracts/12-what-the-derivation-records.md;
+// ../../end-goal/how-the-factory-works/07-contracts/12-what-the-derivation-records.md
+// (C1899, C1900, C1901, C1902, C1906, C1907, C1908, C1910, C1911, C1912,
+// C1914);
+//
 // which producer a consumer reaches is
-// ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md;
+// ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md
+// (C1886, C1887, C1888, C1891, C1896, C1898);
+//
 // a store's consumer contract being derived from writes as well as reads is
-// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
+// (C1852, C1853, C1881, C1882);
+//
 // and the consumer contract version being an artifact of the item is
 // ../../end-goal/how-the-factory-works/01-one-pipeline.md.
 package consumercontract

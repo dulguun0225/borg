@@ -46,8 +46,8 @@ decisions name none — never withheld.
 
 ## What defines it
 
-[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md);
-[Three properties every screen needs](../../../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md);
-[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md);
-[Actions at each gate](../../../../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md);
-[What humans do](../../../../../end-goal/what-humans-do.md).
+[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2565, C2566, C2567, C2568, C2569, C2576, C2577, C2578, C2579, C2580, C2584, C2585, C2590, C2592, C2593, C2595);
+[Three properties every screen needs](../../../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md) (C2679, C2680, C2683, C2686, C2688, C2690, C2691, C2693);
+[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2701, C2702, C2703, C2704, C2705, C2706, C2707, C2711, C2712, C2713, C2714, C2715, C2716);
+[Actions at each gate](../../../../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md) (C0940);
+[What humans do](../../../../../end-goal/what-humans-do.md) (C2862, C2863, C2870, C2883, C2884).

@@ -75,16 +75,25 @@
 //
 // What defines it: the fields, dispatch as the writer of the stage and the
 // count beside it, the values that end an item, and the two-writer seam are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md
+// (C0636, C0637, C0638, C0641, C0646, C0647, C0648, C0650, C0651, C0652, C0654,
+// C0655, C0656, C0662, C0663, C0664, C0669, C0670, C0672, C0673, C0674).
+//
 // A superseded item pointing at what replaced it, the repointing, and the
 // acyclic invariant over what waits on what are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0710, C0750, C0751, C0752, C0753, C0754, C0755, C0757, C0760, C0763, C0764,
+// C0785, C0786, C0791, C0792, C0794).
+//
 // The stages and what is never a field of the item are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md. The attempt limit
-// the count is compared against is
-// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md, and
-// the one way back is
-// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md.
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0174, C0176, C0210,
+// C0224, C0228, C0231, C0232). The attempt limit the count is compared against
+// is ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md
+// (C0995, C0996, C0997), and the one way back is
+// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1002,
+// C1003, C1004, C1008, C1009, C1022, C1023, C1025, C1027, C1028, C1029, C1035).
+//
 // [PartlyDelivered] is
-// ../../end-goal/how-the-factory-works/02-intent-into-items/04-when-an-intents-items-do-not-all-ship.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/04-when-an-intents-items-do-not-all-ship.md
+// (C0797, C0799, C0800, C0801).
 package item

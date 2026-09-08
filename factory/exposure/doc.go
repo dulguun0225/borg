@@ -58,7 +58,9 @@
 // What defines it: the exposure group, its four kinds, the evidence list with
 // the file and the line, and unavailable where no extractor runs for the
 // toolchain are
-// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md; the
-// resolved set the dependency change is read against is
-// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md.
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md
+// (C1239, C1240, C1241, C1242, C1246, C1247, C1249, C1263); the resolved set
+// the dependency change is read against is
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1442).
 package exposure

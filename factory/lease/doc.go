@@ -25,5 +25,5 @@
 // it guards, so a call whose token has lapsed commits nothing.
 //
 // What defines it: the lease and the fencing token are the deployment model
-// stated in ../../end-goal/one-process.md.
+// stated in ../../end-goal/one-process.md (C2743, C2744, C2746, C2754, C2755).
 package lease

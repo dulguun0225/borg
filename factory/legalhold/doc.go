@@ -34,5 +34,6 @@
 // through [Reaching], and a report's expiry and a redaction are not built.
 //
 // What defines it: the hold itself, what it suspends, and its withdrawal are
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md
+// (C2322).
 package legalhold

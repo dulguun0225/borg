@@ -134,59 +134,92 @@
 // checkout is, and the component that builds is what hands them over. Neither
 // derivation is composed at the Implementation row yet.
 //
-// # What defines it
+// # What defines it The two-row decision, what the open event names, the
+// abandonment, the acknowledgement, refer, the five refusals, the marks, the
+// review sample, and the read of the intent's state are
+// ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md
+// (C0826, C0827, C0829, C0830, C0831, C0833, C0836, C0837, C0838, C0839, C0842,
+// C0843, C0844, C0845, C0846, C0847, C0848, C0850, C0851, C0852, C0853, C0854,
+// C0855, C0857, C0858, C0859, C0860, C0861, C0863, C0867, C0868, C0869, C0870,
+// C0871, C0872, C0875, C0876, C0878, C0879, C0881, C0882, C0883, C0885, C0886,
+// C0887, C0888, C0889, C0890, C0891, C0893, C0897, C0898, C0899, C0900, C0901).
 //
-// The two-row decision, what the open event names, the abandonment, the
-// acknowledgement, refer, the five refusals, the marks, the review sample, and
-// the read of the intent's state are
-// ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md.
 // The actions per row and the row a further environment gets are
-// ../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md. The
-// three kinds of hold, the approve that names the set, and the re-evaluation of
-// a pending row are
-// ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md.
+// ../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md
+// (C0940, C0941, C0942, C0943, C0944, C0945, C0946, C0947, C0949, C0950, C0951,
+// C0952). The three kinds of hold, the approve that names the set, and the
+// re-evaluation of a pending row are
+// ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md
+// (C0953, C0955, C0956, C0957, C0958, C0959, C0960, C0961, C0962, C0963, C0964,
+// C0965, C0966, C0967, C0968, C0969, C0970, C0971, C0972, C0973, C0982, C0983,
+// C0984, C0985, C0986, C0987, C0988, C0989, C0990, C0991, C0992, C0993).
+//
 // The attempt limit and the escalation are
-// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md, and
-// what a reject may name is
-// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md. The
-// strategy and its schedules are
-// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md.
+// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md (C0994,
+// C0995, C0996), and what a reject may name is
+// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1004,
+// C1005, C1006, C1007, C1008, C1009, C1010, C1011, C1012, C1013). The strategy
+// and its schedules are
+// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
+// (C0910, C0911, C0912, C0918, C0936).
 //
 // The rows themselves are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/README.md,
 // each with a file of its own there: the Spec row's rejection in both
 // directions over the requirement a criterion names is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md,
-// the Implementation row's rejection over the screens is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md
+// (C1069), the Implementation row's rejection over the screens is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/01-the-transition-check.md
-// and
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md,
-// the candidate deploy row's holds are
-// 06-deploy-to-candidate-environment.md, the merge row's mechanical rejections
-// and its derivations are 07-merge-to-master.md, the production deploy row's
-// holds and the four fields a service must have to auto-pass are
-// 08-deploy-to-production.md, and the three rows outside every item that file
-// names are 09-a-role-prompt-or-a-skill.md, 10-a-safeguards-withdrawal.md and
-// 11-a-halts-withdrawal.md. Two more rows belong to no item: a legal hold's
-// withdrawal, which is
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md,
-// and the shortening of decision-log retention, which is
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md,
-// and the halt no approve passes, with the two exceptions it takes, is
-// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.
+// (C1110, C1111, C1113) and
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md
+// (C1128), the candidate deploy row's holds are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/06-deploy-to-candidate-environment.md
+// (C1143, C1144, C1145, C1146, C1148, C1149, C1150, C1151, C1152, C1153), the
+// merge row's mechanical rejections and its derivations are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md
+// (C1155, C1156, C1157, C1158, C1160, C1161, C1162), the production deploy
+// row's holds and the four fields a service must have to auto-pass are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md
+// (C1163, C1165, C1167, C1168, C1169, C1170, C1172, C1173, C1174, C1175, C1176,
+// C1177, C1179, C1180, C1182, C1183, C1184), and the three rows outside every
+// item that file names are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/09-a-role-prompt-or-a-skill.md
+// (C1186, C1188, C1189, C1190, C1194, C1195),
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/10-a-safeguards-withdrawal.md
+// (C1196, C1198, C1199, C1200, C1201, C1202, C1203, C1204) and
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/11-a-halts-withdrawal.md
+// (C1206, C1207, C1208, C1209, C1210, C1211, C1212, C1213).
 //
-// The vector, the resolution that puts a human at a row whatever the number, and
-// the factor set per row are
-// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md; the
-// held-out sample and the rate it is drawn against are
-// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md. The
-// threshold and the safeguard are
-// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
-// Who holds a row's duty is ../../end-goal/what-humans-do.md, read from the
-// declaration
+// Two more rows belong to no item: a legal hold's withdrawal, which is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md
+// (C2325), and the shortening of decision-log retention, which is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
+// (C2308, C2309, C2310, C2313), and the halt no approve passes, with the two
+// exceptions it takes, is
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
+// (C2335, C2337, C2338, C2339, C2340, C2341, C2344, C2346, C2347, C2349, C2354,
+// C2356).
+//
+// The vector, the resolution that puts a human at a row whatever the number,
+// and the factor set per row are
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md
+// (C1264, C1279, C1284, C1296, C1297, C1301, C1302, C1303, C1304, C1305, C1306,
+// C1310, C1311, C1316, C1317); the held-out sample and the rate it is drawn
+// against are
+// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md
+// (C1339, C1360, C1361, C1368, C1369, C1370, C1371, C1372, C1373, C1374,
+// C1376). The threshold and the safeguard are
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
+// (C2214, C2215, C2219, C2240, C2255, C2260).
+//
+// Who holds a row's duty is ../../end-goal/what-humans-do.md (C2853, C2854,
+// C2873, C2874), read from the declaration
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2569, C2584, C2585, C2586, C2587, C2588, C2589, C2652, C2653, C2668)
 // describes. What Decomposition decides is
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md,
-// and the states an intent may be in are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0727, C0751, C0761, C0768, C0769, C0773, C0774, C0775, C0778, C0789, C0791,
+// C0796), and the states an intent may be in are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
+// (C0576).
 package gate

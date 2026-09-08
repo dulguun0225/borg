@@ -127,36 +127,53 @@
 // the composition is what keys that delivery on the credential and the period
 // and drops the rest. Context assembly, which that row names too, is not built.
 //
-// # What defines it
+// # What defines it The match, the six holds, the re-match, the tier that
+// orders admission, and the claim are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md
+// (C0806, C0807, C0810, C0811, C0813, C0814, C0815, C0816, C0818, C0819,
+// C0821).
 //
-// The match, the six holds, the re-match, the tier that orders admission, and
-// the claim are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md.
 // The role, the two roles put on an intent, the scope, the operations a role
 // carries, the principal every call is made under, and what a stage hands an
 // agent — the reject or the rework request among it — are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md. The interview those
-// roles run, and the rounds it counts, are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md. The stage and the
-// count per stage this component writes are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md.
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0158, C0160, C0161,
+// C0162, C0163, C0165, C0166, C0167, C0170, C0171, C0174, C0175, C0176, C0177,
+// C0178, C0179, C0180, C0182, C0184, C0204). The interview those roles run, and
+// the rounds it counts, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
+// (C0530, C0560, C0578, C0598, C0605, C0607, C0613). The stage and the count
+// per stage this component writes are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md
+// (C0642, C0646, C0647, C0648, C0649, C0650, C0654, C0657, C0658, C0660, C0661,
+// C0662).
+//
 // The limit the count is compared against and the escalation over it are
-// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md. The
-// role prompt version in force is
-// ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md,
-// and the fleet entry's nine fields, the classes of material withheld before a
-// run, and the agent run record are
-// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md.
+// ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md (C0995,
+// C0996, C0997, C0999, C1000, C1001). The role prompt version in force is
+// ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
+// (C2428, C2429, C2442, C2449), and the fleet entry's nine fields, the classes
+// of material withheld before a run, and the agent run record are
+// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
+// (C2358, C2361, C2362, C2363, C2364, C2365, C2366, C2367, C2368, C2370, C2373,
+// C2376, C2377, C2378, C2379, C2380, C2381, C2384, C2386, C2387, C2388, C2389,
+// C2390, C2391).
+//
 // The credential a run could not reach is
 // ../../end-goal/how-the-factory-works/10-fleet/05-an-account-that-runs-out-is-a-hold.md
-// and
-// ../../end-goal/how-the-factory-works/10-fleet/06-a-credential-taken-back.md;
+// (C2457, C2458, C2459, C2460, C2461, C2464, C2465, C2466, C2468, C2473) and
+// ../../end-goal/how-the-factory-works/10-fleet/06-a-credential-taken-back.md
+// (C2474);
+//
 // the spend ceiling, the period a sum is taken over, the clear that authorises
 // an overage for one period, and a credential failing closed on an unpriced run
-// are ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md. The
+// are ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md
+// (C2516, C2518, C2519, C2520, C2524, C2525, C2526, C2527, C2531, C2532, C2534,
+// C2537, C2538, C2539, C2540, C2541, C2542, C2543, C2545, C2550, C2551). The
 // constraint requiring seam 5 enforced is
-// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
+// (C0250).
+//
 // This component's row, and the calls it may make, are
-// ../../end-goal/components.md; its restart, which is nothing, is
-// ../../end-goal/one-process.md.
+// ../../end-goal/components.md (C0007, C0026); its restart, which is nothing,
+// is ../../end-goal/one-process.md (C2759, C2767).
 package dispatch

@@ -103,14 +103,21 @@
 // What defines it: the machine, its identity, closure, the three ill-formed
 // shapes, a transition that leaves the screen, and a superseding machine that
 // removes protection are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md
+// (C1082, C1083, C1084, C1085, C1086, C1088, C1089, C1090, C1091, C1092, C1093,
+// C1094, C1097);
+//
 // the transition check, its fixed direction and its could-not-derive outcome
 // are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/01-the-transition-check.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/01-the-transition-check.md
+// (C1108, C1109, C1110, C1111, C1112, C1114);
+//
 // the extractor per toolchain the check is derived on the terms of is
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md;
 // the drivers and the rejection in both directions over them are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md
+// (C1127, C1128);
+//
 // and a resolved factor and a factor the score cannot compute are
 // ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md.
 package screenstatemachine

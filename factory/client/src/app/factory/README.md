@@ -76,7 +76,7 @@ rejected split by what put them at the row.
 
 ## What defines it
 
-[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md);
-[What the factory auto-approved, and what was undone](../../../../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md);
-[The page channel, and what reached a human](../../../../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md);
-[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md).
+[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2572, C2588, C2589, C2593, C2607, C2608, C2612, C2613, C2620, C2624, C2629, C2631, C2632, C2633, C2634, C2638, C2650, C2651, C2652, C2653);
+[What the factory auto-approved, and what was undone](../../../../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md) (C2719, C2722, C2724, C2725);
+[The page channel, and what reached a human](../../../../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md) (C2730, C2731, C2732, C2733, C2734, C2736, C2738);
+[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716).

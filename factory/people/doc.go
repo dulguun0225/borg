@@ -87,22 +87,26 @@
 // is the erasure list's, and it is not built, so a nil check never refuses.
 // A withdrawal of a legal hold, once built, is what would call it with one.
 //
-// What defines it: the twelve duties and the three obligations outside them
-// are ../../end-goal/what-humans-do.md; the account kind and the rates beside
-// a lent credential are
-// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md;
-// the spend ceiling, its currency, its period and what it is compared against
-// are ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md; a
-// credential taken back is
-// ../../end-goal/how-the-factory-works/10-fleet/06-a-credential-taken-back.md; the record, the per-person key, the
-// key-to-name mapping, and the version every write but the mapping's
-// appends are
+// What defines it: the twelve duties and the three obligations outside them are
+// ../../end-goal/what-humans-do.md (C2850, C2852, C2855, C2856, C2857, C2858,
+// C2859, C2861); the account kind and the rates beside a lent credential are
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2654, C2657, C2658, C2660, C2663, C2664, C2665, C2666, C2667, C2672,
+// C2673); the spend ceiling, its currency, its period and what it is compared
+// against are
+// ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md (C2516,
+// C2517, C2518, C2519, C2522, C2523, C2526, C2534, C2543, C2544); a credential
+// taken back is
+// ../../end-goal/how-the-factory-works/10-fleet/06-a-credential-taken-back.md;
+// the record, the per-person key, the key-to-name mapping, and the version
+// every write but the mapping's appends are
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md;
 // what reads it is
-// ../../end-goal/how-the-factory-works/08-operations/07-pages.md, where the
-// notifier routes all three channels on it; the mapping's deletion refused
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2133), where
+// the notifier routes all three channels on it; the mapping's deletion refused
 // under a legal hold is
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md;
-// the opaque per-person key and the claimed-or-verified basis beside it are
-// seam 1 of ../../end-goal/deferred.md#security-comes-last.
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md
+// (C2323); the opaque per-person key and the claimed-or-verified basis beside
+// it are seam 1 of ../../end-goal/deferred.md#security-comes-last (C0041,
+// C0065, C0085).
 package people

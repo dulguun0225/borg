@@ -174,26 +174,35 @@
 //
 // What defines it: the deploy record in
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/README.md
-// — written by the deployer through seam 4, advancing to complete or failed,
-// keyed by service and environment; the strategy table in
-// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md;
+// (C1694, C1696, C1697, C1698, C1699, C1700, C1701, C1703, C1704, C1705, C1706,
+// C1710, C1711, C1712, C1714, C1716, C1717, C1718, C1719, C1720, C1721, C1722,
+// C1723, C1725, C1726) — written by the deployer through seam 4, advancing to
+// complete or failed, keyed by service and environment; the strategy table in
+// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
+// (C0910, C0911, C0913, C0914, C0924, C0925, C0930, C0935, C0937, C0938);
+//
 // what a rollback is and what its record names, in
-// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md, and which
-// release the slow one returns to, in
-// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
-// computed by the health monitor, which is what calls [Restore]; the restart
-// and the deployer's write order in ../../end-goal/one-process.md; and the
-// mitigation, which is a class of two operations, in
-// ../../end-goal/deferred.md; the
-// removal a retirement calls for, in
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md. The
-// three fleets, their spans and the instance-hour rate they are converted at are
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md,
-// the release a control runs is
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/03-a-control-above-a-release.md,
-// when a kept fleet is torn down and what bounds the batch a revert delivers are
+// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1728,
+// C1729, C1730, C1731, C1734, C1736, C1737, C1738), and which release the slow
+// one returns to, in
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2053, C2054, C2071), computed by the health monitor, which is what calls
+// [Restore]; the restart and the deployer's write order in
+// ../../end-goal/one-process.md (C2746, C2751, C2752, C2761); and the
+// mitigation, which is a class of two operations, in ../../end-goal/deferred.md
+// (C0096, C0103, C0105, C0108, C0119); the removal a retirement calls for, in
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md
+// (C0700, C0701). The three fleets, their spans and the instance-hour rate they
+// are converted at are
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md
+// (C1681, C1682, C1684, C1685, C1686, C1687, C1688, C1690), the release a
+// control runs is
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/03-a-control-above-a-release.md
+// (C1692), when a kept fleet is torn down and what bounds the batch a revert
+// delivers are
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
 // and the schema history's row, the adoption's changes found applied, and the
 // backfill the record marks complete are
-// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md.
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
+// (C1860, C1861, C1863, C1864, C1868, C1869, C1870, C1872).
 package deploy

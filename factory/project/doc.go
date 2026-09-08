@@ -28,10 +28,14 @@
 //
 // What defines it: the record, its one writer, and production's environment
 // written in the same event are
-// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md.
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2612, C2615, C2618).
+//
 // A project ending once every service in it is retired, and its production
 // environment ending with it, are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md
+// (C0708).
+//
 // That it is the root every area chain ends at is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md,
 // and that a service names one as part of its identity is

@@ -110,55 +110,68 @@
 // field holds the number an owner authored and the component that would run a
 // proof test is not built.
 //
-// # What defines it
+// # What defines it The identity, the two writers of it, provisioned with the
+// credential shape, the deployer's four, the mutant cap, the failure-record key
+// cap, the unreliable bound, the incident-raised item bound, and the product
+// licence are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0718, C0719, C0724, C0725, C0726, C0730, C0731, C0732, C0733, C0734, C0735,
+// C0736, C0737, C0738, C0740).
 //
-// The identity, the two writers of it, provisioned with the credential shape, the
-// deployer's four, the mutant cap, the failure-record key cap, the unreliable
-// bound, the incident-raised item bound, and the product licence are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md.
 // Retirement is
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md,
-// and the parameters a service starts with are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md
+// (C0697, C0698, C0706), and the parameters a service starts with are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md.
+//
 // The project as a field of this record is
-// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md.
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2616, C2619).
+//
 // Which of an environment's targets a service runs on is
-// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md,
-// and the seed and the non-production value set are
-// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md.
-// The window's size, confidence and power per quantity, the cap, the window limit
-// and the exposure bound are
-// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md, and
-// the twelve fields authored here that are not among the eleven, with the
-// direction a safeguard on each points, are
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md.
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1399), and the seed and the non-production value set are
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1487, C1488, C1492, C1493).
+//
+// The window's size, confidence and power per quantity, the cap, the window
+// limit and the exposure bound are
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md
+// (C2188, C2193, C2195, C2196), and the twelve fields authored here that are
+// not among the eleven, with the direction a safeguard on each points, are
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
+// (C2277, C2278, C2279, C2280, C2283, C2293, C2294, C2295).
+//
 // The change freeze is
-// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md,
-// the mutation floor is
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
+// (C2350, C2351, C2352, C2353, C2354), the mutation floor is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md,
 // the size and average run length of the reading against the service's own
 // recent history are
-// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md,
-// and the fraction of its instances a release keeps, the maximum concurrent kept
-// fleets, the proof test rate and the search budget are
-// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md. The
-// bake volume between one target of a rollout and the next is
-// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md, the
-// backlog cap on how many releases wait behind a rollback hold is
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1939, C1940, C1943, C1944, C1945, C1967), and the fraction of its instances
+// a release keeps, the maximum concurrent kept fleets, the proof test rate and
+// the search budget are
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2042, C2055, C2056, C2058, C2066, C2067, C2073). The bake volume between
+// one target of a rollout and the next is
+// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
+// (C0926, C0928), the backlog cap on how many releases wait behind a rollback
+// hold is
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
 // and the instance-hour rate the deployer prices a fleet's span at is
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md. The
-// objective and its period are
-// ../../end-goal/how-the-factory-works/08-operations/05-service-level-objectives.md,
-// and the hours a service pages within are
-// ../../end-goal/how-the-factory-works/08-operations/07-pages.md. The
-// schema-change snapshot retention is
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md,
-// the bound above which a criterion is unreliable is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md,
-// the mutant cap is
-// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md,
-// a fixed default being a value the product ships is
-// ../../end-goal/deferred.md#the-products-release-channel, and the repository
-// credential pair is seam 3 of ../../end-goal/deferred.md.
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md.
+// The objective and its period are
+// ../../end-goal/how-the-factory-works/08-operations/05-service-level-objectives.md
+// (C2082, C2089, C2091), and the hours a service pages within are
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2137, C2138,
+// C2141). The schema-change snapshot retention is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
+// (C2304), the bound above which a criterion is unreliable is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md
+// (C1058), the mutant cap is
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md
+// (C1529), a fixed default being a value the product ships is
+// ../../end-goal/deferred.md#the-products-release-channel (C0089, C0090, C0091,
+// C0093), and the repository credential pair is seam 3 of
+// ../../end-goal/deferred.md.
 package service

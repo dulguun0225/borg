@@ -10,5 +10,6 @@
 // package screens answers with the 503 naming factory/client.
 //
 // What defines it:
-// ../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md.
+// ../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md
+// (C2695).
 package clientdist

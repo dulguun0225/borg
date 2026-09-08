@@ -53,10 +53,15 @@
 // Who may write what: [Writer] is the one writer, and nothing updates a run
 // once recorded.
 //
-// What defines it: ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
-// — the four groups of fields, one record per run, and what ran and what it
-// ran on being on the record rather than resolved through the entry or the
+// What defines it:
+// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
+// (C2362, C2367, C2380, C2381, C2382, C2383, C2384, C2386, C2388, C2389, C2390,
+// C2391) — the four groups of fields, one record per run, and what ran and what
+// it ran on being on the record rather than resolved through the entry or the
 // declaration. The sum a spend ceiling compares, the period it derives at the
 // read, and a credential failing closed on an unpriced kind are
-// ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md.
+// ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md (C2519,
+// C2524, C2525, C2526, C2529, C2533, C2534, C2543).
+//
+// Also ../../end-goal/records.md (C2834).
 package agentrun

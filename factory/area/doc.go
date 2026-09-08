@@ -45,13 +45,22 @@
 // the rollout strategy, and the vector a gate firing writes — are elsewhere.
 //
 // What defines it:
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md,
-// which sets the one writer, the chain, and an area cutting across services;
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md
+// (C0637, C0639, C0640), which sets the one writer, the chain, and an area
+// cutting across services;
+//
 // the hazard severity, the hazardous operation and the bound are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md;
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md
+// (C0676, C0677, C0678, C0679, C0680, C0681, C0682, C0683, C0688, C0689,
+// C0690);
+//
 // the project the chain ends at is
-// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md;
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2613);
+//
 // the target it holds and its unit are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md and the row
-// in ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0742, C0748) and the row in
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md
+// (C2191).
 package area

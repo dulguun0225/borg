@@ -112,24 +112,42 @@
 // is appended by the log's own writer, this package being one of its callers.
 //
 // What defines it: the eleven rows, the scope of each, the score supplying what
-// an owner does not, a safeguard being a bound, the version as a row of the log,
-// the order of the two writes and the re-derivation at the start are
-// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
+// an owner does not, a safeguard being a bound, the version as a row of the
+// log, the order of the two writes and the re-derivation at the start are
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
+// (C2199, C2200, C2201, C2202, C2203, C2206, C2207, C2208, C2209, C2210, C2213,
+// C2216, C2217, C2218, C2219, C2228, C2229, C2233, C2234, C2235, C2236, C2237,
+// C2239, C2240, C2241, C2242, C2243, C2244, C2245, C2246, C2247, C2248, C2249,
+// C2250, C2251, C2252, C2253, C2255, C2256, C2257, C2258, C2259, C2260, C2261,
+// C2262, C2263, C2264, C2265, C2266, C2269, C2270, C2273).
+//
 // The parameters are
-// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md
+// (C2187, C2188, C2189, C2190, C2191, C2192, C2193, C2195, C2196, C2197,
+// C2198).
+//
 // What is authored beside them, retention, and the gate row that decides a
 // shortening are
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/README.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/README.md
+// (C2328).
+//
 // The legal hold is
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md,
-// and the halt is
-// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md
+// (C2322, C2325), and the halt is
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
+// (C2332, C2334, C2335, C2336, C2350, C2351, C2352).
+//
 // A service's retirement, a project's end, and the removal performed for one
 // environment are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md.
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md
+// (C0697, C0698, C0700, C0707, C0708).
+//
 // The policy version on every decision is
-// ../../end-goal/what-the-factory-does/02-traceability.md, and the shapes the
-// log holds are ../../end-goal/deferred.md. Every owner write at Factory and
-// the write at People are
-// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md.
+// ../../end-goal/what-the-factory-does/02-traceability.md (C2908, C2909,
+// C2910), and the shapes the log holds are ../../end-goal/deferred.md (C0050,
+// C0053, C0065, C0072, C0090, C0091, C0093, C0105, C0110, C0121). Every owner
+// write at Factory and the write at People are
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2572, C2612, C2614, C2615, C2618, C2619, C2643, C2663, C2664, C2665, C2666,
+// C2668).
 package policy

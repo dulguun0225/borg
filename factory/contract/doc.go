@@ -75,18 +75,22 @@
 // record's doc.go states that rule and its cost once.
 //
 // What defines it: the contract record, its kind, and the merge queue as its
-// writer are ../../end-goal/how-the-factory-works/07-contracts/01-two-versioned-things.md;
-// the promise each kind makes is
-// ../../end-goal/how-the-factory-works/07-contracts/03-what-a-contract-promises.md and,
-// for a store, ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
-// the diff, the position each rule runs in, and the four items a breaking change
-// is — five for a store — are
-// ../../end-goal/how-the-factory-works/07-contracts/04-enforcement.md and
-// ../../end-goal/how-the-factory-works/07-contracts/02-no-single-item-may-break-a-contract.md;
-// the deprecation mark being derived from the build and minting a minor is
-// ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md; the unit
-// belonging to an element's name is
-// ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md; and
-// a version minted for a release naming no item is
-// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md.
+// writer are
+// ../../end-goal/how-the-factory-works/07-contracts/01-two-versioned-things.md
+// (C1764, C1765, C1766, C1767, C1769, C1770); the promise each kind makes is
+// ../../end-goal/how-the-factory-works/07-contracts/03-what-a-contract-promises.md
+// (C1776, C1777, C1778, C1779, C1780) and, for a store,
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
+// (C1852); the diff, the position each rule runs in, and the four items a
+// breaking change is — five for a store — are
+// ../../end-goal/how-the-factory-works/07-contracts/04-enforcement.md (C1782,
+// C1783, C1784, C1785) and
+// ../../end-goal/how-the-factory-works/07-contracts/02-no-single-item-may-break-a-contract.md
+// (C1775); the deprecation mark being derived from the build and minting a
+// minor is ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md
+// (C1830, C1831, C1832); the unit belonging to an element's name is
+// ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md
+// (C1788, C1789); and a version minted for a release naming no item is
+// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
+// (C1614).
 package contract

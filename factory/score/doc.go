@@ -116,21 +116,41 @@
 //
 // What defines it: the four factor groups, the score version, the resolutions
 // and the three factor sets are
-// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md; the
-// loop, the held-out sample, the bands and the drift readings are
-// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md; the
-// values it supplies are the rows of
-// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md and
-// their scopes are
-// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md;
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md
+// (C1214, C1215, C1216, C1219, C1220, C1222, C1223, C1224, C1225, C1226, C1227,
+// C1229, C1230, C1231, C1233, C1234, C1235, C1237, C1238, C1239, C1242, C1243,
+// C1245, C1246, C1247, C1250, C1251, C1252, C1253, C1254, C1256, C1257, C1258,
+// C1259, C1260, C1261, C1262, C1264, C1265, C1267, C1268, C1270, C1273, C1276,
+// C1277, C1278, C1279, C1282, C1283, C1284, C1285, C1286, C1287, C1288, C1292,
+// C1294, C1296, C1298, C1299, C1300, C1302, C1303, C1304, C1305, C1306, C1307,
+// C1308, C1309, C1310, C1311, C1315, C1316, C1317); the loop, the held-out
+// sample, the bands and the drift readings are
+// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md
+// (C1319, C1320, C1322, C1323, C1324, C1325, C1326, C1327, C1328, C1329, C1330,
+// C1331, C1332, C1333, C1334, C1335, C1336, C1337, C1338, C1340, C1341, C1342,
+// C1343, C1344, C1345, C1352, C1353, C1354, C1355, C1358, C1359, C1360, C1361,
+// C1362, C1364, C1365, C1366, C1367, C1368, C1369, C1370, C1371, C1372, C1373,
+// C1374, C1376, C1377, C1378, C1379); the values it supplies are the rows of
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md
+// (C2187, C2188, C2191, C2193, C2195, C2196, C2197, C2198) and their scopes are
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
+// (C2199, C2200, C2252, C2258, C2260, C2261);
+//
 // the window limit and the mark are
-// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md;
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2042, C2044, C2045);
+//
 // the window's size, power and cap are
-// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md;
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md
+// (C2033, C2035, C2036);
+//
 // the hazard severity the context group reads is
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md;
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md
+// (C0683, C0685, C0687);
+//
 // the score version as a row of the chained log is seam 2 of
-// ../../end-goal/deferred.md; and the two read-time reporting queries
-// report.go adds are
-// ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md.
+// ../../end-goal/deferred.md (C0066, C0069, C0071); and the two read-time
+// reporting queries report.go adds are
+// ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md
+// (C2723, C2724, C2725).
 package score

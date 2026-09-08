@@ -26,8 +26,8 @@
 // factorysettings'.
 //
 // What defines it: a principal on every call is seam 5 of "Security comes
-// last", ../../end-goal/deferred.md#security-comes-last. What an agent's scope
-// is, and what a dispatch puts on an item, are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md and
+// last", ../../end-goal/deferred.md#security-comes-last (C0110, C0111). What an
+// agent's scope is, and what a dispatch puts on an item, are
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0177) and
 // ../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md.
 package principal

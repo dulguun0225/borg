@@ -94,9 +94,13 @@
 // never through their writers.
 //
 // What defines it:
-// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md — the one process,
-// the four records, the four readers, the six comparisons of which three are
-// built, the detector's own delivery, and what clearing requires — and
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md for the hold
-// it sets, which is the one hold the factory cannot lift by gathering evidence.
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md
+// (C2145, C2146, C2147, C2148, C2149, C2150, C2151, C2152, C2153, C2154, C2156,
+// C2157, C2158, C2160, C2167, C2168, C2169, C2171, C2172, C2175) — the one
+// process, the four records, the four readers, the six comparisons of which
+// three are built, the detector's own delivery, and what clearing requires —
+// and
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md
+// (C1177) for the hold it sets, which is the one hold the factory cannot lift
+// by gathering evidence.
 package driftdetector

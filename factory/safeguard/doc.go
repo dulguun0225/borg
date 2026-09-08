@@ -62,10 +62,13 @@
 // mechanism a safeguard binds reads through [BySubjects] and writes nothing;
 // [All] is what the command-line interface prints.
 //
-// What defines it: the one writer, the subjects, the routing field, a
-// safeguard being a bound rather than a precedence, and the cost of the query
-// are
-// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
+// What defines it: the one writer, the subjects, the routing field, a safeguard
+// being a bound rather than a precedence, and the cost of the query are
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
+// (C2201, C2202, C2203, C2204, C2209, C2210, C2211, C2213, C2215, C2216, C2217,
+// C2219).
+//
 // The withdrawal's gate row is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/10-a-safeguards-withdrawal.md.
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/10-a-safeguards-withdrawal.md
+// (C1196, C1205).
 package safeguard

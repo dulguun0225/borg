@@ -34,7 +34,7 @@
 // after a fast-forward, [Rejection.ReturnsTo] with an attempt counted there
 // after a rejection — is the caller's write. That row and
 // ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md disagree
-// about it, and this package follows the row, components.md being where a call
+// about it, and this package follows the row, ../../end-goal/components.md being where a call
 // edge exists at all.
 //
 // Everything that touches the repository, the candidate's environment and the
@@ -59,35 +59,50 @@
 // written under the install event's shape with a payload kind of this package's.
 //
 // # What defines it
+// ../../end-goal/how-the-factory-works/05-environments/03-the-merge-queue.md
+// (C1530, C1531, C1532, C1534, C1536, C1537, C1538, C1540, C1541, C1542, C1543,
+// C1544, C1545, C1546, C1547, C1548, C1549, C1550, C1553, C1554, C1555, C1556)
+// — the membership, the order, the speculation, the three readings of a
+// failure, the design system comparison, and the queue being a component rather
+// than a record;
 //
-// ../../end-goal/how-the-factory-works/05-environments/03-the-merge-queue.md —
-// the membership, the order, the speculation, the three readings of a failure,
-// the design system comparison, and the queue being a component rather than a
-// record;
 // ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
-// — master read against the records at every start and before every mint, the
-// acceptance of a commit the queue did not make, and the number after a restore;
+// (C1602, C1603, C1604, C1605, C1606, C1607, C1608, C1609, C1611, C1612, C1613,
+// C1614, C1616, C1617, C1618, C1621, C1622, C1623) — master read against the
+// records at every start and before every mint, the acceptance of a commit the
+// queue did not make, and the number after a restore;
+//
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// for the rejection written into the log and the comparison of the re-resolved
-// set's digests;
-// ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md for
-// the queue as the release's writer;
-// ../../end-goal/how-the-factory-works/06-releases/04-the-release-number.md for
-// the number it mints with it;
+// (C1427, C1428, C1431, C1436, C1457) for the rejection written into the log
+// and the comparison of the re-resolved set's digests;
+//
+// ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md
+// (C1639, C1640, C1641) for the queue as the release's writer;
+//
+// ../../end-goal/how-the-factory-works/06-releases/04-the-release-number.md
+// (C1651, C1657, C1659, C1660, C1661, C1662) for the number it mints with it;
+//
 // ../../end-goal/how-the-factory-works/07-contracts/01-two-versioned-things.md
-// for the queue as the contract's writer, at the fast-forward of the first
-// release that publishes it and in the same write as that release's first
+// (C1765) for the queue as the contract's writer, at the fast-forward of the
+// first release that publishes it and in the same write as that release's first
 // version;
+//
 // ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
-// for the halt's stop and the two candidates it passes;
+// (C2337, C2338, C2341, C2343, C2349) for the halt's stop and the two
+// candidates it passes;
+//
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
-// for the backlog cap's stop;
+// (C2066) for the backlog cap's stop;
+//
 // ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
-// for the intent's state, which permits membership or stops the item with a wait
-// the queue opens and closes;
-// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md for the
-// attempt being counted at what the item is sent to; and
-// ../../end-goal/one-process.md for the restart, which is [Queue.Restart]:
-// this queue reading master and writing the release record its own unfinished
-// merge left owing.
+// (C0576, C0578) for the intent's state, which permits membership or stops the
+// item with a wait the queue opens and closes;
+//
+// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1006,
+// C1010) for the attempt being counted at what the item is sent to; and
+// ../../end-goal/one-process.md (C2745, C2756, C2760) for the restart, which is
+// [Queue.Restart]: this queue reading master and writing the release record its
+// own unfinished merge left owing.
+//
+// Also ../../end-goal/components.md (C0013).
 package mergequeue

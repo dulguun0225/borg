@@ -108,19 +108,39 @@
 // instances the search put in front of traffic end where the composition ends
 // them.
 //
-// What defines it: ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
-// for the control, its fallback, the quantities, and what the health monitor is;
-// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md for the window,
-// its four exits, and the power; ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
-// for the window limit, the rollback's target, and what a rollback undoes;
-// ../../end-goal/how-the-factory-works/08-operations/04-after-the-analysis-window.md for the
-// intent a later crossing writes;
-// ../../end-goal/how-the-factory-works/08-operations/06-incidents.md for the incident, what it
-// names, and its deduplication;
+// What defines it:
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1916, C1917, C1921, C1926, C1927, C1928, C1934, C1935, C1936, C1937, C1938,
+// C1941, C1942, C1943, C1945, C1946, C1947, C1948, C1960, C1964, C1965, C1966,
+// C1969, C1972, C1973, C1975, C1976, C1977, C1979) for the control, its
+// fallback, the quantities, and what the health monitor is;
+//
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md
+// (C1980, C1981, C1982, C1983, C1984, C1985, C1986, C1989, C1991, C1992, C1993,
+// C1994, C1995, C1996, C1997, C2000, C2001, C2002, C2003, C2004, C2005, C2006,
+// C2008, C2010, C2011, C2012, C2013, C2014, C2015, C2016, C2017, C2019, C2020,
+// C2021, C2022, C2023, C2025, C2026, C2027, C2028, C2029, C2030, C2031, C2037,
+// C2038) for the window, its four exits, and the power;
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2040, C2041, C2046, C2047, C2048, C2049, C2050, C2051, C2053, C2062, C2067,
+// C2068, C2069, C2070, C2072, C2073, C2074, C2079) for the window limit, the
+// rollback's target, and what a rollback undoes;
+//
+// ../../end-goal/how-the-factory-works/08-operations/04-after-the-analysis-window.md
+// (C2080, C2081) for the intent a later crossing writes;
+//
+// ../../end-goal/how-the-factory-works/08-operations/06-incidents.md (C2095,
+// C2096, C2097, C2098, C2100, C2101, C2102) for the incident, what it names,
+// and its deduplication;
+//
 // ../../end-goal/how-the-factory-works/08-operations/05-service-level-objectives.md
-// for the error budget, the burn rate, the hold and the intent the objective
-// raises; ../../end-goal/how-the-factory-works/08-operations/07-pages.md for the
-// two kinds of wait and which of them fires at any hour; and
-// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md for
-// what a rollback is, what its record names, and the page where it finds nothing to return to.
+// (C2082, C2083, C2084, C2085, C2086, C2087, C2088, C2089, C2090) for the error
+// budget, the burn rate, the hold and the intent the objective raises;
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2114, C2115,
+// C2120, C2121, C2122, C2130, C2131, C2135, C2136) for the two kinds of wait
+// and which of them fires at any hour; and
+// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1729,
+// C1730, C1731, C1733, C1742, C1743, C1746, C1747, C1748, C1751, C1754, C1755,
+// C1761) for what a rollback is, what its record names, and the page where it
+// finds nothing to return to.
 package healthmonitor

@@ -135,12 +135,18 @@
 //
 // What defines it: the store, its callers, and the version chain are the "One
 // entrance for every artifact" arrangement in
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md; the one call a spec
-// version, its criteria, its withdrawals and its machines are submitted in is
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0159, C0202, C0205,
+// C0209, C0212, C0213, C0214, C0215, C0216, C0217, C0218, C0219, C0220, C0221,
+// C0222); the one call a spec version, its criteria, its withdrawals and its
+// machines are submitted in is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/README.md
-// and
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md;
-// the role prompt, the skill, the selection rule, the version chain they share,
-// and the ungated entry the factory writes are
-// ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md.
+// (C1100) and
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md
+// (C1088); the role prompt, the skill, the selection rule, the version chain
+// they share, and the ungated entry the factory writes are
+// ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
+// (C2429, C2434, C2436, C2437, C2438, C2440, C2443, C2444, C2445, C2446,
+// C2450).
+//
+// Also ../../end-goal/records.md (C2799, C2801, C2802, C2803, C2804).
 package artifact

@@ -79,19 +79,24 @@
 // service_id are id fields and not foreign keys, the rule record's doc.go states
 // once.
 //
-// # What defines it
+// # What defines it The analysis window, its four exits, the parameters
+// resolved at the open, the boundary version, and the power are
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md
+// (C1980, C1981, C1982, C1983, C1984, C1985, C1986, C1987, C1989, C1990, C1994,
+// C1999, C2002, C2004, C2008, C2010, C2011, C2012, C2013, C2015, C2016, C2017,
+// C2018, C2019, C2021, C2022, C2025, C2027, C2029, C2038).
 //
-// The analysis window, its four exits, the parameters resolved at the open, the
-// boundary version, and the power are
-// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md.
 // The window limit, the last known-good release, a rollback's target, and the
 // mark that a rollback was not caused by the release are
-// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md.
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2046, C2048, C2051, C2076, C2077).
+//
 // The quantities, the emission version, and the operation the series are kept
 // per are
-// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md,
-// and the four fields the deployer populates are
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1960, C1975), and the four fields the deployer populates are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md.
+//
 // The boundary the size, the confidence and the power resolve to is package
 // boundary.
 package window

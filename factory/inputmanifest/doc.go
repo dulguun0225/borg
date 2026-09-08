@@ -31,7 +31,8 @@
 // manifest once written — a later change to the fleet entry or the selection
 // rule does not reach back into a manifest a past run was handed.
 //
-// What defines it: ../../end-goal/how-the-factory-works/01-one-pipeline.md,
-// under "What did not fit is recorded" — context assembly, the manifest's
-// fields, naming by reference, and the exclusion and its reason.
+// What defines it: ../../end-goal/how-the-factory-works/01-one-pipeline.md
+// (C0198, C0203, C0204), under "What did not fit is recorded" — context
+// assembly, the manifest's fields, naming by reference, and the exclusion and
+// its reason.
 package inputmanifest

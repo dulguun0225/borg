@@ -155,23 +155,34 @@
 //
 // What defines it: the ten shapes, the chain, the one-writer rule, and the
 // fencing token are seam 2 of "Security comes last",
-// ../../end-goal/deferred.md#security-comes-last, which is also where the read
-// event naming the principal is stated and where the principal on a call is
-// seam 5. The four rows of a decision
-// are
-// ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md.
+// ../../end-goal/deferred.md#security-comes-last (C0037, C0038, C0042, C0043,
+// C0044, C0045, C0046, C0050, C0051, C0053, C0054, C0055, C0056, C0057, C0058,
+// C0059, C0060, C0061, C0062, C0063, C0064, C0065, C0066, C0067, C0068, C0071,
+// C0073, C0075, C0076, C0077, C0079, C0082, C0083, C0110, C0111), which is also
+// where the read event naming the principal is stated and where the principal
+// on a call is seam 5. The four rows of a decision are
+// ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md
+// (C0838, C0839, C0840, C0847, C0848, C0850, C0851, C0852, C0853, C0859, C0860,
+// C0861, C0862, C0867, C0872, C0873, C0874, C0878, C0881, C0893).
+//
 // The wait's two rows and the three kinds of hold are
-// ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md.
+// ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md
+// (C0965, C0974, C0976, C0977, C0978).
+//
 // A page event is
-// ../../end-goal/how-the-factory-works/08-operations/07-pages.md. The install
-// event, whose shape the merge queue also writes the numbers a mint after a
-// restore passed over under, is
-// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md.
-// Truncation
-// and decision-log retention are
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md,
-// and a truncation refused wherever a legal hold reaches is
-// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md.
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2113). The
+// install event, whose shape the merge queue also writes the numbers a mint
+// after a restore passed over under, is
+// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
+// (C1622).
+//
+// Truncation and decision-log retention are
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
+// (C2300, C2316, C2317, C2318), and a truncation refused wherever a legal hold
+// reaches is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md
+// (C2321, C2323).
+//
 // The fencing token and the head-conditioned append are
-// ../../end-goal/one-process.md.
+// ../../end-goal/one-process.md (C2746, C2748, C2749).
 package decisionlog

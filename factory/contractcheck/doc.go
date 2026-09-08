@@ -144,26 +144,41 @@
 //
 // What defines it: the diff, a breaking one being a rejection at the Merge to
 // master gate, and who is affected being a query are
-// ../../end-goal/how-the-factory-works/07-contracts/04-enforcement.md; the two
-// baselines, the range consumer contracts in force are read over, and the
-// safeguard's predicate are
-// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md; the
+// ../../end-goal/how-the-factory-works/07-contracts/04-enforcement.md (C1781,
+// C1785, C1786, C1787); the two baselines, the range consumer contracts in
+// force are read over, and the safeguard's predicate are
+// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md
+// (C1798, C1809, C1811, C1812, C1813, C1815, C1816, C1817, C1818, C1823); the
 // list, the brownout and the detector are
-// ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md; the four items
-// a breaking change is, five for a store, are
-// ../../end-goal/how-the-factory-works/07-contracts/02-no-single-item-may-break-a-contract.md;
-// the store's forward promise, its own past as the consumer, and its migration's
-// middle items are
-// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md;
+// ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md (C1833,
+// C1834, C1835, C1836, C1837, C1838, C1839, C1840, C1845, C1846, C1851); the
+// four items a breaking change is, five for a store, are
+// ../../end-goal/how-the-factory-works/07-contracts/02-no-single-item-may-break-a-contract.md
+// (C1771);
+//
+// the store's forward promise, its own past as the consumer, and its
+// migration's middle items are
+// ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
+// (C1852, C1854, C1855, C1859, C1865, C1866, C1871, C1874, C1876, C1877, C1878,
+// C1879, C1880, C1881, C1882);
+//
 // a schema change and its snapshot are
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md;
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
+// (C1669);
+//
 // the composition of a candidate's environment from what a consumer contract
 // names is
-// ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md;
+// ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md
+// (C1893, C1894, C1897);
+//
 // what a brownout's window runs to and reads is
 // ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md;
 // the last known-good release is
-// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md;
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2046);
+//
 // and the shape every last check record has is
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md.
+//
+// Also ../../end-goal/components.md (C0018).
 package contractcheck

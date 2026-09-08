@@ -130,15 +130,22 @@
 // caller is built — the pass is the deployer's, in the command-line interface.
 //
 // What defines it:
-// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md,
-// which sets the kind as the seam between writers, the targets as a field, and
-// what a persistent kind holds;
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1383, C1384, C1385, C1386, C1387, C1388, C1393, C1394, C1395, C1397, C1398,
+// C1403, C1404, C1406, C1407, C1408, C1411, C1412, C1413, C1415, C1417, C1421,
+// C1430), which sets the kind as the seam between writers, the targets as a
+// field, and what a persistent kind holds;
+//
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md
-// for the candidate kind and its composition;
+// (C1518, C1519, C1520, C1522, C1524, C1525) for the candidate kind and its
+// composition;
+//
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/02-reclaiming-an-environment.md
-// for reclamation and the four reasons a cycle ends;
+// (C1500, C1502) for reclamation and the four reasons a cycle ends;
+//
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
-// for the compose timestamps, the platform's room, and environment-hours; and
-// the threshold's scope is
-// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
+// (C1503, C1513, C1514, C1515, C1517) for the compose timestamps, the
+// platform's room, and environment-hours; and the threshold's scope is
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
+// (C2233, C2234, C2246, C2253).
 package environment

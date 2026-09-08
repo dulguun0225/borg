@@ -64,15 +64,20 @@
 // caller has already read.
 //
 // What defines it: the window's boundary, the interval as the unit its variance
-// is estimated over, the confidence held over the set of comparisons, the power,
-// the size per quantity, and the requirement that the boundary be valid at every
-// point it is read are
-// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md.
+// is estimated over, the confidence held over the set of comparisons, the
+// power, the size per quantity, and the requirement that the boundary be valid
+// at every point it is read are
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md
+// (C1986, C1996, C1997, C2011, C2012, C2013, C2014, C2026, C2029, C2036,
+// C2038).
+//
 // The quantities, the arm reading that fails a silent release beside a serving
 // control, and the histogram the latency quantile is read from are
-// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md.
-// What the comparison is made against without a control is the release below the
-// one under watch on that target, which
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1943, C1960).
+//
+// What the comparison is made against without a control is the release below
+// the one under watch on that target, which
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
 // computes and package healthmonitor reads; it is never the last known-good
 // release, which can be a release above the one being read.

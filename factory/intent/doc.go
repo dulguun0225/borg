@@ -133,21 +133,37 @@
 // [Intake.SendBack] refuses on a re-decomposing intent, which no field here
 // remembers — the caller sends it back again once the firing has closed.
 //
-// What defines it: the three sources, the one writer, the project, the
-// evidence key and the tier at arrival are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md;
-// the six states, the rounds, the question record written twice, the
-// write-once answer, the confirming round with the intended effect and the
-// tier, the requirement record with its three kinds and its supersession, the
-// acceptance round and the outcome are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md;
+// What defines it: the three sources, the one writer, the project, the evidence
+// key and the tier at arrival are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md
+// (C0505, C0510, C0511, C0512, C0513, C0514, C0515, C0516, C0518, C0522,
+// C0523);
+//
+// the six states, the rounds, the question record written twice, the write-once
+// answer, the confirming round with the intended effect and the tier, the
+// requirement record with its three kinds and its supersession, the acceptance
+// round and the outcome are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
+// (C0526, C0527, C0528, C0529, C0531, C0532, C0533, C0534, C0537, C0544, C0545,
+// C0546, C0547, C0548, C0549, C0550, C0551, C0552, C0553, C0554, C0555, C0556,
+// C0558, C0561, C0562, C0563, C0564, C0565, C0566, C0567, C0568, C0569, C0571,
+// C0572, C0573, C0580, C0582, C0585, C0586, C0587, C0589, C0591, C0592, C0593,
+// C0596, C0601, C0603, C0604, C0607, C0608, C0613, C0615);
+//
 // the deadline is
-// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md;
-// the re-decomposition count, the derived requirement and the unanswerable
-// mark are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md;
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
+// (C0275, C0285, C0288, C0291, C0295, C0296);
+//
+// the re-decomposition count, the derived requirement and the unanswerable mark
+// are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0765, C0771, C0772, C0775, C0776, C0779, C0782, C0787);
+//
 // the six patterns are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md
+// (C1072, C1075, C1077);
+//
 // and the revert a named human at Ops asks for through intake is
-// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md.
+// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1742,
+// C1743, C1744, C1745).
 package intent

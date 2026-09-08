@@ -71,13 +71,16 @@
 // one commit and a second over one item.
 //
 // What defines it: the release record in
-// ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md — its
-// two write occasions, its single writer, and the authorship rollup as a query
-// — one item per release in
-// ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md,
-// the release number in
-// ../../end-goal/how-the-factory-works/06-releases/04-the-release-number.md, an
-// ordinal per service that orders builds and names rollback targets, and what
-// the queue reads before it mints, in
-// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md.
+// ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md
+// (C1632, C1633, C1634, C1635, C1639, C1641, C1642, C1645) — its two write
+// occasions, its single writer, and the authorship rollup as a query — one item
+// per release in
+// ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md
+// (C1626), the release number in
+// ../../end-goal/how-the-factory-works/06-releases/04-the-release-number.md
+// (C1651, C1652, C1653, C1654, C1655, C1656, C1657, C1658), an ordinal per
+// service that orders builds and names rollback targets, and what the queue
+// reads before it mints, in
+// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
+// (C1601, C1602, C1614, C1615, C1621).
 package release

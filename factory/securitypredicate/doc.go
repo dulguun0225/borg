@@ -33,12 +33,16 @@
 // that row's firing, which puts a human there rather than rejecting.
 //
 // What defines it: the second list, what it owns and how it is versioned, are
-// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md;
-// the list being decided against the candidate's run with one set of derivations
-// per toolchain is
-// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md;
-// and what a security predicate does at the merge row, rejecting on the terms an
-// undecided criterion does and putting a human there where it could not derive,
-// is
+// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md
+// (C1804, C1820, C1821);
+//
+// the list being decided against the candidate's run with one set of
+// derivations per toolchain is
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md
+// (C1598);
+//
+// and what a security predicate does at the merge row, rejecting on the terms
+// an undecided criterion does and putting a human there where it could not
+// derive, is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md.
 package securitypredicate

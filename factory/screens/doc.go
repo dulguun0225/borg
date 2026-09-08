@@ -98,21 +98,38 @@
 // resolved licences, and the rows each human referred and rejected split by
 // cause.
 //
-// # What defines it
+// # What defines it The four screens, what waits on a human, and the badge:
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2565, C2566, C2567, C2568, C2569, C2572, C2576, C2577, C2578, C2579, C2580,
+// C2584, C2585, C2588, C2590, C2591, C2592, C2593, C2594, C2595, C2596, C2597,
+// C2599, C2600, C2601, C2602, C2604, C2605, C2606, C2608, C2611, C2612, C2613,
+// C2615, C2620, C2624, C2629, C2631, C2632, C2633, C2634, C2638, C2643, C2651,
+// C2652, C2653, C2654, C2656, C2658, C2660, C2661, C2662).
 //
-// The four screens, what waits on a human, and the badge:
-// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md.
 // Two audiences, designed for silence, and push not poll:
-// ../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md.
-// The client as one address per screen, the subscription and its
-// disconnected state, the version refusal, and the principal:
-// ../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md.
+// ../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md
+// (C2680, C2681, C2682, C2683, C2686, C2687, C2688, C2691, C2693).
+//
+// The client as one address per screen, the subscription and its disconnected
+// state, the version refusal, and the principal:
+// ../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md
+// (C2695, C2697, C2700, C2701, C2703, C2704, C2708, C2709, C2715, C2716).
+//
 // The auto-approve and undone pair, and the two rates a threshold is read
 // against:
-// ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md.
+// ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md
+// (C2719, C2722, C2724, C2725).
+//
 // The page channel's four numbers and the load split at first delivery and
 // first acknowledgement:
-// ../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md.
-// The principal and seam 5, not yet enforced: ../../end-goal/deferred.md.
-// The twelve duties this package's calls perform: ../../end-goal/what-humans-do.md.
+// ../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md
+// (C2730, C2731, C2734, C2736, C2738).
+//
+// The principal and seam 5, not yet enforced: ../../end-goal/deferred.md
+// (C0110, C0111, C0121, C0128).
+//
+// The twelve duties this package's calls perform:
+// ../../end-goal/what-humans-do.md (C2850, C2851, C2857, C2858, C2860, C2862,
+// C2863, C2864, C2867, C2868, C2870, C2873, C2874, C2875, C2878, C2880, C2881,
+// C2882, C2883, C2884).
 package screens

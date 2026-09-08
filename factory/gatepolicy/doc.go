@@ -41,18 +41,32 @@
 // written by the package that owns the record the parameter is a field of.
 //
 // What defines it: the eleven rows are
-// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md, and the scope
-// of each, the key it is held under, and the direction its safeguard takes are
-// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md
+// (C2187, C2188, C2189, C2190, C2191, C2192, C2193, C2195, C2196, C2197,
+// C2198), and the scope of each, the key it is held under, and the direction
+// its safeguard takes are
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
+// (C2199, C2200, C2201, C2202, C2203, C2204, C2205, C2206, C2207, C2208, C2226,
+// C2228, C2229, C2232, C2233, C2251, C2252, C2253, C2257, C2258, C2259, C2260,
+// C2261, C2262, C2263, C2265, C2266, C2269, C2270, C2271, C2272).
+//
 // What is authored and not among the eleven is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
-// and ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md.
+// (C2276, C2277, C2278, C2279, C2280, C2281, C2283, C2284, C2285, C2286, C2289,
+// C2293, C2294, C2295) and
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
+// (C2296, C2297, C2298, C2300, C2302, C2304, C2305, C2307).
+//
 // The strategy default being production's environment record's alone is
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md,
 // and the change freeze is
-// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md.
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
+// (C2332, C2350, C2351, C2352, C2353).
+//
 // The predicate kinds are
-// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md, and the
-// quantities are
-// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md.
+// ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md
+// (C1798, C1799, C1800, C1802, C1818), and the quantities are
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1937, C1938, C1939, C1943, C1944, C1947, C1948, C1949, C1967, C1970,
+// C1972).
 package gatepolicy

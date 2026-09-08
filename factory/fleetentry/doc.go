@@ -41,9 +41,11 @@
 // composed elsewhere, over this table and others, and are not this package's.
 //
 // What defines it: the fleet entry itself is
-// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md.
+// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
+// (C2358, C2360, C2361, C2362, C2364, C2367, C2368, C2370, C2374, C2375).
+//
 // Factory writing it is
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md.
 // The role and the scope a fleet entry narrows are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md.
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0165, C0199).
 package fleetentry

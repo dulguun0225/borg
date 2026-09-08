@@ -145,24 +145,40 @@
 // once.
 //
 // What defines it: the criterion, its provenance and its stable id are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md
+// (C1040, C1041, C1042, C1043, C1044, C1045, C1047, C1048, C1049, C1050,
+// C1051);
+//
 // in force, withdrawal, the withdrawal of a criterion whose provenance names an
 // authority, the outcome history and the unreliable bound are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md;
-// the six patterns, the requirement field and the sentence fitting no pattern are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md
+// (C1052, C1053, C1054, C1056, C1057, C1059, C1062);
+//
+// the six patterns, the requirement field and the sentence fitting no pattern
+// are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md
+// (C1067, C1072, C1073, C1075);
+//
 // the encoding, the place it declares and the rejection directions are
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md,
-// and what the encoding rests on is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md
+// (C1117, C1118, C1119, C1122, C1123, C1124), and what the encoding rests on is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md
+// (C1134, C1136, C1137);
+//
 // the run, the identity of a result and the composition copied onto it are
-// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md;
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1429, C1470, C1471, C1473, C1474, C1475, C1477, C1478, C1484);
+//
 // the undecided outcome is
-// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md;
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md
+// (C1558, C1559, C1560, C1561);
+//
 // the mutation score, its coverage and its could-not-derive outcome are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md,
 // and the mutation floor it is read against is
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md;
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md
+// (C1158);
+//
 // the hazard-derived criterion and the Spec gate's mechanical rejection are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md.
 package criterion
