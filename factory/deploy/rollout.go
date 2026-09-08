@@ -459,8 +459,8 @@ func DigestConfiguration(values targetseam.ValueSet) string {
 // mintWayInToken is the token the deployer mints for the way in at every deploy
 // and the digest it writes on the record. The token is handed to the service in
 // its configuration and stored nowhere; the digest is what the report store
-// would find the deploy record by. Neither the way in nor the report store is
-// built, so nothing reads either yet.
+// finds the deploy record by, through [ByWayInTokenDigest]. The way in that
+// carries the token to the deployed service is not built.
 func mintWayInToken() (token, digest string, err error) {
 	var bytes [32]byte
 	if _, err := rand.Read(bytes[:]); err != nil {

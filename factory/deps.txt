@@ -389,6 +389,17 @@
 # instant each row carries and record.ParseTime reads it back, the same
 # layout every record in the graph uses, though this package owns no table
 # — the erasure list is a file, the departure its own doc.go states.
+#
+# reportstore's store is not the factory's either, and for a second reason
+# beside driftdetector's: it is sized for what a population of end users sends
+# rather than for what a graph joins on. So it brings its own opener and its
+# own applier, postgres does not name it, and the record packages it needs
+# facts from — the deploy the token's digest finds, the two rates and the
+# retention an owner authored, the legal hold that suspends a removal, the
+# read event a served report appends, and the redactions naming a report —
+# reach it through interfaces the composition implements. Its three edges are
+# erasurelist, which it is the one writer of, principal, which every read
+# returning words names, and record for the identifier and the timestamp.
 
 record
 gatepolicy
@@ -428,6 +439,7 @@ incident -> record lease
 people -> record lease legalhold policy principal
 fleetentry -> record lease
 driftdetector -> record decisionlog lastcheck
+reportstore -> erasurelist principal record
 score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease principal release window
 policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold principal project safeguard score secretref service
 dispatch -> agent agentrun artifact constraint decisionlog factorysettings fleetentry inputmanifest intent item lease people policy principal record

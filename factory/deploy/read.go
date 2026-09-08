@@ -295,6 +295,28 @@ func NewestRollback(ctx context.Context, pool *pgxpool.Pool, serviceID, environm
 		order by number desc limit 1`, serviceID, environmentID)
 }
 
+// ByWayInTokenDigest is the deploy that placed the way in whose token has
+// that digest, and false where no record carries it. It is the report store's
+// read: the store takes the service and the environment from the deploy
+// record this finds and never from the submission, so which service a report
+// counts against is never what the submission says, and a submission naming
+// no deploy this finds is refused.
+//
+// An empty digest finds nothing. The column is empty on every deploy written
+// before the deployer minted a token, and a submission presenting none would
+// otherwise find one of those.
+//
+// The newest record is answered where more than one carries the digest. The
+// token is 32 random bytes minted per deploy, so two records sharing one is
+// not a case the deployer produces.
+func ByWayInTokenDigest(ctx context.Context, pool *pgxpool.Pool, digest string) (Deploy, bool, error) {
+	if digest == "" {
+		return Deploy{}, false, nil
+	}
+	return scanOne(ctx, pool, selectDeploy+`
+		where way_in_token_digest = $1 order by number desc limit 1`, digest)
+}
+
 func scanOne(ctx context.Context, pool *pgxpool.Pool, statement string, args ...any) (Deploy, bool, error) {
 	d, err := scan(pool.QueryRow(ctx, statement, args...))
 	if errors.Is(err, pgx.ErrNoRows) {

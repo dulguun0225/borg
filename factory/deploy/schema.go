@@ -128,9 +128,9 @@ const lockName = "borg/factory/deploy/"
 // configuration version so named is restored with the release at a rollback.
 //
 // way_in_token_digest is the digest of the token the deployer minted for the
-// way in at this deploy, never the token. The way in that would send it and the
-// report store that would digest it are not built, so nothing reads this
-// column yet.
+// way in at this deploy, never the token. [ByWayInTokenDigest] is what reads
+// it: the report store digests the token a submission presents and takes the
+// service and the environment from the record that finds.
 //
 // # Completion per target
 //

@@ -7,6 +7,7 @@ package deploy_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -323,5 +324,51 @@ func TestAFailedRecordNamesTheStepAndMovesNoReader(t *testing.T) {
 	completeOn(t, ctx, w, partial.ID, "/srv/one")
 	if err := w.MarkFailed(ctx, partial.ID, deploy.StepStopped); !errors.Is(err, deploy.ErrATargetCompleted) {
 		t.Errorf("MarkFailed with a target complete = %v, want ErrATargetCompleted", err)
+	}
+}
+
+// TestByWayInTokenDigestFindsTheDeployThatPlacedTheWayIn: the report store
+// digests the token a submission presents and takes the service and the
+// environment from the record this read finds, so a submission naming no
+// deploy this store knows finds nothing and an empty digest — which is what
+// every record written before the deployer minted a token carries — finds
+// nothing either.
+func TestByWayInTokenDigestFindsTheDeployThatPlacedTheWayIn(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+	digest := strings.Repeat("a1", 32)
+
+	placed, err := w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+		WayInTokenDigest: digest,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// A second deploy of the same service, with no way-in digest of its own,
+	// which the empty-digest read must not find.
+	if _, err := w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+	}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	found, ok, err := deploy.ByWayInTokenDigest(ctx, pool, digest)
+	if err != nil || !ok {
+		t.Fatalf("ByWayInTokenDigest = found %v, %v", ok, err)
+	}
+	if found.ID != placed.ID || found.ServiceID != serviceID || found.EnvironmentID != productionID {
+		t.Errorf("the read found %+v, want the deploy that placed the way in", found)
+	}
+
+	for _, digest := range []string{"", strings.Repeat("b2", 32)} {
+		if found, ok, err := deploy.ByWayInTokenDigest(ctx, pool, digest); ok || err != nil {
+			t.Errorf("ByWayInTokenDigest(%q) = %+v, found %v, %v; want nothing", digest, found, ok, err)
+		}
 	}
 }

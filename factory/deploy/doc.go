@@ -162,9 +162,11 @@
 // field, which the caller reads and supplies here — this package reaches no
 // service record for a parameter, and a rollout with no [Performance.Bake] to
 // ask holds nowhere whatever the volume is.
-// way_in_token_digest is written at every deploy and read by nothing: the way
-// in that would send the token to the deployed service, and the report store
-// that would digest it, are not built. [Mitigating.Principal] is the deployer's
+// way_in_token_digest is written at every deploy and read by
+// [ByWayInTokenDigest], which is the report store's resolution of a
+// submission's token to the deploy that placed the way in. The way in that
+// sends the token to the deployed service is not built.
+// [Mitigating.Principal] is the deployer's
 // own principal, supplied by the caller — the command-line interface, until
 // Ops is a screen.
 //
