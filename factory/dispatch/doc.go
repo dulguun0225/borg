@@ -1,13 +1,15 @@
 // Package dispatch is the dispatch component: the match of an item's stage
-// against a role and of its service and area against a scope, or of an intent
-// against one of the two roles put on an intent, and what runs an agent.
+// against a role and of its service and area against a scope, of an intent
+// against one of the two roles put on an intent, or of a project against the
+// role put on a project, and what runs an agent.
 //
 // # The files
 //
 // role.go is [Role] with [Roles], [Role.Stage], [Role.OnAnIntent],
-// [ErrRoleNamesNoStage], [RoleAt], the operations [Role.Operations] gives each
-// role with [Role.Narrow] and [ErrOperationWidened], and [Scope] with
-// [Scope.Covers], [On.Areas] and [Scope.String].
+// [Role.OnAProject], [ErrRoleNamesNoStage], [RoleAt], the operations
+// [Role.Operations] gives each role with [Role.Narrow] and
+// [ErrOperationWidened], and [Scope] with [Scope.Covers], [On.Areas] and
+// [Scope.String].
 // fleet.go is [Entry], the fleet entry as this component reads it, with the
 // match against the record — [Dispatch.matchFor] and [Dispatch.entryFor] — the
 // [Models] and [Prompts] interfaces the composition supplies, and the errors a
@@ -63,6 +65,14 @@
 // against [Limits.RoundsOnAnIntent], no per-stage row existing to read. Putting
 // one of the two on an item is [ErrRoleNamesNoStage].
 //
+// [RoleGrouper] is the third kind of subject: it is put on a project, which is
+// the whole of what a scope matches it on and the whole of what its run record
+// names, and it is dispatched before there is an intent — so one naming an item
+// or an intent is [ErrRoleNamesNoStage] the same way. Its entry is read out of
+// the record by role like every other, and the operation it carries is
+// [OperationReadTheReports], the reports of that project being what it reads
+// and a checkout being what it does not.
+//
 // The scope's area is matched against the item's area chain and not against
 // its own area alone, so an entry drawn on a coarser area covers an item in a
 // finer one. The chain is [On.AreaChain], read by the caller.
@@ -112,6 +122,12 @@
 // credential are reached through is the one thing the record cannot hold, and
 // which provider a credential resolves to is the composition's knowledge.
 //
+// The grouper has no method here either, and for the same kind of reason: what
+// would put an agent in that role is the pass that reads a project's reports
+// and calls intake per group, which is not built. The role and its match are,
+// so an owner's entry for it is matched, and a dispatch on it with no role
+// prompt version in force is a hold rather than a run.
+//
 // The decomposer is matched, prompted and dispatched like any other role and
 // nothing calls it: the component that would put an agent in that role is a
 // stage that decides a decomposition, and the factory is told its
@@ -132,6 +148,11 @@
 // ../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md
 // (C0806, C0807, C0810, C0811, C0813, C0814, C0815, C0816, C0818, C0819,
 // C0821).
+//
+// The role put on a project, whose scope is that project and which is an agent
+// under a fleet entry like any other, is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0378, C0379).
 //
 // The role, the two roles put on an intent, the scope, the operations a role
 // carries, the principal every call is made under, and what a stage hands an

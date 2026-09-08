@@ -27,10 +27,10 @@ var (
 	// ErrAccountKindUnknown is returned for an account kind that is neither of
 	// [AccountKinds] and not empty.
 	ErrAccountKindUnknown = errors.New("agentrun: the account kind is unknown")
-	// ErrServedNothing is returned for a run naming neither an item nor an
-	// intent. What a run served is one of the five the design names and never
-	// none; doc.go says which two of the five have a record to name.
-	ErrServedNothing = errors.New("agentrun: the run names neither an item nor an intent")
+	// ErrServedNothing is returned for a run naming no item, no intent and no
+	// project. What a run served is one of the five the design names and never
+	// none; doc.go says which three of the five have a record to name.
+	ErrServedNothing = errors.New("agentrun: the run names no item, no intent and no project")
 	// ErrStageWithoutAnItem is returned for a stage on a run that names no item.
 	// A stage is the item's, so one without an item names nothing.
 	ErrStageWithoutAnItem = errors.New("agentrun: the run names a stage and no item")
@@ -78,6 +78,7 @@ type New struct {
 	ItemID          string
 	Stage           string
 	IntentID        string
+	ProjectID       string
 	InputManifestID string
 
 	UnitsByKind map[string]int64
@@ -121,7 +122,7 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 	if n.Stage != "" && n.ItemID == "" {
 		return Run{}, ErrStageWithoutAnItem
 	}
-	if n.ItemID == "" && n.IntentID == "" {
+	if n.ItemID == "" && n.IntentID == "" && n.ProjectID == "" {
 		return Run{}, ErrServedNothing
 	}
 	if n.Outcome == "" {
@@ -152,6 +153,7 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 		ItemID:              n.ItemID,
 		Stage:               n.Stage,
 		IntentID:            n.IntentID,
+		ProjectID:           n.ProjectID,
 		InputManifestID:     n.InputManifestID,
 		UnitsByKind:         n.UnitsByKind,
 		UnitsAt:             n.UnitsAt,
@@ -200,15 +202,15 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at,
 		role, role_prompt_version_id, skill_version_ids, model_version, effort,
 		credential_name, processing_location, lender_key, account_kind,
-		item_id, stage, intent_id, input_manifest_id,
+		item_id, stage, intent_id, project_id, input_manifest_id,
 		units_by_kind, units_at, sources, rates_by_kind, converted_amount, currency,
 		started_at, finished_at, outcome)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-		$20, $21, $22, $23, $24, $25, $26, $27, $28)`,
+		$20, $21, $22, $23, $24, $25, $26, $27, $28, $29)`,
 		r.ID, FormatVersion, string(r.Actor.Kind), r.Actor.Key, string(r.Actor.Basis), r.At,
 		r.Role, r.RolePromptVersionID, joinLines(r.SkillVersionIDs), r.ModelVersion, r.Effort,
 		r.CredentialName, r.ProcessingLocation, r.LenderKey, string(r.AccountKind),
-		r.ItemID, r.Stage, r.IntentID, r.InputManifestID,
+		r.ItemID, r.Stage, r.IntentID, r.ProjectID, r.InputManifestID,
 		units, r.UnitsAt, joinLines(r.Sources), rates, amount, r.Currency,
 		r.StartedAt, r.FinishedAt, r.Outcome,
 	)

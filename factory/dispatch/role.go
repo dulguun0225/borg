@@ -9,12 +9,12 @@ import (
 )
 
 // Role is what an agent is put on: one stage of the path and the artifact that
-// stage writes about the item, or one of the two roles put on an intent, which
-// run before there is an item to match against. The set is closed — an owner
+// stage writes about the item, one of the two roles put on an intent, which run
+// before there is an item to match against, or the grouper, which is put on a
+// project because it runs before an intent exists. The set is closed — an owner
 // composing a fleet entry chooses among these and never invents one — and it is
-// closed at six here: the four authoring stages and the two on an intent. The
-// grouper, which runs before an intent exists, and the role that argues a fleet
-// proposal are not built.
+// closed at seven here: the four authoring stages, the two on an intent, and
+// the one on a project. The role that argues a fleet proposal is not built.
 type Role string
 
 const (
@@ -34,23 +34,31 @@ const (
 	// RoleDecomposer cuts one intent into the items that answer it. It is put
 	// on an intent for the reason [RoleInterviewer] is.
 	RoleDecomposer Role = "decomposer"
+	// RoleGrouper decides which of the reports that arrived under one project
+	// are one problem. It is put on neither an item nor an intent: it runs
+	// before an intent exists, and its scope is the project whose reports it
+	// reads.
+	RoleGrouper Role = "grouper"
 )
 
-// Roles is every role, in the order the path reaches them: the two put on an
-// intent, and then the four whose stages an item passes through.
-var Roles = []Role{RoleInterviewer, RoleDecomposer,
+// Roles is every role, in the order the path reaches them: the one put on a
+// project, which runs before there is an intent, the two put on an intent, and
+// then the four whose stages an item passes through.
+var Roles = []Role{RoleGrouper, RoleInterviewer, RoleDecomposer,
 	RoleSpecAuthor, RoleImplementationPlanner, RoleTaskAuthor, RoleImplementer}
 
 // ErrRoleUnknown is returned for a role outside [Roles].
 var ErrRoleUnknown = fmt.Errorf("dispatch: not a role")
 
-// ErrRoleNamesNoStage is returned by [Role.Stage] for a role put on an intent.
-// Neither names a stage: an intent has none until decomposition writes the
-// items, which is why the two are matched on the intent's project alone.
-var ErrRoleNamesNoStage = fmt.Errorf("dispatch: this role is put on an intent and names no stage")
+// ErrRoleNamesNoStage is returned by [Role.Stage] for a role put on an intent
+// or on a project. None of the three names a stage: an intent has none until
+// decomposition writes the items, which is why the two on an intent are matched
+// on the intent's project alone, and the grouper runs before there is an intent
+// at all.
+var ErrRoleNamesNoStage = fmt.Errorf("dispatch: this role is put on no item and names no stage")
 
 // Stage is the stage the role names. A dispatch on an item is the match of the
-// item's stage against this, and a role put on an intent is
+// item's stage against this, and a role put on an intent or on a project is
 // [ErrRoleNamesNoStage].
 func (r Role) Stage() (item.Stage, error) {
 	switch r {
@@ -62,7 +70,7 @@ func (r Role) Stage() (item.Stage, error) {
 		return item.StageTasks, nil
 	case RoleImplementer:
 		return item.StageImplementation, nil
-	case RoleInterviewer, RoleDecomposer:
+	case RoleInterviewer, RoleDecomposer, RoleGrouper:
 		return "", fmt.Errorf("%w: %q", ErrRoleNamesNoStage, r)
 	default:
 		return "", fmt.Errorf("%w: %q", ErrRoleUnknown, r)
@@ -74,9 +82,16 @@ func (r Role) Stage() (item.Stage, error) {
 // an entry for with no item to match on.
 func (r Role) OnAnIntent() bool { return r == RoleInterviewer || r == RoleDecomposer }
 
+// OnAProject reports whether the role is the one put on a project. It is read
+// beside [Role.OnAnIntent] wherever a dispatch reads which of the three kinds
+// of subject it is for: this one names no stage and no intent, and what a
+// scope is matched against is the project alone.
+func (r Role) OnAProject() bool { return r == RoleGrouper }
+
 // RoleAt is the role whose stage is this one, and false for a stage no role is
 // put on — queued and merged, where nothing authors, the three values that end
-// an item, and the two roles put on an intent, which name no stage at all.
+// an item, and the roles put on an intent or on a project, which name no stage
+// at all.
 func RoleAt(stage item.Stage) (Role, bool) {
 	for _, role := range Roles {
 		at, err := role.Stage()
@@ -107,6 +122,10 @@ const (
 	// OperationRunTheBuild is running the build's own tooling, which only the
 	// implementation stage does.
 	OperationRunTheBuild = "run the build"
+	// OperationReadTheReports is reading the reports that arrived under the
+	// project the role was put on, which only the grouper does. It reaches no
+	// checkout: the reports are in a store of their own.
+	OperationReadTheReports = "read the reports"
 )
 
 // Operations is what a role may do. A role's list is the factory's, so this is
@@ -115,9 +134,13 @@ const (
 // The two roles put on an intent read and never write: neither authors an
 // artifact version — the interview's questions and the items decomposition
 // writes are records with writers of their own — so neither carries
-// [OperationSubmitAVersion].
+// [OperationSubmitAVersion]. The role put on a project carries
+// [OperationReadTheReports] and nothing else: it reaches no checkout, and the
+// intent it leads to is written by intake rather than by it.
 func (r Role) Operations() ([]string, error) {
 	switch r {
+	case RoleGrouper:
+		return []string{OperationReadTheReports}, nil
 	case RoleInterviewer, RoleDecomposer:
 		return []string{OperationReadTheRepository}, nil
 	case RoleSpecAuthor, RoleImplementationPlanner, RoleTaskAuthor:
@@ -166,9 +189,11 @@ type Scope struct {
 	AreaID    string
 }
 
-// Covers reports whether the scope admits an item with these subjects. A field
-// the scope names has to be the item's; a field it leaves empty matches
-// whatever the item has, the empty value included.
+// Covers reports whether the scope admits a dispatch with these subjects. A
+// field the scope names has to be the dispatch's; a field it leaves empty
+// matches whatever the dispatch has, the empty value included — so a scope
+// naming a service or an area covers no run put on a project, which names
+// neither.
 //
 // Both halves of a scope are honoured, the item's area chain and its service's
 // project: a scope drawn on any area in the chain reaches the item, so

@@ -138,13 +138,43 @@ func TestGetOnAnUnknownIDIsNotFound(t *testing.T) {
 	}
 }
 
-func TestARunNamingNeitherAnItemNorAnIntentIsRefused(t *testing.T) {
+func TestARunNamingNoItemNoIntentAndNoProjectIsRefused(t *testing.T) {
 	ctx, _, w := newTable(t)
 	n := runOnItem()
 	n.ItemID, n.Stage = "", ""
 
+	if n.IntentID != "" || n.ProjectID != "" {
+		t.Fatalf("the run names %+v, want none of the three so that the refusal is the one under test", n)
+	}
 	if _, err := w.Record(ctx, dispatcher, n); !errors.Is(err, agentrun.ErrServedNothing) {
-		t.Errorf("Record naming neither = %v, want ErrServedNothing", err)
+		t.Errorf("Record naming none of the three = %v, want ErrServedNothing", err)
+	}
+}
+
+// TestARunOnAProjectNamesNeitherAnItemNorAnIntent is the third of the subjects
+// a run serves: the grouper is put on a project, before there is an intent, so
+// the record names the project alone and the check that it serves something is
+// satisfied by it.
+func TestARunOnAProjectNamesNeitherAnItemNorAnIntent(t *testing.T) {
+	ctx, pool, w := newTable(t)
+	n := runOnItem()
+	n.Role = "grouper"
+	n.ItemID, n.Stage = "", ""
+	n.ProjectID = record.NewID("pr")
+
+	recorded, err := w.Record(ctx, dispatcher, n)
+	if err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if recorded.ProjectID != n.ProjectID || recorded.ItemID != "" || recorded.IntentID != "" {
+		t.Errorf("Record = %+v, want ProjectID %s and no item or intent", recorded, n.ProjectID)
+	}
+	read, err := agentrun.Get(ctx, pool, recorded.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.ProjectID != n.ProjectID || read.ProcessingLocation != n.ProcessingLocation {
+		t.Errorf("Get = %+v, want the project it served and the processing location it ran on", read)
 	}
 }
 

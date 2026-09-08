@@ -53,9 +53,9 @@ const (
 const RoutedToTheOwner = "owner"
 
 // Hold is what a hold row says: the condition that held, the item and the
-// stage or the intent and the role it held, and the values the match was made
-// on — so what would clear it is read off the row rather than followed from a
-// pointer at an entry.
+// stage, the intent and the role, or the project and the role it held, and the
+// values the match was made on — so what would clear it is read off the row
+// rather than followed from a pointer at an entry.
 type Hold struct {
 	Kind      string `json:"kind"`
 	Condition string `json:"condition"`
@@ -114,8 +114,9 @@ const HoldKind = "dispatch_hold"
 // One row per item and stage: a hold already open for that item, that stage and
 // that condition is returned as it stands rather than written again, so a stage
 // retried against a condition that has not moved is one row and not one per
-// retry. For a run on no item the row is per intent and role, and per project
-// for a run on one, which is the same read one field along.
+// retry. For a run on no item the row is per intent and role, and for a run on
+// neither an item nor an intent it is per project and role, which is the same
+// read one field along.
 func (d *Dispatch) hold(ctx context.Context, run Run, on On, cause Hold) (Run, error) {
 	standing, rows, err := d.Open(ctx)
 	if err != nil {
@@ -146,14 +147,21 @@ func (d *Dispatch) hold(ctx context.Context, run Run, on On, cause Hold) (Run, e
 }
 
 // sameSubject reports whether an open hold is about what this dispatch is
-// about: the item and the stage where there is an item, and the intent and the
-// role where the run is on an intent. It is what makes a hold one row per item
-// and stage rather than one per retry.
+// about: the item and the stage where there is an item, the intent and the role
+// where the run is on an intent, and the project and the role where it is on
+// neither. It is what makes a hold one row per item and stage rather than one
+// per retry.
 func (h Hold) sameSubject(role Role, on On) bool {
 	if on.ItemID != "" {
 		return h.ItemID == on.ItemID && h.Stage == string(on.Stage)
 	}
-	return h.ItemID == "" && h.IntentID == on.IntentID && h.Role == string(role)
+	if h.ItemID != "" || h.Role != string(role) {
+		return false
+	}
+	if on.IntentID != "" {
+		return h.IntentID == on.IntentID
+	}
+	return h.IntentID == "" && h.ProjectID == on.ProjectID
 }
 
 // Open is every hold this component has open, and the row each stands as. It

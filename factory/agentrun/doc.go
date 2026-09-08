@@ -12,8 +12,8 @@
 // effort; what it ran on — the credential name, the processing location it
 // resolved to, the per-person key of whoever lent it, and whether the account
 // is a person's own or an organisation's; what it served — an item and its
-// stage, or an intent, and the input manifest [package inputmanifest] wrote
-// before the run; and what it spent — the units the provider returned per
+// stage, an intent, or the project a role put on one served, and the input
+// manifest [package inputmanifest] wrote before the run; and what it spent — the units the provider returned per
 // kind, the time it returned them, the sources handed over, the rates each
 // kind was converted at, and the amount that sums to, absent where a kind
 // returned has no rate.
@@ -30,10 +30,12 @@
 // skill versions are the one field of the four groups still empty: a skill is a
 // record nothing writes.
 //
-// What a run served is one of five, and this table takes an item or an intent:
-// a stage's run names the item and its stage, and an interview round and a
-// decomposition the intent. The grouper run and the evaluation-set run name
-// neither, and no run of either is written. The evaluation-set result
+// What a run served is one of five, and this table takes an item, an intent or
+// a project: a stage's run names the item and its stage, an interview round and
+// a decomposition the intent, and the grouper the project it was put on, which
+// is its whole subject — it runs before there is an intent and reads that
+// project's reports and nothing else. The evaluation-set run names none of the
+// three, and no run of one is written. The evaluation-set result
 // ../../end-goal/records.md inventories with dispatch as its writer, defined
 // in ../../end-goal/how-the-factory-works/10-fleet/02-a-model-under-a-name.md
 // and keyed by model version, effort, role prompt version, skill versions and
@@ -46,8 +48,8 @@
 // a credential that fails closed: a run whose converted amount is absent
 // because a kind it returned has no rate for that model version and effort.
 //
-// item_id, intent_id, input_manifest_id, role_prompt_version_id, and the ids
-// in skill_version_ids are id fields and not foreign keys, like every link
+// item_id, intent_id, project_id, input_manifest_id, role_prompt_version_id,
+// and the ids in skill_version_ids are id fields and not foreign keys, like every link
 // between records; record's doc.go states that rule and its cost once.
 //
 // Who may write what: [Writer] is the one writer, and nothing updates a run
@@ -65,6 +67,11 @@
 // run, recorded here and on the fleet entry and never on the artifact, is
 // ../../end-goal/how-the-factory-works/10-fleet/04-paid-for-is-not-authored-by.md
 // (C2452).
+//
+// The run put on a project, and the processing location every run names, the
+// grouper's own reads of arriving reports included, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0379, C0462).
 //
 // Also ../../end-goal/records.md (C2834).
 package agentrun

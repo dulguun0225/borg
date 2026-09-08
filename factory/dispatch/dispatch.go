@@ -171,18 +171,21 @@ func New(c Composition) (*Dispatch, error) {
 	return &Dispatch{c: c}, nil
 }
 
-// On is what a dispatch is for: the item and the stage, or the intent where
-// the role is put on one before any item exists, and the subjects a scope is
-// matched against.
+// On is what a dispatch is for: the item and the stage, the intent where the
+// role is put on one before any item exists, or the project alone where the
+// role is put on neither, and the subjects a scope is matched against.
 type On struct {
 	// ItemID and Stage are the item this dispatch puts an agent on. Both are
-	// empty on a run put on an intent.
+	// empty on a run put on an intent and on a run put on a project.
 	ItemID string
 	Stage  item.Stage
 	// IntentID is the intent the item was decomposed from, or the intent the
-	// run itself is on where there is no item yet.
+	// run itself is on where there is no item yet. It is empty on a run put on
+	// a project, which is dispatched before there is an intent.
 	IntentID string
 
+	// ProjectID is the project a scope is matched against, and the subject
+	// itself on a run put on a project.
 	ProjectID string
 	ServiceID string
 	AreaID    string
@@ -380,6 +383,7 @@ func (d *Dispatch) recordRun(ctx context.Context, run Run, on On, sources []stri
 		ItemID:              on.ItemID,
 		Stage:               string(on.Stage),
 		IntentID:            intentOf(on),
+		ProjectID:           projectOf(on),
 		InputManifestID:     run.InputManifestID,
 		UnitsByKind:         units,
 		Sources:             sources,
@@ -405,6 +409,18 @@ func intentOf(on On) string {
 		return ""
 	}
 	return on.IntentID
+}
+
+// projectOf is the project an agent run record names, which is what a run put
+// on neither an item nor an intent served. Every dispatch carries the project a
+// scope is matched against; the record names it where it is the subject, so
+// what a run served stays one of the three and not the item and its project
+// both.
+func projectOf(on On) string {
+	if on.ItemID != "" || on.IntentID != "" {
+		return ""
+	}
+	return on.ProjectID
 }
 
 // outcomeOf is the word an agent run record's outcome carries. The design names

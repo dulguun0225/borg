@@ -242,10 +242,11 @@ export const MATERIAL_CLASSES = [
   'failure_records',
 ] as const;
 
-// The six roles a fleet entry may be put on, named the way
+// The seven roles a fleet entry may be put on, named the way
 // ../../../../dispatch/role.go names them. The set is closed there, and the
 // form falls back to it where the view lists no role of its own.
 export const ROLES = [
+  'grouper',
   'interviewer',
   'decomposer',
   'spec_author',

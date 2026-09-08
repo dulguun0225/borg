@@ -5,13 +5,16 @@
 package dispatch_test
 
 import (
+	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/constraint"
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/fleetentry"
@@ -373,4 +376,93 @@ func (c composed) enforceSeam5(t *testing.T) {
 	if err := tx.Commit(c.ctx); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
+}
+
+// TestTheGrouperIsMatchedToAnEntryOnTheProjectItReads is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md's
+// "it runs under a fleet entry like any other agent ... in a role put on
+// neither an intent nor an item: its scope is a project". The match is read
+// through a re-match: a hold naming the grouper and a project stands while no
+// entry covers it and lifts when one does. Nothing here puts an agent in this
+// role — doc.go says what would — so the hold is the way in to the match.
+func TestTheGrouperIsMatchedToAnEntryOnTheProjectItReads(t *testing.T) {
+	// One version per role in Roles is what the first start enters, so a role
+	// missing from it is a role whose words are never entered.
+	if !slices.Contains(dispatch.Roles, dispatch.RoleGrouper) {
+		t.Fatal("the grouper is not one of dispatch.Roles, and one role prompt version per role there is what a first start enters")
+	}
+	if _, err := dispatch.RoleGrouper.Stage(); !errors.Is(err, dispatch.ErrRoleNamesNoStage) {
+		t.Errorf("RoleGrouper.Stage() = %v, want ErrRoleNamesNoStage", err)
+	}
+	if !dispatch.RoleGrouper.OnAProject() || dispatch.RoleGrouper.OnAnIntent() {
+		t.Error("the grouper is not read as the role put on a project")
+	}
+	if ops, err := dispatch.RoleGrouper.Operations(); err != nil || len(ops) != 1 ||
+		ops[0] != dispatch.OperationReadTheReports {
+		t.Errorf("the grouper carries operations %v (%v), want reading the reports and nothing else", ops, err)
+	}
+
+	const anotherProject = "pr_11111111111111111111111111111111"
+	c := newDispatch(t, []agent.Reply{{Text: aSpec}}, nil, 3)
+	c.withdrawEveryEntry(t)
+	c.aGrouperEntryOn(t, anotherProject)
+	standing := c.aGrouperHoldOn(t, oneProject)
+
+	lifted, err := c.dispatch.Rematch(c.ctx)
+	if err != nil {
+		t.Fatalf("Rematch: %v", err)
+	}
+	if len(lifted) != 0 {
+		t.Fatalf("Rematch lifted %v, want the hold to stand: the only entry is drawn on another project", lifted)
+	}
+
+	c.aGrouperEntryOn(t, oneProject)
+	lifted, err = c.dispatch.Rematch(c.ctx)
+	if err != nil {
+		t.Fatalf("Rematch after the entry on this project: %v", err)
+	}
+	if len(lifted) != 1 || lifted[0] != standing {
+		t.Fatalf("Rematch lifted %v, want the hold %s the entry on this project covers", lifted, standing)
+	}
+}
+
+// aGrouperEntryOn is an owner's fleet entry for the grouper drawn on one
+// project, which is the line a scope on this role is drawn on: it names no
+// service and no area, an entry naming either covering no run put on a project.
+func (c composed) aGrouperEntryOn(t *testing.T, projectID string) {
+	t.Helper()
+	if _, err := c.entries.Write(c.ctx, owner, fleetentry.New{
+		ModelVersion:                    modelName,
+		Role:                            string(dispatch.RoleGrouper),
+		Scope:                           fleetentry.Scope{ProjectID: projectID},
+		CredentialName:                  theCredential,
+		ProcessingLocation:              "vendor/test-region",
+		MaterialClasses:                 fleetentry.MaterialClasses,
+		ReadsAtOnce:                     200000,
+		DispatchesBetweenEvaluationRuns: 50,
+	}); err != nil {
+		t.Fatalf("writing the grouper's entry on %s: %v", projectID, err)
+	}
+}
+
+// aGrouperHoldOn opens one hold row of this component's own shape, naming the
+// grouper and a project and no item, and answers with the row it stands as.
+func (c composed) aGrouperHoldOn(t *testing.T, projectID string) string {
+	t.Helper()
+	payload, err := json.Marshal(dispatch.Hold{
+		Kind:      dispatch.HoldKind,
+		Condition: dispatch.HoldNoEntryCoversTheStage,
+		Role:      string(dispatch.RoleGrouper),
+		ProjectID: projectID,
+	})
+	if err != nil {
+		t.Fatalf("marshalling the hold on %s: %v", projectID, err)
+	}
+	row, err := decisionlog.NewWriter(c.pool, c.token).AppendWaitOpen(c.ctx, decisionlog.Entry{
+		Actor: dispatch.Actor, Payload: string(payload), FormatVersion: dispatch.HoldFormatVersion,
+	})
+	if err != nil {
+		t.Fatalf("opening the hold on %s: %v", projectID, err)
+	}
+	return row.ID
 }

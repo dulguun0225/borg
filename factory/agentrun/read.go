@@ -17,7 +17,7 @@ import (
 const columns = `id, actor_kind, actor_key, actor_key_basis, at,
 	role, role_prompt_version_id, skill_version_ids, model_version, effort,
 	credential_name, processing_location, lender_key, account_kind,
-	item_id, stage, intent_id, input_manifest_id,
+	item_id, stage, intent_id, project_id, input_manifest_id,
 	units_by_kind, units_at, sources, rates_by_kind, converted_amount, currency,
 	started_at, finished_at, outcome`
 
@@ -28,7 +28,7 @@ func scan(row pgx.Row) (Run, error) {
 	err := row.Scan(&r.ID, &kind, &r.Actor.Key, &basis, &r.At,
 		&r.Role, &r.RolePromptVersionID, &skills, &r.ModelVersion, &r.Effort,
 		&r.CredentialName, &r.ProcessingLocation, &r.LenderKey, &accountKind,
-		&r.ItemID, &r.Stage, &r.IntentID, &r.InputManifestID,
+		&r.ItemID, &r.Stage, &r.IntentID, &r.ProjectID, &r.InputManifestID,
 		&units, &r.UnitsAt, &sources, &rates, &amount, &r.Currency,
 		&r.StartedAt, &r.FinishedAt, &r.Outcome)
 	if err != nil {

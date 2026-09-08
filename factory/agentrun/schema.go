@@ -25,13 +25,13 @@ const FormatVersion = "agent_run/1"
 // the effort. What it ran on: the credential name, the processing location it
 // resolved to, the per-person key of whoever lent it, and whether that account
 // is a person's own or an organisation's. What it served: the item and its
-// stage, or the intent, and the input manifest the run was handed. What it
-// spent: the units the provider returned per kind, the time it returned them,
+// stage, the intent, or the project a role put on one served, and the input
+// manifest the run was handed. What it spent: the units the provider returned per kind, the time it returned them,
 // the sources handed over, the rates the amount was converted at, and the
 // converted amount.
 //
-// item_id, intent_id, input_manifest_id, role_prompt_version_id and the ids in
-// skill_version_ids are id fields and not foreign keys, like every link between
+// item_id, intent_id, project_id, input_manifest_id, role_prompt_version_id and
+// the ids in skill_version_ids are id fields and not foreign keys, like every link between
 // records; record's doc.go states that rule and its cost once.
 //
 // units_by_kind and rates_by_kind are JSON objects keyed by the kind a provider
@@ -46,8 +46,8 @@ const FormatVersion = "agent_run/1"
 // is absent.
 //
 // served_names_something is the design's "one of the five and never none",
-// narrowed to the two a record exists for: an item or an intent. doc.go names
-// the three of the five this table cannot yet be written for.
+// narrowed to the three a record exists for: an item, an intent, or a project.
+// doc.go names the one of the five this table cannot yet be written for.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -63,6 +63,7 @@ var DDL = []string{
 	item_id text not null,
 	stage text not null,
 	intent_id text not null,
+	project_id text not null,
 	input_manifest_id text not null,
 	units_by_kind text not null,
 	units_at text not null,
@@ -78,7 +79,7 @@ var DDL = []string{
 	constraint model_version_present check (model_version <> ''),
 	constraint credential_name_present check (credential_name <> ''),
 	constraint account_kind_known check (account_kind in ('', 'person', 'organisation')),
-	constraint served_names_something check (item_id <> '' or intent_id <> ''),
+	constraint served_names_something check (item_id <> '' or intent_id <> '' or project_id <> ''),
 	constraint stage_only_with_an_item check (stage = '' or item_id <> ''),
 	constraint units_at_is_time_layout check (units_at ~ '` + record.TimePattern + `'),
 	constraint started_at_is_time_layout check (started_at ~ '` + record.TimePattern + `'),

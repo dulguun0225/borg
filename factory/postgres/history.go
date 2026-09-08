@@ -113,18 +113,29 @@ func checksumOf(text string) string {
 }
 
 // Changes is every change to this store the version this source ships as
-// declares. Version 1 is the store's first form, so it declares one change: the
-// schema [Apply] creates, as a widening over an empty store.
+// declares, in the order they were shipped. Version 1 is the store's first
+// form, so its first change is the schema [Apply] creates, as a widening over
+// an empty store.
 //
 // A version that changes this store adds a line here with its own version
 // number, and the removal half of the sequence ships no earlier than the
-// version after the widening that carried it.
+// version after the widening that carried it. A change declared by the version
+// this source ships as is a line here too: the history is what a later version
+// reads to know what this store has had done to it, and a shape change nothing
+// declares is one no reading of the history can find.
 var Changes = []Change{
 	{
 		Version: 1,
 		ID:      "the factory's first schema",
 		Text:    "every table the packages Apply names declare, as version 1 ships them",
 		Effect:  EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the agent run record names a project",
+		Text: "agent_run carries project_id, and its served_names_something check admits a run " +
+			"that names a project and neither an item nor an intent",
+		Effect: EffectWidening,
 	},
 }
 

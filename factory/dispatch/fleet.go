@@ -95,14 +95,17 @@ var ErrOutOfAttempts = errors.New("dispatch: the stage used every attempt its li
 var ErrMaterialClassUnknown = errors.New("dispatch: the material names a class no fleet entry can name")
 
 // matchFor is the match against the record: the entries in force for the role,
-// in the order an owner wrote them, and the first whose scope covers the item.
-// None is [HoldNoEntryCoversTheStage].
+// in the order an owner wrote them, and the first whose scope covers the
+// subject — the item, or the project alone for a role put on an intent or on a
+// project. None is [HoldNoEntryCoversTheStage]. The grouper is matched here
+// like any other role: the record holds the role as a string, so an entry an
+// owner wrote for it is read and scoped the way every other entry is.
 //
 // It reads the record and constructs no client, which is what a re-match needs:
 // re-testing a hold asks whether an entry covers the stage and not what would
 // answer its calls.
 func (d *Dispatch) matchFor(ctx context.Context, role Role, on On) (fleetentry.Entry, bool, error) {
-	if _, err := role.Stage(); err != nil && !role.OnAnIntent() {
+	if _, err := role.Stage(); err != nil && !role.OnAnIntent() && !role.OnAProject() {
 		return fleetentry.Entry{}, false, err
 	}
 	inForce, err := fleetentry.InForceForRole(ctx, d.c.Pool, string(role))

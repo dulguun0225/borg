@@ -41,11 +41,13 @@ type Run struct {
 	AccountKind        AccountKind
 
 	// ItemID and Stage are what the run served where it served an item; IntentID
-	// where it served an intent. InputManifestID is the manifest context
-	// assembly wrote before the agent started.
+	// where it served an intent; ProjectID where the role was put on a project
+	// and so served neither. InputManifestID is the manifest context assembly
+	// wrote before the agent started.
 	ItemID          string
 	Stage           string
 	IntentID        string
+	ProjectID       string
 	InputManifestID string
 
 	// UnitsByKind is the units the provider returned, per kind it counts apart,

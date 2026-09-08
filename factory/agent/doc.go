@@ -3,8 +3,8 @@
 // [TaskAuthor] and [Implementer] — the [Model] interface every role calls, and
 // the two implementations of it, [OpenRouter] and [Anthropic]. The words the
 // product ships per role are exported constants,
-// [ShippedInterviewerPrompt], [ShippedDecomposerPrompt],
-// [ShippedSpecAuthorPrompt], [ShippedPlannerPrompt],
+// [ShippedGrouperPrompt], [ShippedInterviewerPrompt],
+// [ShippedDecomposerPrompt], [ShippedSpecAuthorPrompt], [ShippedPlannerPrompt],
 // [ShippedTaskAuthorPrompt] and [ShippedImplementerPrompt] — one per role, the
 // way the design closes the set of prompts with the set of roles — and the four
 // rules they all name are [Rules], one constant included in each so they cannot
@@ -20,7 +20,8 @@
 // interviewer.go is [ShippedInterviewerPrompt], [Interviewer], the
 // [Interviewing] it takes, and the [Reading] it returns — a question or the
 // statements the requester confirms — with the parse of the reply.
-// decomposer.go is [ShippedDecomposerPrompt] and nothing else.
+// decomposer.go is [ShippedDecomposerPrompt] and nothing else, and grouper.go
+// is [ShippedGrouperPrompt] and nothing else.
 // specauthor.go is [ShippedSpecAuthorPrompt], [SpecAuthor], the [Refining] it
 // takes with its [Question], [Requirement], [Constraint], [Hazard] and
 // [Returned] values, the [Refined] it returns with its [DraftCriterion] values,
@@ -124,6 +125,11 @@
 // decompose. The words ship because there is one role prompt per role, and a
 // dispatch on that role with no version in force is a hold rather than a run.
 //
+// The grouper is the same: its words ship and nothing here runs them, the pass
+// that reads a project's reports and calls intake once per group being what
+// would. The reply they ask for is one group per line, the report ids of that
+// group separated by spaces, which is what that pass parses.
+//
 // The gate's mechanical rejection of a build whose emission does not count the
 // area's hazardous operation is not built: the prompt asks for the count and
 // nothing reads it back off the build. The drivers and the screen's transition
@@ -158,7 +164,10 @@
 // ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
 // (C2428, C2429, C2430, C2443), and what a version may be authored from is
 // ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/01-what-a-version-is-authored-from.md
-// beside it. The units a provider returns per kind are
+// beside it. The grouper's words, versioned and decided at that same gate so
+// that a safeguard there reaches the words a report is read by, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
+// (C0381). The units a provider returns per kind are
 // ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
 // (C2358, C2364, C2365, C2367, C2386).
 //

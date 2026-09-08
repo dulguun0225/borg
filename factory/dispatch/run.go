@@ -90,7 +90,9 @@ func (d *Dispatch) Implementer(ctx context.Context, on On, material []inputmanif
 }
 
 // put is the whole of one dispatch, and the five methods above differ only in
-// the call they pass:
+// the call they pass. It is written for the three kinds of subject a role is
+// put on — an item and its stage, an intent, or a project — and the sequence
+// is:
 //
 //  1. the intent's state, read before an agent is put on a stage — and not
 //     before a role put on the intent itself, the interview being what refines
@@ -114,20 +116,34 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 	call func(entry Entry, prompt string, as principal.Principal) (map[string]int64, error)) (Run, error) {
 	run := Run{ID: record.NewID("dsp"), Role: role}
 	var stage item.Stage
-	if !role.OnAnIntent() {
+	switch {
+	case role.OnAProject():
+		// The subject of a run put on a project is the project alone: the role
+		// runs before there is an intent, so one naming an item or an intent
+		// would record a subject it did not serve.
+		if on.ItemID != "" || on.IntentID != "" {
+			return run, fmt.Errorf("%w: %s is put on a project and this dispatch names an item or an intent",
+				ErrRoleNamesNoStage, role)
+		}
+		if on.ProjectID == "" {
+			return run, errors.New("dispatch: this role is put on a project, and this dispatch names none")
+		}
+	case role.OnAnIntent():
+		if on.ItemID != "" {
+			return run, fmt.Errorf("%w: %s was put on item %s", ErrRoleNamesNoStage, role, on.ItemID)
+		}
+	default:
 		named, err := role.Stage()
 		if err != nil {
 			return run, err
 		}
 		stage = named
-	} else if on.ItemID != "" {
-		return run, fmt.Errorf("%w: %s was put on item %s", ErrRoleNamesNoStage, role, on.ItemID)
 	}
 	if on.ItemID != "" && on.Stage != stage {
 		return run, fmt.Errorf("dispatch: %s names the stage %s and this dispatch is for %s",
 			role, stage, on.Stage)
 	}
-	if on.ItemID == "" && on.IntentID == "" {
+	if on.ItemID == "" && on.IntentID == "" && !role.OnAProject() {
 		return run, errors.New("dispatch: a dispatch is for an item or for an intent, and this one names neither")
 	}
 

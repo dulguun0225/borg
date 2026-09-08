@@ -240,16 +240,18 @@ func (r *rolePrompts) approvedVersions(ctx context.Context) ([]string, error) {
 var rolePromptReader = principal.OfComponent("dispatch")
 
 // shippedPromptFor is the words the product ships for one role. It is the one
-// place package agent's six constants are read: what a run reads is the
+// place package agent's seven constants are read: what a run reads is the
 // version in force, and these are only what the first start enters. There is
-// one per role, the decomposer's included, whose words no run of this interface
-// reads — package agent's doc.go says why.
+// one per role, the decomposer's and the grouper's included, whose words no
+// run of this interface reads — package agent's doc.go says why.
 func shippedPromptFor(role dispatch.Role) (string, error) {
 	switch role {
 	case dispatch.RoleInterviewer:
 		return agent.ShippedInterviewerPrompt, nil
 	case dispatch.RoleDecomposer:
 		return agent.ShippedDecomposerPrompt, nil
+	case dispatch.RoleGrouper:
+		return agent.ShippedGrouperPrompt, nil
 	case dispatch.RoleSpecAuthor:
 		return agent.ShippedSpecAuthorPrompt, nil
 	case dispatch.RoleImplementationPlanner:
