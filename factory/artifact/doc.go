@@ -14,8 +14,8 @@
 // [Store.SubmitImplementation], [Store.SubmitConsumerContract] — and
 // insertVersion, which every submission goes through. fleet.go is
 // [Store.SubmitFleet] and [Store.EnterShipped], the two calls that write a
-// [FleetKinds] version. query.go is [Get], [Newest], [NewestShipped] and
-// [InForce]. author.go is
+// [FleetKinds] version. query.go is [Get], [Newest], [NewestShipped],
+// [InForce] and [ForItem]. author.go is
 // [NewestOfKind], [IDsByAuthor] and [ItemsByAuthor]. redact.go is [Span],
 // [Store.Redact], [Store.RedactionPass] and [Store.Replay]. schema.go is
 // [Table], [IDPrefix] and [DDL].

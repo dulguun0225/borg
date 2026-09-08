@@ -11,6 +11,7 @@ import { FactoryFleetSection } from './factory-fleet';
 import { FactoryPolicySection } from './factory-policy';
 import { FactoryPlacesSection } from './factory-places';
 import { FactoryNumbersSection } from './factory-numbers';
+import { FactoryReportsSection } from './factory-reports';
 
 // The state machine this screen declares. Empty, loading and failed are what
 // the Spec gate requires of every screen the factory builds, disconnected is
@@ -40,17 +41,18 @@ export const factoryMachine: ScreenMachine = {
 // The machine itself: the readiness reading and the items stopped at dispatch,
 // the fleet and the role prompts, the rows that decide a record rather than an
 // item, gate policy, environments, projects and areas, the constraints in
-// force, and the factory's own numbers.
+// force, the report channel with the erasure an owner performs here, and the
+// factory's own numbers.
 //
 // Two reads answer it. The readiness reading per role is a field of the home
 // view rather than of the Factory view, and it is on this screen because the
 // record that covers a role — a fleet entry, a role prompt version — is
 // authored here; the one subscription on this address keeps both true.
 //
-// The screen holds the one path every call takes, and the three sections below
-// hold the rows and the forms: a section emits the call it wants made and
-// performs none itself, so the rule that an action re-reads the address first
-// and is refused while the subscription is down is written once.
+// The screen holds the one path every call takes, and the sections below hold
+// the rows and the forms: a section emits the call it wants made and performs
+// none itself, so the rule that an action re-reads the address first and is
+// refused while the subscription is down is written once.
 //
 // What defines it:
 // ../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md,
@@ -65,6 +67,7 @@ export const factoryMachine: ScreenMachine = {
     FactoryPolicySection,
     FactoryPlacesSection,
     FactoryNumbersSection,
+    FactoryReportsSection,
   ],
   templateUrl: './factory.html',
   styleUrl: './factory.css',

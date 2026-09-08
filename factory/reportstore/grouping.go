@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -14,9 +16,13 @@ var (
 	// counted as ungrouped, and a link to nothing is neither.
 	ErrIntentIDEmpty = errors.New("reportstore: the intent id is empty")
 	// ErrAlreadyGrouped is returned by [Store.Link] for a report already
-	// linked. A later report attaches to an intent and never rewrites one,
-	// and the same rule holds one level down: the link is written once.
+	// linked. A later report attaches to an intent and never rewrites one, so
+	// what moves a link that exists is [Store.Relink] and never a second Link.
 	ErrAlreadyGrouped = errors.New("reportstore: the report is already linked to an intent")
+	// ErrNotGrouped is returned by [Store.Relink] for a report linked to
+	// nothing. A move is from one intent to another, and a report in no group
+	// is what [Store.Link] is for.
+	ErrNotGrouped = errors.New("reportstore: the report is linked to no intent, so there is nothing to move it from")
 )
 
 // Link marks the report with the intent it was grouped into and keeps it. The
@@ -37,6 +43,52 @@ func (s *Store) Link(ctx context.Context, reportID, intentID string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return s.whyNoRow(ctx, reportID, ErrAlreadyGrouped)
+	}
+	return nil
+}
+
+// Relink moves a report from the intent it names to another, which is what a
+// group the grouper got wrong being split writes: before the first intent is
+// decomposed the role may still say the report belongs elsewhere, and this is
+// how it is said.
+//
+// Moving one already in that intent changes nothing, so a pass applied twice
+// writes once. A report linked to nothing is [ErrNotGrouped]: the move is from
+// one intent to another, and a report in no group is [Store.Link]'s.
+//
+// Decomposition is the boundary and it is not read here. Whether the intent a
+// report is being moved out of has been decomposed is a fact of the item
+// record, which is in the factory's graph — this store is a second database
+// and reaches that graph only through the interfaces its caller implements,
+// and none of the five carries it. So the caller checks before it calls: the
+// grouper reads it through a seam of its own and moves nothing across the
+// boundary. What that costs is a rule this store cannot enforce for a caller
+// that forgets it, which is why it is stated here as well as there.
+func (s *Store) Relink(ctx context.Context, reportID, intentID string) error {
+	if reportID == "" {
+		return ErrIDEmpty
+	}
+	if intentID == "" {
+		return ErrIntentIDEmpty
+	}
+	tag, err := s.pool.Exec(ctx, `update `+ReportTable+` set intent_id = $1
+		where id = $2 and intent_id <> '' and intent_id <> $1`, intentID, reportID)
+	if err != nil {
+		return fmt.Errorf("reportstore: moving %s to %s: %w", reportID, intentID, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	// Nothing moved: the report is not there, it is in no group, or it is
+	// already in the intent it was to be moved to, which changes nothing.
+	report, err := scan(s.pool.QueryRow(ctx, selectReport+` where id = $1`, reportID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: %s", ErrNotFound, reportID)
+	} else if err != nil {
+		return fmt.Errorf("reportstore: reading %s to say why it did not move: %w", reportID, err)
+	}
+	if report.IntentID == "" {
+		return fmt.Errorf("%w: %s", ErrNotGrouped, reportID)
 	}
 	return nil
 }

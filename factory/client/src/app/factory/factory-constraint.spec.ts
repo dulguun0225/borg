@@ -43,7 +43,15 @@ const NOTHING: Factory = {
   Constraints: [{ ...CONSTRAINT }],
   Projects: [],
   Areas: [],
-  Numbers: { ThroughputPerService: {}, ReworkRate: 0, GateRejectionRate: {}, CostPerFeature: [], CostMeasured: false },
+  Numbers: {
+    ThroughputPerService: {},
+    ReworkRate: 0,
+    GateRejectionRate: {},
+    CostPerFeature: [],
+    CostMeasured: false,
+    IntentOutcomes: [],
+  },
+  ReportChannel: { Ungrouped: 0, RefusedOverTheChannel: 0, Services: [], OnAnOldWayIn: [] },
   StoppedAtDispatch: [],
   ResolvedFactorGates: [],
   HumanLoad: [],
@@ -275,6 +283,27 @@ describe('Factory screen sections and the constraint address', () => {
     fixture.destroy();
   });
 
+  it('sends the kind a supplied constraint was chosen with', async () => {
+    const fixture = await drive();
+    await fill(fixture, '#constraint-statement', 'no release on a Friday');
+    await fill(fixture, '#constraint-kind', 'notice');
+    await fill(fixture, '#constraint-reach-name', 'checkout');
+
+    const root = fixture.nativeElement as HTMLElement;
+    const form = only(
+      root.querySelector<HTMLElement>('#constraint-kind')?.closest('form') ?? null,
+      'the constraint form',
+    );
+    form.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    const sent = net.sent('/api/call/supplyConstraint');
+    expect(sent.length).toBe(1);
+    const args = JSON.parse(sent[0]?.body ?? '{}') as Record<string, unknown>;
+    expect(args['Kind']).toBe('notice');
+    fixture.destroy();
+  });
+
   it('shows unpriced runs as a lower bound on the burn rate', async () => {
     const fixture = await drive();
     const root = fixture.nativeElement as HTMLElement;
@@ -367,7 +396,10 @@ async function fill(
   value: string,
 ): Promise<void> {
   const root = fixture.nativeElement as HTMLElement;
-  const control = only(root.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector), selector);
+  const control = only(
+    root.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector),
+    selector,
+  );
   control.value = value;
   control.dispatchEvent(new Event('input'));
   control.dispatchEvent(new Event('change'));

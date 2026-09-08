@@ -60,6 +60,36 @@
   </table>
 }
 
+<h3>Each intent's outcome</h3>
+<p class="quiet">
+  Computed once at the intent's close and read here: the acceptance round's verdict on the
+  intended effect the requester confirmed, the rate of reports before and after the
+  release for an intent grouped from reports, and nothing where the factory raised it —
+  absence being the answer and not a gap.
+</p>
+@if (outcomes().length === 0) {
+  <p class="quiet">No intent has been delivered in the span.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Intent</th>
+        <th scope="col">Source</th>
+        <th scope="col">Outcome</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of outcomes(); track one.IntentID) {
+        <tr>
+          <td>{{ one.IntentID }}</td>
+          <td>{{ one.Source }}</td>
+          <td>{{ one.Outcome === '' ? 'none: the factory raised it' : one.Outcome }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
 <h2>Gates a resolved factor put a human at</h2>
 <p class="quiet">
   Grouped by which factor the vector names, so a fault in whatever supplies one reads as

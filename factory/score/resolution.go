@@ -2,9 +2,8 @@ package score
 
 import "fmt"
 
-// Cause is why a factor was resolved rather than weighed. The design names
-// eight, and every one of them is a fact recorded on the decision rather than a
-// low number a reader has to interpret.
+// Cause is why a factor was resolved rather than weighed. Every one is a fact
+// recorded on the decision rather than a low number a reader has to interpret.
 type Cause string
 
 const (
@@ -24,6 +23,12 @@ const (
 	// factory did not author, which resolves the source value toward the Spec
 	// gate.
 	CauseReportSourcedIntent Cause = "the intent came from reports"
+	// CauseHarmMarkedReport is a report grouped into the item's intent saying a
+	// person is being harmed by the software, which resolves at the Spec row
+	// beside the source. It adds no gate a report did not already meet — the
+	// source resolves that row too — and what it adds is that the human
+	// deciding sees which one is marked.
+	CauseHarmMarkedReport Cause = "a report grouped into this intent marks harm"
 	// CauseDestroysStoredData is a diff that destroys stored data, which
 	// resolves the reversibility factor at Implementation.
 	CauseDestroysStoredData Cause = "the diff destroys stored data"

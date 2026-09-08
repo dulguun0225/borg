@@ -150,7 +150,9 @@ A recalibration refits each factor set's weights on the held-out decisions taken
 weight is its own separation — how far its mean level on held-out releases whose windows failed sits from
 its mean level on ones whose windows passed — as a share of that term's separations. A set with too few,
 or a term whose factors separate nothing, keeps the weights the product shipped for it, and the counts on
-its bands say so. A recalibration writes a version differing in the weights and in nothing else, and it
+its bands say so. One factor is left at what the product shipped however well it separates: the harm mark a
+report carries adds no gate a report did not already meet, so its weight is nothing and a recalibration
+does not move it. A recalibration writes a version differing in the weights and in nothing else, and it
 takes the branch a formula change takes: under new weights the same change gets a different number.
 
 The held-out sample is how the threshold gets evidence its own decisions did not select. A firing the

@@ -266,13 +266,14 @@ type Score struct {
 	marks       Marks
 	authorship  Authorship
 	withdrawals Withdrawals
+	harmMarks   HarmMarks
 	token       lease.Token
 }
 
 // Composition is what [New] is handed. It is a struct and not a list of
-// arguments because five of the seven are interfaces of one shape — something
-// the score reads and does not own — and a caller passing one where another
-// belongs would compile.
+// arguments because five of its interfaces are of one shape — something the
+// score reads and does not own — and a caller passing one where another belongs
+// would compile.
 type Composition struct {
 	Pool    *pgxpool.Pool
 	Version Version
@@ -290,7 +291,10 @@ type Composition struct {
 	// Withdrawals is what a spec version under decision removes. A nil one is
 	// [NoWithdrawals].
 	Withdrawals Withdrawals
-	Token       lease.Token
+	// HarmMarks is whether a report grouped into the item's intent says a
+	// person is being harmed by the software. A nil one is [NoHarmMarks].
+	HarmMarks HarmMarks
+	Token     lease.Token
 }
 
 // New returns the score over the composition, computing every vector under the
@@ -309,9 +313,13 @@ func New(c Composition) *Score {
 	if c.Withdrawals == nil {
 		c.Withdrawals = NoWithdrawals{}
 	}
+	if c.HarmMarks == nil {
+		c.HarmMarks = NoHarmMarks{}
+	}
 	return &Score{
 		pool: c.Pool, version: c.Version, draw: c.Draw, marks: c.Marks,
-		authorship: c.Authorship, withdrawals: c.Withdrawals, token: c.Token,
+		authorship: c.Authorship, withdrawals: c.Withdrawals, harmMarks: c.HarmMarks,
+		token: c.Token,
 	}
 }
 

@@ -227,6 +227,18 @@
     }
   </div>
   <div class="field">
+    <label for="constraint-kind">Kind</label>
+    <select id="constraint-kind" [formField]="constraintForm.Kind">
+      @for (kind of kinds; track kind) {
+        <option [value]="kind">{{ kind }}</option>
+      }
+    </select>
+    <p class="quiet">
+      A notice is the text the way in shows a reporter before anything is submitted; its
+      reach is always one project.
+    </p>
+  </div>
+  <div class="field">
     <label for="constraint-reach">Reach</label>
     <select id="constraint-reach" [formField]="constraintForm.ReachKind">
       @for (reach of reaches; track reach) {

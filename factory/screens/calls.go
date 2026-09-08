@@ -68,6 +68,7 @@ type Calls interface {
 	EndProject(ctx context.Context, p principal.Principal, args EndProjectArgs) error
 	DecideRecordRow(ctx context.Context, p principal.Principal, args DecideRecordRowArgs) error
 	EditRecordRow(ctx context.Context, p principal.Principal, args EditRecordRowArgs) error
+	PerformErasure(ctx context.Context, p principal.Principal, args PerformErasureArgs) error
 
 	// People
 	DeclareDuty(ctx context.Context, p principal.Principal, args DeclareDutyArgs) error

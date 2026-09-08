@@ -58,6 +58,7 @@ type fakeCalls struct {
 	endProject         func(context.Context, principal.Principal, screens.EndProjectArgs) error
 	decideRecordRow    func(context.Context, principal.Principal, screens.DecideRecordRowArgs) error
 	editRecordRow      func(context.Context, principal.Principal, screens.EditRecordRowArgs) error
+	performErasure     func(context.Context, principal.Principal, screens.PerformErasureArgs) error
 
 	// People
 	declareDuty        func(context.Context, principal.Principal, screens.DeclareDutyArgs) error
@@ -357,6 +358,13 @@ func (f *fakeCalls) EditRecordRow(ctx context.Context, p principal.Principal, a 
 		return nil
 	}
 	return f.editRecordRow(ctx, p, a)
+}
+
+func (f *fakeCalls) PerformErasure(ctx context.Context, p principal.Principal, a screens.PerformErasureArgs) error {
+	if f.performErasure == nil {
+		return nil
+	}
+	return f.performErasure(ctx, p, a)
 }
 
 func (f *fakeCalls) DeclareDuty(ctx context.Context, p principal.Principal, a screens.DeclareDutyArgs) error {

@@ -213,3 +213,45 @@ func admitted(only bool) string {
 	}
 	return ""
 }
+
+// BeforeAndAfter is one group's reports counted on each side of an instant,
+// with the instant the oldest of them arrived. It is what the rate of reports
+// before and after the release meant to fix what they describe is computed
+// from, and it is why grouping keeps a report rather than removing one.
+//
+// The counts are of reports and never of words: nothing here returns text, so
+// no read event is appended and the measurement costs nobody an answer for
+// having read a stranger's words.
+type BeforeAndAfter struct {
+	Before int64
+	After  int64
+	// OldestAt is when the oldest report of the group was collected, in
+	// record.TimeLayout, and empty where the group holds none.
+	OldestAt string
+}
+
+// CountsAround is [BeforeAndAfter] over the reports linked to any of these
+// intents, split at at. The caller passes the intent the reports were grouped
+// into and every intent recurring on it, because a report matching work
+// already shipped is a new intent linked to the first as a recurrence and is
+// the same problem still arriving.
+func (s *Store) CountsAround(ctx context.Context, intentIDs []string, at string) (BeforeAndAfter, error) {
+	if len(intentIDs) == 0 || at == "" {
+		return BeforeAndAfter{}, nil
+	}
+	var counted BeforeAndAfter
+	var oldest *string
+	if err := s.pool.QueryRow(ctx, `select
+		count(*) filter (where collected_at < $2),
+		count(*) filter (where collected_at >= $2),
+		min(collected_at)
+		from `+ReportTable+` where intent_id = any($1)`,
+		intentIDs, at).Scan(&counted.Before, &counted.After, &oldest); err != nil {
+		return BeforeAndAfter{}, fmt.Errorf("reportstore: counting the reports of %v around %s: %w",
+			intentIDs, at, err)
+	}
+	if oldest != nil {
+		counted.OldestAt = *oldest
+	}
+	return counted, nil
+}

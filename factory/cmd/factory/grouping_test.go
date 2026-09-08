@@ -164,6 +164,11 @@ func TestReportsBecomeIntents(t *testing.T) {
 // than weighs, so a human confirms the criteria whatever the rest of the vector
 // says — and the held-out sample never selects past a resolved factor, which is
 // what the score's own draw is refused on.
+//
+// The harm mark is read beside it, through the seam the composition answers
+// over the report store, and takes the source's own treatment: it resolves the
+// same row, it is on the vector where the human deciding sees it, and it is
+// weighed at nothing, because it adds no gate a report did not already meet.
 func assertTheSourceResolvesAtSpec(t *testing.T, ctx context.Context, d deps, p *path,
 	serviceID, intentID string) {
 	t.Helper()
@@ -179,7 +184,7 @@ func assertTheSourceResolvesAtSpec(t *testing.T, ctx context.Context, d deps, p 
 	}
 	assessed, err := score.New(score.Composition{
 		Pool: d.pool, Version: version, Draw: score.NeverDraw{},
-		Marks: marksOf(d.pool), Token: d.token,
+		Marks: marksOf(d.pool), Token: d.token, HarmMarks: harmMarkedReports{p: p},
 	}).Assess(ctx, score.Change{
 		ItemID: it.ID, ServiceID: serviceID, AreaID: p.areaID,
 		FactorSet: score.SetAboveABuild, AtSpec: true,
@@ -187,13 +192,32 @@ func assertTheSourceResolvesAtSpec(t *testing.T, ctx context.Context, d deps, p 
 	if err != nil {
 		t.Fatalf("scoring the Spec row of an item of a report-derived intent: %v", err)
 	}
+	on := map[score.Cause]string{}
 	for _, resolved := range assessed.Resolved {
-		if resolved.Cause == score.CauseReportSourcedIntent {
-			return
+		on[resolved.Cause] = resolved.Factor
+	}
+	if on[score.CauseReportSourcedIntent] == "" {
+		t.Errorf("the Spec row of an item grouped from reports resolved nothing on its source: %v",
+			assessed.Resolved)
+	}
+	// The third report of this group marks harm, so the mark resolves the same
+	// row beside the source and is on the vector where the human sees it.
+	if on[score.CauseHarmMarkedReport] == "" {
+		t.Errorf("the Spec row of an item whose group marks harm resolved nothing on the mark: %v",
+			assessed.Resolved)
+	}
+	for _, factor := range assessed.Vector {
+		if factor.Name != on[score.CauseHarmMarkedReport] {
+			continue
+		}
+		if factor.Weight != 0 {
+			t.Errorf("the mark is weighed at %v, and it adds no gate a report did not already meet",
+				factor.Weight)
+		}
+		if factor.Resolved == "" || factor.Reading == "" {
+			t.Errorf("the mark on the vector is %+v, want it resolved and readable", factor)
 		}
 	}
-	t.Errorf("the Spec row of an item grouped from reports resolved nothing on its source: %v",
-		assessed.Resolved)
 }
 
 // assertTheWordsLeftAReadEvent: every read that answers with a report's words

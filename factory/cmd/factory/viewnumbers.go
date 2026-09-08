@@ -27,8 +27,8 @@ import (
 // already writes — no wait record is added, and the holds the factory sets over
 // a record it never writes stay uncounted.
 
-// numbers is throughput, rework rate, gate rejection rate and cost per
-// feature. Throughput is releases per service; gate rejection rate is rejects
+// numbers is throughput, rework rate, gate rejection rate, cost per feature,
+// and each intent's outcome beside it. Throughput is releases per service; gate rejection rate is rejects
 // over firings per gate row; rework rate is items with more than one attempt at
 // any stage over items reaching a release; cost per feature is what the intents
 // and their items spent on models, converted where every rate a feature ran on
@@ -58,6 +58,9 @@ func (v *views) numbers(ctx context.Context, who principal.Principal) (screens.N
 		return out, err
 	}
 	if out.CostPerFeature, out.CostMeasured, err = v.costPerFeature(ctx); err != nil {
+		return out, err
+	}
+	if out.IntentOutcomes, err = v.intentOutcomes(ctx); err != nil {
 		return out, err
 	}
 	return out, nil

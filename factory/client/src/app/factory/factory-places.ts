@@ -8,7 +8,7 @@ import {
   submit,
   validate,
 } from '@angular/forms/signals';
-import { CONSTRAINT_REACHES, Factory } from '../api/types-factory';
+import { CONSTRAINT_KINDS, CONSTRAINT_REACHES, Factory } from '../api/types-factory';
 import { atDate, atInstant, viewerZone } from './format';
 import { CallRequest } from './request';
 
@@ -53,6 +53,7 @@ export class FactoryPlacesSection {
   readonly requested = output<CallRequest>();
 
   protected readonly reaches = REACH_ORDER;
+  protected readonly kinds = CONSTRAINT_KINDS;
   protected readonly zone = viewerZone();
   protected readonly environments = computed(() => this.view().Environments ?? []);
   protected readonly projects = computed(() => this.view().Projects ?? []);
@@ -77,6 +78,7 @@ export class FactoryPlacesSection {
 
   protected readonly constraint = signal({
     Statement: '',
+    Kind: 'document',
     ReachKind: 'factory',
     ReachName: '',
     BindsFrom: '',

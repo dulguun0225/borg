@@ -6,8 +6,8 @@
 // and nothing has been: it acquires the lease, holds it for its own life, runs
 // each component's pass on its own interval, and serves the four screens over
 // HTTP between them, where every other subcommand acquires the lease, makes one
-// pass, and exits. It takes "-port" (8080 by default), the composition flags
-// "run" takes, and one "-every-<name>" per pass; it exits on SIGINT or SIGTERM.
+// pass, and exits. It takes "-port" (8080 by default), the composition flags "run"
+// takes, and one "-every-<name>" per pass, and exits on SIGINT or SIGTERM.
 // passes.go is the passes and their intervals.
 //
 // # The four screens
@@ -17,36 +17,35 @@
 // [views] is [screens.Views], every read the four screens make mapped from the
 // records onto the view types that package serves; [calls] is [screens.Calls],
 // every write, each reaching the writer of the record it changes. Package screens
-// imports no record package, what crosses that seam being the screen's own view
-// of a record and never the record, so both mappings are here.
+// imports no record package — what crosses that seam is the screen's own view of
+// a record — so both mappings are here.
 //
-// One call is new and one field is. The call is a page a human fires on their
-// own judgment, [calls.FirePage], which package notifier already defines. The
-// field is [gate.Given.OpenedInWorkAt] — when the actor opened the row in Work,
-// which decisionlog has carried on every close event since the log's shapes
-// were written and which nothing else has ever filled.
+// One call is new and one field is. The call is a page a human fires on their own
+// judgment, [calls.FirePage], which package notifier already defines. The field is
+// [gate.Given.OpenedInWorkAt] — when the actor opened the row in Work, which
+// decisionlog has carried on every close event since the log's shapes were written
+// and nothing else has ever filled.
 //
-// Two refusals are every call's, before any screen-specific check.
-// [calls.acting] refuses the read-only row — a People row holding no duty, no
-// obligation and lending no credential — and says why the owner's own key is
-// exempt. [calls.openRow] re-reads the open event at the submit and refuses a
-// row a close event or an abandonment has reached since it was drawn, which is
-// the log's refusal of a second close, met at the screen. After a successful
-// write the call tells every subscriber on the addresses it touched, through
-// [screens.Server.Changed]; a pass announces the home view and the lists it
-// could have moved on a tick that moved something, which is what makes push
-// not poll hold inside the product.
+// Two refusals are every call's, before any screen-specific check. [calls.acting]
+// refuses the read-only row — a People row holding no duty, no obligation and
+// lending no credential — and says why the owner's own key is exempt.
+// [calls.openRow] re-reads the open event at the submit and refuses a row a close
+// event or an abandonment has reached since it was drawn, which is the log's
+// refusal of a second close met at the screen. After a successful write the call
+// tells every subscriber on the addresses it touched, through
+// [screens.Server.Changed]; a pass announces the home view and the lists a tick
+// that moved something could have moved, which is what makes push not poll hold
+// inside the product.
 //
 // # The subcommands
 //
-// Eight, and what each is for is in ../../README.md's own runbook, which is the
-// map the code rules require to ship with the code; what is here is what the
-// shape of one costs. Every one of them is a pass or a read: "serve" above,
-// "run", "walk", "watch", "learn", "contracts", "policy" and "truncate". Every
-// write a human makes is at a screen, through the call in calls.go that reaches
-// the same writer, so what a subcommand acted on — an item, an intent, a service,
-// a project, a record, the People declaration — is an address a human can be on
-// instead.
+// Eight, and what each is for is in ../../README.md's own runbook, the map the
+// code rules require to ship with the code; what is here is what the shape of one
+// costs. Each is a pass or a read: "serve" above, "run", "walk", "watch",
+// "learn", "contracts", "policy" and "truncate". Every write a human makes is at
+// a screen, through the call in calls.go reaching the same writer, so what a
+// subcommand acted on — an item, an intent, a service, a project, a record, the
+// People declaration — is an address a human can be on instead.
 //
 // "run" walks the whole path once — the install, every component's restart, the
 // intent stage, the four authoring stages per item with the gate row of each,
@@ -55,33 +54,30 @@
 // detector — stopping with the first error.
 //
 // It asks nothing: standard input is read by nothing here, a round of the
-// interview is answered by "-answer" or waits in Work, and where a firing puts
-// a human at a row the pass writes nothing and reports the item waiting there,
-// so an install with no screen open is not stuck but shown as stuck — what
-// ../../../roadmap.md#m8--the-screens-and-the-fleet requires of this
-// subcommand. What continues such an item is the next pass: a run is
-// [path.takeIn] then [path.advance] repeated until nothing moves, each pass
-// reading every live item back out of the records. resume.go's own comment sets
-// out that reading, what has no record behind it, and what it costs;
-// rehydrate.go is the read.
+// interview is answered by "-answer" or waits in Work, and a firing that puts a
+// human at a row writes nothing and reports the item waiting there, so an
+// install with no screen open is shown as stuck rather than being stuck — what
+// ../../../roadmap.md#m8--the-screens-and-the-fleet requires of this subcommand.
+// The next pass continues it: a run is [path.takeIn] then [path.advance] until
+// nothing moves, each pass reading every live item back out of the records, which
+// resume.go's comment sets out with what has no record behind it and what it
+// costs; rehydrate.go is the read.
 //
-// It knows more than one service. "-service name=path" is given once per
-// service, and an intent that changes several names them before its statement —
-// "svcA,svcB: what is wanted", which the statement carries on the record too,
-// the intent record holding no service. Where an item waits on another, the run
-// takes the layers in order, a consumer's environment being composed from its
-// producer's current release.
+// It knows more than one service. "-service name=path" is given once per service,
+// and an intent that changes several names them before its statement — "svcA,svcB:
+// what is wanted", which the record carries too, the intent record holding no
+// service. Where an item waits on another the run takes the layers in order, a
+// consumer's environment composed from its producer's current release.
 //
 // Every subcommand but "run" and "serve" reads the services out of the store
-// rather than taking a name and a repository: both are the service record's
-// own fields, a flag naming a repository could disagree with the record, and
-// one naming a service would leave a two-service install's other unknown.
+// rather than taking a name and a repository: both are the service record's own
+// fields, a flag naming a repository could disagree with the record, and one
+// naming a service would leave a two-service install's other unknown.
 //
 // -project, on "run", "serve" and "policy", names the project a subcommand works
 // in and defaults to "default"; the first two create it and production's
-// environment for it in one event where it does not exist, and "policy" refuses
-// where it does not. Every project after that is written at Factory, through
-// [calls.CreateProject].
+// environment in one event where it does not exist, and "policy" refuses where it
+// does not. Every project after that is written at Factory, [calls.CreateProject].
 //
 // # The files
 //
@@ -99,18 +95,29 @@
 //     handler plus GET /healthz and the way in's entrance; and shutDown.
 //   - reports.go — the report store as serve opens it: the reportChannel that
 //     is the entrance's [wayin.Store], the five values implementing the
-//     interfaces that store reaches the graph through, two of them empty until
-//     the erasure step, and the address a deployed service's way in posts to.
+//     interfaces that store reaches the graph through, the redactions among
+//     them, and the address a deployed service's way in posts to.
+//   - erasure.go — the erasure as one action: calls.PerformErasure, which walks
+//     the report to its intent's statement and the artifact versions quoting the
+//     same words, appends every erasure-list row, writes the redactions and has
+//     each store destroy its own bytes; the legal hold's refusal, recorded by
+//     policy; and replayTheErasureList, which serve runs over four stores first.
+//   - viewchannel.go — Factory's numbers over the report channel: the ungrouped
+//     count, the two counters, each service under no notice and each serving a
+//     way in built under another release of the product, and each intent's
+//     outcome beside cost per feature.
 //   - grouping.go — the grouper as "serve" composes it: groupsThroughTheFleet,
-//     servicesInAProject and admissionSafeguards, the three seams package
-//     grouper reaches the factory through, with newGrouper and groupReports.
+//     servicesInAProject, itemsOfAnIntent and admissionSafeguards, the four
+//     seams package grouper reaches the factory through, with newGrouper and
+//     groupReports; and harmMarkedReports, the seam the score reads the mark a
+//     report carries through, no record of the graph carrying it.
 //   - admission.go — the two safeguards on the report store: awaiting, with
-//     reportsAwaitingAdmission, intentsAwaitingAdmission and
-//     intentAwaitsAdmission, what each is holding as Work shows it; and
-//     calls.AdmitIntent and calls.AdmitReport, the writes that end each wait.
+//     reportsAwaitingAdmission, intentsAwaitingAdmission and intentAwaitsAdmission,
+//     what each is holding as Work shows it; and calls.AdmitIntent and
+//     calls.AdmitReport, the writes that end each wait.
 //   - views.go, viewwork.go, viewops.go, viewfactory.go, viewfleet.go,
-//     viewnumbers.go, viewpeople.go — [views], one file per screen, Factory's
-//     fleet and its spend ceilings split off at the 500-line bound.
+//     viewnumbers.go, viewpeople.go — [views], one file per screen, Factory's fleet
+//     and its spend ceilings split off at the 500-line bound.
 //   - calls.go, callswork.go, callsops.go, callsfactory.go, callsfleet.go,
 //     callspeople.go — [calls], one file per screen, over the two refusals in
 //     calls.go; callsfleet.go is Factory's writes dispatch re-matches on.
@@ -196,7 +203,7 @@
 //     passesTheBudgetHold, split so that the hold is readable without the
 //     raise beside it.
 //   - marks.go — marks, the releases a named human at Ops marked as not caused
-//     by the release, which the score and its learning pass exclude.
+//     by it, which the score and its learning pass exclude.
 //   - withdrawals.go — withdrawals, what a spec version under decision removes,
 //     which the score resolves the Spec row on, with humanConfirmedSpecVersions
 //     beneath it.
@@ -253,8 +260,8 @@
 //     contractcheck;
 //     and filesSize and rolePromptCriteria, what a stage hands a role.
 //   - backfill.go — declaresBackfill with backfillStore and backfillIn, the
-//     pair a backfill item's checkout declares it copies between, and the file
-//     name and directive that convention is, which DeclaresBackfill reads.
+//     pair a backfill item's checkout declares it copies between, with the file
+//     name and directive that convention is, read by DeclaresBackfill.
 //   - fleet.go — models, the [dispatch.Models] this interface answers with the
 //     client each fleet entry's model version and credential are reached
 //     through; ensureFleetEntries with processingLocationOf, which writes one
@@ -339,23 +346,22 @@
 //     TearDownKept, RollBack and DeploySearch, with artifactsOf, the digest a
 //     rollback is verified against.
 //   - ops.go — watchCommand, the health monitor over one service, and
-//     pathFlags/withPath, composing a path for a subcommand that drives one
-//     step of it with no model.
+//     pathFlags/withPath, a path for a subcommand driving one step with no model.
 //
 // What ends something, and what a call at Ops reaches:
 //
-//   - undo.go — rollBackNow and revertIntent, which is duty 10 in its two
-//     forms, and markRollback, the mark that a rollback was not caused by the
-//     release, the revert item it ends and the hold it lifts. Ops reaches all
-//     three through calls.go.
+//   - undo.go — rollBackNow and revertIntent, duty 10 in its two forms, and
+//     markRollback, the mark that a rollback was not caused by the release,
+//     the revert item it ends and the hold it lifts. Ops reaches all three
+//     through calls.go.
 //   - ending.go — dropItem, an item ended for good with its candidate torn
 //     down, and truncateCommand, the log's retention pass.
 //   - retirement.go — removeService, the [policy.Factory.Removal] this
 //     composition supplies; path.retire and path.removeFromEnvironment, the
 //     owner's write that ends a service and the removal performed for one
 //     environment; path.endProject, the project ended once every service in it
-//     is retired; and unmergedItemsNaming and servicesWithACurrentRelease, the
-//     counts each write is refused on.
+//     is retired; and unmergedItemsNaming with servicesWithACurrentRelease,
+//     the counts each write is refused on.
 //   - acceptance.go — acceptanceRounds with acceptanceQuestion and liveItems,
 //     the round the run asks of every intent whose items are all live and the
 //     delivery of one the factory raised; and outstandingRound, the round
@@ -375,96 +381,90 @@
 //   - withdrawal.go — priorsRestartedBy, what the shortening's row names
 //     beside the value: the authors whose per-author prior stands drifted and
 //     whose held-out decisions the cut would remove; safeguardWithdrawalRouting,
-//     who the row that decides one safeguard's withdrawal waits on; and
-//     rowGate, the gate a row outside every item is fired through.
+//     who the row deciding a safeguard's withdrawal waits on; and rowGate, the
+//     gate a row outside every item is fired through.
 //   - safeguard.go — placeSafeguard, placing one, and safeguardSubject,
 //     resolving a subject to what it binds — "gate_row:" is drawn on a service,
 //     keyed by the row, because package policy's own reader keys a row-scoped
-//     safeguard that way.
-//   - legalhold.go — legalHoldSubject, a legal hold's subject as kind:name.
+//     safeguard that way. legalhold.go is legalHoldSubject, the same for a
+//     legal hold's subject, written kind:name.
 //   - namedsubject.go — namedService, namedProject and namedArea, a name
-//     resolved to its record, shared by the parameter and safeguard writes and
-//     by "policy".
+//     resolved to its record, shared by the parameter and safeguard writes and by
+//     "policy".
 //
 // The reads and reporting:
 //
 //   - policy.go — policyCommand, every parameter as it is in force, where its
 //     value came from, the safeguards that reached it, and what reads it.
-//   - contracts.go — contractsCommand, every query contracts make;
-//     printContracts and printBreaks, what one candidate would break and
-//     whom.
+//   - contracts.go — contractsCommand, every query contracts make, with
+//     printContracts and printBreaks: what one candidate would break and whom.
 //   - learn.go — learnCommand, the score's pass over the outcomes, printing
 //     what moved and what moved it; printHeldOut.
 //   - walk.go — walk, following the links from a deploy record back to its
 //     intent and printing every decision the item's gates left in the log.
 //
 // The tests: fixtures_test.go, atworkfixtures_test.go, fakemodel_test.go,
-// screensfixtures_test.go, screensworkfixtures_test.go and the four files named
+// screensfixtures_test.go, screensworkfixtures_test.go and the four named
 // <subject>fixtures_test.go — authoring, contracts, watch and reports — hold the
-// fixtures every other test shares. atworkfixtures_test.go is the human at Work:
-// atWork closes each pending row with the next token of its script through the
-// same [screens.Calls] a screen reaches, so every verdict carries when the row
-// was opened. The script is the value's own, and a test's one string is split by
-// newPath into [deps.answer] and the verdicts after it. screensfixtures_test.go
-// is the four screens as a test drives them: the real composition behind package
-// screens' handler, over HTTP, with both headers on every call, which every
-// screens*_test.go beside it drives the demonstration through. The rest are one
-// subject each, named for it — except three that keep the name they were
-// written under: main_test.go the end-to-end demonstration, watch_test.go the
-// bad deploy rolled back, contracts_test.go the two-service pair.
+// fixtures the rest share. atworkfixtures_test.go is the human at Work: atWork
+// closes each pending row with the next token of its script through the same
+// [screens.Calls] a screen reaches, so every verdict carries when the row was
+// opened, and a test's one string is split by newPath into [deps.answer] and the
+// verdicts after it. screensfixtures_test.go is the four screens as a test drives
+// them — the real composition behind package screens' handler, over HTTP, with
+// both headers on every call — which every screens*_test.go beside it drives its
+// demonstration through. The rest are one subject each, named for it, except
+// three keeping the name they were written under: main_test.go the end-to-end
+// demonstration, watch_test.go the bad deploy rolled back, contracts_test.go the
+// two-service pair.
 //
 // Who may write what: nothing of its own. Every record the run causes to exist is
-// written by the package that owns it; this command composes the writers and
-// holds no table, and every read goes through the owning package's readers. What
-// it implements is a seam rather than a record, six of them:
-// [mergequeue.Repository] and [contractcheck.Checkout] because reaching a
-// repository is the deployer's, [contractcheck.Exchanges] and
-// [contractcheck.StoreState] because observing a run and reading a candidate's
-// own store are, [healthmonitor.Deployer] because reaching a deploy target is,
-// [gate.Holds] because computing the factory's own holds reads most of the graph,
-// and [screens.Views] and [screens.Calls] because what crosses that seam is a
-// view of a record and never the record. [contractcheck.Checkout] is also where
-// the build's own reading of whether its checkout declares a schema change, and
-// of whether it is a backfill, is answered — the first off the build record the
-// run wrote it on.
+// written by the package that owns it; this command composes the writers, holds
+// no table, and reads through the owning package's readers. What it implements is
+// a seam rather than a record, six of them: [mergequeue.Repository] and
+// [contractcheck.Checkout] because reaching a repository is the deployer's,
+// [contractcheck.Exchanges] and [contractcheck.StoreState] because observing a
+// run and reading a candidate's own store are, [healthmonitor.Deployer] because
+// reaching a deploy target is, [gate.Holds] because computing the factory's own
+// holds reads most of the graph, and [screens.Views] and [screens.Calls] because
+// what crosses that seam is a view of a record and never the record.
+// [contractcheck.Checkout] also answers the build's own reading of whether its
+// checkout declares a schema change and of whether it is a backfill — the first
+// off the build record the run wrote it on.
 //
-// Every subcommand acquires the lease before it touches the store, whether it
-// writes or only reads: a read still appends a read event, which is itself a
-// write of the log, so the one-process rule holds for every one of the eight —
-// the difference being how long it is held, one pass for a subcommand and the
-// process's whole life for "serve". acquireLease in lease.go applies package
-// lease's own table — the one thing created before the lease, since a lease
-// cannot be taken in a store whose lease table does not exist — takes the lease
-// under this process's own instance, the machine's hostname and this process's
-// id, starts a goroutine renewing it every third of its ttl for the life of the
-// process, and returns the token every writer the composition constructs and
-// every [decisionlog.Reader] carries, beside the channel that says the lease is
-// gone. [postgres.Start] runs after that, under the lease: it reads the store's
-// schema history, refuses to start against a store this version cannot read, and
-// applies the rest of the schema. A held lease is a start failure, printed on
-// stderr naming the holder, with a non-zero exit, and a lease taken while "serve"
-// holds it is an exit for the same reason — every write from a fenced process is
-// refused anyway. The stop function each subcommand defers releases the lease, so
-// the next one starts rather than waiting out the ttl.
+// Every subcommand takes the lease before it touches the store, whether it
+// writes or only reads: a read appends a read event, itself a write of the log,
+// so the one-process rule holds for all eight. What differs is how long it is
+// held — one pass, and the whole life of "serve". acquireLease in lease.go
+// applies package lease's own table first, a lease not being takeable in a
+// store whose lease table does not exist; takes the lease under this process's
+// own instance, its hostname and its process id; renews it every third of its
+// ttl for the life of the process; and returns the token every writer the
+// composition constructs and every [decisionlog.Reader] carries, beside the
+// channel that says the lease is gone. [postgres.Start] runs after it and under
+// it: it reads the store's schema history, refuses a store this version cannot
+// read, and applies the rest of the schema. A lease another process holds is a
+// start failure naming the holder on stderr with a non-zero exit, a fenced
+// process having every write refused anyway; the stop each subcommand defers
+// releases it, so the next starts rather than waiting out the ttl.
 //
-// The fleet entry is a record and an owner writes it at Factory, through
-// [calls.WriteFleetEntry]. compose writes one entry per role from -model,
-// -provider, -effort and the credential that provider reads, as the human -human
-// names, wherever the install holds no entry in force for that role — the
-// stand-in for that act on a composition no screen is open on, and an owner's own
-// entries are left alone whatever the flags say. "serve" composes through the
-// same call, so a terminal and a screen dispatch the same install;
-// [deps.withoutFleetEntries] is what a composition says to write none with, which
-// is the state the readiness reading and dispatch's holds are for and what the
-// episode-one test drives.
+// The fleet entry is a record an owner writes at Factory through
+// [calls.WriteFleetEntry]. compose writes one per role from -model, -provider,
+// -effort and the credential that provider reads, as the human -human names,
+// wherever the install holds none in force for that role — the stand-in for that
+// act on a composition no screen is open on, leaving an owner's own entries alone
+// whatever the flags say. "serve" composes through the same call, so a terminal
+// and a screen dispatch the same install; [deps.withoutFleetEntries] writes none,
+// which is the state the readiness reading and dispatch's holds are for and what
+// the episode-one test drives.
 //
 // What is not built here: a refer at the Decomposition row reaches nobody, the
 // design naming no duty for that row, so it waits on the owner from its first
 // firing and a refer there has nobody left to refer to — [gate.Gate.Refer]
-// re-fires the set that row decided, and never gets that far. The Implementation
-// row rejects over the screens and over nothing else: the encodings are checked
-// one row below, at the candidate environment, where a defect is carried on the
-// candidate rather than stopping the run, and rejects at Merge to master; so are
+// re-fires the set that row decided and never gets that far. The Implementation
+// row rejects over the screens and nothing else: the encodings are checked one
+// row below, at the candidate environment, where a defect is carried on the
+// candidate rather than stopping the run, and reject at Merge to master; so are
 // the emission in both directions and the count of the area's hazardous
 // operation, which nothing reads back off the build.
 // [policy.Factory.WithdrawEnvironment] has no call: production's is the only

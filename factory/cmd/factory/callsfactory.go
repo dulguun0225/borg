@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -204,7 +205,9 @@ func (c *calls) WithdrawLegalHold(ctx context.Context, who principal.Principal, 
 
 // SupplyConstraint is duty 2 at Factory: a permanent constraint over the
 // factory, a project, or an area, read here rather than found through the
-// requests it arrived with.
+// requests it arrived with. args.Kind is "document" or "notice"; empty means
+// document, and a notice's reach must be one project, which the constraint
+// package refuses and this call surfaces as [screens.ErrRefused].
 func (c *calls) SupplyConstraint(ctx context.Context, who principal.Principal, args screens.SupplyConstraintArgs) (string, error) {
 	actor, err := c.acting(ctx, who)
 	if err != nil {
@@ -214,13 +217,20 @@ func (c *calls) SupplyConstraint(ctx context.Context, who principal.Principal, a
 	if err != nil {
 		return "", err
 	}
-	arriving, err := arrivingConstraint(args.Statement, reach, subjectID,
+	kind := constraint.KindDocument
+	if args.Kind != "" {
+		kind = constraint.Kind(args.Kind)
+	}
+	arriving, err := arrivingConstraint(args.Statement, kind, reach, subjectID,
 		args.BindsFrom, args.ReviewDate, args.Zone, args.RequiresSeam5Enforced)
 	if err != nil {
 		return "", err
 	}
 	written, err := constraint.NewWriter(c.p.d.pool, c.p.d.token).Arrive(ctx, actor, arriving)
 	if err != nil {
+		if errors.Is(err, constraint.ErrNoticeReachMustBeProject) || errors.Is(err, constraint.ErrKindUnknown) {
+			return "", fmt.Errorf("%w: %v", screens.ErrRefused, err)
+		}
 		return "", err
 	}
 	c.changed("constraint", written.ID)

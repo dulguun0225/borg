@@ -88,6 +88,16 @@ type fakeModel struct {
 	// criterion in force and fails a share of the work it does, which is the shape of
 	// defect the criteria cannot see and the analysis window exists for.
 	failEvery int
+	// apart is words a report carrying them is put in a group of its own for,
+	// whatever it was grouped with before, and empty where nothing is. It is
+	// how a test makes the role change its mind between two passes, which is
+	// what a group it got wrong being split is: the role reads the same reports
+	// again and answers differently.
+	apart string
+	// allTogether puts every report the message lists in one group, which is
+	// the other direction the role may change its mind in and what leaves the
+	// intents it emptied holding nothing.
+	allTogether bool
 }
 
 func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agent.Call) (agent.Reply, error) {
@@ -156,7 +166,7 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agen
 		}
 		return agent.Reply{}, fmt.Errorf("fake model: the spec author's prompt names no statement this fake authors for")
 	case agent.ShippedGrouperPrompt:
-		return groupsOf(user)
+		return m.groupsOf(user)
 	case agent.ShippedPlannerPrompt:
 		// The plan is prose and the gate over it takes Edit in place, so what
 		// this fake writes is one paragraph naming what the implementer will
@@ -202,28 +212,45 @@ var reportLine = regexp.MustCompile(`(?m)^(rep_[0-9a-f]{32}) (bug|complaint): (.
 // something a test can write, and every test that drives the grouper says which
 // reports are one problem by starting them with the same word.
 //
+// [fakeModel.apart] and [fakeModel.allTogether] are how a test makes the role
+// change its mind between two passes: the same reports read again and answered
+// differently, which is what a group the role got wrong being split — or two
+// groups it should never have kept apart being merged — comes back as.
+//
 // Every report the message lists is in a group, which is what the role's prompt
 // requires: a report that goes with no other is a group of its own.
-func groupsOf(user string) (agent.Reply, error) {
+func (m *fakeModel) groupsOf(user string) (agent.Reply, error) {
 	listed := reportLine.FindAllStringSubmatch(user, -1)
 	if len(listed) == 0 {
 		return agent.Reply{}, fmt.Errorf("fake model: the grouper's prompt lists no report")
 	}
 	var order []string
+	var alone []string
 	together := map[string][]string{}
 	for _, one := range listed {
 		words := strings.Fields(one[3])
 		if len(words) == 0 {
 			return agent.Reply{}, fmt.Errorf("fake model: report %s carries no words", one[1])
 		}
-		if _, seen := together[words[0]]; !seen {
-			order = append(order, words[0])
+		if m.apart != "" && strings.Contains(one[3], m.apart) {
+			alone = append(alone, one[1])
+			continue
 		}
-		together[words[0]] = append(together[words[0]], one[1])
+		key := words[0]
+		if m.allTogether {
+			key = "every report"
+		}
+		if _, seen := together[key]; !seen {
+			order = append(order, key)
+		}
+		together[key] = append(together[key], one[1])
 	}
 	text := "GROUPS:"
 	for _, word := range order {
 		text += "\n" + strings.Join(together[word], " ")
+	}
+	for _, id := range alone {
+		text += "\n" + id
 	}
 	return agent.Reply{Text: text, Units: map[string]int64{agent.UnitsOutput: 5}}, nil
 }

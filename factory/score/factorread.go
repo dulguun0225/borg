@@ -225,6 +225,46 @@ func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
 	}
 }
 
+// harmMarkedReport reads the one field a reporter sets beside the kind:
+// whether a report grouped into the intent this item answers says a person is
+// being harmed by the software. Nothing infers it and nothing classifies
+// content to set it.
+//
+// It is read beside the source and takes the source's own treatment: at Spec it
+// resolves, so a human confirms the criteria whatever the rest of the vector
+// says. It adds no gate a report did not already meet — an intent grouped from
+// reports resolves that row on its source too, however the mark reads — and
+// what it adds is the fact on the vector, so the human deciding sees which one
+// is marked.
+//
+// Away from Spec it is a level and not a resolution, the way the source is, and
+// an intent no report raised reads as nothing marked rather than as a factor
+// that could not be computed: no report is not an unreadable report.
+func (s *Score) harmMarkedReport(ctx context.Context, c Change) (reading, error) {
+	it, err := item.Get(ctx, s.pool, c.ItemID)
+	if err != nil {
+		return reading{unavailable: fmt.Sprintf("the item could not be read, so nothing says whether a report of its intent marks harm: %v", err)}, nil
+	}
+	if it.IntentID == "" {
+		return reading{level: 0, words: "the item names no intent, so no report of one marks harm"}, nil
+	}
+	marked, err := s.harmMarks.Marked(ctx, it.IntentID)
+	if err != nil {
+		return reading{unavailable: fmt.Sprintf("whether a report of this intent marks harm could not be read: %v", err)}, nil
+	}
+	if !marked {
+		return reading{level: 0, words: "no report grouped into this intent marks harm"}, nil
+	}
+	if !c.AtSpec {
+		return reading{level: 1.0, words: "a report grouped into this intent marks harm"}, nil
+	}
+	return reading{
+		resolved: "a report grouped into this intent says a person is being harmed by the software, which is the reporter's own field, so a human decides at Spec",
+		cause:    CauseHarmMarkedReport,
+		words:    "a report grouped into this intent marks harm",
+	}, nil
+}
+
 // protectionWithdrawn reads what the version under decision removes: a criterion
 // whose provenance is human-confirmed, constraint-derived or hazard-derived
 // withdrawn, and a superseding screen state machine declaring a transition a

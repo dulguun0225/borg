@@ -65,6 +65,9 @@ func (v *views) Factory(ctx context.Context, who principal.Principal) (screens.F
 	if view.Numbers, err = v.numbers(ctx, who); err != nil {
 		return screens.Factory{}, err
 	}
+	if view.ReportChannel, err = v.reportChannelNumbers(ctx); err != nil {
+		return screens.Factory{}, err
+	}
 	if view.StoppedAtDispatch, err = v.stoppedAtDispatch(ctx); err != nil {
 		return screens.Factory{}, err
 	}

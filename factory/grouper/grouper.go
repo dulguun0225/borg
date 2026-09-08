@@ -47,6 +47,19 @@ type Services interface {
 	InProject(ctx context.Context, projectID string) ([]string, error)
 }
 
+// Decompositions is whether an intent has been decomposed into the items that
+// answer it, which is the boundary the design draws: before it the role may
+// still split a group it got wrong and this pass moves the reports, and after
+// it a report matching work already decomposed attaches and raises the count
+// rather than being taken out of it.
+//
+// It is an interface because whether an intent has items is a read of the item
+// record, which this pass does not import: what it is given is a project, and
+// the records it writes through are the intent and the report.
+type Decompositions interface {
+	Decomposed(ctx context.Context, intentID string) (bool, error)
+}
+
 // Admission is whether the safeguard whose subject is the report store is in
 // force. With one, an arrived report waits ungrouped until a human admits it
 // at Work, and only an admitted report reaches the grouper.
@@ -81,6 +94,8 @@ type Composition struct {
 	Notifier *notifier.Notifier
 	Fleet    Fleet
 	Services Services
+	// Decompositions is the boundary a split stops at.
+	Decompositions Decompositions
 	// Admission is whether the admission safeguard is in force. A nil value is
 	// [AdmitsEverything].
 	Admission Admission
@@ -122,6 +137,7 @@ func New(c Composition) (*Grouper, error) {
 		{"a notifier", c.Notifier == nil},
 		{"a fleet to dispatch through", c.Fleet == nil},
 		{"the services of a project", c.Services == nil},
+		{"a reading of what has been decomposed", c.Decompositions == nil},
 	}
 	for _, one := range missing {
 		if one.absent {
@@ -147,6 +163,16 @@ type Grouped struct {
 	// Linked is how many reports were marked with the intent they were grouped
 	// into, whether that intent was raised here or already stood.
 	Linked int
+	// Moved is how many reports were taken out of the intent they were in and
+	// put in another, which is a group the role got wrong being split. A report
+	// whose intent has been decomposed is never among them: decomposition is
+	// the boundary, and after it a matching report attaches and raises the
+	// count.
+	Moved int
+	// Dropped is every intent a split left holding no report, by id. Its
+	// statement summarizes reports that are somewhere else, so it names
+	// nothing and is ended through intake.
+	Dropped []string
 	// Paged is how many intents a harm-marked report fired a page for: one per
 	// intent, however many of its reports carry the mark.
 	Paged int
@@ -156,9 +182,11 @@ type Grouped struct {
 	LeftUngrouped int
 }
 
-// Moved reports whether the pass wrote anything, which is what the process's
+// Wrote reports whether the pass wrote anything, which is what the process's
 // pass answers on.
-func (g Grouped) Moved() bool { return len(g.Raised) > 0 || g.Linked > 0 }
+func (g Grouped) Wrote() bool {
+	return len(g.Raised) > 0 || g.Linked > 0 || g.Moved > 0 || len(g.Dropped) > 0
+}
 
 // Pass groups one project's reports once.
 //
@@ -171,7 +199,9 @@ func (g Grouped) Moved() bool { return len(g.Raised) > 0 || g.Linked > 0 }
 // that group — and the role is dispatched over all of them.
 //
 // Nothing waits for a batch or a count: the first report of a group raises its
-// intent and later matching ones attach.
+// intent and later matching ones attach. Where the role answers with a group
+// the last pass got wrong, the reports of it move — up to decomposition, which
+// is where the boundary is and after which a matching report attaches instead.
 func (g *Grouper) Pass(ctx context.Context, projectID string) (Grouped, error) {
 	var did Grouped
 	if projectID == "" {
@@ -208,9 +238,22 @@ func (g *Grouper) Pass(ctx context.Context, projectID string) (Grouped, error) {
 		return did, err
 	}
 
+	// Which report raised each intent: the earliest one linked to it, over the
+	// whole read. An intent belongs to the group holding that report, because
+	// its statement was written over it, and every other group naming it is a
+	// group the role split off — which is what moves reports.
+	raisedBy := map[string]string{}
+	for _, report := range reports {
+		if report.IntentID != "" {
+			if _, seen := raisedBy[report.IntentID]; !seen {
+				raisedBy[report.IntentID] = report.ID
+			}
+		}
+	}
+
 	placed := map[string]bool{}
 	for _, group := range groups {
-		if err := g.apply(ctx, projectID, reports, group, placed, &did); err != nil {
+		if err := g.apply(ctx, projectID, reports, raisedBy, group, placed, &did); err != nil {
 			return did, err
 		}
 	}

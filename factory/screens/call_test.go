@@ -177,6 +177,33 @@ func TestRetireServiceReachesTheDecodedStruct(t *testing.T) {
 	}
 }
 
+// TestSupplyConstraintKindDecodes: POST /api/call/supplyConstraint decodes
+// Kind into the struct, empty and "notice" both surviving the round trip —
+// empty is what every caller predating the notice kind sends.
+func TestSupplyConstraintKindDecodes(t *testing.T) {
+	var gotArgs screens.SupplyConstraintArgs
+	calls := &fakeCalls{
+		supplyConstraint: func(_ context.Context, _ principal.Principal, a screens.SupplyConstraintArgs) (string, error) {
+			gotArgs = a
+			return "cst_1", nil
+		},
+	}
+	s := screens.New(&fakeViews{}, calls, theVersion, noClient)
+
+	rec := post(t, s, "supplyConstraint", screens.SupplyConstraintArgs{
+		Statement: "the way in shows every reporter this text",
+		Kind:      "notice",
+		ReachKind: "project",
+		ReachName: "checkout",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body.String())
+	}
+	if gotArgs.Kind != "notice" {
+		t.Errorf("Kind = %q, want notice", gotArgs.Kind)
+	}
+}
+
 // TestEndProjectReachesTheDecodedStruct: POST /api/call/endProject reaches
 // Calls.EndProject with the project it names.
 func TestEndProjectReachesTheDecodedStruct(t *testing.T) {

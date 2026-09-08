@@ -146,6 +146,12 @@ type write struct {
 	// erasure-list row was appended under.
 	keyExtra string
 
+	// refusal is why nothing was written, on the one write this package records
+	// rather than performs: an erasure a legal hold reaches. The version says
+	// the erasure was asked for and refused, so the refusal is on the record
+	// where the redaction would have been.
+	refusal string
+
 	// confirmsScoreVersion is the score version a threshold write confirms or
 	// re-authors against, and is empty on every other write. It is part of the
 	// key: confirming the same version twice writes nothing, and confirming the
@@ -211,6 +217,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		Halts: slices.Clone(previous.Halts), LegalHolds: slices.Clone(previous.LegalHolds),
 		Declaration: declaration, AutoPassRates: w.rates,
 		ConfirmsScoreVersion: w.confirmsScoreVersion, Decision: w.decision,
+		Refusal: w.refusal,
 	}
 	if w.mint != nil {
 		created, err := w.mint(ctx, tx)

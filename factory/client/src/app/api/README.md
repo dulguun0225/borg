@@ -10,6 +10,7 @@ into a screen would be a cycle the lint wall refuses. Its one exception is
 | `types.ts` | The two time types, the shapes the shell and Work read, and Work's call arguments — one interface per struct of `../../../../screens` |
 | `types-ops.ts` | The same for Ops: the board, one service on one environment, and the six calls Ops makes |
 | `types-factory.ts` | The same for Factory, and the closed vocabularies its forms choose from |
+| `types-reports.ts` | The report channel and erasure, split out of `types-factory.ts` for the 500-line bound |
 | `types-people.ts` | The same for People, and the duties, obligations, account kinds and period units its forms choose from |
 | `version.ts` | The factory version this client was built from, and the names of the two headers every call carries |
 | `principal.ts` | The People key the human declared, held in `localStorage`, sent as `X-Factory-Principal`, and a registry `stream.ts` uses to be told when it changes |
@@ -17,7 +18,9 @@ into a screen would be a cycle the lint wall refuses. Its one exception is
 | `stream.ts` | One `EventSource` subscription per address, read into signals, opened and reopened as the principal is declared, with its own bounded-backoff retry |
 
 One file per screen's own shapes, because one file for all four passes the 500-line bound;
-each of the three imports the two time types from `types.ts`.
+each of the three imports the two time types from `types.ts`. `types-reports.ts` is a
+fourth split, out of `types-factory.ts` alone for the same reason, and imports nothing
+from `types.ts`.
 
 The view structs of package `screens` carry no JSON tags, so a key on the wire is the Go
 field name — which is why every property in `types.ts` is capitalised. A call's name on

@@ -65,3 +65,32 @@ func (f *Factory) WriteRedaction(ctx context.Context, actor record.Actor, writin
 	})
 	return performed, version, err
 }
+
+// RecordRedactionRefusal records that an erasure was refused because a legal
+// hold reaches one of its targets, which is what the design asks for where a
+// hold stands against an erasure the owner owes: the words stay, and the
+// refusal is on the record.
+//
+// It is the one write here that performs nothing. No erasure-list row is
+// appended and no redaction is written, so no restore is needed to undo it —
+// the version names the target, the action, the actor and the instant, and
+// [Version.Refusal] says which reading refused it.
+//
+// It is keyed by the erasure key of the writing it refused, so an owner who
+// performs the same erasure again while the hold still stands is refused
+// again and the log carries one row for it.
+func (f *Factory) RecordRedactionRefusal(ctx context.Context, actor record.Actor,
+	writing redaction.Writing, refusal string) (Version, error) {
+	if err := ownerOnly(actor); err != nil {
+		return Version{}, err
+	}
+	if refusal == "" {
+		return Version{}, fmt.Errorf("%w: %s", redaction.ErrReasonEmpty, writing.Target)
+	}
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionRedactionRefused,
+		scope:    Scope{Kind: string(writing.Target.Kind), ID: writing.Target.ID},
+		keyExtra: redaction.Key(actor, writing),
+		refusal:  refusal,
+	})
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/grouper"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/reportstore"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -110,10 +111,56 @@ func (p *path) groupReports(ctx context.Context) (bool, error) {
 		fmt.Fprintf(p.d.out, "The grouper marked %d report(s) with the intent they were grouped into, and %d page(s) went out for a report marking harm\n",
 			did.Linked, did.Paged)
 	}
+	if did.Moved > 0 {
+		fmt.Fprintf(p.d.out, "The grouper moved %d report(s) into another group, which is a group it got wrong being split\n",
+			did.Moved)
+	}
+	for _, dropped := range did.Dropped {
+		fmt.Fprintf(p.d.out, "%s was left holding no report by that split and is ended\n", dropped)
+	}
 	if did.LeftUngrouped > 0 {
 		fmt.Fprintf(p.d.out, "%d report(s) were left in no group and stay ungrouped\n", did.LeftUngrouped)
 	}
-	return did.Moved(), err
+	return did.Wrote(), err
+}
+
+// itemsOfAnIntent is [grouper.Decompositions]: whether an intent has been
+// decomposed into the items that answer it, which is the boundary a split stops
+// at. It is read off the item record, which the pass does not import — what the
+// pass is given is a project, and the records it writes through are the intent
+// and the report.
+type itemsOfAnIntent struct{ p *path }
+
+// Decomposed reports whether any item answers that intent.
+func (i itemsOfAnIntent) Decomposed(ctx context.Context, intentID string) (bool, error) {
+	items, err := item.ForIntent(ctx, i.p.d.pool, intentID)
+	if err != nil {
+		return false, err
+	}
+	return len(items) > 0, nil
+}
+
+// harmMarkedReports is [score.HarmMarks]: whether any report grouped into an
+// item's intent says a person is being harmed by the software. The score cannot
+// read the report store — it is a second database and no record of the graph
+// carries the mark — so the composition answers, through the count and the mark
+// the store keeps without the words.
+//
+// A composition with no report store answers false, which is every subcommand
+// that makes one pass: no report reached it, so none of them marks anything.
+type harmMarkedReports struct{ p *path }
+
+// Marked reports whether any report of that intent's group carries the mark.
+func (h harmMarkedReports) Marked(ctx context.Context, intentID string) (bool, error) {
+	store := h.p.d.reports
+	if store == nil || intentID == "" {
+		return false, nil
+	}
+	group, err := store.Grouped(ctx, intentID)
+	if err != nil {
+		return false, err
+	}
+	return group.HarmMarked, nil
 }
 
 // newGrouper is the pass over the report store this composition opened, and nil
@@ -123,12 +170,13 @@ func newGrouper(p *path) (*grouper.Grouper, error) {
 		return nil, nil
 	}
 	return grouper.New(grouper.Composition{
-		Pool:     p.d.pool,
-		Reports:  p.d.reports,
-		Intake:   p.intake,
-		Notifier: p.notifier,
-		Fleet:    groupsThroughTheFleet{p: p},
-		Services: servicesInAProject{p: p},
+		Pool:           p.d.pool,
+		Reports:        p.d.reports,
+		Intake:         p.intake,
+		Notifier:       p.notifier,
+		Fleet:          groupsThroughTheFleet{p: p},
+		Services:       servicesInAProject{p: p},
+		Decompositions: itemsOfAnIntent{p: p},
 		// The intent is intake's own write whichever source raised it, so the
 		// actor is intake's; the read of a report's words is made as the pass
 		// that made it, which ../../../end-goal/components.md gives no row

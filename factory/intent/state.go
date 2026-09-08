@@ -152,6 +152,39 @@ func (i *Intake) Escalate(ctx context.Context, actor record.Actor, intentID stri
 	return escalated, nil
 }
 
+// DropEmptied writes dropped on an intent grouped from reports that holds no
+// report: the grouper moved its last one into another group, so the statement
+// on the row summarizes reports that are somewhere else and the intent names
+// nothing at all.
+//
+// It is a second entrance to the same state and not [Intake.Drop] widened,
+// because Drop records a human at Work ending work for good and this records no
+// judgment about work — there is none left to judge. So the actor here is the
+// component that emptied it and never a human, which is the opposite of Drop's
+// own refusal.
+//
+// Two things are refused: any source but [SourceReports], no other source
+// arriving in groups a later pass may split; and an intent already finished,
+// which nothing moves out of. Whether it holds no report is the caller's to
+// know — the reports are in a store of their own that this package does not
+// read — and whether it has been decomposed is the caller's too, an intent with
+// items being one the grouper never emptied.
+func (i *Intake) DropEmptied(ctx context.Context, actor record.Actor, intentID string) error {
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	return i.write(ctx, intentID, "dropping the emptied", func(ctx context.Context, tx pgx.Tx, in Intent) error {
+		if in.Source != SourceReports {
+			return fmt.Errorf("%w: %s came from %s", ErrNotGroupedFromReports, in.ID, in.Source)
+		}
+		if finished(in.State) {
+			return fmt.Errorf("%w: %s is %s", ErrFinished, in.ID, in.State)
+		}
+		_, err := tx.Exec(ctx, `update `+Table+` set state = $1 where id = $2`, string(StateDropped), in.ID)
+		return err
+	})
+}
+
 // Drop writes dropped: a human at Work ends the intent for good — an
 // escalation nobody clears, or a conformance intent whose decomposition found
 // nothing departing. A component is refused, because an end read from a

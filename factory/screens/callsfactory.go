@@ -114,6 +114,11 @@ type WithdrawFleetEntryArgs struct {
 // an area.
 type SupplyConstraintArgs struct {
 	Statement string
+	// Kind is "document" or "notice"; empty means document, so every caller
+	// that predates the notice kind is unchanged. A notice's reach must be
+	// one project, which the constraint package refuses and this call
+	// surfaces as [ErrRefused].
+	Kind      string
 	ReachKind string // factory, project, or area
 	ReachName string
 	// BindsFrom and ReviewDate are calendar dates, empty where none was
@@ -169,6 +174,27 @@ type DecideRecordRowArgs struct {
 	Verdict        string
 	Reason         string
 	OpenedInWorkAt string // RFC 3339 UTC
+}
+
+// PerformErasureArgs is one erasure as an owner performs it here: the report
+// whose words go, the half-open byte ranges of that report's text to destroy,
+// and the reason the redaction record carries.
+//
+// An owner names the words once. The factory walks the links that exist from
+// the report — the intent it was grouped into, that intent's statement, and
+// the artifact versions authored against it — and finds the same words in
+// each, so nothing here names a statement or a version.
+type PerformErasureArgs struct {
+	ReportID string
+	Spans    []ErasureSpan
+	Reason   string
+}
+
+// ErasureSpan is a half-open byte range of the report's text, [Start, End),
+// which is the unit a redaction names and each target's own writer destroys.
+type ErasureSpan struct {
+	Start int
+	End   int
 }
 
 // EditRecordRowArgs is the role-prompt row's third action: not a verdict but

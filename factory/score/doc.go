@@ -41,7 +41,8 @@
 // quantity, its cap per service, and the window limit; rejection.go resolves a human's rejection one of four ways
 // and publishes the [FalseAlarm]s; bands.go is the [Band]s of the number;
 // drift.go is the two calibration readings and the [Drift] each publishes;
-// fit.go is [Fit], the weights a recalibration refits; rules.go is [Rules] and
+// fit.go is [Fit], the weights a recalibration refits, and neverWeighed, the
+// factors it leaves where the product shipped them; rules.go is [Rules] and
 // [LearningVersion]. Learning is a pass and never a write at a firing, so every
 // decision of one run names the version the run started with.
 //
@@ -72,9 +73,15 @@
 // effort, and the versions of the role prompt and the skills — which the vector
 // names and no factor weighs. withdrawal.go is [ProtectionRemoved] and the
 // [Withdrawals] that reads it, what a spec version under decision withdraws.
-// Both are interfaces because each joins records this package does not read, and
-// [NoAuthorship] and [NoWithdrawals] are what a composition supplying neither
-// hands in. What a withdrawal's provenance names is carried on
+// harmmark.go is [HarmMarks], whether a report grouped into the item's intent
+// says a person is being harmed by the software — a field of a report, which is
+// in a store of its own no record of the graph carries the mark from. Its
+// factor is the one a refit never weighs: fit.go's neverWeighed holds it at the
+// nothing the product ships it at, because the design says the mark adds no
+// gate a report did not already meet and a weight above nothing would be one. The three
+// are interfaces because each joins records this package does not read, and
+// [NoAuthorship], [NoWithdrawals] and [NoHarmMarks] are what a composition
+// supplying none hands in. What a withdrawal's provenance names is carried on
 // [Resolution.RoutedTo], which is what routes the Spec row to that human rather
 // than to the owner by default.
 //
@@ -160,9 +167,11 @@
 // and the intent grouped from reports, whose source factorread.go resolves at
 // Spec rather than weighing — so a human confirms the criteria whatever the
 // rest of the vector says, and sample.go's held-out draw cannot select past
-// what a resolved factor put there — is
+// what a resolved factor put there — with the harm mark read beside it through
+// [HarmMarks], resolving the same row on its own account and weighed at nothing
+// because it adds no gate a report did not already meet, is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0401, C0402, C0403) and
+// (C0401, C0402, C0403, C0404, C0405) and
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
 // (C0371).
 package score

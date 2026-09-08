@@ -35,7 +35,9 @@ import (
 //
 // It is the only subcommand that opens the report store: a submission arrives
 // at the entrance, and a subcommand that makes one pass and exits serves no
-// address for one to arrive at.
+// address for one to arrive at. It is also where the erasure list is replayed,
+// which is what a restore is served through: every store destroys again what
+// the list says went before this process answers anything.
 
 // defaultPort is where the screens will be served from, and where /healthz is
 // served from until they are. It is a flag because an install may already be
@@ -134,8 +136,8 @@ func serveCommand(args []string) error {
 	// host and outside the recovery unit, so it lives beside the targets this
 	// install runs releases from, which is the one host directory this process
 	// is given, and this is the one place it is named.
-	channel, closeReports, err := openReportStore(ctx, reportURL,
-		filepath.Join(*targets, "erasure-list"), pool, token)
+	erasureList := filepath.Join(*targets, "erasure-list")
+	channel, closeReports, err := openReportStore(ctx, reportURL, erasureList, pool, token)
 	if err != nil {
 		return err
 	}
@@ -175,6 +177,14 @@ func serveCommand(args []string) error {
 		wayInAddress: wayInAddressOn(*port),
 	})
 	if err != nil {
+		return err
+	}
+
+	// The erasure list is outside the recovery unit and is never rolled back, so
+	// what a restore brought back may carry words an erasure removed. Each store
+	// destroys them again here, before this process serves anything: a screen
+	// served first would serve the words for as long as the replay took.
+	if err := replayTheErasureList(ctx, p, channel.store, erasureList); err != nil {
 		return err
 	}
 

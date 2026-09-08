@@ -76,8 +76,9 @@ type Delivery struct {
 	// Outcome is the intent's outcome, computed once at this close: the
 	// acceptance round's verdict on the intended effect for a requested
 	// intent, and the rate of reports before and after the release for one
-	// grouped from reports. The rate's input is the report store, which is not
-	// built, so the caller supplies the value either way.
+	// grouped from reports. The rate's input is the report store, which is a
+	// second database this package does not reach, so the caller computes the
+	// value either way and this stores it.
 	Outcome string
 }
 

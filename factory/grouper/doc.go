@@ -10,11 +10,12 @@
 //
 // # The files
 //
-// grouper.go is [Fleet], [Services] and [Admission] with [AdmitsEverything],
-// the three seams the composition supplies; [Composition] and [Grouper] with
-// [New]; [Grouped], what one pass did; and [Grouper.Pass]. grouping.go is what
-// one group causes: apply, [Grouper.finished], raise, page, and statementOf
-// with the bound on how many reports a statement quotes.
+// grouper.go is [Fleet], [Services], [Decompositions] and [Admission] with
+// [AdmitsEverything], the four seams the composition supplies; [Composition]
+// and [Grouper] with [New]; [Grouped], what one pass did; and [Grouper.Pass].
+// grouping.go is what one group causes: apply with joining and dropEmptied,
+// [Grouper.finished], raise, page, and statementOf with the bound on how many
+// reports a statement quotes.
 //
 // It is a package and not a pass inside the composition because a doc.go under
 // cmd/ cites no claim, and the claims below need a home.
@@ -30,23 +31,35 @@
 // them through [Fleet].
 //
 // Each group the role answers with is applied against the reports it names, in
-// the order they arrived. Where no report of a group is grouped yet, the group
-// raises an intent through intake, whose statement summarizes the reports;
-// where the group already names an intent that has not finished, the arriving
-// reports attach to it and raise its count, and nothing about it is rewritten.
+// the order they arrived. An intent belongs to the group holding the report
+// that raised it — its statement was written over that report — so a group
+// claims an intent only where that report is a member of it, and a group naming
+// an intent whose first report it does not hold is a group the role split off.
+// Where a group claims none, it raises one through intake, whose statement
+// summarizes the reports; where it claims one that has not finished, every
+// member not already in it joins it and raises its count, and nothing about the
+// intent is rewritten.
+//
+// A member joins by a link where it was in no group, and by a move where it was
+// in another — which is the split, and what a group the role got wrong being
+// corrected writes. An intent a split leaves holding no report names nothing,
+// its statement summarizing reports that are somewhere else, and it is ended
+// through intake.
+//
+// # Decomposition is the boundary
+//
+// The split reaches only as far as decomposition. A member whose own intent has
+// items does not move: after that boundary a report matching work already
+// decomposed attaches and raises the count rather than being taken out of it,
+// and what repairs a group the role got wrong from there is the repair the
+// design gives it one stage down, where decomposition yields an item per
+// problem or a spec comes back too large. [Decompositions] is what says which
+// side of the boundary an intent is on, read once per intent a group names and
+// not at all for a group of arriving reports.
 //
 // A group naming an intent whose timeline is finished — delivered or dropped —
 // raises a new intent linked to that one as a recurrence. The fix shipped, so
 // evidence that it did not work is a new intent and never a reopening.
-//
-// What is not built is the other half of the design's boundary: before
-// decomposition the role may split a group it got wrong, and here it cannot,
-// because a report already linked is never moved — the report store writes that
-// link once. So a report the first pass misgrouped stays where it was put, and
-// what repairs it is the repair the design gives it one stage down, where
-// decomposition yields an item per problem or a spec comes back too large. The
-// pass reads no decomposition state at all for that reason, and what tells its
-// three cases apart is the intent's own.
 //
 // A report the reply left in no group stays ungrouped and is counted as such at
 // Factory, which is the answer to a report nobody sees; the next pass reads it
@@ -94,10 +107,12 @@
 // location the credential resolved to, and the input manifest beside it.
 //
 // What defines it: the grouper, what a group raises and what a later report
-// attaches to, the recurrence, the statement, the page a harm mark fires, the
-// admitted report being the only one it reads, and the two absences are
+// attaches to, the split before decomposition and the boundary it stops at, the
+// recurrence, the statement, the page a harm mark fires, the admitted report
+// being the only one it reads, and the two absences are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0377, C0382, C0384, C0385, C0393, C0395, C0396, C0399, C0400, C0432,
-// C0439); the agent that calls intake before an intent exists is
+// (C0377, C0382, C0384, C0385, C0393, C0395, C0396, C0397, C0398, C0399,
+// C0400, C0432, C0439); the agent that calls intake before an intent exists
+// is
 // ../../end-goal/components.md (C0031).
 package grouper

@@ -91,12 +91,11 @@
 //
 // [Factory] and [Service] answer less than the design asks a Factory or an
 // Ops view for; a field the design names and no view carries is listed here
-// so a reader finds it absent on purpose and not forgotten: each intent's
-// outcome beside cost per feature, environment-hours per item and
-// instance-hours per release, criteria withdrawn and unreliable per service
-// and per author, the product licence per service against its release's
-// resolved licences, and the rows each human referred and rejected split by
-// cause.
+// so a reader finds it absent on purpose and not forgotten: environment-hours
+// per item and instance-hours per release, criteria withdrawn and unreliable
+// per service and per author, the product licence per service against its
+// release's resolved licences, and the rows each human referred and rejected
+// split by cause.
 //
 // # What defines it The four screens, what waits on a human, and the badge:
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
@@ -112,11 +111,18 @@
 //
 // The report under the intent it was grouped into and nowhere else, the two
 // admissions a safeguard on the report store makes a report-derived intent and
-// an arrived report wait for, and each wait as a row of the home view —
+// an arrived report wait for, each wait as a row of the home view —
 // [AwaitingAdmission] on [Home], counted in [Badge.Admissions], neither having
-// an item to be a row of:
+// an item to be a row of — and, at Factory, the channel's own numbers on
+// [ReportChannel], each intent's outcome on [Numbers], and the erasure as one
+// action ([PerformErasureArgs]):
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
-// (C0438, C0439, C0473).
+// (C0392, C0418, C0419, C0438, C0439, C0443, C0470, C0471, C0472, C0473).
+//
+// Each service whose project has no notice for the way in to show, beside its
+// refused count:
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
+// (C0266).
 //
 // The client as one address per screen, the subscription and its disconnected
 // state, the version refusal, and the principal:

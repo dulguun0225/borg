@@ -15,17 +15,19 @@
 // [NewStore]. submit.go is arrival: [Store.Submit], [RatePeriod],
 // [HarmMarkedShare] and [SourceShare], and the counters a refusal and an
 // unreadable submission are counted on. read.go is [Store.Get], [Count] with
-// [Store.Counts], and the two reads the pass that groups reports makes —
+// [Store.Counts], [BeforeAndAfter] with [Store.CountsAround], and the two
+// reads the pass that groups reports makes —
 // [Store.UngroupedIn], which says whether it has anything to group, and
 // [Store.Reports], which answers with the words — and [Store.AwaitingAdmission],
 // the reports Work renders while the safeguard holding one stands. grouping.go
-// is [Store.Link], [Store.Admit], [Store.ByIntent], [Group] with
-// [Store.Grouped] and [Store.Ungrouped]. retention.go is
+// is [Store.Link], [Store.Relink], [Store.Admit], [Store.ByIntent], [Group]
+// with [Store.Grouped] and [Store.Ungrouped]. retention.go is
 // [Retired] and [Store.Retire]. redact.go is [Store.AppendErasure],
 // [Store.Redact], [Store.RedactionPass] and [Store.Replay].
 //
-// The tests are db_test.go, submit_test.go, retention_test.go and
-// redact_test.go, every one of them against the database.
+// The tests are db_test.go, submit_test.go, grouping_test.go,
+// retention_test.go and redact_test.go, every one of them against the
+// database.
 //
 // This package brings its own [Open], [Apply], [URL] and [DDL] rather than
 // reaching for package postgres, the arrangement driftdetector already has:
@@ -101,7 +103,19 @@
 // reaches and removing nothing at all where an owner authored no retention.
 // Grouping removes nothing — [Store.Link] marks the report with the intent it
 // was grouped into and keeps it, which is what the rate of reports before and
-// after a release rests on.
+// after a release rests on. [Store.Relink] moves that mark from one intent to
+// another, which is a group the grouper got wrong being split, and it is the
+// one write here that changes a link rather than making one. Decomposition is
+// the boundary it stops at and this store does not read it: whether an intent
+// has items is a fact of the item record, which is in the factory's graph and
+// reachable from here only through an interface, and none of the five carries
+// it. The caller checks, and Relink's own comment says so.
+//
+// [Store.CountsAround] is the one read here that neither writes nor returns
+// words: an intent grouped from reports has, for its outcome, the rate of
+// reports before and after the release meant to fix what they describe, and
+// what the close at Work computes it from is a count on each side of that
+// release. Keeping a grouped report is what makes it answerable.
 //
 // [Store.Reports] answers with the grouped reports beside the ungrouped ones,
 // because deciding which reports are one problem is a decision over all of
@@ -122,6 +136,8 @@
 // (C0375, C0376, C0383, C0386, C0387, C0388, C0389, C0390, C0391, C0415,
 // C0416, C0417, C0418, C0420, C0421, C0422, C0423, C0424, C0425, C0426,
 // C0427, C0428, C0430, C0431, C0435, C0447, C0448, C0449, C0453, C0470,
-// C0471, C0472); the component and the record it writes are
+// C0471, C0472); the outcome the close of a report-derived intent computes
+// from those counts is the same file (C0392); the component and the record it
+// writes are
 // ../../end-goal/components.md (C0004) and ../../end-goal/records.md (C2792).
 package reportstore

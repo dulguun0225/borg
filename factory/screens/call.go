@@ -268,6 +268,12 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeCallError(w, s.calls.DecideRecordRow(ctx, p, args))
+	case "performErasure":
+		var args PerformErasureArgs
+		if !decodeBody(w, r, &args) {
+			return
+		}
+		writeCallError(w, s.calls.PerformErasure(ctx, p, args))
 	case "editRecordRow":
 		var args EditRecordRowArgs
 		if !decodeBody(w, r, &args) {

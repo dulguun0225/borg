@@ -116,6 +116,10 @@ func (c *calls) AnswerQuestion(ctx context.Context, who principal.Principal, arg
 //
 // A correction reopens the interview in both cases, which is what the design
 // gives the requester who says the factory got it wrong.
+//
+// The outcome is computed here, at the close and once: the confirmation itself
+// for an intent somebody requested, and the rate of reports before and after
+// the release for one grouped from reports.
 func (c *calls) ConfirmReading(ctx context.Context, who principal.Principal, args screens.ConfirmReadingArgs) error {
 	actor, err := c.acting(ctx, who)
 	if err != nil {
@@ -146,9 +150,13 @@ func (c *calls) ConfirmReading(ctx context.Context, who principal.Principal, arg
 	if !args.Confirmed {
 		return c.p.intake.CorrectAcceptance(ctx, actor, in.ID, waiting.ID, args.Correction)
 	}
+	outcome, err := c.p.outcomeAtTheClose(ctx, in, "the effect was had")
+	if err != nil {
+		return err
+	}
 	return c.p.intake.Delivered(ctx, actor, intent.Delivery{
 		IntentID: in.ID, QuestionID: waiting.ID,
-		Answer: "the effect was had", Outcome: "the effect was had",
+		Answer: "the effect was had", Outcome: outcome,
 	})
 }
 
@@ -370,7 +378,7 @@ func (c *calls) SupplyIntentConstraint(ctx context.Context, who principal.Princi
 	if _, err := intent.Get(ctx, c.p.d.pool, args.IntentID); err != nil {
 		return "", fmt.Errorf("%w: %s", screens.ErrNotFound, args.IntentID)
 	}
-	arriving, err := arrivingConstraint(args.Statement, constraint.ReachIntent, args.IntentID,
+	arriving, err := arrivingConstraint(args.Statement, constraint.KindDocument, constraint.ReachIntent, args.IntentID,
 		args.BindsFrom, args.ReviewDate, args.Zone, args.RequiresSeam5Enforced)
 	if err != nil {
 		return "", err
@@ -422,19 +430,19 @@ func (c *calls) ClearCeiling(ctx context.Context, who principal.Principal, args 
 	return nil
 }
 
-// arrivingConstraint is one constraint as the writer takes it: the document
-// kind, the reach and the record it names, the two calendar values with the
-// IANA zone the client sent beside them, and whether it requires seam 5
-// enforced — the one field of a document-kind constraint dispatch reads, which
-// holds every item within the reach until the factory-wide settings record says
-// the factory enforces it.
-func arrivingConstraint(statement string, reach constraint.Reach, subjectID,
+// arrivingConstraint is one constraint as the writer takes it: the kind, the
+// reach and the record it names, the two calendar values with the IANA zone
+// the client sent beside them, and whether it requires seam 5 enforced — the
+// one field of a document-kind constraint dispatch reads, which holds every
+// item within the reach until the factory-wide settings record says the
+// factory enforces it.
+func arrivingConstraint(statement string, kind constraint.Kind, reach constraint.Reach, subjectID,
 	bindsFrom, reviewDate, zone string, requiresSeam5 bool) (constraint.New, error) {
 	if strings.TrimSpace(statement) == "" {
 		return constraint.New{}, fmt.Errorf("%w: a constraint states what it binds, and this one states nothing", screens.ErrRefused)
 	}
 	arriving := constraint.New{
-		Kind: constraint.KindDocument, Reach: reach, SubjectID: subjectID,
+		Kind: kind, Reach: reach, SubjectID: subjectID,
 		Statement: strings.TrimSpace(statement), RequiresSeam5Enforced: requiresSeam5,
 	}
 	if bindsFrom == "" && reviewDate == "" {

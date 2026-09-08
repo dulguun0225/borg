@@ -9,6 +9,8 @@
 // One file per screen's own shapes, because one file for all four passes the
 // 500-line bound: ./types-ops.ts, ./types-factory.ts and ./types-people.ts
 // hold the other three, and each imports Instant and CalendarDate from here.
+// ./types-reports.ts holds the report channel and erasure, split out of
+// ./types-factory.ts for the same reason; it imports nothing from here.
 //
 // What defines them: ../../../../screens/viewwork.go and
 // ../../../../screens/callswork.go, against

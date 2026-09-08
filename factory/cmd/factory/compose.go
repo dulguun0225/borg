@@ -139,6 +139,10 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			Pool: d.pool, Version: scoreVersion, Draw: d.draw, Marks: marks,
 			Authorship: authorship{pool: d.pool}, Token: d.token,
 			Withdrawals: withdrawals{pool: d.pool, token: d.token},
+			// The harm mark is a field of a report, which is in a store of its
+			// own: no record of the graph carries it, so the composition is
+			// what answers the score with it.
+			HarmMarks: harmMarkedReports{p: p},
 		}),
 		Policy:                   p.policy,
 		Holds:                    p,

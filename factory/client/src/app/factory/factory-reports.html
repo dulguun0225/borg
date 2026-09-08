@@ -1,0 +1,124 @@
+<h2>The report channel</h2>
+<p class="quiet">
+  The one way into the factory from outside it, shipped inside every deployed service. A
+  report that is never grouped is work nobody sees and a refused one is the same failure
+  one step earlier, so both are numbers here rather than silence at either end.
+</p>
+
+<ul>
+  <li>{{ channel().Ungrouped }} report(s) waiting to be grouped</li>
+  <li>
+    {{ channel().RefusedOverTheChannel }} refused over the whole channel — a submission
+    naming no deploy this factory placed a way in at is counted here and never on a
+    service
+  </li>
+</ul>
+
+@if (services().length === 0) {
+  <p class="quiet">No service is written, so the channel counts nothing per service.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Service</th>
+        <th scope="col">Refused</th>
+        <th scope="col">Submissions the store could not read</th>
+        <th scope="col">Notice</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of services(); track one.ServiceID) {
+        <tr>
+          <td>{{ one.ServiceName }}</td>
+          <td>{{ one.Refused }}</td>
+          <td>{{ one.UnreadableShape }}</td>
+          <td>
+            @if (one.NoNoticeInForce) {
+              <span class="marked">none in force, so the way in shows none</span>
+            } @else {
+              in force
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <p class="quiet">
+    Both counts are counters the report store keeps rather than queries this screen
+    computes, because the record a query would count is the write the rate exists to
+    refuse. What that costs is that a lost counter is lost.
+  </p>
+}
+
+<h3>Services serving an old way in</h3>
+<p class="quiet">
+  The way in moves only when the factory is upgraded and the service builds again, so this
+  is read off the build record of each service's current release rather than inferred from
+  reports that stopped.
+</p>
+@if (onAnOldWayIn().length === 0) {
+  <p class="quiet">Every service's current release was built by this factory.</p>
+} @else {
+  <ul>
+    @for (one of onAnOldWayIn(); track one.ServiceID) {
+      <li>
+        {{ one.ServiceName }}: built under {{ one.Identity }}, where this factory is
+        {{ one.FactoryIdentity }}
+      </li>
+    }
+  </ul>
+}
+
+<h3>Services under no notice</h3>
+@if (underNoNotice().length === 0) {
+  <p class="quiet">Every service's project has a notice for its way in to show.</p>
+} @else {
+  <ul>
+    @for (one of underNoNotice(); track one.ServiceID) {
+      <li>{{ one.ServiceName }}: {{ one.Refused }} refused</li>
+    }
+  </ul>
+}
+
+<h3>Erase a report's words</h3>
+<p class="quiet">
+  One action. The spans name bytes of the report's own text; the factory walks the links
+  from there — the intent the report was grouped into, its statement, and the artifact
+  versions quoting the same words — and destroys them in each. The bytes are gone and no
+  second record puts them back, no link breaks, and a legal hold reaching any of those
+  records refuses the whole erasure and records the refusal.
+</p>
+<form (submit)="performErasure($event)">
+  <div class="field">
+    <label for="erasure-report">Report</label>
+    <input id="erasure-report" type="text" [formField]="erasureForm.ReportID" />
+    @for (problem of problems(erasureForm.ReportID().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="erasure-spans">Spans, as start-end pairs</label>
+    <input id="erasure-spans" type="text" [formField]="erasureForm.Spans" />
+    @for (problem of problems(erasureForm.Spans().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  <div class="field">
+    <label for="erasure-reason">Reason</label>
+    <input id="erasure-reason" type="text" [formField]="erasureForm.Reason" />
+    @for (problem of problems(erasureForm.Reason().errors()); track problem) {
+      <p class="danger">{{ problem }}</p>
+    }
+  </div>
+  @if (confirming()) {
+    <p class="marked">
+      The bytes those spans name are destroyed everywhere they were quoted, and nothing
+      puts them back. Press again to perform it.
+    </p>
+  }
+  <div class="actions">
+    <button type="submit" [disabled]="busy()">
+      {{ confirming() ? 'Perform the erasure' : 'Erase these words' }}
+    </button>
+  </div>
+</form>

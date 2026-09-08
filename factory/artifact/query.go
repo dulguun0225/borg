@@ -130,3 +130,40 @@ func InForce(ctx context.Context, pool *pgxpool.Pool, kind Kind, role, subject s
 	a.EnteredBy = EnteredBy(enteredBy)
 	return a, true, nil
 }
+
+// ForItem is every version of every chain of one item, oldest first. It is
+// what the erasure at Factory walks: a version quoting a report's words is
+// found by reading the content of each version authored against the intent
+// that report was grouped into, and an item is how that query reaches them.
+//
+// It answers with the content, because what the caller is looking for is a
+// span inside it.
+func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]Artifact, error) {
+	rows, err := pool.Query(ctx, selectArtifact+` where item_id = $1 order by at, id`, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("artifact: reading the versions of item %s: %w", itemID, err)
+	}
+	defer rows.Close()
+
+	var read []Artifact
+	for rows.Next() {
+		var a Artifact
+		var kind, authorship, actorKind, actorBasis, enteredBy string
+		if err := rows.Scan(&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID,
+			&a.Role, &a.Subject, &kind, &a.Version, &a.Supersedes, &authorship, &a.Author,
+			&a.Content, &a.ContentDigest, &a.ShippedBundleIdentity, &enteredBy,
+			&a.InputManifestID); err != nil {
+			return nil, fmt.Errorf("artifact: reading a version of item %s: %w", itemID, err)
+		}
+		a.Actor.Kind = record.Kind(actorKind)
+		a.Actor.Basis = record.Basis(actorBasis)
+		a.Kind = Kind(kind)
+		a.Authorship = Authorship(authorship)
+		a.EnteredBy = EnteredBy(enteredBy)
+		read = append(read, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("artifact: reading the versions of item %s: %w", itemID, err)
+	}
+	return read, nil
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/redaction"
 	"github.com/dulguun0225/borg/factory/reportstore"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/wayin"
@@ -47,9 +48,9 @@ var _ wayin.Store = (*reportChannel)(nil)
 // openReportStore opens the report store, applies its schema, and composes the
 // channel over it. It returns what closes the store's pool.
 //
-// erasureList is where the erasure list lives on this host. Nothing writes to
-// it until the redaction pass exists; the store is the one writer of it, so
-// the path is chosen here and by nobody else.
+// erasureList is where the erasure list lives on this host. The store is the
+// one writer of it — an erasure at Factory and People's deletion of a mapping
+// both append through it — so the path is chosen here and by nobody else.
 //
 // token is the lease this process holds, carried by the reader of the decision
 // log the store appends its read events through: a read of a report's words is
@@ -70,7 +71,7 @@ func openReportStore(ctx context.Context, url, erasureList string,
 		reportRatesAnOwnerAuthored{pool: pool},
 		holdsOverAService{pool: pool},
 		readEventsOfAReport{log: decisionlog.NewReader(pool, token)},
-		redactionsOverReports{})
+		redactionsOverReports{pool: pool})
 	return &reportChannel{store: store, pool: pool}, reports.Close, nil
 }
 
@@ -210,17 +211,47 @@ func (r readEventsOfAReport) Append(ctx context.Context, p principal.Principal, 
 	return r.log.AppendReadEvent(ctx, p, read)
 }
 
-// redactionsOverReports is [reportstore.Redactions]. It answers with none:
-// the redaction record is the erasure step's, and until it exists there is no
-// redaction to serve a report through or to destroy the spans of.
-type redactionsOverReports struct{}
+// redactionsOverReports is [reportstore.Redactions] over the redaction
+// record. A redaction is a record of the factory's graph and the report store
+// is a second database, so the redactions naming a report are read here and
+// handed across rather than their writer reaching into that store: the store
+// serves every report through them and destroys what they name on a pass of
+// its own.
+type redactionsOverReports struct{ pool *pgxpool.Pool }
 
-func (redactionsOverReports) OverReports(context.Context) ([]reportstore.Redaction, error) {
-	return nil, nil
+func (r redactionsOverReports) OverReports(ctx context.Context) ([]reportstore.Redaction, error) {
+	over, err := redaction.OverKind(ctx, r.pool, redaction.KindReport)
+	if err != nil {
+		return nil, err
+	}
+	return crossedToTheStore(over), nil
 }
 
-func (redactionsOverReports) ForReport(context.Context, string) ([]reportstore.Redaction, error) {
-	return nil, nil
+func (r redactionsOverReports) ForReport(ctx context.Context,
+	reportID string) ([]reportstore.Redaction, error) {
+	naming, err := redaction.ForTarget(ctx, r.pool,
+		redaction.Target{Kind: redaction.KindReport, ID: reportID})
+	if err != nil {
+		return nil, err
+	}
+	return crossedToTheStore(naming), nil
+}
+
+// crossedToTheStore is the crossing itself: the four fields the store needs to
+// serve a report through a redaction and to destroy what it names, and no
+// record type of the graph's.
+func crossedToTheStore(over []redaction.Redaction) []reportstore.Redaction {
+	crossed := make([]reportstore.Redaction, 0, len(over))
+	for _, one := range over {
+		spans := make([]reportstore.Span, 0, len(one.Spans))
+		for _, span := range one.Spans {
+			spans = append(spans, reportstore.Span{Start: span.Start, End: span.End})
+		}
+		crossed = append(crossed, reportstore.Redaction{
+			ID: one.ID, ErasureKey: one.ErasureKey, ReportID: one.Target.ID, Spans: spans,
+		})
+	}
+	return crossed
 }
 
 // wayInAddressOn is the address the way in inside a deployed service posts to:

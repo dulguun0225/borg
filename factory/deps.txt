@@ -408,10 +408,12 @@
 # tx-taking insert inside the transaction that appends the policy version,
 # the arrangement halt, legalhold and safeguard already have.
 #
-# test cmd/factory -> erasurelist is a read and the only reason this
-# composition names the list at all: the test that erases a mapping reads the
-# row back to see that it landed and that it carries no name. What appends it
-# is reportstore, reached through the store this composition already holds.
+# cmd/factory -> erasurelist is a read and never a write: the report store is
+# the list's one writer and this composition appends through it, but People
+# holds no reader of its own, so serve reads the rows naming a mapping and
+# hands package people the keys to delete again after a restore. The test
+# reads the same rows to see that an erasure's row landed and that it carries
+# no words.
 #
 # intent -> redaction and artifact -> redaction are each a target's own writer
 # reading the redactions naming records it writes, which is the pass that
@@ -526,7 +528,7 @@ clientdist
 postgres -> agentrun area artifact build consumercontract constraint contract criterion decisionlog deploy environment factorysettings fleetentry halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record redaction release safeguard screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent agentrun area artifact boundary build clientdist driftdetector constraint consumercontract contract contractcheck criterion decisionlog deploy dispatch environment exposure factorysettings fleetentry gate gatepolicy grouper halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record release reportstore safeguard score screens screenstatemachine secretref securitypredicate service targetseam wayin window
+cmd/factory -> agent agentrun area artifact boundary build clientdist driftdetector constraint consumercontract contract contractcheck criterion decisionlog deploy dispatch environment erasurelist exposure factorysettings fleetentry gate gatepolicy grouper halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record redaction release reportstore safeguard score screens screenstatemachine secretref securitypredicate service targetseam wayin window
 cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
 test dispatch -> postgres
@@ -566,5 +568,4 @@ test score -> postgres area artifact boundary decisionlog intent item lease reco
 test policy -> postgres area decisionlog environment factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service
 test gate -> postgres area artifact criterion decisionlog environment factorysettings halt intent item lease people policy project record safeguard score secretref service
 test mergequeue -> build decisionlog environment gate halt intent item lease postgres record release
-test cmd/factory -> erasurelist
 test cmd/driftdetector -> boundary build decisionlog gatepolicy lease project record

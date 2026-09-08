@@ -124,7 +124,9 @@ const AUTHORED: Factory = {
     GateRejectionRate: { Spec: 0.1 },
     CostPerFeature: [{ ModelVersion: 'a-model/3', Amount: 12000, Currency: '', IsTotal: false }],
     CostMeasured: false,
+    IntentOutcomes: [{ IntentID: 'int-1', Source: 'detector', Outcome: '' }],
   },
+  ReportChannel: { Ungrouped: 2, RefusedOverTheChannel: 5, Services: [], OnAnOldWayIn: [] },
   StoppedAtDispatch: [{ Cause: 'no fleet entry covers this role', Count: 2 }],
   ResolvedFactorGates: [{ Factor: 'novelty', Count: 3 }],
   HumanLoad: [
@@ -247,6 +249,7 @@ describe('Factory screen', () => {
       'Environments',
       'Projects and areas',
       'Constraints in force',
+      'The report channel',
       'The numbers',
       'Gates a resolved factor put a human at',
       "The human's load",

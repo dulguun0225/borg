@@ -49,6 +49,11 @@ var (
 	// other source arrives in a quantity that recurs.
 	ErrRecurrenceNotFromReports = errors.New("intent: only an intent grouped from reports recurs on another")
 
+	// ErrNotGroupedFromReports is returned by [Intake.DropEmptied] for an
+	// intent no report raised. Only a group of reports can be split, so only
+	// an intent grouped from them can be emptied by a split.
+	ErrNotGroupedFromReports = errors.New("intent: only an intent grouped from reports is emptied by a split")
+
 	// ErrAdmissionNotFromReports is returned by [Intake.Admit] for an intent
 	// no report raised. Only a report-derived intent waits for a human's
 	// admission, so an admission written on any other source would record a

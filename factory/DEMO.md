@@ -296,6 +296,115 @@ A run whose converted amount is absent because a kind it returned has no rate fa
 way, naming the kind, the model version and the effort; authoring the rate is what clears that one,
 not authorising an overage.
 
+## Episode six: reports come in from outside
+
+Duties 4 and 5 need two things the episodes above do not: `serve`'s third database, and a service
+whose running release the factory itself built, so the build carries the way in — `greeter` from
+episode two already does, the way in being Go source the factory injects at the two build sites in
+`repo.go`, so nothing about the service or its statement changes for this take.
+
+The report store has no default of its own: `serve` reads `REPORTSTORE_DATABASE_URL` before it takes
+the lease and refuses to start without it, the way it reads `DRIFTDETECTOR_DATABASE_URL`. Export it
+— a schema of its own on the same server, applied at the open the way the drift detector's is — and
+start `serve` again with the grouper's own interval lowered the way `-every-advance` was in episode
+two:
+
+```sh
+export REPORTSTORE_DATABASE_URL='postgres://factory:factory@localhost:5433/factory?search_path=reports'
+go run ./cmd/factory serve \
+  -secrets ~/borg-demo/secrets \
+  -model deepseek/deepseek-v4-flash \
+  -service greeter=~/borg-demo/greeter \
+  -area greeting \
+  -targets ~/borg-demo/targets \
+  -every-grouper 5s
+```
+
+Place both admission safeguards at Factory before anything arrives, so what a report and an intent
+each wait on is shown rather than raced against how fast a human can reach the screen: `report_admission`,
+which holds an arrived report ungrouped until a human admits it, and `report_derived_intent_admission`,
+which holds an intent grouped from reports from being refined further until a human admits it. Neither
+takes a bound — placing either is what adds the human, the way a safeguard on the risk threshold does.
+
+The way in inside `greeter`'s running process listens on a Unix socket in production's own directory,
+named for the service — `~/borg-demo/targets/greeter.way-in` — and nothing on this platform reaches it
+but a client that dials that socket directly. curl does, over any path: the way in reads the method and
+nothing else.
+
+```sh
+curl -s --unix-socket ~/borg-demo/targets/greeter.way-in http://localhost/
+```
+
+What comes back is the notice in force and a session minted for this one: `{"notice_id":"","text":"",
+"session":"<hex>"}`. Both are empty here — none of the four screens writes a notice yet, `constraint.
+KindNotice`'s only writer being the record's own package — which is a fresh install's honest answer
+and not a fault. Note the session, and submit a bug report and a harm-marked complaint through it, the
+same session carrying both:
+
+```sh
+curl -s --unix-socket ~/borg-demo/targets/greeter.way-in http://localhost/ \
+  -d '{"kind":"bug","text":"the save button does nothing","session":"<session>","notice_id":""}'
+
+curl -s --unix-socket ~/borg-demo/targets/greeter.way-in http://localhost/ \
+  -d '{"kind":"complaint","harm_marked":true,"text":"the export button empties the account instead of downloading it","session":"<session>","notice_id":""}'
+```
+
+Each answers `{"accepted":true}` in the same call, which is the whole of what a reporter is shown, and
+each is written under the deploy the token resolves to — `greeter`'s own service and environment —
+never under anything the submission itself named. With `report_admission` standing, the grouper's next
+tick reads neither: Work's home view carries both as reports waiting ungrouped, oldest first, and
+carries no intent yet, because nothing has grouped them. Admit each — two separate actions, one per
+report — and on the grouper's following tick it reads both, decides whether they are one problem or
+two (a model call, so which it decides is not fixed here), and raises an intent through intake with a
+statement summarizing the reports. `report_derived_intent_admission` was already standing when it was
+raised, so Work's home view now carries the intent itself waiting, with the count of reports grouped
+into it and no item yet — dispatch puts no agent on it, not even the interview, while the safeguard
+stands. Admit it, and the pipeline continues the way episode two's did: once it reaches an item, that
+item's own page at Work carries the reports grouped into its intent, each with its own admission, the
+notice it was shown under, and whether it marks harm.
+
+At Factory, the report channel now reads two things a query cannot answer: refusals, per service and
+over the whole channel, and submissions the store could not read are counters this store keeps rather
+than derives, because the record a query would count is the write the rate exists to refuse. Author
+the report channel's rate to zero and submit again through the socket — `accepted` turns to `refused`,
+and the reason it renders is the rate, with the refusal now counted where a moment ago it was accepted.
+
+One erasure reaches every record that quotes the same words, searched for rather than named. Read a
+report's own text back against the report store's own schema:
+
+```sh
+docker compose exec -T postgres psql -U factory -d factory -c \
+  "set search_path to reports; select id, text from report"
+```
+
+`the save button does nothing` puts `save button` at the half-open byte range 4-15. At Factory, erase
+it: the report id, `4-15`, and a reason. The factory walks from the report to the intent it was
+grouped into and to every version authored against that intent's items, searching each for `save
+button` and destroying it wherever it is still standing verbatim — a record that paraphrases the words
+rather than quoting them is not reached, because the walk searches for the words and not for a record
+it was told about. Read the report back and `save button` is gone from it; read the intent's statement
+back, and it is gone there too if the grouper's own statement happened to quote it; and, once the item
+has reached spec, read the version authored against it the same way — every link between the three
+records stands, and only the words moved.
+
+The erasure list is a file beside the targets directory and outside the recovery unit,
+`~/borg-demo/targets/erasure-list`, and it is what a restore is served through. Stop `serve`, put the
+words back in the report by hand — the way a restore from a backup taken before the erasure would —
+and start `serve` again:
+
+```sh
+docker compose exec -T postgres psql -U factory -d factory -c \
+  "set search_path to reports; update report set text = 'the save button does nothing' where id = '<report-id>'"
+```
+
+The replay `serve` performs before it answers a screen reads the erasure list and destroys the same
+words again, so the report reads erased once more with no second erasure performed.
+
+What this take does not cover: the predicate-kind constraints over the way in are M12's, so nothing
+here bounds what a submission may carry beyond the two rates it is refused against; and every target on
+this platform is local, so there is no second host a report could arrive against — the way-in token and
+the deploy record its digest resolves are what stand in for one.
+
 ## The five more things
 
 **The upgrade.** A shipped [role prompt](../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md)

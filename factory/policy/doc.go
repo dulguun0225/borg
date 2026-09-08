@@ -55,7 +55,10 @@
 // key redaction.Key derives is what a step taken again is recognised by —
 // this write finds the record the first performance wrote and appends
 // nothing. It is refused while a legal hold reaches the target, half of that
-// reading being the caller's. people.go is [Factory.AppendPeopleVersion], the
+// reading being the caller's, and [Factory.RecordRedactionRefusal] beside it
+// is what records that refusal: a version naming the target and why, with no
+// erasure-list row and no redaction record, which is the one write here that
+// performs nothing. people.go is [Factory.AppendPeopleVersion], the
 // append a write at People calls for.
 //
 // Four of those writes are decided at a gate row rather than authored — the

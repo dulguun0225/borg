@@ -11,63 +11,67 @@ import (
 	"github.com/dulguun0225/borg/factory/reportstore"
 )
 
-// apply is one group: the intent it belongs to, and the reports of it that are
-// not yet marked with one.
+// apply is one group: the intent it is, the reports of it that have to join
+// that intent, and the intent a split may leave holding nothing.
 //
 // The group is walked in the order the reports arrived and not in the order the
-// reply listed them, so which intent a group already names is the earliest
-// grouped report's and not whichever id the role wrote first.
+// reply listed them, so what a group resolves to is decided by arrival and not
+// by whichever id the role wrote first.
 //
-// Three cases, and the intent's own state is what tells them apart:
+// Which intent the group is. An intent belongs to the group holding the report
+// that raised it — its statement was written over that report — so a group
+// claims an intent only where that report is a member of it. A group naming an
+// intent it does not hold the first report of is a group the role split off,
+// and its members move. Where the group claims none, it raises one.
 //
-//   - no report of the group is grouped yet, so this is the first of a group
-//     and it raises an intent through intake;
-//   - the group already names an intent that has not finished, so the arriving
-//     reports attach to it and raise its count. Nothing is rewritten: what
-//     refines an intent is attached to it and every reader reads both, which
-//     is what keeps an approval pointing at what was approved;
-//   - the group names an intent whose timeline is finished. The fix shipped,
-//     so evidence that it did not work is a new intent linked to the first as
-//     a recurrence and never a reopening of it.
+// Then every member not already in that intent joins it: an unlinked one
+// through a link, a linked one through a move. A member whose own intent has
+// been decomposed does not move — decomposition is the boundary, and after it a
+// report matching work already decomposed attaches and raises the count rather
+// than being taken out — so it stays where it is and this group goes on without
+// it.
 //
-// A report already marked with an intent is never moved. Before decomposition
-// the role may still split a group it got wrong, and what a split moves is
-// where the arriving reports go; the link already written stands, and two
-// problems in one intent are separated one stage down where decomposition
-// yields an item each.
+// Two cases sit outside that. Where the group claims no intent it raises one,
+// which is the first report of a group raising it. Where the intent it claims
+// has finished, the fix shipped: what is not already in it is a new intent
+// linked to it as a recurrence and never a reopening.
+//
+// An intent a split leaves holding no report names nothing — its statement
+// summarizes reports that are somewhere else — so it is ended through intake.
 func (g *Grouper) apply(ctx context.Context, projectID string, reports []reportstore.Report,
-	group []string, placed map[string]bool, did *Grouped) error {
-	var arriving []reportstore.Report
-	named, serviceID, marked, known := "", "", 0, 0
+	raisedBy map[string]string, group []string, placed map[string]bool, did *Grouped) error {
+	var members []reportstore.Report
 	for _, report := range reports {
 		if !slices.Contains(group, report.ID) {
 			continue
 		}
-		known++
+		members = append(members, report)
 		placed[report.ID] = true
-		if report.IntentID != "" {
-			if named == "" {
-				named = report.IntentID
-			}
-			continue
-		}
-		arriving = append(arriving, report)
-		if report.HarmMarked {
-			marked++
-		}
-		if serviceID == "" {
-			serviceID = report.ServiceID
-		}
 	}
-	if known == 0 {
+	if len(members) == 0 {
 		return fmt.Errorf("%w: %v", ErrReplyNamesNoReport, group)
 	}
-	if len(arriving) == 0 {
+
+	// The intent this group is: the first one a member names whose own raising
+	// report is a member here.
+	named := ""
+	for _, report := range members {
+		if report.IntentID != "" && raisedBy[report.IntentID] == report.ID {
+			named = report.IntentID
+			break
+		}
+	}
+
+	joining, emptying, marked, serviceID, err := g.joining(ctx, members, named)
+	if err != nil {
+		return err
+	}
+	if len(joining) == 0 {
 		return nil
 	}
 
-	// The group raises an intent where it names none, and where the one it
-	// names has finished — the recurrence, which carries the link back to it.
+	// The group raises an intent where it claims none, and where the one it
+	// claims has finished — the recurrence, which carries the link back to it.
 	raises := named == ""
 	if !raises {
 		finished, err := g.finished(ctx, named)
@@ -78,7 +82,7 @@ func (g *Grouper) apply(ctx context.Context, projectID string, reports []reports
 	}
 	intentID := named
 	if raises {
-		raised, err := g.raise(ctx, projectID, arriving, named)
+		raised, err := g.raise(ctx, projectID, joining, named)
 		if err != nil {
 			return err
 		}
@@ -86,11 +90,21 @@ func (g *Grouper) apply(ctx context.Context, projectID string, reports []reports
 		did.Raised = append(did.Raised, raised)
 	}
 
-	for _, report := range arriving {
-		if err := g.c.Reports.Link(ctx, report.ID, intentID); err != nil {
+	for _, report := range joining {
+		if report.IntentID == "" {
+			if err := g.c.Reports.Link(ctx, report.ID, intentID); err != nil {
+				return err
+			}
+			did.Linked++
+			continue
+		}
+		if err := g.c.Reports.Relink(ctx, report.ID, intentID); err != nil {
 			return err
 		}
-		did.Linked++
+		did.Moved++
+	}
+	if err := g.dropEmptied(ctx, emptying, did); err != nil {
+		return err
 	}
 	if marked == 0 {
 		return nil
@@ -99,6 +113,72 @@ func (g *Grouper) apply(ctx context.Context, projectID string, reports []reports
 		return err
 	}
 	did.Paged++
+	return nil
+}
+
+// joining is what one group's members have to be written to put them in the
+// intent the group is: every member not already in it, the intents a move may
+// leave empty, how many of them mark harm, and the service the group is
+// against.
+//
+// A member whose own intent has been decomposed is left out: decomposition is
+// the boundary a split stops at, so it stays where it is. Reading that is one
+// query per intent a group names and none for a group that names none, which is
+// every group of arriving reports.
+func (g *Grouper) joining(ctx context.Context, members []reportstore.Report,
+	named string) ([]reportstore.Report, []string, int, string, error) {
+	var joining []reportstore.Report
+	var emptying []string
+	marked, serviceID := 0, ""
+	for _, report := range members {
+		if report.IntentID != "" && report.IntentID == named {
+			continue
+		}
+		if report.IntentID != "" {
+			decomposed, err := g.c.Decompositions.Decomposed(ctx, report.IntentID)
+			if err != nil {
+				return nil, nil, 0, "", fmt.Errorf(
+					"grouper: reading whether %s has been decomposed: %w", report.IntentID, err)
+			}
+			if decomposed {
+				continue
+			}
+			if !slices.Contains(emptying, report.IntentID) {
+				emptying = append(emptying, report.IntentID)
+			}
+		}
+		joining = append(joining, report)
+		if report.HarmMarked {
+			marked++
+		}
+		if serviceID == "" {
+			serviceID = report.ServiceID
+		}
+	}
+	return joining, emptying, marked, serviceID, nil
+}
+
+// dropEmptied ends every intent a split left holding no report. Its statement
+// summarizes reports that are somewhere else, so it names nothing: what it once
+// was is on the reports, which are now in another intent, and nothing was ever
+// spent on it — a split is only possible before decomposition.
+//
+// An intent that still holds a report is left alone, which is every one a split
+// took some but not all of.
+func (g *Grouper) dropEmptied(ctx context.Context, emptying []string, did *Grouped) error {
+	for _, intentID := range emptying {
+		left, err := g.c.Reports.Grouped(ctx, intentID)
+		if err != nil {
+			return err
+		}
+		if left.Reports > 0 {
+			continue
+		}
+		if err := g.c.Intake.DropEmptied(ctx, g.c.Actor, intentID); err != nil {
+			return fmt.Errorf("grouper: ending %s, which a split left holding no report: %w", intentID, err)
+		}
+		did.Dropped = append(did.Dropped, intentID)
+	}
 	return nil
 }
 

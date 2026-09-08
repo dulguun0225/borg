@@ -20,8 +20,8 @@
 // [Intake.SetDeadline], [Intake.SetProject] and [Intake.Admit]. interview.go holds [Intake.OpenRound], [Intake.Ask]
 // and [Intake.Answer]. confirm.go holds [Confirmation], [Intake.Confirm],
 // [Correction] and [Intake.Correct]. state.go holds [Intake.SendBack],
-// [Intake.MarkReDecomposing], [Intake.ClearReDecomposing], [Intake.Escalate]
-// and [Intake.Drop]. acceptance.go holds [Intake.AcceptanceRound], [Delivery],
+// [Intake.MarkReDecomposing], [Intake.ClearReDecomposing], [Intake.Escalate],
+// [Intake.Drop] and [Intake.DropEmptied]. acceptance.go holds [Intake.AcceptanceRound], [Delivery],
 // [Intake.Delivered] and [Intake.CorrectAcceptance]. requirementwrite.go holds
 // [Intake.DeriveForItem], [Intake.SupersedeDerived] and
 // [Intake.MarkUnanswerable]. redact.go holds [Intake.Redact],

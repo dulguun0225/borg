@@ -112,6 +112,8 @@ var (
 		"the hazard severity in force on this item's area, which is this group's one declared input", (*Score).hazardSeverity}
 	contextIntentSource = definition{"context.intent_source", GroupContext, TermLikelihood,
 		"where the intent this item answers came from", (*Score).intentSource}
+	contextHarmMarkedReport = definition{"context.harm_marked_report", GroupContext, TermImpact,
+		"whether a report grouped into the intent this item answers says a person is being harmed by the software, which the reporter sets and nothing infers", (*Score).harmMarkedReport}
 	contextConsumers = definition{"context.consumers", GroupContext, TermImpact,
 		"sibling services declaring they consume what this one publishes", (*Score).consumers}
 	contextProtectionWithdrawn = definition{"context.protection_withdrawn", GroupContext, TermImpact,

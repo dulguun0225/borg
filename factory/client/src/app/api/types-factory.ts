@@ -1,6 +1,8 @@
 // The Factory screen's own wire shapes: the view of the machine itself and the
 // arguments of the fourteen calls Factory makes. Every interface is one struct
-// of package screens, field for field, the way ./types.ts states.
+// of package screens, field for field, the way ./types.ts states. The report
+// channel and erasure are in ./types-reports.ts instead, because one file for
+// all of Factory's own shapes passes the 500-line bound.
 //
 // What defines them: ../../../../screens/viewfactory.go and
 // ../../../../screens/callsfactory.go, against
@@ -10,6 +12,7 @@
 // ../../../../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md.
 
 import { CalendarDate, Constraint, Instant } from './types';
+import { IntentOutcome, ReportChannel } from './types-reports';
 
 export interface Parameter {
   Name: string;
@@ -111,6 +114,7 @@ export interface Numbers {
   GateRejectionRate: Record<string, number> | null;
   CostPerFeature: ModelCost[] | null;
   CostMeasured: boolean;
+  IntentOutcomes: IntentOutcome[] | null;
 }
 
 export interface DispatchCause {
@@ -211,6 +215,7 @@ export interface Factory {
   Projects: Project[] | null;
   Areas: Area[] | null;
   Numbers: Numbers;
+  ReportChannel: ReportChannel;
   StoppedAtDispatch: DispatchCause[] | null;
   ResolvedFactorGates: ResolvedFactorCount[] | null;
   HumanLoad: HumanLoad[] | null;
@@ -283,6 +288,11 @@ export const GATE_ROW_SUBJECT_KIND = 'gate_row';
 // is supplied at Work, on its intent.
 export const LEGAL_HOLD_SUBJECT_KINDS = ['service', 'project', 'factory'] as const;
 export const CONSTRAINT_REACHES = ['factory', 'project', 'area'] as const;
+
+// The two kinds a constraint supplied here may take, named the way
+// ../../../../constraint/schema.go names them. Empty means document, so a
+// form that predates the notice kind sends the same shape it always did.
+export const CONSTRAINT_KINDS = ['document', 'notice'] as const;
 
 // The five gate rows that decide a record rather than an item, named the way
 // ../../../../gate/row.go names them. A row this screen decides carries one of
@@ -380,6 +390,9 @@ export interface WithdrawFleetEntryArgs {
 
 export interface SupplyConstraintArgs {
   Statement: string;
+  // Kind is "document" or "notice"; empty means document. A notice's reach
+  // must be one project, which the server refuses otherwise.
+  Kind: string;
   ReachKind: string;
   ReachName: string;
   BindsFrom: CalendarDate;

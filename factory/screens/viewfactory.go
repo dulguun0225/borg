@@ -2,9 +2,9 @@ package screens
 
 // Factory is [Views.Factory]'s view: gate and risk policy in force, the
 // fleet, the lent credentials a fleet entry may run on, the constraints and
-// projects, and the factory's own numbers over the one factory-owned span.
-// Absent from it, because nothing builds them yet: reports and report
-// counts, advisories, the mutation score, and the design-system numbers
+// projects, the report channel's own numbers, and the factory's own numbers
+// over the one factory-owned span. Absent from it, because nothing builds
+// them yet: advisories, the mutation score, and the design-system numbers
 // _Work, Ops, Factory, People_ lists — each left out rather than shown as
 // zero, so a screen answering nothing is read as unbuilt and not as a quiet
 // week.
@@ -25,6 +25,10 @@ type Factory struct {
 	Projects       []Project
 	Areas          []Area
 	Numbers        Numbers
+	// ReportChannel is what the one way into the factory from outside it did.
+	// It is the zero value where this composition holds no report store, which
+	// is every subcommand that makes one pass and exits.
+	ReportChannel ReportChannel
 
 	StoppedAtDispatch   []DispatchCause
 	ResolvedFactorGates []ResolvedFactorCount
@@ -179,6 +183,20 @@ type Numbers struct {
 	// feature ran on, which labels CostPerFeature as units per intent, per
 	// model version, rather than a converted total.
 	CostMeasured bool
+	// IntentOutcomes is each intent's outcome, read beside cost per feature:
+	// the acceptance round's verdict on the intended effect for a requested
+	// intent, the rate of reports before and after the release for one
+	// grouped from reports, and nothing for one the factory raised — absence
+	// being the answer and not a gap.
+	IntentOutcomes []IntentOutcome
+}
+
+// IntentOutcome is one closed intent's outcome as the close computed it,
+// with the source that says which of the two kinds of verdict it is.
+type IntentOutcome struct {
+	IntentID string
+	Source   string
+	Outcome  string
 }
 
 // ModelCost is one model version's own share of cost per feature, or, where
@@ -188,6 +206,56 @@ type ModelCost struct {
 	Amount       float64
 	Currency     string
 	IsTotal      bool
+}
+
+// ReportChannel is what Factory reports of the report channel: how many
+// reports arrived and were never grouped, how many the way in refused, how
+// many the store could not read, and the two lists an owner reads beside
+// them — the services serving a way in older than this factory's, and the
+// services whose project has no notice for the way in to show.
+//
+// Refused and UnreadableShape are counters the report store keeps, and every
+// other number on this screen is a query at read time. They have to be: the
+// record a query would count is the write the rate exists to refuse. What
+// that costs is that a lost counter is lost, where Ungrouped is derived from
+// the reports again.
+type ReportChannel struct {
+	Ungrouped int64
+	// RefusedOverTheChannel is the refusals made against no service: a
+	// submission naming no deploy this factory placed a way in at is counted
+	// on the whole channel, so a safeguard narrowing one service's rate is not
+	// evaded by submitting under another service's name.
+	RefusedOverTheChannel int64
+	Services              []ServiceReportCounts
+	OnAnOldWayIn          []ServiceOnAnOldWayIn
+}
+
+// ServiceReportCounts is one service's own counts, beside whether the project
+// it lies in has a notice in force.
+type ServiceReportCounts struct {
+	ServiceID   string
+	ServiceName string
+	Refused     int64
+	// UnreadableShape is the submissions written under a shape the store does
+	// not read, which only a factory returned to an earlier release can meet.
+	UnreadableShape int64
+	// NoNoticeInForce is whether the project this service lies in has no
+	// notice, which is what the way in shows before a submission.
+	NoNoticeInForce bool
+}
+
+// ServiceOnAnOldWayIn is one service whose current release's build names a
+// shipped-bundle identity other than the running factory's, which is the way
+// in it serves. The way in moves only when the factory is upgraded and the
+// service builds again, so this is a list read off the build record rather
+// than an inference from reports that stopped.
+type ServiceOnAnOldWayIn struct {
+	ServiceID   string
+	ServiceName string
+	// Identity is what the current release's build names, and
+	// FactoryIdentity is the running factory's own.
+	Identity        string
+	FactoryIdentity string
 }
 
 // DispatchCause is how many items are stopped at dispatch now under one of
