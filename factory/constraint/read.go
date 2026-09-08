@@ -99,7 +99,9 @@ func rows(ctx context.Context, pool *pgxpool.Pool, query string, args ...any) ([
 
 // InForce is every constraint in force at at over over, in insertion order:
 // the factory's own, over.ProjectID's own, any area in over.AreaChain's own,
-// and over.IntentID's own — the set drafting reads.
+// and over.IntentID's own — the set drafting reads. It excludes a
+// [KindNotice] constraint: a notice is read by no drafting stage, and
+// [NoticeInForce] is the only read that returns one.
 func InForce(ctx context.Context, pool *pgxpool.Pool, over Over, at time.Time) ([]Constraint, error) {
 	areaChain := over.AreaChain
 	if areaChain == nil {
@@ -107,12 +109,13 @@ func InForce(ctx context.Context, pool *pgxpool.Pool, over Over, at time.Time) (
 	}
 	read, err := rows(ctx, pool, selectConstraint+`
 		where withdrawn_at is null
+		and kind <> $4
 		and (reach = 'factory'
 			or (reach = 'project' and subject_id = $1)
 			or (reach = 'area' and subject_id = any($2))
 			or (reach = 'intent' and subject_id = $3))
 		order by at, id`,
-		over.ProjectID, areaChain, over.IntentID)
+		over.ProjectID, areaChain, over.IntentID, string(KindNotice))
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +125,8 @@ func InForce(ctx context.Context, pool *pgxpool.Pool, over Over, at time.Time) (
 // InForceForInterview is every constraint in force at at over the factory's
 // own and intentID's own alone — the set the interview reads, deliberately
 // less than [InForce]: before decomposition, which project the work is in is
-// a guess and an intent's items may not share one.
+// a guess and an intent's items may not share one. It excludes a
+// [KindNotice] constraint too, for the same reason [InForce] does.
 func InForceForInterview(ctx context.Context, pool *pgxpool.Pool, intentID string, at time.Time) ([]Constraint, error) {
 	return InForce(ctx, pool, Over{IntentID: intentID}, at)
 }
@@ -158,6 +162,27 @@ func DueForReview(ctx context.Context, pool *pgxpool.Pool, at time.Time) ([]Cons
 		}
 	}
 	return due, nil
+}
+
+// NoticeInForce is the [KindNotice] constraint in force now for projectID:
+// the text the way in shows a reporter before anything is submitted. The
+// report store calls this at the way in's open, so a notice moves without
+// the service building again. Its second return is false where an owner
+// authored none — the "none" reading the way in shows and a report names
+// when it arrived under no notice.
+func NoticeInForce(ctx context.Context, pool *pgxpool.Pool, projectID string) (Constraint, bool, error) {
+	read, err := rows(ctx, pool, selectConstraint+`
+		where withdrawn_at is null and kind = $1 and reach = $2 and subject_id = $3
+		order by at, id`,
+		string(KindNotice), string(ReachProject), projectID)
+	if err != nil {
+		return Constraint{}, false, err
+	}
+	in := filterInForce(read, time.Now())
+	if len(in) == 0 {
+		return Constraint{}, false, nil
+	}
+	return in[len(in)-1], true, nil
 }
 
 func filterInForce(read []Constraint, at time.Time) []Constraint {

@@ -11,8 +11,13 @@
 // stored, [Constraint.InForceAt], [CalendarDate] with [CalendarDate.StartIn]
 // and [CalendarDate.EndIn], [New], [Writer] and [NewWriter], and
 // [Writer.Arrive], [Writer.Withdraw] and [Writer.Replace]. read.go holds
-// [Get], [Over], [InForce], [InForceForInterview], [Permanent] and
-// [DueForReview].
+// [Get], [Over], [InForce], [InForceForInterview], [Permanent],
+// [DueForReview] and [NoticeInForce].
+//
+// The database tests are two files rather than the one every record package
+// has: db_test.go, which would pass the 500-line bound, and notice_test.go,
+// split out by subject — the notice kind's tests and InForce's exclusion of
+// it — sharing db_test.go's fixtures.
 //
 // A constraint is never edited: [Writer.Withdraw] keeps the row and sets
 // withdrawn_at, and a correction is [Writer.Replace] — one transaction that
@@ -31,12 +36,16 @@
 // replacement names — the row Work shows for whoever holds duty 2.
 //
 // Kind decides where a constraint is checked. The design names six kinds;
-// this milestone builds [KindDocument] alone — checked by nobody, enforced
-// by a safeguard putting a human at a gate. RequiresSeam5Enforced is the one
-// thing a document-kind constraint makes dispatch read: an item under it
-// waits at dispatch until the factory-wide settings record says seam 5 is
-// enforced. Widening [Kinds] and the CHECK in [DDL] to the other five —
-// build, predicate, factory-parameter, and notice — is M12's.
+// this milestone builds two of them: [KindDocument], checked by nobody and
+// enforced by a safeguard putting a human at a gate, and [KindNotice], read
+// by no drafting stage and rejecting nothing, its reach always one project.
+// RequiresSeam5Enforced is the one thing a document-kind constraint makes
+// dispatch read: an item under it waits at dispatch until the factory-wide
+// settings record says seam 5 is enforced. [NoticeInForce] gives the report
+// store the notice in force for a project at the way in's open, or a clear
+// "none" result where an owner authored none. Widening [Kinds] and the CHECK
+// in [DDL] to the other four — build, predicate, and factory-parameter — is
+// M12's.
 //
 // BindsFrom and ReviewBy are a [CalendarDate] each: a date and the IANA zone
 // it was authored in, both present or both absent. [CalendarDate.StartIn]
@@ -67,7 +76,7 @@
 // itself as the owner who supplied it — and what such a write would carry, the
 // design system as a constraint's content, is unbuilt below.
 //
-// The other five kinds; the pass over the constraints in force that decides
+// The other four kinds; the pass over the constraints in force that decides
 // a build against them; the design system as a constraint's content field,
 // derived from its build; the period a law binds the factory's own conduct
 // to, its trigger, and the deadline intake would write onto an intent from
@@ -79,8 +88,8 @@
 // What defines it: the reach, the kind, the three optional fields a law
 // carries, and the design system as a constraint's content are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
-// (C0237, C0238, C0239, C0240, C0241, C0242, C0249, C0250, C0268, C0271,
-// C0294).
+// (C0237, C0238, C0239, C0240, C0241, C0242, C0250, C0262, C0264,
+// C0265, C0268, C0271, C0294).
 //
 // Supplying a constraint is duty 2 of ../../end-goal/what-humans-do.md (C2864,
 // C2865, C2867, C2868).

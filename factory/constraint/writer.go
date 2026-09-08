@@ -34,6 +34,9 @@ var (
 	// ErrSubjectIDMustBeEmpty is returned for [ReachFactory] naming a
 	// subject: the factory reach binds everything and names none.
 	ErrSubjectIDMustBeEmpty = errors.New("constraint: a constraint whose reach is the factory names no subject")
+	// ErrNoticeReachMustBeProject is returned for a [KindNotice] constraint
+	// whose reach is not [ReachProject].
+	ErrNoticeReachMustBeProject = errors.New("constraint: a notice's reach is one project")
 	// ErrStatementEmpty is returned for a constraint stating nothing.
 	ErrStatementEmpty = errors.New("constraint: a constraint states what it binds")
 	// ErrCalendarDateIncomplete is returned for a [CalendarDate] naming a
@@ -179,6 +182,9 @@ func (n New) validate() error {
 		}
 	} else if n.SubjectID == "" {
 		return ErrSubjectIDRequired
+	}
+	if n.Kind == KindNotice && n.Reach != ReachProject {
+		return fmt.Errorf("%w: %s", ErrNoticeReachMustBeProject, n.Reach)
 	}
 	if n.Statement == "" {
 		return ErrStatementEmpty

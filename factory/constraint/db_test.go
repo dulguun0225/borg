@@ -1,7 +1,11 @@
 // The database tests of this package are in constraint_test rather than in
 // constraint, because they open the pool through package postgres, which
 // imports this one to apply its DDL. deps.txt records the edge as
-// "test constraint -> postgres lease".
+// "test constraint -> postgres lease". This file holds arrival, reach,
+// calendar dates, InForce and the withdraw-and-replace versioning of the
+// document kind; notice_test.go holds the notice kind's tests, split out
+// because this file would pass the 500-line bound. The two are one external
+// test package, sharing newTable, owner and aComponent.
 //
 // None of these tests skips when the database is unreachable. The milestone
 // is demonstrated by them running, so an unreachable database fails the run.

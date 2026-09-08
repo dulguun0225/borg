@@ -17,9 +17,9 @@ const IDPrefix = "cst"
 const FormatVersion = "constraint/1"
 
 // Kind is what a constraint's kind decides: where it is checked. The design
-// names six kinds; this milestone builds the document kind alone, so
-// [KindDocument] is the only value [Kinds] carries and the CHECK in [DDL]
-// accepts. Widening both to the other five is M12's.
+// names six kinds; this milestone builds two of them, [KindDocument] and
+// [KindNotice], so those are the only values [Kinds] carries and the CHECK in
+// [DDL] accepts. Widening both to the other four is M12's.
 type Kind string
 
 // KindDocument is a constraint decided by nobody: what enforces it is a
@@ -27,9 +27,15 @@ type Kind string
 // require seam 5 enforced, read at dispatch.
 const KindDocument Kind = "document"
 
+// KindNotice is the sixth kind: the text the way in shows a reporter before
+// anything is submitted. It is read by no drafting stage and rejects
+// nothing, and its reach is always [ReachProject] — [New.validate] refuses
+// any other with [ErrNoticeReachMustBeProject].
+const KindNotice Kind = "notice"
+
 // Kinds is every kind this milestone accepts. The CHECK in [DDL] lists the
-// same one, and TestDDLListsEveryKind fails if the two stop agreeing.
-var Kinds = []Kind{KindDocument}
+// same two, and TestDDLListsEveryKind fails if the two stop agreeing.
+var Kinds = []Kind{KindDocument, KindNotice}
 
 // Reach is what a constraint binds: the factory, one project, one area, or one
 // intent.
@@ -89,7 +95,7 @@ var DDL = []string{
 	replaces_id text not null,
 	withdrawn_at text,
 	` + record.Constraints + `,
-	constraint kind_known check (kind in ('document')),
+	constraint kind_known check (kind in ('document', 'notice')),
 	constraint reach_known check (reach in ('factory', 'project', 'area', 'intent')),
 	constraint subject_id_matches_reach check (
 		(reach = 'factory' and subject_id = '') or (reach <> 'factory' and subject_id <> '')),
