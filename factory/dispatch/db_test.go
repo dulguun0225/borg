@@ -132,7 +132,7 @@ func (c *countingEscalation) Escalate(_ context.Context, _ record.Actor, itemID 
 
 // countingNotifier records the wait an escalation left and the notice a
 // credential nearing its ceiling leaves, standing in for the notifier:
-// components.md gives both calls to dispatch, and this is what they are made
+// ../../end-goal/components.md gives both calls to dispatch, and this is what they are made
 // on. It keys nothing on the credential and the period the way the composition
 // does, so a test reads how often the call was made and not how often a
 // delivery went out.

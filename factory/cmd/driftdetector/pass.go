@@ -23,9 +23,10 @@ import (
 
 // passInterval is what every last check this pass writes promises the next
 // one within — the interval a reader with no authored value holds the
-// record against, 08-drift-detection.md's "the detector supplies its own
-// interval the way it supplies its own recorded head, the owner installing
-// it once and authoring no interval after."
+// record against, ../../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md's
+// "the detector supplies its own interval the way it supplies its own
+// recorded head, the owner installing it once and authoring no interval
+// after."
 const passInterval = 5 * time.Minute
 
 // callerPrincipal is who the drift detector calls the target seam as: a

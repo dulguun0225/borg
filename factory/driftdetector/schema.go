@@ -148,9 +148,10 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 // on the row for reference; it is no longer part of the key, because the
 // design's record is one per target and not one per service and target.
 // interval_seconds and further_pass_owed are what
-// 08-drift-detection.md's "that shape is every last check record's" gives
-// this one: the interval this pass runs on, and whether the writer still
-// owes a further pass over this target.
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md's
+// "that shape is every last check record's" gives this one: the interval
+// this pass runs on, and whether the writer still owes a further pass over
+// this target.
 //
 // mismatch_kind_known and the three shapes below it are [MismatchKindTarget],
 // [MismatchKindChain] and [MismatchKindStaleComponent]: an ordinary mismatch
@@ -234,11 +235,12 @@ var DDL = []string{
 )`,
 
 	// The detector's own delivery: a record of each delivery made to the
-	// address [AddressTable] holds — 08-drift-detection.md's "installing it
-	// includes writing one address into its store ... and records the
-	// delivery in its own store." The address is a separate singleton row,
-	// kept apart from the deliveries so setting it once at install does not
-	// read as a delivery.
+	// address [AddressTable] holds —
+	// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md's
+	// "installing it includes writing one address into its store ... and
+	// records the delivery in its own store." The address is a separate
+	// singleton row, kept apart from the deliveries so setting it once at
+	// install does not read as a delivery.
 	`create table if not exists ` + DeliveryTable + ` (
 	` + record.Columns + `,
 	why text not null,

@@ -51,7 +51,7 @@ const (
 // one_holding is the rule that a row names a duty or an obligation and never
 // both, written as a CHECK because it is the whole shape of the record: duty
 // is zero exactly where obligation is set. The duty range is one to twelve,
-// which is the twelve of what-humans-do.md and is why nothing here may write
+// which is the twelve of ../../end-goal/what-humans-do.md and is why nothing here may write
 // a thirteenth.
 //
 // The unique constraint is over the key plus both holding columns rather

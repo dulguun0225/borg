@@ -22,7 +22,8 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// TestRecordOwnLastCheckWritesTheNotifiersRecord is 07-pages.md's "the
+// TestRecordOwnLastCheckWritesTheNotifiersRecord is
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md's "the
 // notifier writes a last check record too, beside the health monitor's and
 // the deployer's."
 func TestRecordOwnLastCheckWritesTheNotifiersRecord(t *testing.T) {

@@ -26,7 +26,7 @@ var (
 )
 
 // Mapping is the one place a per-person key maps to a name, kept outside
-// the chain: what deferred.md's seam 1 calls the record an erasure reaches.
+// the chain: what ../../end-goal/deferred.md's seam 1 calls the record an erasure reaches.
 // A name and a key are the whole of it — the hours a service pages within are
 // a field of the service record, and a wait naming no service pages at any
 // hour, so there is nothing per human for this row to carry.

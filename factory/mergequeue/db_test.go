@@ -18,7 +18,7 @@ import (
 // fails is rejected with a rejection row saying why, which reading it was, and
 // that an attempt is counted at Implementation.
 //
-// Neither transition is written here. The queue's row in components.md names no
+// Neither transition is written here. The queue's row in ../../end-goal/components.md names no
 // dispatch, so the item's advance to merged and its return to Implementation are
 // the caller's writes, and what the queue hands the caller is the outcome.
 func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {

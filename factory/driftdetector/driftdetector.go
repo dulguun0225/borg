@@ -105,8 +105,9 @@ const HoldWords = "the drift detector found a record disagreeing with what runs"
 
 // LastCheck is the last check of one production target, overwritten each
 // pass. ServiceID is kept for reference; the record is one per target and
-// not one per service and target, 08-drift-detection.md:33's "the last
-// check per production target".
+// not one per service and target,
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md:33's
+// "the last check per production target".
 type LastCheck struct {
 	ID                string
 	Actor             record.Actor

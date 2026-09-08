@@ -141,7 +141,7 @@ func (g gateNotifier) Acknowledged(ctx context.Context, openID string, human rec
 }
 
 // dispatchNotifier is [dispatch.Notifier]: the one call dispatch makes on the
-// component that reaches humans, which components.md gives to dispatch and not
+// component that reaches humans, which ../../../end-goal/components.md gives to dispatch and not
 // to the gate. It is a type of its own for the reason [gateNotifier] is, and it
 // holds the path because deciding whether something live is worse is a read of
 // the intent behind the item, which dispatch hands over neither.

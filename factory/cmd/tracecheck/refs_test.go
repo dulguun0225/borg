@@ -18,7 +18,7 @@ func TestExtractFileFindsBothKinds(t *testing.T) {
 		"// ../../roadmap.md#m1--one-change-ships directly, but not\n" +
 		"// [an anchor](#same-file) or [openrouter](https://openrouter.ai/keys),\n" +
 		"// and not a bare mention of CLAUDE.md with no slash.\n")
-	refs := ExtractFile("pkg/doc.go", content)
+	refs := ExtractFile("pkg/doc.go", content, nil)
 
 	var targets []string
 	for _, ref := range refs {
@@ -42,7 +42,7 @@ func TestExtractFileFindsBothKinds(t *testing.T) {
 }
 
 func TestExtractLineDoesNotDoubleCountAMarkdownLinkTarget(t *testing.T) {
-	refs := extractLine("README.md", 1, "See [`../roadmap.md`](../roadmap.md#m1--one-change-ships).")
+	refs := extractLine("README.md", 1, "See [`../roadmap.md`](../roadmap.md#m1--one-change-ships).", nil)
 	count := 0
 	for _, ref := range refs {
 		if ref.Target == "../roadmap.md#m1--one-change-ships" {
@@ -114,6 +114,28 @@ func TestCheckFindsWhatDoesNotHold(t *testing.T) {
 	}
 }
 
+func TestCheckReportsAReadErrorNotMissing(t *testing.T) {
+	dir := t.TempDir()
+	// "a" is a regular file, so a target that treats it as a directory
+	// component makes os.Stat fail with ENOTDIR, not fs.ErrNotExist.
+	mustWrite(t, filepath.Join(dir, "a"), "not a directory\n")
+	mustWrite(t, filepath.Join(dir, "pkg", "doc.go"), "// nothing\n")
+
+	refs := []Reference{
+		{File: filepath.Join(dir, "pkg", "doc.go"), Line: 1, Target: "../a/b.md"},
+	}
+	found := Check(refs)
+	if len(found) != 1 {
+		t.Fatalf("Check found %v, want exactly one defect", found)
+	}
+	if !strings.Contains(found[0], "reading") {
+		t.Errorf("Check found %q, want it to say reading", found[0])
+	}
+	if strings.Contains(found[0], "does not exist") {
+		t.Errorf("Check found %q, should not say does not exist", found[0])
+	}
+}
+
 func TestCheckSkipsTheAnchorOnANonMarkdownTarget(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "deps.txt"), "record\n")
@@ -176,5 +198,96 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+func TestExtractLineReadsANumberedBareName(t *testing.T) {
+	refs := extractLine("gate/doc.go", 1, "// The tasks gate is 04-tasks.md, and CLAUDE.md is not a path.", nil)
+	var targets []string
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if !slices.Contains(targets, "04-tasks.md") {
+		t.Errorf("targets %v, want 04-tasks.md read as a reference", targets)
+	}
+	if slices.Contains(targets, "CLAUDE.md") {
+		t.Errorf("targets %v, want no CLAUDE.md", targets)
+	}
+}
+
+func TestExtractLineReadsABareDesignNameOnlyWhenTheMapHoldsIt(t *testing.T) {
+	line := "// components.md gives both calls to dispatch."
+
+	refs := extractLine("dispatch/doc.go", 1, line, map[string]bool{"components.md": true})
+	var targets []string
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if !slices.Contains(targets, "components.md") {
+		t.Errorf("targets %v, want components.md read when the map holds it", targets)
+	}
+
+	refs = extractLine("dispatch/doc.go", 1, line, nil)
+	targets = nil
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if slices.Contains(targets, "components.md") {
+		t.Errorf("targets %v, want components.md unread when the map does not hold it", targets)
+	}
+}
+
+func TestExtractLineNeverReadsReadmeEvenWhenTheMapHoldsIt(t *testing.T) {
+	refs := extractLine("gate/doc.go", 1, "// README.md is not a path.", map[string]bool{"README.md": true})
+	var targets []string
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if slices.Contains(targets, "README.md") {
+		t.Errorf("targets %v, want README.md never read, even present in the map", targets)
+	}
+}
+
+func TestExtractLineDoesNotReadANumberedLinkTextAsABareName(t *testing.T) {
+	refs := extractLine("gate/doc.go", 1, "See [04-tasks.md](02-spec/04-tasks.md).", nil)
+	var targets []string
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if !slices.Equal(targets, []string{"02-spec/04-tasks.md"}) {
+		t.Errorf("targets %v, want exactly [02-spec/04-tasks.md] — a link's text is not a bare path", targets)
+	}
+}
+
+func TestExtractLineReadsALinkWrappedFromThePreviousLine(t *testing.T) {
+	refs := extractLine("DEMO-M1-M7.md", 19, "takes_](DEMO.md#resetting-between-takes) and more", nil)
+	var targets []string
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if !slices.Equal(targets, []string{"DEMO.md#resetting-between-takes"}) {
+		t.Errorf("targets %v, want exactly [DEMO.md#resetting-between-takes] — a link with no \"[\" on this line is still read", targets)
+	}
+}
+
+func TestExtractLineReadsTwoLinksOnOneLine(t *testing.T) {
+	refs := extractLine("DEMO.md", 1, "see [a](x.md) and [b](y.md)", nil)
+	var targets []string
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if !slices.Equal(targets, []string{"x.md", "y.md"}) {
+		t.Errorf("targets %v, want exactly [x.md y.md]", targets)
+	}
+}
+
+func TestExtractLineReadsALinkWithNestedBrackets(t *testing.T) {
+	refs := extractLine("DEMO.md", 1, "nested [text [inner]](t.md)", nil)
+	var targets []string
+	for _, r := range refs {
+		targets = append(targets, r.Target)
+	}
+	if !slices.Equal(targets, []string{"t.md"}) {
+		t.Errorf("targets %v, want exactly [t.md]", targets)
 	}
 }

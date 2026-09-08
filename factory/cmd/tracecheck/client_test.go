@@ -54,7 +54,7 @@ func TestUncitedAcceptsAScreenReadmeWithAResolvingReference(t *testing.T) {
 		"[Screens](../../../../end-goal/screens.md#screens).\n"
 	mustWrite(t, readme, content)
 
-	refs := ExtractFile(readme, []byte(content))
+	refs := ExtractFile(readme, []byte(content), nil)
 	if len(refs) == 0 {
 		t.Fatalf("ExtractFile found no reference in %s, want the Markdown link found", readme)
 	}

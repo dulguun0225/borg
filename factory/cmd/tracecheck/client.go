@@ -7,8 +7,8 @@ import (
 
 // screenNames are the four screens factory/client/src/app/ holds, each named
 // in CLAUDE.md's "The map" counterpart for the client: a directory of one of
-// these names holds a README.md read as that screen's doc.go — [Uncited]
-// treats a reference-less one as a finding the way it treats a doc.go, and
+// these names holds a README.md read as that screen's doc.go — [Unclaimed]
+// holds it to citing a claim the way it holds a package doc.go, and
 // [MissingScreenReadmes] finds a screen with none at all.
 var screenNames = []string{"work", "ops", "factory", "people"}
 

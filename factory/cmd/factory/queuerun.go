@@ -80,7 +80,7 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 			c.queueWhy = outcome.Why
 			c.queueWaitRow = outcome.Rejection.Row
 			// The item's own transition is the composition's write: the queue's row
-			// in components.md names no dispatch, so what a rejection causes on the
+			// in ../../../end-goal/components.md names no dispatch, so what a rejection causes on the
 			// item is written here and the rejection says what it is.
 			if err := p.returnRejected(ctx, outcome); err != nil {
 				return adopted, err
@@ -121,7 +121,7 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 
 // returnRejected is what a rejection causes on the item: it goes back to the
 // stage the rejection names, with an attempt counted there. The queue writes
-// neither — its row in components.md names the gate component, the build runner
+// neither — its row in ../../../end-goal/components.md names the gate component, the build runner
 // and the log and names no dispatch — so the transition is the composition's,
 // and the actor is the queue, which is what the rejection row already says.
 //
