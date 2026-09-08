@@ -98,5 +98,9 @@
 // record, the condition that qualifies for a page, the four page events, the
 // single widening, the paging hours, and the drift detector's own page — and
 // ../../end-goal/what-humans-do.md (C2853) for the twelve duties the routing
-// reads and the obligations outside them.
+// reads and the obligations outside them. That gates and escalations leave the
+// product by mail or chat, and that the page is the third channel and the
+// narrow one, is
+// ../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md
+// (C2692, C2694).
 package notifier

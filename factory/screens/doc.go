@@ -123,7 +123,12 @@
 // The page channel's four numbers and the load split at first delivery and
 // first acknowledgement:
 // ../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md
-// (C2730, C2731, C2734, C2736, C2738).
+// (C2730, C2731, C2734, C2736, C2737, C2738, C2739).
+//
+// Cost per feature as one converted total where every kind of unit is priced,
+// and as units per model version where one is not:
+// ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md (C2535,
+// C2536).
 //
 // The principal and seam 5, not yet enforced: ../../end-goal/deferred.md
 // (C0110, C0111, C0121, C0128).

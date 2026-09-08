@@ -79,7 +79,7 @@
 // What defines it: the reach, the kind, the three optional fields a law
 // carries, and the design system as a constraint's content are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
-// (C0237, C0238, C0240, C0241, C0242, C0250, C0268, C0269, C0270, C0271,
+// (C0237, C0238, C0239, C0240, C0241, C0242, C0249, C0250, C0268, C0271,
 // C0294).
 //
 // Supplying a constraint is duty 2 of ../../end-goal/what-humans-do.md (C2864,

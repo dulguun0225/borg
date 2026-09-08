@@ -146,7 +146,7 @@
 // they share, and the ungated entry the factory writes are
 // ../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md
 // (C2429, C2434, C2436, C2437, C2438, C2440, C2443, C2444, C2445, C2446,
-// C2450).
+// C2447, C2450).
 //
 // Also ../../end-goal/records.md (C2799, C2801, C2802, C2803, C2804).
 package artifact

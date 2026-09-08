@@ -61,7 +61,10 @@
 // declaration. The sum a spend ceiling compares, the period it derives at the
 // read, and a credential failing closed on an unpriced kind are
 // ../../end-goal/how-the-factory-works/10-fleet/08-a-spend-ceiling.md (C2519,
-// C2524, C2525, C2526, C2529, C2533, C2534, C2543).
+// C2524, C2525, C2526, C2529, C2533, C2534, C2543). Whose account paid for a
+// run, recorded here and on the fleet entry and never on the artifact, is
+// ../../end-goal/how-the-factory-works/10-fleet/04-paid-for-is-not-authored-by.md
+// (C2452).
 //
 // Also ../../end-goal/records.md (C2834).
 package agentrun

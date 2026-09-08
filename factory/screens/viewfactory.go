@@ -285,7 +285,9 @@ type PageChannel struct {
 // accepted and again at the first acknowledgement: the part before the
 // first delivery is charged to the channel, the part between the first
 // delivery and the first acknowledgement is the shared duty's, and the part
-// after the first acknowledgement is that human's own.
+// after the first acknowledgement is that human's own. A row no delivery was
+// ever accepted for is charged whole to the channel and to nobody: its wait
+// is all before the first delivery, and the other two parts are zero.
 type LoadSplit struct {
 	Duty                                     int64
 	HumanKey                                 string
