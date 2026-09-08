@@ -400,6 +400,18 @@
 # reach it through interfaces the composition implements. Its three edges are
 # erasurelist, which it is the one writer of, principal, which every read
 # returning words names, and record for the identifier and the timestamp.
+#
+# wayin has no arrow at all, which is the only line here that says something
+# by naming nothing. The package holds three things: source the factory ships
+# into somebody else's build, which may import only the standard library
+# because the module it is compiled in is not this one; the overlay that
+# injects it, which is two files and a JSON encoding; and the entrance, whose
+# every fact about the factory — the notice in force, and what one submission
+# did — arrives through an interface the composition implements over the
+# report store. It writes no record, so it needs no identifier and no
+# timestamp from record, and it carries no principal: the one principal at
+# this seam is the way-in token, which the store resolves to the deploy that
+# placed it and this package only passes along.
 
 record
 gatepolicy
@@ -440,6 +452,7 @@ people -> record lease legalhold policy principal
 fleetentry -> record lease
 driftdetector -> record decisionlog lastcheck
 reportstore -> erasurelist principal record
+wayin
 score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease principal release window
 policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold principal project safeguard score secretref service
 dispatch -> agent agentrun artifact constraint decisionlog factorysettings fleetentry inputmanifest intent item lease people policy principal record

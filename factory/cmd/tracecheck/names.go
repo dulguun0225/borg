@@ -22,6 +22,7 @@ var namedOtherwise = map[string]string{
 	"localtarget":     "a deploy target that runs a release as a local process",
 	"secretref":       "a secret by reference, behind the one resolver",
 	"targetseam":      "the named seam between the deployer and a deploy target",
+	"wayin":           "the way in",
 }
 
 var wordPattern = regexp.MustCompile(`[a-z0-9]+`)
