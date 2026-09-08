@@ -30,6 +30,14 @@ document uses and the field that name comes from or `coined`, so the consistency
 fail on a new one. It holds no reasons and no decisions; a contested attribution is
 argued in the commit and settled in the file.
 
+`end-goal/claims.txt` is not a third either: it lists every claim the document makes, one
+sentence each under a stable id, with the file and a status — built, unbuilt naming the
+milestone that builds it, or stated for a sentence no code implements. The status is the
+one fact about the code the directory holds, because the check that fails the build reads
+it from one place. `factory/cmd/tracecheck` reads it and fails the build on a sentence no
+longer in its file, a claim cited by no code while marked built, and a `doc.go` outside
+`cmd/`, or a screen `README`, citing no claim. It holds no reasons.
+
 `review-findings.md` is not a third either: it exists only between a run of the review pass
 and the end of that run's triage, holding what the run returned until triage moves each finding into the file that owns its subject, into
 `end-goal/open.md`, or into `requires-human.md`. It records no disposition and no reason, so nothing is decided in it,
@@ -119,8 +127,8 @@ wherever the answer would differ by row. The list staffs nothing.
 
 Route work to the agents in `.claude/agents/` instead of doing it in the main context,
 without being asked. The session is the orchestrator; workers run on two tiers, set by
-each definition's `model:` line. Workers that judge — `cold-reader`,
-`discipline-reviewer`, `reviewer` — run on Opus. Workers that execute a decided task —
+each definition's `model:` line. Workers that judge — `cold-reader`, `discipline-reviewer`,
+`reviewer`, `drift-reviewer` — run on Opus. Workers that execute a decided task —
 `coder`, `editor`, `scout` — run on Sonnet. A doubt between the two resolves upward, and
 Opus is the cap. A type not in the roster (`general-purpose`, `Explore`, an ad-hoc
 dispatch) inherits the session model, so pass `model:` explicitly on every such launch:
@@ -177,12 +185,18 @@ rule, the rule names the command; the rest are checked in review.
 - **The map ships with the code, and is only a map.** `factory/README.md` names every
   package and what it owns, points at `deps.txt` for the edges, and says how to run the
   checks and the binaries. Each package's `doc.go` says what the package owns, who may
-  write what, and the path of the Markdown file that defines what it implements — an
-  `end-goal/` file for anything the design names. `cmd/tracecheck` fails the build on a
-  `doc.go` with no such reference and on a reference that points at nothing. Neither file
-  restates the design's reasoning: the document comes first, and a restatement is a second
-  copy able to disagree with it. Neither holds history: the commit is the history, and
-  `roadmap.md` holds the milestones.
+  write what, the path of each `end-goal/` file that defines what it implements, and after
+  each path whose file holds claims the package implements, in parentheses, the ids of
+  those claims. `cmd/tracecheck` fails the build on a `doc.go` citing no claim or citing
+  one the inventory lacks, on a built claim nothing cites (a screen README counts), on an
+  unbuilt or stated claim something cites, on a design file under `how-the-factory-works/`
+  or `what-the-factory-does/`, other than a README, that no claim names, on a reference
+  that points at nothing, on a `doc.go` under `cmd/` carrying no reference at all, and on
+  a package whose name is no phrase the design uses. A `doc.go` under `cmd/` implements
+  this file's rules rather than the design, cites files and no claims, and is held to the
+  reference rule alone. Neither file restates the design's reasoning: the document comes
+  first, and a restatement is a second copy able to disagree with it. Neither holds
+  history: the commit is the history, and `roadmap.md` holds the milestones.
 
 The client is Angular for the reason the rules above exist. No human reads a diff, so a
 defect the build does not refuse is found by a user, and Angular with strict templates
@@ -218,13 +232,26 @@ counterparts:
   owns and the path of the `end-goal/` file it implements, which is the client's `doc.go`,
   and `cmd/tracecheck` reads it as one.
 
+An edit to a `doc.go` outside `cmd/`, or to a screen `README.md`, is followed, before its
+commit, by one dispatch of `drift-reviewer` from `.claude/agents/` on that directory, given
+the directory and the current sentence of every claim it cites and nothing else. Its **Not
+implemented** and **Claimed nowhere** lists must be empty before the commit; its
+**Implemented differently** list is decided in the session, and the design wins. `coder`
+reports the directories it changed so the session can run this.
+
 Duplicate a line rather than share a helper across packages: locality is paid for in
 repetition, and the repetition is the cheaper of the two. Copies keep one name and one
 spelling, so a defect found in one is found in all by one search. Expect more packages
 than a layered design would have.
 
-Code coins no second name for a thing the design document names: where
-`end-goal/terms.txt` lists a name for the concept, the identifier is that name.
+Code coins no second name for a thing the design document names: a package is named for a
+phrase some `end-goal/` file uses, which `cmd/tracecheck` checks by splitting the directory
+name into words, and the packages named otherwise are listed in its `names.go` with the
+design phrase each stands for. The check is bounded: `cmd/` and the client are not checked,
+the split is at most three words, and a split with a function word among its parts is
+refused; a name outside those bounds goes in `names.go`. Below the package name the rule
+is held in review and by `drift-reviewer`, whose third list is a name or mechanism the
+design does not have.
 
 ## The review pass
 

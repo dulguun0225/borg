@@ -13,6 +13,7 @@ Rules:
 - Keep the code rules of the repository's CLAUDE.md, _Code_: one package per concept, packages of one kind sharing one shape, explicit over implicit, locality, `factory/deps.txt` as the allowed package graph, and the map in `factory/README.md` and `doc.go` kept current and only a map.
 - Write the test before the code where a test fits.
 - Before returning, run `go vet ./...`, `go build ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, and `go test ./...` from `factory/` and include their output.
+- If you changed a `doc.go` outside `cmd/`, or a screen `README.md`, say so in your return and list the claim ids it cites, so the session can dispatch `drift-reviewer` on that directory before the commit. You do not dispatch it yourself.
 - Report every file you touched that is over 500 lines, with its line count.
 - Do not decide anything the dispatch left open. Do what is decided, and list what is not.
 - Do not commit.

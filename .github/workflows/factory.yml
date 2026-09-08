@@ -116,4 +116,14 @@ jobs:
 
       - run: go run ./cmd/tracecheck
 
+      # The design document's own checks, the fence in end-goal/CLAUDE.md, run
+      # from the repository root so their readings are in this log. The script
+      # has no set -e, so the step's exit status is the fence's last command,
+      # the tracecheck run the step before already makes; the fence's gates
+      # fail the session that edits the document, not this job. Appending a
+      # command to the fence changes what this step's exit status means.
+      - name: the design document's consistency commands
+        working-directory: .
+        run: tools/consistency-commands.sh
+
       - run: go test -count=1 ./...

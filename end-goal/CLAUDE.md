@@ -5,11 +5,17 @@ except the verification commands, which say so.
 
 ## What this is
 
-`end-goal/` is Markdown files plus one that is not: [`terms.txt`](terms.txt), the
+`end-goal/` is Markdown files plus two that are not. [`terms.txt`](terms.txt) is the
 inventory of every name the document introduces, read only by the consistency pass.
-Together they are one design document for a fully autonomous software factory — a
-product each customer self-hosts, which refines intent, builds, deploys, monitors, and
-fixes software on its own.
+[`claims.txt`](claims.txt) is the inventory of every claim the document makes: one line per
+claim, tab-separated, with an id (`C` and four digits, never reused), the file, a status
+(`built`, `unbuilt Mn` naming a `roadmap.md` milestone, or `stated` for a statement no code
+is expected to implement), and one sentence, or one table row, of the file quoted verbatim. `claims.txt` is
+also read by `factory/cmd/tracecheck`, which is where a claim's sentence moving fails the
+build. Neither inventory holds a reason.
+Together the Markdown files are one design document for a fully autonomous software
+factory — a product each customer self-hosts, which refines intent, builds, deploys,
+monitors, and fixes software on its own.
 
 The repository around it is the monorepo that will build that thing; this directory is
 the state it is built toward, so code is added beside it and never in it. There is no
@@ -226,9 +232,12 @@ There are no tests. After editing, run the consistency pass. It checks this docu
 against rules this file and the root `CLAUDE.md` set, and finds nothing they do not name —
 the review pass in the root `CLAUDE.md` is what looks for the rest, dispatched cold and on
 request. Every command below is scoped to `end-goal/` and run from the repository root, so
-no sibling directory enters a check written for this one — except the link resolver, which
-reads the repository's Markdown because `roadmap.md` and the factory's docs link into this
-document and a file that moves here would break them silently otherwise:
+no sibling directory enters a check written for this one. Three exceptions read outside it:
+the link resolver, the claims reading that lists the package directories citing a changed
+claim, and the tracecheck run, which is the build's check on the code and reads this
+directory from the other side. The link resolver reads the repository's Markdown because
+`roadmap.md` and the factory's docs link into this document and a file that moves here
+would break them silently otherwise:
 
 ```bash
 # 10 content tables — what comes from outside, rollout strategies, gate actions, criterion patterns, build names, window exits, gate policy, what a role prompt and a skill reach, records and their writers, components and what they call — plus the one index table every README holds
@@ -357,6 +366,18 @@ print('prose form: %d in this edit; elsewhere %d sentences, %d em dashes and %d 
       % (fails, tail['sentence'], tail['em dash'], tail['paragraph'], len(over), FILE_MAX,
          ', '.join('%s at %d' % (os.path.basename(p), w) for w, p in over[:3])))
 EOF
+
+# every claims.txt line has four fields — expect no output
+awk -F'\t' '/^#/||/^$/{next} NF!=4{print "claims.txt:" FNR ": " NF " fields"}' end-goal/claims.txt
+
+# every file under how-the-factory-works/ and what-the-factory-does/ that is not a README states at least one claim — expect no output
+comm -23 <(find end-goal/how-the-factory-works end-goal/what-the-factory-does -name '*.md' ! -name README.md | sed 's#^end-goal/##' | sort) <(grep -v '^#' end-goal/claims.txt | grep -v '^$' | cut -f2 | sort -u)
+
+# the claims whose line this edit changed, and the package or screen directories citing each — read for the drift check below
+git diff -U0 HEAD -- end-goal/claims.txt | grep '^[-+]C[0-9]' | sed 's/^[-+]//' | cut -f1 | sort -u | while read -r id; do printf '%s:' "$id"; grep -rlw "$id" factory --include=doc.go --include=README.md | grep -v '^factory/cmd/' | grep -E 'doc\.go$|client/src/app/(work|ops|factory|people)/README\.md$' | xargs -r -n1 dirname | sort -u | tr '\n' ' '; echo; done
+
+# every claim's sentence is still in its file and every citation holds — run from factory/, expect no output
+(cd factory && go run ./cmd/tracecheck)
 ```
 
 The link check resolves each path against the directory of the file it appears in, which a
@@ -367,14 +388,21 @@ separate. That one matches an anchor against every heading in this document rath
 against the target file's own, so it catches a renamed heading and not a link pointed at
 the wrong file.
 
-Two commands here are gates and the rest are readings. The prose-form check is one, and
-the inventory check is the other. A reading finds a link or an anchor pointing at
-nothing; the inventory check finds a name that did not
-exist before this edit, which is the defect the vocabulary cleanup of 2026-08-20 to
-2026-08-23 spent millions of tokens undoing. It runs one way on purpose: a name added
-fails, a name removed does not, because that cleanup removed names constantly and a check
-that fought it would have blocked the work it exists to protect. The pile is gone and this
-is what stops it growing back.
+Four commands here are gates, one is the build's own check, and the rest are readings.
+The prose-form check is one, the inventory check is another, and the four-field check
+and the every-file-states-a-claim check are the other two. The tracecheck run is the
+build's own check, run here so that a design edit that moves a claim's sentence sees the
+failure before the commit rather than in CI. A reading finds a link or an anchor
+pointing at nothing; the inventory check finds a name that did not exist before this
+edit, which is the defect the vocabulary cleanup of 2026-08-20 to 2026-08-23 spent
+millions of tokens undoing. It runs one way on purpose: a name added fails, a name
+removed does not, because that cleanup removed names constantly and a check that fought
+it would have blocked the work it exists to protect. The pile is gone and this is what
+stops it growing back. The every-file-states-a-claim check is a gate for the same reason
+the inventory check is: a file with no claim is a file no code can be held to, and it is
+found at the edit that adds the file, where it costs one line. The four-field check is a
+gate because a malformed line is a claim the build cannot read, found at the edit that
+writes it.
 
 It costs two things. It reads bolding rather than meaning, so a bolded run that is emphasis
 and not a name has to be seeded in `terms.txt` like one — `git`, `always true` and `the
@@ -567,6 +595,30 @@ Contracts → Operations → Gate policy → The fleet → Screens straight thro
 directory read README first and then its files in name order — and confirm one identity
 survives end to end: item plus build as a candidate, the same build in production, an
 ordinal attached at merge, contracts versioned alongside it.
+
+### The drift check
+
+The claims reading above lists every claim whose line this edit changed and the package or
+screen directories citing it. The session drops from that list a claim whose sentence is
+unchanged (a path or status edit) before dispatching. For each directory remaining,
+dispatch one `drift-reviewer` from `.claude/agents/` with no other context: the directory's
+path and the current `claims.txt` line of every claim that directory cites, as `id`, a tab,
+and the sentence. It reads the directory alone and returns three lists.
+
+**Not implemented** and **Claimed nowhere** are failures: the edit is not finished while
+either is non-empty. The remedy for the first is a change to the code in the same commit,
+or the claim's status moved to `unbuilt Mn` and its citation struck from the directory in
+the same edit. A doc.go or screen README that then cites no claim fails the build, and that
+is the finding it should be — a package implementing no design claim is code the design
+does not have, and the document comes first. Claimed nowhere excludes what the code rules
+already require a doc.go to state, which is the doc.go's own duty and not a claim. The
+remedy for the second is a claim added to `claims.txt` and the sentence that states it
+added to the owning file, or the code removed. **Implemented differently** is a judgment
+for the session: the code moves to the sentence, or the sentence is corrected and the claim
+re-pinned to it. The document wins the conflict, per the root `CLAUDE.md`.
+
+What the check costs is one Opus read per citing directory per edit, each read over every
+claim that directory cites, bounded by the directory's citation list.
 
 ## Commits
 
