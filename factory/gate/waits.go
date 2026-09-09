@@ -99,19 +99,41 @@ func dutyOf(row Row, holds []string) people.Duty {
 // firing. A row whose routing is a record's takes that record's duty or named
 // human; every other row takes the duty the design names, and widens to the
 // owner where nobody holds it.
-func (g *Gate) waitsOn(ctx context.Context, row Row, holds []string, routed RoutedTo) (Waits, error) {
+// Where a safeguard added the human, its own routing field is what the row
+// takes instead of widening to the owner: a compliance officer who safeguards a
+// regulated area answers their own rows. It is read after the design's duty and
+// not before it, which is the order the rollback hold's own sentence gives —
+// duty 10, then the named human a safeguard's routing field gives where one
+// names it, then the owner where nobody holds it.
+func (g *Gate) waitsOn(ctx context.Context, row Row, holds []string, routed, safeguarded RoutedTo) (Waits, error) {
 	waits := Waits{Duty: dutyOf(row, holds), Human: routed.Human, NotHuman: routed.NotHuman}
 	if routed.Duty != 0 {
 		waits.Duty = routed.Duty
 	}
-	if waits.Duty == 0 || waits.Human != "" {
+	if waits.Human != "" {
 		return waits, nil
 	}
-	holders, err := g.holdersOf(ctx, waits.Duty)
-	if err != nil {
-		return Waits{}, err
+	if waits.Duty != 0 {
+		holders, err := g.holdersOf(ctx, waits.Duty)
+		if err != nil {
+			return Waits{}, err
+		}
+		waits.Holders = holders
 	}
-	waits.Holders = holders
+	if !waits.TheOwner() {
+		return waits, nil
+	}
+	if safeguarded.Human != "" {
+		waits.Human = safeguarded.Human
+		return waits, nil
+	}
+	if safeguarded.Duty != 0 {
+		holders, err := g.holdersOf(ctx, safeguarded.Duty)
+		if err != nil {
+			return Waits{}, err
+		}
+		waits.Duty, waits.Holders = safeguarded.Duty, holders
+	}
 	return waits, nil
 }
 

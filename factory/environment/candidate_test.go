@@ -262,6 +262,45 @@ func TestTheCeilingIsCountedPerProject(t *testing.T) {
 	}
 }
 
+// TestReclaimingAnEnvironmentFreesRoomUnderTheCeiling: torn down for good on
+// the three events an environment per candidate names, an environment is also
+// reclaimed meanwhile from an item running nothing — and the count the ceiling
+// is compared against reads a reclaimed environment as not live, the newest
+// cycle being closed and none open, so the platform's room it held is not
+// consumed by an item waiting on a human.
+func TestReclaimingAnEnvironmentFreesRoomUnderTheCeiling(t *testing.T) {
+	ctx, pool, w, token := newTable(t)
+	candidates := environment.NewCandidates(pool, token)
+
+	production, err := w.Create(ctx, owner, productionSpec())
+	if err != nil {
+		t.Fatalf("creating production: %v", err)
+	}
+
+	env, err := candidates.Compose(ctx, deployer, "it_a", theProject,
+		oneTarget("/srv/a"), credential, environment.Composition{})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if live, err := environment.CountLiveCandidates(ctx, pool, production.ID); err != nil || live != 1 {
+		t.Fatalf("CountLiveCandidates with the environment composed = %d, %v, want 1", live, err)
+	}
+
+	if err := candidates.TearDown(ctx, deployer, env.ID, environment.ReasonReclaimed, environment.Rate{}); err != nil {
+		t.Fatalf("TearDown reclaiming: %v", err)
+	}
+	if live, err := environment.CountLiveCandidates(ctx, pool, production.ID); err != nil || live != 0 {
+		t.Errorf("CountLiveCandidates after reclaiming = %d, %v, want 0: a reclaimed environment still stands, torn_down_at empty, but frees the room it held", live, err)
+	}
+
+	if err := candidates.Recompose(ctx, deployer, env.ID, environment.Composition{}); err != nil {
+		t.Fatalf("Recompose after a reclamation: %v", err)
+	}
+	if live, err := environment.CountLiveCandidates(ctx, pool, production.ID); err != nil || live != 1 {
+		t.Errorf("CountLiveCandidates after recomposing = %d, %v, want 1", live, err)
+	}
+}
+
 // TestTheTornDownCandidatesAreWhatAFailedTeardownIsFoundAgainst: a candidate
 // environment the platform holds and the records mark torn down is a teardown
 // that failed. What the deployer's pass compares against what the platform

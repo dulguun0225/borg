@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/principal"
@@ -136,9 +137,21 @@ func (r *recordingTarget) Deploy(ctx context.Context, p principal.Principal,
 	d targetseam.Deployment) (targetseam.Placement, error) {
 	r.placed.made = append(r.placed.made, placement{
 		dir: r.dir, service: d.Service, build: d.Build,
-		token: d.WayInToken, address: d.WayInAddress,
+		token: wayInTokenIn(d.Configuration), address: d.WayInAddress,
 	})
 	return r.Target.Deploy(ctx, p, d)
+}
+
+// wayInTokenIn is the token the deployer minted for a deploy, read out of the
+// configuration it hands the service: the token is one of that value set's
+// values, under the name the way in inside the build reads it by.
+func wayInTokenIn(values targetseam.ValueSet) string {
+	for n, name := range values.Names {
+		if name == deploy.WayInTokenName && n < len(values.Values) {
+			return values.Values[n]
+		}
+	}
+	return ""
 }
 
 // at is the newest deploy of one service on one target, which for production's

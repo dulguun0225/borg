@@ -12,17 +12,30 @@
 // [MismatchKindStaleComponent], [LastCheck] with [LastCheck.Stale], [Pass] with
 // [Pass.Agreed], [Recorded], [StaleComponent], and [Writer] and [NewWriter]
 // with [Writer.Record], [Writer.Clear], [Writer.RaiseChainMismatch] and
-// [Writer.RaiseStaleComponent]. head.go is [Head], [Writer.RecordHead],
-// [GetHead] and [VerifyChain], the second comparison's own. delivery.go is
-// [Writer.SetAddress], [Address], [OwnDelivery], [Writer.Deliver] and
-// [OwnDeliveries], the detector's own page. read.go is [Store] and
-// [NewStore] with [Store.Mismatch], and the reads [Uncleared],
+// [Writer.RaiseStaleComponent]. agreement.go is [Writer.RecordChainAgreement]
+// and [Writer.RecordStaleComponentAgreement], the later-agreement counterpart
+// of the two raises, beside [Writer.Record]'s own for a target mismatch.
+// recordedrelease.go is [RecordedDeploy] and [RecordedRelease], the first
+// comparison's own selection of what a service's production deploy record
+// marks for one target. exemption.go is [OpenWindow], [WindowTarget]
+// and [Excused], the rollout exemption's own decision. stale.go is
+// [ServiceOnTargets], [StaleHold], [Holds] and [MustDeliver], the third
+// comparison's own decisions: what a stopped component's mismatch holds, and
+// when the detector delivers to its own address. head.go is [Head],
+// [Writer.RecordHead], [recordedHead] and [VerifyChain], the second comparison's
+// own. delivery.go is [Writer.SetAddress], [Address], [OwnDelivery],
+// [Writer.Deliver] and [OwnDeliveries], the detector's own page. read.go is
+// [Store] and [NewStore] with [Store.Mismatch], and the reads [Uncleared],
 // [UnclearedChain], [All], [Get], [LastChecks] and [StaleAgainst], the age a
 // safeguard on this store's last check binds. schema.go is every
 // table's name and id prefix, [DDL], and this store's own [DefaultURL],
 // [URLEnv], [URL], [Open] and [Apply].
 //
-// The tests are db_test.go, every one of them against the database.
+// The tests are db_test.go, every one of them against the database, and
+// head_test.go beside it, which also covers agreement.go's two methods —
+// except exemption_test.go, stale_test.go and recordedrelease_test.go, which
+// touch no database because [Excused], [Holds], [MustDeliver] and
+// [RecordedRelease] are pure code over plain inputs.
 //
 // This package brings its own [Open], [Apply], [URL], and [DDL] rather than
 // reaching for package postgres: the factory's schema applier knows every
@@ -35,12 +48,24 @@
 // [Writer.Record] is what writes it: a [Mismatch] naming the service and the
 // target where they disagree, and a [LastCheck] per production target either
 // way, overwritten each pass. Failing to reach a target is not a mismatch —
-// it is a last check with [LastCheck.Reached] false and the reason on it.
-// [Pass.Excused] is where a caller says a build running beside the current
-// release is a window's control; on a platform that moves a process rather
-// than traffic it is never set, one directory running one process, and the
-// field is carried so that a platform which does keep a control does not
-// have to add it.
+// it is a last check with [LastCheck.Reached] false and the reason on it. A
+// target running a build the record never marked complete, because the
+// lapsed instance that would have marked it had its write fenced by the
+// restart that took the lease over from it, is a mismatch this comparison
+// raises the same as any other, and it pages and waits for a human to clear
+// it rather than being refused or read as a stopped deployer.
+// [Pass.Excused] carries what [Excused] decided: the caller assembles the
+// open windows, the deployer's last check, and the running build, hands
+// them to [Excused], and sets the field from what it returns. The package
+// decides the exemption itself, in [Excused], from those inputs — a
+// decision the claims below cite, so it cannot live in the command that
+// assembles those inputs. A build is excused as the release a window
+// watches, as the control its deploy record names on that target, or as
+// [WindowTarget.KeptBuildID] — the release a rollback of the watched
+// release would return to, on a target whose kept instances are there to
+// return to — which the caller reads off the control where one ran and off
+// its own reading of the release below otherwise, the way [Excused]'s other
+// two cases are already assembled and handed over.
 //
 // The third comparison is the factory's own last check records, read by the
 // detector's process and written back here as [Writer.RaiseStaleComponent]: a
@@ -48,7 +73,13 @@
 // the health monitor's a service's production deploys, the deployer's an
 // environment's, one row per service in it, and a component reaching no deploy
 // nothing at all, its row naming no service — and one uncleared row stands per
-// component, service and target.
+// component, service and target. [Holds] is that decision, over the stale last
+// check and the services and production environments the command assembles.
+// Two of the last checks this comparison reads have no carrier of their own to
+// hold — the notifier's own staleness, and every factory last check stale at
+// once — so [MustDeliver] is where the detector decides to deliver to its own
+// address instead, over every last check and every stale one, naming what it
+// found.
 //
 // The fourth comparison (the instances a rollback would need against the count
 // the deploy record keeps), the fifth (the schema history in each service's
@@ -95,12 +126,40 @@
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md
-// (C2145, C2146, C2147, C2148, C2149, C2150, C2151, C2152, C2153, C2154, C2156,
-// C2157, C2158, C2160, C2167, C2168, C2169, C2171, C2172, C2175) — the one
+// (C2144, C2145, C2146, C2147, C2148, C2149, C2150, C2151, C2152, C2153, C2154,
+// C2156, C2157, C2158, C2160, C2161, C2167, C2168, C2169, C2171, C2172,
+// C2175) — the one
 // process, the four records, the four readers, the six comparisons of which
 // three are built, the detector's own delivery, and what clearing requires —
 // and
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md
-// (C1177) for the hold it sets, which is the one hold the factory cannot lift
-// by gathering evidence.
+// (C1177, C1178) for the hold it sets, which is the one hold the factory
+// cannot lift by gathering evidence.
+//
+// A drift mismatch paging and waiting on a human is
+// ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md
+// (C0892);
+//
+// an unnamed build holding deploys as a mismatch, and clearing being the only
+// record of the manual act, are
+// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1759,
+// C1760);
+//
+// the exemption naming the open window on the build, a completed target never
+// exempt, unreached targets alone covered, and the window cap bounding it are
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1929, C1930, C1931, C1932).
+//
+// [Writer.RecordHead] recording the chain head each pass, and [VerifyChain]
+// recomputing forward from it and comparing, as the two comparisons made from
+// outside the pipeline, are seam 2 of ../../end-goal/deferred.md (C0047,
+// C0078, C0130);
+//
+// the digest comparison raising a mismatch that holds is
+// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
+// (C1625); the first comparison reading each target against the record is
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/README.md
+// (C1713); and the first comparison and its mismatch cleared, and a lapsed
+// instance's unmarked completion being this comparison's mismatch and not a
+// refusal, are ../../end-goal/one-process.md (C2753, C2755).
 package driftdetector

@@ -282,12 +282,13 @@ func TestClearMarksAMismatchClearedAndKeepsTheRow(t *testing.T) {
 		t.Fatalf("Record: raised %q, %v, want a mismatch raised", raised.Raised, err)
 	}
 
-	cleared, err := w.Clear(ctx, raised.Raised, "alice")
+	cleared, err := w.Clear(ctx, raised.Raised, "alice", "verified by hand against the target")
 	if err != nil {
 		t.Fatalf("Clear: %v", err)
 	}
-	if cleared.ClearedBy != "alice" || cleared.ClearedAt == "" || !cleared.Cleared() {
-		t.Errorf("Clear = %+v, want it cleared by alice", cleared)
+	if cleared.ClearedBy != "alice" || cleared.ClearedAt == "" || !cleared.Cleared() ||
+		cleared.ClearedWhy != "verified by hand against the target" {
+		t.Errorf("Clear = %+v, want it cleared by alice with the reason written down", cleared)
 	}
 
 	held, _, err := driftdetector.NewStore(pool).Mismatch(ctx, p.ServiceID)
@@ -300,7 +301,7 @@ func TestClearMarksAMismatchClearedAndKeepsTheRow(t *testing.T) {
 		t.Errorf("All = %+v, %v, want the cleared row kept", all, err)
 	}
 
-	if _, err := w.Clear(ctx, raised.Raised, "bob"); !errors.Is(err, driftdetector.ErrAlreadyCleared) {
+	if _, err := w.Clear(ctx, raised.Raised, "bob", "looks fine now"); !errors.Is(err, driftdetector.ErrAlreadyCleared) {
 		t.Errorf("Clear again = %v, want ErrAlreadyCleared", err)
 	}
 }
@@ -312,8 +313,23 @@ func TestClearWithNoHumanIsClearedByEmpty(t *testing.T) {
 	if err != nil || raised.Raised == "" {
 		t.Fatalf("Record: raised %q, %v, want a mismatch raised", raised.Raised, err)
 	}
-	if _, err := w.Clear(ctx, raised.Raised, ""); !errors.Is(err, driftdetector.ErrClearedByEmpty) {
+	if _, err := w.Clear(ctx, raised.Raised, "", "a reason"); !errors.Is(err, driftdetector.ErrClearedByEmpty) {
 		t.Errorf("Clear with no human = %v, want ErrClearedByEmpty", err)
+	}
+}
+
+// TestClearWithNoReasonIsClearedWhyEmpty is C1760: clearing it is the record
+// of the manual act and the only record there is, so a clearing that writes
+// nothing down is refused rather than kept as a hole in the trail.
+func TestClearWithNoReasonIsClearedWhyEmpty(t *testing.T) {
+	ctx, _, w := newTable(t)
+	p := pass()
+	raised, err := w.Record(ctx, p)
+	if err != nil || raised.Raised == "" {
+		t.Fatalf("Record: raised %q, %v, want a mismatch raised", raised.Raised, err)
+	}
+	if _, err := w.Clear(ctx, raised.Raised, "alice", ""); !errors.Is(err, driftdetector.ErrClearedWhyEmpty) {
+		t.Errorf("Clear with no reason = %v, want ErrClearedWhyEmpty", err)
 	}
 }
 

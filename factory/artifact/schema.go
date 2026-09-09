@@ -40,13 +40,19 @@ const FormatVersion = "artifact/1"
 // component that wrote the record, and two agents in different roles on one
 // model are one author under two actors.
 //
-// The one version an authorship does not name is the entry nobody wrote — the
-// shipped version the factory enters at install or at an upgrade's first
-// start, on a call that authors nothing. Both authorship and author are empty
-// together on such a row, author_pair_together being the CHECK that admits
-// exactly that pair and refuses any other partial one, and
-// shipped_bundle_identity is present on it and on no other row, naming the
-// release of the product that entered it.
+// The versions an authorship does not name are the ones nobody wrote: the
+// shipped role prompt, skill or selection rule the factory enters at install
+// or at an upgrade's first start, and the consumer contract the upgrade's
+// first start derives again where the extractor changed. Both authorship and
+// author are empty together on such a row, author_pair_together being the
+// CHECK that admits exactly that pair and refuses any other partial one, and
+// shipped_bundle_identity is present on those rows and on no other, naming the
+// release of the product that entered or derived it — for the derivation the
+// release that shipped the extractor, a derivation being a function of the
+// code and of the factory version. unauthored_item_kind_is_a_consumer_contract
+// is the bound on which item kind such a row may be: an unauthored spec,
+// plan, tasks or implementation is nobody's work, where the derivation is the
+// extractor's.
 //
 // entered_by names which of the two events entered such a row, and is empty on
 // every authored one. The two are not the same entry: the install's entries
@@ -57,14 +63,21 @@ const FormatVersion = "artifact/1"
 // does not say which one wrote it and [InForce] cannot tell the ungated case
 // from the pending one.
 //
-// content_digest is the sha256 of content in hexadecimal, computed at the
-// write and never supplied by the caller — [Store.Redact] is the one path
-// that recomputes it after the write, over the redacted content.
+// content_digest is the sha256 of content as it was written, in hexadecimal,
+// computed at the write, never supplied by the caller and never updated.
+// [Store.Redact] destroys bytes of content in place and writes
+// redacted_content_digest, the digest of what remains, beside it rather than
+// over it: a decision recorded the digest of the words it decided, and it
+// still names them after the erasure. redacted_content_digest is empty until a
+// redaction destroys something.
 //
 // input_manifest_id names the input manifest the version was authored from,
-// supplied by the caller that dispatched the run and empty where that caller
-// wrote none; it is empty on every shipped version too, an entry authoring
-// nothing having read no manifest.
+// supplied by the caller that dispatched the run. Context assembly writes one
+// at every dispatch, so a version an agent authored names one and
+// input_manifest_names_the_dispatch refuses one that does not. A version a
+// human wrote, at a stage or at a gate, is not a dispatch and names none, and
+// so is every version nobody wrote, an entry authoring nothing having read no
+// manifest.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -78,6 +91,7 @@ var DDL = []string{
 	author text not null,
 	content text not null,
 	content_digest text not null,
+	redacted_content_digest text not null,
 	shipped_bundle_identity text not null,
 	entered_by text not null,
 	input_manifest_id text not null,
@@ -101,6 +115,9 @@ var DDL = []string{
 	constraint entered_by_known check (entered_by in ('', 'install', 'upgrade_first_start')),
 	constraint entered_by_matches_authorship check ((authorship = '') = (entered_by <> '')),
 	constraint input_manifest_only_when_authored check (authorship <> '' or input_manifest_id = ''),
+	constraint input_manifest_names_the_dispatch check (authorship <> 'agent' or input_manifest_id <> ''),
+	constraint unauthored_item_kind_is_a_consumer_contract check
+		(authorship <> '' or item_id = '' or kind = 'consumer_contract'),
 	constraint one_row_per_version unique (item_id, kind, role, subject, version)
 )`,
 }

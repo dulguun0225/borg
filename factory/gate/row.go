@@ -189,6 +189,15 @@ func (r Row) ArtifactGate() bool {
 	}
 }
 
+// OffersEditInPlace reports whether a human at the row may author a new version
+// while the row waits. Every artifact gate does but Implementation: code is not
+// editable at a gate, so a human who wants different code authors it upstream
+// and sends the item back to have it built again. Decomposition offers an Edit
+// in place of its own over the set, which [Gate.EditSetInPlace] takes.
+func (r Row) OffersEditInPlace() bool {
+	return r.ArtifactGate() && r.Kind != KindImplementation
+}
+
 // DecidesAnItem reports whether the row is on an item's path. The five rows that
 // are not — a role prompt or a skill, the three withdrawals, and the shortening
 // of decision-log retention — have no stage to be at, no build to point at, and

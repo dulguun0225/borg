@@ -61,7 +61,12 @@ func TestAMitigationIsPerformedOnAHumansInstructionAndStandsUntilItIsEnded(t *te
 		t.Fatalf("the standing mitigations are %+v, want the one just performed against its deploy record", standing)
 	}
 
-	if err := w.EndMitigation(ctx, m.ID); err != nil {
+	// A mitigation stands until a human ends it at Ops, and the record names
+	// which human: the deployer that performed it cannot end it.
+	if err := w.EndMitigation(ctx, deployer, m.ID); !errors.Is(err, deploy.ErrNotAHuman) {
+		t.Fatalf("EndMitigation by the deployer = %v, want ErrNotAHuman", err)
+	}
+	if err := w.EndMitigation(ctx, opsHuman, m.ID); err != nil {
 		t.Fatalf("EndMitigation: %v", err)
 	}
 	standing, err = deploy.StandingMitigations(ctx, pool)
@@ -78,7 +83,10 @@ func TestAMitigationIsPerformedOnAHumansInstructionAndStandsUntilItIsEnded(t *te
 	if len(against) != 1 || against[0].EndedAt == "" {
 		t.Errorf("the mitigations of the deploy are %+v, want the ended one still on the record", against)
 	}
-	if err := w.EndMitigation(ctx, m.ID); !errors.Is(err, deploy.ErrMitigationNotFound) {
+	if ended := against[0].EndedBy; ended.Key != opsHuman.Key || ended.Kind != record.KindHuman {
+		t.Errorf("the ended mitigation names %+v, want the human who ended it at Ops", ended)
+	}
+	if err := w.EndMitigation(ctx, opsHuman, m.ID); !errors.Is(err, deploy.ErrMitigationNotFound) {
 		t.Errorf("ending a mitigation twice = %v, want ErrMitigationNotFound", err)
 	}
 }

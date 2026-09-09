@@ -211,10 +211,15 @@ func someEvidence(t *testing.T) *Evidence {
 	return e
 }
 
+// asShipped is what a pass reads off a factory running on the version the
+// product ships: the band it steps the threshold by, and no recalibration
+// behind it.
+var asShipped = Under{BandWidth: ShippedBandWidth}
+
 // valueOf is what the pass supplies for one parameter on one subject.
 func valueOf(t *testing.T, e *Evidence, parameter gatepolicy.Parameter, subject string) float64 {
 	t.Helper()
-	learned, err := LearnFrom(e)
+	learned, err := LearnFrom(e, asShipped)
 	if err != nil {
 		t.Fatalf("LearnFrom: %v", err)
 	}
@@ -229,7 +234,7 @@ func valueOf(t *testing.T, e *Evidence, parameter gatepolicy.Parameter, subject 
 // moved nothing for it.
 func rowFor(t *testing.T, e *Evidence, parameter gatepolicy.Parameter, subject string) *Supplied {
 	t.Helper()
-	learned, err := LearnFrom(e)
+	learned, err := LearnFrom(e, asShipped)
 	if err != nil {
 		t.Fatalf("LearnFrom: %v", err)
 	}

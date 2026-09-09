@@ -17,7 +17,7 @@
 //
 // writer.go is [ResolvedEntry], [Draft], [Build], [Writer] and [NewWriter]
 // with [Writer.Create], the one write, and the reads [Get], [ForCommit],
-// [Newest], [Resolved] and [Exposure]; schema.go is [Table], [ResolvedTable], the two id prefixes, the
+// [ForServiceCommit], [Newest], [Resolved] and [Exposure]; schema.go is [Table], [ResolvedTable], the two id prefixes, the
 // two format versions, and [DDL]. The tests are db_test.go, every one of them
 // against the database.
 //
@@ -88,16 +88,20 @@
 // method, so written once is a property of the API and not a discipline of
 // the callers.
 //
-// What defines it: the Implementation gate in
-// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md,
-// the first gate that decides over a build; the build record, the resolved set,
-// its coverage, the notice file, and the design system constraint field in
+// What defines it: the build record, the
+// resolved set, its coverage, the notice file, and the design system
+// constraint field in
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1433, C1439, C1440, C1441, C1443, C1444, C1448, C1449, C1450, C1460, C1465,
-// C1467, C1478);
+// (C1433, C1437, C1439, C1440, C1441, C1443, C1444, C1448, C1449, C1450,
+// C1460, C1465, C1466, C1467, C1478);
 //
-// what a build is called and the search's builds in
-// ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md;
+// what a build is called and the search's builds are
+// ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md
+// (C1647, C1650); the notice file and could-not-derive as they reach the
+// release are
+// ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md
+// (C1643, C1644);
+//
 // the exposure list read from a diff and a build record in
 // ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md;
 // the schema change a build declares and the double application the candidate

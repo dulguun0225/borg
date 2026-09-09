@@ -24,18 +24,22 @@ var (
 	// the row and re-fires it to a holder who has not referred it, so it is two
 	// appends and one refusal of its own; [Gate.Refer] is where it is given.
 	ErrReferGivenHere = errors.New("gate: a refer is given through Refer, which re-fires the row")
-	// ErrSelfApproval is returned for a close whose actor wrote the artifact
-	// version its open event names — the same per-person key on both — where
-	// another holder of the row's duty exists. The row re-fires to that holder
-	// rather than closing to its own author.
-	ErrSelfApproval = errors.New("gate: this close is by the author of the version under decision, and another holder of the row's duty exists")
-	// ErrClosedByTheActor is returned for a close by the human a record's own
-	// routing says may not decide it, where another decider exists: the actor on
-	// a withdrawal is never the human its row waits on, and the human who
-	// authored a shorter retention value is not the one who decides it. Where no
-	// other decider exists the row still fires to that person, closes, and
-	// carries [ClosingPayload.SelfApproval].
-	ErrClosedByTheActor = errors.New("gate: this row does not route to the human who wrote the record it decides")
+	// ErrSelfApproval is the fifth of the five closes the log's writer refuses:
+	// a close whose actor wrote what is under decision, where another holder of
+	// the row's duty exists. The row re-fires to that holder rather than closing
+	// to its own author.
+	//
+	// What "wrote what is under decision" reads is the artifact version's actor
+	// at the five gates that decide a document, and the human a record's own
+	// routing bars at the four that decide a record — the actor on a withdrawal
+	// is never the human its row waits on, and the human who authored a shorter
+	// retention value is not the one who decides it. Those are one refusal and
+	// not two: the design bounds the writer to five refusals, and the second is
+	// an instance of the rule the first states — the person who ends a check is
+	// not the person who decides it ends. Where no other decider exists the row
+	// still fires to that person, closes, and carries
+	// [ClosingPayload.SelfApproval].
+	ErrSelfApproval = errors.New("gate: this close is by whoever wrote what is under decision, and another holder of the row's duty exists")
 )
 
 // Given is a human's verdict as it reaches the gate: who gave it, which verdict,
@@ -108,7 +112,7 @@ func (g *Gate) Decide(ctx context.Context, opened Opened, given Given) (decision
 		return decisionlog.Row{}, err
 	}
 	if given.Verdict == VerdictApprove {
-		standing, err := g.standingHolds(ctx, opened.Subject)
+		standing, _, err := g.standingHolds(ctx, opened.Subject)
 		if err != nil {
 			return decisionlog.Row{}, err
 		}
@@ -136,7 +140,7 @@ func (g *Gate) AutoPass(ctx context.Context, opened Opened) (decisionlog.Row, er
 	if opened.HumanDecides {
 		return decisionlog.Row{}, fmt.Errorf("%w: %v", ErrHumanDecides, opened.Marks)
 	}
-	standing, err := g.standingHolds(ctx, opened.Subject)
+	standing, _, err := g.standingHolds(ctx, opened.Subject)
 	if err != nil {
 		return decisionlog.Row{}, err
 	}

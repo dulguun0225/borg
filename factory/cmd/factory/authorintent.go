@@ -257,6 +257,22 @@ func (p *path) reportAttempts(role dispatch.Role, run dispatch.Run) {
 // at this stage, which dispatch escalated before returning.
 func escalatedHere(err error) bool { return errors.Is(err, dispatch.ErrOutOfAttempts) }
 
+// intentLeftItsStop is the re-match an intent leaving the state that stopped it
+// runs, called from wherever that state is written. A hold opened on an
+// intent's state ends when the state does, and what says so is the writer of
+// the record that ended it: nothing polls, and a hold left to the next
+// unrelated dispatch would outlive its condition for as long as that took.
+func (p *path) intentLeftItsStop(ctx context.Context) error {
+	lifted, err := p.dispatch.RematchOnIntentState(ctx)
+	if err != nil {
+		return err
+	}
+	if len(lifted) > 0 {
+		fmt.Fprintf(p.d.out, "The intent's state no longer stops work: %d hold(s) lifted\n", len(lifted))
+	}
+	return nil
+}
+
 // heldHere reports whether a condition stopped the dispatch, which is a hold
 // and not a failure: no page fires and no attempt counts.
 func heldHere(err error) bool { return errors.Is(err, dispatch.ErrHeld) }
@@ -402,7 +418,7 @@ func (p *path) statesTheReading(ctx context.Context, in intent.Intent) error {
 			return err
 		}
 		fmt.Fprintf(p.d.out, "Intent %s is refined: the factory raised it, so it enumerates its requirements from the evidence\n", in.ID)
-		return nil
+		return p.intentLeftItsStop(ctx)
 	}
 
 	// The confirming round: the factory states, in the requester's own terms,

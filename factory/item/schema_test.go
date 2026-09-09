@@ -8,8 +8,12 @@ import (
 // TestDDLListsEveryStage keeps the two stage CHECK constraints — one per
 // table — and [StageOrder] from disagreeing, the way TestDDLListsEveryShape
 // does for the decision log's shapes.
+//
+// The count it ends on is the two tables and not every statement of [DDL],
+// which also creates the index the reading of an intent's items follows.
 func TestDDLListsEveryStage(t *testing.T) {
 	const open = "stage in ("
+	const tables = 2
 	found := 0
 	for _, statement := range DDL {
 		i := strings.Index(statement, open)
@@ -32,7 +36,7 @@ func TestDDLListsEveryStage(t *testing.T) {
 			}
 		}
 	}
-	if found != len(DDL) {
-		t.Fatalf("%d of %d tables carry the stage CHECK, want every one", found, len(DDL))
+	if found != tables {
+		t.Fatalf("%d of %d tables carry the stage CHECK, want every one", found, tables)
 	}
 }

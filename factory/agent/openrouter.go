@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
@@ -202,6 +203,10 @@ func (o OpenRouter) Complete(ctx context.Context, p principal.Principal, call Ca
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: reading the answer: %w", err)
 	}
+	// The moment the answer was read, which is the time the provider returned
+	// the units it carries. Both replies below carry units, the cut one
+	// included, so both are stamped with it.
+	returnedAt := record.Now()
 	if resp.StatusCode != http.StatusOK {
 		return Reply{}, &StatusError{Status: resp.StatusCode, Body: string(answer)}
 	}
@@ -254,7 +259,7 @@ func (o OpenRouter) Complete(ctx context.Context, p principal.Principal, call Ca
 	// named is the cap and not the marker the cut removed. The spend goes back
 	// with the error, the way a refused reply's does.
 	if choice.FinishReason == "length" {
-		return Reply{Units: units}, fmt.Errorf("%w: the reply stopped at the %d-token cap mid-reply, so what follows the cut is missing", ErrReply, maxTokens)
+		return Reply{Units: units, ReturnedAt: returnedAt}, fmt.Errorf("%w: the reply stopped at the %d-token cap mid-reply, so what follows the cut is missing", ErrReply, maxTokens)
 	}
-	return Reply{Text: text, Units: units}, nil
+	return Reply{Text: text, Units: units, ReturnedAt: returnedAt}, nil
 }

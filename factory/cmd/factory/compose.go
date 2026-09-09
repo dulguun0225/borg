@@ -88,6 +88,10 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		servicesOf:    map[string][]string{},
 	}
 	p.candidates = environment.NewCandidates(d.pool, d.token)
+	// Decomposition reads every rollback hold standing itself, at each write,
+	// from the same reading the production deploy gate makes, rather than a
+	// caller passing what stands.
+	p.decomposition.Holds = rollbackHoldsSeam{p: p}
 	// Retiring a service is an owner's write that calls the deployer, and the
 	// deployer is composed here: package policy writes retired and reaches no
 	// deploy target itself.
@@ -107,6 +111,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	p.production = installed.Production
 	p.projectID = installed.Project.ID
 	p.scoreVersion = scoreVersion.ID
+	p.scoreBand = scoreVersion.BandWidthOrShipped()
 
 	// Drift detection's store, read and never written. Where none is installed the
 	// gate is composed with [gate.NoDriftDetector], which answers no mismatch ever — so a
@@ -139,10 +144,10 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			Pool: d.pool, Version: scoreVersion, Draw: d.draw, Marks: marks,
 			Authorship: authorship{pool: d.pool}, Token: d.token,
 			Withdrawals: withdrawals{pool: d.pool, token: d.token},
-			// The harm mark is a field of a report, which is in a store of its
-			// own: no record of the graph carries it, so the composition is
-			// what answers the score with it.
-			HarmMarks: harmMarkedReports{p: p},
+			// The group and the harm mark are both fields of a report, which is
+			// in a store of its own: no record of the graph carries either, so
+			// the composition is what answers the score with them.
+			GroupedReports: groupedReports{p: p},
 		}),
 		Policy:                   p.policy,
 		Holds:                    p,
@@ -152,7 +157,9 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Draw:                     d.draw,
 		Notifier:                 gateNotifier{notifier: p.notifier},
 		StrategySafeguard:        strategySafeguard{pool: d.pool, factory: p.factory},
+		SafeguardRouting:         p.safeguardRouting,
 		Dispatch:                 p.items,
+		Intake:                   p.intake,
 	})
 
 	// The first-start step for what an agent is told: the shipped role prompt
@@ -160,7 +167,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// start as the actor and the author pair empty, where the chain does not
 	// already hold those words. What a run reads is the version in force, so
 	// this happens before the component that hands one to a role exists.
-	prompts, entered, err := enterShippedPrompts(ctx, p.store, d.pool, d.token, installActor, factoryVersion)
+	prompts, entered, err := enterShippedPrompts(ctx, p.store, d.pool, d.token, artifact.FactoryStart, factoryVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -230,11 +237,13 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Token:        d.token,
 		Log:          p.log,
 		Releases:     release.NewWriter(d.pool, d.token),
+		Items:        p.items,
 		Repository:   p,
 		Numbers:      mergequeue.NoNumbersSeen{},
 		DesignSystem: mergequeue.EveryMoveDiffers{},
 		Backlog:      mergequeue.NoBacklog{},
 		Reverts:      p,
+		Reliability:  p,
 	})
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
@@ -253,7 +262,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// one.
 	p.healthMonitor, err = healthmonitor.New(d.pool, window.NewWriter(d.pool, d.token),
 		incident.NewWriter(d.pool, d.token), p.checks, p.intake, p.policy, p.notifier,
-		signalFiles{dir: d.dir}, p, nil, mismatches, healthmonitor.Readings{
+		signalFiles{dir: d.dir}, p, nil, mismatches, p, healthmonitor.Readings{
 			OwnHistorySize:      ownHistorySize(),
 			OwnHistoryRunLength: ownHistoryRunLength,
 			Interval:            intervalResolution,
@@ -289,13 +298,6 @@ func compose(ctx context.Context, d deps) (*path, error) {
 			fmt.Fprintf(d.out, "Area %s declared as %s\n", d.area, ar.ID)
 		}
 		p.areaID = ar.ID
-		chain, _, err := area.Chain(ctx, d.pool, ar.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, one := range chain {
-			p.areaChain = append(p.areaChain, one.ID)
-		}
 	}
 
 	// Every component's restart, before anything reads a record: this process

@@ -14,24 +14,35 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/record"
 )
+
+// decomposing is the component that writes a supersession onto an item, which
+// is the actor an abandonment of that item's rows carries.
+var decomposing = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
 
 func TestAbandonRequiresAReasonAndEndsTheDecision(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, _, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	if _, err := g.Abandon(ctx, opened, ""); !errors.Is(err, gate.ErrReasonMissing) {
+	if _, err := g.Abandon(ctx, opened, decomposing, ""); !errors.Is(err, gate.ErrReasonMissing) {
 		t.Errorf("Abandon with no reason = %v, want ErrReasonMissing", err)
 	}
 
-	row, err := g.Abandon(ctx, opened, gate.AbandonedBySupersession)
+	// The actor is the component that wrote the supersession onto the item and
+	// not the gate: the gate is the actor only where the gate itself ended the
+	// decision.
+	row, err := g.Abandon(ctx, opened, decomposing, gate.AbandonedBySupersession)
 	if err != nil {
 		t.Fatalf("Abandon: %v", err)
+	}
+	if row.Actor != decomposing {
+		t.Errorf("the abandonment's actor is %+v, want the component that superseded the item", row.Actor)
 	}
 	if row.Closes != opened.Row.ID {
 		t.Errorf("the abandonment closes %q, want %q", row.Closes, opened.Row.ID)

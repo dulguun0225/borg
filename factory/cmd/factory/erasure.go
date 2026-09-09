@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/artifact"
@@ -23,27 +22,6 @@ import (
 	"github.com/dulguun0225/borg/factory/screens"
 )
 
-// erasureTarget is one record this erasure reaches: what a redaction over it
-// names, and the name the erasure list gives the kind, which is what says
-// which store replays the row.
-type erasureTarget struct {
-	writing redaction.Writing
-	kind    string
-}
-
-// removed is what the erasure-list row says was removed: the record and the
-// bounds of each span, and never a byte of what stood there. Each target's own
-// replay reads this back — package reportstore, package intent and package
-// artifact each spell the same reading over their own rows.
-func (t erasureTarget) removed() string {
-	parts := make([]string, 0, len(t.writing.Spans)+1)
-	parts = append(parts, t.writing.Target.ID)
-	for _, span := range t.writing.Spans {
-		parts = append(parts, strconv.Itoa(span.Start)+"-"+strconv.Itoa(span.End))
-	}
-	return strings.Join(parts, " ")
-}
-
 // PerformErasure is the erasure as one action. An owner names one report and
 // the bytes of it that go; the factory walks the links that exist — the report
 // to the intent it was grouped into, that intent's statement, and the artifact
@@ -55,9 +33,12 @@ func (t erasureTarget) removed() string {
 // the design sets for an event that writes more than one record: every
 // erasure-list row first, keyed so the same erasure performed again appends
 // none; then the redaction records, each with the policy version beside it;
-// then each target's own writer destroying its own bytes. A stop between the
-// first and the second leaves the event visibly owing rather than visibly
-// done, and the row is what a restore replays.
+// then each target's own writer destroying its own bytes. [redaction.Insert]
+// makes the first two one call: it appends the row itself, through the
+// appendErasure it is handed — the report store's own AppendErasure, the
+// list's one writer — before it writes the record, so a stop between them
+// leaves the event visibly owing rather than visibly done, and the row is
+// what a restore replays.
 //
 // A legal hold reaching any one of the targets refuses the whole action before
 // any row lands, and the refusal is recorded as a policy version: an erasure
@@ -103,12 +84,9 @@ func (c *calls) PerformErasure(ctx context.Context, who principal.Principal,
 		return fmt.Errorf("%w: %v", screens.ErrRefused, err)
 	}
 
-	targets := []erasureTarget{{
-		writing: redaction.Writing{
-			Target: redaction.Target{Kind: redaction.KindReport, ID: report.ID},
-			Reason: args.Reason, Spans: spans,
-		},
-		kind: reportstore.ErasureKindReport,
+	targets := []redaction.Writing{{
+		Target: redaction.Target{Kind: redaction.KindReport, ID: report.ID},
+		Reason: args.Reason, Spans: spans,
 	}}
 	linked, subjects, err := c.linkedToTheReport(ctx, report, words, args.Reason)
 	if err != nil {
@@ -122,27 +100,21 @@ func (c *calls) PerformErasure(ctx context.Context, who principal.Principal,
 		return err
 	}
 	if held {
-		if _, err := c.p.factory.RecordRedactionRefusal(ctx, actor, targets[0].writing,
+		if _, err := c.p.factory.RecordRedactionRefusal(ctx, actor, targets[0],
 			"a legal hold stands over a record this erasure reaches"); err != nil {
 			return err
 		}
 		return fmt.Errorf("%w: %s", redaction.ErrLegalHoldReaches, report.ID)
 	}
 
-	// Every row before any record. Each is keyed by the key package redaction
-	// derives from the same actor and the same writing the record will be
-	// written from, so the two cannot be keyed differently and the erasure
-	// performed again appends nothing.
-	for _, target := range targets {
-		if err := store.AppendErasure(target.kind, redaction.Key(actor, target.writing),
-			target.removed()); err != nil {
-			return err
-		}
-	}
-
+	// Each target's row lands before its record: [redaction.Insert] appends
+	// it through the appendErasure it is handed here — the report store's own
+	// AppendErasure — keyed by the same [redaction.Key] the record carries,
+	// so the two cannot be keyed differently and the erasure performed again
+	// appends neither.
 	written := make([]redaction.Redaction, 0, len(targets))
 	for _, target := range targets {
-		performed, _, err := c.p.factory.WriteRedaction(ctx, actor, target.writing, reaches)
+		performed, _, err := c.p.factory.WriteRedaction(ctx, actor, target, reaches, store.AppendErasure)
 		if err != nil {
 			return err
 		}
@@ -167,7 +139,7 @@ func (c *calls) PerformErasure(ctx context.Context, who principal.Principal,
 // not quote the words is no target: the erasure reaches what quoted them and
 // nothing else.
 func (c *calls) linkedToTheReport(ctx context.Context, report reportstore.Report,
-	words []string, reason string) ([]erasureTarget, []legalhold.Subject, error) {
+	words []string, reason string) ([]redaction.Writing, []legalhold.Subject, error) {
 	// A hold's subject is a service, a project or the whole install and never a
 	// report, a statement or a version, so the report's own service stands for
 	// the report here.
@@ -182,14 +154,11 @@ func (c *calls) linkedToTheReport(ctx context.Context, report reportstore.Report
 	if in.ProjectID != "" {
 		subjects = append(subjects, legalhold.Subject{Kind: legalhold.SubjectProject, ID: in.ProjectID})
 	}
-	var targets []erasureTarget
+	var targets []redaction.Writing
 	if spans := spansOfWords(in.Statement, words); len(spans) > 0 {
-		targets = append(targets, erasureTarget{
-			writing: redaction.Writing{
-				Target: redaction.Target{Kind: redaction.KindStatement, ID: in.ID},
-				Reason: reason, Spans: spans,
-			},
-			kind: reportstore.ErasureKindStatement,
+		targets = append(targets, redaction.Writing{
+			Target: redaction.Target{Kind: redaction.KindStatement, ID: in.ID},
+			Reason: reason, Spans: spans,
 		})
 	}
 	items, err := item.ForIntent(ctx, c.p.d.pool, in.ID)
@@ -207,12 +176,9 @@ func (c *calls) linkedToTheReport(ctx context.Context, report reportstore.Report
 			if len(spans) == 0 {
 				continue
 			}
-			targets = append(targets, erasureTarget{
-				writing: redaction.Writing{
-					Target: redaction.Target{Kind: redaction.KindArtifactVersion, ID: version.ID},
-					Reason: reason, Spans: spans,
-				},
-				kind: reportstore.ErasureKindArtifactVersion,
+			targets = append(targets, redaction.Writing{
+				Target: redaction.Target{Kind: redaction.KindArtifactVersion, ID: version.ID},
+				Reason: reason, Spans: spans,
 			})
 		}
 	}

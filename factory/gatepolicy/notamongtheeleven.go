@@ -19,14 +19,16 @@ var NotAmongTheEleven = []Definition{
 	{
 		Parameter: DecisionLogRetention,
 		Kind:      KindSeconds, Direction: DirectionFloor, Scope: ScopeFactorySettings, Key: KeyNone,
-		Limits: "how long the decision log is kept; a safeguard on it may lengthen and never shorten, the protection being the evidence a shorter value destroys",
-		Unit:   "seconds, and unauthored is the life of the install",
+		Limits:     "how long the decision log is kept; a safeguard on it may lengthen and never shorten, the protection being the evidence a shorter value destroys",
+		Unit:       "seconds, and unauthored is the life of the install",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
 	},
 	{
 		Parameter: ReportRetention,
 		Kind:      KindSeconds, Direction: DirectionCeiling, Scope: ScopeFactorySettings, Key: KeyNone,
-		Limits: "how long the report store keeps a report; a safeguard on it may shorten and never lengthen, report text being personal data",
-		Unit:   "seconds, and unauthored is the life of the install",
+		Limits:     "how long the report store keeps a report; a safeguard on it may shorten and never lengthen, report text being personal data",
+		Unit:       "seconds, and unauthored is the life of the install",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
 	},
 	{
 		Parameter: BackupRetention,
@@ -48,15 +50,23 @@ var NotAmongTheEleven = []Definition{
 	},
 	{
 		Parameter: ReportChannelRate,
+		Kind:      KindCount, Direction: DirectionCeiling, Scope: ScopeFactorySettings, Key: KeyNone,
+		Limits:     "what bounds arrival at the way in factory-wide",
+		Unit:       "reports admitted per hour, and unauthored is unbounded",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
+	},
+	{
+		Parameter: ServiceReportChannelRate,
 		Kind:      KindCount, Direction: DirectionCeiling, Scope: ScopeFactorySettings, Key: KeyService,
-		Limits: "what bounds arrival at the way in, per service and factory-wide",
-		Unit:   "reports admitted per hour, and unauthored is unbounded",
+		Limits:     "what bounds arrival at the way in for one service",
+		Unit:       "reports admitted per hour, and unauthored is unbounded",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
 	},
 	{
 		Parameter: ExplicitThreshold,
-		Kind:      KindFraction, Direction: DirectionAdds, Scope: ScopeService, Key: KeyQuantity,
+		Kind:      KindAbsolute, Direction: DirectionAdds, Scope: ScopeService, Key: KeyQuantity,
 		Limits: "the absolute number a service's quantity is read against beside the comparison; the release passes both or neither, so a safeguard here can only add a check",
-		Unit:   "the share of the work the service may be at, between 0 and 1",
+		Unit:   "the quantity's own unit — seconds for a latency quantile, a share for an error rate — and absolute is what the number is",
 
 		ReaderAtThisMilestone: "the health monitor, as the third reading beside the comparison and the service's own recent history",
 	},
@@ -113,8 +123,9 @@ var NotAmongTheEleven = []Definition{
 	{
 		Parameter: KeptFraction,
 		Kind:      KindFraction, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
-		Limits: "the fraction of its instances a release keeps while a rollback could return to it",
-		Unit:   "the share of the release's capacity, between 0 and 1, and the fixed default is all of them",
+		Limits:     "the fraction of its instances a release keeps while a rollback could return to it",
+		Unit:       "the share of the release's capacity, between 0 and 1, and the fixed default is all of them",
+		Unauthored: Unauthored{Given: true, Number: 1},
 	},
 	{
 		Parameter: MaxConcurrentKeptFleets,
@@ -143,14 +154,16 @@ var NotAmongTheEleven = []Definition{
 	{
 		Parameter: PagingHours,
 		Kind:      KindList, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
-		Limits: "the hours within which the service pages, and the default is every hour because nothing the factory observes says which service may wait for morning",
-		Unit:   "the first hour, the last hour and the zone they were written in",
+		Limits:     "the hours within which the service pages, and the default is every hour because nothing the factory observes says which service may wait for morning",
+		Unit:       "the first hour, the last hour and the zone they were written in",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
 	},
 	{
 		Parameter: ProofTestRate,
 		Kind:      KindRate, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
-		Limits: "how often the deployer, inside an open window, shifts a share of traffic onto the instances of the rollback's target and back again",
-		Unit:   "the rate an owner authors, and no proof test runs at all where they author none",
+		Limits:     "how often the deployer, inside an open window, shifts a share of traffic onto the instances of the rollback's target and back again",
+		Unit:       "the rate an owner authors, and no proof test runs at all where they author none",
+		Unauthored: Unauthored{Given: true},
 	},
 	{
 		Parameter: ChangeFreeze,
@@ -206,8 +219,27 @@ var NotAmongTheEleven = []Definition{
 	{
 		Parameter: SnapshotRetention,
 		Kind:      KindSeconds, Direction: DirectionCeiling, Scope: ScopeService, Key: KeyNone,
-		Limits: "how long a schema-change snapshot is kept; a safeguard may shorten it and never lengthen it, what it retains being a copy of production data",
-		Unit:   "seconds, and where an owner authors none a snapshot stands until they delete it",
+		Limits:     "how long a schema-change snapshot is kept; a safeguard may shorten it and never lengthen it, what it retains being a copy of production data",
+		Unit:       "seconds, and where an owner authors none a snapshot stands until they delete it",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
+	},
+	{
+		Parameter: ServiceTargets,
+		Kind:      KindList, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
+		Limits: "which of an environment's targets the service runs on, in the order a rollout reaches them",
+		Unit:   "one target address per entry, authored outright with nothing supplied",
+	},
+	{
+		Parameter: ProductLicence,
+		Kind:      KindList, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
+		Limits: "the licence the service's own product is under, which the supply chain reads against what the factory adds",
+		Unit:   "the licence, authored outright with nothing supplied",
+	},
+	{
+		Parameter: Seam5Enforced,
+		Kind:      KindCount, Direction: DirectionNone, Scope: ScopeFactorySettings, Key: KeyNone,
+		Limits: "whether seam 5 is enforced; an owner turns it on once and nothing turns it off again, and only a constraint of the document kind may require it",
+		Unit:   "1 where it is enforced, authored outright and reached by no safeguard",
 	},
 }
 

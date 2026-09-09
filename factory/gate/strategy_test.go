@@ -3,6 +3,7 @@
 package gate_test
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -59,6 +60,56 @@ func TestTheHeldOutSampleKeepsItsOwnBoundInAnIrreversibleArea(t *testing.T) {
 	if opened.Strategy.Why != gate.WhyHeldOut {
 		t.Errorf("the pick's bound reads %q, want the held-out sample's, which is what applied",
 			opened.Strategy.Why)
+	}
+}
+
+// TestAnIrreversibleAreaOnAPlatformServingNoSharePutsAHumanAtTheRow: where the
+// platform serves no share there is no schedule to pick and every deploy there
+// goes without a control, so an irreversible area's deploy to production is a
+// human's whatever the formula returns.
+func TestAnIrreversibleAreaOnAPlatformServingNoSharePutsAHumanAtTheRow(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.1)}, &fakePolicy{applied: applied(0.9)}
+	ctx, pool, token, g := newGate(t, s, p)
+
+	declared, err := area.NewWriter(pool, token).Declare(ctx, owner, "ledger",
+		area.Inside{ProjectID: "prj_00000000000000000000000000000a"},
+		area.Hazard{
+			Grade: area.GradeIrreversible, Operation: "the ledger write",
+			Bound: 10, BoundPeriodSeconds: 3600,
+		})
+	if err != nil {
+		t.Fatalf("declaring the irreversible area: %v", err)
+	}
+
+	// The same firing on a platform that serves a share auto-passes: the number
+	// is under the threshold and nothing else marks the row.
+	shared := deployFiring(t, ctx, pool, token)
+	shared.AreaID = declared.ID
+	shared.ReplacesReleaseID = "rel_000000000000000000000000000000b"
+	opened, err := g.Fire(ctx, shared)
+	if err != nil {
+		t.Fatalf("Fire on a platform that serves a share: %v", err)
+	}
+	if opened.HumanDecides {
+		t.Fatalf("a controllable deploy under the threshold put a human at the row: %v", opened.Marks)
+	}
+
+	unshared := shared
+	unshared.ItemID = "it_0000000000000000000000000000000b"
+	unshared.EnvironmentID = unsharedEnvironment(t, ctx, pool, token)
+	approvedAbove(t, ctx, pool, token, gate.MergeToMaster, unshared.ItemID)
+	opened, err = g.Fire(ctx, unshared)
+	if err != nil {
+		t.Fatalf("Fire on a platform that serves no share: %v", err)
+	}
+	if !opened.IrreversibleWithoutAControl {
+		t.Error("the open event does not say the area is irreversible and no control can run beside it")
+	}
+	if !opened.HumanDecides {
+		t.Errorf("an irreversible deploy no control can run beside auto-passed: marks %v", opened.Marks)
+	}
+	if _, err := g.AutoPass(ctx, opened); !errors.Is(err, gate.ErrHumanDecides) {
+		t.Errorf("AutoPass = %v, want ErrHumanDecides", err)
 	}
 }
 

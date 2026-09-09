@@ -56,7 +56,8 @@ func (c composed) tiered(t *testing.T, tier, priority int, evidence string) item
 		t.Fatalf("TakeIn: %v", err)
 	}
 	it, err := c.decomposition.Create(c.ctx, decompositionActor, item.New{
-		IntentID: in.ID, ServiceID: oneService, AreaID: oneArea, Branch: "item/" + evidence,
+		IntentID: in.ID, ServiceID: oneService, AreaChain: []string{c.oneArea}, Branch: "item/" + evidence,
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, oneProject, oneProject, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)

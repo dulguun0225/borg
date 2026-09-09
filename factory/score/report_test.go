@@ -224,7 +224,7 @@ func TestHeldOutByBandReadsAFailedAndAPassedBandApart(t *testing.T) {
 	}
 
 	since := record.FormatTime(time.Now().Add(-time.Hour))
-	bands, err := score.HeldOutByBand(ctx, pool, token, reportReading, since)
+	bands, err := score.HeldOutByBand(ctx, pool, token, reportReading, since, score.ShippedBandWidth)
 	if err != nil {
 		t.Fatalf("HeldOutByBand: %v", err)
 	}
@@ -291,7 +291,8 @@ func TestHeldOutByBandExcludesAMarkedRelease(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	rollback, err := deploy.NewWriter(pool, token).StartUndoing(ctx, owner, deploy.Beginning{
+	deployer := record.Actor{Kind: record.KindComponent, Key: "deployer", Basis: record.BasisClaimed}
+	rollback, err := deploy.NewWriter(pool, token).StartUndoing(ctx, deployer, deploy.Beginning{
 		ServiceID: "svc_a", EnvironmentID: "env_a",
 		Targets: []deploy.Reaching{{Address: "one.example"}},
 	}, deploy.Undoing{FailedReleaseID: relE.ID, Source: deploy.SourceHealthMonitorAtFailed})
@@ -311,7 +312,7 @@ func TestHeldOutByBandExcludesAMarkedRelease(t *testing.T) {
 	}
 
 	since := record.FormatTime(time.Now().Add(-time.Hour))
-	bands, err := score.HeldOutByBand(ctx, pool, token, reportReading, since)
+	bands, err := score.HeldOutByBand(ctx, pool, token, reportReading, since, score.ShippedBandWidth)
 	if err != nil {
 		t.Fatalf("HeldOutByBand: %v", err)
 	}
@@ -332,7 +333,7 @@ func TestAnEmptyStoreReadsAsNoRowsAndNoError(t *testing.T) {
 		t.Errorf("RealizedAutoPass over an empty store = %+v, want none", rows)
 	}
 
-	bands, err := score.HeldOutByBand(ctx, pool, token, reportReading, since)
+	bands, err := score.HeldOutByBand(ctx, pool, token, reportReading, since, score.ShippedBandWidth)
 	if err != nil {
 		t.Fatalf("HeldOutByBand: %v", err)
 	}

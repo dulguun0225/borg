@@ -136,6 +136,36 @@ func (s *Store) Grouped(ctx context.Context, intentID string) (Group, error) {
 	return g, nil
 }
 
+// MarkedIn is the ids of the reports grouped into one intent that mark harm,
+// oldest first. It reads no words and appends no read event for the reason
+// [Store.Grouped] gives: an id is a fact about which report is marked and not
+// what its reporter wrote, so a screen or a score naming which report to read
+// serves nothing anybody has to be answerable for having read.
+func (s *Store) MarkedIn(ctx context.Context, intentID string) ([]string, error) {
+	if intentID == "" {
+		return nil, ErrIntentIDEmpty
+	}
+	rows, err := s.pool.Query(ctx, `select id from `+ReportTable+`
+		where intent_id = $1 and harm_marked order by collected_at, id`, intentID)
+	if err != nil {
+		return nil, fmt.Errorf("reportstore: reading the harm-marked reports grouped into %s: %w", intentID, err)
+	}
+	defer rows.Close()
+
+	var marked []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("reportstore: reading a harm-marked report grouped into %s: %w", intentID, err)
+		}
+		marked = append(marked, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reportstore: reading the harm-marked reports grouped into %s: %w", intentID, err)
+	}
+	return marked, nil
+}
+
 // Ungrouped is how many reports are linked to no intent, which is the number
 // Factory reads: a report that is never grouped is work nobody sees, so every
 // report is either linked or counted here.

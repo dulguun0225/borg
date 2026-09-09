@@ -58,6 +58,7 @@ var Definitions = []Definition{
 		Parameter: AllowedPredicateKinds, Row: RowAllowedPredicateKinds,
 		Kind: KindList, Direction: DirectionFloor, Scope: ScopeFactorySettings, Key: KeyNone,
 		Limits:                "what kinds of assertion a consumer contract may draw from",
+		Unauthored:            Unauthored{Given: true, List: AllowedPredicateKindNames()},
 		ReaderAtThisMilestone: "the derivation of a consumer contract",
 	},
 	{

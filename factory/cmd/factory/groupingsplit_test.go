@@ -158,7 +158,8 @@ func TestAReportDoesNotMoveOutOfADecomposedIntent(t *testing.T) {
 		t.Fatalf("reading the service: %v, found %v", err, found)
 	}
 	if _, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
-		IntentID: grouped[0], ServiceID: svc.ID, AreaID: p.areaID, Branch: "candidate/grouped",
+		IntentID: grouped[0], ServiceID: svc.ID, AreaChain: []string{p.areaID}, Branch: "candidate/grouped",
+		RequirementsAnswered: oneRequirement,
 	}, p.projectID, p.projectID, nil); err != nil {
 		t.Fatalf("decomposing the report-derived intent: %v", err)
 	}

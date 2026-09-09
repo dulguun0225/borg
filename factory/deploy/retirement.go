@@ -29,6 +29,10 @@ type Environment struct {
 	Credential    secretref.Ref
 	// Reaches are the targets the service runs on, in the environment's order.
 	Reaches []Reach
+	// Targets is every target the environment names, in the environment's
+	// order, which the record holds a row beside each of. Where the caller
+	// supplies none it is Reaches.
+	Targets []string
 }
 
 // Removal is what the deployer is asked to perform when a service is retired.
@@ -82,10 +86,11 @@ func Remove(ctx context.Context, w *Writer, r Removal) ([]Deploy, error) {
 			ServiceID:   r.ServiceID,
 			ServiceName: r.ServiceName,
 
-			EnvironmentID: from.EnvironmentID,
-			What:          OfRemoval(),
-			Credential:    from.Credential,
-			Reaches:       from.Reaches,
+			EnvironmentID:      from.EnvironmentID,
+			What:               OfRemoval(),
+			Credential:         from.Credential,
+			Reaches:            from.Reaches,
+			EnvironmentTargets: from.Targets,
 		})
 		if err != nil {
 			return written, err

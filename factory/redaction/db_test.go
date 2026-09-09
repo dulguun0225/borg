@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/erasurelist"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/postgres"
@@ -28,6 +30,18 @@ import (
 )
 
 var owner = record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
+
+// erasureListAppender is a working [redaction.ErasureAppender] over a fresh
+// file, the same call reportstore.Store.AppendErasure makes over its own: a
+// plain call to erasurelist.Append. It returns the list's path beside it, so
+// a test can read the row back and check the order and the key.
+func erasureListAppender(t *testing.T) (string, redaction.ErasureAppender) {
+	t.Helper()
+	list := filepath.Join(t.TempDir(), "erasure-list")
+	return list, func(kind, key, removed string) error {
+		return erasurelist.Append(list, key, kind, removed)
+	}
+}
 
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token) {
 	t.Helper()
@@ -81,13 +95,14 @@ func inSchema(t *testing.T, base, schema string) string {
 func TestARedactionReadsBackAsItWasWritten(t *testing.T) {
 	ctx, pool, token := newTable(t)
 	w := redaction.NewWriter(pool, token)
+	_, appendErasure := erasureListAppender(t)
 
 	writing := redaction.Writing{
 		Target: redaction.Target{Kind: redaction.KindStatement, ID: "in_1"},
 		Reason: "a person's name in the words a report carried",
 		Spans:  []redaction.Span{{Start: 4, End: 9}, {Start: 20, End: 26}},
 	}
-	written, err := w.Insert(ctx, owner, writing, nil)
+	written, err := w.Insert(ctx, owner, writing, nil, appendErasure)
 	if err != nil {
 		t.Fatalf("writing the redaction: %v", err)
 	}
@@ -156,18 +171,20 @@ func TestTheRecordCarriesNoWords(t *testing.T) {
 }
 
 // TestTheErasurePerformedAgainWritesNothing: the key is derived from what the
-// erasure is over, so the second performance finds the record the first
-// wrote and the unique index refuses a second row.
+// erasure is over, so the second performance finds the record the first wrote
+// through its erasure key and returns it, writing no second row — [Insert]
+// makes the keyed repeat a no-op itself, rather than reaching the unique index.
 func TestTheErasurePerformedAgainWritesNothing(t *testing.T) {
 	ctx, pool, token := newTable(t)
 	w := redaction.NewWriter(pool, token)
+	list, appendErasure := erasureListAppender(t)
 
 	writing := redaction.Writing{
 		Target: redaction.Target{Kind: redaction.KindReport, ID: "rep_1"},
 		Reason: "the reporter asked for their words to go",
 		Spans:  []redaction.Span{{Start: 0, End: 5}},
 	}
-	first, err := w.Insert(ctx, owner, writing, nil)
+	first, err := w.Insert(ctx, owner, writing, nil, appendErasure)
 	if err != nil {
 		t.Fatalf("writing the redaction: %v", err)
 	}
@@ -179,8 +196,30 @@ func TestTheErasurePerformedAgainWritesNothing(t *testing.T) {
 	if !ok || found.ID != first.ID {
 		t.Fatalf("the erasure key found %+v, want %s", found, first.ID)
 	}
-	if _, err := w.Insert(ctx, owner, writing, nil); err == nil {
-		t.Fatal("the same erasure written twice wrote a second record")
+	again, err := w.Insert(ctx, owner, writing, nil, appendErasure)
+	if err != nil {
+		t.Fatalf("writing the same erasure again: %v", err)
+	}
+	if again.ID != first.ID {
+		t.Errorf("the same erasure written twice returned %s, want the first performance's %s",
+			again.ID, first.ID)
+	}
+
+	over, err := redaction.ForTarget(ctx, pool, writing.Target)
+	if err != nil {
+		t.Fatalf("reading the redactions over the target: %v", err)
+	}
+	if len(over) != 1 {
+		t.Errorf("the same erasure written twice left %d records, want one", len(over))
+	}
+
+	rows, err := erasurelist.ReadKind(list, string(redaction.KindReport))
+	if err != nil {
+		t.Fatalf("reading the erasure list: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("the erasure list holds %d row(s) after the same erasure was performed twice, want one",
+			len(rows))
 	}
 }
 
@@ -197,7 +236,7 @@ func TestARedactionIsRefusedWhileALegalHoldStands(t *testing.T) {
 	}
 
 	reaches := func(context.Context) (bool, error) { return true, nil }
-	if _, err := w.Insert(ctx, owner, writing, reaches); !errors.Is(err, redaction.ErrLegalHoldReaches) {
+	if _, err := w.Insert(ctx, owner, writing, reaches, nil); !errors.Is(err, redaction.ErrLegalHoldReaches) {
 		t.Errorf("a redaction the caller's check refuses = %v, want ErrLegalHoldReaches", err)
 	}
 
@@ -206,7 +245,7 @@ func TestARedactionIsRefusedWhileALegalHoldStands(t *testing.T) {
 		"counsel asked for everything to stand"); err != nil {
 		t.Fatalf("setting the hold: %v", err)
 	}
-	if _, err := w.Insert(ctx, owner, writing, nil); !errors.Is(err, redaction.ErrLegalHoldReaches) {
+	if _, err := w.Insert(ctx, owner, writing, nil, nil); !errors.Is(err, redaction.ErrLegalHoldReaches) {
 		t.Errorf("a redaction under a hold on the whole install = %v, want ErrLegalHoldReaches", err)
 	}
 
@@ -247,7 +286,7 @@ func TestARedactionNamesATargetAReasonAndItsSpans(t *testing.T) {
 			Target: full.Target, Reason: full.Reason, Spans: []redaction.Span{{Start: 9, End: 2}},
 		}, redaction.ErrSpanOutOfRange},
 	} {
-		if _, err := w.Insert(ctx, owner, c.writing, nil); !errors.Is(err, c.want) {
+		if _, err := w.Insert(ctx, owner, c.writing, nil, nil); !errors.Is(err, c.want) {
 			t.Errorf("a redaction with %s = %v, want %v", c.what, err, c.want)
 		}
 	}
@@ -262,6 +301,7 @@ func TestARedactionNamesATargetAReasonAndItsSpans(t *testing.T) {
 func TestEachWriterReadsOnlyTheRedactionsNamingItsOwnRecords(t *testing.T) {
 	ctx, pool, token := newTable(t)
 	w := redaction.NewWriter(pool, token)
+	_, appendErasure := erasureListAppender(t)
 
 	for _, target := range []redaction.Target{
 		{Kind: redaction.KindReport, ID: "rep_1"},
@@ -271,7 +311,7 @@ func TestEachWriterReadsOnlyTheRedactionsNamingItsOwnRecords(t *testing.T) {
 	} {
 		if _, err := w.Insert(ctx, owner, redaction.Writing{
 			Target: target, Reason: "a person's name", Spans: []redaction.Span{{Start: 0, End: 3}},
-		}, nil); err != nil {
+		}, nil, appendErasure); err != nil {
 			t.Fatalf("writing the redaction of %s: %v", target, err)
 		}
 	}
@@ -334,8 +374,107 @@ func TestAWriteIsFencedByTheLease(t *testing.T) {
 	_, err := redaction.NewWriter(pool, token).Insert(ctx, owner, redaction.Writing{
 		Target: redaction.Target{Kind: redaction.KindReport, ID: "rep_1"},
 		Reason: "why", Spans: []redaction.Span{{Start: 0, End: 1}},
-	}, nil)
+	}, nil, nil)
 	if !errors.Is(err, lease.ErrFenced) {
 		t.Errorf("a write under a token the lease has moved past = %v, want ErrFenced", err)
+	}
+}
+
+// TestTheErasureListRowLandsBeforeTheRecord: [redaction.Insert] calls
+// appendErasure before it writes the record, keyed the same way, so a caller
+// counting on the order can watch it inside the appender itself.
+func TestTheErasureListRowLandsBeforeTheRecord(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	list, appendErasure := erasureListAppender(t)
+	called := false
+	watching := func(kind, key, removed string) error {
+		called = true
+		_, ok, err := redaction.ByErasureKey(ctx, pool, key)
+		if err != nil {
+			t.Fatalf("reading by the erasure key inside the appender: %v", err)
+		}
+		if ok {
+			t.Errorf("a record already stood under the key when the erasure-list row was appended")
+		}
+		return appendErasure(kind, key, removed)
+	}
+
+	writing := redaction.Writing{
+		Target: redaction.Target{Kind: redaction.KindStatement, ID: "in_1"},
+		Reason: "why this went",
+		Spans:  []redaction.Span{{Start: 0, End: 2}},
+	}
+	written, err := redaction.NewWriter(pool, token).Insert(ctx, owner, writing, nil, watching)
+	if err != nil {
+		t.Fatalf("writing the redaction: %v", err)
+	}
+	if !called {
+		t.Fatalf("Insert never called the appender")
+	}
+	rows, err := erasurelist.ReadKind(list, string(redaction.KindStatement))
+	if err != nil {
+		t.Fatalf("reading the erasure list: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Key != written.ErasureKey {
+		t.Errorf("the list holds %+v, want the one row keyed %s", rows, written.ErasureKey)
+	}
+}
+
+// TestAStopBetweenTheRowAndTheRecordLeavesTheRowAndNoRecord simulates the
+// failure a caller's transaction can still meet after appendErasure has
+// already run: a colliding id makes the record's own insert fail, and what
+// stands afterward is the row and no record, the event visibly owing rather
+// than visibly done.
+func TestAStopBetweenTheRowAndTheRecordLeavesTheRowAndNoRecord(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	list, appendErasure := erasureListAppender(t)
+
+	// A row of this id already stands, under a different erasure key, so the
+	// performance below collides on the primary key rather than on the keyed
+	// repeat [Insert] itself refuses to duplicate.
+	seed, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning the seed: %v", err)
+	}
+	if _, err := redaction.Insert(ctx, seed, token, owner, "rdn_collide", redaction.Writing{
+		Target: redaction.Target{Kind: redaction.KindStatement, ID: "in_seed"},
+		Reason: "seeding a collision", Spans: []redaction.Span{{Start: 0, End: 1}},
+	}, appendErasure); err != nil {
+		t.Fatalf("seeding the colliding row: %v", err)
+	}
+	if err := seed.Commit(ctx); err != nil {
+		t.Fatalf("committing the seed: %v", err)
+	}
+
+	writing := redaction.Writing{
+		Target: redaction.Target{Kind: redaction.KindReport, ID: "rep_stop"},
+		Reason: "a stop between the row and the record",
+		Spans:  []redaction.Span{{Start: 0, End: 3}},
+	}
+	key := redaction.Key(owner, writing)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning: %v", err)
+	}
+	if _, err := redaction.Insert(ctx, tx, token, owner, "rdn_collide", writing, appendErasure); err == nil {
+		t.Fatalf("writing a redaction under a colliding id: want an error, wrote one")
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rolling back the failed performance: %v", err)
+	}
+
+	rows, err := erasurelist.ReadKind(list, string(redaction.KindReport))
+	if err != nil {
+		t.Fatalf("reading the erasure list: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Key != key {
+		t.Errorf("the erasure-list row is %+v, want the one row keyed %s", rows, key)
+	}
+
+	if _, ok, err := redaction.ByErasureKey(ctx, pool, key); err != nil {
+		t.Fatalf("reading by the erasure key: %v", err)
+	} else if ok {
+		t.Errorf("a record stands under the key, though the insert that would have written it failed")
 	}
 }

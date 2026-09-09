@@ -199,7 +199,7 @@ func TestInsertIsFenced(t *testing.T) {
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := project.Insert(ctx, tx, lease.Token(0), owner, "payments"); !errors.Is(err, lease.ErrFenced) {
+	if _, err := project.Insert(ctx, tx, lease.Token(0), owner, record.NewID(project.IDPrefix), "payments"); !errors.Is(err, lease.ErrFenced) {
 		t.Errorf("Insert with a stale token = %v, want lease.ErrFenced", err)
 	}
 }

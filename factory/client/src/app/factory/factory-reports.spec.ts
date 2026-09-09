@@ -47,14 +47,12 @@ const CHANNEL: Factory = {
         ServiceID: 'svc-1',
         ServiceName: 'payments',
         Refused: 3,
-        UnreadableShape: 1,
         NoNoticeInForce: true,
       },
       {
         ServiceID: 'svc-2',
         ServiceName: 'invoicing',
         Refused: 0,
-        UnreadableShape: 0,
         NoNoticeInForce: false,
       },
     ],
@@ -121,13 +119,13 @@ describe('The report channel at Factory', () => {
     restoreFakes();
   });
 
-  it('reports the ungrouped count, the refusals and what the store could not read', async () => {
+  it('reports the ungrouped count and the refusals', async () => {
     const fixture = await drive();
     const text = (fixture.nativeElement as HTMLElement).textContent;
     expect(text).toContain('2 report(s) waiting to be grouped');
     expect(text).toContain('5 refused over the whole channel');
     expect(text).toContain('payments');
-    expect(text).toContain('Submissions the store could not read');
+    expect(text).not.toContain('Submissions the store could not read');
     fixture.destroy();
   });
 

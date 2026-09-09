@@ -50,6 +50,20 @@ func TestAWindowOpensOverEveryProductionDeploy(t *testing.T) {
 		t.Errorf("the window carries size %v, confidence %v, cap %v; the owner authored %v, %v, %v",
 			w.Size, w.Confidence, w.CapSeconds, theWindowSize, theWindowConfidence, theWindowCap)
 	}
+	// The fourth quantity is the count of times the software performed the
+	// operation an area graded irreversible names, and the health monitor reads
+	// it as a quantity for a service the store keeps that count for and for no
+	// other. This platform keeps none, so the window carries no size for it in
+	// either reading and spends none of the boundary's allocation on a series
+	// the service never emits.
+	if _, carried := w.Size[gatepolicy.QuantityHazardousOperation]; carried {
+		t.Errorf("the comparison carries a size for %s on a service the store keeps no such count for: %v",
+			gatepolicy.QuantityHazardousOperation, w.Size)
+	}
+	if _, carried := w.OwnHistorySize[gatepolicy.QuantityHazardousOperation]; carried {
+		t.Errorf("the reading against the service's own recent history carries a size for %s: %v",
+			gatepolicy.QuantityHazardousOperation, w.OwnHistorySize)
+	}
 	if w.BoundaryVersion != boundary.Version {
 		t.Errorf("the window names boundary version %q, want %q — the size and the confidence alone do not say what was done with them",
 			w.BoundaryVersion, boundary.Version)

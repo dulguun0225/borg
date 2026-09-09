@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
@@ -60,8 +61,34 @@ type Drift struct {
 // arrive, so read against its own history every earned narrowing would be a
 // drift and the treatment would put humans at gates factory-wide for the score
 // having learned something.
-func (e *Evidence) drift() []Drift {
-	return append(e.factorDrift(), e.priorDrift()...)
+//
+// recalibratedThrough is the close time of the newest decision the last
+// recalibration read, and both readings are taken over the decisions after it.
+// That is what makes a recalibration the exit the design says it is: the
+// resolution a drift puts at every gate would otherwise be found again by the
+// next pass over the same decisions, and a prior standing drifted stops the
+// sample producing any newer ones, so nothing would ever end it.
+func (e *Evidence) drift(recalibratedThrough string) []Drift {
+	since := e.after(recalibratedThrough)
+	return append(since.factorDrift(), since.priorDrift()...)
+}
+
+// after is this evidence with only the firings closed after one time, which is
+// what the calibration readings are taken over. It is a shallow copy: every
+// other field is read as it is, a release and its window being facts about the
+// firings that remain.
+func (e *Evidence) after(at string) *Evidence {
+	if at == "" {
+		return e
+	}
+	since := *e
+	since.firings = nil
+	for _, f := range e.firings {
+		if f.At > at {
+			since.firings = append(since.firings, f)
+		}
+	}
+	return &since
 }
 
 // factorDrift reads each factor's distribution over the decisions that named it,
@@ -174,6 +201,54 @@ func (e *Evidence) priorDrift() []Drift {
 		})
 	}
 	return found
+}
+
+// restartedPriors is every author's prior restart, carried forward from what
+// the version below already restarted plus what this pass finds: an author
+// under.DriftedPriors names whose held-out evidence since the last
+// recalibration has been reduced to none by a truncation of the log. The
+// prior restarts as an unseen author's there — recorded here and read back by
+// [Score.prior] as the time from which it counts — rather than left reading
+// whatever verdicts and exits the truncation happened to leave behind. Where
+// some held-out decisions on the author survive the cut, nothing restarts: a
+// recalibration is what reads them, and the drift finding itself simply does
+// not recur until then.
+func (e *Evidence) restartedPriors(under Under) map[string]string {
+	restarts := map[string]string{}
+	for author, when := range under.PriorRestarts {
+		restarts[author] = when
+	}
+	since := e.after(under.RecalibratedThrough)
+	for _, author := range under.DriftedPriors {
+		if _, already := restarts[author]; already {
+			continue
+		}
+		if since.heldOutFiringsOf(author) > 0 {
+			continue
+		}
+		when := since.newestClose()
+		if when == "" {
+			when = record.Now()
+		}
+		restarts[author] = when
+	}
+	if len(restarts) == 0 {
+		return nil
+	}
+	return restarts
+}
+
+// heldOutFiringsOf is how many of this evidence's firings are held-out
+// decisions naming this author, which is what says whether a truncation
+// removed every one behind a drifted prior.
+func (e *Evidence) heldOutFiringsOf(author string) int {
+	n := 0
+	for _, f := range e.firings {
+		if f.OpenEvent.HeldOut && f.OpenEvent.AuthorKey == author {
+			n++
+		}
+	}
+	return n
 }
 
 // priorLevel is the per-author prior's level on one vector, and false where the

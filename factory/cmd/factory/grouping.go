@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/reportstore"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -140,36 +141,46 @@ func (i itemsOfAnIntent) Decomposed(ctx context.Context, intentID string) (bool,
 	return len(items) > 0, nil
 }
 
-// harmMarkedReports is [score.HarmMarks]: whether any report grouped into an
-// item's intent says a person is being harmed by the software. The score cannot
+// groupedReports is [score.GroupedReports]: how many reports are grouped into
+// an item's intent, and the ids of the ones marking harm. The score cannot
 // read the report store — it is a second database and no record of the graph
-// carries the mark — so the composition answers, through the count and the mark
-// the store keeps without the words.
+// carries either — so the composition answers, through the count the store
+// keeps and the ids it names without the words.
 //
-// A composition with no report store answers false, which is every subcommand
-// that makes one pass: no report reached it, so none of them marks anything.
-type harmMarkedReports struct{ p *path }
+// A composition with no report store answers nothing grouped, which is every
+// subcommand that makes one pass: no report reached it, so none of them
+// grouped anything.
+type groupedReports struct{ p *path }
 
-// Marked reports whether any report of that intent's group carries the mark.
-func (h harmMarkedReports) Marked(ctx context.Context, intentID string) (bool, error) {
-	store := h.p.d.reports
+// Grouped is the group of reports grouped into intentID: how many, and the
+// ids of the ones marking harm.
+func (g groupedReports) Grouped(ctx context.Context, intentID string) (score.ReportGroup, error) {
+	store := g.p.d.reports
 	if store == nil || intentID == "" {
-		return false, nil
+		return score.ReportGroup{}, nil
 	}
 	group, err := store.Grouped(ctx, intentID)
 	if err != nil {
-		return false, err
+		return score.ReportGroup{}, err
 	}
-	return group.HarmMarked, nil
+	marked, err := store.MarkedIn(ctx, intentID)
+	if err != nil {
+		return score.ReportGroup{}, err
+	}
+	return score.ReportGroup{Reports: group.Reports, Marked: marked}, nil
 }
 
 // newGrouper is the pass over the report store this composition opened, and nil
-// where it opened none.
+// where it opened none. Where the entrance is this same composition's — the
+// channel [openReportStore] made and [theChannel] held onto — it is wired the
+// hand-off a report's own Submit makes at once, so arrival is what triggers a
+// pass and the interval [passGrouper] runs on is left as the catch-up a
+// restart needs.
 func newGrouper(p *path) (*grouper.Grouper, error) {
 	if p.d.reports == nil {
 		return nil, nil
 	}
-	return grouper.New(grouper.Composition{
+	g, err := grouper.New(grouper.Composition{
 		Pool:           p.d.pool,
 		Reports:        p.d.reports,
 		Intake:         p.intake,
@@ -185,4 +196,14 @@ func newGrouper(p *path) (*grouper.Grouper, error) {
 		ReadsAs:   grouperPrincipal,
 		Admission: admissionSafeguards{p: p},
 	})
+	if err != nil {
+		return nil, err
+	}
+	if theChannel != nil {
+		// p.groupReports reads p.grouper, which compose sets from this call's
+		// own return value right after it returns — a moment after this line
+		// runs and well before an entrance the channel serves could reach it.
+		theChannel.wireGrouper(p.groupReports)
+	}
+	return g, nil
 }

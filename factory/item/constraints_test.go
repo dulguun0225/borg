@@ -80,3 +80,24 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 		t.Errorf("a second row for one item and stage = %v, want a unique violation (23505)", err)
 	}
 }
+
+// TestTheStoreIndexesTheInboundEdgeFromTheIntent: whether an intent's items
+// all shipped is read through the intent's id, for every intent a screen
+// lists, so the reading is only as cheap as that inbound edge is indexed. What
+// the index costs is a write per item on a table decomposition appends to and
+// nothing else inserts into.
+func TestTheStoreIndexesTheInboundEdgeFromTheIntent(t *testing.T) {
+	ctx, pool, _, _ := newWriters(t)
+
+	var indexed bool
+	err := pool.QueryRow(ctx, `select exists (
+		select 1 from pg_indexes
+		where schemaname = current_schema() and tablename = $1 and indexdef like '%(intent_id)%')`,
+		item.Table).Scan(&indexed)
+	if err != nil {
+		t.Fatalf("reading the indexes of %s: %v", item.Table, err)
+	}
+	if !indexed {
+		t.Errorf("no index of %s covers intent_id, and every reading of what an intent became walks it", item.Table)
+	}
+}

@@ -39,6 +39,15 @@ func chainCheck(ctx context.Context, s stores, out io.Writer) error {
 	if _, err := writer.RecordHead(ctx, head.Hash, head.Seq); err != nil {
 		return err
 	}
+	agreed, err := writer.RecordChainAgreement(ctx)
+	if err != nil {
+		return err
+	}
+	if agreed != "" {
+		fmt.Fprintf(out, "the log's chain still holds the head recorded last pass, extended to sequence %d — a later agreement is recorded on %s as evidence\n",
+			head.Seq, agreed)
+		return nil
+	}
 	fmt.Fprintf(out, "the log's chain still holds the head recorded last pass, extended to sequence %d\n", head.Seq)
 	return nil
 }
@@ -48,12 +57,14 @@ func chainCheck(ctx context.Context, s stores, out io.Writer) error {
 // past the interval it names with a further pass owed is a mismatch of the shape
 // the two above have, holding what the stopped component reaches — the health
 // monitor's that service's production deploys, the deployer's that
-// environment's, which is one row per service in it.
-//
-// The notifier's own staleness, and every factory last check stale at once, have
-// no carrier inside the factory — a mismatch about the notifier would be
-// delivered by the notifier — so for those two the detector delivers to its own
-// address instead, naming what it found.
+// environment's, which is one row per service in it. [driftdetector.Holds] is
+// where what a stopped component holds is decided, over the last check and the
+// services and their production targets this command assembles;
+// [driftdetector.MustDeliver] is where the detector's own delivery is decided,
+// over every last check and every stale one. A component whose last check
+// answers fresh again does not clear the mismatch its earlier staleness
+// raised — [recordFreshAgain] records the agreement on it as evidence, the
+// way a later agreeing target pass already does.
 func staleCheck(ctx context.Context, s stores, out io.Writer) error {
 	all, err := lastcheck.All(ctx, s.factory)
 	if err != nil {
@@ -66,23 +77,18 @@ func staleCheck(ctx context.Context, s stores, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(stale) == 0 {
-		return nil
-	}
-
-	notifierStale := false
-	var others []lastcheck.LastCheck
-	for _, c := range stale {
-		if c.Component == lastcheck.ComponentNotifier {
-			notifierStale = true
-		} else {
-			others = append(others, c)
-		}
-	}
-	everyStale := len(stale) == len(all)
 
 	writer := driftdetector.NewWriter(s.own)
-	for _, c := range others {
+	staleComponents := make(map[string]bool, len(stale))
+	for _, c := range stale {
+		staleComponents[c.Component] = true
+		if c.Component == lastcheck.ComponentNotifier {
+			// The notifier's own staleness has no carrier inside the factory — a
+			// mismatch about the notifier would be delivered by the notifier — so
+			// it raises no mismatch here; [driftdetector.MustDeliver] below is
+			// where the detector's own delivery answers for it.
+			continue
+		}
 		// Every stale component is raised, not the first of them: a second one
 		// behind the first would otherwise be invisible until the first is
 		// cleared, and each holds what it reaches rather than what the others do.
@@ -90,24 +96,28 @@ func staleCheck(ctx context.Context, s stores, out io.Writer) error {
 			return err
 		}
 	}
-
-	if notifierStale || everyStale {
-		address, err := driftdetector.Address(ctx, s.own)
-		if errors.Is(err, driftdetector.ErrNoAddress) {
-			fmt.Fprintln(out, "the notifier's own last check is stale, and no address is set to deliver to — run install -address first")
-			return nil
-		} else if err != nil {
-			return err
-		}
-		why := "the notifier's own last check is stale"
-		if everyStale {
-			why = "every factory last check is stale at once; the whole process has stopped"
-		}
-		if _, err := writer.Deliver(ctx, why); err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "DELIVERED to %s — %s\n", address, why)
+	if err := recordFreshAgain(ctx, s, writer, staleComponents, out); err != nil {
+		return err
 	}
+
+	if len(stale) == 0 {
+		return nil
+	}
+	why, deliver := driftdetector.MustDeliver(all, stale)
+	if !deliver {
+		return nil
+	}
+	address, err := driftdetector.Address(ctx, s.own)
+	if errors.Is(err, driftdetector.ErrNoAddress) {
+		fmt.Fprintln(out, "the notifier's own last check is stale, and no address is set to deliver to — run install -address first")
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if _, err := writer.Deliver(ctx, why); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "DELIVERED to %s — %s\n", address, why)
 	return nil
 }
 
@@ -118,9 +128,13 @@ func raiseStale(ctx context.Context, s stores, writer *driftdetector.Writer,
 	c lastcheck.LastCheck, out io.Writer) error {
 	why := fmt.Sprintf("%s's own last check is stale: it named an interval of %s and owes a further pass",
 		c.Component, c.Interval)
-	for _, held := range holdsWhat(ctx, s, c) {
+	running, err := servicesOnProductionTargets(ctx, s)
+	if err != nil {
+		return err
+	}
+	for _, hold := range driftdetector.Holds(c, running) {
 		raised, err := writer.RaiseStaleComponent(ctx, driftdetector.StaleComponent{
-			Component: c.Component, ServiceID: held.serviceID, Target: held.target, Why: why,
+			Component: c.Component, ServiceID: hold.ServiceID, Why: why,
 		})
 		if err != nil {
 			return err
@@ -128,48 +142,60 @@ func raiseStale(ctx context.Context, s stores, writer *driftdetector.Writer,
 		if raised == "" {
 			continue
 		}
-		if held.serviceID == "" {
+		if hold.ServiceID == "" {
 			fmt.Fprintf(out, "STALE COMPONENT %s — %s, holding nothing: the page is the whole of it\n",
 				raised, why)
 			continue
 		}
 		fmt.Fprintf(out, "STALE COMPONENT %s — %s, holding %s's production deploys\n",
-			raised, why, held.serviceID)
+			raised, why, hold.ServiceID)
 	}
 	return nil
 }
 
-// held is one service a stopped component's mismatch holds, and the target where
-// the record that stopped is kept per target. A held naming no service is the
-// mismatch that holds nothing.
-type held struct {
-	serviceID string
-	target    string
+// recordFreshAgain is the third comparison's later agreement: every uncleared
+// [driftdetector.MismatchKindStaleComponent] mismatch whose component
+// staleComponents does not name is a component whose last check answered
+// fresh again this pass, and [driftdetector.Writer.RecordStaleComponentAgreement]
+// records that on the standing row the way a later agreeing target pass
+// already does — it does not clear the mismatch, so a human still reads it
+// at the deploy row it holds.
+func recordFreshAgain(ctx context.Context, s stores, writer *driftdetector.Writer,
+	staleComponents map[string]bool, out io.Writer) error {
+	standing, err := driftdetector.Uncleared(ctx, s.own, "")
+	if err != nil {
+		return err
+	}
+	for _, m := range standing {
+		if m.Kind != driftdetector.MismatchKindStaleComponent || staleComponents[m.Component] {
+			continue
+		}
+		agreed, err := writer.RecordStaleComponentAgreement(ctx, m.Component, m.ServiceID, m.Target)
+		if err != nil {
+			return err
+		}
+		if agreed == "" {
+			continue
+		}
+		fmt.Fprintf(out, "%s's own last check is fresh again — a later agreement is recorded on %s as evidence\n",
+			m.Component, agreed)
+	}
+	return nil
 }
 
-// holdsWhat is what a stopped component's mismatch holds, read off which thing
-// that component keeps a last check per. The health monitor keeps one per
-// service, so its subject is the service and it holds that service's production
-// deploys. The deployer keeps one per target of a persistent environment, so it
-// holds every service in that environment which runs on that target.
-//
-// The three that remain — the pass over the constraints in force, the pass over
-// the advisory feed, and dispatch's pass over a fleet proposal — reach no
-// deploy, so the mismatch each makes holds nothing and the page is the whole of
-// it. Holding every service on one of them would stop production deploys across
-// the install for a raise that stopped.
-func holdsWhat(ctx context.Context, s stores, c lastcheck.LastCheck) []held {
-	if c.Component == lastcheck.ComponentHealthMonitor {
-		return []held{{serviceID: c.Subject}}
-	}
-	if c.Component != lastcheck.ComponentDeployer {
-		return []held{{}}
-	}
+// servicesOnProductionTargets assembles [driftdetector.Holds]'s own input:
+// every unretired service, its production environment's id, and the targets
+// it runs on there. What each stopped component's mismatch holds is
+// [driftdetector.Holds]'s decision over this, read off which thing that
+// component keeps a last check per — the deployer's kept per production
+// environment and not per target — and this command only reads what exists
+// and where it runs.
+func servicesOnProductionTargets(ctx context.Context, s stores) ([]driftdetector.ServiceOnTargets, error) {
 	services, err := service.All(ctx, s.factory)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	var holding []held
+	running := make([]driftdetector.ServiceOnTargets, 0, len(services))
 	for _, svc := range services {
 		if svc.Retired() {
 			continue
@@ -178,14 +204,9 @@ func holdsWhat(ctx context.Context, s stores, c lastcheck.LastCheck) []held {
 		if err != nil || !found {
 			continue
 		}
-		// The service's own set and no other: a stopped deployer on a target
-		// this service does not run on holds nothing of this service.
-		for _, address := range runsOn(production, svc) {
-			if address == c.Subject {
-				holding = append(holding, held{serviceID: svc.ID, target: c.Subject})
-				break
-			}
-		}
+		running = append(running, driftdetector.ServiceOnTargets{
+			ServiceID: svc.ID, EnvironmentID: production.ID, Targets: runsOn(production, svc),
+		})
 	}
-	return holding
+	return running, nil
 }

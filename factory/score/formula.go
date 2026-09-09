@@ -11,7 +11,7 @@ package score
 // It moves when a line of [Formula] changes, and a version that changes it does
 // not decide a gate an authored threshold binds until the owner has confirmed or
 // re-authored that threshold against it, which is [InForceAt].
-const FormulaVersion = "authored-5"
+const FormulaVersion = "authored-6"
 
 // Formula is the published formula, in the words the score version stores and a
 // human disagreeing with a number reads. It states every breakpoint, and
@@ -49,7 +49,7 @@ const Formula = `Each factor resolves to a level between 0 and 1, where 1 is the
                          human-confirmed screen state machine with one declaring a transition it did not:
                          either is resolved at Spec rather than weighed, and a version removing neither
                          reads 0.0
-  fleet.share_working_from_it  the share of the factory working from the version in force this one replaces
+  fleet.share_working_from_it  the share of the factory that works from this version
   fleet.departure        how far this version differs from the version in force, as the share of its lines
                          that differ
   fleet.reversibility    0.3 for every version: withdrawal is a second record and nothing was deployed
@@ -58,7 +58,7 @@ const Formula = `Each factor resolves to a level between 0 and 1, where 1 is the
   impact           = sum(weight x level) / sum(weight) over the impact term less exposure.reach, resolved factors
                       left out, plus exposure.reach's own weight x level, capped at 1
   discountedImpact = impact x (1 - 0.5 x (1 - change.reversibility))
-  number           = discountedImpact x (0.4 + 0.6 x likelihood)
+  number           = scale(discountedImpact x (0.4 + 0.6 x likelihood))
 
 A factor the score resolves is left out of the weighted means and never valued. The formula still runs on
 the factors that were computable, and the number is recorded beside the resolution so that calibration
@@ -74,7 +74,11 @@ needs the control and the analysis window.
 One threshold is read against three factor sets, so every set returns a number on one scale: the number
 estimates the share of held-out windows that failed among decisions taken at that number on that set.
 Each set's weights are fitted apart on the held-out decisions taken on that set alone, and a set with too
-few keeps the weights the product shipped for it, with the count published beside its bands.
+few keeps the weights the product shipped for it, with the count published beside its bands. The weights
+rank a change against another and cannot move that scale, every term being a weighted mean, so the fit
+has a second half: scale is the line from the number to the share of those decisions whose windows
+failed at it, fitted per set by the same recalibration, held to 0..1, and the identity for a set nothing
+has fitted.
 `
 
 // The last step's two constants, named because the formula's text states them
@@ -137,8 +141,14 @@ func (a Assessment) ResolvedFactors() []string {
 // reduce applies the published formula to a vector under one set's weights: the
 // weighted mean of each term over the factors that were computable, exposure's
 // own contribution added to impact and the sum capped at 1, impact discounted
-// by reversibility, and the last step. A resolved factor is left out of every
-// mean, of the addition, and of the discount.
+// by reversibility, the last step, and the set's own scale over it. A resolved
+// factor is left out of every mean, of the addition, and of the discount.
+//
+// The scale is the set's fitted last step and the identity where no
+// recalibration has fitted one. It is what puts the three sets' numbers on one
+// scale: the weighted means rank a change against another and say nothing about
+// where that ranking sits against a failure share, so an unscaled sum over four
+// groups sits above one over three whatever the change.
 //
 // Exposure is added rather than folded into the impact mean because a mean
 // cannot only ever raise: a zero level pulls a mean down like any other factor,
@@ -147,7 +157,7 @@ func (a Assessment) ResolvedFactors() []string {
 // none of it leaves that mean untouched and a diff adding some of it can only
 // raise the sum, which the cap then holds to the scale every other factor
 // shares.
-func reduce(vector []Factor) (likelihood, impact, discountedImpact, number float64) {
+func reduce(vector []Factor, scale Scale) (likelihood, impact, discountedImpact, number float64) {
 	var likelihoodWeight, impactWeight float64
 	var exposureWeight, exposureLevel float64
 	reversibility := 1.0
@@ -181,6 +191,6 @@ func reduce(vector []Factor) (likelihood, impact, discountedImpact, number float
 		impact = 1
 	}
 	discountedImpact = impact * (1 - reversibilityDiscount*(1-reversibility))
-	number = discountedImpact * (likelihoodFloor + (1-likelihoodFloor)*likelihood)
+	number = scale.Apply(discountedImpact * (likelihoodFloor + (1-likelihoodFloor)*likelihood))
 	return likelihood, impact, discountedImpact, number
 }

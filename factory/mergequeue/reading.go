@@ -9,7 +9,24 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/item"
 )
+
+// refuseIfRepeats is [ErrReverificationRepeats]'s check. It is asked wherever a re-verification's
+// build is already in force for the candidate — [designSystemMoved]'s and
+// [resolvedSetDiffers]'s own guard, which used to read the same match as
+// nothing to compare and now refuses instead.
+func refuseIfRepeats(c *candidate) error {
+	if c.approved.ID == c.verified.BuildID {
+		return fmt.Errorf("%w: %s names build %s again", ErrReverificationRepeats, c.it.ID, c.verified.BuildID)
+	}
+	if c.verified.ApprovedEnvironmentCycleID != "" &&
+		c.verified.ApprovedEnvironmentCycleID == c.verified.EnvironmentCycleID {
+		return fmt.Errorf("%w: %s names environment cycle %s again",
+			ErrReverificationRepeats, c.it.ID, c.verified.EnvironmentCycleID)
+	}
+	return nil
+}
 
 // A candidate that fails its own re-verification — against the master that
 // actually resulted, not against a speculation ahead of it — is rejected by the
@@ -103,6 +120,11 @@ type Rejection struct {
 	ReturnsTo gate.ReturnsTo
 	// CountsAnAttempt is whether the attempt is counted at that stage.
 	CountsAnAttempt bool
+	// TeachesNothing is whether the criterion a repeated failure names is
+	// unreliable over the two builds the rejection compared: an unreliable one
+	// teaches the score nothing. It is read through [Reliability] and is always
+	// false where the reading is not a repeated failure a criterion decided.
+	TeachesNothing bool
 	// Why is what failed, in words a human reads on the row.
 	Why string
 	// Row is the log row this rejection was written as.
@@ -146,6 +168,9 @@ type RejectionPayload struct {
 	PriorMoves                 bool     `json:"prior_moves"`
 	ReturnsTo                  string   `json:"returns_to,omitempty"`
 	CountsAnAttempt            bool     `json:"counts_an_attempt"`
+	// TeachesNothing is [Rejection.TeachesNothing], the row field the score
+	// reads to tell a rejection an unreliable criterion teaches it nothing.
+	TeachesNothing bool `json:"unreliable_criterion"`
 }
 
 // reject is the rejection of a candidate whose re-verification failed on its own
@@ -180,11 +205,16 @@ func (q *Queue) reject(ctx context.Context, c *candidate) (Outcome, error) {
 	}
 
 	// A failure that repeats is real, and what the score learns turns on the
-	// criterion and the two compositions.
+	// criterion and the two compositions: an unreliable one teaches nothing.
 	r.Criteria = confirmation.Repeated
 	if confirmation.Why != "" {
 		r.Why = confirmation.Why
 	}
+	teachesNothing, err := q.teachesNothing(ctx, c, r.Criteria)
+	if err != nil {
+		return Outcome{}, err
+	}
+	r.TeachesNothing = teachesNothing
 	if moved := movedBetween(c.verified.ApprovedComposition, c.verified.Composition); len(moved) > 0 {
 		r.Reading, r.LearnsAs, r.PriorMoves = ReadingADependencysReleaseMoved, gate.VerdictHold, false
 		r.Moved = moved
@@ -192,6 +222,27 @@ func (q *Queue) reject(ctx context.Context, c *candidate) (Outcome, error) {
 	}
 	r.Reading, r.LearnsAs, r.PriorMoves = ReadingAgainstTheMasterItMerges, gate.VerdictReject, true
 	return q.writeRejection(ctx, c, r)
+}
+
+// teachesNothing asks [Reliability] whether any criterion a repeated failure
+// names is unreliable over the two builds the rejection compared — the approved
+// build and the re-verified build — which is what an unreliable one teaching
+// the score nothing turns on.
+func (q *Queue) teachesNothing(ctx context.Context, c *candidate, criteria []string) (bool, error) {
+	if len(criteria) == 0 {
+		return false, nil
+	}
+	buildIDs := []string{c.approved.ID, c.verified.BuildID}
+	for _, criterionID := range criteria {
+		unreliable, err := q.reliability.Unreliable(ctx, c.it.ServiceID, criterionID, buildIDs)
+		if err != nil {
+			return false, fmt.Errorf("mergequeue: reading whether %s is unreliable: %w", criterionID, err)
+		}
+		if unreliable {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // rejectDesignSystemMove is the rejection a design system move causes: the two
@@ -236,9 +287,13 @@ func (q *Queue) rejectResolvedSet(ctx context.Context, c *candidate, differs str
 	})
 }
 
-// writeRejection appends the row and answers with the outcome that names it. The
-// row is the only record of the rejection, and the item's own transition is the
-// caller's write, so there is nothing here to leave half-written.
+// writeRejection appends the row, sends the item back where the rejection names
+// — the queue is the rejecter, and there is no gate firing for a caller to act
+// on instead — and answers with the outcome that names both. The attempt is not
+// incremented here: an attempt is counted when a stage is entered to author, so
+// what the send-back does is deliver the item there to be entered again;
+// [Rejection.CountsAnAttempt] is what says it will be, and it is on the row for
+// a reader.
 func (q *Queue) writeRejection(ctx context.Context, c *candidate, r Rejection) (Outcome, error) {
 	payload, err := json.Marshal(RejectionPayload{
 		Kind:                       RejectionKind,
@@ -255,6 +310,7 @@ func (q *Queue) writeRejection(ctx context.Context, c *candidate, r Rejection) (
 		PriorMoves:                 r.PriorMoves,
 		ReturnsTo:                  string(r.ReturnsTo),
 		CountsAnAttempt:            r.CountsAnAttempt,
+		TeachesNothing:             r.TeachesNothing,
 	})
 	if err != nil {
 		return Outcome{}, fmt.Errorf("mergequeue: marshalling the rejection of %s: %w", c.it.ID, err)
@@ -266,6 +322,11 @@ func (q *Queue) writeRejection(ctx context.Context, c *candidate, r Rejection) (
 		return Outcome{}, err
 	}
 	r.Row = row.ID
+	if r.ReturnsTo != "" {
+		if _, err := q.items.ReturnTo(ctx, Actor, c.it.ID, item.Stage(r.ReturnsTo)); err != nil {
+			return Outcome{}, fmt.Errorf("mergequeue: sending %s back to %s: %w", c.it.ID, r.ReturnsTo, err)
+		}
+	}
 	return Outcome{
 		ItemID:    c.it.ID,
 		BuildID:   c.verified.BuildID,
@@ -318,9 +379,16 @@ func movedBetween(approved, reverified environment.Composition) []Moved {
 // a build naming no record compares as nothing. Whether the two records differ on
 // a component or a token the candidate's build uses is the reading [DesignSystem]
 // supplies.
+//
+// [refuseIfRepeats] runs first: a re-verification naming the build or the
+// environment cycle already in force is not read as nothing moved, it is
+// refused with [ErrReverificationRepeats].
 func (q *Queue) designSystemMoved(ctx context.Context, c *candidate) (string, error) {
-	if !c.approvedFound || c.verified.BuildID == "" || c.approved.ID == c.verified.BuildID {
+	if !c.approvedFound || c.verified.BuildID == "" {
 		return "", nil
+	}
+	if err := refuseIfRepeats(c); err != nil {
+		return "", err
 	}
 	made, err := build.Get(ctx, q.pool, c.verified.BuildID)
 	if err != nil {
@@ -345,9 +413,14 @@ func (q *Queue) designSystemMoved(ctx context.Context, c *candidate) (string, er
 // where the two sets resolved the same bytes. The comparison is keyed by the
 // source and the package rather than by the package alone, because one name in
 // two registries is two packages.
+//
+// [refuseIfRepeats] runs first, the same guard [designSystemMoved] asks.
 func (q *Queue) resolvedSetDiffers(ctx context.Context, c *candidate) (string, error) {
-	if !c.approvedFound || c.verified.BuildID == "" || c.approved.ID == c.verified.BuildID {
+	if !c.approvedFound || c.verified.BuildID == "" {
 		return "", nil
+	}
+	if err := refuseIfRepeats(c); err != nil {
+		return "", err
 	}
 	before, err := build.Resolved(ctx, q.pool, c.approved.ID)
 	if err != nil {

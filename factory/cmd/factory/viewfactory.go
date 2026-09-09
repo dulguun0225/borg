@@ -352,7 +352,7 @@ func (v *views) thresholdReadings(ctx context.Context, who principal.Principal) 
 		rates = append(rates, row)
 	}
 
-	outcomes, err := score.HeldOutByBand(ctx, v.p.d.pool, v.p.d.token, who, sinceTheInstall)
+	outcomes, err := score.HeldOutByBand(ctx, v.p.d.pool, v.p.d.token, who, sinceTheInstall, v.p.scoreBand)
 	if err != nil {
 		return nil, nil, err
 	}

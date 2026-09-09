@@ -3,6 +3,7 @@
 package deploy_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -20,13 +21,16 @@ func TestTheThreeFleetsSpansAreSummedIntoInstanceHours(t *testing.T) {
 
 	d, err := w.Start(ctx, deployer, deploy.Beginning{
 		ServiceID: serviceID, EnvironmentID: productionID,
-		What: deploy.OfRelease(r.ID, r.BuildID), Targets: withControlReleaseID(twoTargets, "/srv/one", "rel_below"),
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
 		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	completeOn(t, ctx, w, d.ID, "/srv/one", "/srv/two")
+	if err := w.ControlStarted(ctx, d.ID, "/srv/one", theControl); err != nil {
+		t.Fatalf("ControlStarted: %v", err)
+	}
 
 	priced := deploy.Priced{Rate: 0.5, InForce: true}
 	if err := w.TearDownControl(ctx, d.ID, "/srv/one", 2, priced); err != nil {
@@ -123,6 +127,16 @@ func TestABackfillsCompletedRecordIsWhatMarksItComplete(t *testing.T) {
 	}
 
 	completeOn(t, ctx, w, d.ID, "/srv/one", "/srv/two")
+
+	// Every target is complete and the copy is not: the deployer marks a
+	// backfill's record complete only once every row the old form holds is
+	// present in the new, so the record stands started while the copy runs.
+	if err := w.Complete(ctx, d.ID); !errors.Is(err, deploy.ErrBackfillNotCopied) {
+		t.Fatalf("Complete while the copy runs = %v, want ErrBackfillNotCopied", err)
+	}
+	if err := w.MarkBackfillCopied(ctx, d.ID); err != nil {
+		t.Fatalf("MarkBackfillCopied: %v", err)
+	}
 	if err := w.Complete(ctx, d.ID); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}

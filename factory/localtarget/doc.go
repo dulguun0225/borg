@@ -4,17 +4,22 @@
 // # The files
 //
 // local.go is the process: [Local] and [New], [Local.Dir], the seam operations
-// [Local.Deploy], [Local.Stop] and [Local.ReadRunning], [Local.DrainWait] with
-// [DefaultDrainWait], the files [RunningFile], [SignalFile], [ExchangeFile]
+// [Local.Deploy], [Local.Stop] and [Local.ReadRunning], the files
+// [RunningFile], [SignalFile], [ExchangeFile]
 // and [WayInSocket] with the [SignalEnv], [ExchangeEnv] and [DeployEnv]
 // variables that name what a started process is told, and [ErrBuildNotLocal] and
 // [ErrServiceNotLocal]. store.go is the service's store: [DataDir],
 // [HistoryFile], [SchemaScript] and [SnapshotDir], the operations
-// [Local.ApplySchemaChange] and [Local.Snapshot], and [ErrNoSchemaScript],
-// [ErrSnapshotUnverified] and [ErrNameNotLocal]. traffic.go is the two
+// [Local.ApplySchemaChange], [Local.Snapshot] and [Local.DeleteSnapshot], and
+// [ErrNoSchemaScript],
+// [ErrSnapshotUnverified], [ErrSnapshotGone] and [ErrNameNotLocal]. traffic.go is the two
 // operations this platform cannot perform, [Local.ShiftTraffic] and
 // [Local.SetInstanceCount], with [ErrNoShare] and [ErrOneInstance]. The tests
-// are local_test.go and store_test.go, which need a directory and no database.
+// are local_test.go, store_test.go and snapshot_test.go, which need a
+// directory and no database: store_test.go is the schema history, the drain
+// and the cut a replacement reports, and the two operations this platform
+// refuses; snapshot_test.go is the copy taken before a destructive change,
+// verified, and deleted through the seam.
 //
 // [New] takes a directory, and there is one target per target rather than one
 // per environment or one per install: an environment names the addresses a
@@ -25,10 +30,13 @@
 //
 // The deployable binary for a build is placed in the directory before Deploy is
 // called, named exactly by the build string. [Local.Deploy] drains whatever
-// runs for the service — asking it to end and giving it [Local.DrainWait] to
-// finish what it holds — starts dir/<build>, and reports the drain, or a cut
-// where the instance did not end in time. [Local.Stop] ends the process
-// outright, reports the cut that is, and clears what says it runs, and
+// runs for the service — asking it to end and waiting for it to finish what it
+// holds, however long that takes — starts dir/<build>, and reports the drain.
+// Nothing here ends an instance that is still finishing a request: neither
+// rollout row drops one, so the wait is as long as the longest request and a
+// caller unwilling to wait cancels the context, which is an error and no
+// replacement reported. [Local.Stop] drains the same way, reports the same
+// drain, and clears what says it runs, and
 // [Local.ReadRunning] reports the build whose process is still alive, the
 // digest of the artifact it was started from, the one instance this platform
 // runs, and the service's schema history. A dead
@@ -36,13 +44,22 @@
 // prefix: a build that is not a local path is [ErrBuildNotLocal] rather than a
 // path joined and run, and the same check holds for the service name, the
 // change and the snapshot name, each of which is part of a filename here too.
-// What crosses the seam is the build and never the release.
+// A deployment names the build and never the release; the release crosses
+// only on a schema change, as the history row's field naming what shipped it.
 //
 // # What this platform cannot do
 //
 // It moves a process rather than traffic, so it serves no share:
 // [Local.ShiftTraffic] refuses with [ErrNoShare] and [Local.SetInstanceCount]
-// answers a count of one and refuses every other with [ErrOneInstance]. Neither
+// answers a count of one and refuses every other with [ErrOneInstance]. Two
+// things follow. One is that the row with a control is unavailable here, which
+// the environment record declares per target, so every deploy here goes
+// without a control rather than the deployer discovering it. The other is
+// that the fast rollback — traffic
+// shifted onto the instances of the release returned to — cannot be performed
+// here at all: this platform runs one process per service and keeps no second
+// fleet, so a rollback here is the deployer's slow way, a redeploy of a binary
+// still in this directory. Neither
 // returns as though it had acted, because a shift reported as performed would be
 // a rollout recorded as having compared two builds while one of them served no
 // request. An environment record declares this per target, so the score picks the
@@ -53,21 +70,31 @@
 // # The service's store
 //
 // The store is a directory, dir/<service>.data, and the schema history the
-// deployer keeps in it is [HistoryFile], one line per change applied: the
-// change, its checksum, what it did to the store, the release that shipped it,
-// and whether the deployer applied it or found it applied.
+// deployer keeps in it is [HistoryFile], a file inside that directory so that a
+// snapshot of the store carries it: one line per change applied — the change,
+// its checksum, what it did to the store, the release that shipped it wherever
+// one exists, the build it was applied under, which every row names, and
+// whether the deployer applied it or found it applied.
 // [Local.ApplySchemaChange] runs the script the service ships for the change
 // and appends to the history where the script succeeded, so a change that failed
-// to apply is one the next read of the history still lacks; a change marked
+// to apply is one the next read of the history still lacks. The two are not one
+// transaction and this store has none to put them in — a directory and a script
+// over it — which is the case the design's "where the engine allows one" names.
+// A change that destroys stored data is applied only after the copy it names has
+// been verified against what is on disk here, which is [ErrSnapshotGone] where
+// the copy is not there and [ErrSnapshotUnverified] where it holds something
+// else; a change marked
 // found applied is written into the history and run against nothing, which is
 // what the deploy of an adopted service's first release asks for; a change the service
 // ships no script for is [ErrNoSchemaScript] and is applied by nothing.
 // [Local.Snapshot] copies the store, verifies the copy by digest, and returns the
 // name and the digest the deploy record then carries; a copy that does not verify
 // is removed and [ErrSnapshotUnverified] is returned, a snapshot the target
-// cannot take and verify being a deploy not performed. Nothing here deletes a
-// snapshot: the seam has no operation for it, and the deploy record's deletion
-// field is written by the deployer.
+// cannot take and verify being a deploy not performed. [Local.DeleteSnapshot]
+// removes a copy, which is what the deployer performs at the end of the
+// service's snapshot retention and at an owner's call from Ops; a copy that is
+// not there is not an error, and the deploy record's deletion field is written
+// by the deployer beside this call.
 //
 // [RunningFile] is where the target records the build it started and its
 // process id, and [Local.ReadRunning] reads that file rather than this value's
@@ -88,14 +115,15 @@
 // which is what tells the instances one deploy placed from the instances of the
 // same build another placed.
 //
-// The way in the factory injected into the build is told three things where
-// the deployment carries them: the way-in token, the entrance to present it
-// at, and [WayInSocket], a socket in this directory named by the service the
-// way [RunningFile] is, whose own comment says what bounds its length. The
-// three variable names are package wayin's, the shipped source being what
-// reads them, and this target sets them and spells none of them itself. A
-// deployment naming no entrance is told none of the three beyond the token,
-// and the way in in that build listens nowhere.
+// The way in the factory injected into the build is told three things: the
+// way-in token, which arrives as one of the deployment's configuration values
+// and is put in front of the process the way every other value is, and — where
+// the deployment names an entrance — that entrance and [WayInSocket], a socket
+// in this directory named by the service the way [RunningFile] is, whose own
+// comment says what bounds its length. The variable names are package wayin's,
+// the shipped source being what reads them, and this target sets the two it
+// owns and spells neither of them itself. A deployment naming no entrance is
+// told neither, and the way in in that build listens nowhere.
 //
 // The seam requires a credential reference on every operation and this target
 // refuses its absence, but it never resolves the name: nothing sits behind this
@@ -125,9 +153,10 @@
 // (C0914); the schema change, its script and the snapshot before a destructive
 // one are
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
-// (C1664, C1670, C1672, C1678), and the history's own row, with the
-// release that shipped each change and the mark that says the store arrived
-// carrying it, is
+// (C1664, C1670, C1672, C1675, C1678, C2996) — a row a deploy naming no release
+// writes standing on the build, and the copy deleted at the end of the
+// service's retention — and the history's own row, with the release that
+// shipped each change and the mark that says the store arrived carrying it, is
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
 // (C1861, C1862, C1867, C1868, C1869).
 //

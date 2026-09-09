@@ -256,6 +256,16 @@ type Wait struct {
 	// zero value is a wait belonging to neither, which routes to the owner — the
 	// same answer as a duty nobody holds.
 	Holding people.Holding
+	// Person is the per-person key of the named human this wait routes to
+	// where it belongs to no duty, the raiser's own answer for the three
+	// facts the design gives one: the requester of an intent a wait on it
+	// names, the human who lent a credential a ceiling wait is about, and a
+	// named human a row belongs to on the People declaration or a
+	// safeguard's routing. [Notifier.routeTo] reaches it ahead of Holding,
+	// and empty is a wait naming none — the ordinary case, since most kinds
+	// route on Holding alone. A raiser that has no such fact leaves it empty
+	// rather than guessing one.
+	Person string
 	// Worse is whether the deployed software is worse until a human ends this wait.
 	// It is read for a kind whose answer is [PagesIfWorse] and refused on the other
 	// two, where the design has already applied the condition.
@@ -279,6 +289,15 @@ type Wait struct {
 	// are deploy records this package does not read. doc.go names the callers
 	// that answer it.
 	RollbackOutstanding bool
+	// PageAt is the next hour a wait of the second kind held to a service's
+	// paging hours may page, in [record.TimeLayout] — this package's own
+	// computation, made once at the deferral and carried on the delivery
+	// record from there, and never the raiser's to set. hours.go computes it
+	// and [Notifier.PageDeferred] pages once now has passed it, rather than
+	// reading the service's hours again at every pass: an owner narrowing or
+	// widening them after the deferral does not move an hour already
+	// announced. Empty on a wait that is not deferred.
+	PageAt string
 }
 
 // pages reports whether this wait fires a page, and refuses a caller that

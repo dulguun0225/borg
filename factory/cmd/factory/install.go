@@ -17,10 +17,23 @@ import (
 // it. A composition that installs creates the ones that are missing; every
 // other reads them by name and refuses where the project or its production
 // environment does not exist, naming the subcommand that creates them.
+//
+// This is adoption: [environment.RefuseUnlessComposable] refuses a project
+// whose production environment declares a platform that cannot compose one on
+// demand before the factory composes anything for it, whether the project is
+// created here or read back — an environment per candidate is the shape the
+// design admits and nothing else.
 func (p *path) installed(ctx context.Context) (policy.Installed, error) {
 	if p.d.install {
-		return p.factory.Install(ctx, p.human, p.d.project,
+		installed, err := p.factory.Install(ctx, p.human, p.d.project,
 			[]string{p.d.dir}, p.d.credential, p.d.candidateCeiling)
+		if err != nil {
+			return policy.Installed{}, err
+		}
+		if err := environment.RefuseUnlessComposable(ctx, p.d.pool, installed.Project.ID); err != nil {
+			return policy.Installed{}, err
+		}
+		return installed, nil
 	}
 	settings, err := factorysettings.Get(ctx, p.d.pool)
 	if err != nil {
@@ -36,6 +49,9 @@ func (p *path) installed(ctx context.Context) (policy.Installed, error) {
 		return policy.Installed{}, fmt.Errorf(
 			"factory: no project is named %q; `factory run -project %s` creates it with production's environment for it",
 			p.d.project, p.d.project)
+	}
+	if err := environment.RefuseUnlessComposable(ctx, p.d.pool, prj.ID); err != nil {
+		return policy.Installed{}, err
 	}
 	production, found, err := environment.Production(ctx, p.d.pool, prj.ID)
 	if err != nil {

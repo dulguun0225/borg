@@ -3,7 +3,7 @@ package score
 // LearningVersion names the published rules by which a supplied value moves. It
 // moves when a rule changes, the way [FormulaVersion] moves when the formula
 // does, and a version naming it is readable against the rules that were in force.
-const LearningVersion = "outcomes-4"
+const LearningVersion = "outcomes-5"
 
 // Rules is the published rules, in the words the score version stores and an
 // owner disagreeing with a moved value reads. A learned value nobody can argue
@@ -37,9 +37,13 @@ cost alone would be the score deciding that human review is not worth its price.
 judgment, made by authoring the value. What raises a threshold here is the held-out sample and nothing
 else, and a factory whose sample never selects has a threshold that can fall and cannot rise.
 
-  risk threshold      per gate row. It falls to one band (0.05) below the lowest number the score
+  risk threshold      per gate row. It falls to one band below the lowest number the score
                       auto-passed on the number at that row and whose item turned out badly, floored
                       at 0.05 — so the next change scoring what that one scored is decided by a human.
+                      One band is the width of a band of the reading over the number below, 0.10 as
+                      the product ships it, and it is a field of the score version rather than a
+                      number here: the fall, the rise and a resolved rejection all take that one
+                      step, and an owner reads it on the record beside the bands it divides.
                       It rises one band per 3 held-out firings at that row whose releases reached a
                       window that closed passed, ceilinged at 0.90, and only where no held-out
                       firing at that row reached a window that closed failed: one of those is the
@@ -54,9 +58,13 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       rejection named, approval without differing there, a second rejection, or the
                       item reaching the attempt limit. The first, third and fourth are read as a gate
                       the factory needed: each lowers the threshold of the row the human was at by one
-                      band (0.05), floored at 0.05, and it is that row and no other, the item never
+                      band, floored at 0.05, and it is that row and no other, the item never
                       having been auto-passed at a row a human decided. The second is a false alarm,
-                      moves nothing, and is published per human.
+                      moves nothing, and is published per human. What the digest is taken over is the
+                      part of the version the rejection named and not the whole of it, any
+                      re-authoring at all moving the whole version's digest; a trail that no longer
+                      holds the words leaves the rejection unresolved rather than reading it as a
+                      false alarm against the human.
 
   attempt limit       per stage, both ways, once 3 items have reported at that stage. One above the
                       highest attempt at which the stage produced work that got past it, floored at 2
@@ -73,9 +81,10 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       which nothing here does.
 
   analysis window size   per service and per quantity, and the coarser of two numbers. What the evidence
-                      asks for is the starting size halved per miss on a window that timed out — an
-                      incident raised against a release whose window ruled nothing out — floored at
-                      0.002. What the traffic reaches is the finest size the window itself computes and
+                      asks for is the starting size halved per miss on a window that timed out —
+                      something going wrong on a release whose window ruled nothing out, an incident
+                      raised against it or a rollback that failed it, a human's undo among them —
+                      floored at 0.002. What the traffic reaches is the finest size the window itself computes and
                       reports on its record, which is the arithmetic that also decides the exits. The
                       size in force is the coarser of the two, because a size finer than the traffic can
                       resolve rules nothing out: the window ends at the cap every time, protects nothing,
@@ -84,7 +93,8 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       quantity, which is the reading a human's undo already gets.
 
   analysis window power  per service and per quantity. Each false pass — a window that closed passed over
-                      a release an incident was later raised against — halves the distance from the power
+                      a release something later went wrong on, an incident against it or a rollback
+                      that failed it — halves the distance from the power
                       in force to one, ceilinged at 0.99. It falls one step of 0.05, floored at 0.50,
                       where 3 windows of that service in a row timed out on traffic that reached the size
                       in force: that is volume a lower power would have closed passed within, which is the
@@ -94,6 +104,14 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       quantity's power alone. The two are read apart because they are
                       read off the same windows, and reading one event as both ends at once would move two
                       values against a single piece of evidence.
+
+Two of the window's parameters have no second end here and are stated as such rather than left to be
+discovered: the window's confidence and the item-size target. Both are allowed to move one way because
+neither compounds — the traffic a comparison needs grows as the log of the confidence, where it grows as
+the inverse square of the size — so an owner authoring over one of them is the answer, authoring being an
+override. The window's power is not a third: what shows a power too high is not a counterfactual but a
+window running to the cap on volume a lower one would have closed passed within, read off that service's
+own windows, which is its second end below.
 
   window confidence   nothing. No outcome says the confidence a comparison must reach was too high. What
                       would show it is a rollback that turned out unnecessary, and the one thing that
@@ -114,18 +132,25 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       that behaved, and counting one would let a service whose instrumentation stopped
                       ratchet its own limit upward while measuring nothing at all.
 
-  held-out sample     per factory. It does not move: how often the score auto-passes a change it would
-  rate                have gated is bounded by an owner and not by the mechanism doing it, so what the
-                      score supplies is the starting value and a safeguard's ceiling is what narrows it.
+  held-out sample     per factory. It does not move: a mechanism that set its own rate of auto-passing a
+  rate                change it would have gated is bounded by nothing, so the rate is authored with the
+                      rest of gate policy and not chosen by the score, the same division the window's size
+                      uses — the score supplies the starting value where an owner authors none, and a
+                      safeguard's ceiling is what narrows it, sampling less being a human kept at a gate.
 
-  review sample rate  per duty. It does not move here either, for the same reason: it is how much of what
-                      the factory may do unattended an owner has a human read anyway.
+  review sample rate  per duty. It does not move either, and for its own reason and not the one above: it
+                      is how much of what the factory may do unattended an owner has a human read anyway,
+                      which is a judgment about how much of that reading to buy and not an outcome the
+                      store speaks to. The score supplies the starting value where an owner authors none,
+                      and a safeguard's floor is what raises it, sampling more being a human added.
 
-  the exposure bound  per service. It does not move: the exposure factor learns from no outcome, so
-                      nothing in the store speaks to where it should stop being weighed.
+  the exposure bound  per service. It does not move: the exposure factor it bounds learns from no outcome
+                      of its own — an outbound call added or a credential read moves neither an error rate
+                      nor a latency quantile, so a window closing passed on it says nothing about it — and
+                      nothing else in the store speaks to where it should stop being weighed.
 
-  the advisory        per factory. It does not move: no outcome teaches at what severity a matching
-  severity            advisory should reject.
+  the advisory        per factory. It does not move: it is read by one pass over one feed, the factory's
+  severity            own, and no outcome teaches at what severity a matching advisory should reject.
 
   allowed predicate   nothing. No outcome teaches which kinds of assertion a consumer contract may draw
   kinds               from, so the score supplies none and the value in force is the kinds this
@@ -141,9 +166,13 @@ of its own: the prior each held-out decision was taken on, against what that rel
 A prior that no longer separates the held-out releases whose windows failed from the ones whose windows
 passed, over at least 3 of each, is drifted whatever its distribution did. A drifted factor and a drifted
 prior take the treatment an unavailable factor takes — resolved and never valued, a human deciding
-whatever the formula returns — until a recalibration is in force at that gate. Where a truncation of the
-log has removed every held-out decision on a drifted author, this reading finds nothing and the prior
-restarts as an unseen author's, at the width a count of no closes supports.
+whatever the formula returns — until a recalibration is in force at that gate. Both readings are taken
+over the decisions closed after the newest one the last recalibration read, which is what makes a
+recalibration the exit: read over all of them, a reading would find the same drift again at the next
+pass, and a prior standing drifted stops the sample producing any newer decisions to read. Where a
+truncation of the log has removed every held-out decision on a drifted author, this reading finds nothing
+and the prior restarts as an unseen author's, at the prior the product shipped for that model version
+where the version carries one and at the width a count of no closes supports where it carries none.
 
 A recalibration refits each factor set's weights on the held-out decisions taken on that set alone, once
 10 of them have reached a window that closed on evidence. Within each term of the formula a factor's
@@ -152,8 +181,21 @@ its mean level on ones whose windows passed — as a share of that term's separa
 or a term whose factors separate nothing, keeps the weights the product shipped for it, and the counts on
 its bands say so. One factor is left at what the product shipped however well it separates: the harm mark a
 report carries adds no gate a report did not already meet, so its weight is nothing and a recalibration
-does not move it. A recalibration writes a version differing in the weights and in nothing else, and it
-takes the branch a formula change takes: under new weights the same change gets a different number.
+does not move it.
+
+The weights are the fit's shape and not its scale. Every term of the formula is a weighted mean, so
+multiplying a term's weights through moves no number, and what the shares of separation decide is which
+change ranks above which and never where that ranking sits against a failure share. So the same
+recalibration fits a second half per set: the least-squares line from the number the fitted weights give
+a held-out decision's own vector to whether that release's window failed, held to 0 and 1. That is what
+makes the number an estimate of the share of held-out windows that failed among decisions taken at that
+number on that set, which is the one scale the three sets share. A set with too few decisions, or one
+whose numbers do not rise with the failures at all, keeps the identity — a scale fitted through a
+number that ranked nothing would move every number in the factory on nothing.
+
+A recalibration writes a version differing in the weights, in the scale fitted with them, and in the
+drift findings it ends, and it takes the branch a formula change takes: under new weights the same
+change gets a different number.
 
 The held-out sample is how the threshold gets evidence its own decisions did not select. A firing the
 score would have gated is held out at the rate in force: the item auto-passes every gate the score would
@@ -171,9 +213,6 @@ and what it answers is whether the number ranks anything at all.
 // The published rules' own numbers, named where they are applied. Every one of
 // them is in [Rules] and TestRulesStateEveryBound holds the two together.
 const (
-	// thresholdBand is how far the threshold moves in one step, and how far below
-	// a number it goes to gate what that number did not gate.
-	thresholdBand = 0.05
 	// thresholdFloor is as low as the threshold goes. A threshold below this puts
 	// a human at nearly every gate, which is the human work the factory exists to
 	// remove.

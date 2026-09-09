@@ -51,8 +51,9 @@ var (
 )
 
 // Mitigation is one operation the deployer performed on a human's instruction
-// from Ops: the actor under seam 1, the operation, the target, and the deploy
-// record it modifies, which the drift detector reads as intended state.
+// from Ops: the actor under seam 1, the operation, the target, the deploy
+// record it modifies, which the drift detector reads as intended state, and —
+// once a human has ended it at Ops — when it stopped standing and who ended it.
 type Mitigation struct {
 	ID        string
 	Actor     record.Actor
@@ -69,6 +70,10 @@ type Mitigation struct {
 	// stands. The drift detector reads an open one as intended state and a
 	// closed one as nothing.
 	EndedAt string
+	// EndedBy is the human who ended it at Ops, beside when they did. A
+	// mitigation stands until a human ends it, so the record names which one:
+	// the same three fields every actor is named by, and empty while it stands.
+	EndedBy record.Actor
 }
 
 // Standing reports whether the mitigation is still in force.
@@ -169,12 +174,23 @@ func (w *Writer) BeginMitigation(ctx context.Context, actor record.Actor, m Miti
 	return written, nil
 }
 
-// EndMitigation writes when the mitigation stopped standing, so the drift
-// detector stops reading it as intended state.
-func (w *Writer) EndMitigation(ctx context.Context, id string) error {
+// EndMitigation writes when the mitigation stopped standing and who ended it,
+// so the drift detector stops reading it as intended state and the record says
+// which human it was. A mitigation stands until a human ends it at Ops, so an
+// actor that is not a human is [ErrNotAHuman] and the mitigation goes on
+// standing.
+func (w *Writer) EndMitigation(ctx context.Context, actor record.Actor, id string) error {
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if actor.Kind != record.KindHuman {
+		return fmt.Errorf("%w: %s ending %s", ErrNotAHuman, actor.Kind, id)
+	}
 	return w.inTransaction(ctx, "ending the mitigation "+id, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `update `+MitigationTable+` set ended_at = $1
-			where id = $2 and ended_at = ''`, record.Now(), id)
+		tag, err := tx.Exec(ctx, `update `+MitigationTable+` set ended_at = $1,
+			ended_actor_kind = $2, ended_actor_key = $3, ended_actor_key_basis = $4
+			where id = $5 and ended_at = ''`,
+			record.Now(), string(actor.Kind), actor.Key, string(actor.Basis), id)
 		if err != nil {
 			return err
 		}
@@ -186,7 +202,7 @@ func (w *Writer) EndMitigation(ctx context.Context, id string) error {
 }
 
 const selectMitigation = `select id, actor_kind, actor_key, actor_key_basis, at, operation, address,
-	deploy_id, began_at, ended_at
+	deploy_id, began_at, ended_at, ended_actor_kind, ended_actor_key, ended_actor_key_basis
 	from ` + MitigationTable
 
 // Mitigations is every mitigation against one deploy record, oldest first. It
@@ -216,14 +232,16 @@ func queryMitigations(ctx context.Context, pool *pgxpool.Pool, reading, statemen
 	var read []Mitigation
 	for rows.Next() {
 		var m Mitigation
-		var kind, basis, operation string
+		var kind, basis, operation, endedKind, endedBasis string
 		err := rows.Scan(&m.ID, &kind, &m.Actor.Key, &basis, &m.At, &operation, &m.Address,
-			&m.DeployID, &m.BeganAt, &m.EndedAt)
+			&m.DeployID, &m.BeganAt, &m.EndedAt, &endedKind, &m.EndedBy.Key, &endedBasis)
 		if err != nil {
 			return nil, fmt.Errorf("deploy: reading one of %s: %w", reading, err)
 		}
 		m.Actor.Kind = record.Kind(kind)
 		m.Actor.Basis = record.Basis(basis)
+		m.EndedBy.Kind = record.Kind(endedKind)
+		m.EndedBy.Basis = record.Basis(endedBasis)
 		m.Operation = Operation(operation)
 		read = append(read, m)
 	}

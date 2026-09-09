@@ -82,6 +82,10 @@ const (
 	// ActionWithdrawn is a record an owner withdrew that no gate row decides:
 	// an environment a customer defined.
 	ActionWithdrawn Action = "withdrawn"
+	// ActionRemoved is the deployer's removal of one service from one
+	// environment, performed at an owner's write and writing no record of this
+	// package's. It is a version because every owner write at Factory is one.
+	ActionRemoved Action = "removed"
 	// ActionConfirmed is an owner confirming the threshold as it stands against
 	// the score version in force, which authors no value and moves no field.
 	ActionConfirmed Action = "confirmed"

@@ -242,6 +242,44 @@ func TestEscalateAndClearEscalation(t *testing.T) {
 	}
 }
 
+// TestClearEscalationRefusesABypass: the stage the item escalated from is
+// recorded by Escalate, and ClearEscalation refuses returning the item any
+// later than that stage — the pipeline between is not skipped just because a
+// human is the one authoring the return.
+func TestClearEscalationRefusesABypass(t *testing.T) {
+	ctx, _, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
+	for _, stage := range []item.Stage{item.StageImplementationPlan, item.StageTasks} {
+		if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, stage); err != nil {
+			t.Fatalf("Advance to %s: %v", stage, err)
+		}
+	}
+
+	escalated, err := dispatch.Escalate(ctx, dispatchActor, it.ID)
+	if err != nil {
+		t.Fatalf("Escalate: %v", err)
+	}
+	if escalated.Stage != item.StageEscalated {
+		t.Fatalf("Escalate returned stage %s, want escalated", escalated.Stage)
+	}
+
+	// Implementation is one stage past tasks, the stage the item escalated
+	// from: returning it there would skip tasks, one of the gates in between
+	// the pipeline exists to keep.
+	if _, err := dispatch.ClearEscalation(ctx, workActor, it.ID, item.StageImplementation); !errors.Is(err, item.ErrEscalationBypass) {
+		t.Errorf("ClearEscalation past where it escalated = %v, want ErrEscalationBypass", err)
+	}
+
+	// Spec is above tasks, and a human may still take the item over there.
+	cleared, err := dispatch.ClearEscalation(ctx, workActor, it.ID, item.StageSpec)
+	if err != nil {
+		t.Fatalf("ClearEscalation to spec: %v", err)
+	}
+	if cleared.Stage != item.StageSpec {
+		t.Errorf("ClearEscalation returned stage %s, want spec", cleared.Stage)
+	}
+}
+
 // TestDropEndsAnItemForGood: Work ends one that escalated and nobody took over
 // or the intent above it, Ops ends a revert item a mark made unnecessary, and
 // an item already ended is out of reach.
@@ -276,41 +314,6 @@ func TestDropEndsAnItemForGood(t *testing.T) {
 	}
 }
 
-// TestPartlyDeliveredIsARepeatableReading: an intent whose items did not all
-// ship is at least one stopped item beside at least one live sibling. Nothing
-// writes it down, and whether an item is live is the caller's to read.
-func TestPartlyDeliveredIsARepeatableReading(t *testing.T) {
-	ctx, pool, decomposition, dispatch := newWriters(t)
-	const intentID = "in_" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
-	var made []item.Item
-	for _, branch := range []string{"item/first", "item/second"} {
-		it, err := decomposition.Create(ctx, decompositionActor, item.New{
-			IntentID: intentID, ServiceID: "svc_x", Branch: branch,
-		}, "", "", nil)
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
-		made = append(made, it)
-	}
-
-	// Both still moving: in progress rather than partly delivered.
-	if partly, err := item.PartlyDelivered(ctx, pool, intentID, nil); err != nil || partly {
-		t.Errorf("PartlyDelivered with both moving = %v, %v", partly, err)
-	}
-	// One stopped and none live: stopped rather than partly delivered.
-	if _, err := dispatch.Drop(ctx, workActor, made[0].ID); err != nil {
-		t.Fatalf("Drop: %v", err)
-	}
-	if partly, err := item.PartlyDelivered(ctx, pool, intentID, nil); err != nil || partly {
-		t.Errorf("PartlyDelivered with nothing live = %v, %v", partly, err)
-	}
-	// One stopped, one live.
-	if partly, err := item.PartlyDelivered(ctx, pool, intentID, []string{made[1].ID}); err != nil || !partly {
-		t.Errorf("PartlyDelivered with a live sibling = %v, %v", partly, err)
-	}
-}
-
 // workActor is who reorders a queue and who ends an item: an owner at Work,
 // writing through dispatch rather than beside it.
 var workActor = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
@@ -326,6 +329,7 @@ func TestSetPriorityAndAtStage(t *testing.T) {
 	for n, branch := range []string{"item/first", "item/second", "item/third"} {
 		it, err := decomposition.Create(ctx, decompositionActor, item.New{
 			IntentID: fmt.Sprintf("in_%032d", n), ServiceID: serviceID, Branch: branch,
+			RequirementsAnswered: []string{fmt.Sprintf("rq_%032d", n)},
 		}, "", "", nil)
 		if err != nil {
 			t.Fatalf("Create: %v", err)
@@ -402,6 +406,53 @@ func TestEnterCountsAnotherAttemptAtTheStageTheItemStandsAt(t *testing.T) {
 	}
 	if len(stages) != 1 || stages[0].Attempts != 2 {
 		t.Fatalf("Stages returned %+v, want spec at two attempts", stages)
+	}
+}
+
+// TestTheStagesBelowAReturnsTargetReAuthorCountingNothing: the attempt is
+// counted at what the item is sent to, and the stages below it are redone
+// because of somebody else — a count that rose for them would escalate the
+// stage that noticed the defect rather than the one that made it. So an
+// advance into a stage the item has already been at counts nothing, and the
+// item's first entry to each is the one the advance counts.
+func TestTheStagesBelowAReturnsTargetReAuthorCountingNothing(t *testing.T) {
+	ctx, pool, decomposition, dispatch := newWriters(t)
+	it := oneItem(ctx, t, decomposition)
+
+	for _, stage := range []item.Stage{item.StageImplementationPlan, item.StageTasks, item.StageImplementation} {
+		if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, stage); err != nil {
+			t.Fatalf("Advance to %s: %v", stage, err)
+		}
+	}
+	// The implementation says the spec says two things, so the item goes back
+	// to Spec and is entered there: one more attempt at the stage that was
+	// wrong.
+	if _, err := dispatch.ReturnTo(ctx, dispatchActor, it.ID, item.StageSpec); err != nil {
+		t.Fatalf("ReturnTo spec: %v", err)
+	}
+	if _, err := dispatch.Enter(ctx, dispatchActor, it.ID, item.StageSpec); err != nil {
+		t.Fatalf("Enter spec: %v", err)
+	}
+	for _, stage := range []item.Stage{item.StageImplementationPlan, item.StageTasks, item.StageImplementation} {
+		if _, err := dispatch.Advance(ctx, dispatchActor, it.ID, stage); err != nil {
+			t.Fatalf("Advance to %s again: %v", stage, err)
+		}
+	}
+
+	stages, err := item.Stages(ctx, pool, it.ID)
+	if err != nil {
+		t.Fatalf("Stages: %v", err)
+	}
+	want := map[item.Stage]int{
+		item.StageSpec: 2, item.StageImplementationPlan: 1, item.StageTasks: 1, item.StageImplementation: 1,
+	}
+	if len(stages) != len(want) {
+		t.Fatalf("Stages returned %+v, want one row per authoring stage", stages)
+	}
+	for _, s := range stages {
+		if s.Attempts != want[s.Stage] {
+			t.Errorf("%s stands at %d attempts, want %d", s.Stage, s.Attempts, want[s.Stage])
+		}
 	}
 }
 

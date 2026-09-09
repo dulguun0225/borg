@@ -19,12 +19,14 @@ import (
 // emitted while the records were behind, so it is what says how high the numbers
 // a restore lost went. One above the records alone would reuse them.
 //
-// The design takes the second reading at the first mint after a restore, which
-// the install event says there was. Nothing writes an install event yet, so the
-// queue takes the higher of the two readings at every mint instead: where no
-// restore happened the two readings agree or the store's is the lower, and the
-// number is the one the records alone would have given. What it costs is one
-// read of a store outside the records per mint.
+// The second reading is taken only at the first mint on the service since the
+// install event says there was a restore: every later mint reads the records
+// alone. "First since" is read off time, both being record.TimeLayout and so
+// comparable as text: the restore's row is newer than the service's newest
+// release, or the service has no release at all. Nothing writes an install
+// event yet — see doc.go — so this reads against the shape a writer will one day
+// fill, and a factory with no such row takes the records alone at every mint,
+// which is also what every mint after the first since a restore does.
 
 // SkippedNumbersKind is what the payload of the row a mint writes when it passes
 // over numbers says it is, so a reader can tell it from every other payload
@@ -88,6 +90,36 @@ func (q *Queue) recordSkipped(ctx context.Context, serviceID string, inRecords, 
 	return skipped, nil
 }
 
+// restoreEventPayload is what this package reads off an install event row for
+// the reading above: the event, which is "restore" where the row says there was
+// one. This package's own [SkippedNumbersPayload] shares the shape and carries
+// no such field, so it decodes as not a restore.
+type restoreEventPayload struct {
+	Event string `json:"event"`
+}
+
+// newestRestore is the newest install event row that says there was a restore,
+// and its time in [record.TimeLayout]. found is false where the log holds none.
+func (q *Queue) newestRestore(ctx context.Context) (string, bool, error) {
+	rows, err := decisionlog.NewReader(q.pool, q.token).ByShape(ctx, componentPrincipal, decisionlog.ShapeInstallEvent)
+	if err != nil {
+		return "", false, err
+	}
+	var at string
+	var found bool
+	for _, row := range rows {
+		var p restoreEventPayload
+		if err := json.Unmarshal([]byte(row.Payload), &p); err != nil {
+			return "", false, fmt.Errorf("mergequeue: reading an install event row: %w", err)
+		}
+		if p.Event != "restore" {
+			continue
+		}
+		at, found = row.At, true
+	}
+	return at, found, nil
+}
+
 // mint writes the release record and, in the same transaction, the contract
 // versions that release publishes. A contract changes only inside its service's
 // items and every write to it happens at a release, so the fast-forward is the
@@ -101,10 +133,6 @@ func (q *Queue) recordSkipped(ctx context.Context, serviceID string, inRecords, 
 // answers with the release already written: the fast-forward and this write are
 // one operation restartable from either side.
 func (q *Queue) mint(ctx context.Context, serviceID, itemID string, verified Verified) (Outcome, error) {
-	seen, err := q.numbers.HighestSeen(ctx, serviceID)
-	if err != nil {
-		return Outcome{}, fmt.Errorf("mergequeue: reading the highest number seen of %s: %w", serviceID, err)
-	}
 	highest, found, err := release.Highest(ctx, q.pool, serviceID)
 	if err != nil {
 		return Outcome{}, err
@@ -112,6 +140,18 @@ func (q *Queue) mint(ctx context.Context, serviceID, itemID string, verified Ver
 	var inRecords int64
 	if found {
 		inRecords = highest.Number
+	}
+
+	var seen int64
+	restoredAt, restored, err := q.newestRestore(ctx)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if restored && (!found || restoredAt > highest.At) {
+		seen, err = q.numbers.HighestSeen(ctx, serviceID)
+		if err != nil {
+			return Outcome{}, fmt.Errorf("mergequeue: reading the highest number seen of %s: %w", serviceID, err)
+		}
 	}
 
 	var published []contract.Published

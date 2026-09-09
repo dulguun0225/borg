@@ -101,10 +101,11 @@ func TestASubmissionNamingNoDeployIsCountedOnTheChannelAndNeverOnAService(t *tes
 	}
 }
 
-// TestASubmissionUnderAShapeTheStoreDoesNotReadIsCountedPerService: the loss
-// the refused counter cannot see is counted where it happened, per service,
-// and is not a refusal.
-func TestASubmissionUnderAShapeTheStoreDoesNotReadIsCountedPerService(t *testing.T) {
+// TestASubmissionUnderAShapeTheStoreDoesNotReadIsCountedAsARefusal: a
+// submission of a shape this store does not read is itself a refusal, and is
+// counted on the service and on the whole channel the way any other is —
+// which bound refused it is on the result and not on the counter.
+func TestASubmissionUnderAShapeTheStoreDoesNotReadIsCountedAsARefusal(t *testing.T) {
 	ctx, _, store, s := newStore(t)
 	placed := deploy()
 	s.place("tok", placed)
@@ -124,12 +125,11 @@ func TestASubmissionUnderAShapeTheStoreDoesNotReadIsCountedPerService(t *testing
 	if err != nil {
 		t.Fatalf("Counts: %v", err)
 	}
-	service := counted(t, counts, placed.ServiceID)
-	if service.UnreadableShape != 1 || service.Refusals != 0 {
-		t.Errorf("the service counted %+v, want one unreadable submission and no refusal", service)
+	if got := counted(t, counts, placed.ServiceID).Refusals; got != 1 {
+		t.Errorf("the service counted %d refusals, want 1", got)
 	}
-	if counted(t, counts, "").Refusals != 0 {
-		t.Errorf("the channel counted %+v, want nothing", counted(t, counts, ""))
+	if got := counted(t, counts, "").Refusals; got != 1 {
+		t.Errorf("the channel counted %d refusals, want the one counted on it too", got)
 	}
 }
 

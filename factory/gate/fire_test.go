@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/criterion"
@@ -23,7 +24,7 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -42,16 +43,17 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 		t.Fatalf("Verify after fire and decide: %v", err)
 	}
 
-	// Fire's own check that nothing is already pending reads the log first,
-	// which appends a read event ahead of the opening; Verify and this Read
-	// each append one more, so the log holds five rows and not the two this
-	// decision appended.
+	// Fire's own check that nothing is already pending reads the log first, and
+	// its read of whether the row above stands as approved reads it again, each
+	// appending a read event ahead of the opening; Verify and this Read each
+	// append one more; and the fixture wrote the row above as two rows of its
+	// own. So the log holds eight rows and not the two this decision appended.
 	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 5 {
-		t.Fatalf("the log holds %d rows, want 5", len(rows))
+	if len(rows) != 8 {
+		t.Fatalf("the log holds %d rows, want 8", len(rows))
 	}
 	opening := rowByID(t, rows, opened.Row.ID)
 	closingRow := rowByID(t, rows, closing.ID)
@@ -92,20 +94,22 @@ func TestTheOpeningPayloadNamesTheValuesApplied(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	// Fire's own check that nothing is already pending reads the log first,
-	// which appends a read event ahead of the opening; this Read appends one
-	// more, so the log holds three rows and not the one this firing appended.
+	// Fire's own check that nothing is already pending reads the log first and
+	// its read of the row above reads it again, each appending a read event
+	// ahead of the opening; this Read appends one more; and the fixture wrote
+	// the row above as two rows of its own. So the log holds six rows and not
+	// the one this firing appended.
 	rows, err := decisionlog.NewReader(pool, token).Read(ctx, ownerReading)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 3 {
-		t.Fatalf("the log holds %d rows, want 3", len(rows))
+	if len(rows) != 6 {
+		t.Fatalf("the log holds %d rows, want 6", len(rows))
 	}
 
 	var payload gate.OpeningPayload
@@ -175,7 +179,7 @@ func TestAFailedCriterionReachesTheOpeningPayloadAsACount(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	firing := mergeFiring
+	firing := mergeRowFiring(t, ctx, pool, token)
 	firing.Criteria = []gate.CriterionResult{
 		{CriterionID: "cr_a", Outcome: criterion.OutcomePassed},
 		{CriterionID: "cr_b", Outcome: criterion.OutcomeFailed},
@@ -198,7 +202,7 @@ func TestAnUndecidedCriterionReachesTheOpeningPayloadLikeAFailure(t *testing.T) 
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	firing := mergeFiring
+	firing := mergeRowFiring(t, ctx, pool, token)
 	firing.Criteria = []gate.CriterionResult{
 		{CriterionID: "cr_a", Outcome: criterion.OutcomePassed},
 		{CriterionID: "cr_b", Outcome: criterion.OutcomeUndecided},
@@ -219,10 +223,8 @@ func TestTheCandidateDeployRowNamesNoOutcome(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.2)}, &fakePolicy{applied: applied(0.5)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	firing := mergeFiring
-	firing.Row = gate.DeployToCandidateEnvironment
+	firing := candidateFiring(t, ctx, pool, token)
 	firing.ArtifactID = ""
-	firing.Criteria = nil
 	firing.CriteriaInForce = 2
 	opened, err := g.Fire(ctx, firing)
 	if err != nil {
@@ -254,7 +256,7 @@ func TestAResolvedFactorPutsAHumanAtTheRowWhateverTheNumberReads(t *testing.T) {
 	s, p := &fakeScore{assessment: assessment}, &fakePolicy{applied: applied(0.9)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -395,5 +397,27 @@ func TestAMismatchBesideARevertDecisionPagesOnlyOnceMore(t *testing.T) {
 	}
 	if !opened.Pages() {
 		t.Error("a revert decision standing beside a mismatch pages, and this firing does not")
+	}
+}
+
+// TestADeployRowsOpenEventNamesTheItemAndTheBuildAndNoRelease: both rows of a
+// decision are written against the item and the build and never against the
+// release, including at the production deploy gate, which fires after the
+// release exists — one rule for all eight rows, so no reader has to know which
+// side of the merge a gate is on.
+func TestADeployRowsOpenEventNamesTheItemAndTheBuildAndNoRelease(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.1)}, &fakePolicy{applied: applied(0.9)}
+	ctx, pool, token, g := newGate(t, s, p)
+
+	f := deployFiring(t, ctx, pool, token)
+	opened, err := g.Fire(ctx, f)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	if opened.Subject.ItemID != f.ItemID || opened.Subject.BuildID != f.BuildID {
+		t.Fatalf("the row is written against %+v, want the item and the build", opened.Subject)
+	}
+	if strings.Contains(opened.Row.Payload, "release_id") || strings.Contains(opened.Row.Payload, "rel_") {
+		t.Errorf("the production deploy row's open event names a release: %s", opened.Row.Payload)
 	}
 }

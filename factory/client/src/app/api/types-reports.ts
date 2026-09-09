@@ -24,7 +24,6 @@ export interface ServiceReportCounts {
   ServiceID: string;
   ServiceName: string;
   Refused: number;
-  UnreadableShape: number;
   NoNoticeInForce: boolean;
 }
 
@@ -39,9 +38,9 @@ export interface ServiceOnAnOldWayIn {
 }
 
 // ReportChannel is what Factory reports of the one way into the factory from
-// outside it. Refused and UnreadableShape are counters the report store keeps
-// and every other number on this screen is a query at read time: the record a
-// query would count is the write the rate exists to refuse.
+// outside it. Refused is the one counter the report store keeps and every
+// other number on this screen is a query at read time: the record a query
+// would count is the write the rate exists to refuse.
 export interface ReportChannel {
   Ungrouped: number;
   RefusedOverTheChannel: number;

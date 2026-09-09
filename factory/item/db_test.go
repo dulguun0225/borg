@@ -32,9 +32,19 @@ import (
 )
 
 // newWriters gives a test a schema of its own, this package's DDL applied
-// inside it, and both writers over it. The schema is dropped when the test
-// ends, so a rerun on a database a previous run left dirty starts clean.
+// inside it, and both writers over it.
 func newWriters(t *testing.T) (context.Context, *pgxpool.Pool, *item.Decomposition, *item.Dispatch) {
+	t.Helper()
+	ctx, pool, token := newStore(t)
+	return ctx, pool, item.NewDecomposition(pool, token), item.NewDispatch(pool, token)
+}
+
+// newStore is what [newWriters] is built on: a schema of its own, this
+// package's DDL applied inside it, and the token every write is fenced with.
+// The schema is dropped when the test ends, so a rerun on a database a
+// previous run left dirty starts clean. A test that writes another package's
+// records too takes the token from here and applies that package's DDL itself.
+func newStore(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -74,7 +84,7 @@ func newWriters(t *testing.T) (context.Context, *pgxpool.Pool, *item.Decompositi
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	return ctx, pool, item.NewDecomposition(pool, token), item.NewDispatch(pool, token)
+	return ctx, pool, token
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -101,14 +111,16 @@ const oneProject = "pr_00000000000000000000000000000000"
 var dispatchActor = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 
 // oneItem is an item freshly decomposed, for the tests that need one to advance or
-// report against.
+// report against. Every item answers a requirement whole or carries a derived
+// share of one, so the fixture names one.
 func oneItem(ctx context.Context, t *testing.T, decomposition *item.Decomposition) item.Item {
 	t.Helper()
 	it, err := decomposition.Create(ctx, decompositionActor, item.New{
-		IntentID:  "in_" + strings.Repeat("0", 32),
-		ServiceID: "svc_" + strings.Repeat("0", 32),
-		AreaID:    "ar_" + strings.Repeat("0", 32),
-		Branch:    "item/checkout-retry",
+		IntentID:             "in_" + strings.Repeat("0", 32),
+		ServiceID:            "svc_" + strings.Repeat("0", 32),
+		AreaChain:            []string{"ar_" + strings.Repeat("0", 32)},
+		Branch:               "item/checkout-retry",
+		RequirementsAnswered: []string{"rq_" + strings.Repeat("0", 32)},
 	}, oneProject, oneProject, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)

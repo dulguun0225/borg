@@ -100,7 +100,8 @@ func placeRouted(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token le
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	placed, err := safeguard.Insert(ctx, tx, token, owner, parameter, subject, bound, routing)
+	w := safeguard.NewWriter(pool, token)
+	placed, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), parameter, subject, bound, routing)
 	if err != nil {
 		t.Fatalf("Insert(%s on %s): %v", parameter, subject, err)
 	}
@@ -176,16 +177,17 @@ func TestTheRoutingFieldRoutesAHumanCheck(t *testing.T) {
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	w := safeguard.NewWriter(pool, token)
 
-	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit, onAService,
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.WindowLimit, onAService,
 		safeguard.Bound{Number: 2}, safeguard.Routing{Duty: 3}); !errors.Is(err, safeguard.ErrRoutingRefused) {
 		t.Errorf("routing a safeguard that bounds a value = %v, want ErrRoutingRefused", err)
 	}
-	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.RiskThreshold, onARow,
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.RiskThreshold, onARow,
 		safeguard.Bound{}, safeguard.Routing{Duty: 3, HumanKey: "p_x"}); !errors.Is(err, safeguard.ErrRoutingBothNamed) {
 		t.Errorf("routing to a duty and a human at once = %v, want ErrRoutingBothNamed", err)
 	}
-	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.RiskThreshold, onARow,
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.RiskThreshold, onARow,
 		safeguard.Bound{}, safeguard.Routing{Duty: 13}); !errors.Is(err, safeguard.ErrRoutingDutyOutOfRange) {
 		t.Errorf("routing to duty 13 = %v, want ErrRoutingDutyOutOfRange", err)
 	}
@@ -193,7 +195,7 @@ func TestTheRoutingFieldRoutesAHumanCheck(t *testing.T) {
 
 // TestASubjectKeyIsRequiredWhereTheParameterHasOneAndRefusedWhereItDoesNot:
 // the design keeps a parameter's own key — the gate row, the stage, the duty —
-// out of the subject kinds themselves, so [safeguard.Insert] checks it against
+// out of the subject kinds themselves, so [safeguard.Writer.Insert] checks it against
 // the parameter's own [gatepolicy.Definition].
 func TestASubjectKeyIsRequiredWhereTheParameterHasOneAndRefusedWhereItDoesNot(t *testing.T) {
 	ctx, pool, token := newTable(t)
@@ -202,19 +204,20 @@ func TestASubjectKeyIsRequiredWhereTheParameterHasOneAndRefusedWhereItDoesNot(t 
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	w := safeguard.NewWriter(pool, token)
 
-	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.RiskThreshold,
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.RiskThreshold,
 		safeguard.Subject{Kind: safeguard.SubjectService, ID: "svc_a"}, safeguard.Bound{}, safeguard.Routing{},
 	); !errors.Is(err, safeguard.ErrSubjectKeyRequired) {
 		t.Errorf("a risk-threshold safeguard naming no gate row = %v, want ErrSubjectKeyRequired", err)
 	}
-	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit,
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.WindowLimit,
 		safeguard.Subject{Kind: safeguard.SubjectService, ID: "svc_a", Key: "deploy_to_production"},
 		safeguard.Bound{Number: 2}, safeguard.Routing{},
 	); !errors.Is(err, safeguard.ErrSubjectKeyRefused) {
 		t.Errorf("a window-limit safeguard naming a key = %v, want ErrSubjectKeyRefused", err)
 	}
-	placed, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.AttemptLimit,
+	placed, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.AttemptLimit,
 		safeguard.Subject{Kind: safeguard.SubjectStage, ID: "spec", Key: "spec"}, safeguard.Bound{Number: 3}, safeguard.Routing{})
 	if err != nil {
 		t.Fatalf("a stage-keyed attempt-limit safeguard: %v", err)
@@ -235,6 +238,7 @@ func TestABoundOfTheWrongShapeIsRefused(t *testing.T) {
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	w := safeguard.NewWriter(pool, token)
 
 	cases := []struct {
 		name      string
@@ -264,24 +268,24 @@ func TestABoundOfTheWrongShapeIsRefused(t *testing.T) {
 		if c.parameter == gatepolicy.RiskThreshold {
 			subject = onARow
 		}
-		if _, err := safeguard.Insert(ctx, tx, token, owner, c.parameter, subject, c.bound, safeguard.Routing{}); !errors.Is(err, c.want) {
+		if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), c.parameter, subject, c.bound, safeguard.Routing{}); !errors.Is(err, c.want) {
 			t.Errorf("Insert with %s = %v, want %v", c.name, err, c.want)
 		}
 	}
 
 	two := safeguard.Bound{Number: 2}
-	if _, err := safeguard.Insert(ctx, tx, token, owner, "no_such_parameter", onAService, two, safeguard.Routing{}); !errors.Is(err, gatepolicy.ErrUnknown) {
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), "no_such_parameter", onAService, two, safeguard.Routing{}); !errors.Is(err, gatepolicy.ErrUnknown) {
 		t.Errorf("a safeguard on a parameter that does not exist = %v, want ErrUnknown", err)
 	}
-	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit,
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.WindowLimit,
 		safeguard.Subject{Kind: "project_row", ID: "prj_a"}, two, safeguard.Routing{}); !errors.Is(err, safeguard.ErrSubjectKindUnknown) {
 		t.Errorf("a safeguard on an unknown kind = %v, want ErrSubjectKindUnknown", err)
 	}
-	if _, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.WindowLimit,
+	if _, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.WindowLimit,
 		safeguard.Subject{Kind: safeguard.SubjectService}, two, safeguard.Routing{}); !errors.Is(err, safeguard.ErrSubjectIDEmpty) {
 		t.Errorf("a safeguard naming no subject = %v, want ErrSubjectIDEmpty", err)
 	}
-	if _, err := safeguard.Insert(ctx, tx, token, record.Actor{}, gatepolicy.WindowLimit, onAService, two, safeguard.Routing{}); !errors.Is(err, record.ErrKindUnknown) {
+	if _, err := w.Insert(ctx, tx, record.Actor{}, record.NewID(safeguard.IDPrefix), gatepolicy.WindowLimit, onAService, two, safeguard.Routing{}); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("a safeguard with no actor = %v, want ErrKindUnknown", err)
 	}
 }
@@ -298,8 +302,9 @@ func TestASafeguardOnTheStrategyDefaultKeepsAControlAndBoundsNoValue(t *testing.
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	w := safeguard.NewWriter(pool, token)
 
-	placed, err := safeguard.Insert(ctx, tx, token, owner, gatepolicy.StrategyDefault,
+	placed, err := w.Insert(ctx, tx, owner, record.NewID(safeguard.IDPrefix), gatepolicy.StrategyDefault,
 		onAService, safeguard.Bound{}, safeguard.Routing{})
 	if err != nil {
 		t.Fatalf("placing the safeguard that keeps a control: %v", err)

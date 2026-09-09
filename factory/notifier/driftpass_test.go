@@ -89,7 +89,7 @@ func TestSweepDriftDetectorPagesWidensAndAnswers(t *testing.T) {
 	}
 
 	// Clearing it at the detector and sweeping again answers it.
-	if _, err := driftdetector.NewWriter(drift).Clear(ctx, recorded.Raised, "a-human"); err != nil {
+	if _, err := driftdetector.NewWriter(drift).Clear(ctx, recorded.Raised, "a-human", "the target was redeployed by hand"); err != nil {
 		t.Fatalf("Clear: %v", err)
 	}
 	if err := n.SweepDriftDetector(ctx, drift); err != nil {
@@ -400,7 +400,7 @@ func TestAMismatchHeldToTheHoursIsNotRenotifiedAndIsNotPagedOnceCleared(t *testi
 
 	// Cleared where nothing calls: there is no page to answer, so the sweep
 	// writes nothing and delivers nothing.
-	if _, err := driftdetector.NewWriter(drift).Clear(ctx, recorded.Raised, "hk_sre"); err != nil {
+	if _, err := driftdetector.NewWriter(drift).Clear(ctx, recorded.Raised, "hk_sre", "the target was redeployed by hand"); err != nil {
 		t.Fatalf("Clear: %v", err)
 	}
 	if err := n.SweepDriftDetector(ctx, drift); err != nil {

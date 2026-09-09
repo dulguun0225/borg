@@ -181,6 +181,7 @@ func TestTheTwoBaselinesAreDifferent(t *testing.T) {
 	ship(t, ctx, g, g.producer, []contract.Form{full}, nil, window.ExitTimedOut)
 	merged, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: record.NewID("in"), ServiceID: g.producer.ID, Branch: "item/merged",
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the merged item: %v", err)
@@ -370,7 +371,7 @@ func TestAConsumerNobodyCouldDeriveHoldsEveryProducersElement(t *testing.T) {
 		"no extractor covers this build", consumercontract.Derived{
 			Extractor: consumercontract.Extractor{Toolchain: "rust", FactoryVersion: "test"},
 			Cause:     consumercontract.CauseNoExtractor,
-		}, ""); err != nil {
+		}, theManifest); err != nil {
 		t.Fatalf("submitting the could-not-derive record: %v", err)
 	}
 

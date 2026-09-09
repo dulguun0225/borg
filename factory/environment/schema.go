@@ -53,9 +53,9 @@ const (
 // candidate environment is composed on the platform the production environment
 // record of the item's service declares, so the fact lives on that record and
 // not on the candidate's. can_compose_on_demand is a fact about the platform an
-// owner declares; [Insert] refuses a production environment whose platform
-// cannot compose one, an environment per candidate being the shape the design
-// admits and nothing else.
+// owner declares; [RefuseUnlessComposable] refuses a project whose production
+// environment declares a platform that cannot compose one, an environment per
+// candidate being the shape the design admits and nothing else.
 //
 // max_concurrent_candidate_environments is authored on the production record
 // alone. Nothing supplies a value for it, so zero is unauthored and not a

@@ -47,9 +47,13 @@ func TestTheVectorNamesTheSkillVersionsTheRunWorkedFrom(t *testing.T) {
 		ModelVersion:        d.modelName,
 		Effort:              "high",
 		CredentialName:      d.modelCredentialName,
+		ProcessingLocation:  processingLocationOf(d.modelCredentialName),
+		LenderKey:           "pk_owner",
+		AccountKind:         agentrun.AccountPerson,
 		ItemID:              itemID,
 		Stage:               "spec",
 		InputManifestID:     manifest.ID,
+		UnitsAt:             record.Now(),
 		Outcome:             "answered",
 	}); err != nil {
 		t.Fatalf("recording the agent run: %v", err)

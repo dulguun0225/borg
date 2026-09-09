@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/dulguun0225/borg/factory/agent"
-	"github.com/dulguun0225/borg/factory/fleetentry"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/principal"
@@ -162,6 +160,13 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 	}
 	if on.ItemID == "" && on.IntentID == "" && !role.OnAProject() {
 		return run, errors.New("dispatch: a dispatch is for an item or for an intent, and this one names neither")
+	}
+	// The area chain, before anything is matched against it: a scope drawn on
+	// any area above the item's reaches the item, and this component follows
+	// the chain rather than taking one from the caller.
+	on, err := d.following(ctx, on)
+	if err != nil {
+		return run, err
 	}
 
 	// 1. The intent, where this dispatch reaches one. Two things about it stop
@@ -327,56 +332,6 @@ func (d *Dispatch) credentialStops(ctx context.Context, read credentialRows, on 
 	}, nil
 }
 
-// withhold is the material the entry may be handed and the material it may not,
-// which context assembly reads the classes for at every dispatch: a class the
-// entry does not name is withheld before any selection rule selects anything,
-// and the manifest records each withheld source as excluded with the entry as
-// the reason. An entry naming no class is handed nothing but the role prompt.
-//
-// A class outside [fleetentry.MaterialClasses] is [ErrMaterialClassUnknown] and
-// not silently withheld: the classes an entry names and the classes a stage
-// hands over are one vocabulary, so a class no entry could ever name is a
-// caller's mistake and not an owner's narrowing.
-//
-// What it withholds is what the manifest and the run record name. It is not
-// what the role sends the provider: the payload each of the five methods passes
-// is the caller's own, assembled from the same sources, and this strips nothing
-// out of it — doc.go says so, that being what context assembly would own.
-func withhold(entry Entry, material []inputmanifest.Material) ([]inputmanifest.Material,
-	[]inputmanifest.Exclusion, error) {
-	var handed []inputmanifest.Material
-	var withheld []inputmanifest.Exclusion
-	for _, one := range material {
-		if !slices.Contains(fleetentry.MaterialClasses, one.Class) {
-			return nil, nil, fmt.Errorf("%w: %q on %s", ErrMaterialClassUnknown, one.Class, one.Reference)
-		}
-		if slices.Contains(entry.MaterialClasses, one.Class) {
-			handed = append(handed, one)
-			continue
-		}
-		withheld = append(withheld, inputmanifest.Exclusion{
-			What:   one.Reference,
-			Reason: "withheld: the fleet entry " + entry.ID + " does not name class " + one.Class,
-		})
-	}
-	return handed, withheld, nil
-}
-
-// sourcesOf is the sources handed over, as the agent run record names them:
-// the reference of each material the manifest was written from, in the order
-// the stage handed them over. It is called with what the entry's classes
-// admitted and never with what the stage offered, so a class the entry does not
-// name is on the manifest as excluded and on no run record as a source: the
-// manifest names what was withheld and the run record names what was sent, and
-// both name a source by reference.
-func sourcesOf(material []inputmanifest.Material) []string {
-	sources := make([]string, 0, len(material))
-	for _, one := range material {
-		sources = append(sources, one.Reference)
-	}
-	return sources
-}
-
 // attempts is (6) to (8): the calls, one agent run record each, and the limit
 // compared against the item's own stored count after each refused reply.
 //
@@ -397,6 +352,11 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, so
 	if err := as.Validate(); err != nil {
 		return run, err
 	}
+	// Every call goes through the client that keeps what the reply said about
+	// when the provider answered, which is the time the run record carries for
+	// the units: the role hands back the units and not the reply.
+	reported := &reporting{inner: run.Entry.Model}
+	run.Entry.Model = reported
 	var last error
 	for made := 0; ; made++ {
 		counted, err := d.counted(ctx, on, made)
@@ -423,7 +383,9 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, so
 
 		startedAt := record.Now()
 		units, callErr := call(run.Entry, told, as)
-		recorded, err := d.recordRun(ctx, run, on, sources, units, paid, startedAt, record.Now(), outcomeOf(callErr))
+		finishedAt := record.Now()
+		recorded, err := d.recordRun(ctx, run, on, sources, units, paid,
+			startedAt, reported.returnedAt(finishedAt), finishedAt, outcomeOf(callErr))
 		if err != nil {
 			return run, err
 		}
@@ -440,6 +402,14 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, so
 				if _, err := d.Rematch(ctx); err != nil {
 					return run, err
 				}
+			}
+			// The report this call just made is compared against the ceiling
+			// like every other, so the credential's own row and the notice
+			// before it land here rather than at whatever the next dispatch
+			// onto that credential is. The stage that finished is not held for
+			// it: it proceeded, and the row is about the credential.
+			if _, err := d.atEachReport(ctx, on, run.Entry); err != nil {
+				return run, err
 			}
 			return run, nil
 		}
@@ -465,16 +435,11 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, so
 		}
 		run.Attempts = counted + 1
 		last = callErr
-		// The ceiling is compared at each report the agent makes and not only
-		// at a stage's start, so overshoot is bounded to one report's worth of
-		// units: a stage whose last call put the sum past it is held here,
-		// mid-stage, by whoever could not proceed, rather than retrying on an
-		// account the owner bounded.
-		read, err := d.credentialWaits(ctx)
-		if err != nil {
-			return run, err
-		}
-		held, err := d.credentialStops(ctx, read, on, run.Entry)
+		// The same comparison the successful call makes, and the retry is what
+		// could not proceed: a stage whose last call put the sum past the
+		// ceiling is held here, mid-stage, rather than retrying on an account
+		// the owner bounded.
+		held, err := d.atEachReport(ctx, on, run.Entry)
 		if err != nil {
 			return run, err
 		}
@@ -485,12 +450,27 @@ func (d *Dispatch) attempts(ctx context.Context, run Run, on On, told string, so
 }
 
 // counted is what the limit is compared against: the item's own count for the
-// stage, which rises on the record as the item is entered again, or — for a
-// run on an intent, which has no per-stage row — the count the caller carries
-// plus the calls this run has already made.
+// stage, which rises on the record as the item is entered again, or — for a run
+// on an intent — the rounds the intent's own record keeps, written by intake at
+// each round like every other write to it, plus the calls this round has
+// already spent. The rounds are read here and not carried by the caller, so
+// what the limit compares is the field intake wrote and not a number a caller
+// worked out beside it.
+//
+// A run put on a project has neither: no record keeps a count for the grouper,
+// so [On.CountedSoFar] is what it is counted against, and so is a run on an
+// intent this dispatch reaches no record for.
 func (d *Dispatch) counted(ctx context.Context, on On, made int) (int, error) {
-	if on.ItemID == "" {
+	if on.ItemID != "" {
+		return d.countAt(ctx, on.ItemID, on.Stage)
+	}
+	if on.IntentID == "" {
 		return on.CountedSoFar + made, nil
 	}
-	return d.countAt(ctx, on.ItemID, on.Stage)
+
+	in, found, err := d.intentFor(ctx, on)
+	if err != nil || !found {
+		return on.CountedSoFar + made, err
+	}
+	return in.Rounds + made, nil
 }

@@ -46,12 +46,13 @@ func listIn(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "erasure-list")
 }
 
-// TestRedactDestroysASpanAndRecomputesTheDigest is the one exception to
-// insert-and-never-update, and the erasure-list row that lands before it.
-func TestRedactDestroysASpanAndRecomputesTheDigest(t *testing.T) {
+// TestRedactDestroysASpanAndKeepsBothDigests is the one exception to
+// insert-and-never-update, the digest of the words as written kept beside the
+// digest of what remains, and the erasure-list row that lands before it.
+func TestRedactDestroysASpanAndKeepsBothDigests(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "the secret is 12345 and nothing else", "")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "the secret is 12345 and nothing else", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -75,15 +76,27 @@ func TestRedactDestroysASpanAndRecomputesTheDigest(t *testing.T) {
 	if read.Content != "the secret is xxxxx and nothing else" {
 		t.Errorf("the redacted content is %q", read.Content)
 	}
-	if read.ContentDigest == impl.ContentDigest {
-		t.Error("the content digest did not change after redaction")
+	// A decision recorded the digest of the words it decided, and it still
+	// names them: content_digest is what it was, and the digest of what the
+	// erasure left stands beside it.
+	if read.ContentDigest != impl.ContentDigest {
+		t.Errorf("the content digest is %q, was %q; a decision that recorded the first names nothing now",
+			read.ContentDigest, impl.ContentDigest)
+	}
+	if read.RedactedContentDigest == "" || read.RedactedContentDigest == read.ContentDigest {
+		t.Errorf("the digest of what the redaction left is %q, beside %q; want the digest of the redacted words",
+			read.RedactedContentDigest, read.ContentDigest)
+	}
+	if impl.RedactedContentDigest != "" {
+		t.Errorf("the version was written with %q in the redacted digest, want it empty until an erasure",
+			impl.RedactedContentDigest)
 	}
 }
 
 func TestRedactRefusesASpanOutsideTheContent(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "short", "")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "short", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -110,7 +123,7 @@ func TestRedactRefusesASpanOutsideTheContent(t *testing.T) {
 func TestTheRedactionPassDestroysWhatEveryRedactionNamesOfItsOwn(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "the secret is 12345 and nothing else", "")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "the secret is 12345 and nothing else", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -164,7 +177,7 @@ func TestTheRedactionPassDestroysWhatEveryRedactionNamesOfItsOwn(t *testing.T) {
 func TestReplayDestroysAgainWhatTheListSaysWasRemoved(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "the secret is 12345 and nothing else", "")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "the secret is 12345 and nothing else", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}

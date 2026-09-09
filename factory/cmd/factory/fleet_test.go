@@ -31,7 +31,7 @@ func TestAnUpgradesShippedPromptIsNotInForceUntilItsGate(t *testing.T) {
 
 	// What the install ran on. It is entered as the install's own, which is the
 	// one entry that stands in force with nothing decided.
-	installed, err := store.EnterShipped(ctx, installActor, artifact.KindRolePrompt, string(role), "",
+	installed, err := store.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, string(role), "",
 		"the words the install ran on", artifact.EnteredByInstall, "bundle-1")
 	if err != nil {
 		t.Fatalf("entering the install's own prompt: %v", err)
@@ -39,7 +39,7 @@ func TestAnUpgradesShippedPromptIsNotInForceUntilItsGate(t *testing.T) {
 
 	// The first start on a version whose shipped words differ. It enters a
 	// version and puts nothing in force.
-	prompts, entered, err := enterShippedPrompts(ctx, store, d.pool, d.token, installActor, "bundle-2")
+	prompts, entered, err := enterShippedPrompts(ctx, store, d.pool, d.token, artifact.FactoryStart, "bundle-2")
 	if err != nil {
 		t.Fatalf("enterShippedPrompts: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestASecondStartOnOneVersionEntersNothing(t *testing.T) {
 	store := artifact.NewStore(d.pool, d.token)
 	role := dispatch.RoleSpecAuthor
 
-	if _, _, err := enterShippedPrompts(ctx, store, d.pool, d.token, installActor, "bundle-1"); err != nil {
+	if _, _, err := enterShippedPrompts(ctx, store, d.pool, d.token, artifact.FactoryStart, "bundle-1"); err != nil {
 		t.Fatalf("the install's own entry: %v", err)
 	}
 	// An agent authors a version over what shipped, which is what leaves the
@@ -260,11 +260,11 @@ func TestASecondStartOnOneVersionEntersNothing(t *testing.T) {
 	author := record.Actor{Kind: record.KindAgent, Key: "a-model-version", Basis: record.BasisClaimed}
 	if _, err := store.SubmitFleet(ctx, author, artifact.By{
 		Authorship: artifact.AuthorshipAgent, Author: "a-model-version",
-	}, artifact.KindRolePrompt, string(role), "", "the words an agent authored", ""); err != nil {
+	}, artifact.KindRolePrompt, string(role), "", "the words an agent authored", "im_1"); err != nil {
 		t.Fatalf("authoring a version over what shipped: %v", err)
 	}
 
-	_, entered, err := enterShippedPrompts(ctx, store, d.pool, d.token, installActor, "bundle-1")
+	_, entered, err := enterShippedPrompts(ctx, store, d.pool, d.token, artifact.FactoryStart, "bundle-1")
 	if err != nil {
 		t.Fatalf("enterShippedPrompts: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestAChainAnUpgradeStartedHasNothingInForce(t *testing.T) {
 	store := artifact.NewStore(d.pool, d.token)
 	role := dispatch.RoleSpecAuthor
 
-	if _, err := store.EnterShipped(ctx, installActor, artifact.KindRolePrompt, string(role), "",
+	if _, err := store.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, string(role), "",
 		"the words a later start ships", artifact.EnteredByUpgradeFirstStart, "bundle-2"); err != nil {
 		t.Fatalf("entering an upgrade's prompt onto an empty chain: %v", err)
 	}

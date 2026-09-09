@@ -13,39 +13,71 @@ import (
 )
 
 // Learned is everything one pass over the outcomes computes: the table of values
-// the score supplies, the bands of the number, the drift readings, and the false
-// alarms published per human. All four are fields of the version the pass
-// appends, so a decision naming a version can be read against what the score
-// then knew.
+// the score supplies, the bands of the number, the drift readings, every prior
+// restart, and the false alarms published per human. All five are fields of the
+// version the pass appends, so a decision naming a version can be read against
+// what the score then knew.
 type Learned struct {
-	Supplied    SuppliedValues
-	Bands       []Band
-	Drift       []Drift
-	FalseAlarms []FalseAlarm
+	Supplied SuppliedValues
+	Bands    []Band
+	Drift    []Drift
+	// PriorRestarts is every author whose per-author prior has restarted as an
+	// unseen author's, by the time it restarted at, carried forward from the
+	// version below plus what this pass found.
+	PriorRestarts map[string]string
+	FalseAlarms   []FalseAlarm
+}
+
+// Under is what one pass reads off the version below it rather than off this
+// source: the band the risk threshold steps by, and the close time of the
+// newest decision the last recalibration read. Both are fields of a [Version],
+// and [Version.Under] is how a caller holding one supplies them.
+//
+// The zero value is what a factory with no version yet reads: the band the
+// product ships, and no recalibration behind it.
+type Under struct {
+	BandWidth           float64
+	RecalibratedThrough string
+	// DriftedPriors is every author whose per-author prior stands drifted under
+	// the version below, which is what a pass checks against for a truncation
+	// having removed the evidence that stood it there.
+	DriftedPriors []string
+	// PriorRestarts is every author already restarted, by the time it
+	// restarted at, carried forward from the version below.
+	PriorRestarts map[string]string
+}
+
+// band is the width in force, which is the product's where the version names
+// none.
+func (u Under) band() float64 {
+	if u.BandWidth <= 0 {
+		return ShippedBandWidth
+	}
+	return u.BandWidth
 }
 
 // Learn is what the score supplies and what it published beside it, computed
 // from every outcome in the store. It reads records and writes none — what
 // writes is [Writer.Ensure], which appends the version this is a field of.
-func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks) (Learned, error) {
+func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks, under Under) (Learned, error) {
 	e, err := ReadEvidence(ctx, pool, token, marks)
 	if err != nil {
 		return Learned{}, err
 	}
-	return LearnFrom(e)
+	return LearnFrom(e, under)
 }
 
 // LearnFrom is [Learn] over evidence already read. It is separate so that the
 // rules are testable against a graph without reading one twice, and so that a
 // caller printing what moved and a caller appending a version read the store once
 // between them.
-func LearnFrom(e *Evidence) (Learned, error) {
+func LearnFrom(e *Evidence, under Under) (Learned, error) {
 	values := StartingValues()
 
 	limits := attemptLimits(e)
 	values = append(values, limits...)
 	values = append(values, itemSizeTargets(e, limitOf(limits))...)
-	values = append(values, thresholds(e)...)
+	values = append(values, thresholds(e, under.band())...)
 	values = append(values, windowLimits(e)...)
 
 	windows, err := windowParameters(e)
@@ -55,10 +87,11 @@ func LearnFrom(e *Evidence) (Learned, error) {
 	values = append(values, windows...)
 
 	return Learned{
-		Supplied:    values,
-		Bands:       e.bands(),
-		Drift:       e.drift(),
-		FalseAlarms: e.falseAlarms(),
+		Supplied:      values,
+		Bands:         e.bands(under.band()),
+		Drift:         e.drift(under.RecalibratedThrough),
+		PriorRestarts: e.restartedPriors(under),
+		FalseAlarms:   e.falseAlarms(),
 	}, nil
 }
 
@@ -76,11 +109,17 @@ func LearnFrom(e *Evidence) (Learned, error) {
 // count of the good ones alone would raise it on a row the sample had already
 // shown a gate was needed at.
 //
+// How far it moves is one band of the reading over the number the version
+// publishes, and the band is the version's own: the fall below a number that
+// turned out badly, the rise on the held-out sample and a resolved rejection
+// all take that one step, which is why the width is a field an owner reads
+// rather than a constant here.
+//
 // A rejection is read at the row the human was at and at no other. The item it
 // rejected was never auto-passed there — that is what a human at a gate means —
 // so it cannot be read off the auto-pass half, and reading it off the rows that
 // did auto-pass the same item would move every row but the one the gate fired at.
-func thresholds(e *Evidence) []Supplied {
+func thresholds(e *Evidence, band float64) []Supplied {
 	start, _ := Starting(gatepolicy.RiskThreshold)
 	needed := rejectionsTheFactoryNeeded(e)
 	var moved []Supplied
@@ -108,17 +147,17 @@ func thresholds(e *Evidence) []Supplied {
 		value, why := start.Value, ""
 		switch {
 		case !math.IsNaN(lowestBad):
-			value = math.Max(thresholdFloor, lowestBad-thresholdBand)
+			value = math.Max(thresholdFloor, lowestBad-band)
 			why = fmt.Sprintf("%d change(s) auto-passed on the number at this row turned out badly, the lowest of them scoring %.2f, so the threshold is one band below it",
 				bad, lowestBad)
 		case good >= heldOutPerBand && heldOutFailed == 0:
 			bands := good / heldOutPerBand
-			value = math.Min(thresholdCeiling, start.Value+float64(bands)*thresholdBand)
+			value = math.Min(thresholdCeiling, start.Value+float64(bands)*band)
 			why = fmt.Sprintf("%d held-out firing(s) at this row reached a window that closed passed and none that failed, which is %d band(s) of unbiased evidence that the gate was not needed",
 				good, bands)
 		}
 		if needed[row] > 0 {
-			value = math.Max(thresholdFloor, value-float64(needed[row])*thresholdBand)
+			value = math.Max(thresholdFloor, value-float64(needed[row])*band)
 			why = fmt.Sprintf("%s%d rejection(s) at this row resolved as a gate the factory needed, each lowering the threshold one band",
 				prefix(why), needed[row])
 		}
@@ -132,12 +171,19 @@ func thresholds(e *Evidence) []Supplied {
 // rejectionsTheFactoryNeeded is how many rejections resolved as a gate the
 // factory needed, per gate row the human was at. A rejection that resolved as a
 // false alarm is not here: it moves nothing and is published per human instead.
+// A queue rejection read as from a reject is another, at the merge to master
+// row the queue's own re-verification follows — an unreliable criterion's
+// teaching nothing among them, [queueRejectionsNeeded] being where that is
+// read.
 func rejectionsTheFactoryNeeded(e *Evidence) map[string]int {
 	needed := map[string]int{}
 	for _, r := range e.resolvedRejections() {
 		if r.Gate != "" && r.MovesTheThreshold() {
 			needed[r.Gate]++
 		}
+	}
+	if fromTheQueue := queueRejectionsNeeded(e); fromTheQueue > 0 {
+		needed[queueRejectionRow] += fromTheQueue
 	}
 	return needed
 }

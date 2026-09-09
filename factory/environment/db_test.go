@@ -306,18 +306,23 @@ func TestDDLListsEveryKind(t *testing.T) {
 	}
 }
 
-// TestAProductionPlatformComposesAnEnvironmentOnDemand: an environment per
-// candidate is the shape the design admits and nothing else, so a production
-// environment declaring a platform that cannot compose one is refused where it is
-// declared. A customer's environment is not, nothing being composed on demand
-// there.
-func TestAProductionPlatformComposesAnEnvironmentOnDemand(t *testing.T) {
-	ctx, _, w, _ := newTable(t)
+// TestCreationWritesAProductionRecordWhosePlatformCannotComposeOnDemand:
+// creation writes a persistent environment as declared, whatever its platform's
+// declared, so [RefuseUnlessComposable] is what refuses one — not creation.
+// Declaring no platform at all is still refused here, that being incomplete
+// rather than a fact about composing on demand.
+func TestCreationWritesAProductionRecordWhosePlatformCannotComposeOnDemand(t *testing.T) {
+	ctx, pool, w, _ := newTable(t)
 
 	cannot := productionSpec()
 	cannot.Platform.CanComposeOnDemand = false
-	if _, err := w.Create(ctx, owner, cannot); !errors.Is(err, environment.ErrPlatformCannotComposeOnDemand) {
-		t.Errorf("production on a platform that cannot compose on demand = %v, want ErrPlatformCannotComposeOnDemand", err)
+	created, err := w.Create(ctx, owner, cannot)
+	if err != nil {
+		t.Fatalf("production on a platform that cannot compose on demand = %v, want it created", err)
+	}
+	read, err := environment.Get(ctx, pool, created.ID)
+	if err != nil || read.Platform.CanComposeOnDemand {
+		t.Fatalf("the created record reads back as %+v, %v, want CanComposeOnDemand false", read, err)
 	}
 
 	none := productionSpec()
@@ -332,6 +337,35 @@ func TestAProductionPlatformComposesAnEnvironmentOnDemand(t *testing.T) {
 	customer.Platform.CanComposeOnDemand = false
 	if _, err := w.Create(ctx, owner, customer); err != nil {
 		t.Errorf("a customer's environment on a platform that composes nothing on demand = %v, want it accepted", err)
+	}
+}
+
+// TestRefuseUnlessComposableRefusesAProjectWhoseProductionPlatformCannot: an
+// environment per candidate is the shape the design admits and nothing else,
+// so a production environment declaring a platform that cannot compose one on
+// demand is refused where the factory is about to compose anything for that
+// project — at adoption and at decomposition for its services — and not only
+// at the record's creation.
+func TestRefuseUnlessComposableRefusesAProjectWhoseProductionPlatformCannot(t *testing.T) {
+	ctx, pool, w, _ := newTable(t)
+
+	cannot := productionSpec()
+	cannot.Platform.CanComposeOnDemand = false
+	if _, err := w.Create(ctx, owner, cannot); err != nil {
+		t.Fatalf("creating production: %v", err)
+	}
+	if err := environment.RefuseUnlessComposable(ctx, pool, theProject); !errors.Is(err, environment.ErrCannotCompose) {
+		t.Errorf("RefuseUnlessComposable of a project whose platform cannot compose on demand = %v, want ErrCannotCompose", err)
+	}
+
+	other := "prj_cccccccccccccccccccccccccccccccc"
+	composable := productionSpec()
+	composable.ProjectID = other
+	if _, err := w.Create(ctx, owner, composable); err != nil {
+		t.Fatalf("creating the second project's production: %v", err)
+	}
+	if err := environment.RefuseUnlessComposable(ctx, pool, other); err != nil {
+		t.Errorf("RefuseUnlessComposable of a project whose platform composes on demand = %v, want nil", err)
 	}
 }
 

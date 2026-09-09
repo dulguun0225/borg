@@ -51,6 +51,9 @@ var (
 	// ErrDispatchNotComposed is returned by [Gate.EnforceAttemptLimit] where the
 	// gate holds no dispatch to write the escalation with.
 	ErrDispatchNotComposed = errors.New("gate: this gate has no dispatch, and the escalation is dispatch's write")
+	// ErrIntakeNotComposed is returned by [Gate.EnforceDecompositionRounds]
+	// where the gate holds no intake to write the intent's escalation with.
+	ErrIntakeNotComposed = errors.New("gate: this gate has no intake, and an intent's escalation is intake's write")
 )
 
 // Score is what the gate asks about a change before it fires: the vector, the
@@ -147,6 +150,18 @@ type IntentState func(ctx context.Context, itemID string) (intent.State, error)
 // item holds while a halt stands.
 type RaisedByTheHealthMonitor func(ctx context.Context, itemID string) (bool, error)
 
+// SafeguardRouting is where the safeguards that applied at one firing say their
+// rows route: the duty or the named human each safeguard's own routing field
+// gives, and the first one that names either. It is a function the composition
+// supplies rather than a read this package makes, because a safeguard is
+// package policy's record at Factory and a gate that imported the package
+// owning it would import a record it never writes.
+//
+// A nil value routes nothing, so a safeguarded row waits on the duty the design
+// names for it and widens to the owner where nobody holds that — which is the
+// default the routing field exists to replace.
+type SafeguardRouting func(ctx context.Context, safeguardIDs []string) (RoutedTo, error)
+
 // Notifier is the one call a gate makes on the component that reaches humans:
 // the acknowledged event of a page a row already fired. It is an interface
 // because the notifier's callers hand it a wait rather than the other way
@@ -204,6 +219,9 @@ type Composition struct {
 	// Notifier is what the acknowledgement reaches a human through. A nil
 	// value is [NoNotifier].
 	Notifier Notifier
+	// SafeguardRouting is where a safeguard that added a human says its rows
+	// route. A nil value routes nothing.
+	SafeguardRouting SafeguardRouting
 	// StrategySafeguard places the safeguard the production deploy row's fourth
 	// action places. A nil value refuses that action with
 	// [ErrStrategySafeguardNotComposed].
@@ -212,6 +230,10 @@ type Composition struct {
 	// onto an item that exceeded the attempt limit. A nil value refuses that
 	// call with [ErrDispatchNotComposed].
 	Dispatch *item.Dispatch
+	// Intake is the intent's writer, which the gate calls to write an
+	// escalation onto an intent whose re-decompositions exceeded the attempt
+	// limit. A nil value refuses that call with [ErrIntakeNotComposed].
+	Intake *intent.Intake
 }
 
 // Gate is the gate component: it fires a row, asks the score and the policy what
@@ -232,6 +254,10 @@ type Gate struct {
 	draw                     Draw
 	notifier                 Notifier
 	dispatch                 *item.Dispatch
+	intake                   *intent.Intake
+	// safeguardRouting is where a safeguard that added a human routes its rows,
+	// and is nil in a factory composed without one.
+	safeguardRouting SafeguardRouting
 	// strategySafeguard places the safeguard the production deploy row's fourth
 	// action places, and is nil in a factory composed without one.
 	strategySafeguard StrategySafeguard
@@ -260,6 +286,8 @@ func New(c Composition) *Gate {
 		draw:                     c.Draw,
 		notifier:                 c.Notifier,
 		dispatch:                 c.Dispatch,
+		intake:                   c.Intake,
+		safeguardRouting:         c.SafeguardRouting,
 		strategySafeguard:        c.StrategySafeguard,
 	}
 }

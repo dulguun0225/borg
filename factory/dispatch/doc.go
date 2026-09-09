@@ -17,33 +17,43 @@
 //
 // dispatch.go is [Dispatch], [Composition] and [New], the [Escalation] and
 // [Notifier] interfaces with [NoNotifier] and [EscalatedByTheAttemptLimit],
-// [Actor], [On] and [Run], and the reads a dispatch makes: the
-// attempt limit in force, the item's own count for the stage, the transition
-// onto the item, and the agent run record. hold.go is [Hold] with [HoldKind],
+// [Actor], [On] and [Run], and the reads a dispatch makes: the attempt limit in
+// force, the item's own count for the stage, the area chain followed from the
+// item's area at [Dispatch.following], the transition onto the item, and the
+// agent run record. hold.go is [Hold] with [HoldKind],
 // [HoldFormatVersion], the conditions' constants — the six the design gives and
 // [HoldIntentAwaitsAdmission] beside them — [RoutedToTheOwner], [Open],
-// [Rematch], the intent this dispatch reaches with the two readings of it, and
+// [Rematch] with the two entry points a record's writer calls,
+// [Dispatch.RematchOnRolePromptInForce] and [Dispatch.RematchOnIntentState],
+// the intent this dispatch reaches with the two readings of it, and
 // the document-kind constraint's own read. credential.go
-// is the two conditions a credential stops a dispatch on: [CredentialWait] and
-// its two kinds, [WantsARate], the arithmetic of a spend ceiling with
-// [NotifiedAtFraction] and the notice at it, and [Dispatch.ClearCeiling] with
-// [ErrNoCeilingHold] and [ErrNotTheOwner].
+// is the credential a run could not reach: [CredentialWait] and its kinds,
+// [KindCredentialUnreachable] with [KindCredentialAtCeiling] and
+// [KindCeilingLifted], and the rows a failure and a call that succeeded write.
+// ceiling.go is the spend ceiling: [WantsARate], the arithmetic over the period
+// in force, [NotifiedAtFraction] and the notice at it, and
+// [Dispatch.ClearCeiling] with [ErrNoCeilingHold] and [ErrNotTheOwner].
 // paidfor.go is what the People declaration says about that credential at the
 // run, which every run record carries. admit.go is [Dispatch.Admit], the order
 // items are admitted in where more is ready than the infrastructure admits.
 // run.go is the six dispatches — [Dispatch.Grouper],
 // [Dispatch.Interviewer], [Dispatch.SpecAuthor], [Dispatch.Planner],
-// [Dispatch.TaskAuthor] and [Dispatch.Implementer] — the sequence they share,
-// the withholding of the classes of material an entry does not name, and
-// [sourcesOf], the material handed over as the run record names it.
+// [Dispatch.TaskAuthor] and [Dispatch.Implementer] — and the sequence they
+// share. material.go is the withholding of the classes of material an entry
+// does not name and [sourcesOf], the material handed over as the run record
+// names it. report.go is one report an agent makes: [reporting], the client
+// that keeps when the provider answered, and [Dispatch.atEachReport], the
+// ceiling compared at each of them.
 //
 // db_test.go is against the database, this component writing records through
-// four packages that own tables; hold_test.go, credential_test.go,
-// ceiling_test.go and material_test.go are split from it by subject at the
-// 500-line bound — the holds with the role and scope vocabulary, the credential
-// a run could not reach with what a run records about whose account it spent,
-// the spend ceiling with the notice at a fraction of it, and the classes of
-// material — all sharing db_test.go's fixtures and package.
+// four packages that own tables; hold_test.go, rematch_test.go, role_test.go,
+// rounds_test.go, credential_test.go, ceiling_test.go and material_test.go are
+// split from it by subject at the 500-line bound — the holds, the re-match with
+// its entry points, the role and scope vocabulary an entry is matched on, what
+// the attempt limit is compared against, the credential a run could not reach
+// with what a run records about whose account it spent, the spend ceiling with
+// the notice at a fraction of it, and the classes of material — all sharing
+// db_test.go's fixtures and package.
 //
 // # What one dispatch does
 //
@@ -55,17 +65,22 @@
 // classes of material the entry does not name withheld,
 // runs the role under a principal naming the model version, this dispatch and
 // the scope, asking the provider for the effort the entry names, writes one
-// agent run record per call naming the sources it was handed, and compares the
-// item's own count for the stage against the attempt limit in force —
-// escalating over it and telling the notifier that it did.
+// agent run record per call naming the sources it was handed, compares the
+// spend ceiling at each report that call makes, and compares the item's own
+// count for the stage against the attempt limit in force — escalating over it
+// and telling the notifier that it did.
+//
+// A report is a call: [agent.Model] answers one completion at a time and
+// streams nothing, so the finest report the provider gives is a call's own
+// reply, and the overshoot the design accepts is one report's worth of units.
 //
 // A dispatch of a role put on an intent — [RoleInterviewer] and
 // [RoleDecomposer] — makes the same sequence without the three parts that are
 // an item's: it reads no intent state, the interview being what refines an
-// unrefined intent; it writes no transition, there being no item; and the limit
-// it compares against is the rounds the caller carries in [On.CountedSoFar]
-// against [Limits.RoundsOnAnIntent], no per-stage row existing to read. Putting
-// one of the two on an item is [ErrRoleNamesNoStage].
+// unrefined intent; it writes no transition, there being no item; and what it
+// compares against [Limits.RoundsOnAnIntent] is the rounds the intent's own
+// record keeps, no per-stage row existing to read. Putting one of the two on an
+// item is [ErrRoleNamesNoStage].
 //
 // [RoleGrouper] is the third kind of subject: it is put on a project, which is
 // the whole of what a scope matches it on and the whole of what its run record
@@ -78,9 +93,11 @@
 // counted against [Limits.RoundsOnAnIntent] like a role put on an intent; what
 // that costs is stated at limitFor.
 //
-// The scope's area is matched against the item's area chain and not against
-// its own area alone, so an entry drawn on a coarser area covers an item in a
-// finer one. The chain is [On.AreaChain], read by the caller.
+// The scope's area is matched against the item's area chain and not against its
+// own area alone, so an entry drawn on a coarser area covers an item in a finer
+// one. The chain is followed here from [On.AreaID] up to the project, through
+// package area, and never taken from the caller: a caller that walked it wrongly
+// would take an item out of an entry an owner drew above it.
 //
 // # Who may write what
 //
@@ -90,10 +107,12 @@
 // [inputmanifest.Writer], until context assembly exists to write it; the agent
 // run record through [agentrun.Writer]; and its holds, and the two rows a
 // credential itself stands as, into the decision log through
-// [decisionlog.Writer]. It reads the fleet entry through [fleetentry.InForceForRole]
-// and writes none: the entry's one writer is an owner at Factory. The version a
-// role authored is submitted by the stage that called this component, through
-// the artifact store, and never here.
+// [decisionlog.Writer]. It reads the fleet entry through
+// [fleetentry.InForceForRole] — the operations an owner narrowed among its
+// columns — and writes none: the entry's one writer is an owner at Factory. It
+// reads the item's area chain through [area.Chain] and writes no area. The
+// version a role authored is submitted by the stage that called this component,
+// through the artifact store, and never here.
 //
 // # Which callers are not built
 //
@@ -179,7 +198,7 @@
 // per stage this component writes are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md
 // (C0642, C0646, C0647, C0648, C0649, C0650, C0654, C0657, C0658, C0660, C0661,
-// C0662).
+// C0662, C0675).
 //
 // The limit the count is compared against and the escalation over it are
 // ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md (C0995,
@@ -205,7 +224,30 @@
 // C2537, C2538, C2539, C2540, C2541, C2542, C2543, C2545, C2550, C2551). The
 // constraint requiring seam 5 enforced is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
-// (C0250).
+// (C0124, C0250).
+//
+// The rework request that moves an item where neither the match nor a gate
+// decided it, the transition dispatch writes being only what it is told, is
+// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1026).
+//
+// That no role is a deploy, so no agent ever reaches one, and the operation
+// list a role carries, which an owner may narrow on a fleet entry and never
+// widen, are ../../end-goal/deferred.md (C0100, C0101).
+//
+// The item an incident raises, worked under the attempt limit like any other
+// and escalated the same way a stuck feature is, is
+// ../../end-goal/how-the-factory-works/08-operations/06-incidents.md (C2104).
+//
+// A spend ceiling reached, which is a hold, is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
+// (C2287).
+//
+// Each stop this component writes as a row naming its cause, the credential
+// row routed to whoever People records as having lent it rather than to the
+// owner, the ceiling row routed to the owner, and what the agent run record
+// copies off the declaration at the run, are
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2575, C2581, C2582, C2659).
 //
 // This component's row, and the calls it may make, are
 // ../../end-goal/components.md (C0007, C0026); its restart, which is nothing,

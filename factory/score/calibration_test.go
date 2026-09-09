@@ -54,7 +54,7 @@ func TestTheBandsArePublishedPerSetAndPerServiceWithTheirCounts(t *testing.T) {
 		heldOutFiring("it_c", SetWithABuild, 0.85, "model-1", nil),
 	}, []window.Exit{window.ExitPassed, window.ExitFailed, window.ExitFailed})
 
-	bands := e.bands()
+	bands := e.bands(ShippedBandWidth)
 	low, high, factoryWide := 0, 0, 0
 	for _, b := range bands {
 		if b.Service == "" {
@@ -87,8 +87,8 @@ func TestTheBandsArePublishedPerSetAndPerServiceWithTheirCounts(t *testing.T) {
 	// reports none here either.
 	quiet := heldOutEvidence([]Firing{heldOutFiring("it_a", SetWithABuild, 0.15, "model-1", nil)},
 		[]window.Exit{window.ExitTimedOut})
-	if len(quiet.bands()) != 0 {
-		t.Errorf("a held-out release whose window timed out was published in %d band(s)", len(quiet.bands()))
+	if len(quiet.bands(ShippedBandWidth)) != 0 {
+		t.Errorf("a held-out release whose window timed out was published in %d band(s)", len(quiet.bands(ShippedBandWidth)))
 	}
 }
 
@@ -115,7 +115,7 @@ func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 	e.firings = firings
 	e.index()
 
-	drifted := e.drift()
+	drifted := e.drift("")
 	if len(drifted) != 1 || drifted[0].Factor != changeSize.name {
 		t.Fatalf("the pass found %+v drifted, want %s", drifted, changeSize.name)
 	}
@@ -133,7 +133,7 @@ func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 		fourItems.firings = append(fourItems.firings, f)
 	}
 	fourItems.index()
-	if found := fourItems.drift(); len(found) != 0 {
+	if found := fourItems.drift(""); len(found) != 0 {
 		t.Errorf("the pass found %+v drifted over four items, and sixteen decisions of four items are four readings", found)
 	}
 
@@ -149,7 +149,7 @@ func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 		outliers.firings = append(outliers.firings, f)
 	}
 	outliers.index()
-	if found := outliers.drift(); len(found) != 0 {
+	if found := outliers.drift(""); len(found) != 0 {
 		t.Errorf("the pass found %+v drifted on two items read at an extreme, and a shift is one that stayed", found)
 	}
 
@@ -164,7 +164,7 @@ func TestAFactorWhoseDistributionMovedIsFoundDrifted(t *testing.T) {
 		steady.firings = append(steady.firings, f)
 	}
 	steady.index()
-	if found := steady.drift(); len(found) != 0 {
+	if found := steady.drift(""); len(found) != 0 {
 		t.Errorf("the pass found %+v drifted, and neither a steady factor nor the prior is", found)
 	}
 }
@@ -190,7 +190,7 @@ func TestAPriorThatNoLongerSeparatesIsFoundDrifted(t *testing.T) {
 		window.ExitPassed, window.ExitPassed, window.ExitPassed,
 	})
 
-	drifted := e.drift()
+	drifted := e.drift("")
 	if len(drifted) != 1 || drifted[0].Author != "model-1" {
 		t.Fatalf("the pass found %+v drifted, want the prior on model-1", drifted)
 	}
@@ -203,7 +203,7 @@ func TestAPriorThatNoLongerSeparatesIsFoundDrifted(t *testing.T) {
 	// drifted on evidence that can no longer arrive.
 	truncated := newEvidence()
 	truncated.index()
-	if found := truncated.drift(); len(found) != 0 {
+	if found := truncated.drift(""); len(found) != 0 {
 		t.Errorf("a log with no held-out decision on the author still reports %+v", found)
 	}
 }
@@ -244,5 +244,122 @@ func TestTheWeightsAreFittedPerSetAndFallBackToWhatTheProductShipped(t *testing.
 	}
 	if !near(fitted.Of(changeAreaChurn.name), 0) {
 		t.Errorf("a factor that separates nothing was given a weight of %v", fitted.Of(changeAreaChurn.name))
+	}
+}
+
+// TestTheNumberIsFittedToTheShareOfHeldOutWindowsThatFailed: the weights are
+// the fit's shape and the scale is the rest of it. Every term of the formula is
+// a weighted mean, so the weights decide which change ranks above which and
+// nothing about where that ranking sits against a failure share — and the one
+// scale the three sets share is the number estimating the share of held-out
+// windows that failed among decisions taken at it.
+func TestTheNumberIsFittedToTheShareOfHeldOutWindowsThatFailed(t *testing.T) {
+	// Ten held-out decisions on one set: the low half passed and the high half
+	// failed, so half of them failed and the number ranks them.
+	var firings []Firing
+	var exits []window.Exit
+	for i := range fitEvidence {
+		failed := i >= fitEvidence/2
+		level := 0.2
+		if failed {
+			level = 0.8
+		}
+		firings = append(firings, heldOutFiring(fmt.Sprintf("it_%d", i), SetWithABuild, 0.5, "model-1", []Factor{
+			{Name: changeSize.name, Group: GroupChange, Term: TermLikelihood, Level: level},
+			{Name: changeReach.name, Group: GroupChange, Term: TermImpact, Level: level},
+			{Name: changeReversibility.name, Group: GroupChange, Term: TermReversibility, Level: 1},
+		}))
+		if failed {
+			exits = append(exits, window.ExitFailed)
+		} else {
+			exits = append(exits, window.ExitPassed)
+		}
+	}
+	e := heldOutEvidence(firings, exits)
+	weights := Fit(e)
+	scale := FitScale(e, weights)[SetWithABuild]
+	if !scale.Fitted() {
+		t.Fatalf("ten held-out decisions the number ranked fitted no scale: %+v", scale)
+	}
+
+	// The two populations' own numbers, under the fitted weights, now read as
+	// the share of each that failed: none of the low ones and all of the high
+	// ones. Unscaled they are two numbers on the formula's own range, which is
+	// the scale the threshold would otherwise be read against.
+	low := numberUnder(weights[SetWithABuild], scale, 0.2)
+	high := numberUnder(weights[SetWithABuild], scale, 0.8)
+	if !near(low, 0) || !near(high, 1) {
+		t.Errorf("the fitted number reads %v where nothing failed and %v where everything did, want 0 and 1", low, high)
+	}
+	if raw := numberUnder(weights[SetWithABuild], Scale{}, 0.8); near(raw, high) {
+		t.Error("the scale moved nothing, and the weighted means alone cannot reach the failure share")
+	}
+
+	// A set with too few held-out decisions keeps the identity, and so does one
+	// whose number did not rank the failures at all: a scale fitted through a
+	// number that ranked nothing would move every number in the factory on
+	// nothing.
+	thin := heldOutEvidence(firings[:1], exits[:1])
+	if got := FitScale(thin, weights)[SetWithABuild]; got.Fitted() {
+		t.Errorf("one held-out decision fitted a scale of %+v", got)
+	}
+	var flatFirings []Firing
+	for i := range fitEvidence {
+		flatFirings = append(flatFirings, heldOutFiring(fmt.Sprintf("it_%d", i), SetWithABuild, 0.5, "model-1", []Factor{
+			{Name: changeSize.name, Group: GroupChange, Term: TermLikelihood, Level: 0.5},
+			{Name: changeReach.name, Group: GroupChange, Term: TermImpact, Level: 0.5},
+			{Name: changeReversibility.name, Group: GroupChange, Term: TermReversibility, Level: 1},
+		}))
+	}
+	if got := FitScale(heldOutEvidence(flatFirings, exits), weights)[SetWithABuild]; got.Fitted() {
+		t.Errorf("a number that ranked nothing fitted a scale of %+v", got)
+	}
+}
+
+// numberUnder is what the formula returns for a vector reading one level on
+// every factor, under one set's weights and one scale.
+func numberUnder(weights Weights, scale Scale, level float64) float64 {
+	vector := []Factor{
+		{Name: changeSize.name, Group: GroupChange, Term: TermLikelihood,
+			Weight: weights.Of(changeSize.name), Level: level},
+		{Name: changeReach.name, Group: GroupChange, Term: TermImpact,
+			Weight: weights.Of(changeReach.name), Level: level},
+		{Name: changeReversibility.name, Group: GroupChange, Term: TermReversibility,
+			Weight: weights.Of(changeReversibility.name), Level: 1},
+	}
+	_, _, _, number := reduce(vector, scale)
+	return number
+}
+
+// TestARecalibrationIsTheExitFromADriftedPrior: a prior standing drifted stops
+// the sample selecting on that author, so no newer held-out decision about it
+// can arrive, and a reading taken over every decision would find the same drift
+// at every pass afterwards — the resolution would never end. The readings are
+// taken over the decisions closed after the newest one the last recalibration
+// read, and that is what makes the recalibration the exit the design names.
+func TestARecalibrationIsTheExitFromADriftedPrior(t *testing.T) {
+	prior := func(level float64) []Factor {
+		return []Factor{{Name: authorPrior.name, Term: TermLikelihood, Level: level}}
+	}
+	e := heldOutEvidence([]Firing{
+		heldOutFiring("it_a", SetWithABuild, 0.2, "model-1", prior(0.1)),
+		heldOutFiring("it_b", SetWithABuild, 0.2, "model-1", prior(0.1)),
+		heldOutFiring("it_c", SetWithABuild, 0.2, "model-1", prior(0.1)),
+		heldOutFiring("it_d", SetWithABuild, 0.2, "model-1", prior(0.9)),
+		heldOutFiring("it_e", SetWithABuild, 0.2, "model-1", prior(0.9)),
+		heldOutFiring("it_f", SetWithABuild, 0.2, "model-1", prior(0.9)),
+	}, []window.Exit{
+		window.ExitFailed, window.ExitFailed, window.ExitFailed,
+		window.ExitPassed, window.ExitPassed, window.ExitPassed,
+	})
+	if found := e.drift(""); len(found) != 1 {
+		t.Fatalf("the pass found %+v, want the prior on model-1 drifted", found)
+	}
+	read := e.newestClose()
+	if read == "" {
+		t.Fatal("the evidence names no decision for a recalibration to have read to")
+	}
+	if found := e.drift(read); len(found) != 0 {
+		t.Errorf("the same decisions read again after a recalibration found %+v, and a recalibration is the exit", found)
 	}
 }

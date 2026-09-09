@@ -16,9 +16,9 @@ import (
 
 func TestReferRequiresAReasonAndRefusesWithNobodyLeft(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, _, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}

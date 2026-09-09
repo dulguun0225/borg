@@ -32,6 +32,10 @@ type crossingEmission struct {
 	// history is what the reading against the service's own recent history sees.
 	// It is flat here, so what fails a release in these tests is the comparison.
 	history []boundary.Counts
+	// newest is the newest time the store holds a record for this service, which
+	// is what a read is held to the interval of its last check by. Empty leaves
+	// the fixed time below, which is what a test that is not about the age reads.
+	newest string
 }
 
 func (e crossingEmission) series() healthmonitor.Series {
@@ -42,8 +46,12 @@ func (e crossingEmission) series() healthmonitor.Series {
 			BaselineUnits: 1000, BaselineCount: int64(e.baselineRate * 1000),
 		})
 	}
+	newest := e.newest
+	if newest == "" {
+		newest = "2026-01-01T00:00:00.000000000Z"
+	}
 	return healthmonitor.Series{
-		EmissionVersionRelease: "emission/1", Newest: "2026-01-01T00:00:00.000000000Z",
+		EmissionVersionRelease: "emission/1", Newest: newest,
 		Operations: []healthmonitor.OperationSeries{{
 			Operation:  healthmonitor.PooledOperation,
 			Quantities: map[gatepolicy.Quantity]boundary.Observed{gatepolicy.QuantityErrorRate: observed},
@@ -69,12 +77,13 @@ func (e crossingEmission) History(context.Context, healthmonitor.History) (healt
 
 func (crossingEmission) FailureRecords(context.Context, healthmonitor.Reading) ([]healthmonitor.FailureRecord, error) {
 	return []healthmonitor.FailureRecord{{
+		Interval: "2026-01-01T00:00:00.000000000Z", ServiceName: theServiceName,
 		FailureClass: "timeout", CodeLocation: "checkout.go:41", Target: theTarget, Count: 12,
 	}}, nil
 }
 
-func (crossingEmission) Spent(context.Context, string, time.Duration) (healthmonitor.Spend, error) {
-	return healthmonitor.Spend{}, nil
+func (crossingEmission) Spent(context.Context, string, time.Duration) ([]healthmonitor.Spend, error) {
+	return nil, nil
 }
 
 func (crossingEmission) Shape(context.Context, healthmonitor.Arm) (string, error) {
@@ -90,6 +99,9 @@ type fakeDeployer struct {
 	tornDown  []healthmonitor.Control
 	rollbacks []healthmonitor.Rollback
 	kept      []healthmonitor.Kept
+	// searchesEnded is the search deploys the health monitor asked the deployer
+	// to end, each search deploy ending with the window that measured it.
+	searchesEnded []healthmonitor.SearchDeployEnding
 }
 
 func (d *fakeDeployer) StartControl(_ context.Context, c healthmonitor.Control) error {
@@ -120,6 +132,12 @@ func (d *fakeDeployer) RollBack(_ context.Context, r healthmonitor.Rollback) err
 func (d *fakeDeployer) DeploySearch(_ context.Context, s healthmonitor.SearchDeploy) (string, error) {
 	d.calls = append(d.calls, "deploy the search's build "+s.BuildID)
 	return "dep_search", nil
+}
+
+func (d *fakeDeployer) EndSearchDeploy(_ context.Context, s healthmonitor.SearchDeployEnding) error {
+	d.calls = append(d.calls, "end the search's deploy "+s.DeployID+" at "+s.Exit)
+	d.searchesEnded = append(d.searchesEnded, s)
+	return nil
 }
 
 // fakePager keeps the waits it was handed and the page events they left, so a
@@ -413,7 +431,9 @@ func TestTheErrorBudgetHoldsAndRaisesOnTheObjectivesOwnEvidence(t *testing.T) {
 	ctx, g := newGraph(t)
 	g.authorObjective(t, ctx, 0.999, 30*24*60*60)
 
-	spent := &spendingEmission{spend: healthmonitor.Spend{Units: 100_000, Good: 99_800, Covered: true}}
+	spent := &spendingEmission{spend: []healthmonitor.Spend{
+		{Operation: healthmonitor.PooledOperation, Units: 100_000, Good: 99_800, Covered: true},
+	}}
 	monitor := g.monitorWith(t, spent, &fakeDeployer{}, &fakePager{})
 
 	budget, err := monitor.ErrorBudget(ctx, g.watching())
@@ -429,7 +449,9 @@ func TestTheErrorBudgetHoldsAndRaisesOnTheObjectivesOwnEvidence(t *testing.T) {
 
 	// A period the store does not cover leaves the budget uncomputed, and an
 	// uncomputed budget holds the way an exhausted one does.
-	uncovered := &spendingEmission{spend: healthmonitor.Spend{Units: 10, Good: 10}}
+	uncovered := &spendingEmission{spend: []healthmonitor.Spend{
+		{Operation: healthmonitor.PooledOperation, Units: 10, Good: 10},
+	}}
 	uncomputed, err := g.monitorWith(t, uncovered, &fakeDeployer{}, &fakePager{}).ErrorBudget(ctx, g.watching())
 	if err != nil {
 		t.Fatalf("ErrorBudget over a period the store does not cover: %v", err)
@@ -439,7 +461,9 @@ func TestTheErrorBudgetHoldsAndRaisesOnTheObjectivesOwnEvidence(t *testing.T) {
 	}
 
 	// A service well inside its objective holds nothing.
-	inside := &spendingEmission{spend: healthmonitor.Spend{Units: 100_000, Good: 100_000, Covered: true}}
+	inside := &spendingEmission{spend: []healthmonitor.Spend{
+		{Operation: healthmonitor.PooledOperation, Units: 100_000, Good: 100_000, Covered: true},
+	}}
 	clear, err := g.monitorWith(t, inside, &fakeDeployer{}, &fakePager{}).ErrorBudget(ctx, g.watching())
 	if err != nil {
 		t.Fatalf("ErrorBudget: %v", err)
@@ -449,15 +473,20 @@ func TestTheErrorBudgetHoldsAndRaisesOnTheObjectivesOwnEvidence(t *testing.T) {
 	}
 }
 
-// spendingEmission answers the objective's read and nothing else.
+// spendingEmission answers the objective's read and nothing else. The spend is
+// per operation, the objective being read one value against each series.
+// spendLastHour is the answer to the reading over the last hour, separate from
+// the period's own so a test can tell the two readings' burn rates apart; nil
+// answers with nothing, which is a period that reading does not cover.
 type spendingEmission struct {
 	crossingEmission
-	spend healthmonitor.Spend
+	spend         []healthmonitor.Spend
+	spendLastHour []healthmonitor.Spend
 }
 
-func (e *spendingEmission) Spent(_ context.Context, _ string, period time.Duration) (healthmonitor.Spend, error) {
+func (e *spendingEmission) Spent(_ context.Context, _ string, period time.Duration) ([]healthmonitor.Spend, error) {
 	if period == time.Hour {
-		return healthmonitor.Spend{}, nil
+		return e.spendLastHour, nil
 	}
 	return e.spend, nil
 }

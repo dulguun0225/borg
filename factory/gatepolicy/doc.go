@@ -5,14 +5,17 @@
 //
 // parameter.go is [Parameter] and its [Definition]: the [Kind] its value takes,
 // the [Scope] whose record holds it, the [Key] it is held under there, the
-// [Direction] a safeguard points, the unit, what it limits, and the gate-policy
-// row it belongs to. [Define] reads the three lists and returns [ErrUnknown] for
-// a name in none of them, and [Rows] is what a printer groups by.
+// [Direction] a safeguard points, the unit, what it limits, the value in force
+// where an owner authored none, and the gate-policy row it belongs to. [Define]
+// reads the three lists and returns [ErrUnknown] for a name in none of them, and
+// [Rows] is what a printer groups by.
 //
 // definitions.go is [Definitions], the thirteen parameters of the eleven rows,
 // with the row names as constants. notamongtheeleven.go is [NotAmongTheEleven],
 // what an owner authors on the factory-wide settings record, on production's
-// environment record and on the service record that is not gate policy, and
+// environment record and on the service record that is not gate policy — the
+// report channel's two rates being two parameters, one factory-wide with one
+// value per record and one keyed by the service — and
 // [SafeguardOnly], the four parameters nobody authors — two of them the
 // admissions a safeguard on the report store makes a report and a
 // report-derived intent wait for.
@@ -28,7 +31,13 @@
 // the union of the two. [DirectionAddsAHuman] and [DirectionNone] carry no bound
 // and nothing clamps them. authored.go is [Authored] — a number and whether an
 // owner authored one at all, absent being different from zero — with
-// [Authored.Or] for what the score supplies where they authored none.
+// [Authored.Or] for what the score supplies where they authored none, and
+// [Unauthored], the value the design fixes for a parameter no outcome teaches:
+// a number, a list, or no bound at all, which is a retention kept for the life
+// of the install, arrival unbounded, a snapshot standing until an owner deletes
+// it, and every hour a paging hour. It is a field the resolution reads rather
+// than a sentence in the unit, so nothing has to read prose to know what an
+// unauthored parameter is in force at.
 //
 // predicate.go is [PredicateKind] and [PredicateKinds], the nine kinds of
 // assertion a consumer contract may draw from, five over what the consumer
@@ -37,7 +46,17 @@
 // [PredicateKind.TakesAnArgument] and [PredicateKind.DecidableAgainstAForm] say
 // what each kind is about and what it needs — the two a form cannot answer being
 // the received domain and the received range — and [AllowedPredicateKindNames] is
-// the unauthored value of the list package policy resolves.
+// the unauthored value of the list package policy resolves. It is a floor no
+// authored value and no safeguard goes below: a kind nothing can decide is the
+// mechanical enforcement the list's own cell describes gone. The nine are
+// shapes and not the whole of what a name may be: [AuthoredPredicateKind] is a
+// name paired with the shape — one of the nine — the factory decides it by,
+// and [DecidableAuthoredKind] admits the pair where the shape is one the
+// factory can decide, which is how an owner extends the list the factory owns
+// past the nine shipped names without a kind of assertion nothing can decide
+// ever reaching it. Package policy calls [DecidableAuthoredKind] where an owner
+// authors the list and [DecidablePredicate] everywhere a kind already on it is
+// decided.
 //
 // Who may write what: nothing here writes. Every value this package names is
 // written by the package that owns the record the parameter is a field of.
@@ -71,4 +90,13 @@
 // ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
 // (C1937, C1938, C1939, C1943, C1944, C1947, C1948, C1949, C1967, C1970,
 // C1972).
+//
+// Each parameter as a field of the record its scope names is
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md
+// (C1274).
+//
+// The window limit's safeguard direction as a ceiling is
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2043); and [Definitions] and [Rows] as the eleven rows are
+// ../../end-goal/how-the-factory-works/09-gate-policy/README.md (C2357).
 package gatepolicy

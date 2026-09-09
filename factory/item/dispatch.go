@@ -41,6 +41,12 @@ var (
 	// ErrNotEscalated is returned by [Dispatch.ClearEscalation] for an item
 	// that is not escalated. There is nothing to clear on one that is not.
 	ErrNotEscalated = errors.New("item: the item is not escalated")
+	// ErrEscalationBypass is returned by [Dispatch.ClearEscalation] for a
+	// target later than the stage the item escalated from: a human taking the
+	// item over does not skip the gates between, so it goes no further than
+	// where the factory gave up, and reaching a later stage afterwards is
+	// [Dispatch.Advance]'s once a human re-authors it.
+	ErrEscalationBypass = errors.New("item: an item is returned no later than the stage it escalated from")
 	// ErrItemIDEmpty is returned for a write naming no item. record's doc.go
 	// states what a link is checked for.
 	ErrItemIDEmpty = errors.New("item: the item id is empty")
@@ -62,11 +68,19 @@ func NewDispatch(pool *pgxpool.Pool, token lease.Token) *Dispatch {
 }
 
 // Advance moves the item to stage, which must be the next stage in
-// [StageOrder], and counts an attempt where that stage is one an artifact is
-// authored at: an attempt is counted when a stage is entered to author, so a
-// stage reached once and passed stands at one. The item row is locked while
+// [StageOrder], and counts the item's first entry into an authoring stage, so
+// a stage reached once and passed stands at one. The item row is locked while
 // its current stage is read, so two concurrent advances are one advance and
 // one [ErrNotNextStage].
+//
+// An advance into a stage the item has already been at counts nothing: the
+// only way back is [Dispatch.ReturnTo], so a stage reached twice by advancing
+// is one below the target the item was sent to, re-authoring because of a
+// defect somebody else made. A count that rose for that would escalate the
+// stage that noticed the defect rather than the one that made it. What it
+// costs is that an item can spend four implementations while Implementation's
+// count stands at one, so what a stage cost is answerable from the agent run
+// records and never from the count.
 //
 // Merged is not an advance: [Dispatch.End] is the one write of it, so the
 // value the merge queue's fast-forward writes has one writer and not two.
@@ -86,7 +100,7 @@ func (d *Dispatch) Advance(ctx context.Context, actor record.Actor, itemID strin
 		if !slices.Contains(AuthoringStages, stage) {
 			return stage, nil
 		}
-		return stage, countEntry(ctx, tx, actor, itemID, stage)
+		return stage, countFirstEntry(ctx, tx, actor, itemID, stage)
 	})
 }
 
@@ -184,16 +198,30 @@ func (d *Dispatch) End(ctx context.Context, actor record.Actor, itemID string) (
 //
 // Only an item at a stage it is authored at escalates, the limit being per
 // stage and only an authoring stage counting an attempt.
+//
+// It also records the stage the item stood at, in escalated_from_stage, which
+// is what [Dispatch.ClearEscalation] bounds its target against.
 func (d *Dispatch) Escalate(ctx context.Context, actor record.Actor, itemID string) (Item, error) {
 	if err := actor.Validate(); err != nil {
 		return Item{}, err
 	}
-	return d.move(ctx, itemID, "the escalation", func(tx pgx.Tx, it Item) (Stage, error) {
+	var from Stage
+	it, err := d.move(ctx, itemID, "the escalation", func(tx pgx.Tx, it Item) (Stage, error) {
 		if !slices.Contains(AuthoringStages, it.Stage) {
 			return "", fmt.Errorf("%w: %s is at %s", ErrNotAuthoringStage, itemID, it.Stage)
 		}
+		from = it.Stage
+		if _, err := tx.Exec(ctx, `update `+Table+` set escalated_from_stage = $1 where id = $2`,
+			string(from), itemID); err != nil {
+			return "", fmt.Errorf("item: recording the stage %s escalated from: %w", itemID, err)
+		}
 		return StageEscalated, nil
 	})
+	if err != nil {
+		return Item{}, err
+	}
+	it.EscalatedFromStage = from
+	return it, nil
 }
 
 // ClearEscalation is a human taking an escalated item over (12): the item
@@ -203,7 +231,12 @@ func (d *Dispatch) Escalate(ctx context.Context, actor record.Actor, itemID stri
 // compared against afterwards is [StageTotals.AttemptsSinceCleared].
 //
 // The stage is the caller's because the escalated value replaced the stage the
-// item was at: a human at Work chooses which stage they are authoring.
+// item was at: a human at Work chooses which stage they are authoring. It may
+// not be later than escalated_from_stage, the stage [Dispatch.Escalate]
+// recorded: taking the item over does not skip the gates between, so a target
+// past that stage is [ErrEscalationBypass], the same one-way rule
+// [Dispatch.ReturnTo] holds a reject and a rework request to. A target at or
+// above it is fine, "above" meaning earlier in [StageOrder] as it does there.
 func (d *Dispatch) ClearEscalation(ctx context.Context, actor record.Actor, itemID string, stage Stage) (Item, error) {
 	if err := actor.Validate(); err != nil {
 		return Item{}, err
@@ -215,6 +248,10 @@ func (d *Dispatch) ClearEscalation(ctx context.Context, actor record.Actor, item
 	return d.move(ctx, itemID, "the clearing", func(tx pgx.Tx, it Item) (Stage, error) {
 		if it.Stage != StageEscalated {
 			return "", fmt.Errorf("%w: %s is at %s", ErrNotEscalated, itemID, it.Stage)
+		}
+		if slices.Index(StageOrder, stage) > slices.Index(StageOrder, it.EscalatedFromStage) {
+			return "", fmt.Errorf("%w: %s escalated from %s, not returning to %s",
+				ErrEscalationBypass, itemID, it.EscalatedFromStage, stage)
 		}
 		_, err := tx.Exec(ctx, `insert into `+StageTable+`
 			(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, cleared_at_attempts)
@@ -304,6 +341,53 @@ func countEntry(ctx context.Context, tx pgx.Tx, actor record.Actor, itemID strin
 		return fmt.Errorf("item: counting an entry to %s of %s: %w", stage, itemID, err)
 	}
 	return nil
+}
+
+// countFirstEntry writes the row for the item's first entry to stage and
+// leaves a stage that already has one alone — one statement, so a stage
+// entered twice at once is still counted once. It is what an advance counts,
+// where [countEntry] is what a second attempt at one stage counts: the stages
+// below a rework request's target re-author counting nothing.
+func countFirstEntry(ctx context.Context, tx pgx.Tx, actor record.Actor, itemID string, stage Stage) error {
+	_, err := tx.Exec(ctx, `insert into `+StageTable+`
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, stage, attempts, cleared_at_attempts)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, 1, 0)
+		on conflict (item_id, stage) do nothing`,
+		record.NewID(StageIDPrefix), FormatVersionStage, string(actor.Kind), actor.Key, string(actor.Basis),
+		record.Now(), itemID, string(stage),
+	)
+	if err != nil {
+		return fmt.Errorf("item: counting the first entry to %s of %s: %w", stage, itemID, err)
+	}
+	return nil
+}
+
+// superseded is dispatch's write of the superseded stage, on the transaction
+// decomposition began. The stage is dispatch's field wherever the transition
+// comes from, so a re-decomposition reports it here rather than writing the
+// column beside the pointer it writes itself, and the item's rules about which
+// stages a supersede reaches are kept in one place with every other stage
+// rule. It takes no actor: the item's actor stays decomposition's and no stage
+// write records one.
+func (d *Dispatch) superseded(ctx context.Context, tx pgx.Tx, itemID string) (Item, error) {
+	it, err := scanItem(tx.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1 for update`, itemID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, itemID)
+	} else if err != nil {
+		return Item{}, fmt.Errorf("item: reading %s: %w", itemID, err)
+	}
+	switch it.Stage {
+	case StageSuperseded:
+		return Item{}, fmt.Errorf("%w: %s", ErrAlreadySuperseded, itemID)
+	case StageMerged:
+		return Item{}, fmt.Errorf("%w: %s", ErrMerged, itemID)
+	}
+	if _, err := tx.Exec(ctx, `update `+Table+` set stage = $1 where id = $2`,
+		string(StageSuperseded), itemID); err != nil {
+		return Item{}, fmt.Errorf("item: superseding %s: %w", itemID, err)
+	}
+	it.Stage = StageSuperseded
+	return it, nil
 }
 
 // SetPriority writes the priority an owner reorders a queue with. It goes

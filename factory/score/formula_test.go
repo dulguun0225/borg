@@ -71,6 +71,22 @@ func TestTheFourGroupsAndWhereExposureIsInapplicable(t *testing.T) {
 			t.Errorf("the role prompt's set weighs %s, and a role prompt has no code to have sized and no area to have churned", d.name)
 		}
 	}
+
+	// Only the change group is replaced there. The author and context groups
+	// are unchanged, which is every factor of them: a set that dropped one
+	// would be a third set of context factors nobody chose.
+	rolePrompt := map[string]bool{}
+	for _, d := range definitionsOf(SetRolePromptOrSkill) {
+		rolePrompt[d.name] = true
+	}
+	for _, d := range definitionsOf(SetWithABuild) {
+		if d.group != GroupContext && d.group != GroupAuthor {
+			continue
+		}
+		if !rolePrompt[d.name] {
+			t.Errorf("the role prompt's set does not weigh %s, and only the change group is replaced there", d.name)
+		}
+	}
 }
 
 // TestEverySetsWeightsSumToOneWithinEachTerm: one threshold is read against
@@ -127,9 +143,9 @@ func TestExposureOnlyRaisesTheImpactAndTheNumber(t *testing.T) {
 	someExposure := append(append([]Factor{}, base...),
 		Factor{Term: TermImpact, Group: GroupExposure, Level: 0.7, Weight: 0.3})
 
-	_, baseImpact, _, baseNumber := reduce(base)
-	_, zeroImpact, _, zeroNumber := reduce(zeroExposure)
-	_, someImpact, _, someNumber := reduce(someExposure)
+	_, baseImpact, _, baseNumber := reduce(base, Scale{})
+	_, zeroImpact, _, zeroNumber := reduce(zeroExposure, Scale{})
+	_, someImpact, _, someNumber := reduce(someExposure, Scale{})
 
 	if !near(zeroImpact, baseImpact) || !near(zeroNumber, baseNumber) {
 		t.Errorf("an exposure factor reading 0 moves the impact from %v to %v and the number from %v to %v, and it should read as nothing",
@@ -152,7 +168,7 @@ func TestExposureIsCappedAtOne(t *testing.T) {
 		{Term: TermLikelihood, Group: GroupChange, Level: 1, Weight: 1},
 		{Term: TermReversibility, Group: GroupChange, Level: 0, Weight: 1},
 	}
-	_, impact, _, _ := reduce(vector)
+	_, impact, _, _ := reduce(vector, Scale{})
 	if impact > 1 {
 		t.Errorf("impact reads %v, and exposure's contribution is capped at 1", impact)
 	}
@@ -172,8 +188,8 @@ func TestAResolvedFactorIsLeftOutOfTheMeansAndTheNumberIsRecorded(t *testing.T) 
 	resolved := append([]Factor{}, whole...)
 	resolved[1] = Factor{Name: "b", Term: TermLikelihood, Level: 1, Weight: 0.5, Resolved: "the supplier is down"}
 
-	_, _, _, wholeNumber := reduce(whole)
-	likelihood, _, _, resolvedNumber := reduce(resolved)
+	_, _, _, wholeNumber := reduce(whole, Scale{})
+	likelihood, _, _, resolvedNumber := reduce(resolved, Scale{})
 	if !near(likelihood, 0.2) {
 		t.Errorf("the likelihood reads %v with one factor resolved, want the mean over the computable one", likelihood)
 	}

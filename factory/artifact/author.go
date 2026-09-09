@@ -22,7 +22,7 @@ func NewestOfKind(ctx context.Context, pool *pgxpool.Pool, itemID string, kind K
 		where item_id = $1 and kind = $2 order by version desc limit 1`, itemID, string(kind)).
 		Scan(&a.ID, &actorKind, &a.Actor.Key, &actorBasis, &a.At, &a.ItemID, &a.Role, &a.Subject, &storedKind,
 			&a.Version, &a.Supersedes, &authorship, &a.Author, &a.Content, &a.ContentDigest,
-			&a.ShippedBundleIdentity, &enteredBy, &a.InputManifestID)
+			&a.RedactedContentDigest, &a.ShippedBundleIdentity, &enteredBy, &a.InputManifestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Artifact{}, false, nil
 	} else if err != nil {

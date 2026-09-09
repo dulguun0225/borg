@@ -193,18 +193,22 @@
 // ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
 // (C0526, C0527, C0528, C0529, C0531, C0532, C0533, C0534, C0537, C0544, C0545,
 // C0546, C0547, C0548, C0549, C0550, C0551, C0552, C0553, C0554, C0555, C0556,
-// C0558, C0561, C0562, C0563, C0564, C0565, C0566, C0567, C0568, C0569, C0571,
-// C0572, C0573, C0580, C0582, C0585, C0586, C0587, C0589, C0591, C0592, C0593,
-// C0596, C0601, C0603, C0604, C0607, C0608, C0613, C0615);
+// C0557, C0558, C0561, C0562, C0563, C0564, C0565, C0566, C0567, C0568, C0569,
+// C0570, C0571, C0572, C0573, C0574, C0580, C0582, C0585, C0586, C0587, C0589,
+// C0591, C0592, C0593, C0595, C0596, C0601, C0603, C0604, C0607, C0608, C0613,
+// C0615);
 //
 // the deadline is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md
 // (C0275, C0285, C0288, C0291, C0295, C0296);
 //
-// the re-decomposition count, the derived requirement and the unanswerable mark
-// are
+// the re-decomposition count, the derived requirement, the unanswerable mark,
+// intake writing requirements at decomposition's call, a re-decomposition in
+// progress, the state as the gate and queue precondition, and the attempt
+// booked on the intent, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
-// (C0765, C0771, C0772, C0775, C0776, C0779, C0782, C0787);
+// (C0765, C0767, C0771, C0772, C0775, C0776, C0777, C0779, C0780, C0782,
+// C0783, C0784, C0787);
 //
 // the redaction of a statement, the pass that destroys it and the replay after
 // a restore, the recurrence link a report matching finished work raises, and
@@ -212,11 +216,28 @@
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
 // (C0399, C0438, C0447, C0448, C0449, C0456);
 //
-// the six patterns are
+// the six patterns, and the derived requirement named for the item's share,
+// are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md
-// (C1072, C1075, C1077);
+// (C1068, C1072, C1075, C1077);
 //
-// and the revert a named human at Ops asks for through intake is
+// the revert a named human at Ops asks for through intake, and a human's undo
+// as a revert raised through intake, are
 // ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1742,
-// C1743, C1744, C1745).
+// C1743, C1744, C1745, C1762);
+//
+// the adoption intent and its interview are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md
+// (C0618);
+//
+// and an intent delivered only once all its items are live is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/04-when-an-intents-items-do-not-all-ship.md
+// (C0804).
+//
+// [Evidence.CriterionID] keying the intent, with [OnEvidence] joining a
+// second raise, is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md
+// (C1060); and the revert read off [Evidence], never the source, is
+// ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
+// (C2342).
 package intent

@@ -61,6 +61,12 @@ const RolePromptOrSkillRow = "a_role_prompt_or_a_skill"
 // p is who the firing is read as: naming the version in force is a read of the
 // log, and the log appends a read event for every one.
 func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) (Applied, error) {
+	// The version is named on the open event for the trail and is not what the
+	// threshold is read from: the value in force is the field of the record its
+	// scope names. But a version is what that name can point at, and
+	// [Factory.Install] is what guarantees one stands before any firing — every
+	// path able to fire a gate installs first — so a factory nobody installed
+	// refuses here rather than naming none.
 	version, err := r.Newest(ctx, p)
 	if err != nil {
 		return Applied{}, err
@@ -122,8 +128,38 @@ func (r *Reader) authoredThreshold(ctx context.Context, s Subjects) (gatepolicy.
 	if s.EnvironmentID == "" || s.GateRow == "" {
 		return gatepolicy.Authored{}, Scope{}, nil
 	}
-	authored, err := environment.GateThreshold(ctx, r.pool, s.EnvironmentID, s.GateRow)
-	return authored, Scope{Kind: ScopeEnvironment, ID: s.EnvironmentID, Key: s.GateRow}, err
+	environmentID, err := r.thresholdEnvironment(ctx, s.EnvironmentID)
+	if err != nil {
+		return gatepolicy.Authored{}, Scope{}, err
+	}
+	authored, err := environment.GateThreshold(ctx, r.pool, environmentID, s.GateRow)
+	return authored, Scope{Kind: ScopeEnvironment, ID: environmentID, Key: s.GateRow}, err
+}
+
+// thresholdEnvironment is which environment record holds the threshold of a row
+// fired against the environment named. A deploy row into a persistent
+// environment reads the environment it deploys into; every other row reads
+// production's, which exists everywhere and is there before the item is. The
+// two are told apart by the environment and not by the row: a candidate's own
+// environment is created at the gate that decides its deploy, so it cannot hold
+// the threshold that decides it, and every row fired against one reads
+// production's for that candidate's project.
+func (r *Reader) thresholdEnvironment(ctx context.Context, environmentID string) (string, error) {
+	e, err := environment.Get(ctx, r.pool, environmentID)
+	if err != nil {
+		return "", err
+	}
+	if e.Kind.Persistent() {
+		return e.ID, nil
+	}
+	production, found, err := environment.Production(ctx, r.pool, e.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("policy: project %s has no production environment", e.ProjectID)
+	}
+	return production.ID, nil
 }
 
 // scoreVersionAt is the score version that decides one gate row, and the newest

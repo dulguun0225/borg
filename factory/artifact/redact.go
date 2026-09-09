@@ -41,11 +41,17 @@ type Span struct {
 }
 
 // Redact destroys the named spans of one version's content, in place: every
-// byte inside a span is overwritten and unrecoverable, and [ContentDigest] is
-// recomputed over what remains. It is the one exception to "insert and never
-// update" this package otherwise holds — made for erasure and not for
-// correction, which is what every other write here refuses instead of
-// allowing.
+// byte inside a span is overwritten and unrecoverable. It is the one exception
+// to "insert and never update" this package otherwise holds — made for erasure
+// and not for correction, which is what every other write here refuses instead
+// of allowing.
+//
+// [Artifact.ContentDigest] is left as it was, the digest of the words as they
+// were written, and the digest over what remains is written beside it as
+// [Artifact.RedactedContentDigest]. A decision recorded the digest of the words
+// it decided; recomputing the one column would leave that decision naming a
+// digest no row holds, which is the erasure taking the record of what was
+// decided with it.
 //
 // It appends no erasure-list row: the report store is that list's one writer,
 // and the row for an artifact version is appended by the erasure action at
@@ -133,8 +139,8 @@ func (s *Store) Replay(ctx context.Context, erasureList string) (int, error) {
 }
 
 // destroy overwrites the named spans of one version's content, in place,
-// recomputes the digest over what remains, and reports whether the version was
-// there to destroy.
+// writes the digest of what remains beside the digest of the words as written,
+// and reports whether the version was there to destroy.
 func (s *Store) destroy(ctx context.Context, versionID string, spans []Span) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -156,7 +162,8 @@ func (s *Store) destroy(ctx context.Context, versionID string, spans []Span) (bo
 	if err != nil {
 		return false, fmt.Errorf("artifact: redacting %s: %w", versionID, err)
 	}
-	if _, err := tx.Exec(ctx, `update `+Table+` set content = $1, content_digest = $2 where id = $3`,
+	if _, err := tx.Exec(ctx,
+		`update `+Table+` set content = $1, redacted_content_digest = $2 where id = $3`,
 		redacted, contentDigest(redacted), versionID); err != nil {
 		return false, fmt.Errorf("artifact: writing the redaction of %s: %w", versionID, err)
 	}

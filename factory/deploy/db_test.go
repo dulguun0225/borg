@@ -118,24 +118,15 @@ const productionID = "env_000000000000000000000000000000a"
 // twoTargets is an environment with two targets, in the order a rollout reaches
 // them.
 var twoTargets = []deploy.Reaching{
-	{Address: "/srv/one", ReleaseInstances: 4, ControlInstances: 1, KeptInstances: 2},
+	{Address: "/srv/one", ReleaseInstances: 4, KeptInstances: 2},
 	{Address: "/srv/two", ReleaseInstances: 4, KeptInstances: 2},
 }
 
-// withControlReleaseID returns a copy of targets naming releaseID as the
-// release the control on the target at address runs — the field a caller
-// building a [deploy.Beginning] directly names per target now that a control
-// is a target row's own field and not the whole deploy's.
-func withControlReleaseID(targets []deploy.Reaching, address, releaseID string) []deploy.Reaching {
-	copied := make([]deploy.Reaching, len(targets))
-	copy(copied, targets)
-	for n, target := range copied {
-		if target.Address == address {
-			copied[n].ControlReleaseID = releaseID
-		}
-	}
-	return copied
-}
+// theControl is the control a test names on one target once the rollout has
+// reached it. Nothing about a control is written at the start: there is one per
+// production target the release has reached, started on that target when the
+// rollout reaches it, so a test that wants one writes it there.
+var theControl = deploy.Control{ReleaseID: "rel_below", BuildID: "bl_below", Instances: 1}
 
 func addressesOf(targets []deploy.Reaching) []string {
 	var addresses []string
@@ -236,7 +227,7 @@ func TestCompletionIsPerTarget(t *testing.T) {
 
 	d, err := w.Start(ctx, deployer, deploy.Beginning{
 		ServiceID: serviceID, EnvironmentID: productionID,
-		What: deploy.OfRelease(r.ID, r.BuildID), Targets: withControlReleaseID(twoTargets, "/srv/one", "rel_below"),
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
 		IntoProduction: true, StrategyPicked: deploy.StrategyWithControl,
 	})
 	if err != nil {
@@ -258,7 +249,10 @@ func TestCompletionIsPerTarget(t *testing.T) {
 			t.Errorf("target %d is %s at position %d, want the environment's order", n, target.Address, target.Position)
 		}
 		if target.Fleets.Kept.Instances != 2 || target.Fleets.Release.Instances != 4 {
-			t.Errorf("target %s runs %+v, want the three counts written at the start", target.Address, target.Fleets)
+			t.Errorf("target %s runs %+v, want the two counts written at the start", target.Address, target.Fleets)
+		}
+		if target.ControlReleaseID != "" || target.ControlBuildID != "" || target.Fleets.Control.Instances != 0 {
+			t.Errorf("target %s names a control at the start: %+v", target.Address, target)
 		}
 	}
 
@@ -335,5 +329,100 @@ func TestTheStoreRefusesWhatTheWriterDoes(t *testing.T) {
 				t.Errorf("the store took the row: %v, want a violation of %s", err, c.want)
 			}
 		})
+	}
+}
+
+// TestTheActorIsTheDeployerThatPerformedIt: deploying is not a stage an agent is
+// dispatched to, so the record's actor is the deployer — a program the factory
+// runs and can check — and never an agent; and a human who called for a deploy
+// is the record's source and never its actor.
+func TestTheActorIsTheDeployerThatPerformedIt(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+
+	beginning := deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+	}
+	agent := record.Actor{Kind: record.KindAgent, Key: "a-model-version", Basis: record.BasisClaimed}
+	if _, err := w.Start(ctx, agent, beginning); !errors.Is(err, deploy.ErrNotTheDeployer) {
+		t.Fatalf("a deploy performed by an agent = %v, want ErrNotTheDeployer", err)
+	}
+	if unfinished, err := deploy.Unfinished(ctx, pool); err != nil || len(unfinished) != 0 {
+		t.Errorf("%d record(s) were written (%v), want none", len(unfinished), err)
+	}
+
+	// Nor does the human who called for one: the human at Ops whose rollback it
+	// is is the record's source, and the actor stays the deployer that performed
+	// it.
+	human := record.Actor{Kind: record.KindHuman, Key: "ada", Basis: record.BasisClaimed}
+	if _, err := w.Start(ctx, human, beginning); !errors.Is(err, deploy.ErrNotTheDeployer) {
+		t.Fatalf("a deploy whose actor is the human who called for it = %v, want ErrNotTheDeployer", err)
+	}
+	if _, err := w.Start(ctx, deployer, beginning); err != nil {
+		t.Errorf("a deploy performed by the deployer: %v", err)
+	}
+}
+
+// TestARowBesideEachOfTheEnvironmentsTargets: the record names the release it
+// puts on the environment once, and beside each of the environment's targets
+// whether that target has it yet — so a target the service does not run on holds
+// a row that stays not reached, and the record is complete when every target the
+// service runs on is.
+func TestARowBesideEachOfTheEnvironmentsTargets(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+
+	targets := append([]deploy.Reaching{}, twoTargets...)
+	targets = append(targets, deploy.Reaching{Address: "/srv/three", NotRunHere: true})
+
+	d, err := w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), Targets: targets,
+		IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	read, err := deploy.Targets(ctx, pool, d.ID)
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	if len(read) != 3 {
+		t.Fatalf("the record holds %d row(s), want one beside each of the environment's three targets", len(read))
+	}
+	if read[2].Address != "/srv/three" || !read[2].NotRunHere {
+		t.Errorf("the third row is %+v, want the target the service does not run on", read[2])
+	}
+	if read[0].NotRunHere || read[1].NotRunHere {
+		t.Errorf("the rows the service runs on read %v and %v, want them run on", read[0].NotRunHere, read[1].NotRunHere)
+	}
+
+	completeOn(t, ctx, w, d.ID, "/srv/one", "/srv/two")
+	owed, err := deploy.Partial(ctx, pool, d.ID)
+	if err != nil {
+		t.Fatalf("Partial: %v", err)
+	}
+	if len(owed) != 0 {
+		t.Errorf("the restart is owed %+v, want nothing: the deployer never reaches a target the service does not run on", owed)
+	}
+	if err := w.Complete(ctx, d.ID); err != nil {
+		t.Fatalf("Complete with every target the service runs on complete: %v", err)
+	}
+
+	// A record naming targets the service runs on none of would never complete
+	// and no reader could ever read it as running anywhere.
+	_, err = w.Start(ctx, deployer, deploy.Beginning{
+		ServiceID: serviceID, EnvironmentID: productionID,
+		What: deploy.OfRelease(r.ID, r.BuildID), IntoProduction: true,
+		StrategyPicked: deploy.StrategyWithoutControl,
+		Targets:        []deploy.Reaching{{Address: "/srv/three", NotRunHere: true}},
+	})
+	if !errors.Is(err, deploy.ErrNoTargets) {
+		t.Errorf("a deploy onto targets the service runs on none of = %v, want ErrNoTargets", err)
 	}
 }

@@ -27,7 +27,7 @@ func TestMaterialAClassTheEntryDoesNotNameIsWithheldBeforeTheRun(t *testing.T) {
 	c.anEntryPerRole(t, "", []string{fleetentry.ClassRepository})
 	it := c.oneItem(t, intent.StateRefined)
 
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(it), []inputmanifest.Material{
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(it), []inputmanifest.Material{
 		{Class: fleetentry.ClassIntentStatement, Reference: it.IntentID, Bytes: 17},
 		{Class: fleetentry.ClassRepository, Reference: oneService, Bytes: 40},
 	}, agent.Refining{Statement: "s"})
@@ -66,7 +66,7 @@ func TestMaterialAClassTheEntryDoesNotNameIsWithheldBeforeTheRun(t *testing.T) {
 	// A class no fleet entry could ever name is refused rather than withheld:
 	// the classes an entry names and the classes a stage hands over are one
 	// vocabulary.
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(it),
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(it),
 		[]inputmanifest.Material{{Class: "a class nobody defined", Reference: "x"}},
 		agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrMaterialClassUnknown) {
 		t.Errorf("material of an unknown class = %v, want ErrMaterialClassUnknown", err)

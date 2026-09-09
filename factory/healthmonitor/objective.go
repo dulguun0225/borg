@@ -30,6 +30,12 @@ type Budget struct {
 	// the proportion that must be good.
 	PeriodSeconds float64
 	Objective     float64
+	// Operation is the series the budget below was read on: the operation
+	// nearest exhaustion of the one objective authored for the service. The
+	// objective stays authored per service and is read per operation, one value
+	// against each series, so what holds the service is whichever series has
+	// least left.
+	Operation string
 	// Remaining is the share of the budget left, from one at nothing spent down
 	// through zero and below where more has been spent than the objective allows.
 	Remaining float64
@@ -49,10 +55,32 @@ type Budget struct {
 // itself when the period rolls forward far enough to restore the budget or the
 // store covers the period again. Nothing is decided and no page fires, which is
 // the shape the hold a declared dependency that is not current sets already has.
-//
-// The two items that pass the hold are the caller's to admit: a revert, and an
-// item whose intent a detector raised on that service. doc.go names the caller.
 func (b Budget) Holds() bool { return b.Authored && (!b.Covered || b.Exhausted) }
+
+// Admits is whether one item passes that hold. Two items do: a revert, which
+// passes the hold a rollback leaves for the same reason, and an item whose
+// intent a detector raised on that service — the health monitor's at a crossing
+// or the objective's own. The second is what makes the hold passable on a
+// service that crossed nothing: the health monitor raises nothing there, and
+// without the objective's raise the hold would stand with no item able to lift
+// it. A request an owner raises on that service does not pass; the route is the
+// objective's intent, which exists whenever the budget is exhausted.
+//
+// It takes the item's fields as plain values rather than the item, so the rule
+// the objective sets lives with the objective while the records stay with the
+// caller that reads them: source is what the intent the item was decomposed
+// from was raised by, raisedOnThisService whether that intent's evidence names
+// the service being deployed, and revert whether the item is the revert of the
+// rollback outstanding on it.
+//
+// A budget that holds nothing admits everything, so a caller may ask this
+// without asking [Budget.Holds] first.
+func (b Budget) Admits(source intent.Source, raisedOnThisService, revert bool) bool {
+	if !b.Holds() || revert {
+		return true
+	}
+	return source == intent.SourceDetector && raisedOnThisService
+}
 
 // Raises is whether the objective raises an intent: the budget exhausted, or
 // either burn rate exhausting it before the period ends. An uncomputed budget
@@ -87,16 +115,21 @@ func (h *HealthMonitor) ErrorBudget(ctx context.Context, w Watching) (Budget, er
 	if err != nil {
 		return Budget{}, fmt.Errorf("healthmonitor: reading what %s spent of its objective: %w", w.Name, err)
 	}
-	if !overThePeriod.Covered {
+	worst, covered := leastRemaining(overThePeriod, b.Objective)
+	if !covered {
 		return b, nil
 	}
 	b.Covered = true
-	b.Remaining = remaining(overThePeriod, b.Objective)
+	b.Operation, b.Remaining = worst.operation, worst.remaining
 	b.Exhausted = b.Remaining <= 0
 
-	// The burn rate is the share of the whole budget spent per hour, so the
-	// period's own reading is what it spent over how long it has run, and the
-	// last hour's is what it spent in one.
+	// The burn rate is the share of the whole budget spent per hour. The
+	// period's own reading is what it spent over the period divided by the
+	// hours elapsed in it — the whole period's hours, since the store covers it
+	// entirely or the budget is uncomputed above. The last hour's is the share
+	// of that same whole-period budget spent in one hour — never the share of
+	// an hour's own tiny allowance, which would read a bad hour on a service
+	// serving little the same as a bad hour on a busy one.
 	hours := period.Hours()
 	if hours > 0 {
 		b.BurnRatePeriod = (1 - b.Remaining) / hours
@@ -105,19 +138,55 @@ func (h *HealthMonitor) ErrorBudget(ctx context.Context, w Watching) (Budget, er
 	if err != nil {
 		return Budget{}, fmt.Errorf("healthmonitor: reading what %s spent in the last hour: %w", w.Name, err)
 	}
-	if lastHour.Covered {
-		b.BurnRateLastHour = 1 - remaining(lastHour, b.Objective)
+	if periodSpend, found := spendFor(overThePeriod, b.Operation); found {
+		if hourSpend, found := spendFor(lastHour, b.Operation); found && hourSpend.Covered {
+			b.BurnRateLastHour = burnRateAgainstPeriod(hourSpend, periodSpend, b.Objective)
+		}
 	}
 	// Either reading exhausts what is left before the period ends where the rate
 	// it is burning at spends the remainder inside the hours the period has to
 	// run. The period so far is what the long reading sees; the last hour is the
 	// fault an hour old.
 	for _, rate := range []float64{b.BurnRatePeriod, b.BurnRateLastHour} {
-		if rate > 0 && b.Remaining > 0 && b.Remaining/rate < hours {
+		if rate > 0 && b.Remaining > 0 && rate*hours > b.Remaining {
 			b.ExhaustsBeforeThePeriodEnds = true
 		}
 	}
 	return b, nil
+}
+
+// onOneSeries is one operation's share of the budget left, which is what the
+// objective is read as against each series.
+type onOneSeries struct {
+	operation string
+	remaining float64
+}
+
+// leastRemaining is the operation with least of the budget left and whether the
+// store covered the period on every series read. The one authored objective is
+// held against each series, so the service is as exhausted as its worst
+// operation: read over the operations as one, an operation failing its
+// objective is diluted by every operation that is not.
+//
+// A period the store does not cover on any one series leaves the whole budget
+// uncomputed, and so does a store that returned no series at all — both are an
+// absent input, and an absent input is never evidence that the budget is
+// intact.
+func leastRemaining(spends []Spend, objective float64) (onOneSeries, bool) {
+	if len(spends) == 0 {
+		return onOneSeries{}, false
+	}
+	worst := onOneSeries{remaining: 1}
+	for i, spend := range spends {
+		if !spend.Covered {
+			return onOneSeries{}, false
+		}
+		left := remaining(spend, objective)
+		if i == 0 || left < worst.remaining {
+			worst = onOneSeries{operation: spend.Operation, remaining: left}
+		}
+	}
+	return worst, true
 }
 
 // remaining is the share of the budget left: what the objective allows to be bad
@@ -136,6 +205,37 @@ func remaining(spend Spend, objective float64) float64 {
 		return 1
 	}
 	return 1 - float64(spend.Units-spend.Good)/allowed
+}
+
+// spendFor is the one spend record over the operation named, so the last
+// hour's reading and the period's own are read against the same series: the
+// one the objective is held on, which [leastRemaining] found has least of the
+// budget left over the period.
+func spendFor(spends []Spend, operation string) (Spend, bool) {
+	for _, s := range spends {
+		if s.Operation == operation {
+			return s, true
+		}
+	}
+	return Spend{}, false
+}
+
+// burnRateAgainstPeriod is the share of the whole period's budget spent in
+// hourSpend, which periodSpend's own units size that budget by — never the
+// share of hourSpend's own allowance, which would scale a bad hour on a
+// service serving little the same as a bad hour on a busy one.
+func burnRateAgainstPeriod(hourSpend, periodSpend Spend, objective float64) float64 {
+	allowed := (1 - objective) * float64(periodSpend.Units)
+	bad := float64(hourSpend.Units - hourSpend.Good)
+	if allowed <= 0 {
+		// An objective of everything being good allows nothing, so one bad unit in
+		// the hour spends the whole period's budget and no unit spends none of it.
+		if bad > 0 {
+			return 1
+		}
+		return 0
+	}
+	return bad / allowed
 }
 
 // RaiseObjectiveIntent is the objective's own raise: it writes an unrefined
@@ -163,11 +263,11 @@ func (h *HealthMonitor) RaiseObjectiveIntent(ctx context.Context, w Watching, b 
 	if found {
 		return waiting.ID, nil
 	}
-	statement := fmt.Sprintf("%s has spent its error budget: %.0f%% of the objective's allowance is left over a period of %.0f seconds",
-		w.Name, b.Remaining*100, b.PeriodSeconds)
+	statement := fmt.Sprintf("%s has spent its error budget on %s: %.0f%% of the objective's allowance is left over a period of %.0f seconds",
+		w.Name, b.Operation, b.Remaining*100, b.PeriodSeconds)
 	if !b.Exhausted {
-		statement = fmt.Sprintf("%s is spending its error budget faster than the period restores it: %.0f%% left, burning %.3f of it an hour",
-			w.Name, b.Remaining*100, max(b.BurnRatePeriod, b.BurnRateLastHour))
+		statement = fmt.Sprintf("%s is spending its error budget on %s faster than the period restores it: %.0f%% left, burning %.3f of it an hour",
+			w.Name, b.Operation, b.Remaining*100, max(b.BurnRatePeriod, b.BurnRateLastHour))
 	}
 	taken, err := h.intake.TakeIn(ctx, Actor, intent.Arrival{
 		Source: intent.SourceDetector, Statement: statement, Evidence: evidence,

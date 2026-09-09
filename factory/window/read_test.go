@@ -128,8 +128,8 @@ func TestAWindowThatMeasuresNothingIsStillARollbackTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, err := w.Close(ctx, opened.ID, window.ExitTimedOut, window.Closing{}); err != nil {
-		t.Fatalf("Close timed out: %v", err)
+	if opened.Exit != window.ExitTimedOut {
+		t.Fatalf("Open = exit %q, want timed out closed in the same write", opened.Exit)
 	}
 
 	returnable, err := window.ClosedPassedOrTimedOut(ctx, pool, serviceID)

@@ -10,6 +10,15 @@
 // caused it, because the record points at the deploy that was running when it
 // appeared and not always at the one that caused it.
 //
+// overdue.go is [Overdue] and [OverdueItems], the reader nothing called until
+// this pass existed: every incident-raised item still being worked past its
+// service's incident-item bound, at the time given — an open incident naming
+// an intent, [Incident.OverBound] read against the bound
+// [service.IncidentItemBoundSecondsInForce] gives that incident's service, and
+// an item of [item.ForIntent] whose stage is still ordinary work rather than
+// merged, dropped, escalated or superseded. It is what a caller pages against,
+// one uncleared page per item.
+//
 // [Reading] is which of the three readings crossed — the comparison, the
 // reading against the service's own recent history, or an explicit threshold —
 // because more than one runs on one service and an incident naming none of them
@@ -37,7 +46,9 @@
 // observation count, and advances its status; nothing updates any other field
 // and nothing deletes. environment_id, service_id, release_id, deploy_id, and
 // intent_id are id fields and not foreign keys, the rule record's doc.go states
-// once.
+// once. [OverdueItems] writes nothing: it reads package item's records and
+// package service's incident-item bound, and a caller pages against what it
+// returns.
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/08-operations/06-incidents.md (C2095,
@@ -45,4 +56,9 @@
 // writer, its links, its deduplication, and what resolving it requires — and
 // ../../end-goal/how-the-factory-works/08-operations/04-after-the-analysis-window.md
 // for the intent a crossing writes once the window has closed.
+//
+// Passing the incident-raised item bound pages, on the same ground as the
+// other clocks the design puts beside it, is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0739).
 package incident

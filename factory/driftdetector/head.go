@@ -43,9 +43,9 @@ func (w *Writer) RecordHead(ctx context.Context, hash string, seq int64) (Head, 
 	return h, nil
 }
 
-// GetHead is the recorded head, and false before the detector's first pass —
+// recordedHead is the recorded head, and false before the detector's first pass —
 // nothing yet to verify the chain against.
-func GetHead(ctx context.Context, pool *pgxpool.Pool) (Head, bool, error) {
+func recordedHead(ctx context.Context, pool *pgxpool.Pool) (Head, bool, error) {
 	var h Head
 	var kind, basis string
 	err := pool.QueryRow(ctx, `select id, actor_kind, actor_key, actor_key_basis, at, hash, seq
@@ -116,7 +116,7 @@ func checkpointRow(ctx context.Context, pool *pgxpool.Pool, seq int64) (decision
 // recomputed here because that package's [decisionlog.Reader] is not this
 // package's to call.
 func VerifyChain(ctx context.Context, ownPool, factoryPool *pgxpool.Pool) (newHead Head, mismatch bool, why string, err error) {
-	recorded, hadRecorded, err := GetHead(ctx, ownPool)
+	recorded, hadRecorded, err := recordedHead(ctx, ownPool)
 	if err != nil {
 		return Head{}, false, "", err
 	}

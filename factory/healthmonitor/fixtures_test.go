@@ -79,8 +79,8 @@ func (fakeEmission) History(context.Context, healthmonitor.History) (healthmonit
 func (fakeEmission) FailureRecords(context.Context, healthmonitor.Reading) ([]healthmonitor.FailureRecord, error) {
 	return nil, nil
 }
-func (fakeEmission) Spent(context.Context, string, time.Duration) (healthmonitor.Spend, error) {
-	return healthmonitor.Spend{}, nil
+func (fakeEmission) Spent(context.Context, string, time.Duration) ([]healthmonitor.Spend, error) {
+	return nil, nil
 }
 func (fakeEmission) Shape(context.Context, healthmonitor.Arm) (string, error) { return "", nil }
 
@@ -125,7 +125,7 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	windows := window.NewWriter(pool, token)
 	incidents := incident.NewWriter(pool, token)
 	monitor, err := healthmonitor.New(pool, windows, incidents, nil, nil, nil, nil,
-		fakeEmission{}, nil, nil, nil, healthmonitor.Readings{})
+		fakeEmission{}, nil, nil, nil, nil, healthmonitor.Readings{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -160,8 +160,19 @@ func (g graph) monitorWithMismatch(t *testing.T, emission healthmonitor.Emission
 	deployer healthmonitor.Deployer, pager healthmonitor.Pager,
 	mismatches healthmonitor.Mismatches) *healthmonitor.HealthMonitor {
 	t.Helper()
+	return g.monitorComposed(t, emission, deployer, pager, mismatches, nil, healthmonitor.Readings{})
+}
+
+// monitorComposed is the whole composition, for a test that needs what the two
+// above supply nothing for: which release is a brownout, and the readings
+// beside the comparison as they are in force today.
+func (g graph) monitorComposed(t *testing.T, emission healthmonitor.Emission,
+	deployer healthmonitor.Deployer, pager healthmonitor.Pager,
+	mismatches healthmonitor.Mismatches, brownouts healthmonitor.Brownouts,
+	readings healthmonitor.Readings) *healthmonitor.HealthMonitor {
+	t.Helper()
 	monitor, err := healthmonitor.New(g.pool, g.windows, g.incidents, nil, nil, nil, pager,
-		emission, deployer, nil, mismatches, healthmonitor.Readings{})
+		emission, deployer, nil, mismatches, brownouts, readings)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -233,8 +244,19 @@ func (g graph) watching() healthmonitor.Watching {
 // exists for.
 func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit window.Exit) release.Release {
 	t.Helper()
+	return shipOneWith(t, ctx, g, intentID, exit, nil)
+}
+
+// shipOneWith is [shipOne] with the opening altered before the window is
+// written, which is what a test needs to put a window in a shape the fixture's
+// own opening does not take: a set of operations read alone, or no size for the
+// reading against the service's own recent history.
+func shipOneWith(t *testing.T, ctx context.Context, g graph, intentID string, exit window.Exit,
+	alter func(*window.OpenEvent)) release.Release {
+	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: g.serviceID, Branch: "item/" + intentID,
+		RequirementsAnswered: []string{"rq_" + "test"},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
@@ -268,7 +290,7 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
-	w, err := g.windows.Open(ctx, healthmonitor.Actor, window.OpenEvent{
+	opening := window.OpenEvent{
 		DeployID: dep.ID, ReleaseID: rel.ID, BuildID: bl.ID, ServiceID: g.serviceID,
 		PassedAvailable: rel.Number > 1,
 		Size:            map[gatepolicy.Quantity]float64{errorRate: 0.1},
@@ -278,7 +300,11 @@ func shipOne(t *testing.T, ctx context.Context, g graph, intentID string, exit w
 		OwnHistorySize:         map[gatepolicy.Quantity]float64{errorRate: 0.1},
 		OwnHistoryRunLength:    500,
 		EmissionVersionRelease: "emission/1", PolicyVersion: "pv_test", ScoreVersion: "scv_test",
-	})
+	}
+	if alter != nil {
+		alter(&opening)
+	}
+	w, err := g.windows.Open(ctx, healthmonitor.Actor, opening)
 	if err != nil {
 		t.Fatalf("opening the window: %v", err)
 	}
@@ -300,6 +326,7 @@ func shipOneUnmeasured(t *testing.T, ctx context.Context, g graph, intentID stri
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: g.serviceID, Branch: "item/" + intentID,
+		RequirementsAnswered: []string{"rq_" + "test"},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
@@ -333,16 +360,15 @@ func shipOneUnmeasured(t *testing.T, ctx context.Context, g graph, intentID stri
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
-	w, err := g.windows.Open(ctx, healthmonitor.Actor, window.OpenEvent{
+	// Open itself closes a window that measures nothing timed out, in the same
+	// write: there is nothing for the cap to wait on, so no separate close
+	// follows.
+	if _, err := g.windows.Open(ctx, healthmonitor.Actor, window.OpenEvent{
 		DeployID: dep.ID, ReleaseID: rel.ID, BuildID: bl.ID, ServiceID: g.serviceID,
 		MeasuresNothing: true, BoundaryVersion: boundary.Version,
 		PolicyVersion: "pv_test", ScoreVersion: "scv_test",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("opening the window that measures nothing: %v", err)
-	}
-	if _, err := g.windows.Close(ctx, w.ID, window.ExitTimedOut, window.Closing{}); err != nil {
-		t.Fatalf("closing the window that measures nothing: %v", err)
 	}
 	return rel
 }

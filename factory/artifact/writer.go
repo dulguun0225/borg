@@ -67,7 +67,7 @@ func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, by By, itemI
 	criteria []criterion.Draft, withdrawnCriterionIDs []string, machines []screenstatemachine.Draft,
 	inputManifestID string,
 ) (Artifact, []criterion.Criterion, []screenstatemachine.Machine, error) {
-	if err := refuse(actor, by, itemID); err != nil {
+	if err := refuse(actor, by, itemID, inputManifestID); err != nil {
 		return Artifact{}, nil, nil, err
 	}
 
@@ -120,7 +120,7 @@ func (s *Store) SubmitSpec(ctx context.Context, actor record.Actor, by By, itemI
 // versioning as a spec, no criteria. The content is the commit hash the
 // stage produced; the code lives in the repository, and the record names it.
 func (s *Store) SubmitImplementation(ctx context.Context, actor record.Actor, by By, itemID, content, inputManifestID string) (Artifact, error) {
-	if err := refuse(actor, by, itemID); err != nil {
+	if err := refuse(actor, by, itemID, inputManifestID); err != nil {
 		return Artifact{}, err
 	}
 
@@ -163,7 +163,7 @@ func (s *Store) SubmitTasks(ctx context.Context, actor record.Actor, by By, item
 // one.
 func (s *Store) submitItemDocument(ctx context.Context, actor record.Actor, by By,
 	kind Kind, itemID, content, inputManifestID string) (Artifact, error) {
-	if err := refuse(actor, by, itemID); err != nil {
+	if err := refuse(actor, by, itemID, inputManifestID); err != nil {
 		return Artifact{}, err
 	}
 
@@ -201,7 +201,7 @@ func (s *Store) submitItemDocument(ctx context.Context, actor record.Actor, by B
 func (s *Store) SubmitConsumerContract(ctx context.Context, actor record.Actor, by By,
 	itemID, serviceID, content string, derived consumercontract.Derived, inputManifestID string) (
 	Artifact, consumercontract.Derivation, []consumercontract.Predicate, error) {
-	if err := refuse(actor, by, itemID); err != nil {
+	if err := refuse(actor, by, itemID, inputManifestID); err != nil {
 		return Artifact{}, consumercontract.Derivation{}, nil, err
 	}
 	if serviceID == "" {
@@ -237,10 +237,90 @@ func (s *Store) SubmitConsumerContract(ctx context.Context, actor record.Actor, 
 	return submitted, derivation, written, nil
 }
 
+// DeriveConsumerContractAgain writes the consumer contract version nobody
+// authored. At an upgrade's first start where the shipped extractor for a
+// toolchain changed or was added, the install's first-start step derives a
+// contract again for every release in force on that toolchain, from the build
+// the release names, and writes it here: beside the earlier record and never
+// over it, so the chain carries both and a release's contract in force is its
+// derivation by the newest extractor.
+//
+// It is [Store.EnterShipped]'s arrangement for the one kind outside
+// [FleetKinds] that a start writes. The authorship and the author are both
+// empty — the extractor derived it and no author holds a prior over it — the
+// actor is [FactoryStart], and the event is [EnteredByUpgradeFirstStart] and
+// never the install's: an install has no release in force to derive over.
+// shippedBundleIdentity is the release of the product that shipped the new
+// extractor, a derivation being a function of the code and of the factory
+// version. It reads no manifest and names none.
+//
+// The derivation goes through [consumercontract.DeriveAgain], which refuses an
+// extractor the newest derivation of the item already names: a second record
+// under the same extractor would say what the record already says. That
+// refusal rolls the version back with it, the arrangement
+// [Store.SubmitConsumerContract] has with [consumercontract.Insert].
+func (s *Store) DeriveConsumerContractAgain(ctx context.Context, actor record.Actor,
+	itemID, serviceID, content string, derived consumercontract.Derived, shippedBundleIdentity string) (
+	Artifact, consumercontract.Derivation, []consumercontract.Predicate, error) {
+	if err := refuseFactoryStart(actor); err != nil {
+		return Artifact{}, consumercontract.Derivation{}, nil, err
+	}
+	if itemID == "" {
+		return Artifact{}, consumercontract.Derivation{}, nil, ErrItemIDEmpty
+	}
+	if serviceID == "" {
+		return Artifact{}, consumercontract.Derivation{}, nil,
+			fmt.Errorf("artifact: the consumer contract version of %s names no service", itemID)
+	}
+	if shippedBundleIdentity == "" {
+		return Artifact{}, consumercontract.Derivation{}, nil, ErrShippedBundleIdentityEmpty
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Artifact{}, consumercontract.Derivation{}, nil,
+			fmt.Errorf("artifact: beginning the derivation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, s.token); err != nil {
+		return Artifact{}, consumercontract.Derivation{}, nil, err
+	}
+
+	derivedAgain, err := insertVersion(ctx, tx, actor, By{}, chainKey{ItemID: itemID}, KindConsumerContract,
+		content, "", shipped{EnteredBy: EnteredByUpgradeFirstStart, BundleIdentity: shippedBundleIdentity})
+	if err != nil {
+		return Artifact{}, consumercontract.Derivation{}, nil, err
+	}
+	derivation, written, err := consumercontract.DeriveAgain(ctx, tx, actor, consumercontract.Of{
+		ItemID: itemID, ServiceID: serviceID, ArtifactID: derivedAgain.ID,
+	}, derived)
+	if err != nil {
+		return Artifact{}, consumercontract.Derivation{}, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Artifact{}, consumercontract.Derivation{}, nil,
+			fmt.Errorf("artifact: committing %s: %w", derivedAgain.ID, err)
+	}
+	return derivedAgain, derivation, written, nil
+}
+
+// refuseFactoryStart is the actor of the calls that author nothing:
+// [FactoryStart] and no other. Nothing else on such a row says who wrote it,
+// the authorship and the author being empty, so the actor is the whole of it.
+func refuseFactoryStart(actor record.Actor) error {
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if actor != FactoryStart {
+		return fmt.Errorf("%w: %s %s", ErrNotTheFactorysStart, actor.Kind, actor.Key)
+	}
+	return nil
+}
+
 // refuse is the item-kind submissions' validation: the actor, the authorship
-// and author pair, and the item id.
-func refuse(actor record.Actor, by By, itemID string) error {
-	if err := refuseAuthored(actor, by); err != nil {
+// and author pair, the manifest the run was handed, and the item id.
+func refuse(actor record.Actor, by By, itemID, inputManifestID string) error {
+	if err := refuseAuthored(actor, by, inputManifestID); err != nil {
 		return err
 	}
 	if itemID == "" {
@@ -249,11 +329,18 @@ func refuse(actor record.Actor, by By, itemID string) error {
 	return nil
 }
 
-// refuseAuthored is the actor and the authorship-and-author pair every
-// authored submission requires, item-kind or fleet. [Store.EnterShipped]
-// validates the actor alone: its pair is the empty one every other submission
-// refuses here.
-func refuseAuthored(actor record.Actor, by By) error {
+// refuseAuthored is the actor, the authorship-and-author pair and the input
+// manifest every authored submission requires, item-kind or fleet.
+// [Store.EnterShipped] and [Store.DeriveConsumerContractAgain] validate the
+// actor against [FactoryStart] instead: their pair is the empty one every
+// submission refuses here.
+//
+// The manifest is required of an agent's version and of no other: context
+// assembly writes one at every dispatch and the version names it, so an
+// artifact authored from a truncated read does not pass for one authored from
+// everything. A human at a stage and a human at a gate author outside a
+// dispatch, and there is no manifest of theirs to name.
+func refuseAuthored(actor record.Actor, by By, inputManifestID string) error {
 	if err := actor.Validate(); err != nil {
 		return err
 	}
@@ -263,13 +350,17 @@ func refuseAuthored(actor record.Actor, by By) error {
 	if by.Author == "" {
 		return fmt.Errorf("%w: authorship %q", ErrAuthorEmpty, by.Authorship)
 	}
+	if by.Authorship == AuthorshipAgent && inputManifestID == "" {
+		return fmt.Errorf("%w: author %q", ErrInputManifestEmpty, by.Author)
+	}
 	return nil
 }
 
 const insertArtifact = `insert into ` + Table + `
 	(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-	supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by, input_manifest_id)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
+	supersedes, authorship, author, content, content_digest, redacted_content_digest, shipped_bundle_identity,
+	entered_by, input_manifest_id)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
 
 // shipped is what an entry nobody wrote names and an authored version does
 // not: which event entered it, and the release of the product it entered
@@ -288,6 +379,8 @@ type shipped struct {
 //
 // inputManifestID is what the version was authored from, supplied by the
 // caller that dispatched the run and empty on an entry nobody wrote.
+// redacted_content_digest is empty on every insert: it is written by
+// [Store.Redact] alone, over what a redaction left.
 func insertVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, by By, key chainKey, kind Kind,
 	content, inputManifestID string, entry shipped) (Artifact, error) {
 	priorID, priorVersion := "", 0
@@ -320,8 +413,8 @@ func insertVersion(ctx context.Context, tx pgx.Tx, actor record.Actor, by By, ke
 	if _, err := tx.Exec(ctx, insertArtifact,
 		a.ID, FormatVersion, string(a.Actor.Kind), a.Actor.Key, string(a.Actor.Basis), a.At,
 		a.ItemID, a.Role, a.Subject, string(a.Kind), a.Version, a.Supersedes,
-		string(a.Authorship), a.Author, a.Content, a.ContentDigest, a.ShippedBundleIdentity,
-		string(a.EnteredBy), a.InputManifestID,
+		string(a.Authorship), a.Author, a.Content, a.ContentDigest, a.RedactedContentDigest,
+		a.ShippedBundleIdentity, string(a.EnteredBy), a.InputManifestID,
 	); err != nil {
 		return Artifact{}, fmt.Errorf("artifact: writing %s: %w", a.ID, err)
 	}

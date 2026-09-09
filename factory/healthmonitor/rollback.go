@@ -23,6 +23,18 @@ import (
 // revert intent, a page where nothing was rolled back, and this window closed
 // failed last.
 func (h *HealthMonitor) failed(ctx context.Context, w Watching, one Watched) (Watched, error) {
+	// Recorded before the first of those records and never rewritten: the close
+	// is the exit's last step, so a stop between the two leaves a window whose
+	// own record says which exit was under way, and the next evaluation finishes
+	// that one rather than reading the release again and closing timed out
+	// because the rollback already removed what was crossing.
+	if one.Window.ExitBegun == "" {
+		begun, err := h.windows.Begin(ctx, one.Window.ID, window.ExitFailed)
+		if err != nil {
+			return one, err
+		}
+		one.Window = begun
+	}
 	if one.Window.ReleaseID == "" {
 		// A search's deploy is measured by a window of its own and ends with
 		// that window, whatever the exit: the exit is the answer, and traffic
@@ -34,7 +46,11 @@ func (h *HealthMonitor) failed(ctx context.Context, w Watching, one Watched) (Wa
 		one.WhyNoRollback = "this window is a search's, and a search's exit is the answer rather than a rollback"
 		return h.close(ctx, w, one.Window, window.ExitFailed, one)
 	}
-	one.WhyNoRollback = h.whyNoRollback(ctx, w, one)
+	why, err := h.whyNoRollback(ctx, w, one)
+	if err != nil {
+		return one, err
+	}
+	one.WhyNoRollback = why
 	if one.WhyNoRollback == "" {
 		if err := h.rollBack(ctx, w, &one); err != nil {
 			return one, err
@@ -57,23 +73,51 @@ func (h *HealthMonitor) failed(ctx context.Context, w Watching, one Watched) (Wa
 }
 
 // whyNoRollback is why the failed exit rolls nothing back, and empty where it
-// is about to roll one back: a mismatch standing on the service — the target
-// would be computed from records the mismatch already shows wrong — a factory
-// composed with no deployer, or no release below this one to return to.
-func (h *HealthMonitor) whyNoRollback(ctx context.Context, w Watching, one Watched) string {
+// is about to roll one back: the rollback this exit calls for already performed
+// by the attempt a stop interrupted, a mismatch standing on the service — the
+// target would be computed from records the mismatch already shows wrong — a
+// factory composed with no deployer, or no release below this one to return to.
+func (h *HealthMonitor) whyNoRollback(ctx context.Context, w Watching, one Watched) (string, error) {
+	performed, err := h.rollbackPerformed(ctx, w, one.Release.ID)
+	if err != nil {
+		return "", err
+	}
+	if performed {
+		return "the rollback this exit calls for was performed already, by the attempt this one is finishing", nil
+	}
 	if h.mismatches != nil {
 		mismatched, reason, err := h.mismatches.Mismatch(ctx, w.ID)
 		if err == nil && mismatched {
-			return "a mismatch stands on this service, so no rollback is performed: " + reason
+			return "a mismatch stands on this service, so no rollback is performed: " + reason, nil
 		}
 	}
 	if h.deployer == nil {
-		return "this factory is composed with no deployer to perform one"
+		return "this factory is composed with no deployer to perform one", nil
 	}
 	if !one.HasBaseline {
-		return "there is no release below this one to return to"
+		return "there is no release below this one to return to", nil
 	}
-	return ""
+	return "", nil
+}
+
+// rollbackPerformed is whether a rollback naming this release as the failed one
+// has already been asked for. It is the one step of the failed exit that is not
+// its own answer twice: a second call would take production back past a release
+// the first call already removed, where the incident's dedup and the window's
+// close both refuse the repeat on their own.
+//
+// It reads the newest rollback of the service, which is what the record says a
+// rollback that ran left behind, and false where the release under watch is not
+// what it undid.
+func (h *HealthMonitor) rollbackPerformed(ctx context.Context, w Watching, releaseID string) (bool, error) {
+	if releaseID == "" {
+		return false, nil
+	}
+	rollback, found, err := deploy.NewestRollback(ctx, h.pool, w.ID, w.EnvironmentID)
+	if err != nil || !found {
+		return false, err
+	}
+	return rollback.Undoing.FailedReleaseID == releaseID, nil
 }
 
 // rollBack asks the deployer for the rollback: the target is [Watched.Baseline]
@@ -191,6 +235,15 @@ func (h *HealthMonitor) failureRecordsJSON(ctx context.Context, w Watching, of A
 	}
 	if len(records) == 0 {
 		return "", nil
+	}
+	for i := range records {
+		// The store answered the reading's service, so a record that names none
+		// is named here: the copy on the incident is read where the store is
+		// not, and a count without the service it was raised in is a count a
+		// reader cannot place.
+		if records[i].ServiceName == "" {
+			records[i].ServiceName = w.Name
+		}
 	}
 	encoded, err := json.Marshal(records)
 	if err != nil {

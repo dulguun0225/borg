@@ -202,8 +202,17 @@ func (f *Factory) AuthorItemSizeTarget(ctx context.Context, actor record.Actor,
 // AuthorAllowedPredicateKinds authors what kinds of assertion a consumer
 // contract may draw from. It is the one parameter whose value is a list, and an
 // owner extends the factory's own rather than replacing it.
+//
+// A kind that cannot be decided against one observed exchange is refused here:
+// that rule is the list's own floor, which no authored value and no safeguard
+// goes below, and what this factory can decide against one exchange is the
+// kinds package gatepolicy names. A wider list is coverage added; a name
+// nothing can decide is the mechanical enforcement gone.
 func (f *Factory) AuthorAllowedPredicateKinds(ctx context.Context, actor record.Actor,
 	allowed []string) (Version, error) {
+	if err := decidableKinds(allowed); err != nil {
+		return Version{}, err
+	}
 	settings, err := factorysettings.Get(ctx, f.pool)
 	if err != nil {
 		return Version{}, err

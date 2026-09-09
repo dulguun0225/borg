@@ -25,8 +25,10 @@ import (
 const theLender = "pk_00000000000000000000000000000001"
 
 // lend declares that theLender lent theCredential, which is what makes the
-// credential one the People declaration knows: a credential nobody lent is
-// unbounded and has no lender to record.
+// credential one the People declaration knows. The fixture calls it, because
+// an agent run record names whose account it spent and refuses a run on a
+// credential the declaration does not hold; lending the same name again is one
+// row, so a test that calls it a second time changes nothing.
 func (c composed) lend(t *testing.T) {
 	t.Helper()
 	if _, err := c.lends.Lend(c.ctx, owner, theLender, theCredential, people.AccountPerson); err != nil {
@@ -122,7 +124,7 @@ func TestACredentialAUnreachableRunDeclinesEveryOtherItemAndIsClearedByASuccess(
 
 	// The run's own failure to reach the model is the hold, not a failed
 	// attempt: no reply was refused, so nothing is retried here.
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(first), nil, agent.Refining{Statement: "s"})
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(first), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldCredentialUnreachable {
 		t.Fatalf("SpecAuthor on an unreachable credential = %v holding %q, want the unreachable hold",
 			err, run.Held)
@@ -137,7 +139,7 @@ func TestACredentialAUnreachableRunDeclinesEveryOtherItemAndIsClearedByASuccess(
 
 	// Every further item onto that credential is declined with a hold of its
 	// own, so two items waiting on one credential are two rows in Work.
-	_, declined, err := c.dispatch.SpecAuthor(c.ctx, on(second), nil, agent.Refining{Statement: "s"})
+	_, declined, err := c.dispatch.SpecAuthor(c.ctx, c.on(second), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || declined.Held != dispatch.HoldCredentialUnreachable {
 		t.Fatalf("the second item = %v holding %q, want a hold of its own", err, declined.Held)
 	}
@@ -152,7 +154,7 @@ func TestACredentialAUnreachableRunDeclinesEveryOtherItemAndIsClearedByASuccess(
 	// The run whose failure opened the row is the one that reaches for the
 	// credential again, and a call that succeeds closes the row and lifts the
 	// hold on the item that was declined.
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(first), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(first), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the retry of the run that opened the row: %v", err)
 	}
 	if standing := c.credentialRowsOf(t, dispatch.KindCredentialUnreachable); len(standing) != 0 {
@@ -180,7 +182,7 @@ func TestTheRunRecordNamesWhatItRanOnAndWhatItSpent(t *testing.T) {
 	c.authorRate(t, agent.UnitsOutput, 0.1)
 
 	it := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(it), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("SpecAuthor: %v", err)
 	}
 	runs, err := agentrun.ForItem(c.ctx, c.pool, it.ID)

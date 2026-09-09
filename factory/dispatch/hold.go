@@ -207,17 +207,106 @@ func (d *Dispatch) Open(ctx context.Context) ([]Hold, []decisionlog.Row, error) 
 // match now lifts, so no hold outlives its condition and none is left for a
 // component that has stopped to close. It returns the rows it closed.
 //
-// It is called where a record able to clear one arrives. Four of the six
-// records the design names have a caller: an owner writing or withdrawing a
-// fleet entry at Factory, a credential reached again by the dispatch whose own
-// failure opened its row, an owner clearing a ceiling, and the seam 5 field
-// turning on. Two do not, so a hold on either outlives its condition until
-// something else re-matches: the gate a version fires putting a role prompt in
-// force, and an intent leaving the state that stopped it. It is also called at
-// every start, a hold being a row and a start being a read of it, and by a
-// dispatch that got through the conditions — which is what those two are
-// covered by today, at whatever delay the next dispatch is.
+// It re-tests the credential's own rows beside the per-item ones, because a
+// hold ends when its condition ends and a ceiling's row outlives the period it
+// was written in.
+//
+// It is called where a record able to clear one arrives, from the writer of
+// that record: an owner writing or withdrawing a fleet entry at Factory, the
+// gate a version fires putting a role prompt in force through
+// [Dispatch.RematchOnRolePromptInForce], an intent leaving the state that
+// stopped it through [Dispatch.RematchOnIntentState], a credential reached
+// again by the dispatch whose own failure opened its row, an owner clearing a
+// ceiling, and the seam 5 field turning on. It is also called at every start, a
+// hold being a row and a start being a read of it, and by a dispatch that got
+// through the conditions.
 func (d *Dispatch) Rematch(ctx context.Context) ([]string, error) {
+	lifted, err := d.rematchWhere(ctx, func(Hold) bool { return true })
+	if err != nil {
+		return lifted, err
+	}
+	// The credential rows are read again here rather than carried out of the
+	// loop above, because closing a hold above can change what a ceiling row
+	// stands on: the read is one per re-match either way.
+	read, err := d.credentialWaits(ctx)
+	if err != nil {
+		return lifted, err
+	}
+	closed, err := d.ceilingsWhoseConditionEnded(ctx, read)
+	return append(lifted, closed...), err
+}
+
+// ceilingsWhoseConditionEnded closes the credential's own ceiling rows whose
+// condition is gone: a period that has ended, a ceiling an owner raised or
+// withdrew, and a credential nobody lends any more. A hold ends when its
+// condition ends, and that row is the one no component is left to close — the
+// items it declined each carry a hold of their own, which the loop above
+// re-tests, and nothing else ever reads the row of a period that has passed.
+//
+// The unreachable row is not re-tested here. Only a call that reached the
+// credential says it is back, which [Dispatch.reached] writes, and closing one
+// on a read of the log would say the condition is gone on no evidence.
+//
+// The close names [KindCeilingLifted] and not [KindCredentialAtCeiling],
+// because a close carrying that kind is the owner authorising an overage for
+// the period on it — a period that simply ended authorises nothing, and
+// [credentialRows.clearedFor] must not read this as one.
+func (d *Dispatch) ceilingsWhoseConditionEnded(ctx context.Context, read credentialRows) ([]string, error) {
+	var lifted []string
+	for n, one := range read.open {
+		if one.Kind != KindCredentialAtCeiling {
+			continue
+		}
+		reading, err := d.atCeiling(ctx, one.CredentialName, read)
+		if err != nil {
+			return lifted, err
+		}
+		if reading.reached && reading.periodStart == one.PeriodStart {
+			continue
+		}
+		payload, err := json.Marshal(CredentialWait{
+			Kind: KindCeilingLifted, CredentialName: one.CredentialName, PeriodStart: one.PeriodStart,
+		})
+		if err != nil {
+			return lifted, fmt.Errorf("dispatch: marshalling the lift of %s: %w", one.CredentialName, err)
+		}
+		if _, err := d.c.Log.AppendWaitClose(ctx, decisionlog.Entry{
+			Actor: Actor, Payload: string(payload), FormatVersion: HoldFormatVersion,
+			Closes: read.openRows[n].ID,
+		}); err != nil {
+			return lifted, err
+		}
+		lifted = append(lifted, read.openRows[n].ID)
+	}
+	return lifted, nil
+}
+
+// RematchOnRolePromptInForce is the re-match the gate that puts a role prompt
+// version in force runs, from where that decision is written. It re-tests the
+// holds that version can lift and no others: a stage whose role had no version
+// in force is the one condition a version entering force ends, and every other
+// open hold is left for the record that ends it.
+//
+// It re-tests the condition and not one role, because the read that answers it
+// is per role already: whichever role the version was for, the hold that lifts
+// is the one whose role now has one.
+func (d *Dispatch) RematchOnRolePromptInForce(ctx context.Context) ([]string, error) {
+	return d.rematchWhere(ctx, func(held Hold) bool { return held.Condition == HoldNoRolePromptInForce })
+}
+
+// RematchOnIntentState is the re-match an intent leaving the state that stopped
+// it runs, from where the state is written. It re-tests the holds that state
+// opened and no others; each re-reads its own intent, so a write to one intent
+// lifts nothing another is still stopped by.
+func (d *Dispatch) RematchOnIntentState(ctx context.Context) ([]string, error) {
+	return d.rematchWhere(ctx, func(held Hold) bool { return held.Condition == HoldTheIntentStops })
+}
+
+// rematchWhere is [Dispatch.Rematch] narrowed to the holds one record can lift.
+// The credential's own rows are not among them: the two records that end one
+// are a call that reached the credential and an owner's clear, and each has its
+// own caller.
+func (d *Dispatch) rematchWhere(ctx context.Context, lifts func(Hold) bool) ([]string, error) {
 	open, rows, err := d.Open(ctx)
 	if err != nil {
 		return nil, err
@@ -231,6 +320,9 @@ func (d *Dispatch) Rematch(ctx context.Context) ([]string, error) {
 	}
 	var lifted []string
 	for n, held := range open {
+		if !lifts(held) {
+			continue
+		}
 		still, err := d.stillHolds(ctx, held, credentials)
 		if err != nil {
 			return lifted, err
@@ -251,10 +343,13 @@ func (d *Dispatch) Rematch(ctx context.Context) ([]string, error) {
 
 // stillHolds re-tests one hold against the records as they are now.
 func (d *Dispatch) stillHolds(ctx context.Context, held Hold, credentials credentialRows) (bool, error) {
+	// The chain is the row's own and not followed again: an area lies inside
+	// the one thing it was declared inside, so the chain above an item's area
+	// is what it was when the row was written.
 	on := On{
 		ItemID: held.ItemID, Stage: item.Stage(held.Stage), IntentID: held.IntentID,
 		ProjectID: held.ProjectID, ServiceID: held.ServiceID,
-		AreaID: held.area(), AreaChain: held.AreaChain,
+		AreaID: held.area(), areaChain: held.AreaChain,
 	}
 	switch held.Condition {
 	case HoldNoEntryCoversTheStage:

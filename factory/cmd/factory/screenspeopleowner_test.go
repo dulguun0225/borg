@@ -10,11 +10,15 @@ import (
 )
 
 // TestAFreshInstallsPeopleViewHoldsTheOwnerRow: the design gives the owner no
-// record, so an install whose declaration is empty holds no People row at all —
-// and the key every acting call is exempted on, which ./calls.go reads off the
-// deps, would then be readable nowhere the four screens reach. The view holds it
-// as its own first row instead: the owner's key, the name -human gave it, acting
-// anywhere, and marked as the owner's so the screen can say which row it is.
+// record, so an install declares nothing about them — and the key every acting
+// call is exempted on, which ./calls.go reads off the deps, would then be
+// readable nowhere the four screens reach. The view holds it as its own first
+// row instead: the owner's key, the name -human gave it, acting anywhere, and
+// marked as the owner's so the screen can say which row it is.
+//
+// The one thing the row carries on a fresh install is the model credential the
+// install lent as the owner's, which is what a fleet entry names and what every
+// agent run record says whose account it spent.
 func TestAFreshInstallsPeopleViewHoldsTheOwnerRow(t *testing.T) {
 	ctx, d, out := newPath(t, approvals)
 	s := newScreens(t, ctx, d, out)
@@ -40,8 +44,12 @@ func TestAFreshInstallsPeopleViewHoldsTheOwnerRow(t *testing.T) {
 	if row.Name != d.human {
 		t.Errorf("the owner's row is named %q, want the name -human gave, %q", row.Name, d.human)
 	}
-	if len(row.Duties) != 0 || len(row.Obligations) != 0 || len(row.Credentials) != 0 {
-		t.Errorf("the owner's row holds something on a fresh install: %+v", row)
+	if len(row.Duties) != 0 || len(row.Obligations) != 0 {
+		t.Errorf("the owner's row holds a duty or an obligation on a fresh install: %+v", row)
+	}
+	if len(row.Credentials) != 1 || row.Credentials[0].Name != d.modelCredentialName {
+		t.Errorf("the owner's credentials are %+v, want the one the install lent, %q",
+			row.Credentials, d.modelCredentialName)
 	}
 }
 

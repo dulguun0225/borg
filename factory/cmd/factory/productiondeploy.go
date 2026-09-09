@@ -10,7 +10,6 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
-	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/score"
@@ -167,11 +166,12 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production under the strategy %s\n",
 		dep.ID, c.releaseID, dep.StrategyPerformed)
 
-	// The deployer's own last check over each production target, and its four
-	// fields on the service record. The last check is what says the deployer
-	// reached that target and when, which is what a drift-detection exemption
-	// standing on a rollout that is not advancing is refused against.
-	if err := p.recordTargetChecks(ctx, dep); err != nil {
+	// The deployer's own last check for the production environment, and its
+	// four fields on the service record. The last check is what says the
+	// deployer reached the environment and when, which is what a
+	// drift-detection exemption standing on a rollout that is not advancing
+	// is refused against.
+	if err := p.recordEnvironmentCheck(ctx, dep); err != nil {
 		return err
 	}
 	if err := p.recordPlatformCheck(ctx); err != nil {
@@ -210,62 +210,92 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, passed)
 
 	// Which release is a brownout is package contractcheck's to answer, and the
-	// health monitor is not told it: the window just opened is an ordinary one.
-	// So the run reports the reading and says what the window is, rather than
-	// what a brownout's window would be — a line claiming the cap and the
-	// reading over other services would describe behaviour nothing here
-	// performs. That package's doc.go names what the health monitor still needs.
+	// health monitor asks it through [path.IsBrownout] at every evaluation. What
+	// the run reports here is the half of a brownout's window that is built: it
+	// reads every service against its own recent history while it is open, any
+	// crossing failing it. The other half — such a window running to the cap
+	// rather than stopping where the boundary would allow — is not, and the line
+	// says so rather than claiming it.
 	of, isBrownout, err := p.contracts.IsBrownout(ctx, c.releaseID)
 	if err != nil {
 		return err
 	}
 	if isBrownout {
-		fmt.Fprintf(d.out, "Release %s is the brownout of %s, and window %s over it is an ordinary one: the health monitor is not told which release is a brownout, so this window can still end at the boundary and reads this service's numbers alone\n",
+		fmt.Fprintf(d.out, "Release %s is the brownout of %s, and window %s over it reads every service against its own recent history: any of them crossing fails this window, an element restored that nobody read. It can still end at the boundary, a brownout's window running to the cap not being built\n",
 			c.releaseID, of.Element, opened.ID)
 	}
 	return nil
 }
 
-// recordTargetChecks is the deployer's own last check over each target this
-// deploy record names, written after the deploy has been performed. Whether a
-// further pass is owed is read off that target's own row: a target the rollout
-// has reached is one it is finished with, so this pass is the last one owed
-// there and the record says so; a target it has not reached is one the rollout
-// still owes a pass, and the interval it promises that pass within is the
-// watch's own, the longest thing a run does after a deploy.
+// IsBrownout is [healthmonitor.Brownouts]: whether a release is the brownout of
+// a marked contract element. It is this value and not the enforcement component
+// handed over, because the health monitor is composed before enforcement is and
+// a component composed with a nil interface would read every release as no
+// brownout for the life of the process.
+//
+// One bit and not the element: what the health monitor does with it is read
+// every service against its own recent history while that window is open, which
+// the element's name does not enter.
+func (p *path) IsBrownout(ctx context.Context, releaseID string) (bool, error) {
+	if p.contracts == nil {
+		return false, nil
+	}
+	_, is, err := p.contracts.IsBrownout(ctx, releaseID)
+	return is, err
+}
+
+// recordEnvironmentCheck is the deployer's own last check for the production
+// environment this deploy record names, written once after the deploy has
+// been performed, and not per target: the deployer's last check is keyed by
+// the production environment record, the way the maximum concurrent candidate
+// environments already is, so an install whose projects run on two platforms
+// adds neither count across them. Whether a further pass is owed is read off
+// the deploy record's own targets: a target the rollout has reached is one it
+// is finished with; a target it has not reached is one the rollout still owes
+// a pass over, and the interval that pass is promised within is the watch's
+// own, the longest thing a run does after a deploy. The environment's check
+// names a further pass owed where any target of it does.
 //
 // The two directions are what makes the record readable. A record past its
 // interval with a further pass owed is always something that stopped, so a
 // rollout the deployer has finished with that promised a further pass it will
 // never make would raise a stale-component mismatch after every run, holding
-// every service on that target and paging. A rollout that stopped part way still
-// leaves the targets it never reached owing one, which is what the drift
-// detector's rollout exemption is bounded by.
+// every service on that environment and paging. A rollout that stopped part
+// way still leaves a further pass owed, which is what the drift detector's
+// rollout exemption is bounded by.
 //
 // It is the deploy record's targets and not the service's whole set, because
 // this is a record of a pass the deployer made: a target the deploy did not
-// reach at all is one it made no pass over.
-func (p *path) recordTargetChecks(ctx context.Context, dep deploy.Deploy) error {
+// reach at all is one it made no pass over, and one the service does not run
+// on is not counted either way.
+func (p *path) recordEnvironmentCheck(ctx context.Context, dep deploy.Deploy) error {
 	targets, err := deploy.Targets(ctx, p.d.pool, dep.ID)
 	if err != nil {
 		return err
 	}
+	furtherPassOwed := false
+	complete, owed := 0, 0
 	for _, target := range targets {
-		furtherPassOwed := target.Completion == deploy.CompletionNotReached
-		payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q,"completion":%q}`,
-			dep.ID, dep.BuildID, target.Completion)
-		if err := deploy.RecordTargetCheck(ctx, p.checks, deployActor,
-			target.Address, atLeastASecond(p.d.watchFor), !furtherPassOwed, payload); err != nil {
-			return err
+		if target.NotRunHere {
+			continue
 		}
+		if target.Completion == deploy.CompletionNotReached {
+			furtherPassOwed = true
+			owed++
+			continue
+		}
+		complete++
 	}
-	return nil
+	payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q,"targets_complete":%d,"targets_owed":%d}`,
+		dep.ID, dep.BuildID, complete, owed)
+	return deploy.RecordEnvironmentCheck(ctx, p.checks, deployActor,
+		dep.EnvironmentID, atLeastASecond(p.d.watchFor), !furtherPassOwed, payload)
 }
 
 // recordPlatformCheck is the deployer's own last check over the platform this
 // production environment declares, written through
 // [lastcheck.Writer.RecordPlatformPass], the one writer of that record. It runs
-// beside [path.recordTargetChecks] so the record is exercised on every
+// beside [path.recordEnvironmentCheck] so the record is exercised on every
 // production deploy rather than left uncalled.
 //
 // Seam 4 has no operation that answers how many candidate environments the
@@ -358,88 +388,4 @@ func (p *path) windowHold(ctx context.Context, svc service.Service) (string, err
 	}
 	return fmt.Sprintf("%s — %d open against a window limit of %d, and this is a wait on the factory rather than on anybody",
 		gate.HoldWindowLimitReached, open, limit), nil
-}
-
-// rollbackHold is the hold a rollback leaves: master keeps the change that was
-// rolled back and the next item was built on master, so deploying it would redeliver
-// the defect just removed.
-//
-// It does not hold the revert — a dependency hold that blocked its own dependency
-// would never lift — and what says which item is the revert is the intent the
-// rollback's own deploy record names. That link is the one stored fact connecting the
-// two, nothing on the item saying it is a revert.
-func (p *path) rollbackHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
-	rollback, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
-	if err != nil || !outstanding {
-		return "", err
-	}
-	if it.IntentID != "" && it.IntentID == revertIntentID {
-		return "", nil
-	}
-	return fmt.Sprintf("%s — rollback %s failed release %s and its revert, intent %s, has not shipped",
-		gate.HoldRollbackAwaitingRevert, rollback.ID, rollback.Undoing.FailedReleaseID,
-		revertIntentID), nil
-}
-
-// outstandingRevert is the rollback this service is waiting for the revert of,
-// the intent of that revert, and whether anything is outstanding at all: no
-// rollback, no incident still open behind it, a revert already shipped, or a
-// mark against the rollback is nothing outstanding.
-//
-// The mark is read first because it is what ends the wait before the revert
-// ships: a named human at Ops saying the rollback was not caused by the release
-// leaves no defect on master for the hold to keep off production, so the next
-// release from master carries the change and is measured again.
-//
-// The walk from the rollback to the revert's intent is
-// [healthmonitor.RevertOfRollback] and not a copy of it here, so the hold and
-// the mark's own command read one predicate.
-func (p *path) outstandingRevert(ctx context.Context, svc service.Service) (deploy.Deploy, string, bool, error) {
-	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, svc.ID, p.production.ID)
-	if err != nil || !found {
-		return deploy.Deploy{}, "", false, err
-	}
-	marked, err := healthmonitor.MarkStands(ctx, p.d.pool, rollback.ID)
-	if err != nil || marked {
-		return deploy.Deploy{}, "", false, err
-	}
-	revertIntentID, _, outstanding, err := healthmonitor.RevertOfRollback(ctx, p.d.pool, p.production.ID, rollback)
-	if err != nil || !outstanding {
-		return deploy.Deploy{}, "", false, err
-	}
-	return rollback, revertIntentID, true, nil
-}
-
-// revertWhileRollbackHolds is the one branch [path.rollbackHold] answers with no
-// hold: this item is the revert of a rollback that has not shipped. The service
-// runs the build the rollback restored, master still contains the defect, and
-// nothing ships past a human at this row — which is what the gate carries onto
-// the open event and what fires a page where a human decides it.
-func (p *path) revertWhileRollbackHolds(ctx context.Context, svc service.Service, it item.Item) (bool, error) {
-	_, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
-	if err != nil || !outstanding {
-		return false, err
-	}
-	return it.IntentID != "" && it.IntentID == revertIntentID, nil
-}
-
-// revertIntentOf is the intent whose revert a rollback is waiting for, and empty
-// where nothing is waiting. The rollback's own deploy record names the release it
-// failed and not the intent it raised: the intent is on the incident the health
-// monitor raised at the same crossing, so the link between the two is the failed
-// release, and that is the walk this makes.
-//
-// An incident that has resolved is a revert that shipped and a crossing that
-// stopped, which is why only an open one is read: [incident.Open] answers with
-// the open incident on that service and release, and its absence is a rollback
-// with nothing outstanding behind it.
-func revertIntentOf(ctx context.Context, p *path, svc service.Service, rollback deploy.Deploy) (string, error) {
-	if rollback.Undoing.FailedReleaseID == "" {
-		return "", nil
-	}
-	open, found, err := incident.Open(ctx, p.d.pool, svc.ID, rollback.Undoing.FailedReleaseID)
-	if err != nil || !found {
-		return "", err
-	}
-	return open.IntentID, nil
 }

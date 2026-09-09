@@ -101,7 +101,9 @@ const (
 	// version, entering shipped words that changed. It is in force only once
 	// the gate every version fires has approved it, so where it extends a
 	// chain the words the install ran on stand until then, and where it
-	// starts one nothing is in force until then.
+	// starts one nothing is in force until then. It is also the event on the
+	// consumer contract [Store.DeriveConsumerContractAgain] writes, the same
+	// start deriving again where the extractor changed.
 	EnteredByUpgradeFirstStart EnteredBy = "upgrade_first_start"
 )
 
@@ -138,7 +140,30 @@ var (
 	// outside [EnteredBys]. Which of the two entered a row is what tells the
 	// ungated entry from the one awaiting its gate.
 	ErrEnteredByUnknown = errors.New("artifact: the entry is neither an install's nor an upgrade's first start")
+	// ErrNotTheFactorysStart is returned by [Store.EnterShipped] and
+	// [Store.DeriveConsumerContractAgain] for any actor but [FactoryStart].
+	// The call authors nothing, so the actor is the whole of who wrote the
+	// row, and a component reaching it as itself would leave an entry
+	// nothing distinguishes from the factory's own.
+	ErrNotTheFactorysStart = errors.New("artifact: the call that authors nothing names an actor other than the factory's own start")
+	// ErrHumanAuthorsNoFleetVersion is returned by [Store.SubmitFleet] for
+	// [AuthorshipHuman]. A human backstops a stage, and a role prompt, a
+	// skill and the selection rule belong to no stage: what a human writes
+	// there is written at the gate, under [AuthorshipGate].
+	ErrHumanAuthorsNoFleetVersion = errors.New("artifact: a role prompt, skill or selection rule version is authored by an agent or at a gate, never by a human backstopping a stage")
+	// ErrInputManifestEmpty is returned for a version an agent authored that
+	// names no input manifest. Context assembly writes one at every dispatch
+	// and the version names it, so an artifact authored from a truncated
+	// read does not pass for one authored from everything.
+	ErrInputManifestEmpty = errors.New("artifact: the version an agent authored names no input manifest")
 )
+
+// FactoryStart is the actor of every call here that authors nothing: the
+// install's first-start step, calling as itself. It is declared here rather
+// than by the caller because [Store.EnterShipped] and
+// [Store.DeriveConsumerContractAgain] admit this actor and no other, and a
+// check against an actor the caller names would check nothing.
+var FactoryStart = record.Actor{Kind: record.KindComponent, Key: "install", Basis: record.BasisClaimed}
 
 // Artifact is one version of an artifact as it is stored.
 type Artifact struct {
@@ -157,9 +182,16 @@ type Artifact struct {
 	// empty on the one entry nobody wrote.
 	Author  string
 	Content string
-	// ContentDigest is the sha256 of Content in hexadecimal, computed at the
-	// write.
+	// ContentDigest is the sha256 of Content as it was written, in
+	// hexadecimal, computed at the write and never recomputed: a decision
+	// recorded the digest of the words it decided, and [Store.Redact]
+	// destroying part of them later does not move what that decision named.
 	ContentDigest string
+	// RedactedContentDigest is the sha256 of Content after [Store.Redact]
+	// destroyed what a redaction named, in hexadecimal, and is empty on a
+	// version nothing has been destroyed in. It is what a reader checks the
+	// words it holds against once the erasure has run.
+	RedactedContentDigest string
 	// ShippedBundleIdentity is the release of the product that entered this
 	// version, present exactly on the entry the factory wrote itself and
 	// empty on every authored one.

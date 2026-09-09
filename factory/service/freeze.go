@@ -85,6 +85,48 @@ func AddFreezePeriod(ctx context.Context, tx pgx.Tx, token lease.Token, actor re
 	return nil
 }
 
+// LengthenFreezePeriod moves one change freeze period's bounds outward: its
+// start earlier, its end later, or both. [AddFreezePeriod] cannot do this —
+// it only inserts, on conflict doing nothing — so widening a period already
+// authored takes this write instead, naming the period by the bounds it
+// carries now and the bounds to replace them with.
+//
+// A component actor — a safeguard's write — may only lengthen: a new start
+// after the old one, or a new end before it, is refused with
+// [ErrSafeguardDirection]. A human actor may move either bound either way, an
+// owner narrowing a period they authored too wide.
+func LengthenFreezePeriod(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	serviceID, startsAt, endsAt, newStartsAt, newEndsAt string) error {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	for _, moment := range []string{newStartsAt, newEndsAt} {
+		if !storedTime.MatchString(moment) {
+			return fmt.Errorf("%w: %q", ErrPeriodNotATime, moment)
+		}
+	}
+	if newEndsAt < newStartsAt {
+		return fmt.Errorf("%w: %s to %s", ErrPeriodEndsBeforeItStarts, newStartsAt, newEndsAt)
+	}
+	if actor.Kind == record.KindComponent && (newStartsAt > startsAt || newEndsAt < endsAt) {
+		return fmt.Errorf("%w: a change freeze period from %s to %s", ErrSafeguardDirection, startsAt, endsAt)
+	}
+	tag, err := tx.Exec(ctx, `update `+ChangeFreezeTable+`
+		set starts_at = $1, ends_at = $2
+		where service_id = $3 and starts_at = $4 and ends_at = $5`,
+		newStartsAt, newEndsAt, serviceID, startsAt, endsAt)
+	if err != nil {
+		return fmt.Errorf("service: lengthening a change freeze period on %s: %w", serviceID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: a change freeze period from %s to %s on %s", ErrNotFound, startsAt, endsAt, serviceID)
+	}
+	return nil
+}
+
 // FreezePeriods is every period authored on one service, earliest first.
 func FreezePeriods(ctx context.Context, pool *pgxpool.Pool, serviceID string) ([]Period, error) {
 	rows, err := pool.Query(ctx, `select starts_at, ends_at from `+ChangeFreezeTable+`

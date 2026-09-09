@@ -82,3 +82,53 @@ func TestALinkMovesFromOneIntentToAnother(t *testing.T) {
 		t.Errorf("Relink naming no intent = %v, want ErrIntentIDEmpty", err)
 	}
 }
+
+// TestMarkedInAnswersTheHarmMarkedReportsOfOneGroup: the score reads which
+// reports of a group mark harm through the ids alone, in the order they were
+// collected, and never the words.
+func TestMarkedInAnswersTheHarmMarkedReportsOfOneGroup(t *testing.T) {
+	ctx, _, store, s := newStore(t)
+	s.place("tok", deploy())
+
+	collected := time.Now()
+	var ids []string
+	for n := 0; n < 3; n++ {
+		sub := submission("tok")
+		sub.HarmMarked = n != 1 // the first and the third mark harm, the second does not.
+		written, err := store.Submit(ctx, sub, collected.Add(time.Duration(n)*time.Minute))
+		if err != nil || !written.Accepted {
+			t.Fatalf("Submit %d = %+v, %v", n, written, err)
+		}
+		ids = append(ids, written.Report.ID)
+		if err := store.Link(ctx, written.Report.ID, "int_a"); err != nil {
+			t.Fatalf("Link %d: %v", n, err)
+		}
+	}
+
+	marked, err := store.MarkedIn(ctx, "int_a")
+	if err != nil {
+		t.Fatalf("MarkedIn: %v", err)
+	}
+	if want := []string{ids[0], ids[2]}; !sameIDs(marked, want) {
+		t.Errorf("MarkedIn = %v, want %v", marked, want)
+	}
+
+	if none, err := store.MarkedIn(ctx, "int_nothing"); err != nil || len(none) != 0 {
+		t.Errorf("MarkedIn over a group with no reports = %v, %v, want none and no error", none, err)
+	}
+	if _, err := store.MarkedIn(ctx, ""); !errors.Is(err, reportstore.ErrIntentIDEmpty) {
+		t.Errorf("MarkedIn naming no intent = %v, want ErrIntentIDEmpty", err)
+	}
+}
+
+func sameIDs(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i, id := range got {
+		if id != want[i] {
+			return false
+		}
+	}
+	return true
+}

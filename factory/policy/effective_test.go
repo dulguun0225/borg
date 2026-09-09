@@ -121,7 +121,8 @@ func TestEveryParameterResolvesAndSomeAreReadByNothing(t *testing.T) {
 			t.Errorf("authoring %s appended a version naming %s", a.parameter, version.Parameter)
 		}
 	}
-	if _, err := in.factory.AuthorAllowedPredicateKinds(ctx, owner, []string{"status"}); err != nil {
+	if _, err := in.factory.AuthorAllowedPredicateKinds(ctx, owner,
+		[]string{string(gatepolicy.PredicateRange)}); err != nil {
 		t.Fatalf("AuthorAllowedPredicateKinds: %v", err)
 	}
 

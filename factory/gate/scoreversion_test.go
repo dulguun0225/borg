@@ -30,7 +30,7 @@ func TestAFiringAssessesUnderTheVersionInForceAtItsScope(t *testing.T) {
 	}
 	p.applied.ScoreVersion = inForce.ID
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}

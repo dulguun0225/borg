@@ -187,6 +187,50 @@ func TestTheBoundaryIsAllocatedOverTheWholeSet(t *testing.T) {
 	}
 }
 
+// TestThePowerResolvedAtTheOpenReachesTheBoundaryArithmetic is C1986's power:
+// [Window.Boundary] carries the size, the confidence and the direction, and
+// [Window.Power] is what a caller reads beside it and hands to
+// [boundary.Boundary.FinestSize] — [boundary.Boundary.Crossing]'s own doc
+// says why the power is not a field of the boundary itself. A window that
+// resolved a finer power at the open reads a coarser finest size off the same
+// traffic, which is what makes the two windows below tell apart.
+func TestThePowerResolvedAtTheOpenReachesTheBoundaryArithmetic(t *testing.T) {
+	ctx, _, w, _ := newTable(t)
+
+	evenOdds := opening()
+	evenOdds.Power[gatepolicy.QuantityErrorRate] = 0.5
+	openedAtEvenOdds, err := w.Open(ctx, healthMonitor, evenOdds)
+	if err != nil {
+		t.Fatalf("Open at even odds: %v", err)
+	}
+
+	reliable := opening()
+	reliable.DeployID, reliable.ReleaseID = record.NewID("dep"), record.NewID("rel")
+	reliable.Power[gatepolicy.QuantityErrorRate] = 0.9
+	openedReliable, err := w.Open(ctx, healthMonitor, reliable)
+	if err != nil {
+		t.Fatalf("Open at a power of nine in ten: %v", err)
+	}
+
+	b, carried := openedAtEvenOdds.Boundary(gatepolicy.QuantityErrorRate)
+	if !carried {
+		t.Fatal("the window carries no boundary for the error rate")
+	}
+	atEvenOdds, err := b.FinestSize(0.02, openedAtEvenOdds.Power[gatepolicy.QuantityErrorRate], 500)
+	if err != nil {
+		t.Fatalf("FinestSize at even odds: %v", err)
+	}
+	atReliable, err := b.FinestSize(0.02, openedReliable.Power[gatepolicy.QuantityErrorRate], 500)
+	if err != nil {
+		t.Fatalf("FinestSize at a power of nine in ten: %v", err)
+	}
+	if atReliable <= atEvenOdds {
+		t.Errorf("FinestSize at power %v is %v, want it coarser than at even odds (%v): the same traffic asked to "+
+			"catch a regression more reliably catches only a coarser one",
+			openedReliable.Power[gatepolicy.QuantityErrorRate], atReliable, atEvenOdds)
+	}
+}
+
 func TestASecondWindowOverOneDeployIsRefused(t *testing.T) {
 	ctx, _, w, _ := newTable(t)
 	o := opening()

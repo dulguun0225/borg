@@ -152,7 +152,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// Cleared at the drift detector and nowhere else, and the answered event
 	// is written by the pass that finds it cleared — because that store calls
 	// nothing.
-	if _, err := driftdetector.NewWriter(d.driftdetector).Clear(ctx, raised.Raised, installer.Key); err != nil {
+	if _, err := driftdetector.NewWriter(d.driftdetector).Clear(ctx, raised.Raised, installer.Key, "the target was redeployed by hand"); err != nil {
 		t.Fatalf("clearing the mismatch: %v", err)
 	}
 	if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {

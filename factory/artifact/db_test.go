@@ -108,7 +108,11 @@ func inSchema(t *testing.T, base, schema string) string {
 
 var specAuthor = record.Actor{Kind: record.KindComponent, Key: "agent.spec_author", Basis: record.BasisClaimed}
 var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implementer", Basis: record.BasisClaimed}
-var factoryStart = record.Actor{Kind: record.KindComponent, Key: "factory.start", Basis: record.BasisClaimed}
+
+// theManifest is the input manifest a dispatch wrote before the agent started,
+// which every version an agent authors names. The store checks it for being
+// present and not for pointing at anything.
+const theManifest = "im_1"
 
 // modelVersion is the author both roles write as here, which is the point of the
 // field: the prior is kept per model version, so two agents in two roles on one
@@ -126,7 +130,7 @@ func TestSubmitSpecWritesTheSpecItsCriteriaItsWithdrawalsAndItsMachinesTogether(
 
 	_, firstCriteria, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "The service opens an intent per report.", []criterion.Draft{
 		{Sentence: "When a report arrives, the system shall open an intent.", RequirementID: "req_a"},
-	}, nil, nil, "")
+	}, nil, nil, theManifest)
 
 	if err != nil {
 		t.Fatalf("SubmitSpec: %v", err)
@@ -142,7 +146,7 @@ func TestSubmitSpecWritesTheSpecItsCriteriaItsWithdrawalsAndItsMachinesTogether(
 		Initial: "empty", States: []string{"empty", "loaded"}, Events: []string{"load"},
 		Transitions: []screenstatemachine.Transition{{From: "empty", Event: "load", To: "loaded"}},
 		Terminal:    []string{"loaded"},
-	}}, "")
+	}}, theManifest)
 
 	if err != nil {
 		t.Fatalf("SubmitSpec: %v", err)
@@ -197,7 +201,7 @@ func TestABadDraftTakesTheArtifactRowDownWithIt(t *testing.T) {
 	_, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "A spec whose criteria do not all hold.", []criterion.Draft{
 		{Sentence: "When a report arrives, the system shall open an intent.", RequirementID: "req_a"},
 		{Sentence: "The checkout page loads fast."},
-	}, nil, nil, "")
+	}, nil, nil, theManifest)
 
 	if !errors.Is(err, criterion.ErrReasonMissing) {
 		t.Fatalf("SubmitSpec = %v, want ErrReasonMissing", err)
@@ -221,11 +225,11 @@ func TestABadDraftTakesTheArtifactRowDownWithIt(t *testing.T) {
 func TestTheVersionChain(t *testing.T) {
 	ctx, _, s := newStore(t)
 
-	first, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version one", nil, nil, nil, "")
+	first, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version one", nil, nil, nil, theManifest)
 	if err != nil {
 		t.Fatalf("SubmitSpec: %v", err)
 	}
-	second, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version two", nil, nil, nil, "")
+	second, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "version two", nil, nil, nil, theManifest)
 	if err != nil {
 		t.Fatalf("SubmitSpec again: %v", err)
 	}
@@ -236,7 +240,7 @@ func TestTheVersionChain(t *testing.T) {
 		t.Errorf("the second version supersedes %q, want %s", second.Supersedes, first.ID)
 	}
 
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "3f786850e387550fdab836ed7e6dc881de23001b", "")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", "3f786850e387550fdab836ed7e6dc881de23001b", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -251,7 +255,7 @@ func TestSubmitImplementation(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
 	commit := "3f786850e387550fdab836ed7e6dc881de23001b"
-	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", commit, "")
+	impl, err := s.SubmitImplementation(ctx, implementer, byAgent, "it_a", commit, theManifest)
 	if err != nil {
 		t.Fatalf("SubmitImplementation: %v", err)
 	}
@@ -280,21 +284,21 @@ func TestSubmitImplementation(t *testing.T) {
 func TestSubmitPlanAndTasksAreTheirOwnChains(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	plan, err := s.SubmitPlan(ctx, implementer, byAgent, "it_a", "The change adds health.go.", "")
+	plan, err := s.SubmitPlan(ctx, implementer, byAgent, "it_a", "The change adds health.go.", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitPlan: %v", err)
 	}
 	if plan.Kind != artifact.KindImplementationPlan || plan.Version != 1 {
 		t.Errorf("the plan is a %s at version %d, want %s at 1", plan.Kind, plan.Version, artifact.KindImplementationPlan)
 	}
-	tasks, err := s.SubmitTasks(ctx, implementer, byAgent, "it_a", "Write health.go.\nWrite health_test.go.", "")
+	tasks, err := s.SubmitTasks(ctx, implementer, byAgent, "it_a", "Write health.go.\nWrite health_test.go.", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitTasks: %v", err)
 	}
 	if tasks.Kind != artifact.KindTasks || tasks.Version != 1 {
 		t.Errorf("the tasks are a %s at version %d, want %s at 1", tasks.Kind, tasks.Version, artifact.KindTasks)
 	}
-	second, err := s.SubmitPlan(ctx, implementer, byAgent, "it_a", "The change adds health.go and rewrites main.go.", "")
+	second, err := s.SubmitPlan(ctx, implementer, byAgent, "it_a", "The change adds health.go and rewrites main.go.", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitPlan again: %v", err)
 	}
@@ -318,17 +322,17 @@ func TestSubmitPlanAndTasksAreTheirOwnChains(t *testing.T) {
 func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	_, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: "reviewer", Author: modelVersion}, "it_a", "a commit", "")
+	_, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: "reviewer", Author: modelVersion}, "it_a", "a commit", theManifest)
 	if !errors.Is(err, artifact.ErrAuthorshipUnknown) {
 		t.Fatalf("SubmitImplementation = %v, want ErrAuthorshipUnknown", err)
 	}
 
 	_, err = pool.Exec(ctx, `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
-		input_manifest_id)
+		supersedes, authorship, author, content, content_digest, redacted_content_digest,
+		shipped_bundle_identity, entered_by, input_manifest_id)
 		values ($1, $2, 'component', 'agent.implementer', 'claimed', $3, 'it_a', '', '', 'implementation', 1,
-		'', 'reviewer', 'claude-opus-5', 'a commit', 'x', '', '', '')`,
+		'', 'reviewer', 'claude-opus-5', 'a commit', 'x', '', '', '', 'im_1')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil {
 		t.Fatal("the store accepted an authorship outside the four")
@@ -341,19 +345,19 @@ func TestAnUnknownAuthorshipIsRefusedTwice(t *testing.T) {
 func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	if _, err := s.SubmitImplementation(ctx, implementer, byAgent, "", "a commit", ""); !errors.Is(err, artifact.ErrItemIDEmpty) {
+	if _, err := s.SubmitImplementation(ctx, implementer, byAgent, "", "a commit", theManifest); !errors.Is(err, artifact.ErrItemIDEmpty) {
 		t.Errorf("SubmitImplementation naming no item = %v, want ErrItemIDEmpty", err)
 	}
-	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "", "svc_a", "a spec", nil, nil, nil, ""); !errors.Is(err, artifact.ErrItemIDEmpty) {
+	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "", "svc_a", "a spec", nil, nil, nil, theManifest); !errors.Is(err, artifact.ErrItemIDEmpty) {
 		t.Errorf("SubmitSpec naming no item = %v, want ErrItemIDEmpty", err)
 	}
 
 	_, err := pool.Exec(ctx, `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
-		input_manifest_id)
+		supersedes, authorship, author, content, content_digest, redacted_content_digest,
+		shipped_bundle_identity, entered_by, input_manifest_id)
 		values ($1, $2, 'component', 'agent.implementer', 'claimed', $3, '', '', '', 'implementation', 1,
-		'', 'agent', 'claude-opus-5', 'a commit', 'x', '', '', '')`,
+		'', 'agent', 'claude-opus-5', 'a commit', 'x', '', '', '', 'im_1')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "chain_key_matches_kind") {
 		t.Errorf("inserting a version naming no item = %v, want a violation of chain_key_matches_kind", err)
@@ -366,19 +370,19 @@ func TestAnEmptyItemIDIsRefusedTwice(t *testing.T) {
 func TestAVersionWithNoAuthorIsRefusedTwice(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	if _, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "a commit", ""); !errors.Is(err, artifact.ErrAuthorEmpty) {
+	if _, err := s.SubmitImplementation(ctx, implementer, artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "a commit", theManifest); !errors.Is(err, artifact.ErrAuthorEmpty) {
 		t.Errorf("SubmitImplementation naming no author = %v, want ErrAuthorEmpty", err)
 	}
-	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "svc_a", "a spec", nil, nil, nil, ""); !errors.Is(err, artifact.ErrAuthorEmpty) {
+	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, artifact.By{Authorship: artifact.AuthorshipAgent}, "it_a", "svc_a", "a spec", nil, nil, nil, theManifest); !errors.Is(err, artifact.ErrAuthorEmpty) {
 		t.Errorf("SubmitSpec naming no author = %v, want ErrAuthorEmpty", err)
 	}
 
 	_, err := pool.Exec(ctx, `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
-		input_manifest_id)
+		supersedes, authorship, author, content, content_digest, redacted_content_digest,
+		shipped_bundle_identity, entered_by, input_manifest_id)
 		values ($1, $2, 'component', 'agent.implementer', 'claimed', $3, 'it_a', '', '', 'implementation', 1,
-		'', 'agent', '', 'a commit', 'x', '', '', '')`,
+		'', 'agent', '', 'a commit', 'x', '', '', '', 'im_1')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "author_pair_together") {
 		t.Errorf("inserting a version naming no author = %v, want a violation of author_pair_together", err)

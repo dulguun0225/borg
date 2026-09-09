@@ -109,6 +109,12 @@ const StartingHeldOutSampleRate = 0.10
 // predicate kinds, which no outcome teaches, so a factory with nothing authored
 // has an empty list and not a supplied one.
 //
+// Twelve values for ten rows: the analysis window's size, confidence and power
+// are one row of that table and three values here, because a row is what an
+// owner reads and a value is what one parameter takes.
+// TestSuppliedCoversTenOfElevenRows is what holds the count to the row and not
+// to the length of this list.
+//
 // These are the numbers the formula was calibrated at against a factory that has
 // just been installed, and every one of them is where the movement starts rather
 // than where it stays. [Rules] is what moves each.

@@ -3,11 +3,14 @@ package healthmonitor
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/incident"
+	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
@@ -109,6 +112,112 @@ func (h *HealthMonitor) PageOpenIncidents(ctx context.Context, w Watching) ([]st
 		paged = append(paged, i.ID)
 	}
 	return paged, nil
+}
+
+// PageRollbackNotComplete fires the fifth page condition: a rollback this
+// component called for whose deploy record is still not complete on every
+// target at the deployer's next last check for that environment. Production
+// serves a release the factory has already failed, and the mechanism that would
+// remove it did not finish — the deployer stopped, or a target accepted the
+// shift and never completed it.
+//
+// The deployer's own last check is what makes the condition readable and what
+// bounds it: a rollback still running is not one that stopped, so nothing fires
+// until the deployer has recorded a pass over one of the service's targets
+// after the rollback's record was written. Without that bound every rollback
+// would page in the seconds between its record and its completion.
+//
+// It is a pass over a standing condition rather than an event, so the page
+// events already on the row are read before another is written, the way
+// [HealthMonitor.PageOpenIncidents] reads them: the first pass that finds the
+// condition pages, the next widens it once to the owner where nobody has
+// acknowledged it, and every pass after that writes nothing.
+//
+// It returns the deploy record this pass wrote a page event about, empty where
+// it wrote none.
+func (h *HealthMonitor) PageRollbackNotComplete(ctx context.Context, w Watching) (string, error) {
+	if err := w.validate(); err != nil {
+		return "", err
+	}
+	if h.pager == nil {
+		return "", nil
+	}
+	rollback, found, err := deploy.NewestRollback(ctx, h.pool, w.ID, w.EnvironmentID)
+	if err != nil || !found {
+		return "", err
+	}
+	if rollback.Undoing.Source != deploy.SourceHealthMonitorAtFailed || rollback.Status == deploy.StatusComplete {
+		return "", nil
+	}
+	passed, err := h.deployerPassedSince(ctx, w, rollback.At)
+	if err != nil || !passed {
+		return "", err
+	}
+
+	wait := notifier.Wait{
+		Row:  rollback.ID,
+		Kind: notifier.KindRollbackIncomplete,
+		Waiting: fmt.Sprintf("the rollback of %s to release %s is not complete on every target, and the deployer has made a pass since it was called for",
+			w.Name, rollback.ReleaseID),
+		Holding: theOperationsDuty, Worse: true, ServiceID: w.ID,
+		// Production serves a release this component has already failed and the
+		// rollback that would remove it did not finish, which is the design's
+		// first kind of wait: the software is worse for every hour of it, so the
+		// page fires at whatever hour the condition arose.
+		RollbackOutstanding: true,
+	}
+	events, err := h.pager.EventsFor(ctx, rollback.ID)
+	if err != nil {
+		return "", err
+	}
+	var reached, widened, acknowledged bool
+	for _, e := range events {
+		switch notifier.Event(e.Event) {
+		case notifier.EventReached:
+			reached = true
+		case notifier.EventWidened:
+			widened = true
+		case notifier.EventAcknowledged:
+			acknowledged = true
+		}
+	}
+	switch {
+	case !reached:
+		_, err = h.pager.Notify(ctx, wait)
+	case !widened && !acknowledged:
+		_, err = h.pager.Widen(ctx, wait)
+	default:
+		// The page stands and the row still waits; there is no second widening
+		// and nothing further to write.
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return rollback.ID, nil
+}
+
+// deployerPassedSince is whether the deployer has recorded a last check over
+// any target this service runs on since the time given. It is the deployer's
+// next last check for the environment, which is what the condition above is
+// read at: the deployer keeps one per target of a persistent environment, and a
+// pass over any of them is the deployer having run since.
+func (h *HealthMonitor) deployerPassedSince(ctx context.Context, w Watching, since string) (bool, error) {
+	svc, err := service.Get(ctx, h.pool, w.ID)
+	if err != nil {
+		return false, err
+	}
+	addresses := targetsOrDefault(svc.Targets, w)
+	checks, err := lastcheck.ForComponent(ctx, h.pool, lastcheck.ComponentDeployer)
+	if err != nil {
+		return false, err
+	}
+	for _, check := range checks {
+		if slices.Contains(addresses, check.Subject) && check.CheckedAt > since {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // rollbackOutstanding is which of the two kinds a page about this release is:

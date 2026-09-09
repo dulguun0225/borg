@@ -22,12 +22,12 @@ const selectWindow = `select id, actor_kind, actor_key, actor_key_basis, at,
 	sizes, powers, confidence, cap_seconds, boundary_version, targets, operations_read_alone,
 	emission_version_release, emission_version_control, quantities_outside,
 	own_history_sizes, own_history_run_length, threshold_sizes, threshold_run_length,
-	policy_version, score_version, exit, closed_at, closed_on, finest_size_reached
+	policy_version, score_version, exit, exit_begun, closed_at, closed_on, finest_size_reached
 	from ` + Table
 
 func scan(row pgx.Row) (Window, error) {
 	var w Window
-	var kind, basis, exit string
+	var kind, basis, exit, begun string
 	var sizes, powers, targets, operations, outside string
 	var ownHistorySizes, thresholdSizes, closedOn, finest string
 	err := row.Scan(&w.ID, &kind, &w.Actor.Key, &basis, &w.At,
@@ -36,13 +36,14 @@ func scan(row pgx.Row) (Window, error) {
 		&sizes, &powers, &w.Confidence, &w.CapSeconds, &w.BoundaryVersion, &targets, &operations,
 		&w.EmissionVersionRelease, &w.EmissionVersionControl, &outside,
 		&ownHistorySizes, &w.OwnHistoryRunLength, &thresholdSizes, &w.ThresholdRunLength,
-		&w.PolicyVersion, &w.ScoreVersion, &exit, &w.ClosedAt, &closedOn, &finest)
+		&w.PolicyVersion, &w.ScoreVersion, &exit, &begun, &w.ClosedAt, &closedOn, &finest)
 	if err != nil {
 		return Window{}, err
 	}
 	w.Actor.Kind = record.Kind(kind)
 	w.Actor.Basis = record.Basis(basis)
 	w.Exit = Exit(exit)
+	w.ExitBegun = Exit(begun)
 	w.Targets = decodeNames(targets)
 	w.OperationsReadAlone = decodeNames(operations)
 	w.QuantitiesOutside = decodeQuantities(outside)

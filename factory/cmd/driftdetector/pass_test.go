@@ -15,6 +15,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -229,8 +230,9 @@ func TestThePassWritesNothingIntoTheFactorysStore(t *testing.T) {
 }
 
 // TestAnOpenWindowExcusesABuildRunningBesideTheCurrentRelease is the exception
-// [excusedBuilds] reads: a build the release under watch names is a mismatch
-// only where no open window accounts for it.
+// [driftdetector.Excused] reads over what [openWindows] assembles: a build the
+// release under watch names is a mismatch only where no open window accounts
+// for it.
 func TestAnOpenWindowExcusesABuildRunningBesideTheCurrentRelease(t *testing.T) {
 	ctx, s, token := newStores(t)
 	dir := t.TempDir()
@@ -312,9 +314,10 @@ func TestAWindowOpenPastItsCapExcusesNothing(t *testing.T) {
 
 // TestATargetTheDeployRecordMarksCompleteIsNeverExempt is the other bound: that
 // target is meant to run the release under watch, so a build the window would
-// otherwise excuse is a mismatch there whatever window is open. It reads the
-// exemption itself rather than a pass's report, because what the recorded
-// release is per target is the reading pass.go states as an open point.
+// otherwise excuse is a mismatch there whatever window is open. It reads
+// openWindows and driftdetector.Excused directly rather than a pass's report,
+// because what the recorded release is per target is the reading pass.go
+// states as an open point.
 func TestATargetTheDeployRecordMarksCompleteIsNeverExempt(t *testing.T) {
 	ctx, s, token := newStores(t)
 	dir := t.TempDir()
@@ -323,11 +326,11 @@ func TestATargetTheDeployRecordMarksCompleteIsNeverExempt(t *testing.T) {
 	rolling := startRelease(ctx, t, s.factory, token, svc, env, "c2")
 	openWindowOver(ctx, t, s.factory, token, svc.ID, rolling, dir, 3600)
 
-	excused, err := excusedBuilds(ctx, s.factory, svc.ID)
+	windows, err := openWindows(ctx, s.factory, svc.ID, env.ID)
 	if err != nil {
-		t.Fatalf("excusedBuilds: %v", err)
+		t.Fatalf("openWindows: %v", err)
 	}
-	if !excused[dir][rolling.BuildID] {
+	if !driftdetector.Excused(windows, dir, rolling.BuildID, nil, time.Now()) {
 		t.Fatalf("a target the rollout has not reached excuses nothing, and the exemption covers exactly those")
 	}
 
@@ -335,10 +338,10 @@ func TestATargetTheDeployRecordMarksCompleteIsNeverExempt(t *testing.T) {
 		targetseam.ReplacementDrained); err != nil {
 		t.Fatalf("completing the target: %v", err)
 	}
-	if excused, err = excusedBuilds(ctx, s.factory, svc.ID); err != nil {
-		t.Fatalf("excusedBuilds: %v", err)
+	if windows, err = openWindows(ctx, s.factory, svc.ID, env.ID); err != nil {
+		t.Fatalf("openWindows: %v", err)
 	}
-	if excused[dir][rolling.BuildID] {
+	if driftdetector.Excused(windows, dir, rolling.BuildID, nil, time.Now()) {
 		t.Error("a target the deploy record marks complete was exempted")
 	}
 }

@@ -77,7 +77,10 @@ func TestEveryParameterIsDefinedOnce(t *testing.T) {
 		if d.Kind == "" || d.Direction == "" || d.Scope == "" || d.Limits == "" {
 			t.Errorf("%q is missing part of its definition: %+v", d.Parameter, d)
 		}
-		if (d.Row != "") != slices.Contains(Definitions, d) {
+		inTheEleven := slices.ContainsFunc(Definitions, func(e Definition) bool {
+			return e.Parameter == d.Parameter
+		})
+		if (d.Row != "") != inTheEleven {
 			t.Errorf("%q names row %q, and a row is what the eleven have and nothing else does", d.Parameter, d.Row)
 		}
 		got, err := Define(d.Parameter)
@@ -101,13 +104,14 @@ func TestOnlyTheThresholdAddsAHuman(t *testing.T) {
 	}
 }
 
-// TestOnlyAFloorOverAListReachesClampList: three parameters hold a list, and
+// TestOnlyAFloorOverAListReachesClampList: five parameters hold a list, and
 // only a floor over one is clamped — by union, which is what "a safeguard may
 // add a period or lengthen one" and "a kind of assertion added is coverage
-// added" each are. The paging hours are the third and no safeguard reaches them,
-// so nothing unions them.
+// added" each are. The paging hours, the service's targets and the product
+// licence are the other three and no safeguard reaches any of them, so nothing
+// unions them.
 func TestOnlyAFloorOverAListReachesClampList(t *testing.T) {
-	lists := []Parameter{AllowedPredicateKinds, ChangeFreeze, PagingHours}
+	lists := []Parameter{AllowedPredicateKinds, ChangeFreeze, PagingHours, ServiceTargets, ProductLicence}
 	for _, d := range slices.Concat(Definitions, NotAmongTheEleven) {
 		if (d.Kind == KindList) != slices.Contains(lists, d.Parameter) {
 			t.Errorf("%q is of kind %q", d.Parameter, d.Kind)
@@ -191,15 +195,16 @@ func TestTheAttemptLimitIsOneParameterAndNotThree(t *testing.T) {
 // each names the direction the design gives it rather than one read off the row.
 func TestAuthoredAndNotAmongTheEleven(t *testing.T) {
 	directions := map[Parameter]Direction{
-		DecisionLogRetention:  DirectionFloor,
-		ReportRetention:       DirectionCeiling,
-		BackupRetention:       DirectionNone,
-		RetentionFloor:        DirectionNone,
-		RemediationPeriod:     DirectionCeiling,
-		ReportChannelRate:     DirectionCeiling,
-		HarmMarkPageCap:       DirectionCeiling,
-		ExplicitThreshold:     DirectionAdds,
-		ExplicitThresholdSize: DirectionCeiling,
+		DecisionLogRetention:     DirectionFloor,
+		ReportRetention:          DirectionCeiling,
+		BackupRetention:          DirectionNone,
+		RetentionFloor:           DirectionNone,
+		RemediationPeriod:        DirectionCeiling,
+		ReportChannelRate:        DirectionCeiling,
+		ServiceReportChannelRate: DirectionCeiling,
+		HarmMarkPageCap:          DirectionCeiling,
+		ExplicitThreshold:        DirectionAdds,
+		ExplicitThresholdSize:    DirectionCeiling,
 
 		StrategyDefault:                    DirectionAdds,
 		MaxConcurrentCandidateEnvironments: DirectionNone,
@@ -230,6 +235,12 @@ func TestAuthoredAndNotAmongTheEleven(t *testing.T) {
 		UnreliableBound:     DirectionFloor,
 		IncidentItemBound:   DirectionNone,
 		SnapshotRetention:   DirectionCeiling,
+		ServiceTargets:      DirectionNone,
+		ProductLicence:      DirectionNone,
+
+		// Authored on the factory-wide settings record and reached by no
+		// safeguard: only a constraint of the document kind may require it.
+		Seam5Enforced: DirectionNone,
 	}
 	if len(NotAmongTheEleven) != len(directions) {
 		t.Fatalf("NotAmongTheEleven holds %d parameters, the test names %d", len(NotAmongTheEleven), len(directions))

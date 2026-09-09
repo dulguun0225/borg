@@ -172,10 +172,10 @@ func TestFieldsAuthoredLikeGatePolicyButNotItsRows(t *testing.T) {
 	if err := service.SetMutantCap(ctx, tx, created.ID, 40); err != nil {
 		t.Fatalf("SetMutantCap: %v", err)
 	}
-	if err := service.SetFailureRecordKeyCap(ctx, tx, created.ID, 100); err != nil {
+	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 100); err != nil {
 		t.Fatalf("SetFailureRecordKeyCap: %v", err)
 	}
-	if err := service.SetUnreliableBound(ctx, tx, created.ID, 0.1); err != nil {
+	if err := service.SetUnreliableBound(ctx, tx, owner, created.ID, 0.1); err != nil {
 		t.Fatalf("SetUnreliableBound: %v", err)
 	}
 	if err := service.SetIncidentItemBound(ctx, tx, created.ID, 7200); err != nil {
@@ -198,19 +198,61 @@ func TestFieldsAuthoredLikeGatePolicyButNotItsRows(t *testing.T) {
 	if err := service.SetMutantCap(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetMutantCap(0) = %v, want ErrNotPositive", err)
 	}
-	if err := service.SetFailureRecordKeyCap(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
+	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetFailureRecordKeyCap(0) = %v, want ErrNotPositive", err)
 	}
 	// The unreliable bound is a rate that may be zero: no disagreement takes a
 	// criterion out of the gate.
-	if err := service.SetUnreliableBound(ctx, tx, created.ID, 0); err != nil {
+	if err := service.SetUnreliableBound(ctx, tx, owner, created.ID, 0); err != nil {
 		t.Errorf("SetUnreliableBound(0) = %v, want no error", err)
 	}
-	if err := service.SetUnreliableBound(ctx, tx, created.ID, 1.5); !errors.Is(err, service.ErrShareOutOfRange) {
+	if err := service.SetUnreliableBound(ctx, tx, owner, created.ID, 1.5); !errors.Is(err, service.ErrShareOutOfRange) {
 		t.Errorf("SetUnreliableBound(1.5) = %v, want ErrShareOutOfRange", err)
 	}
 	if err := service.SetIncidentItemBound(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetIncidentItemBound(0) = %v, want ErrNotPositive", err)
+	}
+}
+
+// TestBacklogCapInForceIsTheWindowLimitUntilSeparated: where an owner authors
+// no backlog cap, the cap in force is the window limit — one at Create, and
+// whatever an owner later authors over it — and once an owner authors a
+// backlog cap of its own, that value is in force instead.
+func TestBacklogCapInForceIsTheWindowLimitUntilSeparated(t *testing.T) {
+	ctx, pool, w := newWriter(t)
+
+	created, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout", aProject)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := created.BacklogCapInForce(); got != 1 {
+		t.Errorf("BacklogCapInForce on a freshly created service = %v, want 1, the window limit it starts at", got)
+	}
+
+	tx := begin(ctx, t, pool)
+	if err := service.SetWindowLimit(ctx, tx, created.ID, 5); err != nil {
+		t.Fatalf("SetWindowLimit: %v", err)
+	}
+	commit(ctx, t, tx)
+	read, err := service.Get(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got := read.BacklogCapInForce(); got != 5 {
+		t.Errorf("BacklogCapInForce after the window limit is authored to 5 = %v, want 5", got)
+	}
+
+	tx = begin(ctx, t, pool)
+	if err := service.SetBacklogCap(ctx, tx, owner, created.ID, 2); err != nil {
+		t.Fatalf("SetBacklogCap: %v", err)
+	}
+	commit(ctx, t, tx)
+	read, err = service.Get(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got := read.BacklogCapInForce(); got != 2 {
+		t.Errorf("BacklogCapInForce once an owner separates it from the window limit = %v, want 2", got)
 	}
 }
 
@@ -245,10 +287,10 @@ func TestTheBakeVolumeTheBacklogCapAndTheRateAreAuthoredBesideTheWindowLimit(t *
 	}
 
 	tx := begin(ctx, t, pool)
-	if err := service.SetBakeVolume(ctx, tx, created.ID, 5000); err != nil {
+	if err := service.SetBakeVolume(ctx, tx, owner, created.ID, 5000); err != nil {
 		t.Fatalf("SetBakeVolume: %v", err)
 	}
-	if err := service.SetBacklogCap(ctx, tx, created.ID, 4); err != nil {
+	if err := service.SetBacklogCap(ctx, tx, owner, created.ID, 4); err != nil {
 		t.Fatalf("SetBacklogCap: %v", err)
 	}
 	if err := service.SetInstanceHourRate(ctx, tx, created.ID, 0.12); err != nil {
@@ -281,10 +323,10 @@ func TestTheBakeVolumeTheBacklogCapAndTheRateAreAuthoredBesideTheWindowLimit(t *
 	if err := service.SetInstanceHourRate(ctx, tx, created.ID, -1); !errors.Is(err, service.ErrRateNegative) {
 		t.Errorf("SetInstanceHourRate(-1) = %v, want ErrRateNegative", err)
 	}
-	if err := service.SetBakeVolume(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
+	if err := service.SetBakeVolume(ctx, tx, owner, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetBakeVolume(0) = %v, want ErrNotPositive", err)
 	}
-	if err := service.SetBacklogCap(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
+	if err := service.SetBacklogCap(ctx, tx, owner, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetBacklogCap(0) = %v, want ErrNotPositive", err)
 	}
 }

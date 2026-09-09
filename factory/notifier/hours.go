@@ -4,31 +4,37 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/driftdetector"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
 // deferredToHours reports whether a wait of the second kind arrives outside
-// its service's authored paging hours. A wait is of the second kind where it
-// pages, names a service, is not one of [anyHour], and does not carry
-// [Wait.RollbackOutstanding] — production serving a release the health
-// monitor called for a rollback on, with the rollback not run, being the
-// whole of the first kind. Where an owner authors none, or the wait names no
-// service, it is never deferred: pages.md's "where an owner authors none, it
-// pages at any hour, which is what every service did before there was
-// anything to author."
+// its service's authored paging hours, and, where it does, the next instant
+// those hours allow it — [Wait.PageAt], computed once here at the deferral. A
+// wait is of the second kind where it pages, names a service, is not one of
+// [anyHour], and does not carry [Wait.RollbackOutstanding] — production
+// serving a release the health monitor called for a rollback on, with the
+// rollback not run, being the whole of the first kind. Where an owner
+// authors none, or the wait names no service, it is never deferred: pages.md's
+// "where an owner authors none, it pages at any hour, which is what every
+// service did before there was anything to author."
 //
-// This decides only whether the page goes out now. Delivering it at the next
-// hour the service allows is [Notifier.PageDeferred] below, which its caller
-// runs on every pass.
-func (n *Notifier) deferredToHours(ctx context.Context, w Wait, now time.Time) (bool, error) {
+// This decides only whether the page goes out now. Delivering it at the
+// instant [Wait.PageAt] names is [Notifier.PageDeferred] below, which its
+// caller runs on every pass and which reads the instant back from the
+// delivery record rather than recomputing it: an owner narrowing or widening
+// the hours after the deferral does not move an hour already announced.
+func (n *Notifier) deferredToHours(ctx context.Context, w Wait, now time.Time) (bool, string, error) {
 	if w.ServiceID == "" || anyHour[w.Kind] || w.RollbackOutstanding {
-		return false, nil
+		return false, "", nil
 	}
 	svc, err := service.Get(ctx, n.pool, w.ServiceID)
 	if errors.Is(err, service.ErrNotFound) {
@@ -36,14 +42,18 @@ func (n *Notifier) deferredToHours(ctx context.Context, w Wait, now time.Time) (
 		// hour, the same as one naming none. A missing record is not authored
 		// hours, and refusing to deliver on it would let the narrow channel be
 		// stopped by a row that is not there.
-		return false, nil
+		return false, "", nil
 	} else if err != nil {
-		return false, fmt.Errorf("notifier: reading %s's paging hours: %w", w.ServiceID, err)
+		return false, "", fmt.Errorf("notifier: reading %s's paging hours: %w", w.ServiceID, err)
 	}
-	if !svc.PagingHours.Authored() {
-		return false, nil
+	if !svc.PagingHours.Authored() || withinHours(svc.PagingHours, now) {
+		return false, "", nil
 	}
-	return !withinHours(svc.PagingHours, now), nil
+	at, err := nextAllowedHour(svc.PagingHours, now)
+	if err != nil {
+		return false, "", err
+	}
+	return true, record.FormatTime(at), nil
 }
 
 // withinHours reports whether now, read in hours's zone, falls between
@@ -65,12 +75,54 @@ func withinHours(hours service.PagingHours, now time.Time) bool {
 	return clock >= hours.Start || clock < hours.End
 }
 
+// nextAllowedHour is the next instant, at or after now, that hours.Start
+// arrives in hours's zone — the instant [withinHours] starts answering true
+// at, and never earlier than now since [deferredToHours] calls this only
+// where now already falls outside the hours. A zone this process cannot
+// resolve answers now itself, matching [withinHours]'s own conservative
+// answer for the same case.
+func nextAllowedHour(hours service.PagingHours, now time.Time) (time.Time, error) {
+	loc, err := time.LoadLocation(hours.Zone)
+	if err != nil {
+		return now, nil
+	}
+	hour, minute, err := parseClock(hours.Start)
+	if err != nil {
+		return now, err
+	}
+	local := now.In(loc)
+	candidate := time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, loc)
+	if !candidate.After(local) {
+		candidate = candidate.AddDate(0, 0, 1)
+	}
+	return candidate, nil
+}
+
+// parseClock reads an hour authored as HH:MM, the layout [service.SetPagingHours]
+// already validated at the write.
+func parseClock(clock string) (int, int, error) {
+	parts := strings.Split(clock, ":")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("notifier: %q is not an hour in HH:MM", clock)
+	}
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("notifier: %q is not an hour in HH:MM: %w", clock, err)
+	}
+	minute, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("notifier: %q is not an hour in HH:MM: %w", clock, err)
+	}
+	return hour, minute, nil
+}
+
 // PageDeferred is what delivers a page a service's paging hours held back: a
 // wait of the second kind arising outside them goes out by mail and chat at
-// once, waits in Work as every row does, and pages at the next hour the
-// service allows in that zone. Nothing calls the notifier again at that hour,
-// so this pass reads its own delivery records for the waits whose page channel
-// was skipped and pages each whose hours now allow it.
+// once, waits in Work as every row does, and pages once the instant its own
+// delivery record carries in [Wait.PageAt] has passed. Nothing calls the
+// notifier again at that hour, so this pass reads its own delivery records
+// for the waits whose page channel was skipped and pages each whose instant
+// is now behind it.
 //
 // A candidate is a row this component delivered on mail or chat, naming a
 // service, with no delivery on the page channel at all. That is what a page
@@ -87,9 +139,9 @@ func withinHours(hours service.PagingHours, now time.Time) bool {
 // without it the hours coming round would page about a mismatch already
 // cleared.
 //
-// It returns the rows it paged. What it costs is a pass of its own: a page held
-// to the morning goes out at the first pass after the hours open rather than at
-// the hour itself.
+// It returns the rows it paged. What it costs is a pass of its own: a page
+// whose instant falls in the small hours goes out at the first pass after
+// that instant rather than at the instant itself.
 func (n *Notifier) PageDeferred(ctx context.Context, driftPool *pgxpool.Pool) ([]string, error) {
 	held, err := n.deferredDeliveries(ctx)
 	if err != nil {
@@ -104,6 +156,7 @@ func (n *Notifier) PageDeferred(ctx context.Context, driftPool *pgxpool.Pool) ([
 	}
 
 	now := time.Now()
+	nowAt := record.FormatTime(now)
 	var paged []string
 	var refused []error
 	for _, w := range held {
@@ -119,11 +172,7 @@ func (n *Notifier) PageDeferred(ctx context.Context, driftPool *pgxpool.Pool) ([
 		if err != nil || !pages {
 			continue
 		}
-		deferred, err := n.deferredToHours(ctx, w, now)
-		if err != nil {
-			return paged, err
-		}
-		if deferred {
+		if w.PageAt == "" || nowAt < w.PageAt {
 			continue
 		}
 		reach, err := n.routeTo(ctx, w)
@@ -144,38 +193,23 @@ func (n *Notifier) PageDeferred(ctx context.Context, driftPool *pgxpool.Pool) ([
 
 // deferredDeliveries is one wait per row this component delivered on mail or
 // chat, about a service, and never on the page channel — rebuilt from the
-// delivery record, which is where the wait's own fields are kept for exactly
-// this.
+// delivery record, which is where the wait's own fields, [Wait.PageAt]
+// included, are kept for exactly this.
 func (n *Notifier) deferredDeliveries(ctx context.Context) ([]Wait, error) {
-	rows, err := n.pool.Query(ctx, `select distinct on (d.row_id)
-		d.row_id, d.wait_kind, d.service_id, d.waiting, d.holding, d.worse
-		from `+DeliveryTable+` d
-		where d.channel <> $1 and d.service_id <> ''
-		  and not exists (select 1 from `+DeliveryTable+` p
-			where p.row_id = d.row_id and p.channel = $1)
-		order by d.row_id, d.at`, string(ChannelPage))
+	stored, err := allDeliveryRows(ctx, n.pool)
 	if err != nil {
-		return nil, fmt.Errorf("notifier: reading the pages a service's hours held back: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
 	var held []Wait
-	for rows.Next() {
-		var w Wait
-		var kind, holding string
-		if err := rows.Scan(&w.Row, &kind, &w.ServiceID, &w.Waiting, &holding, &w.Worse); err != nil {
-			return nil, fmt.Errorf("notifier: reading a page held back: %w", err)
+	for _, r := range stored {
+		if r.ServiceID == "" || r.hasChannel(ChannelPage) {
+			continue
 		}
-		w.Kind = Kind(kind)
-		if holding != "" {
-			if w.Holding, err = holdingFrom(holding); err != nil {
-				return nil, err
-			}
+		w, err := r.wait()
+		if err != nil {
+			return nil, err
 		}
 		held = append(held, w)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("notifier: reading the pages a service's hours held back: %w", err)
 	}
 	return held, nil
 }

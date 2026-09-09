@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +29,9 @@ var (
 	// requirements an item is meant to answer, so a zero or a negative one is a
 	// target no item can meet.
 	ErrTargetNotPositive = errors.New("area: the item-size target is above zero")
+	// ErrTargetNotACount is returned by [SetItemSizeTarget] for a target with a
+	// fraction: the unit is a count of requirements.
+	ErrTargetNotACount = errors.New("area: the item-size target is a count of requirements and not a fraction")
 	// ErrChainCycles is returned by [Chain] where the inside links lead back
 	// to an area the walk has already crossed. Nothing in the store refuses
 	// one, there being no foreign keys between records, so the walk is where
@@ -94,7 +98,7 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, name string, i
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	a, err := Insert(ctx, tx, w.token, actor, name, inside, hazard)
+	a, err := Insert(ctx, tx, w.token, actor, record.NewID(IDPrefix), name, inside, hazard)
 	if err != nil {
 		return Area{}, err
 	}
@@ -107,8 +111,9 @@ func (w *Writer) Declare(ctx context.Context, actor record.Actor, name string, i
 // Insert writes an area inside tx, fencing it with token first. Its caller is
 // package policy, which appends the policy version in the same transaction,
 // so the area and the version commit together or not at all; [Writer.Declare]
-// is the same write where there is nothing to compose it with.
-func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, name string,
+// is the same write where there is nothing to compose it with. id is minted by
+// the caller: the version names the area and is appended before it.
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, id, name string,
 	inside Inside, hazard Hazard) (Area, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Area{}, err
@@ -127,7 +132,7 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 	}
 
 	a := Area{
-		ID:     record.NewID(IDPrefix),
+		ID:     id,
 		Actor:  actor,
 		At:     record.Now(),
 		Name:   name,
@@ -165,6 +170,9 @@ func bound(value float64) *float64 {
 func SetItemSizeTarget(ctx context.Context, tx pgx.Tx, areaID string, target float64) error {
 	if target <= 0 {
 		return fmt.Errorf("%w: %v", ErrTargetNotPositive, target)
+	}
+	if target != math.Trunc(target) {
+		return fmt.Errorf("%w: %v", ErrTargetNotACount, target)
 	}
 	tag, err := tx.Exec(ctx, `update `+Table+` set item_size_target = $1 where id = $2`, target, areaID)
 	if err != nil {

@@ -84,7 +84,9 @@ type WithdrawLegalHoldArgs struct {
 // and is held here in the three columns fleetentry.Scope has — a project, a
 // service and an area — so this struct has eleven fields for the design's
 // nine; each of the three may be empty, and all three empty scopes the entry
-// to the whole factory.
+// to the whole factory. Operations is the twelfth and is no field of the nine:
+// the entry reaches the operations by naming the role, and this carries the
+// owner's narrowing of that list, empty where they narrow nothing.
 //
 // The three scope fields are names and not ids: an owner writes this entry by
 // hand at Factory, and a name is what they have. The composition resolves each
@@ -101,6 +103,7 @@ type WriteFleetEntryArgs struct {
 	Credential                string
 	ProcessingLocation        string
 	MaterialClasses           []string
+	Operations                []string
 	ReadAtOnceBound           int64
 	DispatchesBetweenEvalRuns int64
 }

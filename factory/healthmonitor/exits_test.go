@@ -54,11 +54,20 @@ func TestASearchsWindowEndsWithItsExitAndRollsNothingBack(t *testing.T) {
 	if one.WhyNoRollback == "" {
 		t.Error("a search's failed exit reports nothing about why it rolled nothing back")
 	}
-	// Nothing of the search's own deploy is undone or ended: it rolls nothing
-	// back, and what its build was compared against is the instances of the
-	// rollback's target, which the search never tears down. The sweep over
-	// every kept fleet the service still holds runs at this close as it does at
-	// any other, and it is not the search's deploy it reads.
+	// The deploy ends with the window that measured it, whatever the exit: the
+	// exit is the answer about that build, and the instances the search put in
+	// front of traffic have no other end.
+	if len(deployer.searchesEnded) != 1 || deployer.searchesEnded[0].DeployID != searching.DeployID {
+		t.Fatalf("the deployer was asked to end %+v, want the search's own deploy", deployer.searchesEnded)
+	}
+	if deployer.searchesEnded[0].Exit != string(window.ExitFailed) {
+		t.Errorf("the search's deploy ended at %q, want the exit its window reached", deployer.searchesEnded[0].Exit)
+	}
+	// Nothing else of it is undone: it rolls nothing back, and what its build
+	// was compared against is the instances of the rollback's target, which the
+	// search never tears down. The sweep over every kept fleet the service still
+	// holds runs at this close as it does at any other, and it is not the
+	// search's deploy it reads.
 	if len(deployer.rollbacks) != 0 || len(deployer.tornDown) != 0 {
 		t.Errorf("the deployer was asked for %v at a search's exit, want nothing rolled back and no control torn down",
 			deployer.calls)

@@ -55,6 +55,10 @@ var (
 	theBy       = artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
 )
 
+// theManifest is the input manifest the dispatch wrote before the run that
+// derived the contract, which a version an agent authored names.
+const theManifest = "im_1"
+
 // decidedAtARow stands for the close event of the gate row that decided a
 // safeguard's withdrawal. No row fires in these tests — the gate component
 // fires one — so what they supply is the id that close would have, which is all
@@ -302,6 +306,7 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: svc.ID, Branch: "item/" + record.NewID("in"),
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
@@ -314,7 +319,7 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 		t.Fatalf("writing the build: %v", err)
 	}
 	if len(declares) > 0 || len(unfollowed) > 0 {
-		if _, _, _, err := g.store.SubmitConsumerContract(ctx, theActor, theBy, it.ID, svc.ID, "derived from the build", consumercontract.Derived{Extractor: consumercontract.GoExtractor("test"), Drafts: declares, Unfollowed: unfollowed}, ""); err != nil {
+		if _, _, _, err := g.store.SubmitConsumerContract(ctx, theActor, theBy, it.ID, svc.ID, "derived from the build", consumercontract.Derived{Extractor: consumercontract.GoExtractor("test"), Drafts: declares, Unfollowed: unfollowed}, theManifest); err != nil {
 			t.Fatalf("submitting the consumer contract: %v", err)
 		}
 	}
@@ -390,6 +395,14 @@ func shipDeployWith(t *testing.T, ctx context.Context, g graph, svc service.Serv
 			t.Fatalf("completing target %s of %s: %v", address, dep.ID, err)
 		}
 	}
+	// A backfill's record completes only once every row the old form holds is
+	// present in the new, so a fixture that wants one complete marks the copy
+	// finished the way the deployer does.
+	if backfill.Any() {
+		if err := g.deploys.MarkBackfillCopied(ctx, dep.ID); err != nil {
+			t.Fatalf("marking the backfill of %s copied: %v", dep.ID, err)
+		}
+	}
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
@@ -404,6 +417,7 @@ func candidateOf(t *testing.T, ctx context.Context, g graph, svc service.Service
 	t.Helper()
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: record.NewID("in"), ServiceID: svc.ID, Branch: "item/" + record.NewID("in"),
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the candidate's item: %v", err)

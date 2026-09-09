@@ -3,11 +3,13 @@ package deploy
 import (
 	"strings"
 	"testing"
+
+	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
 // TestDDLListsEveryValue keeps the CHECK constraints and the Go lists from
 // disagreeing, the way decisionlog's TestDDLListsEveryShape does for shapes.
-// Four lists, one per closed set this package writes.
+// Five lists, one per closed set this package writes or the seam hands it.
 func TestDDLListsEveryValue(t *testing.T) {
 	ddl := strings.Join(DDL, "\n")
 
@@ -59,6 +61,15 @@ func TestDDLListsEveryValue(t *testing.T) {
 		operations[n] = string(o)
 	}
 	assertList("operation in (", operations)
+
+	// The replacement constraint lists the empty value beside the seam's own:
+	// a target is written not reached and reports what the seam reported when
+	// it completes, and the seam has one outcome — no request dropped.
+	replacements := []string{""}
+	for _, r := range targetseam.Replacements {
+		replacements = append(replacements, string(r))
+	}
+	assertList("replacement in (", replacements)
 }
 
 // TestAdvisoryLockKeyIsDerivedFromTheName recomputes the key from the name it

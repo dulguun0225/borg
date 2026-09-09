@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
 // Artifacts is where the artifact a build produced is read from, so that its
@@ -33,6 +35,140 @@ var ErrDigestDiffers = errors.New("deploy: the artifact no longer digests to wha
 // embedding the whole of [Performance] and [Performance.SchemaChanges] being one
 // of its fields.
 var ErrSchemaChangeAtARollback = errors.New("deploy: a rollback applies no schema change — the schema moves only forward")
+
+// ErrNothingKeptToReturnTo is returned by [ShiftBack] where a target of the
+// rollback keeps no instances of the release it returns to, or has torn them
+// down. The fast rollback shifts traffic onto instances that are already
+// running, so a target with none is one [Restore] has to redeploy on.
+var ErrNothingKeptToReturnTo = errors.New("deploy: the target keeps no instances of the release the rollback returns to")
+
+// Returning is the fast rollback: the traffic of every target moved onto the
+// instances of the release being returned to, which the deploy that replaced it
+// kept running at the capacity that release had.
+type Returning struct {
+	// Performance is the deploy this rollback is. Its What is the release being
+	// returned to and that release's build, and its SchemaChanges is empty on
+	// every rollback.
+	Performance
+	// Undoing is the release this rollback failed, the ones it skipped, and the
+	// source that called for it.
+	Undoing Undoing
+	// KeptBy is the deploy record that keeps the instances the traffic returns
+	// to: the deploy that replaced the release being returned to. Its row per
+	// target says how many are kept there and whether they have been torn down,
+	// which is the only fact about the rollback path that exists before the
+	// rollback does.
+	KeptBy string
+}
+
+// ShiftBack is the fast rollback: a rollback is a deploy event and not a
+// version event, so this shifts traffic onto the instances of the release it
+// returns to — still running at full capacity, because the deploy that replaced
+// that release kept them — and writes a deploy record, minting and retiring no
+// number.
+//
+// It puts nothing on a target. The build is already running there, so there is
+// no artifact to verify and nothing to start from cold, which is what makes this
+// the fast way and [Restore] the slow one; and it applies no schema change, the
+// schema moving only forward however far traffic moves back.
+//
+// It mints no way-in token and resolves no fresh configuration either: the
+// instances it shifts traffic onto hold whatever [r.KeptBy] placed them under
+// already, so the record it writes names the configuration digest and the
+// way-in token digest [r.KeptBy] named — the record the kept fleet belongs
+// to — and never a value of its own.
+//
+// Per target, in the environment's order, it shifts all of the traffic onto the
+// release returned to and marks that target complete when the shift returns,
+// advancing the deploys it undoes on that target as it goes — so a rollback that
+// stopped undoes nothing beyond the targets it reached. There is no hold between
+// targets: what a bake volume bounds is exposure to a build nothing has watched,
+// and this returns traffic to the build that was serving before.
+//
+// A target whose kept count is nothing, or whose kept fleet has been torn down,
+// is [ErrNothingKeptToReturnTo]: there is nothing there to shift onto, and that
+// target is [Restore]'s. A platform that serves no share cannot perform the
+// shift at all and refuses at the seam, which is the same answer one target
+// later.
+func ShiftBack(ctx context.Context, w *Writer, r Returning) (Deploy, error) {
+	if r.What.ReleaseID == "" {
+		return Deploy{}, fmt.Errorf("%w: a rollback returns to a numbered release", ErrUndoingIncomplete)
+	}
+	if r.KeptBy == "" {
+		return Deploy{}, fmt.Errorf("%w: the rollback names no deploy keeping them", ErrNothingKeptToReturnTo)
+	}
+	if len(r.SchemaChanges) > 0 {
+		return Deploy{}, fmt.Errorf("%w: %d named on the rollback to %s",
+			ErrSchemaChangeAtARollback, len(r.SchemaChanges), r.What.ReleaseID)
+	}
+
+	kept, err := Targets(ctx, w.Pool(), r.KeptBy)
+	if err != nil {
+		return Deploy{}, err
+	}
+	standing := make(map[string]bool, len(kept))
+	for _, target := range kept {
+		standing[target.Address] = target.Fleets.Kept.Instances > 0 && target.Fleets.Kept.TornDownAt == ""
+	}
+	for _, reach := range r.Reaches {
+		if !standing[reach.Address] {
+			return Deploy{}, fmt.Errorf("%w: %s of %s", ErrNothingKeptToReturnTo, reach.Address, r.KeptBy)
+		}
+	}
+
+	placedBy, err := Get(ctx, w.Pool(), r.KeptBy)
+	if err != nil {
+		return Deploy{}, err
+	}
+	p := r.Performance
+	if err := p.check(); err != nil {
+		return Deploy{}, err
+	}
+	d, err := w.StartUndoing(ctx, p.Actor, p.beginning(placedBy.ConfigurationDigest, placedBy.WayInTokenDigest), r.Undoing)
+	if err != nil {
+		return Deploy{}, err
+	}
+
+	for n, reach := range p.Reaches {
+		if err := w.ReachTarget(ctx, d.ID, reach.Address); err != nil {
+			return d, err
+		}
+		err := reach.Target.ShiftTraffic(ctx, p.Principal, targetseam.Shift{
+			Service: p.ServiceName, Build: p.What.BuildID, Share: 1, Credential: p.Credential,
+		})
+		if err != nil {
+			wrapped := fmt.Errorf("%w: %s of %s: %w", ErrTargetRefused, reach.Address, d.ID, err)
+			if n > 0 {
+				return d, wrapped
+			}
+			return d, fail(ctx, w, p, d, StepFirstTarget, wrapped)
+		}
+		// The instances the traffic now serves from are the ones that were
+		// already running, so what the seam reported about a replacement is what
+		// a replacement that dropped no request reports: none was made here at
+		// all.
+		if err := w.CompleteTarget(ctx, d.ID, reach.Address, targetseam.ReplacementDrained); err != nil {
+			return d, err
+		}
+		if p.IntoProduction && n == 0 {
+			// A rollback runs no comparison: the release returned to takes all
+			// of the traffic, which is the row without a control performed.
+			if err := w.PerformedWithoutControl(ctx, d.ID); err != nil {
+				return d, err
+			}
+			d.StrategyPerformed = StrategyWithoutControl
+		}
+		if err := undoTarget(ctx, w, p, d, reach.Address); err != nil {
+			return d, err
+		}
+	}
+
+	if err := w.Complete(ctx, d.ID); err != nil {
+		return d, err
+	}
+	d.Status = StatusComplete
+	return d, nil
+}
 
 // Restoration is the slow rollback: a deploy of the release being returned to,
 // naming what it failed, what it skipped, and the source that called for it,
@@ -89,11 +225,19 @@ func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
 			ErrSchemaChangeAtARollback, len(r.SchemaChanges), r.What.ReleaseID)
 	}
 
-	token, digest, err := mintWayInToken()
+	// The configuration digest is taken before the token is minted and
+	// appended, the same way [Perform] takes it: over the resolved set alone,
+	// so it digests the same here as it did at the deploy this rollback
+	// undoes where the configuration itself has not changed.
+	configDigest := DigestConfiguration(r.Performance.Configuration)
+	p, wayInDigest, err := r.Performance.mintingTheWayInToken()
 	if err != nil {
 		return Deploy{}, err
 	}
-	d, err := w.StartUndoing(ctx, r.Actor, r.beginning(digest), r.Undoing)
+	if err := p.check(); err != nil {
+		return Deploy{}, err
+	}
+	d, err := w.StartUndoing(ctx, p.Actor, p.beginning(configDigest, wayInDigest), r.Undoing)
 	if err != nil {
 		return Deploy{}, err
 	}
@@ -103,11 +247,11 @@ func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
 	// standing for Ops rather than a refusal with nothing behind it.
 	found, err := r.Artifacts.Digest(ctx, r.What.BuildID)
 	if err != nil {
-		return d, fail(ctx, w, r.Performance, d, StepArtifactDigest,
+		return d, fail(ctx, w, p, d, StepArtifactDigest,
 			fmt.Errorf("%w: reading the artifact of %s: %w", ErrDigestDiffers, r.What.BuildID, err))
 	}
 	if found != r.RecordedDigest {
-		return d, fail(ctx, w, r.Performance, d, StepArtifactDigest,
+		return d, fail(ctx, w, p, d, StepArtifactDigest,
 			fmt.Errorf("%w: build %s holds %s, the record says %s",
 				ErrDigestDiffers, r.What.BuildID, found, r.RecordedDigest))
 	}
@@ -115,5 +259,5 @@ func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
 	// Every release this rollback undoes is advanced inside the walk. The failed
 	// release and the skipped ones are the same write with different reasons,
 	// which is why the two are kept apart on the record and treated alike there.
-	return perform(ctx, w, r.Performance, d, token)
+	return perform(ctx, w, p, d)
 }

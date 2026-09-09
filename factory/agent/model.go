@@ -53,6 +53,12 @@ const (
 type Reply struct {
 	Text  string
 	Units map[string]int64
+	// ReturnedAt is when the provider returned those units, in the layout
+	// every record's timestamp is written in. It is read where the answer was
+	// read and not where the record is written: the agent run record's own
+	// time is the write's, and the period a spend ceiling sums over buckets a
+	// run against this one.
+	ReturnedAt string
 }
 
 // ErrReply is returned for a reply in neither of a role's stated forms. A

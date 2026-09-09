@@ -72,9 +72,17 @@ const (
 	// StepFirstTarget is the first target of the deploy refusing what it was
 	// asked, with none complete behind it.
 	StepFirstTarget = "reaching the first target of the environment"
-	// StepStopped is what the restart writes over a deploy no target finished:
-	// the deployer stopped, and nothing about the deploy advanced.
-	StepStopped = "the deployer stopped before any target was complete"
+	// StepSchemaChangeNotComplete is the one case the restart cannot decide: a
+	// record carrying a schema change it does not mark complete. The deploy is
+	// marked failed and the previous release is left current, on the store rule
+	// rather than on the deployer knowing how far the change got.
+	StepSchemaChangeNotComplete = "the record carries a schema change it does not mark complete"
+	// StepCannotBeCarried is where the restart has no caller to ask, no live
+	// target for the service at all, or no release the environment stood on
+	// before this one, so it can finish the record neither forward nor back.
+	// The restart has two dispositions and not three, so a record it cannot
+	// decide is marked failed here rather than left standing undecided.
+	StepCannotBeCarried = "the restart could not finish the record forward or back"
 )
 
 // Completion is what the record holds per target. It is a field of the deploy
@@ -150,10 +158,11 @@ type Deploy struct {
 	// to apply.
 	SchemaChangesCompleted bool
 	// Backfill is the pair of elements this deploy's release copies between,
-	// where it is a backfill item's release, and empty on every other deploy.
-	// The record marks it complete by completing: enforcement reads a complete
-	// record naming the element before it admits the item that moves reads to it
-	// and the drop after that.
+	// where it is a backfill item's release, and empty on every other deploy,
+	// with whether the copy has finished. The record marks it complete by
+	// completing, which the deployer does only once the copy has: enforcement
+	// reads a complete record naming the element before it admits the item that
+	// moves reads to it and the drop after that.
 	Backfill Backfill
 	// Snapshot is the copy taken and verified before a change that destroys
 	// stored data, and the deletion written when it is deleted.
@@ -182,6 +191,11 @@ type Backfill struct {
 	Contract    string
 	Element     string
 	FromElement string
+	// Copied is whether every row the old form holds is present in the new,
+	// which [Writer.Complete] requires before it completes the record and
+	// [Writer.MarkBackfillCopied] is what writes. It is read off the record and
+	// ignored on the way in: a deploy starts with its copy unrun.
+	Copied bool
 }
 
 // Any reports whether the deploy is a backfill's. All three fields arrive
@@ -206,21 +220,30 @@ type Target struct {
 	DeployID string
 	// Position is the target's place in the environment's order, which is the
 	// order the deployer reaches them in.
-	Position   int
-	Address    string
+	Position int
+	Address  string
+	// NotRunHere is a target of the environment the service does not run on.
+	// The record holds a row beside each of the environment's targets, and this
+	// one is never reached: what the deployer reaches, and what the record's
+	// completion is read over, are the targets the service runs on.
+	NotRunHere bool
 	Completion Completion
 	// Fleets is the three sets of instances this deploy's record dates here.
 	Fleets Fleets
 	// ControlReleaseID is the release the control on this target runs — the
 	// release a rollback of this deploy would return to, which is what defines a
-	// control — and is empty on a target running none. There is one control per
-	// production target the release has reached, started on that target when
-	// the rollout reaches it, so this is the target's own field and not the
-	// deploy's.
+	// control — and ControlBuildID is the build that release is, which is what
+	// runs beside this deploy's own build. Both are empty on a target running
+	// no control. There is one control per production target the release has
+	// reached, started on that target when the rollout reaches it, so these are
+	// the target's own fields, written then and not at the start.
 	ControlReleaseID string
-	// Replacement is what the seam reported when it replaced the instances here:
-	// a drain, or a cut where the platform could not hold a request open across
-	// the replacement.
+	ControlBuildID   string
+	// Replacement is what the seam reported when it replaced the instances
+	// here: the drain the operation promised, no request dropped. A platform
+	// unable to keep that promise refuses the operation instead of reporting
+	// one, which the deployer records as a target refused and never as a
+	// replacement here.
 	Replacement targetseam.Replacement
 	// ReachedAt is written before the deployer calls this target and CompleteAt
 	// after, both carrying the fencing token.
@@ -255,9 +278,10 @@ type Fleet struct {
 // Release is the deploy's own fleet, torn down when the release that replaces it
 // completes here. Control is the fleet the comparison is made against, sized for
 // the release's share, and is nothing on a deploy without a control. Kept is the
-// capacity the replaced release had times the fraction its owner authored, and
-// is what a rollback shifts production onto — without it those kept instances
-// are an assertion and the drift detector has nothing to read what runs against.
+// instances the replaced release had, or the fraction of them its owner
+// authored, and is what a rollback returns production to — without it those kept
+// instances are an assertion and the drift detector has nothing to read what
+// runs against.
 type Fleets struct {
 	Release Fleet
 	Control Fleet
@@ -290,7 +314,7 @@ type Priced struct {
 // The source is beside the actor rather than instead of it. The actor stays the
 // deployer that performed the rollback, and the source is what called for it:
 // [SourceHealthMonitorAtFailed], [SourceOfHuman] for the named human at Ops with
-// the reason they state, or [SourceSearch] for a deploy the search called for.
+// the reason they state.
 //
 // There is no revert intent here. A revert is an ordinary item decomposition
 // writes, from an intent intake wrote at the rollback, and the release it
@@ -312,11 +336,6 @@ func (u Undoing) Any() bool { return u.FailedReleaseID != "" }
 // and not requested, and reporting is not paging.
 const SourceHealthMonitorAtFailed = "the health monitor at the analysis window's failed exit"
 
-// SourceSearch is the source of a rollback the search's own deploy returns
-// from: the search deploys one build at a time and traffic returns to the
-// instances of the rollback's target, which the search never tears down.
-const SourceSearch = "the search, at the end of one of its windows"
-
 // SourceOfHuman is the source of a rollback a human called for from Ops, which is
 // the first phase of undoing a change after it shipped. The reason is required
 // because a human's judgment about live software is the whole of the evidence
@@ -324,6 +343,13 @@ const SourceSearch = "the search, at the end of one of its windows"
 func SourceOfHuman(name, reason string) string {
 	return "the human " + name + " at Ops: " + reason
 }
+
+// SourceOfRestart is the source of a rollback the deployer's own restart
+// performs on a record it stopped in the middle of and could not finish: it
+// undoes the record rather than leaving production on a build only some of
+// its targets hold, the way the health monitor's own restart is described as
+// either finishing a deploy or undoing it.
+const SourceOfRestart = "the deployer's restart, unable to finish what it stopped in the middle of"
 
 // What a deploy names as the thing deployed: the build it put there, and the
 // release it is a deploy of where there is one. [OfRelease], [OfBuild] and

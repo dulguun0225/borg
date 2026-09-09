@@ -62,8 +62,8 @@ func TestTheHarmMarkIsNeverWeighedHoweverWellItSeparates(t *testing.T) {
 		{Name: contextHarmMarkedReport.name, Group: GroupContext, Term: TermImpact,
 			Weight: fitted.Of(contextHarmMarkedReport.name), Level: 1.0},
 	}
-	_, marked, _, _ := reduce(vector)
-	_, unmarked, _, _ := reduce(vector[:1])
+	_, marked, _, _ := reduce(vector, Scale{})
+	_, unmarked, _, _ := reduce(vector[:1], Scale{})
 	if !near(marked, unmarked) {
 		t.Errorf("a marked report moved the impact from %v to %v, and the mark moves the number by nothing",
 			unmarked, marked)

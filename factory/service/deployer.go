@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -9,6 +10,14 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
+
+// ErrShapeNotAdmitted is returned by [Adopt] where found does not hold all
+// four reachability properties. Adoption admits one shape — instances on a
+// deploy target, already taking organic traffic, replaceable one at a time
+// and returnable by shifting traffic — and a shape short one property is
+// refused rather than partially recorded; the error names the property
+// missing.
+var ErrShapeNotAdmitted = errors.New("service: adoption admits only a shape holding all four reachability properties")
 
 // Reachability is the four fields that are the deployer's, not the owner's and
 // not decomposition's. They are distinct from provisioned: provisioned says the
@@ -40,6 +49,11 @@ func (r Reachability) Written() bool { return r.At != "" }
 // at adoption and at every first release, so the four say what the last such
 // deploy found rather than what any of them ever found.
 //
+// Adoption admits one shape and refuses every other: found must hold all four
+// properties, or the write is refused with [ErrShapeNotAdmitted] naming the
+// one missing, and nothing is written — a service the deployer found wanting
+// is left exactly as reachable as the last adoption or first release found it.
+//
 // It takes the lease token and fences the caller's transaction, which the
 // owner-authored writes on this record do not: their caller is package policy,
 // which fences the transaction it appends the policy version in, and this one's
@@ -51,6 +65,16 @@ func Adopt(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor
 	}
 	if err := actor.Validate(); err != nil {
 		return err
+	}
+	switch {
+	case !found.TargetReached:
+		return fmt.Errorf("%w: no target reached", ErrShapeNotAdmitted)
+	case !found.InstancesReplaceable:
+		return fmt.Errorf("%w: instances are not replaceable one at a time", ErrShapeNotAdmitted)
+	case !found.RollbackPathPresent:
+		return fmt.Errorf("%w: no rollback path is present", ErrShapeNotAdmitted)
+	case !found.EmissionReadable:
+		return fmt.Errorf("%w: the emission is not readable", ErrShapeNotAdmitted)
 	}
 	tag, err := tx.Exec(ctx, `update `+Table+`
 		set target_reached = $1, instances_replaceable = $2, rollback_path_present = $3,

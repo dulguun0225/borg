@@ -1,10 +1,53 @@
 package score
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"sort"
+	"strings"
 
 	"github.com/dulguun0225/borg/factory/record"
 )
+
+// queueRejection is the merge queue's own rejection of a candidate, read off
+// the decision log's queue_rejection row without importing package
+// mergequeue: the payload is a fact of the log and not a type this package
+// owns, the way [OpenEvent] and [CloseEvent] read a gate's rows the same way.
+// It opens no gate row of its own — the Merge to master row already closed as
+// an approval — so it carries no [Rejection]'s four-way resolution and what
+// the score learns from it is stated on the row directly: [LearnsAs] is
+// [VerdictRejected] where the candidate failed against the master it merges
+// into, which is read here at the merge to master row the same way a human's
+// resolved rejection is, and something else — a hold, on a dependency's
+// release having moved — where it is not.
+//
+// TeachesNothing is a repeated failure whose criterion is unreliable over the
+// two builds the queue's re-verification compared: an unreliable criterion
+// teaches the score nothing, so the row is skipped whatever it learns as.
+type queueRejection struct {
+	ItemID         string `json:"item_id"`
+	ServiceID      string `json:"service_id"`
+	LearnsAs       string `json:"learns_as"`
+	TeachesNothing bool   `json:"unreliable_criterion"`
+}
+
+// queueRejectionRow is the gate row a queue rejection is read at: the Merge to
+// master row already approved the candidate, and the queue's re-verification
+// is what caught the failure the score learns from as a reject there.
+const queueRejectionRow = "merge_to_master"
+
+// queueRejectionsNeeded is how many queue rejections resolved as a gate the
+// factory needed at the merge to master row: read as from a reject, and its
+// criterion not unreliable over the two builds compared.
+func queueRejectionsNeeded(e *Evidence) int {
+	needed := 0
+	for _, q := range e.queueRejections {
+		if !q.TeachesNothing && q.LearnsAs == VerdictRejected {
+			needed++
+		}
+	}
+	return needed
+}
 
 // How a rejection resolved, in the words the version publishes. A human's
 // rejection is an input the threshold falls on, and nothing in the record can
@@ -92,11 +135,18 @@ func (e *Evidence) resolvedRejections() []Rejection {
 }
 
 // resolutionOf is how one rejection resolved, read off what happened on that
-// item after it. The digest is what says the re-authored version differs from
-// the one the rejection named: a version approved under the same digest is the
-// same text, which is the false alarm the design measures per human.
+// item after it. What separates the first way from the second is the digest of
+// what the rejection named, and not the digest of the whole version: the design
+// reads the re-authored version as a gate the factory needed where it differs
+// in what the rejection named, and any re-authoring at all moves the whole
+// version's digest — so the whole digest would read every second approval as a
+// gate that was needed and the false alarm would never be measured.
+//
+// A trail this cannot read leaves the rejection unresolved rather than resolved
+// as a false alarm: the rejection named something, the words it named are gone
+// with the version, and reading that silence as approval without differing
+// would publish a false alarm against the human on evidence nobody holds.
 func (e *Evidence) resolutionOf(r Rejection, later []Firing) string {
-	rejectedDigest := e.digests[r.ArtifactID]
 	for _, f := range later {
 		if f.OpenEvent.ItemID != r.ItemID || !f.HumanClosed {
 			continue
@@ -105,8 +155,12 @@ func (e *Evidence) resolutionOf(r Rejection, later []Firing) string {
 		case VerdictRejected:
 			return ResolvedRejectedAgain
 		case VerdictApproved:
-			digest := e.digests[f.OpenEvent.ArtifactID]
-			if digest != "" && rejectedDigest != "" && digest != rejectedDigest {
+			was, readable := e.namedDigest(r.ArtifactID, r.Named)
+			now, readableNow := e.namedDigest(f.OpenEvent.ArtifactID, r.Named)
+			if !readable || !readableNow {
+				return ""
+			}
+			if was != now {
 				return ResolvedReAuthoredApproved
 			}
 			return ResolvedApprovedUnchanged
@@ -116,6 +170,34 @@ func (e *Evidence) resolutionOf(r Rejection, later []Firing) string {
 		return ResolvedAttemptLimit
 	}
 	return ""
+}
+
+// namedDigest is the digest of the part of one version the rejection named, and
+// false where the trail cannot be read — the version's words are not held, or
+// the rejection named nothing.
+//
+// What the named part is, is every line of the version that carries the words
+// the human named, in the order they appear. That is a derivation and not a
+// record: nothing in the graph divides a version into parts, so what the
+// rejection named is located in the words themselves. A re-authoring that
+// changed what was named changes one of those lines or removes it; one that
+// changed something else leaves them all standing.
+func (e *Evidence) namedDigest(artifactID, named string) (string, bool) {
+	if artifactID == "" || named == "" {
+		return "", false
+	}
+	content, held := e.contents[artifactID]
+	if !held {
+		return "", false
+	}
+	var part []string
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, named) {
+			part = append(part, line)
+		}
+	}
+	sum := sha256.Sum256([]byte(strings.Join(part, "\n")))
+	return hex.EncodeToString(sum[:]), true
 }
 
 // falseAlarms is how many rejections resolved as false alarms, per human, over

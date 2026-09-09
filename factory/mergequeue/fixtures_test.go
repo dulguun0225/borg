@@ -168,6 +168,15 @@ func (sameDesignSystem) Differs(context.Context, string, string, string) (bool, 
 	return false, nil
 }
 
+// fakeReliability answers a fixed set of criterion ids as unreliable over
+// whatever service and builds are asked, which is what a test of a failure that
+// teaches the score nothing needs.
+type fakeReliability map[string]bool
+
+func (f fakeReliability) Unreliable(_ context.Context, _, criterionID string, _ []string) (bool, error) {
+	return f[criterionID], nil
+}
+
 // newQueue gives a test a schema of its own with the whole factory schema
 // applied, a queue over it, and the fakes the queue reaches through.
 func newQueue(t *testing.T, c mergequeue.Composition) (context.Context, *pgxpool.Pool, lease.Token, *mergequeue.Queue) {
@@ -207,6 +216,7 @@ func newQueue(t *testing.T, c mergequeue.Composition) (context.Context, *pgxpool
 	c.Pool, c.Token = pool, token
 	c.Log = decisionlog.NewWriter(pool, token)
 	c.Releases = release.NewWriter(pool, token)
+	c.Items = item.NewDispatch(pool, token)
 	return ctx, pool, token, mergequeue.New(c)
 }
 
@@ -313,9 +323,10 @@ func queuedOf(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease
 	in intent.Intent, n int) item.Item {
 	t.Helper()
 	it, err := item.NewDecomposition(pool, token).Create(ctx, decompositionActor, item.New{
-		IntentID:  in.ID,
-		ServiceID: serviceID,
-		Branch:    fmt.Sprintf("item/%d", n),
+		IntentID:             in.ID,
+		ServiceID:            serviceID,
+		Branch:               fmt.Sprintf("item/%d", n),
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing item %d: %v", n, err)

@@ -8,8 +8,12 @@
 // [WindowPowerTable], [ExplicitThresholdTable], [RecentHistorySizeTable],
 // [ChangeFreezeTable], [SeedTable], [ValueSetTable] —
 // with their id prefixes, format versions, and [DDL]. writer.go is [Service], [Writer] and [NewWriter]
-// with [Writer.Create], and the reads [Get], [ByName] and [All], each of which
-// returns everything on the record. parameters.go is [Parameters] and
+// with [Writer.Create] and [Writer.CreateIn], and the reads [Get], [ByName] and
+// [All], each of which returns everything on the record. [Writer.CreateIn] is
+// [Writer.Create] on a transaction the caller already holds open rather than
+// one it opens and commits itself, [Writer.Create] being the wrapper that
+// does the opening and the committing for a caller with none of its own.
+// parameters.go is [Parameters] and
 // the gate-policy writes: [SetWindowSize] and [SetWindowPower] per
 // [gatepolicy.Quantity], and
 // [SetWindowConfidence], [SetWindowCap], [SetWindowLimit] and [SetExposureBound]
@@ -27,9 +31,17 @@
 // [SetOperationCap] — the cap on how many
 // operations one release may hold open per interval and the overflow operation
 // the excess lands in — [SetEnvironmentHourRate] and [SetSearchBudget].
-// freeze.go is the change freeze: [Period], [AddFreezePeriod], [FreezePeriods]
+// direction.go is the mechanism seven of the setters above share: [Direction],
+// [RaiseOnly] and [LowerOnly], the error [ErrSafeguardDirection], and
+// enforceDirection, unexported and called by [SetBakeVolume],
+// [SetBacklogCap], [SetMutationFloor], [SetRecentHistoryRunLength],
+// [SetFailureRecordKeyCap], [SetUnreliableBound] and [SetSearchBudget]
+// through setDirectional, also unexported — the seven setters the design
+// states a direction for, each now taking an actor. freeze.go is the change
+// freeze: [Period], [AddFreezePeriod], [LengthenFreezePeriod], [FreezePeriods]
 // and [Frozen], the read a gate row asks at every firing.
-// deployer.go is [Reachability] and [Adopt]. versions.go is
+// deployer.go is [Reachability], [Adopt] and the refusal [ErrShapeNotAdmitted].
+// versions.go is
 // [Version] with [AuthorSeed], [AuthorValueSet], [SeedInForce], [ValueSetInForce]
 // and the two lists beside them. shipped.go is the shipped default of each of
 // the four fields the design fixes rather than gives a number for —
@@ -38,10 +50,15 @@
 // [MutantCapInForce], [FailureRecordKeyCapInForce], [UnreliableBoundInForce]
 // and [IncidentItemBoundSecondsInForce], which every caller of the matching
 // field goes through rather than reading the column and falling back to its
-// zero value. The tests are one file per subject above —
+// zero value. windowlimit.go is the same shape for the window limit —
+// [ShippedWindowLimit] and [WindowLimitInForce], the column left null at
+// creation so the score supplies the one a new service starts at. backlogcap.go is
+// [Service.BacklogCapInForce], resolving an unauthored backlog cap to the
+// window limit in force through [WindowLimitInForce]. The tests are one file
+// per subject above —
 // db_test.go, parameters_test.go, provisioning_test.go, operations_test.go,
-// deployer_test.go, threshold_test.go, freeze_test.go, versions_test.go and
-// shipped_test.go —
+// deployer_test.go, threshold_test.go, freeze_test.go, versions_test.go,
+// shipped_test.go and direction_test.go —
 // sharing the newWriter, acquire, begin
 // and commit helpers of db_test.go and helpers_test.go, every one of them against
 // the database.
@@ -59,7 +76,10 @@
 // Decomposition writes the identity through [Writer.Create], in the same write as
 // the item that creates the service: the name, the repository, and the project.
 // The project is identity and no later write moves it. Decomposition writes
-// nothing else here.
+// nothing else here. Where the item and the service commit in one write of the
+// caller's own, decomposition calls [Writer.CreateIn] on the transaction it
+// holds open instead of [Writer.Create], which is [Writer.CreateIn] wrapped in
+// a transaction of its own for a caller with none.
 //
 // An owner at Factory writes every parameter, [SetProvisioned], [Retire],
 // [SetTargets], the two versioned authorings, and the values that are not gate
@@ -73,11 +93,25 @@
 // token and fences, the arrangement package environment's threshold write and
 // package safeguard's insert already have.
 //
+// A safeguard writes the same functions an owner does — nothing here
+// distinguishes a safeguard's call from an owner's beyond the actor it
+// authors as — and seven of them, plus [LengthenFreezePeriod], carry a stated
+// direction: a component actor, which is what marks a safeguard's write, may
+// move the field only the stated way against the value already in force, and
+// a human actor may set it either way. direction.go enforces this against the
+// column each setter updates, refusing the other direction with
+// [ErrSafeguardDirection] naming the field; a field with nothing in force yet
+// places no bound on a component actor's first write. Every other
+// owner-authored write here places no such bound: an owner and a safeguard
+// write it the same way.
+//
 // The deployer writes [Adopt] and nothing else: the four fields that say what
 // runs can be reached, replaced, undone, and read, at adoption and at every first
 // release. It takes the token and fences because its caller begins the
 // transaction it runs in: package deploy's adoption, called by whatever composes
-// the deployer at a service's first release.
+// the deployer at a service's first release. Adoption admits one shape — all
+// four reachability properties holding at once — and [Adopt] refuses every
+// other with [ErrShapeNotAdmitted], writing nothing where it refuses.
 //
 // # What is not built
 //
@@ -115,13 +149,16 @@
 // cap, the unreliable bound, the incident-raised item bound, and the product
 // licence are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
-// (C0718, C0719, C0724, C0725, C0726, C0730, C0731, C0732, C0733, C0734, C0735,
-// C0736, C0737, C0738, C0740).
+// (C0717, C0718, C0719, C0724, C0725, C0726, C0730, C0731, C0732, C0733, C0734,
+// C0735, C0736, C0737, C0738, C0740).
 //
 // Retirement is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md
-// (C0697, C0698, C0706), and the parameters a service starts with are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md.
+// (C0697, C0698, C0706), and adoption's four reachability fields, decomposition
+// writing the record for an existing repository, and the parameters a service
+// starts with, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md
+// (C0616, C0619, C0634).
 //
 // The project as a field of this record is
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
@@ -129,7 +166,7 @@
 //
 // Which of an environment's targets a service runs on is
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1399), and the seed and the non-production value set are
+// (C1399, C1400), and the seed and the non-production value set are
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
 // (C1487, C1488, C1492, C1493).
 //
@@ -160,9 +197,9 @@
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
 // and the instance-hour rate the deployer prices a fleet's span at is
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md.
-// The objective and its period are
+// The objective and the authored hour rates converted at the write are
 // ../../end-goal/how-the-factory-works/08-operations/05-service-level-objectives.md
-// (C2082, C2089, C2091), and the hours a service pages within are
+// (C2082, C2089, C2091, C2092), and the hours a service pages within are
 // ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2137, C2138,
 // C2141). The schema-change snapshot retention is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
@@ -174,4 +211,10 @@
 // ../../end-goal/deferred.md#the-products-release-channel (C0089, C0090, C0091,
 // C0093), and the repository credential pair is seam 3 of
 // ../../end-goal/deferred.md.
+//
+// The backlog cap on the revert's deploy is
+// ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md
+// (C1630); the authored size, confidence and power are
+// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md
+// (C2007).
 package service

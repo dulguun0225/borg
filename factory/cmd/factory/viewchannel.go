@@ -1,8 +1,9 @@
 // Factory's numbers over the one way into the factory from outside it: what
-// arrived and was never grouped, what the way in refused, what the store could
-// not read, the services serving a way in older than this factory's, and the
-// services whose project has no notice for the way in to show. Beside them,
-// each intent's outcome, which the close computed and this only reads.
+// arrived and was never grouped, what the way in refused — a submission of a
+// shape the store does not read among what it refused — the services serving
+// a way in older than this factory's, and the services whose project has no
+// notice for the way in to show. Beside them, each intent's outcome, which
+// the close computed and this only reads.
 package main
 
 import (
@@ -21,11 +22,11 @@ import (
 // pass and exits has none, and a screen shown zeros would read as a channel
 // nobody used rather than as one this process cannot see.
 //
-// Two of the numbers are counters the store keeps and the rest are queries at
-// read time. The counters have to be counters: the record a query would count
-// is the write the rate exists to refuse, so a row per refusal is the
-// unbounded write the rate was placed to prevent — and what that costs is that
-// a lost counter is lost, where the ungrouped count is derived again.
+// One of the numbers is a counter the store keeps and the rest are queries at
+// read time. The counter has to be one: the record a query would count is the
+// write the rate exists to refuse, so a row per refusal is the unbounded
+// write the rate was placed to prevent — and what that costs is that a lost
+// counter is lost, where the ungrouped count is derived again.
 func (v *views) reportChannelNumbers(ctx context.Context) (screens.ReportChannel, error) {
 	store := v.p.d.reports
 	if store == nil {
@@ -43,7 +44,6 @@ func (v *views) reportChannelNumbers(ctx context.Context) (screens.ReportChannel
 		return screens.ReportChannel{}, err
 	}
 	counted := map[string]int64{}
-	unreadable := map[string]int64{}
 	for _, one := range counts {
 		if one.ServiceID == "" {
 			// The empty key is the whole channel: a submission naming no deploy
@@ -53,7 +53,6 @@ func (v *views) reportChannelNumbers(ctx context.Context) (screens.ReportChannel
 			continue
 		}
 		counted[one.ServiceID] = one.Refusals
-		unreadable[one.ServiceID] = one.UnreadableShape
 	}
 
 	services, err := service.All(ctx, v.p.d.pool)
@@ -73,7 +72,9 @@ func (v *views) reportChannelNumbers(ctx context.Context) (screens.ReportChannel
 		}
 		channel.Services = append(channel.Services, screens.ServiceReportCounts{
 			ServiceID: svc.ID, ServiceName: svc.Name,
-			Refused: counted[svc.ID], UnreadableShape: unreadable[svc.ID],
+			// A submission of a shape the store does not read is a refusal
+			// and counted as one.
+			Refused:         counted[svc.ID],
 			NoNoticeInForce: !notices[svc.ProjectID],
 		})
 		old, serving, err := v.wayInOlderThanThisFactory(ctx, svc)

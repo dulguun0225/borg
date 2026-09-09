@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -29,11 +30,13 @@ func TestTheAllowedKindsAreTheOneListAndASafeguardMayOnlyExtendIt(t *testing.T) 
 			allowed.List, allowed.Source, own)
 	}
 
-	if _, err := in.factory.AuthorAllowedPredicateKinds(ctx, owner, []string{"status", "field-present"}); err != nil {
+	authored := []string{string(gatepolicy.PredicateRange), string(gatepolicy.PredicateUnit)}
+	if _, err := in.factory.AuthorAllowedPredicateKinds(ctx, owner, authored); err != nil {
 		t.Fatalf("AuthorAllowedPredicateKinds: %v", err)
 	}
 	if _, _, err := in.factory.AddSafeguard(ctx, owner, gatepolicy.AllowedPredicateKinds,
-		safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: in.settings.ID}, safeguard.Bound{List: []string{"schema", "status"}}, safeguard.Routing{}); err != nil {
+		safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: in.settings.ID},
+		safeguard.Bound{List: []string{string(gatepolicy.PredicateSentRange)}}, safeguard.Routing{}); err != nil {
 		t.Fatalf("AddSafeguard: %v", err)
 	}
 
@@ -42,12 +45,42 @@ func TestTheAllowedKindsAreTheOneListAndASafeguardMayOnlyExtendIt(t *testing.T) 
 		t.Fatalf("All: %v", err)
 	}
 	allowed = effectiveOf(t, all, gatepolicy.AllowedPredicateKinds)
-	want := append([]string{"field-present", "schema", "status"}, own...)
-	slices.Sort(want)
-	if !slices.Equal(allowed.List, want) {
-		t.Errorf("the allowed reads %v, want the union %v", allowed.List, want)
+	if !slices.Equal(allowed.List, own) {
+		t.Errorf("the allowed reads %v, want the union %v", allowed.List, own)
 	}
-	if !allowed.Clamped || allowed.Source != policy.FromAuthored {
-		t.Errorf("the allowed reads clamped %v from %s", allowed.Clamped, allowed.Source)
+	if allowed.Source != policy.FromAuthored {
+		t.Errorf("the allowed reads from %s, want the authored value", allowed.Source)
+	}
+}
+
+// TestAKindNothingCanDecideNeverReachesTheList is
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md's
+// "a predicate decidable against one observed exchange, which is a floor no
+// safeguard goes below": the floor is held where the list is widened and not
+// where a consumer contract is derived, so a name this factory has no decider
+// for is refused at the write — by an owner authoring it and by a safeguard
+// adding it alike — and the list in force never holds one.
+func TestAKindNothingCanDecideNeverReachesTheList(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	_, err := in.factory.AuthorAllowedPredicateKinds(ctx, owner,
+		[]string{string(gatepolicy.PredicateRead), "schema"})
+	if !errors.Is(err, gatepolicy.ErrPredicateKindUnknown) {
+		t.Errorf("authoring a kind nothing decides = %v, want ErrPredicateKindUnknown", err)
+	}
+	_, _, err = in.factory.AddSafeguard(ctx, owner, gatepolicy.AllowedPredicateKinds,
+		safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: in.settings.ID},
+		safeguard.Bound{List: []string{"schema"}}, safeguard.Routing{})
+	if !errors.Is(err, gatepolicy.ErrPredicateKindUnknown) {
+		t.Errorf("a safeguard adding a kind nothing decides = %v, want ErrPredicateKindUnknown", err)
+	}
+
+	all, err := in.reader.All(ctx, in.subjects("merge_to_master"))
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	allowed := effectiveOf(t, all, gatepolicy.AllowedPredicateKinds)
+	if slices.Contains(allowed.List, "schema") {
+		t.Errorf("the list in force holds a kind nothing can decide: %v", allowed.List)
 	}
 }

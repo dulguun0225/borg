@@ -31,7 +31,7 @@ func TestWorkReordersAQueueByPriority(t *testing.T) {
 		t.Fatalf("taking the intent in: %v", err)
 	}
 	it, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor,
-		item.New{IntentID: in.ID, ServiceID: svc.ID, Branch: "item/a"}, "", "", nil)
+		item.New{IntentID: in.ID, ServiceID: svc.ID, Branch: "item/a", RequirementsAnswered: oneRequirement}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}

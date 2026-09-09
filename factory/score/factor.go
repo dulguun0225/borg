@@ -82,7 +82,10 @@ type Factor struct {
 //
 // The reader is a field of the table rather than a name looked up somewhere
 // else, so a factor cannot be published without something computing it and the
-// compiler is what says so.
+// compiler is what says so. It is handed the version the firing is being
+// assessed under and never the one the score was composed with: a gate an
+// authored threshold binds decides under the version in force at its own scope,
+// which is not always the newest.
 type definition struct {
 	name  string
 	group Group
@@ -90,7 +93,7 @@ type definition struct {
 	// reads is what the factor is computed from, in the words the factor set
 	// the version publishes uses and a human reading the vector sees.
 	reads string
-	read  func(*Score, context.Context, Change) (reading, error)
+	read  func(*Score, context.Context, Version, Change) (reading, error)
 }
 
 // The factors of the four groups, named once so that a factor set names a
@@ -119,7 +122,7 @@ var (
 	contextProtectionWithdrawn = definition{"context.protection_withdrawn", GroupContext, TermImpact,
 		"whether the version under decision withdraws a criterion whose provenance names an authority, or admits a transition a human-confirmed screen state machine forbade", (*Score).protectionWithdrawn}
 	fleetShare = definition{"fleet.share_working_from_it", GroupChange, TermImpact,
-		"the share of the factory working from the version in force this one replaces", (*Score).fleetShare}
+		"the share of the factory that works from this version", (*Score).fleetShare}
 	fleetDeparture = definition{"fleet.departure", GroupChange, TermLikelihood,
 		"how far this version differs from the version in force", (*Score).fleetDeparture}
 	fleetReversibility = definition{"fleet.reversibility", GroupChange, TermReversibility,

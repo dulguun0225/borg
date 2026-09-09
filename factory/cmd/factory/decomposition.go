@@ -9,6 +9,7 @@ import (
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
@@ -51,14 +52,21 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 	requirements []agent.Requirement) ([]*candidate, error) {
 	d := p.d
 
-	// The area's own project, read once: an item's area and its service agree
-	// by construction, which [item.Decomposition.Create] enforces by comparing
-	// the two. Where the run names no area there is nothing to compare.
+	// The chain of areas covering the work and the project it ends at, read
+	// once: walking the chain is package area's, and which of them the item
+	// names is [item.Decomposition.Create]'s — the narrowest, which is the
+	// head. An item's area and its service agree by construction, which the
+	// same call enforces by comparing the two projects, and where the run names
+	// no area there is no chain and nothing to compare.
 	areaProjectID := ""
+	var areaChain []string
 	if p.areaID != "" {
-		_, projectID, err := area.Chain(ctx, d.pool, p.areaID)
+		chain, projectID, err := area.Chain(ctx, d.pool, p.areaID)
 		if err != nil {
 			return nil, err
+		}
+		for _, one := range chain {
+			areaChain = append(areaChain, one.ID)
 		}
 		areaProjectID = projectID
 	}
@@ -70,25 +78,6 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 		if err != nil {
 			return nil, err
 		}
-		if !existing {
-			repo, err := d.repoOf(name)
-			if err != nil {
-				return nil, err
-			}
-			svc, err = service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor, name, repo, p.projectID)
-			if err != nil {
-				return nil, err
-			}
-		}
-		svc, err = p.runsOnProduction(ctx, svc)
-		if err != nil {
-			return nil, err
-		}
-		svc, err = p.provisioned(ctx, svc)
-		if err != nil {
-			return nil, err
-		}
-		p.keepService(svc)
 
 		var waitsOn []string
 		if previous != "" {
@@ -121,17 +110,94 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 		if n > 0 {
 			branch = "item/" + in.ID + "/" + name
 		}
-		it, err := p.decomposition.Create(ctx, decompositionActor, item.New{
-			ID:                   itemID,
-			IntentID:             in.ID,
-			ServiceID:            svc.ID,
-			AreaID:               p.areaID,
-			Branch:               branch,
-			WaitsOn:              waitsOn,
-			RequirementsAnswered: answered,
-		}, areaProjectID, svc.ProjectID, nil)
-		if err != nil {
-			return nil, err
+		var it item.Item
+		if existing {
+			// An environment per candidate is the shape the design admits and
+			// nothing else, so a service whose project's production environment
+			// declares a platform that cannot compose one on demand is refused
+			// here, at decomposition, before an item is written for it — not
+			// only where that record was created.
+			if err := environment.RefuseUnlessComposable(ctx, d.pool, svc.ProjectID); err != nil {
+				return nil, err
+			}
+			svc, err = p.runsOnProduction(ctx, svc)
+			if err != nil {
+				return nil, err
+			}
+			svc, err = p.provisioned(ctx, svc)
+			if err != nil {
+				return nil, err
+			}
+			p.keepService(svc)
+			it, err = p.decomposition.Create(ctx, decompositionActor, item.New{
+				ID:                   itemID,
+				IntentID:             in.ID,
+				ServiceID:            svc.ID,
+				AreaChain:            areaChain,
+				Branch:               branch,
+				WaitsOn:              waitsOn,
+				RequirementsAnswered: answered,
+			}, areaProjectID, svc.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// A service the work changes may not exist yet, and the record has
+			// to exist for the item's only outbound link — its service id — to
+			// point at anything, so the two are one write: the service record
+			// commits with the item that names it or not at all, which only a
+			// transaction shared between the two writers can make true.
+			repo, err := d.repoOf(name)
+			if err != nil {
+				return nil, err
+			}
+			tx, err := d.pool.Begin(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("decomposition: beginning the creation of service %q: %w", name, err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+
+			svc, err = service.NewWriter(d.pool, d.token).CreateIn(ctx, tx, decompositionActor, name, repo, p.projectID)
+			if err != nil {
+				return nil, err
+			}
+			// The check is over the project and not the service just created on
+			// tx, so it is read through the pool rather than the transaction: a
+			// service whose project's production environment declares a platform
+			// that cannot compose one on demand is refused here too, and refusing
+			// rolls the service creation back with it.
+			if err := environment.RefuseUnlessComposable(ctx, d.pool, svc.ProjectID); err != nil {
+				return nil, err
+			}
+			it, err = p.decomposition.CreateTx(ctx, tx, decompositionActor, item.New{
+				ID:                   itemID,
+				IntentID:             in.ID,
+				ServiceID:            svc.ID,
+				AreaChain:            areaChain,
+				Branch:               branch,
+				WaitsOn:              waitsOn,
+				RequirementsAnswered: answered,
+			}, areaProjectID, svc.ProjectID, holds)
+			if err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, fmt.Errorf("decomposition: committing service %q with item %s: %w", name, it.ID, err)
+			}
+
+			// runsOnProduction and provisioned each write through the pool by the
+			// service's id, so they read a row that has to be committed already —
+			// unlike the check above, which reads the project and needed nothing
+			// of this write to have landed.
+			svc, err = p.runsOnProduction(ctx, svc)
+			if err != nil {
+				return nil, err
+			}
+			svc, err = p.provisioned(ctx, svc)
+			if err != nil {
+				return nil, err
+			}
+			p.keepService(svc)
 		}
 		c := &candidate{
 			intentID:       in.ID,
@@ -230,18 +296,51 @@ func (p *path) decompositionGate(ctx context.Context, in intent.Intent, set *dec
 	for _, c := range candidates {
 		answered = append(answered, c.requirementIDs...)
 	}
+	derived := make(map[string]bool, len(inForce))
+	for _, r := range inForce {
+		if r.Kind == intent.KindDerived {
+			derived[r.ID] = true
+		}
+	}
 	members := make([]gate.SetMember, 0, len(candidates))
 	for _, c := range candidates {
+		var shares []string
+		for _, id := range c.requirementIDs {
+			if derived[id] {
+				shares = append(shares, id)
+			}
+		}
 		members = append(members, gate.SetMember{
 			ItemID: c.itemID, ServiceID: c.svc.ID, AreaID: p.areaID,
 			// How many of the intent's requirements this item answers, which
 			// is what the change group is computed from at this row: there is
 			// no build and no diff, so the set's own size is the reading.
 			Requirements: len(c.requirementIDs),
-			WaitsOn:      c.waitsOn,
+			// The shares the split wrote for this item, which are part of the
+			// set this row decides beside what waits on what.
+			DerivedRequirements: shares,
+			WaitsOn:             c.waitsOn,
 		})
 	}
 	check, incomplete, rejects := setRejection(inForce, answered, members)
+	// The order the set declares, checked as mechanically as what it answers:
+	// two items each holding a deploy gate on the other is a wait nothing
+	// lifts, and a wrong order comes back as feedback rather than as a stage
+	// that could not write. It is reported after the completeness checks, in
+	// the order [gate.DecompositionChecks] lists them.
+	//
+	// The holds are read again here rather than carried from decomposeItems'
+	// own per-item reads: this is the one read of them decompositionGate
+	// makes, over the set as a whole rather than per item, and it is what lets
+	// [gate.SetCycleRejection] see the same rollback holds the write's own
+	// check does.
+	if !rejects {
+		holds, err := p.rollbackHolds(ctx)
+		if err != nil {
+			return false, err
+		}
+		check, incomplete, rejects = gate.SetCycleRejection(members, holds)
+	}
 
 	opened, err := p.gate.FireSet(ctx, gate.SetFiring{
 		IntentID: in.ID, EnvironmentID: p.production.ID, Members: members,
@@ -345,16 +444,26 @@ func (p *path) decompositionOutcome(ctx context.Context, in intent.Intent, set *
 	if err != nil {
 		return err
 	}
-	if reDecompositions > limit {
-		if _, err := p.intake.Escalate(ctx, decompositionActor, in.ID, limit); err != nil {
-			return err
-		}
-		fmt.Fprintf(p.d.out, "  re-decomposition %d exceeds the limit of %d; intent %s is escalated\n", reDecompositions, limit, in.ID)
+	// The count is compared against the limit by the gate, which is where an
+	// item's own per-stage count is compared too: over it the intent is
+	// escalated and every pending row of it is abandoned naming the limit.
+	escalated, err := p.gate.EnforceDecompositionRounds(ctx, decompositionActor, in.ID, limit)
+	if err != nil {
+		return err
+	}
+	if escalated.Reached {
+		fmt.Fprintf(p.d.out, "  re-decomposition %d exceeds the limit of %d; intent %s is escalated\n",
+			escalated.Attempts, escalated.Limit, in.ID)
 		return nil
 	}
 	// Nothing here re-decomposes, so the Decomposition firing that stopped
-	// unmerged items closes with nothing having replaced them.
-	return p.intake.ClearReDecomposing(ctx, decompositionActor, in.ID)
+	// unmerged items closes with nothing having replaced them. Clearing the
+	// state is the intent leaving what stopped it, so the holds that state
+	// opened are re-matched from here.
+	if err := p.intake.ClearReDecomposing(ctx, decompositionActor, in.ID); err != nil {
+		return err
+	}
+	return p.intentLeftItsStop(ctx)
 }
 
 // intentAttemptLimit is the attempt limit in force for one of the two counts an

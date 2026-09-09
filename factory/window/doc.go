@@ -9,8 +9,9 @@
 // [Window.Comparisons], [Window.Boundary], [Worse], [Window.PastCap], and the
 // errors. opening.go is [OpenEvent] and how the per-quantity values and the
 // lists of names are stored. writer.go is [Writer] and [NewWriter]:
-// [Writer.Open] inserts, and [Writer.Close] writes exactly one exit with the
-// [Closing] it closed on and refuses a second. read.go is the reads. mark.go is
+// [Writer.Open] inserts, [Writer.Begin] records that an exit has started, and
+// [Writer.Close] writes exactly one exit with the [Closing] it closed on,
+// refuses a second, and refuses one at any exit other than the one begun. read.go is the reads. mark.go is
 // [Mark], [WriteMark], [Marked] and [Marks]. schema.go is [Table], [MarkTable],
 // the id prefixes, the format versions, and [DDL].
 //
@@ -44,7 +45,14 @@
 // window that never had the exit. [Window.MeasuresNothing] is the window a
 // service missing one of the four fields the deployer populates opens: it
 // records only that, and [ErrMeasuresNothingCarriesNoParameters] refuses one
-// that also names a parameter.
+// that also names a parameter. [Writer.Open] closes such a window timed out in
+// the same write, there being nothing for the cap to wait on, so it is never
+// read back open.
+//
+// [Window.ExitBegun] is the exit the health monitor started, written before the
+// first record that exit writes. The close is the exit's last step, so an exit a
+// stop interrupted between the two is finished at the exit that began rather
+// than decided again from a reading the steps already taken have changed.
 //
 // [Window.ClosedOn] is the read the window closed on — the four counts per
 // quantity and the same per target and operation — so an exit can be recomputed
@@ -71,8 +79,9 @@
 //
 // # Who may write what
 //
-// [Writer] is the health monitor and there is no other. It inserts a window and
-// closes it; nothing updates any other field and nothing deletes. [WriteMark] is
+// [Writer] is the health monitor and there is no other. It inserts a window,
+// records the exit that began on it, and closes it; nothing updates any other
+// field and nothing deletes. [WriteMark] is
 // Ops — it refuses an actor that is not a human, and so does the CHECK — and it
 // takes the caller's transaction because the same event ends the revert item
 // where the revert has not shipped. deploy_id, release_id, build_id, and
@@ -85,6 +94,9 @@
 // (C1980, C1981, C1982, C1983, C1984, C1985, C1986, C1987, C1989, C1990, C1994,
 // C1999, C2002, C2004, C2008, C2010, C2011, C2012, C2013, C2015, C2016, C2017,
 // C2018, C2019, C2021, C2022, C2025, C2027, C2029, C2038).
+//
+// The exit a stop interrupted being finished by the next evaluation, the close
+// being the exit's last step, is ../../end-goal/one-process.md (C2764).
 //
 // The window limit, the last known-good release, a rollback's target, and the
 // mark that a rollback was not caused by the release are
@@ -99,4 +111,11 @@
 //
 // The boundary the size, the confidence and the power resolve to is package
 // boundary.
+//
+// The window's cap bounding the whole rollout, and the window recording what
+// each target served, are
+// ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
+// (C0929, C0931); one window measuring the revert's several items is
+// ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md
+// (C1629).
 package window

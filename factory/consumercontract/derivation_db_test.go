@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/record"
@@ -25,7 +26,7 @@ func TestACouldNotDeriveIsARecordAndNotAnEmptyList(t *testing.T) {
 		Extractor: consumercontract.Extractor{Toolchain: "rust"},
 		Cause:     consumercontract.CauseNoExtractor,
 	}
-	version, derivation, written, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "no extractor covers this build", could, "")
+	version, derivation, written, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "no extractor covers this build", could, theManifest)
 	if err != nil {
 		t.Fatalf("SubmitConsumerContract for a build nobody can read: %v", err)
 	}
@@ -111,7 +112,7 @@ func TestADerivationRefusesWhatItCannotMean(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, record.NewID("it"), theConsumer, name, d, "")
+			_, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, record.NewID("it"), theConsumer, name, d, theManifest)
 			if !errors.Is(err, consumercontract.ErrDerivationIncomplete) {
 				t.Fatalf("%s = %v, want ErrDerivationIncomplete", name, err)
 			}
@@ -128,7 +129,7 @@ func TestAPartialRecordSaysWhatTheExtractorCouldNotFollow(t *testing.T) {
 	itemID := record.NewID("it")
 	partial := declared(draft("Health.Status", gatepolicy.PredicateRead, ""))
 	partial.Unfollowed = []string{"a read through reflection in main.go"}
-	if _, derivation, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "one construct it could not follow", partial, ""); err != nil || !derivation.Partial() {
+	if _, derivation, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "one construct it could not follow", partial, theManifest); err != nil || !derivation.Partial() {
 		t.Fatalf("SubmitConsumerContract = %v, and the record is partial: %v", err, derivation.Partial())
 	}
 	read, found, err := consumercontract.NewestDerivation(ctx, pool, itemID)
@@ -157,14 +158,16 @@ func TestDeriveAgainWritesBesideTheEarlierRecord(t *testing.T) {
 	ctx, pool, store := newStore(t)
 
 	itemID := record.NewID("it")
-	first, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "the first extractor", declared(draft("Health.Status", gatepolicy.PredicateRead, "")), "")
+	first, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "the first extractor", declared(draft("Health.Status", gatepolicy.PredicateRead, "")), theManifest)
 	if err != nil {
 		t.Fatalf("SubmitConsumerContract: %v", err)
 	}
 
-	// The install's first-start step is what calls this, and it is not built. What
-	// it does is write a second consumer contract version and derive again into
-	// it, in one transaction.
+	// The install's first-start step is the caller, and the path it takes is the
+	// artifact store's: one call writes the second consumer contract version and
+	// derives again into it. The version is nobody's — the extractor derived it —
+	// so it carries the release that shipped that extractor and the event that
+	// entered it, and it reads no manifest.
 	newer := consumercontract.Derived{
 		Extractor: consumercontract.Extractor{
 			Name: consumercontract.ExtractorName, Version: "2",
@@ -175,24 +178,43 @@ func TestDeriveAgainWritesBesideTheEarlierRecord(t *testing.T) {
 			draft("Health.Detail", gatepolicy.PredicateRead, ""),
 		},
 	}
-	second := record.NewID("art")
-	tx, err := pool.Begin(ctx)
+	second, derivation, written, err := store.DeriveConsumerContractAgain(ctx, artifact.FactoryStart,
+		itemID, theConsumer, "the build as the newer extractor reads it", newer, "factory/test+1")
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("DeriveConsumerContractAgain: %v", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	of := consumercontract.Of{ItemID: itemID, ServiceID: theConsumer, ArtifactID: second}
-	if _, _, err := consumercontract.DeriveAgain(ctx, tx, implementer, of, newer); err != nil {
-		t.Fatalf("DeriveAgain: %v", err)
+	if second.Version != 2 || second.Supersedes != first.ID {
+		t.Fatalf("the second version is %+v, want version 2 superseding %s", second, first.ID)
 	}
-	// The same extractor again would write a record saying what the record says.
-	same := newer
-	same.Extractor.Version = "2"
-	if _, _, err := consumercontract.DeriveAgain(ctx, tx, implementer, of, same); !errors.Is(err, consumercontract.ErrExtractorUnchanged) {
+	if second.Authorship != "" || second.Author != "" || second.EnteredBy != artifact.EnteredByUpgradeFirstStart {
+		t.Errorf("the version is authored by %q %q and entered by %q, want nobody and an upgrade's first start",
+			second.Authorship, second.Author, second.EnteredBy)
+	}
+	if second.ShippedBundleIdentity != "factory/test+1" || second.InputManifestID != "" {
+		t.Errorf("the version names bundle %q and manifest %q, want the release that shipped the extractor and no manifest",
+			second.ShippedBundleIdentity, second.InputManifestID)
+	}
+	if len(written) != 2 || derivation.ArtifactID != second.ID {
+		t.Fatalf("the derivation is %+v with %d predicates, want the second version's two", derivation, len(written))
+	}
+
+	// The same extractor again would write a record saying what the record says,
+	// and the version it would have been written on goes back with it.
+	if _, _, _, err := store.DeriveConsumerContractAgain(ctx, artifact.FactoryStart, itemID, theConsumer,
+		"the same extractor", newer, "factory/test+1"); !errors.Is(err, consumercontract.ErrExtractorUnchanged) {
 		t.Fatalf("deriving again with the same extractor = %v, want ErrExtractorUnchanged", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("Commit: %v", err)
+	head, found, err := artifact.NewestOfKind(ctx, pool, itemID, artifact.KindConsumerContract)
+	if err != nil || !found || head.ID != second.ID {
+		t.Fatalf("the newest version is %+v, %v, %v; want the refused derivation to have left %s standing",
+			head, found, err, second.ID)
+	}
+
+	// Only the factory's own start derives again: the call authors nothing, so
+	// the actor is the whole of who wrote the row.
+	if _, _, _, err := store.DeriveConsumerContractAgain(ctx, implementer, itemID, theConsumer,
+		"a component deriving on its own", newer, "factory/test+1"); !errors.Is(err, artifact.ErrNotTheFactorysStart) {
+		t.Errorf("deriving again as the implementation stage = %v, want ErrNotTheFactorysStart", err)
 	}
 
 	// The earlier record still stands, and the newest is the one in force.
@@ -203,8 +225,32 @@ func TestDeriveAgainWritesBesideTheEarlierRecord(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("NewestDerivation = found %v, %v", found, err)
 	}
-	if newest.Extractor.Version != "2" || newest.ArtifactID != second {
+	if newest.Extractor.Version != "2" || newest.ArtifactID != second.ID {
 		t.Fatalf("the derivation in force is %+v, want the newest extractor's", newest)
+	}
+}
+
+// TestTheExtractorPublishesItsConvention: a reader of the derivation sees the
+// convention the extractor applied, published with the extractor and read back
+// with the rest of the record.
+func TestTheExtractorPublishesItsConvention(t *testing.T) {
+	ctx, pool, store := newStore(t)
+
+	itemID := record.NewID("it")
+	_, derivation, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer,
+		"the convention travels with the record", declared(draft("Health.Status", gatepolicy.PredicateRead, "")), theManifest)
+	if err != nil {
+		t.Fatalf("SubmitConsumerContract: %v", err)
+	}
+	if derivation.Extractor.Convention == "" {
+		t.Fatal("the derivation names no convention, and a reader cannot see what the extractor applied")
+	}
+	read, found, err := consumercontract.NewestDerivation(ctx, pool, itemID)
+	if err != nil || !found {
+		t.Fatalf("NewestDerivation = found %v, %v", found, err)
+	}
+	if read.Extractor.Convention != consumercontract.GoConvention {
+		t.Fatalf("the convention reads back as %q, want %q", read.Extractor.Convention, consumercontract.GoConvention)
 	}
 }
 

@@ -120,4 +120,8 @@
 //
 // and a resolved factor and a factor the score cannot compute are
 // ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md.
+//
+// A forbidden transition rejected mechanically is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md
+// (C1138).
 package screenstatemachine

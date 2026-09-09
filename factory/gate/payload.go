@@ -21,6 +21,12 @@ type CriterionResult struct {
 	CriterionID string            `json:"criterion_id"`
 	Outcome     criterion.Outcome `json:"outcome"`
 	Unreliable  bool              `json:"unreliable,omitempty"`
+	// Place is which of the two places the encoding declared decides it: the
+	// build's own process, or the item's candidate environment. It is what the
+	// Implementation row rejects over — that row decides before any environment
+	// exists, so what it may read is what the build decided — and it is empty on
+	// a result whose caller did not say, which reads as the environment's.
+	Place criterion.Place `json:"place,omitempty"`
 }
 
 // OpeningPayload is what the open event says. It names the row, the records
@@ -53,8 +59,11 @@ type OpeningPayload struct {
 	ServiceID     string            `json:"service_id"`
 	AreaID        string            `json:"area_id"`
 	EnvironmentID string            `json:"environment_id"`
-	ReleaseID     string            `json:"release_id,omitempty"`
 	Criteria      []CriterionResult `json:"criteria"`
+	// CandidateRunEnded is whether the run on the item's candidate environment
+	// had ended when the merge row fired, which is what fired it beside the row
+	// above being approved. It is written at that row and nowhere else.
+	CandidateRunEnded bool `json:"candidate_run_ended,omitempty"`
 	// CriteriaInForce is how many criteria the build was decided against, and
 	// CriteriaFailed how many of them stopped it — an undecided criterion read
 	// the way a failure is, and one the service's unreliable bound marks
@@ -118,6 +127,12 @@ type OpeningPayload struct {
 	// in words, and is empty where it is missing none. A service missing one
 	// cannot auto-pass the production deploy row whatever the score computes.
 	Unmeasured string `json:"unmeasured,omitempty"`
+	// IrreversibleWithoutAControl is an irreversible area deploying to a
+	// platform that serves no share, where no control can be run beside the
+	// release. Such a deploy is a human's whatever the formula returns, and
+	// what that human accepts is an exposure the platform gives the factory no
+	// way to limit.
+	IrreversibleWithoutAControl bool `json:"irreversible_without_a_control,omitempty"`
 	// Supersedes is the open event an Edit in place superseded, and is empty on
 	// every other firing. The superseded row is ended by an abandonment.
 	Supersedes string `json:"supersedes,omitempty"`
@@ -171,6 +186,10 @@ type Opened struct {
 	// RevertWhileRollbackHolds is whether the item under decision is the revert
 	// of a rollback that has not shipped, carried from the firing that said so.
 	RevertWhileRollbackHolds bool
+	// IrreversibleWithoutAControl is an irreversible area's production deploy
+	// onto a platform that serves no share, which puts a human at the row
+	// whatever the formula returns.
+	IrreversibleWithoutAControl bool
 	// ArtifactID is the version under decision, and is empty at an event gate.
 	ArtifactID string
 	// Referrers is every holder who has referred this row.
@@ -227,7 +246,7 @@ func OpenedFrom(row decisionlog.Row) (Opened, error) {
 			Row: gateRow, RecordID: opening.RecordID, IntentID: opening.IntentID,
 			ItemID: opening.ItemID, BuildID: opening.BuildID,
 			ServiceID: opening.ServiceID, AreaID: opening.AreaID,
-			EnvironmentID: opening.EnvironmentID, ReleaseID: opening.ReleaseID,
+			EnvironmentID: opening.EnvironmentID,
 		},
 		Row: row,
 		Assessment: score.Assessment{
@@ -257,7 +276,9 @@ func OpenedFrom(row decisionlog.Row) (Opened, error) {
 		WaitsOn:                  opening.WaitsOn,
 		Mismatch:                 opening.Mismatch,
 		RevertWhileRollbackHolds: opening.RevertWhileRollbackHolds,
-		ArtifactID:               opening.ArtifactID,
-		Referrers:                opening.Referrers,
+
+		IrreversibleWithoutAControl: opening.IrreversibleWithoutAControl,
+		ArtifactID:                  opening.ArtifactID,
+		Referrers:                   opening.Referrers,
 	}, nil
 }

@@ -68,7 +68,9 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 
 	// A service missing one of the four fields the deployer populates opens a
 	// window that records only that it measures nothing, since what the field
-	// would have supplied is what a reading needs to exist at all.
+	// would have supplied is what a reading needs to exist at all. [window.Writer.Open]
+	// closes it timed out in the same write, there being nothing for the cap to
+	// wait on, so it is never read back open and Watch never sees one.
 	if missing := unmeasurable(svc); missing != "" {
 		opened, err := h.windows.Open(ctx, Actor, window.OpenEvent{
 			DeployID: deployID, ReleaseID: releaseID, BuildID: rel.BuildID, ServiceID: w.ID,
@@ -116,13 +118,10 @@ func (h *HealthMonitor) opening(ctx context.Context, w Watching, svc service.Ser
 		ReleaseID:           rel.ID,
 		BuildID:             rel.BuildID,
 		ServiceID:           w.ID,
-		Size:                map[gatepolicy.Quantity]float64{},
-		Power:               map[gatepolicy.Quantity]float64{},
 		Confidence:          parameters.Confidence.Number,
 		CapSeconds:          parameters.CapSeconds.Number,
 		BoundaryVersion:     boundary.Version,
 		Targets:             svc.Targets,
-		OwnHistorySize:      h.readings.OwnHistorySize,
 		OwnHistoryRunLength: h.readings.OwnHistoryRunLength,
 	}
 	if len(o.Targets) == 0 {
@@ -132,14 +131,14 @@ func (h *HealthMonitor) opening(ctx context.Context, w Watching, svc service.Ser
 		// until it does. doc.go says which caller is not built.
 		o.Targets = []string{dep.EnvironmentID}
 	}
-	for _, quantity := range gatepolicy.Quantities {
-		size := parameters.Size[quantity].Number
-		power := parameters.Power[quantity].Number
-		if size <= 0 || power <= 0 || power >= 1 {
-			continue
-		}
-		o.Size[quantity], o.Power[quantity] = size, power
-	}
+	// The fourth quantity is the count of times the software performed the
+	// operation an area graded irreversible names, and the health monitor sizes
+	// it for a service whose area names one and for no other. Carried on every
+	// window it would spend a quarter of every other service's allocation on a
+	// series that service never emits, which widens the boundary the other
+	// three are read against.
+	o.Size, o.Power = SizedQuantities(parameters, w.NamesAHazardousOperation)
+	o.OwnHistorySize = readAsWell(h.readings.OwnHistorySize, w.NamesAHazardousOperation)
 
 	previous, err := h.previousRead(ctx, w.ID)
 	if err != nil {
@@ -217,6 +216,47 @@ func (h *HealthMonitor) startControls(ctx context.Context, w Watching, opened wi
 		}
 	}
 	return nil
+}
+
+// SizedQuantities is which quantities a window's comparison carries a size and
+// a power for at the open: every quantity parameters carries a positive size
+// and a power strictly between zero and one for, and the fourth — the count of
+// times the software performed the operation an area graded irreversible names
+// — only where namesHazardous says the service's area chain names one. A store
+// that keeps no count for such a service is then an unavailable quantity at
+// the read, and never a reason to narrow the window to three.
+func SizedQuantities(parameters policyWindow, namesHazardous bool) (size, power map[gatepolicy.Quantity]float64) {
+	size, power = map[gatepolicy.Quantity]float64{}, map[gatepolicy.Quantity]float64{}
+	for _, quantity := range gatepolicy.Quantities {
+		if quantity == gatepolicy.QuantityHazardousOperation && !namesHazardous {
+			continue
+		}
+		s, p := parameters.Size[quantity].Number, parameters.Power[quantity].Number
+		if s <= 0 || p <= 0 || p >= 1 {
+			continue
+		}
+		size[quantity], power[quantity] = s, p
+	}
+	return size, power
+}
+
+// readAsWell is the sizes one reading is taken at with the fourth quantity
+// dropped where the service's area names no hazardous operation. The reading
+// against the service's own recent history is allocated over the quantities it
+// carries a size for, so a size for a series that service never emits costs
+// that reading the same allocation the comparison's does.
+func readAsWell(sizes map[gatepolicy.Quantity]float64, namesHazardous bool) map[gatepolicy.Quantity]float64 {
+	if namesHazardous || sizes == nil {
+		return sizes
+	}
+	read := make(map[gatepolicy.Quantity]float64, len(sizes))
+	for quantity, size := range sizes {
+		if quantity == gatepolicy.QuantityHazardousOperation {
+			continue
+		}
+		read[quantity] = size
+	}
+	return read
 }
 
 // unmeasurable is which of the four fields the deployer populates the service is

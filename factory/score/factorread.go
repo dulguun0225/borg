@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dulguun0225/borg/factory/area"
@@ -43,7 +44,7 @@ type reading struct {
 // which is the unit the item-size target is authored in. A proposed set is never
 // unavailable — the set exists and was read — which is what keeps the four rows
 // above a build from resolving on a diff that was never going to be there.
-func (s *Score) size(_ context.Context, c Change) (reading, error) {
+func (s *Score) size(_ context.Context, _ Version, c Change) (reading, error) {
 	m := c.Measurement
 	if m.FromProposedSet() {
 		return reading{
@@ -63,7 +64,7 @@ func (s *Score) size(_ context.Context, c Change) (reading, error) {
 // reach reads how much of the system the change can affect: the share of the
 // service's files the diff touches, or at Decomposition the services the
 // proposed set spans.
-func (s *Score) reach(_ context.Context, c Change) (reading, error) {
+func (s *Score) reach(_ context.Context, _ Version, c Change) (reading, error) {
 	m := c.Measurement
 	if m.FromProposedSet() {
 		return reading{
@@ -87,7 +88,7 @@ func (s *Score) reach(_ context.Context, c Change) (reading, error) {
 // churn reads what else has been changing in the item's area lately. This
 // item's own releases are left out: a change is not its own churn, and at the
 // production deploy row its release already exists.
-func (s *Score) churn(ctx context.Context, c Change) (reading, error) {
+func (s *Score) churn(ctx context.Context, _ Version, c Change) (reading, error) {
 	if c.AreaID == "" {
 		return reading{unavailable: "the item names no area, so nothing says what else has been changing around it"}, nil
 	}
@@ -116,8 +117,17 @@ func (s *Score) churn(ctx context.Context, c Change) (reading, error) {
 // factor rather than reading the diff as destroying nothing — the direction
 // every unavailable input takes, and the one that keeps a human at the gate a
 // failure would otherwise remove.
-func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
-	if c.AtImplementation && c.Measurement.DestroysStoredDataUnavailable != "" {
+//
+// The two halves bind at different rows. A diff that destroys stored data is
+// resolved at Implementation, which is where the diff is in front of the human
+// deciding. A diff the extractor could not read resolves wherever there is a
+// diff at all: it is an unavailable input and not a value the design resolves,
+// and an input nothing could read reads as nothing exactly where a human is
+// wanted. So it binds every row of the set with a build, and no row above one,
+// where the change group is computed from the set decomposition proposed and
+// there is no diff to have failed to read.
+func (s *Score) reversibility(ctx context.Context, _ Version, c Change) (reading, error) {
+	if c.FactorSet == SetWithABuild && c.Measurement.DestroysStoredDataUnavailable != "" {
 		return reading{unavailable: c.Measurement.DestroysStoredDataUnavailable}, nil
 	}
 	if c.Measurement.DestroysStoredData && c.AtImplementation {
@@ -152,7 +162,7 @@ func (s *Score) reversibility(ctx context.Context, c Change) (reading, error) {
 // pick and every deploy there goes without a control, so an irreversible area's
 // deploy to production is a human's whatever the formula returns, and what that
 // human accepts is an exposure the platform gives the factory no way to limit.
-func (s *Score) hazardSeverity(ctx context.Context, c Change) (reading, error) {
+func (s *Score) hazardSeverity(ctx context.Context, _ Version, c Change) (reading, error) {
 	if c.AreaID == "" {
 		return reading{unavailable: "the item names no area, so nothing says what harm its software can do"}, nil
 	}
@@ -195,8 +205,11 @@ func hazardReading(grade area.Grade, c Change) reading {
 // intentSource reads where the intent this item answers came from. An intent
 // grouped from reports carries text the factory did not author and no gate has
 // admitted, so it resolves at Spec: that channel is the one way in the factory
-// cannot authenticate.
-func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
+// cannot authenticate. Every other source is asked the same seam before it
+// reads its own words, because an intent an owner typed or the factory raised
+// itself reads the same way once the grouper has since grouped a report into
+// it: it now carries the same untrusted text, whatever raised it first.
+func (s *Score) intentSource(ctx context.Context, _ Version, c Change) (reading, error) {
 	it, err := item.Get(ctx, s.pool, c.ItemID)
 	if err != nil {
 		return reading{unavailable: fmt.Sprintf("the item could not be read, so nothing says where its intent came from: %v", err)}, nil
@@ -208,21 +221,35 @@ func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
 	if err != nil {
 		return reading{unavailable: fmt.Sprintf("the intent could not be read: %v", err)}, nil
 	}
-	switch in.Source {
-	case intent.SourceReports:
-		if !c.AtSpec {
-			return reading{level: 1.0, words: "the intent was grouped from reports"}, nil
-		}
-		return reading{
-			resolved: "the intent was grouped from reports, whose text the factory did not author and no gate has admitted, so a human decides at Spec",
-			cause:    CauseReportSourcedIntent,
-			words:    "the intent was grouped from reports",
-		}, nil
-	case intent.SourceDetector:
-		return reading{level: 0.4, words: "the factory raised this intent itself"}, nil
-	default:
-		return reading{level: 0.2, words: "an owner typed this request"}, nil
+	if in.Source == intent.SourceReports {
+		return sourceUntrusted(c, "the intent was grouped from reports")
 	}
+	group, err := s.groupedReports.Grouped(ctx, it.IntentID)
+	if err != nil {
+		return reading{unavailable: fmt.Sprintf("whether reports were grouped into this intent could not be read: %v", err)}, nil
+	}
+	if group.Reports > 0 {
+		return sourceUntrusted(c, fmt.Sprintf("%d report(s) grouped into this intent carry text the factory did not author", group.Reports))
+	}
+	if in.Source == intent.SourceDetector {
+		return reading{level: 0.4, words: "the factory raised this intent itself"}, nil
+	}
+	return reading{level: 0.2, words: "an owner typed this request"}, nil
+}
+
+// sourceUntrusted is the reading an intent carrying text the factory did not
+// author takes: a level away from Spec and a resolution at it, whatever
+// raised the intent this way — its own source, or a report the grouper has
+// since grouped into it.
+func sourceUntrusted(c Change, words string) (reading, error) {
+	if !c.AtSpec {
+		return reading{level: 1.0, words: words}, nil
+	}
+	return reading{
+		resolved: "the intent carries text the factory did not author and no gate has admitted, so a human decides at Spec",
+		cause:    CauseReportSourcedIntent,
+		words:    words,
+	}, nil
 }
 
 // harmMarkedReport reads the one field a reporter sets beside the kind:
@@ -240,7 +267,7 @@ func (s *Score) intentSource(ctx context.Context, c Change) (reading, error) {
 // Away from Spec it is a level and not a resolution, the way the source is, and
 // an intent no report raised reads as nothing marked rather than as a factor
 // that could not be computed: no report is not an unreadable report.
-func (s *Score) harmMarkedReport(ctx context.Context, c Change) (reading, error) {
+func (s *Score) harmMarkedReport(ctx context.Context, _ Version, c Change) (reading, error) {
 	it, err := item.Get(ctx, s.pool, c.ItemID)
 	if err != nil {
 		return reading{unavailable: fmt.Sprintf("the item could not be read, so nothing says whether a report of its intent marks harm: %v", err)}, nil
@@ -248,11 +275,11 @@ func (s *Score) harmMarkedReport(ctx context.Context, c Change) (reading, error)
 	if it.IntentID == "" {
 		return reading{level: 0, words: "the item names no intent, so no report of one marks harm"}, nil
 	}
-	marked, err := s.harmMarks.Marked(ctx, it.IntentID)
+	group, err := s.groupedReports.Grouped(ctx, it.IntentID)
 	if err != nil {
 		return reading{unavailable: fmt.Sprintf("whether a report of this intent marks harm could not be read: %v", err)}, nil
 	}
-	if !marked {
+	if len(group.Marked) == 0 {
 		return reading{level: 0, words: "no report grouped into this intent marks harm"}, nil
 	}
 	if !c.AtSpec {
@@ -261,7 +288,8 @@ func (s *Score) harmMarkedReport(ctx context.Context, c Change) (reading, error)
 	return reading{
 		resolved: "a report grouped into this intent says a person is being harmed by the software, which is the reporter's own field, so a human decides at Spec",
 		cause:    CauseHarmMarkedReport,
-		words:    "a report grouped into this intent marks harm",
+		// Which one is marked, so the human deciding sees which report to read.
+		words: fmt.Sprintf("reports %s grouped into this intent mark harm", strings.Join(group.Marked, ", ")),
 	}, nil
 }
 
@@ -284,7 +312,7 @@ func (s *Score) harmMarkedReport(ctx context.Context, c Change) (reading, error)
 // and the vector names the screen and the constructs that defeated the
 // analysis. Which factor carries that reading is this package's and not the
 // design's, and doc.go says so.
-func (s *Score) protectionWithdrawn(ctx context.Context, c Change) (reading, error) {
+func (s *Score) protectionWithdrawn(ctx context.Context, _ Version, c Change) (reading, error) {
 	if c.AtImplementation && len(c.ScreensNotDerived) > 0 {
 		return reading{
 			unavailable: "the transition check could not derive " +
@@ -344,7 +372,16 @@ func (s *Score) protectionWithdrawn(ctx context.Context, c Change) (reading, err
 // could-not-derive record anywhere in the install resolves this factor for every
 // candidate whose service publishes a contract, and the resolution names the
 // consumer nobody could read.
-func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
+//
+// A firing naming no service — [SetRolePromptOrSkill]'s row, which belongs to
+// no item and no service — resolves too, score.go's own doc.go saying so: the
+// factors that would have read them resolve the way an unavailable factor
+// always does, and a level of nothing is a value this package computed, not
+// the absence a blank service already is above that one set.
+func (s *Score) consumers(ctx context.Context, _ Version, c Change) (reading, error) {
+	if c.ServiceID == "" {
+		return reading{unavailable: "the firing names no service, so what it publishes and what consumes it are unknown"}, nil
+	}
 	published, err := contract.OfService(ctx, s.pool, c.ServiceID)
 	if err != nil {
 		return reading{}, err
@@ -402,7 +439,7 @@ func (s *Score) consumers(ctx context.Context, c Change) (reading, error) {
 // told. The two readings are the caller's: the fleet's records are that row's
 // own, and no component writes one yet, so a factory that fires this row without
 // them resolves both rather than reading them as nothing.
-func (s *Score) fleetShare(_ context.Context, c Change) (reading, error) {
+func (s *Score) fleetShare(_ context.Context, _ Version, c Change) (reading, error) {
 	if c.Fleet.Unavailable != "" {
 		return reading{unavailable: c.Fleet.Unavailable}, nil
 	}
@@ -411,11 +448,11 @@ func (s *Score) fleetShare(_ context.Context, c Change) (reading, error) {
 	}
 	return reading{
 		level: c.Fleet.ShareWorkingFromIt,
-		words: fmt.Sprintf("%.0f%% of the factory works from the version this one replaces", c.Fleet.ShareWorkingFromIt*100),
+		words: fmt.Sprintf("%.0f%% of the factory would work from this version", c.Fleet.ShareWorkingFromIt*100),
 	}, nil
 }
 
-func (s *Score) fleetDeparture(_ context.Context, c Change) (reading, error) {
+func (s *Score) fleetDeparture(_ context.Context, _ Version, c Change) (reading, error) {
 	if c.Fleet.Unavailable != "" {
 		return reading{unavailable: c.Fleet.Unavailable}, nil
 	}
@@ -430,9 +467,9 @@ func (s *Score) fleetDeparture(_ context.Context, c Change) (reading, error) {
 
 // fleetUnread is why both fleet readings resolve where nothing read the fleet's
 // records: no component writes one yet, and a share of nothing is not a reading.
-const fleetUnread = "nothing read the fleet's records for this firing, so what works from the version this one replaces and how far it departs are unknown"
+const fleetUnread = "nothing read the fleet's records for this firing, so what would work from this version and how far it departs from the one in force are unknown"
 
-func (s *Score) fleetReversibility(_ context.Context, _ Change) (reading, error) {
+func (s *Score) fleetReversibility(_ context.Context, _ Version, _ Change) (reading, error) {
 	return reading{
 		level: 0.3,
 		words: "withdrawal is a second record and nothing was deployed, so every version of what an agent is told is reversible",

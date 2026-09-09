@@ -16,30 +16,39 @@
 // is what a channel does and [Delivery] is what it is handed — the recipient by
 // per-person key, never a name; it is an interface its caller implements, because
 // what mail is on a self-hosted install is the owner's arrangement and not the
-// factory's. [Wait.RollbackOutstanding] is which of the two kinds a wait is —
+// factory's. [Wait.Person] is the named human a wait routes to ahead of
+// [Wait.Holding] — the requester of an intent a wait on it names, the human
+// who lent a credential a ceiling wait is about, and a named human a row
+// belongs to where it belongs to no duty — and is the raiser's own answer,
+// left empty where the raiser has no such fact; [Notifier.routeTo] reaches it
+// first. [Wait.RollbackOutstanding] is which of the two kinds a wait is —
 // production serving a release the health monitor called for a rollback on,
 // with the rollback not run, is the first kind and pages at any hour — and it
 // is the caller's answer the way [Wait.Worse] is: package healthmonitor sets it
 // on the page a failed exit with no rollback fires, and the command-line
 // interface answers it for the waits it creates. hours.go is
 // [Notifier.deferredToHours] and [withinHours], a wait of the second kind held
-// to a service's own authored paging hours rather than paging at any hour, and
-// [Notifier.PageDeferred] with [Notifier.deferredDeliveries] and
-// [Notifier.endedRows], the pass that delivers such a page at the next hour the
-// service allows — taking the drift detector's store, since a mismatch cleared
-// there is a row that stopped waiting and the log says so about every other.
+// to a service's own authored paging hours rather than paging at any hour,
+// computing [Wait.PageAt] — the next instant the hours allow, [nextAllowedHour] —
+// once at the deferral, and [Notifier.PageDeferred] with
+// [Notifier.deferredDeliveries] and [Notifier.endedRows], the pass that
+// delivers such a page once that instant has passed rather than reading the
+// hours again at every pass — taking the drift detector's store, since a
+// mismatch cleared there is a row that stopped waiting and the log says so
+// about every other.
 //
 // notifier.go is [Notifier] and [New], composed with the log, a fencing token, a
 // [Deliverer], and the owner's identifier — the owner is composed in rather than
 // read from the [people] declaration, because the design gives the owner no
 // record. [New] also builds the [decisionlog.Reader] the notifier reads back
 // through, fenced with the same token. All three channels route the same way, on
-// that declaration by the duty or obligation the wait belongs to or by the owner
-// where it belongs to neither, so routing is implemented once rather than beside
-// each thing that waits. [Notifier.Notify] writes one reached row per holder of
+// [Wait.Person] where the raiser named one, otherwise on the declaration by the
+// duty or obligation the wait belongs to, or by the owner where it belongs to
+// neither, so routing is implemented once rather than beside each thing that
+// waits. [Notifier.Notify] writes one reached row per holder of
 // the duty, under [PageEventFormatVersion], and a [DeliveryRecord] per channel per
-// holder even where the channel writes nothing else — the recipient being part of
-// that record's key, so two holders of one duty are two records and not one — and a
+// holder even where the channel writes nothing else — flattened, at the read, out
+// of the one record [DeliveryRowTable] keeps per waiting row — and a
 // channel that refuses the send is recorded and does not stop the channels after
 // it, the page being last and the one channel that carries what the other two
 // cannot; [Notifier.Widen] writes one
@@ -48,18 +57,30 @@
 // the fourth event, stopping only the widening, under the kind the page it
 // acknowledges was reached under and writing nothing where the row pages
 // nobody; and [Notifier.Answered] is called
-// by whatever ends the wait, at the same write it ends it with. [Payload] of
+// by whatever ends the wait, at the same write it ends it with. Neither
+// [Notifier.Acknowledge] nor [Notifier.Answered] reaches the [Deliverer]:
+// both are an act the product already recorded rather than a delivery, and
+// [Notifier.appendPageEvent] is the one write either makes, shared with
+// [Notifier.deliver]'s own append once a send on the page channel is
+// accepted. [Payload] of
 // [PageEventKind] is a page event's shape and [Notifier.EventsFor] reads them
 // back, appending a read event naming [Actor] as the principal. delivery.go is
-// [DeliveryTable], [DeliveryDDL], [DeliveryRecord], and the upsert beneath every
+// [DeliveryRowTable], [DeliveryDDL], [DeliveryAttempt], [DeliveryRecord], and the
+// upsert beneath every
 // call to [Notifier.Notify], [Notifier.Widen], [Notifier.Acknowledge] and
-// [Notifier.Answered] — one row per waiting row, channel and recipient,
-// overwritten at each attempt except for [DeliveryRecord.FirstAcceptedAt],
+// [Notifier.Answered] — one record per waiting row, carrying every channel and
+// recipient's own attempt inside it, overwritten at each attempt except for
+// [DeliveryRecord.FirstAcceptedAt],
 // which is set once, on the attempt the transport first accepts, and left as
 // it is on every attempt after — [Notifier.deliveredRows], which rows
 // anything has gone out about, [PagedRowsSince], the count the harm mark's
 // cap is read against, and [DeliveriesOf], every delivery record of one row
-// on every channel and to every recipient, in the order they were written.
+// on every channel and to every recipient, in the order they were written,
+// flattening the one stored record back into one per attempt. [DeliveryTable]
+// is the table an earlier form of this package kept one row per waiting row,
+// channel and recipient in; its DDL stays declared and applied, since a
+// removal is not a change [postgres.Changes] can declare yet, and nothing
+// here writes it any longer.
 // harmmark.go is [harmMarkPagesOff], the off switch on the
 // factory-wide settings record, and [Notifier.overHarmMarkCap] with
 // [Notifier.pageOverTheCap]: past a service's cap the marked intent's own page
@@ -67,10 +88,11 @@
 // naming the service and how many marked intents arrived past the cap.
 // resume.go is [Notifier.Resume], this component's restart: the delivery
 // record it overwrites per row the log still holds open, so a row still
-// waiting is delivered again and one that stopped waiting is not. A row with
-// no page event carries nothing to rebuild the wait from and is left waiting,
-// which is a wait of a kind that pages never — the delivery record alone does
-// not say what it was waiting for.
+// waiting is delivered again and one that stopped waiting is not. The wait
+// each row is delivered again as is rebuilt from the delivery record itself —
+// [deliveryRowStored.wait] — and never from the page events, which is what
+// lets a kind that pages never, and carries no page event at all, be
+// delivered again too.
 // driftpass.go is [Notifier.SweepDriftDetector] — the notifier reading the drift
 // detector's store itself, since that store calls nothing, widening a mismatch
 // nobody has acknowledged and going on to the next one where a human has, with
@@ -84,8 +106,9 @@
 // its own time; and [Notifier.RecordOwnLastCheck], the notifier's own last check
 // beside the health monitor's and the deployer's.
 //
-// Who may write what: this package owns [DeliveryTable], one row per row it
-// delivers and channel. It appends page events into the decision log through
+// Who may write what: this package owns [DeliveryRowTable], one row per row
+// it delivers, and [DeliveryTable], declared and applied but no longer
+// written. It appends page events into the decision log through
 // [decisionlog.Writer], writes its own last check through [lastcheck.Writer],
 // reads the [people] declaration for routing and the drift detector's own store
 // for the one wait it has no other caller for, and writes nowhere else.
@@ -103,4 +126,20 @@
 // narrow one, is
 // ../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md
 // (C2692, C2694).
+//
+// Routing to the requester or the holder, and an unheld question widening to
+// the owner, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
+// (C0590, C0600); a holderless wait widening to the owner is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0729); routing a row on the People declaration is
+// ../../end-goal/how-the-factory-works/10-fleet/09-what-the-fleet-is-not.md
+// (C2554).
+//
+// One page per mismatch, routed to the installer's obligation, is
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md
+// (C2178); pages routing on the duties the declaration holds are
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2655); and [Notifier.Resume] overwriting the delivery per waiting row is
+// ../../end-goal/one-process.md (C2765).
 package notifier

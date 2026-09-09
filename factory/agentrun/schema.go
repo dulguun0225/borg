@@ -39,6 +39,12 @@ const FormatVersion = "agent_run/1"
 // which kinds exist is the provider's and not a list the factory may fix. A
 // column per kind would be a schema edit per provider.
 //
+// processing_location, lender_key and account_kind are required, and the
+// account kind is one of the two the design names: a run reads the processing
+// location off the fleet entry it matched and the other two off the People
+// declaration at the run, so a run that recorded none of them would be a run
+// whose account and processing location no later reading can name.
+//
 // converted_amount is numeric and nullable: it is absent where a kind the run
 // returned has no rate, which is what makes a credential under a spend ceiling
 // fail closed rather than sum an amount that is not there. The currency is the
@@ -78,7 +84,9 @@ var DDL = []string{
 	constraint role_present check (role <> ''),
 	constraint model_version_present check (model_version <> ''),
 	constraint credential_name_present check (credential_name <> ''),
-	constraint account_kind_known check (account_kind in ('', 'person', 'organisation')),
+	constraint processing_location_present check (processing_location <> ''),
+	constraint lender_key_present check (lender_key <> ''),
+	constraint account_kind_known check (account_kind in ('person', 'organisation')),
 	constraint served_names_something check (item_id <> '' or intent_id <> '' or project_id <> ''),
 	constraint stage_only_with_an_item check (stage = '' or item_id <> ''),
 	constraint units_at_is_time_layout check (units_at ~ '` + record.TimePattern + `'),

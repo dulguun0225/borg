@@ -62,6 +62,11 @@ var (
 	// ErrMaterialClassDuplicate is returned for an entry naming the same
 	// class twice.
 	ErrMaterialClassDuplicate = errors.New("fleetentry: an entry names a material class twice")
+	// ErrOperationDuplicate is returned for an entry naming the same operation
+	// twice. Which operations a role carries is package dispatch's vocabulary,
+	// which this package cannot import without a cycle, so an operation no role
+	// carries is refused there and a repeat is refused here.
+	ErrOperationDuplicate = errors.New("fleetentry: an entry names an operation twice")
 	// ErrNotFound is returned where no entry has the id asked for.
 	ErrNotFound = errors.New("fleetentry: no entry has that id")
 	// ErrAlreadyWithdrawn is returned by [Writer.Withdraw] for an entry
@@ -84,16 +89,21 @@ type Scope struct {
 // it reads at once, and how many dispatches pass between evaluation-set
 // runs.
 type Entry struct {
-	ID                              string
-	Actor                           record.Actor
-	At                              string
-	ModelVersion                    string
-	Effort                          string
-	Role                            string
-	Scope                           Scope
-	CredentialName                  string
-	ProcessingLocation              string
-	MaterialClasses                 []string
+	ID                 string
+	Actor              record.Actor
+	At                 string
+	ModelVersion       string
+	Effort             string
+	Role               string
+	Scope              Scope
+	CredentialName     string
+	ProcessingLocation string
+	MaterialClasses    []string
+	// Operations is the owner's narrowing of the list the role carries, and is
+	// empty where the entry narrows nothing — which is the role's whole list.
+	// The operations belong to the role: this holds what an owner left out of
+	// it and never a list of its own.
+	Operations                      []string
 	ReadsAtOnce                     int64
 	DispatchesBetweenEvaluationRuns int64
 	WithdrawnAt                     string
@@ -112,6 +122,7 @@ type New struct {
 	CredentialName                  string
 	ProcessingLocation              string
 	MaterialClasses                 []string
+	Operations                      []string
 	ReadsAtOnce                     int64
 	DispatchesBetweenEvaluationRuns int64
 }
@@ -154,6 +165,9 @@ func (w *Writer) Write(ctx context.Context, actor record.Actor, n New) (Entry, e
 	if err := validateMaterialClasses(n.MaterialClasses); err != nil {
 		return Entry{}, err
 	}
+	if err := validateOperations(n.Operations); err != nil {
+		return Entry{}, err
+	}
 
 	tx, err := w.pool.Begin(ctx)
 	if err != nil {
@@ -175,6 +189,7 @@ func (w *Writer) Write(ctx context.Context, actor record.Actor, n New) (Entry, e
 		CredentialName:                  n.CredentialName,
 		ProcessingLocation:              n.ProcessingLocation,
 		MaterialClasses:                 n.MaterialClasses,
+		Operations:                      n.Operations,
 		ReadsAtOnce:                     n.ReadsAtOnce,
 		DispatchesBetweenEvaluationRuns: n.DispatchesBetweenEvaluationRuns,
 	}
@@ -182,13 +197,13 @@ func (w *Writer) Write(ctx context.Context, actor record.Actor, n New) (Entry, e
 	_, err = tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at,
 		 model_version, effort, role, scope_project_id, scope_service_id, scope_area_id,
-		 credential_name, processing_location, material_classes, reads_at_once,
+		 credential_name, processing_location, material_classes, operations, reads_at_once,
 		 dispatches_between_evaluation_runs, withdrawn_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, null)`,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, null)`,
 		e.ID, FormatVersion, string(e.Actor.Kind), e.Actor.Key, string(e.Actor.Basis), e.At,
 		e.ModelVersion, e.Effort, e.Role, e.Scope.ProjectID, e.Scope.ServiceID, e.Scope.AreaID,
-		e.CredentialName, e.ProcessingLocation, joinLines(e.MaterialClasses), e.ReadsAtOnce,
-		e.DispatchesBetweenEvaluationRuns,
+		e.CredentialName, e.ProcessingLocation, joinLines(e.MaterialClasses), joinLines(e.Operations),
+		e.ReadsAtOnce, e.DispatchesBetweenEvaluationRuns,
 	)
 	if err != nil {
 		return Entry{}, fmt.Errorf("fleetentry: writing an entry: %w", err)
@@ -244,6 +259,20 @@ func validateActor(actor record.Actor) error {
 	return nil
 }
 
+// validateOperations refuses an operation named twice. It cannot check the
+// operation itself: the list a role carries is package dispatch's, which this
+// package may not import, so a widening is refused there.
+func validateOperations(operations []string) error {
+	seen := make(map[string]bool, len(operations))
+	for _, one := range operations {
+		if seen[one] {
+			return fmt.Errorf("%w: %q", ErrOperationDuplicate, one)
+		}
+		seen[one] = true
+	}
+	return nil
+}
+
 func validateMaterialClasses(classes []string) error {
 	seen := make(map[string]bool, len(classes))
 	for _, c := range classes {
@@ -273,7 +302,7 @@ func splitLines(stored string) []string {
 
 const selectEntries = `select id, actor_kind, actor_key, actor_key_basis, at,
 	model_version, effort, role, scope_project_id, scope_service_id, scope_area_id,
-	credential_name, processing_location, material_classes, reads_at_once,
+	credential_name, processing_location, material_classes, operations, reads_at_once,
 	dispatches_between_evaluation_runs, withdrawn_at from ` + Table
 
 // rowScanner is what both a pool's QueryRow and a Rows cursor satisfy, so
@@ -284,16 +313,17 @@ type rowScanner interface {
 
 func scanEntry(row rowScanner) (Entry, error) {
 	var e Entry
-	var kind, basis, materialClasses string
+	var kind, basis, materialClasses, operations string
 	var withdrawnAt *string
 	if err := row.Scan(&e.ID, &kind, &e.Actor.Key, &basis, &e.At,
 		&e.ModelVersion, &e.Effort, &e.Role, &e.Scope.ProjectID, &e.Scope.ServiceID, &e.Scope.AreaID,
-		&e.CredentialName, &e.ProcessingLocation, &materialClasses, &e.ReadsAtOnce,
+		&e.CredentialName, &e.ProcessingLocation, &materialClasses, &operations, &e.ReadsAtOnce,
 		&e.DispatchesBetweenEvaluationRuns, &withdrawnAt); err != nil {
 		return Entry{}, err
 	}
 	e.Actor.Kind, e.Actor.Basis = record.Kind(kind), record.Basis(basis)
 	e.MaterialClasses = splitLines(materialClasses)
+	e.Operations = splitLines(operations)
 	if withdrawnAt != nil {
 		e.WithdrawnAt = *withdrawnAt
 	}

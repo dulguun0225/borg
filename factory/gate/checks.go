@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/halt"
+	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
@@ -42,6 +43,9 @@ func complete(f Firing) error {
 	if f.Row.Kind != KindImplementation && len(f.Screens.Screens) > 0 {
 		return fmt.Errorf("%w: %s decides no build, so no screen was derived for it",
 			ErrFiringIncomplete, f.Row)
+	}
+	if f.Row.Kind != KindMergeToMaster && f.CandidateRunEnded {
+		return fmt.Errorf("%w: %s decides no candidate's run", ErrFiringIncomplete, f.Row)
 	}
 	if f.Row.Kind != KindDecisionLogRetentionShortening && len(f.PriorsRestarted) > 0 {
 		return fmt.Errorf("%w: %s removes no evidence, so no per-author prior restarts with it",
@@ -226,13 +230,17 @@ func (g *Gate) authorOf(ctx context.Context, artifactID string) (record.Actor, e
 // production, and no other row decides a deploy into it. A mismatch puts a human
 // here whatever the number reads, because nothing the factory can decide on the
 // record is worth deciding while the record is the thing in doubt.
-func (g *Gate) mismatch(ctx context.Context, f Firing) (string, error) {
-	if f.Row.Kind != KindDeployToProduction {
+//
+// It is read as part of the holds standing, because the mismatch is one: the
+// deploy is held, no evidence the factory can gather lifts it, and an approve
+// through it names it among the set the way an approve names every other hold.
+func (g *Gate) mismatch(ctx context.Context, s Subjects) (string, error) {
+	if s.Row.Kind != KindDeployToProduction {
 		return "", nil
 	}
-	found, why, err := g.driftdetector.Mismatch(ctx, f.ServiceID)
+	found, why, err := g.driftdetector.Mismatch(ctx, s.ServiceID)
 	if err != nil {
-		return "", fmt.Errorf("gate: reading the drift detector's store for %s: %w", f.ServiceID, err)
+		return "", fmt.Errorf("gate: reading the drift detector's store for %s: %w", s.ServiceID, err)
 	}
 	if !found {
 		return "", nil
@@ -248,30 +256,57 @@ func (g *Gate) mismatch(ctx context.Context, f Firing) (string, error) {
 // revert and an item the health monitor raised on that service, so the hold is
 // not appended for either: a halt stops the factory acting forward and never
 // stops it undoing what it did.
-func (g *Gate) standingHolds(ctx context.Context, s Subjects) ([]string, error) {
+func (g *Gate) standingHolds(ctx context.Context, s Subjects) ([]string, string, error) {
 	if !s.Row.Deploys() {
-		return nil, nil
+		return nil, "", nil
 	}
 	standing, err := g.holds.Standing(ctx, s)
 	if err != nil {
-		return nil, fmt.Errorf("gate: recomputing the holds standing at %s: %w", s.Row, err)
+		return nil, "", fmt.Errorf("gate: recomputing the holds standing at %s: %w", s.Row, err)
 	}
 	if slices.Contains(HoldsAt(s.Row), HoldHalt) {
 		halts, err := halt.Standing(ctx, g.pool)
 		if err != nil {
-			return nil, fmt.Errorf("gate: reading whether a halt stands: %w", err)
+			return nil, "", fmt.Errorf("gate: reading whether a halt stands: %w", err)
 		}
 		if len(halts) > 0 && !slices.Contains(standing, HoldHalt) {
 			excepted, err := g.passesAHalt(ctx, s.ItemID)
 			if err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			if !excepted {
 				standing = append(standing, HoldHalt)
 			}
 		}
 	}
-	return checkHolds(s.Row, standing)
+	mismatch, err := g.mismatch(ctx, s)
+	if err != nil {
+		return nil, "", err
+	}
+	if mismatch != "" && !slices.Contains(standing, HoldDriftMismatch) {
+		standing = append(standing, HoldDriftMismatch)
+	}
+	ordered, err := checkHolds(s.Row, standing)
+	return ordered, mismatch, err
+}
+
+// routedBySafeguard is where the safeguards that applied at this firing say
+// their rows route: the duty or the named human a safeguard's own routing field
+// gives. It is read where a safeguard added the human, so the check reaches the
+// person who authored it rather than the owner by default.
+//
+// A gate composed with no reader of it routes nothing, so a safeguarded row
+// waits on the duty the design names for it and widens to the owner where
+// nobody holds that.
+func (g *Gate) routedBySafeguard(ctx context.Context, applied policy.Applied) (RoutedTo, error) {
+	if g.safeguardRouting == nil || !applied.HumanBySafeguard || len(applied.Safeguards) == 0 {
+		return RoutedTo{}, nil
+	}
+	routed, err := g.safeguardRouting(ctx, applied.Safeguards)
+	if err != nil {
+		return RoutedTo{}, fmt.Errorf("gate: reading where the safeguards %v route: %w", applied.Safeguards, err)
+	}
+	return routed, nil
 }
 
 // passesAHalt reports whether this item is one of the two a halt lets through: a

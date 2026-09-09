@@ -17,7 +17,7 @@ const selectDeploy = `select id, actor_kind, actor_key, actor_key_basis, at, ser
 	release_id, build_id, delivered_release_ids, strategy_picked, strategy_performed, status, failed_step,
 	schema_changes, schema_changes_completed, snapshot_name, snapshot_digest, snapshot_deleted_at,
 	configuration_digest, way_in_token_digest,
-	backfill_contract, backfill_element, backfill_from_element,
+	backfill_contract, backfill_element, backfill_from_element, backfill_copied,
 	failed_release_id, skipped_release_ids, source
 	from ` + Table
 
@@ -36,11 +36,13 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Deploy, error) {
 }
 
 // Targets is the deploy's completion per target, in the environment's order.
+// There is a row beside each of the environment's targets, the ones the service
+// does not run on included, and [Target.NotRunHere] is what tells them apart.
 // Every reader of what is running reads a target marked complete, so this is
 // what a reader of one deploy reads beside the record.
 func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target, error) {
-	rows, err := pool.Query(ctx, `select deploy_id, position, address, completion,
-		release_instances, control_instances, control_release_id, kept_instances,
+	rows, err := pool.Query(ctx, `select deploy_id, position, address, runs_here, completion,
+		release_instances, control_instances, control_release_id, control_build_id, kept_instances,
 		replacement, reached_at, complete_at,
 		release_torn_down_at, control_torn_down_at, kept_torn_down_at,
 		release_instance_hours, control_instance_hours, kept_instance_hours,
@@ -55,9 +57,11 @@ func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target
 	for rows.Next() {
 		var t Target
 		var completion, replacement string
+		var runsHere bool
 		var amount, rate *float64
-		err := rows.Scan(&t.DeployID, &t.Position, &t.Address, &completion,
-			&t.Fleets.Release.Instances, &t.Fleets.Control.Instances, &t.ControlReleaseID, &t.Fleets.Kept.Instances,
+		err := rows.Scan(&t.DeployID, &t.Position, &t.Address, &runsHere, &completion,
+			&t.Fleets.Release.Instances, &t.Fleets.Control.Instances, &t.ControlReleaseID, &t.ControlBuildID,
+			&t.Fleets.Kept.Instances,
 			&replacement, &t.ReachedAt, &t.CompleteAt,
 			&t.Fleets.Release.TornDownAt, &t.Fleets.Control.TornDownAt, &t.Fleets.Kept.TornDownAt,
 			&t.Fleets.Release.Hours, &t.Fleets.Control.Hours, &t.Fleets.Kept.Hours,
@@ -65,6 +69,7 @@ func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target
 		if err != nil {
 			return nil, fmt.Errorf("deploy: reading a target of %s: %w", deployID, err)
 		}
+		t.NotRunHere = !runsHere
 		t.Completion = Completion(completion)
 		t.Replacement = targetseam.Replacement(replacement)
 		if amount != nil && rate != nil {
@@ -103,16 +108,18 @@ func CompleteOnEvery(ctx context.Context, pool *pgxpool.Pool, deployID string, a
 // [Writer], because reading what runs is not a reason to be handed the thing
 // that deploys.
 //
-// The number and never the completion time is what orders them, because
+// The release number and never the completion time is what orders them, because
 // rollouts overlap and differ in length: a short one completing while a longer
 // one below it is still widening would make an older release current under a
 // recency reading, and nothing later would move it. The sequence number orders
-// nothing here either — it is per pair and says which deploy, not which
-// release.
+// nothing here and is no tiebreak either — it is per pair and says which
+// deploy, not which release. Two complete deploys of one release are a tie, and
+// which of the two records answers is whichever the store returns: they name one
+// release, which is the whole of what a reader of current takes from this.
 //
 // It is none once a removal, naming no release and no build, is complete on
-// every target and was begun after that release's deploy. A removal is what
-// takes a service off an environment, and a reader that ignored it would keep
+// every target. A removal is what takes a service off an environment — the last
+// thing that happens to it there — and a reader that ignored it would keep
 // naming a release nothing is running.
 //
 // It reads only deploys that name a release. A candidate deploy names a build
@@ -143,17 +150,17 @@ func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID s
 		return Deploy{}, false, err
 	}
 
-	removal, removed, err := scanOne(ctx, pool, selectDeploy+`
+	_, removed, err := scanOne(ctx, pool, selectDeploy+`
 		where service_id = $1 and environment_id = $2
 		and release_id = '' and build_id = ''
 		and (select count(*) from `+TargetTable+` t
 			where t.deploy_id = `+Table+`.id and t.address = any($3) and t.completion = $4) = $5
-		order by number desc limit 1`,
+		limit 1`,
 		serviceID, environmentID, addresses, string(CompletionComplete), len(addresses))
 	if err != nil {
 		return Deploy{}, false, err
 	}
-	if removed && removal.Number > current.Number {
+	if removed {
 		return Deploy{}, false, nil
 	}
 	return current, true, nil
@@ -168,12 +175,12 @@ func Current(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID s
 //
 // Every rule [Current] states holds here over the one address instead of over
 // every address the service runs on: the release number and never the
-// completion time orders them, because rollouts overlap and differ in length;
-// a removal complete on the address after that release's deploy is none, a
-// removal being what takes a service off an environment; only deploys naming a
-// release are read, a candidate's naming a build; and the record's own status
-// is not read, completion on the address being the whole of the rule — so a
-// target a rollback has advanced to rolled back is no longer complete on it.
+// completion time orders them, and the sequence number neither orders nor
+// breaks a tie; a removal complete on the address is none, a removal being what
+// takes a service off an environment; only deploys naming a release are read, a
+// candidate's naming a build; and the record's own status is not read,
+// completion on the address being the whole of the rule — so a target a rollback
+// has advanced to rolled back is no longer complete on it.
 func CurrentOnTarget(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID, address string) (Deploy, bool, error) {
 	if address == "" {
 		return Deploy{}, false, nil
@@ -183,23 +190,59 @@ func CurrentOnTarget(ctx context.Context, pool *pgxpool.Pool, serviceID, environ
 
 	current, found, err := scanOne(ctx, pool, selectDeploy+`
 		where service_id = $1 and environment_id = $2 and release_id <> ''`+completeOn+`
-		order by (select number from `+release.Table+` r where r.id = release_id) desc nulls last,
-			number desc
+		order by (select number from `+release.Table+` r where r.id = release_id) desc nulls last
 		limit 1`,
 		serviceID, environmentID, address, string(CompletionComplete))
 	if err != nil || !found {
 		return Deploy{}, false, err
 	}
 
-	removal, removed, err := scanOne(ctx, pool, selectDeploy+`
+	_, removed, err := scanOne(ctx, pool, selectDeploy+`
 		where service_id = $1 and environment_id = $2
 		and release_id = '' and build_id = ''`+completeOn+`
-		order by number desc limit 1`,
+		limit 1`,
 		serviceID, environmentID, address, string(CompletionComplete))
 	if err != nil {
 		return Deploy{}, false, err
 	}
-	if removed && removal.Number > current.Number {
+	if removed {
+		return Deploy{}, false, nil
+	}
+	return current, true, nil
+}
+
+// PreviousOnTarget is the release that was current on one target of one
+// environment before the deploy numbered beforeNumber, that one excluded: the
+// deploy of the highest-numbered release below it marked complete on that
+// address, and false where none is. It reads the way [CurrentOnTarget] does,
+// with the exclusion added, which is what [Resume] asks for a record it
+// cannot finish — the release its return path returns the target to, without
+// reading that record's own row as the answer to what ran before it.
+func PreviousOnTarget(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID, address string, beforeNumber int64) (Deploy, bool, error) {
+	if address == "" {
+		return Deploy{}, false, nil
+	}
+	completeOn := ` and exists (select 1 from ` + TargetTable + ` t
+			where t.deploy_id = ` + Table + `.id and t.address = $3 and t.completion = $4)`
+
+	current, found, err := scanOne(ctx, pool, selectDeploy+`
+		where service_id = $1 and environment_id = $2 and release_id <> '' and number < $5`+completeOn+`
+		order by (select number from `+release.Table+` r where r.id = release_id) desc nulls last
+		limit 1`,
+		serviceID, environmentID, address, string(CompletionComplete), beforeNumber)
+	if err != nil || !found {
+		return Deploy{}, false, err
+	}
+
+	_, removed, err := scanOne(ctx, pool, selectDeploy+`
+		where service_id = $1 and environment_id = $2
+		and release_id = '' and build_id = '' and number < $5`+completeOn+`
+		limit 1`,
+		serviceID, environmentID, address, string(CompletionComplete), beforeNumber)
+	if err != nil {
+		return Deploy{}, false, err
+	}
+	if removed {
 		return Deploy{}, false, nil
 	}
 	return current, true, nil
@@ -355,7 +398,7 @@ func scan(row pgx.Row) (Deploy, error) {
 		&d.ReleaseID, &d.BuildID, &delivered, &picked, &performed, &status, &d.FailedStep,
 		&changes, &d.SchemaChangesCompleted, &d.Snapshot.Name, &d.Snapshot.Digest, &d.Snapshot.DeletedAt,
 		&d.ConfigurationDigest, &d.WayInTokenDigest,
-		&d.Backfill.Contract, &d.Backfill.Element, &d.Backfill.FromElement,
+		&d.Backfill.Contract, &d.Backfill.Element, &d.Backfill.FromElement, &d.Backfill.Copied,
 		&d.Undoing.FailedReleaseID, &skipped, &d.Undoing.Source); err != nil {
 		return Deploy{}, err
 	}

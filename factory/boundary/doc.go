@@ -81,4 +81,9 @@
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
 // computes and package healthmonitor reads; it is never the last known-good
 // release, which can be a release above the one being read.
+//
+// [Boundary.IntervalsToPassed] making the inverse-square scaling the
+// arithmetic's own, as a row of the gate policy, is
+// ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md
+// (C2194).
 package boundary

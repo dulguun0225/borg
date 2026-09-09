@@ -45,4 +45,9 @@ reach would read healthier the longer it stood.
 
 [Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2596, C2597, C2599, C2600, C2601, C2602, C2604, C2605, C2606, C2627);
 [Three properties every screen needs](../../../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md) (C2688, C2690, C2693);
-[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2700, C2702, C2703, C2704, C2705, C2711, C2712, C2713, C2714, C2715, C2992, C2993, C2994).
+[The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2700, C2702, C2703, C2704, C2705, C2711, C2712, C2713, C2714, C2715, C2992, C2993, C2994);
+[Where a gate is, and what decides it](../../../../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md) (C0906);
+[Deploy to production](../../../../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md) (C1164);
+[The health monitor](../../../../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md) (C1978);
+[The analysis window](../../../../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md) (C2024, C2039);
+[What an item names](../../../../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md) (C0666).

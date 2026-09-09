@@ -335,6 +335,73 @@ func TestAcknowledgingTakesTheKindOffThePageAndARowThatPagesNobodyTakesItToo(t *
 	}
 }
 
+// TestAcknowledgeDeliversNothing is finding 3's own fix: acknowledging a page
+// is an act in the product and nothing else, and writes the page event
+// without handing anything to the [notifier.Deliverer].
+func TestAcknowledgeDeliversNothing(t *testing.T) {
+	ctx, _, _, n, channels := newNotifier(t)
+
+	waiting := notifier.Wait{
+		Row: "dl_ack_delivers_nothing", Kind: notifier.KindOwnerFired,
+		Waiting: "the owner's own judgment", Worse: true,
+	}
+	if _, err := n.Notify(ctx, waiting); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	before := len(channels.delivered)
+
+	if _, err := n.Acknowledge(ctx, waiting, "hk_alice"); err != nil {
+		t.Fatalf("Acknowledge: %v", err)
+	}
+	if len(channels.delivered) != before {
+		t.Errorf("Acknowledge reached the deliverer %d time(s), want none: %+v",
+			len(channels.delivered)-before, channels.delivered[before:])
+	}
+
+	events, err := n.EventsFor(ctx, waiting.Row)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	last := events[len(events)-1]
+	if notifier.Event(last.Event) != notifier.EventAcknowledged {
+		t.Fatalf("the last event is %+v, want the acknowledgement written even though nothing was delivered", last)
+	}
+}
+
+// TestAnsweredDeliversNothing is finding 4's own fix: the component that ends
+// the wait calls the notifier at the same write it ends it with, and what
+// that write does is append the answered event — never a page to the human
+// who ended it, the wait already being over.
+func TestAnsweredDeliversNothing(t *testing.T) {
+	ctx, _, _, n, channels := newNotifier(t)
+
+	waiting := notifier.Wait{
+		Row: "dl_answered_delivers_nothing", Kind: notifier.KindOwnerFired,
+		Waiting: "the owner's own judgment", Worse: true,
+	}
+	if _, err := n.Notify(ctx, waiting); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	before := len(channels.delivered)
+
+	if _, err := n.Answered(ctx, waiting, "hk_alice"); err != nil {
+		t.Fatalf("Answered: %v", err)
+	}
+	if len(channels.delivered) != before {
+		t.Errorf("Answered reached the deliverer %d time(s), want none: %+v",
+			len(channels.delivered)-before, channels.delivered[before:])
+	}
+
+	events, err := n.EventsFor(ctx, waiting.Row)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	last := events[len(events)-1]
+	if notifier.Event(last.Event) != notifier.EventAnswered || last.Reached != "hk_alice" {
+		t.Fatalf("the last event is %+v, want the answer written even though nothing was delivered", last)
+	}
+}
+
 // TestEventsForSkipsAPayloadItCannotRead is what every reader of this log does with a
 // row some other component wrote: a payload is unconstrained bytes by decisionlog's
 // contract, so a page event in a shape this package does not know is skipped and the

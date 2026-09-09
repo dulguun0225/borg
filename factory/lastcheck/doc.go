@@ -22,6 +22,13 @@
 // whose three counts the design names and a screen reads back, which is what
 // [PlatformPass] is and why platform.go departs from the rest of the file.
 //
+// [LastCheck.NewestRecord] is beside the payload and not in it, because the
+// component that writes it reads it back: the health monitor writes the newest
+// time the emission holds a record for the service, and a read whose newest
+// record is older than the interval the same record carries is no volume rather
+// than a low one. A value inside the payload would be one this package stores as
+// text and its writer parses out of prose.
+//
 // # Who may write what
 //
 // [Writer.Record] refuses an actor that is not a component, and so does the
@@ -36,8 +43,9 @@
 // every pass it makes over that service's windows; the notifier writes its
 // single one for itself on the pass that reads the drift detector's store; the
 // deployer writes two kinds of its own, both on every production deploy: one
-// per target of a persistent environment, through deploy.RecordTargetCheck,
-// and one per platform a production environment record declares, beside it,
+// per production environment, keyed by that record and not by any one
+// target, through deploy.RecordEnvironmentCheck, and one per platform a
+// production environment record declares, beside it,
 // through [Writer.RecordPlatformPass] here — the sole writer of that record,
 // composing the payload from the three counts the design names rather than
 // taking it as text; and package contractcheck's pass over the deprecation
@@ -63,4 +71,10 @@
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
 // (C1507, C1508, C1511) for the three counts the deployer's platform record
 // reports.
+//
+// The deployer's last check making the state readable is
+// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1756), and
+// the newest record the health monitor writes onto its own is
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1977).
 package lastcheck

@@ -52,9 +52,15 @@ type Repository interface {
 // whether every pre-merge check decided against the candidate-environment run
 // passed.
 //
-// A re-verification that changed nothing — master already an ancestor of the
-// candidate — names the build already in force rather than a new one: a rebuild
-// is a new build, and nothing was rebuilt.
+// A re-verification that decides a candidate's own merit is never a repeat of
+// the run that passed: the build is new and the environment is recomposed, so
+// one naming the build already in force, or the environment cycle already in
+// force, is refused with [ErrReverificationRepeats] rather than read as nothing
+// having moved — [refuseIfRepeats] is the queue's own check of it. The one
+// exception the design states is [Queue.complete]'s own re-ask, which finishes
+// a merge master already carries: master is already an ancestor of the
+// candidate there, so it names the build and the cycle already in force and
+// decides nothing new, and this is not asked of it.
 //
 // Why is what failed, in words a human reads on the rejection row, and is empty
 // where it passed. A merge conflict, a criterion that failed, a breaking
@@ -86,7 +92,16 @@ type Verified struct {
 	// spelling the deployer's encoding.
 	Composition         environment.Composition
 	ApprovedComposition environment.Composition
-	Forms               []contract.Form
+	// EnvironmentCycleID is the compose-and-reclaim cycle id the environment this
+	// run was performed against carries, and ApprovedEnvironmentCycleID is the
+	// cycle id the run that passed at Merge to master carries. Both are copied
+	// here the way Composition and ApprovedComposition are, by the component
+	// that performed the two runs, and a re-verification naming the approved
+	// cycle again is refused the same way one naming the approved build again
+	// is: the environment is recomposed, and this is never the same cycle twice.
+	EnvironmentCycleID         string
+	ApprovedEnvironmentCycleID string
+	Forms                      []contract.Form
 }
 
 // Confirmation is what the confirming run produced: the criteria the
@@ -175,8 +190,11 @@ type Waiting struct {
 	// Releases is every release the revert's deploy would deliver: the ones the
 	// rollback skipped and the ones merged while it stands alike.
 	Releases int
-	// Cap is the backlog cap in force, which is the window limit where an owner
-	// authored no cap of its own.
+	// Cap is the backlog cap in force: [service.BacklogCapInForce] is what
+	// resolves an unauthored one to the window limit, so that rule lives there
+	// and is not restated here — [Backlog.Behind] is the composer's to read it
+	// and hand it over with the count, the walk that produces the count being
+	// one the queue does not make.
 	Cap int
 	// RevertItemID is the item whose candidate the stop does not catch. The hold
 	// lifts only when the revert ships, so a stop that held it would never end.
@@ -209,6 +227,33 @@ type NoRevertKnown struct{}
 
 // IsARevert is never so.
 func (NoRevertKnown) IsARevert(context.Context, item.Item) (bool, error) { return false, nil }
+
+// Reliability answers whether a criterion is unreliable over the builds a
+// rejection compared: its outcome history read against the service's own
+// authored bound. It is an interface because deps.txt gives mergequeue no edge
+// to package criterion or package gatepolicy, which read and resolve that
+// bound — so whatever composes the queue implements this over
+// [criterion.Unreliable] with the service's own bound.
+type Reliability interface {
+	// Unreliable is that reading for one criterion of one service, over the
+	// builds named — the approved build and the re-verified build, the two the
+	// rejection compared.
+	Unreliable(ctx context.Context, serviceID, criterionID string, buildIDs []string) (bool, error)
+}
+
+// NoUnreliableCriterion is what a factory composed with no reader of the
+// outcome history uses: no criterion is ever unreliable. It is a value rather
+// than a nil interface so that a factory composed without one says so.
+//
+// What it costs is the one thing the reading buys: a repeated failure the
+// criterion's own history marks flaky is learned from as any other repeat is,
+// rather than teaching the score nothing.
+type NoUnreliableCriterion struct{}
+
+// Unreliable is never so.
+func (NoUnreliableCriterion) Unreliable(context.Context, string, string, []string) (bool, error) {
+	return false, nil
+}
 
 // NoBacklog is what a factory composed with no reader of the rollbacks uses:
 // nothing waits behind anything, so the stop never stands. It is a value rather

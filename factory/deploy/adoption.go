@@ -54,10 +54,10 @@ func Found(running int, rollbackPath, emissionReadable bool) service.Reachabilit
 }
 
 // RecordTargetCheck writes the deployer's last check over one target of a
-// persistent environment. A rollout advances only while the deployer runs, so a
-// target whose deployer last check is past the interval it names, with a further
-// pass owed, is what stops a drift-detection exemption standing on a rollout
-// that is not advancing.
+// persistent environment. A rollout advances only while the deployer runs, so
+// a target whose deployer last check is past the interval it names, with a
+// further pass owed, is what stops a drift-detection exemption standing on a
+// rollout that is not advancing.
 //
 // lastPass is the writer saying this is the last check owed over that target,
 // which is what a target leaving the environment gets.

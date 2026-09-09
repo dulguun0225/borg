@@ -102,21 +102,6 @@ func (h *HealthMonitor) Watch(ctx context.Context, w Watching) ([]Watched, error
 // beside it, then the exit each answer requires.
 func (h *HealthMonitor) read(ctx context.Context, w Watching, svc service.Service, win window.Window) (Watched, error) {
 	one := Watched{Window: win}
-	if win.MeasuresNothing {
-		// The window records only that it measures nothing for this service, so
-		// there is nothing to read and nothing a further pass would find. It
-		// closes at the one exit of the four that says a window ruled nothing
-		// out; the design names no exit for it, and leaving it open would fill
-		// the window limit and hold the service on a reading that can never be
-		// taken. Closing it timed out is what makes it stay what such a window
-		// stays below: a rollback's target, since [window.ClosedPassedOrTimedOut]
-		// asks whether any window failed the release and not whether anything
-		// measured it.
-		closed, err := h.windows.Close(ctx, win.ID, window.ExitTimedOut, window.Closing{})
-		one.Window, one.Exit = closed, window.ExitTimedOut
-		return one, err
-	}
-
 	if win.ReleaseID != "" {
 		rel, err := release.Get(ctx, h.pool, win.ReleaseID)
 		if err != nil {
@@ -137,6 +122,28 @@ func (h *HealthMonitor) read(ctx context.Context, w Watching, svc service.Servic
 		if err := h.readBeside(ctx, w, svc, win, &one); err != nil {
 			return one, err
 		}
+	}
+	if one.Evaluated.Crossed == nil && win.ReleaseID != "" {
+		// The one window that reads more than the producer's own numbers is a
+		// brownout's, and what it reads beside them is every service's reading
+		// against its own recent history.
+		crossing, err := h.crossedElsewhere(ctx, w, win)
+		if err != nil {
+			return one, err
+		}
+		one.Evaluated.Crossed = crossing
+	}
+	// The begun exit is the second half: every exit that writes more than one
+	// record — the failed exit's rollback, the passed and timed-out exits'
+	// control teardown and search-deploy ending, each before the close — is
+	// finished at the exit that began on the window and never decided again
+	// from a reading the steps already taken have changed, whatever a fresh
+	// evaluation now shows.
+	if win.ExitBegun != "" {
+		if win.ExitBegun == window.ExitFailed {
+			return h.failed(ctx, w, one)
+		}
+		return h.close(ctx, w, win, win.ExitBegun, one)
 	}
 	if one.Evaluated.Crossed != nil {
 		return h.failed(ctx, w, one)
@@ -175,6 +182,12 @@ func (h *HealthMonitor) compare(ctx context.Context, w Watching, win window.Wind
 			ServiceName: w.Name,
 			Target:      target,
 			Release:     Arm{BuildID: win.BuildID, DeployID: win.DeployID},
+			// The set was decided at the open and is on the record, so the store
+			// pools every operation outside it into one series per quantity per
+			// target. Handed no set the store would answer per operation and the
+			// boundary would be read over series the window was not allocated
+			// over.
+			OperationsReadAlone: win.OperationsReadAlone,
 		}
 		if hasBaseline {
 			reading.Baseline = h.baselineArm(ctx, win, baseline)
@@ -182,6 +195,9 @@ func (h *HealthMonitor) compare(ctx context.Context, w Watching, win window.Wind
 		series, err := h.emission.Read(ctx, reading)
 		if err != nil {
 			return fmt.Errorf("healthmonitor: reading %s on %s: %w", w.Name, target, err)
+		}
+		if series, err = h.asRead(ctx, w.ID, series); err != nil {
+			return err
 		}
 		if err := evaluate(win.Boundary, win.Power, target, series, KindComparison, &into.Evaluated); err != nil {
 			return err
@@ -233,9 +249,13 @@ func targetsOrDefault(targets []string, w Watching) []string {
 }
 
 // close is the passed and timed-out exits, which take the same order: the health
-// monitor calls the deployer to tear the control down and then closes the
-// window. Teardown is ordered by what a rollback needs and not by the exit
-// alone, and the window's close is the last durable step of it.
+// monitor records that the exit began, calls the deployer to tear the control
+// down, ends a search's own deploy where this window is one, and then closes
+// the window. Teardown is ordered by what a rollback needs and not by the exit
+// alone, and the window's close is the last durable step of it — the same
+// order package window's [Begin] and its own callers state, so a stop between
+// the first of those and the close is finished at the exit that began rather
+// than decided again, the way [HealthMonitor.failed] already is.
 //
 // The kept fleet is the other half of that ordering and comes after the close,
 // not before it: those instances are torn down when the last window that could
@@ -243,7 +263,17 @@ func targetsOrDefault(targets []string, w Watching) []string {
 // close answers. kept.go is what asks it.
 func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window,
 	exit window.Exit, one Watched) (Watched, error) {
+	if win.ExitBegun == "" {
+		begun, err := h.windows.Begin(ctx, win.ID, exit)
+		if err != nil {
+			return one, err
+		}
+		win, one.Window = begun, begun
+	}
 	if err := h.tearDownControls(ctx, w, win); err != nil {
+		return one, err
+	}
+	if err := h.endSearchDeploy(ctx, w, win, exit); err != nil {
 		return one, err
 	}
 	closed, err := h.windows.Close(ctx, win.ID, exit, window.Closing{
@@ -258,6 +288,33 @@ func (h *HealthMonitor) close(ctx context.Context, w Watching, win window.Window
 		return one, err
 	}
 	return one, nil
+}
+
+// endSearchDeploy ends a search's own deploy at the exit of the window that
+// measured it. Each build the search deploys is measured by a window of its own
+// and ends with that window, whatever the exit: the exit is the answer about
+// that build, and the instances the search put in front of traffic have no
+// other end — nothing above them decides they should stop, the deploy record
+// naming a build and no release. Traffic returns to the instances of the
+// rollback's target, which the search never tears down.
+//
+// It is asked for before the close, that being the exit's last step, and only
+// of a window over a deploy the search called for: every other window's deploy
+// delivered a release, and a release is ended by a rollback or by the release
+// after it.
+func (h *HealthMonitor) endSearchDeploy(ctx context.Context, w Watching, win window.Window, exit window.Exit) error {
+	if h.deployer == nil || win.ReleaseID != "" {
+		return nil
+	}
+	ending := SearchDeployEnding{
+		ServiceID: w.ID, ServiceName: w.Name, EnvironmentID: w.EnvironmentID,
+		DeployID: win.DeployID, BuildID: win.BuildID, Targets: win.Targets, Exit: string(exit),
+	}
+	if err := h.deployer.EndSearchDeploy(ctx, ending); err != nil {
+		return fmt.Errorf("healthmonitor: ending the search's deploy %s of %s at %s: %w",
+			win.DeployID, w.Name, exit, err)
+	}
+	return nil
 }
 
 // tearDownControls ends the control on every target the deploy record names one
@@ -337,17 +394,16 @@ func fallbackTargets(addresses []string) map[string]string {
 }
 
 // newestRecord is the newest time the store held a record for this service over
-// everything the pass read, which the last check carries so that a read whose
-// newest record is older than its interval is read as no volume.
+// everything the pass read, which the last check carries as a field of its own
+// so that a read whose newest record is older than the interval that record
+// carries is read as no volume. It is empty where the pass read no record at
+// all, which is what a service the store holds nothing for leaves.
 func newestRecord(watched []Watched) string {
 	newest := ""
 	for _, one := range watched {
 		if one.Evaluated.Newest > newest {
 			newest = one.Evaluated.Newest
 		}
-	}
-	if newest == "" {
-		return "none"
 	}
 	return newest
 }
@@ -360,12 +416,14 @@ func (h *HealthMonitor) recordPass(ctx context.Context, w Watching, svc service.
 	if h.checks == nil {
 		return nil
 	}
+	newest := newestRecord(watched)
 	_, err := h.checks.Record(ctx, Actor, lastcheck.LastCheck{
-		Component: lastcheck.ComponentHealthMonitor,
-		Subject:   w.ID,
-		Interval:  h.readings.PassInterval,
-		LastPass:  svc.Retired(),
-		Payload:   fmt.Sprintf("%d window(s) read, newest record %s", len(watched), newestRecord(watched)),
+		Component:    lastcheck.ComponentHealthMonitor,
+		Subject:      w.ID,
+		Interval:     h.readings.PassInterval,
+		LastPass:     svc.Retired(),
+		NewestRecord: newest,
+		Payload:      fmt.Sprintf("%d window(s) read", len(watched)),
 	})
 	return err
 }

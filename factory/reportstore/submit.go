@@ -66,7 +66,10 @@ func (s *Store) Submit(ctx context.Context, sub Submission, collectedAt time.Tim
 		return Result{Refusal: RefusedNoDeploy}, nil
 	}
 	if !slices.Contains(Shapes, sub.Shape) {
-		if err := s.countUnreadableShape(ctx, deploy.ServiceID); err != nil {
+		// A submission of a shape this store does not read is itself a
+		// refusal, and the counter counts how many and never which bound
+		// refused one: the reason is on the result the way in renders.
+		if err := s.countRefusal(ctx, deploy.ServiceID); err != nil {
 			return Result{}, err
 		}
 		return Result{Refusal: RefusedShape}, nil
@@ -263,26 +266,11 @@ func (s *Store) countRefusal(ctx context.Context, serviceID string) error {
 }
 
 func (s *Store) bumpRefusals(ctx context.Context, serviceID string) error {
-	_, err := s.pool.Exec(ctx, `insert into `+CounterTable+` (service_id, refusals, unreadable_shape)
-		values ($1, 1, 0)
+	_, err := s.pool.Exec(ctx, `insert into `+CounterTable+` (service_id, refusals)
+		values ($1, 1)
 		on conflict (service_id) do update set refusals = `+CounterTable+`.refusals + 1`, serviceID)
 	if err != nil {
 		return fmt.Errorf("reportstore: counting a refusal against %q: %w", serviceID, err)
-	}
-	return nil
-}
-
-// countUnreadableShape counts a submission this store could not read, which
-// is a loss the refused counter cannot see: it is counted per service and
-// never over the channel, because what it says is that one service is serving
-// a way in this factory version is behind.
-func (s *Store) countUnreadableShape(ctx context.Context, serviceID string) error {
-	_, err := s.pool.Exec(ctx, `insert into `+CounterTable+` (service_id, refusals, unreadable_shape)
-		values ($1, 0, 1)
-		on conflict (service_id) do update set unreadable_shape = `+CounterTable+`.unreadable_shape + 1`,
-		serviceID)
-	if err != nil {
-		return fmt.Errorf("reportstore: counting an unreadable submission against %q: %w", serviceID, err)
 	}
 	return nil
 }

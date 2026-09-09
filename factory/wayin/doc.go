@@ -13,7 +13,8 @@
 // [SubmitPath] and [TokenHeader] — and the three names the factory hands a
 // deployed service, [TokenEnv], [StoreEnv] and [ListenEnv]. overlay.go holds
 // [Overlay] and [OverlayName]. entrance.go holds [Notice], [Submission],
-// [Result], [Store] and [Entrance] with [NewEntrance]. sourcekey.go holds the
+// [Result] with [RefusedNoSession], [Store] and [Entrance] with [NewEntrance].
+// sourcekey.go holds the
 // one shape a source key may have. The tests are entrance_test.go and
 // overlay_test.go, neither of them against a database, and the second of them
 // against a Go toolchain: it writes a module of its own, builds it with the
@@ -74,7 +75,21 @@
 // deploy that placed it on both calls, which is how it calls as that deploy;
 // what the token resolves to is the store's and never this package's.
 //
-// The entrance writes no record and reads none. What reaches [Store.Submit]
+// A submission is preceded by a notice and followed by an answer: the notice
+// shown at the open carries its own identity beside it — [Notice.ID] where it
+// has one, a digest of its words where it does not — and a submission names
+// the identity it was shown. The entrance reads the notice again at the
+// submit, under the same token, and compares: naming the one just read, the
+// submission reaches [Store.Submit] under the notice this entrance just
+// confirmed and never under what the submission itself said; naming none at
+// all, it is refused before the store is ever reached, because a submission
+// names the session it followed and one naming none followed nothing; naming
+// one no longer current, the notice now in force is rendered in its place
+// rather than a refusal, because a notice that moved between the open and the
+// submit is shown again and not refused silently.
+//
+// The entrance writes no record and reads none beyond that second read of the
+// notice. What reaches [Store.Submit]
 // is the fields of [Submission] and nothing else the request carried: no
 // address, no header beyond the token, and nothing a person could be
 // recovered from. The submit result is rendered in the session that submitted
@@ -117,4 +132,7 @@
 // (C0406, C0407, C0408, C0414, C0425, C0433, C0434, C0436, C0437, C0469);
 // the component and the two calls it makes are ../../end-goal/components.md
 // (C0005).
+//
+// The shipped way in calling as the deploy that placed it is seam 5 of
+// ../../end-goal/deferred.md (C0117).
 package wayin

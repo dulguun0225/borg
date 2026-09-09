@@ -52,7 +52,7 @@ func scan(row pgx.Row) (Predicate, error) {
 }
 
 const selectDerivation = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, artifact_id,
-	extractor, extractor_version, toolchain, factory_version, unfollowed, cause, reported
+	extractor, extractor_version, toolchain, factory_version, extractor_convention, unfollowed, cause, reported
 	from ` + DerivationTable
 
 func scanDerivation(row pgx.Row) (Derivation, error) {
@@ -60,7 +60,7 @@ func scanDerivation(row pgx.Row) (Derivation, error) {
 	var kind, basis, unfollowed, cause string
 	err := row.Scan(&d.ID, &kind, &d.Actor.Key, &basis, &d.At, &d.ItemID, &d.ServiceID, &d.ArtifactID,
 		&d.Extractor.Name, &d.Extractor.Version, &d.Extractor.Toolchain, &d.Extractor.FactoryVersion,
-		&unfollowed, &cause, &d.Reported)
+		&d.Extractor.Convention, &unfollowed, &cause, &d.Reported)
 	if err != nil {
 		return Derivation{}, err
 	}
@@ -280,7 +280,7 @@ func NewestDerivation(ctx context.Context, q Querier, itemID string) (Derivation
 func StandingCouldNotDerive(ctx context.Context, q Querier) ([]Derivation, error) {
 	rows, err := q.Query(ctx, `select d.id, d.actor_kind, d.actor_key, d.actor_key_basis, d.at, d.item_id,
 		d.service_id, d.artifact_id, d.extractor, d.extractor_version, d.toolchain, d.factory_version,
-		d.unfollowed, d.cause, d.reported
+		d.extractor_convention, d.unfollowed, d.cause, d.reported
 		from `+DerivationTable+` d
 		where d.cause <> ''
 		and d.at = (select max(newest.at) from `+DerivationTable+` newest where newest.item_id = d.item_id)
@@ -314,7 +314,7 @@ func DerivationsForItems(ctx context.Context, q Querier, itemIDs []string) ([]De
 	}
 	rows, err := q.Query(ctx, `select d.id, d.actor_kind, d.actor_key, d.actor_key_basis, d.at, d.item_id,
 		d.service_id, d.artifact_id, d.extractor, d.extractor_version, d.toolchain, d.factory_version,
-		d.unfollowed, d.cause, d.reported
+		d.extractor_convention, d.unfollowed, d.cause, d.reported
 		from `+DerivationTable+` d
 		where d.item_id = any($1)
 		and d.at = (select max(newest.at) from `+DerivationTable+` newest where newest.item_id = d.item_id)

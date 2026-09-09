@@ -19,6 +19,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
@@ -62,6 +63,9 @@ const (
 // It returns the roles it wrote an entry for. doc.go says why `serve` will not
 // do this.
 func ensureFleetEntries(ctx context.Context, d deps, owner record.Actor) ([]string, error) {
+	if err := ensureModelCredentialLent(ctx, d, owner); err != nil {
+		return nil, err
+	}
 	covered, err := fleetentry.CoveredRoles(ctx, d.pool)
 	if err != nil {
 		return nil, err
@@ -87,6 +91,29 @@ func ensureFleetEntries(ctx context.Context, d deps, owner record.Actor) ([]stri
 		written = append(written, string(role))
 	}
 	return written, nil
+}
+
+// ensureModelCredentialLent declares the credential those entries run on as the
+// owner's own account, where the People declaration does not already hold it.
+// The design has a fleet entry name a credential the declaration records as
+// lent — every agent run record names whose account it spent and under a
+// ceiling that name is what the spend is summed under — and this terminal has
+// no People screen at the install, so it declares what -human already stands
+// for.
+//
+// A name the declaration holds is left alone, taken back included: re-lending
+// one an owner took back would undo the taking back, and a second lending would
+// append a declaration version at every start.
+func ensureModelCredentialLent(ctx context.Context, d deps, owner record.Actor) error {
+	_, found, err := people.CredentialNamed(ctx, d.pool, d.modelCredentialName)
+	if err != nil || found {
+		return err
+	}
+	if _, err := people.NewWriter(d.pool, d.token, policy.NewFactory(d.pool, d.token)).
+		Lend(ctx, owner, owner.Key, d.modelCredentialName, people.AccountPerson); err != nil {
+		return fmt.Errorf("declaring that %s lent %s: %w", owner.Key, d.modelCredentialName, err)
+	}
+	return nil
 }
 
 // processingLocationOf is the processing location a composed entry names: the

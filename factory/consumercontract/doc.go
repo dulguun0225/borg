@@ -11,7 +11,7 @@
 // derivation.go is [Derivation] with [Derivation.Partial],
 // [Derivation.CouldNotDerive] and [Derivation.Describe], [Derived], [Extractor]
 // with [Extractors] and [ExtractorFor], and [Cause] with [Causes]. writer.go is [Draft], [Of], [Insert] and
-// [DeriveAgain]. derive.go is [Derive], [GoExtractor], [FileName] and
+// [DeriveAgain]. derive.go is [Derive], [GoExtractor], [GoConvention], [FileName] and
 // [ErrNotAnAllowedPredicateKind]; address.go is [Entries] and [Entry], the
 // configuration file that says which producer an address reaches; source.go is
 // what the consumer's own source does with a mirror. read.go is [Querier] and the
@@ -23,8 +23,10 @@
 //
 // db_test.go is the tests against the database and holds the helpers the file
 // beside it shares; derivation_db_test.go is the derivation record's own; and
-// derive_test.go is the extractor and decide_test.go what deciding a predicate
-// means, neither of which needs a database.
+// derive_test.go is the extractor, derivepairing_test.go what a written element
+// declares and which mirror a shared field name pairs with, deriveunreadable_test.go
+// what makes a checkout could not derive or partial, and decide_test.go what
+// deciding a predicate means — none of those four needs a database.
 //
 // A [Predicate] is drawn from the list of allowed predicate kinds, which is
 // package gatepolicy's rather than this package's — the list is a parameter of
@@ -71,9 +73,21 @@
 // [Derive], in derive.go, is the Go extractor: it reads the mirror the consumer
 // holds of each address it reaches, pairs each with the entry of the configuration
 // file that names which producer that address is, and derives from what the
-// consumer's own source reads, writes and calls. The convention, the tag, and both
-// blind cases — a read the derivation misses and a read it invents — are stated
-// there and in source.go. It returns a [Derived], which [Insert] takes with an
+// consumer's own source reads, writes and calls — a written element as well as a
+// read one, including whether it is written populated. Pairing a read or a write
+// with its mirror, in source.go, takes the type the value is bound to and not the
+// field name alone, so a field name two mirrors share is two elements. The
+// convention is [GoConvention], published with [GoExtractor] so a reader of the
+// derivation sees it without opening this file; the tag and the blind case — a
+// read the derivation misses, through a map key or a receiver it cannot trace —
+// are stated there and in source.go, beside the four constructs it can see and
+// records rather than passes over: a read through reflection, a string-keyed
+// access, a generated accessor, and a mapping read from configuration.
+// [consumerSource.checkDirectCall] is could not derive for the whole checkout, and
+// names the site, where a call reaches an address outside the mirror convention
+// entirely — a literal or a value read from a field — and so is any call at all
+// found where no mirror and no configuration file exist, which is the state an
+// adopted service arrives in. It returns a [Derived], which [Insert] takes with an
 // [Of].
 //
 // Who may write what: [Insert] inserts and updates and deletes nothing. item_id,
@@ -85,9 +99,9 @@
 // What defines it: the predicate, the allowed kinds on both sides, the
 // derivation, its authority, and the two baselines are
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md
-// (C1797, C1798, C1799, C1800, C1801, C1802, C1805, C1806, C1807, C1808, C1813,
-// C1820, C1821, C1822, C1823); the consumer contract being checked against the
-// candidate, and the third outcome, are
+// (C1797, C1798, C1799, C1800, C1801, C1802, C1805, C1806, C1807, C1808, C1810,
+// C1813, C1814, C1820, C1821, C1822, C1823); the consumer contract being
+// checked against the candidate, and the third outcome, are
 // ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md
 // (C1788, C1791, C1794);
 //
@@ -95,11 +109,11 @@
 // upgrade, are
 // ../../end-goal/how-the-factory-works/07-contracts/12-what-the-derivation-records.md
 // (C1899, C1900, C1901, C1902, C1906, C1907, C1908, C1910, C1911, C1912,
-// C1914);
+// C1913, C1914);
 //
 // which producer a consumer reaches is
 // ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md
-// (C1886, C1887, C1888, C1891, C1896, C1898);
+// (C1886, C1887, C1888, C1889, C1891, C1896, C1898);
 //
 // a store's consumer contract being derived from writes as well as reads is
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md

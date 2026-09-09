@@ -172,6 +172,7 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	// An item decomposed and not built: not shipped.
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: "in_working", ServiceID: g.serviceID, Branch: "item/working",
+		RequirementsAnswered: []string{"rq_" + "test"},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
@@ -229,6 +230,7 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	// the work, and half a revert is not a revert.
 	second, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: "in_working", ServiceID: g.serviceID, Branch: "item/working-2",
+		RequirementsAnswered: []string{"rq_" + "test"},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the second item: %v", err)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/lease"
@@ -91,6 +92,96 @@ func TestAStoppedHealthMonitorStillHoldsItsOwnService(t *testing.T) {
 	if err != nil || !held {
 		t.Errorf("Mismatch = %v, %v; a stopped health monitor holds that service's production deploys:\n%s",
 			held, err, out)
+	}
+}
+
+// TestAComponentFreshAgainRecordsALaterAgreementAndLeavesTheMismatchUncleared
+// is the third comparison's own version of the rule a later agreeing target
+// pass already keeps: a component whose last check answers fresh again does
+// not clear the mismatch its earlier staleness raised, and the agreement is
+// recorded on the standing row as the evidence the human clearing it reads.
+func TestAComponentFreshAgainRecordsALaterAgreementAndLeavesTheMismatchUncleared(t *testing.T) {
+	ctx, s, token := newStores(t)
+	dir := t.TempDir()
+	env, svc, _ := setUp(ctx, t, s.factory, token, dir)
+	shipRelease(ctx, t, s.factory, token, svc, env, "c1")
+
+	writeCheck(ctx, t, s.factory, token, lastcheck.LastCheck{
+		Component: lastcheck.ComponentHealthMonitor, Subject: svc.ID, Interval: time.Minute,
+	})
+	writeCheck(ctx, t, s.factory, token, lastcheck.LastCheck{
+		Component: lastcheck.ComponentAdvisoryPass, Interval: time.Hour,
+	})
+	backdate(ctx, t, s.factory, lastcheck.ComponentHealthMonitor, time.Now().Add(-time.Hour))
+
+	if err := staleCheck(ctx, s, &strings.Builder{}); err != nil {
+		t.Fatalf("staleCheck (raising): %v", err)
+	}
+	raised, err := driftdetector.Uncleared(ctx, s.own, svc.ID)
+	if err != nil || len(raised) != 1 {
+		t.Fatalf("Uncleared after raising = %+v, %v, want the one mismatch the stale health monitor raised", raised, err)
+	}
+
+	// The health monitor's pass runs again and its check is fresh: the
+	// component's own record is overwritten with a checked_at of now.
+	writeCheck(ctx, t, s.factory, token, lastcheck.LastCheck{
+		Component: lastcheck.ComponentHealthMonitor, Subject: svc.ID, Interval: time.Minute,
+	})
+
+	out := &strings.Builder{}
+	if err := staleCheck(ctx, s, out); err != nil {
+		t.Fatalf("staleCheck (fresh again): %v", err)
+	}
+
+	held, _, err := driftdetector.NewStore(s.own).Mismatch(ctx, svc.ID)
+	if err != nil || !held {
+		t.Errorf("Mismatch = %v, %v, want true — a mismatch remains even where a later comparison agrees", held, err)
+	}
+	standing, err := driftdetector.Get(ctx, s.own, raised[0].ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if standing.LaterAgreements != 1 || standing.Cleared() {
+		t.Errorf("standing = %+v, want LaterAgreements 1 and still uncleared", standing)
+	}
+	if !strings.Contains(out.String(), "fresh again") {
+		t.Errorf("the report does not say the component is fresh again:\n%s", out)
+	}
+}
+
+// TestChainCheckRecordsALaterAgreementOnAStandingMismatch is the second
+// comparison's own version of the same rule: finding the chain sound this
+// pass does not clear a chain mismatch a previous pass raised, and the
+// agreement is recorded on the standing row as evidence.
+func TestChainCheckRecordsALaterAgreementOnAStandingMismatch(t *testing.T) {
+	ctx, s, token := newStores(t)
+	writer := driftdetector.NewWriter(s.own)
+	raised, err := writer.RaiseChainMismatch(ctx, "a mismatch found on an earlier pass")
+	if err != nil || raised == "" {
+		t.Fatalf("RaiseChainMismatch: %q, %v", raised, err)
+	}
+
+	log := decisionlog.NewWriter(s.factory, token)
+	if _, err := log.AppendPageEvent(ctx, decisionlog.Entry{
+		Actor: testActor, Payload: "{}", FormatVersion: "page_event/1",
+	}); err != nil {
+		t.Fatalf("appending a row: %v", err)
+	}
+
+	out := &strings.Builder{}
+	if err := chainCheck(ctx, s, out); err != nil {
+		t.Fatalf("chainCheck: %v", err)
+	}
+
+	standing, err := driftdetector.Get(ctx, s.own, raised)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if standing.LaterAgreements != 1 || standing.Cleared() {
+		t.Errorf("standing = %+v, want LaterAgreements 1 and still uncleared", standing)
+	}
+	if !strings.Contains(out.String(), "later agreement") {
+		t.Errorf("the report does not mention the later agreement:\n%s", out)
 	}
 }
 

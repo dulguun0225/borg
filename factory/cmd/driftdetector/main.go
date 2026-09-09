@@ -141,7 +141,7 @@ func show(ctx context.Context, s stores, out io.Writer) error {
 			state = "UNCLEARED — it holds every service's production deploys"
 		}
 		if m.Cleared() {
-			state = "cleared at " + m.ClearedAt + " by " + m.ClearedBy
+			state = "cleared at " + m.ClearedAt + " by " + m.ClearedBy + " — " + m.ClearedWhy
 		}
 		fmt.Fprintf(out, "mismatch %s (%s) at %s: %s\n  %s\n", m.ID, m.Kind, m.At, m.Why(), state)
 		if m.LaterAgreements > 0 {
@@ -173,6 +173,7 @@ func show(ctx context.Context, s stores, out io.Writer) error {
 func clearCommand(args []string) error {
 	flags := flag.NewFlagSet("clear", flag.ContinueOnError)
 	human := flags.String("human", "", "the human clearing it (required; the record says whose act it was)")
+	why := flags.String("why", "", "why it is cleared (required; clearing is the only record of the manual act)")
 
 	// The mismatch id is taken off the front before the flags are parsed: it is
 	// what a person types first, and the flag package stops at the first
@@ -190,6 +191,9 @@ func clearCommand(args []string) error {
 	if *human == "" {
 		return errors.New("driftdetector clear: -human is required")
 	}
+	if *why == "" {
+		return errors.New("driftdetector clear: -why is required")
+	}
 
 	ctx := context.Background()
 	s, shut, err := open(ctx)
@@ -198,11 +202,11 @@ func clearCommand(args []string) error {
 	}
 	defer shut()
 
-	cleared, err := driftdetector.NewWriter(s.own).Clear(ctx, id, *human)
+	cleared, err := driftdetector.NewWriter(s.own).Clear(ctx, id, *human, *why)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Mismatch %s cleared at %s by %s\n", cleared.ID, cleared.ClearedAt, cleared.ClearedBy)
+	fmt.Printf("Mismatch %s cleared at %s by %s — %s\n", cleared.ID, cleared.ClearedAt, cleared.ClearedBy, cleared.ClearedWhy)
 	fmt.Println("The page about it is answered by the factory's notifier the next time it reads this store and finds it cleared")
 	return nil
 }

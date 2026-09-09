@@ -33,7 +33,7 @@ func TestTheUpgradesShippedPromptIsDecidedAtFactory(t *testing.T) {
 	// the install's entry, which is the one that stands in force with nothing
 	// decided; composing the path below is the first start on this build, and
 	// what it enters for this role is an upgrade's.
-	installed, err := artifact.NewStore(d.pool, d.token).EnterShipped(ctx, installActor,
+	installed, err := artifact.NewStore(d.pool, d.token).EnterShipped(ctx, artifact.FactoryStart,
 		artifact.KindRolePrompt, string(role), "", "the words the install ran on",
 		artifact.EnteredByInstall, "an earlier bundle")
 	if err != nil {

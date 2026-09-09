@@ -22,7 +22,7 @@ const (
 // FormatVersion is written into every analysis window record's format_version
 // column, and FormatVersionMark into every mark's.
 const (
-	FormatVersion     = "analysis_window/2"
+	FormatVersion     = "analysis_window/3"
 	FormatVersionMark = "rollback_mark/1"
 )
 
@@ -44,6 +44,14 @@ const (
 // it is closed, and closed_at moves with it: exit_and_closed_together enforces
 // that in both directions, so a window with an exit and no time and a window
 // with a time and no exit are both refused.
+//
+// exit_begun is the exit the health monitor started before the first record
+// that exit writes, and it stays on the row after the close. It is what an exit
+// a stop interrupted partway is finished by: the close is the exit's last step,
+// so a window with a begun exit and no exit is one whose earlier steps may or
+// may not have run, and the next evaluation completes that exit rather than
+// deciding a new one. exit_begun_is_the_exit_reached refuses a close at any
+// other exit than the one begun.
 //
 // The parameters resolved at the open are copied onto the row rather than read
 // back from the service record later, and doc.go says why. The per-quantity ones
@@ -89,6 +97,7 @@ var DDL = []string{
 	policy_version text not null,
 	score_version text not null,
 	exit text not null,
+	exit_begun text not null,
 	closed_at text not null,
 	closed_on text not null,
 	finest_size_reached text not null,
@@ -110,6 +119,8 @@ var DDL = []string{
 			and confidence > 0 and cap_seconds > 0 and targets <> '')
 	),
 	constraint exit_known check (exit in ('', 'failed', 'passed', 'timed_out', 'skipped')),
+	constraint exit_begun_known check (exit_begun in ('', 'failed', 'passed', 'timed_out', 'skipped')),
+	constraint exit_begun_is_the_exit_reached check (exit = '' or exit_begun = '' or exit_begun = exit),
 	constraint exit_and_closed_together check ((exit <> '') = (closed_at <> '')),
 	constraint closed_on_read_only_when_closed check (exit <> '' or (closed_on = '' and finest_size_reached = '')),
 	constraint closed_at_is_time_layout check (closed_at = '' or closed_at ~ '` + record.TimePattern + `')

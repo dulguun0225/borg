@@ -82,9 +82,17 @@ rejected split by what put them at the row.
 
 ## What defines it
 
-[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2572, C2588, C2589, C2593, C2607, C2608, C2612, C2613, C2620, C2624, C2629, C2631, C2632, C2633, C2634, C2638, C2650, C2651, C2652, C2653);
+[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2572, C2588, C2589, C2593, C2607, C2608, C2612, C2613, C2620, C2621, C2622, C2624, C2629, C2631, C2632, C2633, C2634, C2635, C2636, C2637, C2638, C2639, C2646, C2647, C2648, C2650, C2651, C2652, C2653);
 [What the factory auto-approved, and what was undone](../../../../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md) (C2719, C2722, C2724, C2725);
 [The page channel, and what reached a human](../../../../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md) (C2730, C2731, C2732, C2733, C2734, C2736, C2738);
 [The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994);
 [Reports](../../../../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md) (C0392, C0418, C0419, C0443, C0445, C0470, C0471, C0472);
-[Constraints and the design system](../../../../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md) (C0266).
+[Constraints and the design system](../../../../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/01-constraints-and-the-design-system.md) (C0266);
+[Hazard severity](../../../../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md) (C0684);
+[Decomposition](../../../../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md) (C0743, C0747);
+[Where a gate is, and what decides it](../../../../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md) (C0864, C0865, C0866, C0894, C0895);
+[The six patterns](../../../../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md) (C1080);
+[Factors, at least](../../../../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md) (C1289, C1318);
+[Dispatch](../../../../../end-goal/how-the-factory-works/02-intent-into-items/05-dispatch.md) (C0825);
+[How it learns](../../../../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md) (C1346, C1350);
+[Stopping the factory](../../../../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md) (C2348).

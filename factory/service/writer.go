@@ -138,7 +138,36 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 // Every other column is left as it is created here: no parameter, nothing
 // provisioned, no target named, and the deployer's four false. That is the seam
 // doc.go states — decomposition writes identity and never a parameter.
+//
+// It opens its own transaction and commits it, for a caller with no
+// transaction of its own to append this write to. [Writer.CreateIn] is the
+// same write on a transaction the caller already holds open, for the one that
+// does: decomposition writes the service record in the same write as the item
+// that creates it.
 func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repository, projectID string) (Service, error) {
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Service{}, fmt.Errorf("service: beginning the creation of %q: %w", name, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	s, err := w.CreateIn(ctx, tx, actor, name, repository, projectID)
+	if err != nil {
+		return Service{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Service{}, fmt.Errorf("service: committing the creation of %q: %w", name, err)
+	}
+	return s, nil
+}
+
+// CreateIn is [Writer.Create] on tx, a transaction the caller opens, fences
+// and commits itself, rather than one this writer opens and commits alone. It
+// is what decomposition calls: the service record and the item that creates
+// it commit together or not at all, which only their shared caller's
+// transaction can make true.
+func (w *Writer) CreateIn(ctx context.Context, tx pgx.Tx, actor record.Actor,
+	name, repository, projectID string) (Service, error) {
 	if err := actor.Validate(); err != nil {
 		return Service{}, err
 	}
@@ -162,21 +191,18 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 		Parameters: Parameters{
 			WindowSize:  map[gatepolicy.Quantity]gatepolicy.Authored{},
 			WindowPower: map[gatepolicy.Quantity]gatepolicy.Authored{},
+			// The window limit is left unauthored: it starts at one because
+			// the score supplies one, and windowlimit.go reads a row the one way.
 		},
 		RecentHistorySize: map[gatepolicy.Quantity]gatepolicy.Authored{},
 		ExplicitThreshold: map[gatepolicy.Quantity]Threshold{},
 	}
 
-	tx, err := w.pool.Begin(ctx)
-	if err != nil {
-		return Service{}, fmt.Errorf("service: beginning the creation of %q: %w", name, err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lease.Fence(ctx, tx, w.token); err != nil {
 		return Service{}, err
 	}
 
-	_, err = tx.Exec(ctx, `insert into `+Table+`
+	_, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name, repository, project_id,
 		provisioned_at, repository_credential_shape, repository_credential_branch, repository_credential_master,
 		retired_at, targets,
@@ -204,9 +230,6 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name, repositor
 	)
 	if err != nil {
 		return Service{}, fmt.Errorf("service: creating %q: %w", name, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Service{}, fmt.Errorf("service: committing the creation of %q: %w", name, err)
 	}
 	return s, nil
 }

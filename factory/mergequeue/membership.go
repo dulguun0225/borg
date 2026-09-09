@@ -8,6 +8,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/release"
 )
 
 // Membership is what the queue read about what is in the queue for one service:
@@ -31,9 +32,29 @@ type Membership struct {
 // priority. It is not a state the path produces, the stage being written on the
 // approval; ordering it rather than refusing it is what keeps a reader of the
 // queue from being unable to see it at all.
+//
+// An item already holding a release has had its fast-forward happen — a
+// half-write a merge can leave, the fast-forward and the mint landed and the
+// caller's own advance to merged did not — so it is not membership: this is
+// what a reader outside a run sees, and [Queue.Run] finishes such an item
+// rather than re-verifying it.
 func (q *Queue) Members(ctx context.Context, serviceID string) ([]item.Item, error) {
 	m, err := q.membership(ctx, serviceID)
-	return m.Members, err
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]item.Item, 0, len(m.Members))
+	for _, it := range m.Members {
+		_, found, err := release.ForItem(ctx, q.pool, it.ID)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			continue
+		}
+		pending = append(pending, it)
+	}
+	return pending, nil
 }
 
 // membership is [Queue.Members] and, beside it, the items the intent's state

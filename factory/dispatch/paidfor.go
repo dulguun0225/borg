@@ -23,9 +23,15 @@ import (
 // declaration edited later must not change a past record. What that costs is
 // what the design states: each record repeats what the declaration said.
 //
-// A credential nobody declared leaves every field empty, which is a record
-// saying the factory does not know whose account it ran on — the state every
-// install has before the declaration names one.
+// The currency is the credential's own column, which the declaration writes at
+// the first rate authored on it: so a credential carrying a rate carries the
+// currency that rate is in, and the one cause of an absent converted amount is
+// a kind the rates do not cover.
+//
+// A credential nobody declared leaves every field empty. The agent run record
+// refuses such a run — it names whose account it spent — so an entry naming a
+// credential the declaration does not hold is a dispatch that fails at the
+// record rather than one that records a run nobody paid for.
 type paidFor struct {
 	lenderKey   string
 	accountKind agentrun.AccountKind

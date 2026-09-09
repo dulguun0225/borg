@@ -14,16 +14,25 @@
 // [AdmitsEverything], the four seams the composition supplies; [Composition]
 // and [Grouper] with [New]; [Grouped], what one pass did; and [Grouper.Pass].
 // grouping.go is what one group causes: apply with joining and dropEmptied,
-// [Grouper.finished], raise, page, and statementOf with the bound on how many
-// reports a statement quotes.
+// [Grouper.finished], raise, alreadyPaged and page, and statementOf with the
+// bound on how many reports a statement quotes.
 //
 // It is a package and not a pass inside the composition because a doc.go under
 // cmd/ cites no claim, and the claims below need a home.
 //
 // # What one pass does
 //
+// A report raises an intent on arrival rather than waiting for a batch: the
+// composition hands each accepted report to [Grouper.Pass] at once, so the
+// first report of a group raises its intent and a later matching one attaches
+// without a second pass over the whole project. Running this on an interval
+// as well is the catch-up a restart needs — a report accepted while the
+// factory was down reaches no arrival to hand it off, and the interval is
+// what finds it — and every other tick of it costs nothing, arrival having
+// already read what there was to read.
+//
 // The pass reads how many of the project's reports are linked to no intent
-// before it reads any words, so a pass with nothing to group makes no model
+// before it reads any words, so a call with nothing to group makes no model
 // call and appends no read event. Where there is something, every report of
 // the project is read — the grouped ones beside the ungrouped ones, a report
 // that arrived after a group was raised being one the role can only match
@@ -59,11 +68,23 @@
 //
 // A group naming an intent whose timeline is finished — delivered or dropped —
 // raises a new intent linked to that one as a recurrence. The fix shipped, so
-// evidence that it did not work is a new intent and never a reopening.
+// evidence that it did not work is a new intent and never a reopening. A
+// group that claims no intent but held a member the boundary above left
+// behind takes the same recurrence: the member does not move, so the new
+// intent the rest of the group raises is linked to the decomposed intent it
+// was judged against and left in, rather than naming nothing. What the
+// boundary costs is a run of reports just after a narrow decomposition
+// showing as linked timelines where a human would call it one problem.
 //
 // A report the reply left in no group stays ungrouped and is counted as such at
 // Factory, which is the answer to a report nobody sees; the next pass reads it
 // again.
+//
+// A harm-marked report grouped into an intent already carrying a page raises
+// no second one: the notifier's own delivery record for that intent is read
+// before [notifier.Notify] is called, so a later pass finding the mark on
+// another of the intent's reports pages nothing further. It is one page per
+// intent and never per report, however many passes it takes to see them all.
 //
 // Nothing waits for a batch or a count. Grouping is deduplication and not
 // triage: one report from one end user is an intent, and the count of reports
@@ -115,4 +136,11 @@
 // C0400, C0432, C0439); the agent that calls intake before an intent exists
 // is
 // ../../end-goal/components.md (C0031).
+//
+// The grouper running before an intent exists, scoped by the project whose
+// reports it reads, is
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0168).
+//
+// One page per intent however many marked reports is
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2126).
 package grouper

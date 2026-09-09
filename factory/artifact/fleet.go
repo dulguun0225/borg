@@ -11,18 +11,28 @@ import (
 
 // SubmitFleet writes a version of one of [FleetKinds]: a role prompt named by
 // role, a skill named by subject, or the one selection rule, which names
-// neither. Its callers are the same three [Authorships] names — an agent
+// neither. Its callers are two of the three [Authorships] names — an agent
 // authoring it is [_What an agent is told_]'s "another caller in the agent
-// that authors a version" — and [Store.EnterShipped] is the fourth, ungated
-// path for the words that shipped with the product.
+// that authors a version", and the gate component is where a human takes Edit
+// in place — and [Store.EnterShipped] is the third, ungated path for the words
+// that shipped with the product.
+//
+// [AuthorshipHuman] is refused here: it is a human backstopping a stage, and
+// these three records belong to no stage — a role prompt reaches every item
+// its role is dispatched onto. What a human writes into one is written at the
+// gate every version fires, under [AuthorshipGate], where the decision that
+// puts it in force is taken.
 func (s *Store) SubmitFleet(ctx context.Context, actor record.Actor, by By, kind Kind,
 	role, subject, content, inputManifestID string) (Artifact, error) {
 	key, err := fleetKey(kind, role, subject)
 	if err != nil {
 		return Artifact{}, err
 	}
-	if err := refuseAuthored(actor, by); err != nil {
+	if err := refuseAuthored(actor, by, inputManifestID); err != nil {
 		return Artifact{}, err
+	}
+	if by.Authorship == AuthorshipHuman {
+		return Artifact{}, fmt.Errorf("%w: %s by %s", ErrHumanAuthorsNoFleetVersion, kind, by.Author)
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -57,13 +67,18 @@ func (s *Store) SubmitFleet(ctx context.Context, actor record.Actor, by By, kind
 // ungated — the install's alone do — or entered awaiting the gate every
 // version fires. [InForce] reads it, and the caller does not have to know
 // which start wrote each row.
+//
+// The actor is [FactoryStart] and no other. This is the call the design gives
+// the factory's own start, and its entries stand without an approval where the
+// install wrote them; an actor the caller chose would let any component write
+// a row in force that nothing decided.
 func (s *Store) EnterShipped(ctx context.Context, actor record.Actor, kind Kind,
 	role, subject, content string, enteredBy EnteredBy, shippedBundleIdentity string) (Artifact, error) {
 	key, err := fleetKey(kind, role, subject)
 	if err != nil {
 		return Artifact{}, err
 	}
-	if err := actor.Validate(); err != nil {
+	if err := refuseFactoryStart(actor); err != nil {
 		return Artifact{}, err
 	}
 	if !slices.Contains(EnteredBys, enteredBy) {

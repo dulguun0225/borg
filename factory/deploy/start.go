@@ -14,41 +14,46 @@ import (
 // transaction that mints the number, writes the record and writes a row per
 // target.
 
-// Reaching is one target the deploy will reach: its address, and the three
-// fleets' instance counts there — the release's own, the control's where a
-// control runs on that target, and how many instances of the release a rollback
-// of this one would return to the deployer is keeping. The order of the slice is
-// the environment's own, which is the order the deployer reaches them in.
+// Reaching is one target of the environment as the deploy begins: its address,
+// whether the service runs there, and the two instance counts a deploy names at
+// the start — the release's own, and how many instances of the release a
+// rollback of this one would return to the deployer is keeping. The order of the
+// slice is the environment's own, which is the order the deployer reaches them
+// in.
 type Reaching struct {
 	Address string
+	// NotRunHere is a target of the environment the service does not run on. A
+	// row is written beside each of the environment's targets, and this one
+	// stays not reached: the deployer reaches the targets the service runs on,
+	// which is every other row and the whole of what completion is read over.
+	NotRunHere bool
 	// ReleaseInstances is how many instances of this deploy's own build run
-	// here, and ControlInstances how many the control runs, which is nothing on
-	// every target but the ones a control runs on.
+	// here. The control's are no part of what a deploy names at the start:
+	// there is one control per production target the release has reached,
+	// started on that target when the rollout reaches it, which
+	// [Writer.ControlStarted] writes there and then.
 	ReleaseInstances int
-	ControlInstances int
-	// ControlReleaseID is the release the control on this target runs — the
-	// release a rollback of this deploy would return to, which is what defines a
-	// control — and is empty on a target running none. There is one control per
-	// production target the release has reached, so this names it per target and
-	// not once for the whole deploy.
-	ControlReleaseID string
-	// KeptInstances is the capacity the release being replaced had, times the
-	// fraction its owner authored, kept here while any open window's rollback
-	// could return to that release.
+	// KeptInstances is the instances the build being replaced had, or the
+	// fraction of them an owner authored, kept here while any open window's
+	// rollback could return to that release: a rollback returns production to
+	// them, and a share is not a capacity.
 	KeptInstances int
 }
 
 // Beginning is what the deployer names when it begins a deploy. Everything on
 // it is written at the start, which is when the window opens over the deploy:
-// the targets with their three instance counts, the digests, and the strategy
-// where the deploy is into production. What is not written at the start is the
-// strategy performed, which is written once something has been performed.
+// the targets with the release's own instances and the kept ones, the digests,
+// and the strategy where the deploy is into production. Two things are not
+// written at the start — the strategy performed, written once something has
+// been performed, and the control, written on a target when the rollout reaches
+// it.
 type Beginning struct {
 	ServiceID     string
 	EnvironmentID string
 	What          What
-	// Targets are the environment's targets in the environment's order. A row is
-	// written for each at the start, not reached.
+	// Targets are the environment's targets in the environment's order, each
+	// saying whether the service runs there. A row is written for each at the
+	// start, not reached.
 	Targets []Reaching
 	// IntoProduction is whether the environment is the production one, which is
 	// the only place a strategy attaches.
@@ -76,6 +81,11 @@ type Beginning struct {
 // have, read under an advisory lock per pair so two deploys onto one pair
 // serialise, and every target of the environment gets a row marked not reached
 // with the kept-instance count for that target.
+//
+// The actor is the deployer and nothing else: deploying is not a stage an agent
+// is dispatched to, and a human who called for a deploy — the human at Ops
+// whose rollback this is — is the record's source and never its actor. Any
+// other actor is [ErrNotTheDeployer].
 func (w *Writer) Start(ctx context.Context, actor record.Actor, b Beginning) (Deploy, error) {
 	return w.start(ctx, actor, b, Undoing{})
 }
@@ -109,6 +119,9 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, und
 	if err := actor.Validate(); err != nil {
 		return Deploy{}, err
 	}
+	if actor.Kind != record.KindComponent {
+		return Deploy{}, fmt.Errorf("%w: %s %s", ErrNotTheDeployer, actor.Kind, actor.Key)
+	}
 	if b.ServiceID == "" {
 		return Deploy{}, ErrServiceIDEmpty
 	}
@@ -121,10 +134,15 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, und
 	if len(b.Targets) == 0 {
 		return Deploy{}, ErrNoTargets
 	}
+	runsSomewhere := false
 	for _, target := range b.Targets {
 		if target.Address == "" {
 			return Deploy{}, fmt.Errorf("%w: one of them names no address", ErrNoTargets)
 		}
+		runsSomewhere = runsSomewhere || !target.NotRunHere
+	}
+	if !runsSomewhere {
+		return Deploy{}, fmt.Errorf("%w: the service runs on none of them", ErrNoTargets)
 	}
 	if b.IntoProduction != (b.StrategyPicked != "") {
 		return Deploy{}, fmt.Errorf("%w: into production %v, strategy %q",
@@ -194,11 +212,11 @@ func (w *Writer) start(ctx context.Context, actor record.Actor, b Beginning, und
 
 	for position, target := range b.Targets {
 		_, err = tx.Exec(ctx, `insert into `+TargetTable+`
-			(deploy_id, position, address, completion,
-			 release_instances, control_instances, control_release_id, kept_instances)
-			values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			d.ID, position, target.Address, string(CompletionNotReached),
-			target.ReleaseInstances, target.ControlInstances, target.ControlReleaseID, target.KeptInstances)
+			(deploy_id, position, address, runs_here, completion,
+			 release_instances, kept_instances)
+			values ($1, $2, $3, $4, $5, $6, $7)`,
+			d.ID, position, target.Address, !target.NotRunHere, string(CompletionNotReached),
+			target.ReleaseInstances, target.KeptInstances)
 		if err != nil {
 			return Deploy{}, fmt.Errorf("deploy: writing the row of target %s of %s: %w",
 				target.Address, d.ID, err)

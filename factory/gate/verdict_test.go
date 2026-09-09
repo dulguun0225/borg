@@ -21,7 +21,7 @@ func TestAnAutoPassIsClosedByTheGateComponent(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.1)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -94,9 +94,9 @@ func TestBothReasonsAreToldApart(t *testing.T) {
 	safeguarded := applied(0.3)
 	safeguarded.HumanBySafeguard = true
 	s, p := &fakeScore{assessment: assessed(0.9)}, &fakePolicy{applied: safeguarded}
-	ctx, _, _, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestEachRowOffersItsOwnActions(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	merged, err := g.Fire(ctx, mergeFiring)
+	merged, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire at the merge row: %v", err)
 	}
@@ -173,9 +173,9 @@ func TestAHoldCloses(t *testing.T) {
 // between.
 func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
-	ctx, _, _, g := newGate(t, s, p)
+	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestARejectWithoutReasonIsRefused(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -218,8 +218,11 @@ func TestARejectWithoutReasonIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 3 {
-		t.Fatalf("the log holds %d rows after the refused reject, want 3", len(rows))
+	// Two reads of the log before the opening — nothing pending, and whether the
+	// row above stands as approved — plus this Read, and the two rows the
+	// fixture wrote for the row above.
+	if len(rows) != 6 {
+		t.Fatalf("the log holds %d rows after the refused reject, want 6", len(rows))
 	}
 }
 
@@ -231,7 +234,7 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
 	ctx, pool, token, g := newGate(t, s, p)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -266,7 +269,7 @@ func TestAutoRejectIsTheFactorysOwnAndIsAllowedOverAHuman(t *testing.T) {
 
 	// A rejection that names no check is refused: it is only readable against the
 	// check it came from.
-	second, err := g.Fire(ctx, mergeFiring)
+	second, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("the second Fire: %v", err)
 	}
@@ -308,8 +311,8 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 	// Over the threshold and held out: no human, and the close event says the
 	// sample passed it.
 	s := &fakeScore{assessment: assessed(0.6), selection: score.Selection{HeldOut: true, Why: score.SelectedHere}}
-	ctx, _, _, g := newGate(t, s, &fakePolicy{applied: applied(0.3)})
-	opened, err := g.Fire(ctx, mergeFiring)
+	ctx, pool, token, g := newGate(t, s, &fakePolicy{applied: applied(0.3)})
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -340,8 +343,8 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 	safeguarded := &fakeScore{assessment: assessed(0.1), selection: score.Selection{HeldOut: true}}
 	safeguardedApplied := applied(0.3)
 	safeguardedApplied.HumanBySafeguard = true
-	ctx, _, _, g = newGate(t, safeguarded, &fakePolicy{applied: safeguardedApplied})
-	opened, err = g.Fire(ctx, mergeFiring)
+	ctx, pool, token, g = newGate(t, safeguarded, &fakePolicy{applied: safeguardedApplied})
+	opened, err = g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire over a row a safeguard reached: %v", err)
 	}
@@ -356,8 +359,8 @@ func TestTheSampleRemovesTheNumbersHumanAndNoOtherIsTheOneAsymmetryHere(t *testi
 	// item's — and the close event says the threshold, because the score would have
 	// passed this one anyway and it is evidence about no gate.
 	under := &fakeScore{assessment: assessed(0.1), selection: score.Selection{HeldOut: true, Why: score.SelectedEarlier}}
-	ctx, _, _, g = newGate(t, under, &fakePolicy{applied: applied(0.3)})
-	opened, err = g.Fire(ctx, mergeFiring)
+	ctx, pool, token, g = newGate(t, under, &fakePolicy{applied: applied(0.3)})
+	opened, err = g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire under the threshold: %v", err)
 	}

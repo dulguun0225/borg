@@ -20,6 +20,12 @@ type Effective struct {
 	Row       string
 	Source    Source
 	Number    float64
+	// Unbounded is the value in force where the parameter's unauthored value
+	// places no bound and nobody authored one: the decision log and the report
+	// store kept for the life of the install, arrival at the way in unbounded,
+	// a schema-change snapshot standing until an owner deletes it, and every
+	// hour a paging hour. Number is nothing where it is set.
+	Unbounded bool
 	List      []string
 	// Safeguards are the ids of the safeguards in force on this parameter for
 	// these subjects, whether or not they moved the value: a safeguard that
@@ -244,6 +250,13 @@ func authoredBesideTheEleven(d gatepolicy.Definition, s Subjects,
 	case gatepolicy.ExplicitThresholdSize:
 		threshold, held := svc.ExplicitThreshold[gatepolicy.Quantity(s.Quantity)]
 		return gatepolicy.Authored{Number: threshold.Size, Present: held}, nil, nil
+	case gatepolicy.ServiceTargets:
+		return gatepolicy.Authored{}, svc.Targets, nil
+	case gatepolicy.ProductLicence:
+		if svc.ProductLicence == "" {
+			return gatepolicy.Authored{}, nil, nil
+		}
+		return gatepolicy.Authored{}, []string{svc.ProductLicence}, nil
 	}
 	return gatepolicy.Authored{}, nil, fmt.Errorf("policy: nothing reads an authored %s", d.Parameter)
 }
@@ -270,8 +283,10 @@ func (r *Reader) authoredOnSettings(ctx context.Context, d gatepolicy.Definition
 	case gatepolicy.RetentionFloor:
 		return settings.RetentionFloorSeconds, nil, nil
 	case gatepolicy.ReportChannelRate:
+		return settings.ReportChannelRate, nil, nil
+	case gatepolicy.ServiceReportChannelRate:
 		if s.ServiceID == "" {
-			return settings.ReportChannelRate, nil, nil
+			return gatepolicy.Authored{}, nil, nil
 		}
 		authored, err := factorysettings.ReportChannelRate(ctx, r.pool, settings.ID, s.ServiceID)
 		return authored, nil, err
@@ -284,6 +299,10 @@ func (r *Reader) authoredOnSettings(ctx context.Context, d gatepolicy.Definition
 		}
 		authored, err := factorysettings.RemediationPeriod(ctx, r.pool, settings.ID, s.Severity)
 		return authored, nil, err
+	case gatepolicy.Seam5Enforced:
+		// Off is not authored: an owner turns it on once and nothing turns it
+		// off again, so the field holds a value only where they have.
+		return gatepolicy.Authored{Number: 1, Present: settings.Seam5Enforced}, nil, nil
 	case gatepolicy.HarmMarkPageCap:
 		if s.ServiceID == "" {
 			return gatepolicy.Authored{}, nil, nil
@@ -314,10 +333,18 @@ func (r *Reader) resolve(ctx context.Context, parameter gatepolicy.Parameter,
 		Number:    authored.Or(supplied.Value),
 		ReadBy:    definition.ReaderAtThisMilestone,
 	}
-	if !authored.Present && hasSupplied {
+	switch unauthored := definition.Unauthored; {
+	case authored.Present:
+	// The unauthored value is read before what the score supplies, not under
+	// it: a parameter the design fixes a value for is one no outcome teaches,
+	// so a number arriving from the score for it would be a number nothing
+	// learned.
+	case unauthored.Given:
+		effective.Source = FromFactory
+		effective.Number, effective.Unbounded = unauthored.Number, unauthored.Unbounded
+	case hasSupplied:
 		effective.Supplied = supplied
-	}
-	if !authored.Present && !hasSupplied {
+	default:
 		effective.Source = FromNothing
 	}
 
@@ -331,13 +358,57 @@ func (r *Reader) resolve(ctx context.Context, parameter gatepolicy.Parameter,
 			effective.HumanBySafeguard = true
 			continue
 		}
+		if effective.Unbounded {
+			// An unbounded value is above every bound, so a floor leaves it
+			// alone and a ceiling is the first bound it has ever had: the value
+			// in force from there is a number.
+			if p.Direction != gatepolicy.DirectionCeiling {
+				continue
+			}
+			effective.Number, effective.Unbounded, effective.Clamped = p.Bound.Number, false, true
+			continue
+		}
 		clamped := gatepolicy.Clamp(p.Direction, p.Bound.Number, effective.Number)
 		if clamped != effective.Number {
 			effective.Clamped = true
 			effective.Number = clamped
 		}
 	}
+	if err := r.holdTheRetentionFloor(ctx, &effective); err != nil {
+		return Effective{}, err
+	}
 	return effective, nil
+}
+
+// holdTheRetentionFloor raises decision-log retention to the retention floor
+// where the value in force is under it. Neither an authored value nor a
+// safeguard may take that retention under the floor: package factorysettings
+// refuses the authored value at the write, and this is the read — a floor
+// written after the value, or a safeguard clamping the value, reaches the value
+// in force here and nowhere else.
+func (r *Reader) holdTheRetentionFloor(ctx context.Context, effective *Effective) error {
+	if effective.Parameter != gatepolicy.DecisionLogRetention {
+		return nil
+	}
+	settings, err := factorysettings.Get(ctx, r.pool)
+	if err != nil {
+		return err
+	}
+	floor := settings.RetentionFloorSeconds
+	if !floor.Present {
+		return nil
+	}
+	if effective.Unbounded {
+		// The log kept for the life of the install is already above every
+		// floor, a floor bounding how short the value may be.
+		return nil
+	}
+	if effective.Number >= floor.Number {
+		return nil
+	}
+	effective.Number = floor.Number
+	effective.Clamped = true
+	return nil
 }
 
 // resolveList is the same three reads for the one parameter whose value is a
@@ -358,12 +429,13 @@ func (r *Reader) resolveList(ctx context.Context, parameter gatepolicy.Parameter
 	if err != nil {
 		return Effective{}, err
 	}
-	own := factoryOwn(parameter)
+	own := definition.Unauthored.List
 	effective := Effective{
 		Parameter: parameter,
 		Row:       definition.Row,
 		Source:    FromFactory,
 		List:      gatepolicy.ClampList(authored, own),
+		Unbounded: len(authored) == 0 && definition.Unauthored.Unbounded,
 		ReadBy:    definition.ReaderAtThisMilestone,
 	}
 	if len(authored) > 0 {
@@ -376,6 +448,18 @@ func (r *Reader) resolveList(ctx context.Context, parameter gatepolicy.Parameter
 	}
 	for _, p := range safeguards {
 		effective.Safeguards = append(effective.Safeguards, p.ID)
+		if definition.Kind == gatepolicy.KindStrategy {
+			// A safeguard on the strategy default keeps a control, and that is
+			// the whole of what it says — it carries no bound. So it makes the
+			// strategy with a control the one in force rather than adding a
+			// second name to the list: two strategies in force is no answer,
+			// the value being which one the rollout takes.
+			if len(effective.List) != 1 || effective.List[0] != string(gatepolicy.StrategyWithControl) {
+				effective.Clamped = true
+			}
+			effective.List = []string{string(gatepolicy.StrategyWithControl)}
+			continue
+		}
 		extended := gatepolicy.ClampList(p.Bound.List, effective.List)
 		if len(extended) != len(effective.List) {
 			effective.Clamped = true
@@ -383,17 +467,6 @@ func (r *Reader) resolveList(ctx context.Context, parameter gatepolicy.Parameter
 		effective.List = extended
 	}
 	return effective, nil
-}
-
-// factoryOwn is the value the factory itself provides for a list-valued
-// parameter, under whatever an owner authored. There is one such parameter and one
-// such value: the predicate kinds package gatepolicy names, which are the ones
-// enforcement can decide.
-func factoryOwn(parameter gatepolicy.Parameter) []string {
-	if parameter == gatepolicy.AllowedPredicateKinds {
-		return gatepolicy.AllowedPredicateKindNames()
-	}
-	return nil
 }
 
 // safeguardsOn is every safeguard in force on one parameter across every subject these
@@ -455,7 +528,33 @@ func (r *Reader) safeguardsOn(ctx context.Context, parameter gatepolicy.Paramete
 		subjects = append(subjects, safeguard.Subject{Kind: safeguard.SubjectPredicateKindsList, ID: settings.ID})
 	}
 
-	return safeguard.BySubjects(ctx, r.pool, parameter, subjects)
+	standing, err := safeguard.BySubjects(ctx, r.pool, parameter, subjects)
+	if err != nil {
+		return nil, err
+	}
+	return newestPerSubject(standing), nil
+}
+
+// newestPerSubject keeps one safeguard per subject, the newest. A safeguard is
+// never edited: correcting one is a withdrawal and a second record, and the
+// value in force is a read of the newest record for that subject. Applying
+// every record a subject ever carried would apply a bound an owner replaced.
+// [safeguard.BySubjects] answers in the order the records were written, so the
+// last one seen for a subject is the newest.
+func newestPerSubject(standing []safeguard.Safeguard) []safeguard.Safeguard {
+	newest := map[safeguard.Subject]safeguard.Safeguard{}
+	var subjects []safeguard.Subject
+	for _, p := range standing {
+		if _, held := newest[p.Subject]; !held {
+			subjects = append(subjects, p.Subject)
+		}
+		newest[p.Subject] = p
+	}
+	kept := make([]safeguard.Safeguard, 0, len(subjects))
+	for _, subject := range subjects {
+		kept = append(kept, newest[subject])
+	}
+	return kept
 }
 
 // keyOf is the value of a parameter's own key for these subjects: the gate row

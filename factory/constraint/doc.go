@@ -93,4 +93,9 @@
 //
 // Supplying a constraint is duty 2 of ../../end-goal/what-humans-do.md (C2864,
 // C2865, C2867, C2868).
+//
+// [Writer.Withdraw] keeping the row and [Writer.Replace] correcting it, rather
+// than an edit, are
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1468).
 package constraint

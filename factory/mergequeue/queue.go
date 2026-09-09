@@ -11,6 +11,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
@@ -67,6 +68,14 @@ var (
 	// queue's stands over that service and commit: either master never held a
 	// commit the queue did not make, or the wait has already ended.
 	ErrNoWaitStanding = errors.New("mergequeue: no wait of the queue's stands over that commit")
+	// ErrReverificationRepeats is returned where a re-verification that decides a
+	// candidate's own merit — [designSystemMoved] and [resolvedSetDiffers] both
+	// ask [refuseIfRepeats] — names the build already in force, or the
+	// environment cycle already in force: a re-verification is never a repeat of
+	// the run that passed, the build is new and the environment is recomposed.
+	// [Queue.complete]'s own re-ask is the one exception the design states, and
+	// this is never returned for it.
+	ErrReverificationRepeats = errors.New("mergequeue: the re-verification repeats the run that passed")
 )
 
 // Composition is what the queue is built from. It is a struct rather than nine
@@ -79,6 +88,10 @@ type Composition struct {
 	Token    lease.Token
 	Log      *decisionlog.Writer
 	Releases *release.Writer
+	// Items is the queue's own writer of the item a rejection sends back. It is
+	// required: the rejection is the queue's to act on, there being no gate
+	// firing for a caller to act on instead.
+	Items *item.Dispatch
 	// Repository is everything done to a repository and a candidate's
 	// environment. Every run reads master through it, so it is required.
 	Repository Repository
@@ -93,6 +106,10 @@ type Composition struct {
 	// Reverts is whether one item is a revert, which is one of the two
 	// exceptions a halt takes. A nil value is [NoRevertKnown].
 	Reverts Reverts
+	// Reliability answers whether a criterion is unreliable over the builds a
+	// rejection compared, so a failure that repeats there teaches the score
+	// nothing. A nil value is [NoUnreliableCriterion].
+	Reliability Reliability
 }
 
 // Queue is the merge queue over one factory.
@@ -101,14 +118,16 @@ type Queue struct {
 	token        lease.Token
 	log          *decisionlog.Writer
 	releases     *release.Writer
+	items        *item.Dispatch
 	repo         Repository
 	numbers      Numbers
 	designSystem DesignSystem
 	backlog      Backlog
 	reverts      Reverts
+	reliability  Reliability
 }
 
-// New returns the queue over one composition, with the four optional readings
+// New returns the queue over one composition, with the optional readings
 // replaced by the value that says a factory was composed without them.
 func New(c Composition) *Queue {
 	if c.Numbers == nil {
@@ -123,9 +142,13 @@ func New(c Composition) *Queue {
 	if c.Reverts == nil {
 		c.Reverts = NoRevertKnown{}
 	}
+	if c.Reliability == nil {
+		c.Reliability = NoUnreliableCriterion{}
+	}
 	return &Queue{
-		pool: c.Pool, token: c.Token, log: c.Log, releases: c.Releases, repo: c.Repository,
+		pool: c.Pool, token: c.Token, log: c.Log, releases: c.Releases, items: c.Items, repo: c.Repository,
 		numbers: c.Numbers, designSystem: c.DesignSystem, backlog: c.Backlog, reverts: c.Reverts,
+		reliability: c.Reliability,
 	}
 }
 

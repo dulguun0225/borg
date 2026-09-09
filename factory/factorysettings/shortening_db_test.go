@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/dulguun0225/borg/factory/factorysettings"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // TestAShorteningIsWrittenPendingAndApprovedOnce: a shorter decision-log
@@ -20,7 +21,7 @@ func TestAShorteningIsWrittenPendingAndApprovedOnce(t *testing.T) {
 	var written factorysettings.Shortening
 	inTx(t, ctx, pool, func(tx pgx.Tx) error {
 		var err error
-		written, err = factorysettings.InsertShortening(ctx, tx, token, owner, 30*24*3600)
+		written, err = factorysettings.InsertShortening(ctx, tx, token, owner, record.NewID(factorysettings.ShorteningIDPrefix), 30*24*3600)
 		return err
 	})
 	if written.Seconds != 30*24*3600 || written.Approved || written.ApprovedAt != "" {
@@ -52,7 +53,7 @@ func TestAShorteningIsWrittenPendingAndApprovedOnce(t *testing.T) {
 		factorysettings.ErrShorteningAlreadyApproved) {
 		t.Errorf("approving one shortening twice = %v, want ErrShorteningAlreadyApproved", err)
 	}
-	if _, err := factorysettings.InsertShortening(ctx, tx, token, owner, 0); !errors.Is(err,
+	if _, err := factorysettings.InsertShortening(ctx, tx, token, owner, record.NewID(factorysettings.ShorteningIDPrefix), 0); !errors.Is(err,
 		factorysettings.ErrRetentionNotPositive) {
 		t.Errorf("a shortening to nothing = %v, want ErrRetentionNotPositive", err)
 	}
@@ -84,7 +85,7 @@ func TestShorteningsAwaitingADecisionAreWhatFactoryLists(t *testing.T) {
 	var written factorysettings.Shortening
 	inTx(t, ctx, pool, func(tx pgx.Tx) error {
 		var err error
-		written, err = factorysettings.InsertShortening(ctx, tx, token, owner, 30*24*3600)
+		written, err = factorysettings.InsertShortening(ctx, tx, token, owner, record.NewID(factorysettings.ShorteningIDPrefix), 30*24*3600)
 		return err
 	})
 

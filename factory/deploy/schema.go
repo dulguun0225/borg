@@ -110,11 +110,14 @@ const lockName = "borg/factory/deploy/"
 // held every one of them, which is completed and not a change that failed.
 //
 // backfill_contract, backfill_element and backfill_from_element are what a
-// backfill item's release copies between, all three together or none of them.
-// The record marks the backfill complete by being marked complete, the deployer
-// completing it only once every row the old form holds is present in the new,
-// and enforcement rejects the item that moves reads to that element and the drop
-// after it until one does.
+// backfill item's release copies between, all three together or none of them,
+// and backfill_copied is whether every row the old form holds is present in the
+// new. The record marks the backfill complete by being marked complete, and the
+// deployer marks it complete only once backfill_copied says the copy finished —
+// so a record that is complete and names the element is the fact enforcement
+// reads before it admits the item that moves reads to that element and the drop
+// after it. A copy that runs for hours leaves the deploy standing incomplete
+// until something writes that column, which is what Ops shows while it runs.
 //
 // snapshot_name and snapshot_digest are the copy taken and verified before a
 // change that destroys stored data, and snapshot_deleted_at is written when the
@@ -138,32 +141,48 @@ const lockName = "borg/factory/deploy/"
 // composes neither record.Columns nor record.Constraints, holds no actor and no
 // format version, and ../../end-goal/records.md lists no row for it. A record
 // per target stays refused — four records could each name a different release
-// and each be right. The row is keyed by the deploy and the address, carries
-// the position that is the environment's order, and holds one of not reached,
-// complete, or rolled back.
+// and each be right. There is a row beside each of the environment's targets,
+// keyed by the deploy and the address, carrying the position that is the
+// environment's order and holding one of not reached, complete, or rolled back.
+//
+// runs_here is whether the service runs on that target. The rows are the
+// environment's and the rollout is the service's set, so this is what tells a
+// target the deployer will reach from one it will not: a target the service
+// does not run on holds a row that stays not reached, which is what the drift
+// detector reads there, and the record is complete when every row that runs
+// here is.
 //
 // release_instances, control_instances and kept_instances are the three sets of
 // instances a production deploy runs on that target, each written when the
 // deploy starts, which is when the window opens over it: the release's own, the
-// control's, and the instances of the release a rollback of this one would
-// return to — the capacity that release had, times the fraction its owner
-// authored. Without the last those kept instances are an assertion and the drift
-// detector has nothing to read what runs against.
+// control's, and the instances the build being replaced had, or the fraction of
+// them an owner authored, kept until the last window that could return to it
+// closes — a rollback returns production to them, and a share is not a
+// capacity. Without the last those kept instances are an assertion and the
+// drift detector has nothing to read what runs against.
 //
 // control_release_id is the release the control on this target runs — the
 // newest release below this one whose window closed without failing it, which
-// is the release a rollback of this deploy would return to. A control is
-// defined by which release it runs, so a target with none running names none.
-// There is one control per production target the release has reached, started
-// on that target when the rollout reaches it, and each target row names its
-// own rather than the whole deploy naming one for all of them.
+// is the release a rollback of this deploy would return to — control_build_id
+// is the build that release is, which is what runs, and control_instances is
+// how many instances of it run here. A control is defined by which release it
+// runs, so a target with none running names none.
+//
+// The three are written when the rollout reaches that target and the shift
+// returns, and not at the start: there is one control per production target the
+// release has reached, started on that target when the rollout reaches it, so a
+// record naming a control on a target the rollout never reached would say a
+// comparison ran where none did.
 //
 
 // reached_at is written before the deployer calls that target and complete_at
 // after it, both carrying the fencing token, which is what bounds what a
 // deployer whose lease lapsed mid-call can leave behind. replacement is what
-// the seam reported: a drain, or a cut where the platform could not hold a
-// request open across the replacement.
+// the seam reported, which is the drain and nothing else: neither rollout row
+// drops a request, and a platform unable to hold one open across the
+// replacement refuses the call instead, which the deployer records as a
+// target refused rather than as a replacement here — the column holds the
+// one value the seam may ever report and is never a second word for a cut.
 //
 // release_torn_down_at, control_torn_down_at and kept_torn_down_at are the three
 // fleets' spans carried into a duration, each ending where that fleet did: the
@@ -188,6 +207,13 @@ const lockName = "borg/factory/deploy/"
 // operations and not three: shifting traffic off a target, and changing the
 // instance count of a release the factory deployed. Ending every instance of a
 // service on a target is a removal, which retirement calls for.
+//
+// A mitigation stands until a human ends it at Ops, so ended_at is written
+// beside the human who ended it: ended_actor_kind, ended_actor_key and
+// ended_actor_key_basis are that human's, the three fields every actor is named
+// by, and the kind is human because nothing else may end one. The two arrive
+// together, which ended_names_who_ended_it holds — a mitigation that stopped
+// standing with nobody named would say a human ended it and not which.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -211,6 +237,7 @@ var DDL = []string{
 	backfill_contract text not null default '',
 	backfill_element text not null default '',
 	backfill_from_element text not null default '',
+	backfill_copied boolean not null default false,
 	failed_release_id text not null default '',
 	skipped_release_ids text not null default '',
 	source text not null default '',
@@ -228,6 +255,7 @@ var DDL = []string{
 	constraint status_known check (status in ('started', 'complete', 'failed')),
 	constraint failed_names_its_step check ((status = 'failed') = (failed_step <> '')),
 	constraint schema_changes_completed_names_one check (schema_changes <> '' or not schema_changes_completed),
+	constraint backfill_copied_names_one check (backfill_element <> '' or not backfill_copied),
 	constraint backfill_names_all_three check (
 		(backfill_contract = '' and backfill_element = '' and backfill_from_element = '')
 		or (backfill_contract <> '' and backfill_element <> '' and backfill_from_element <> '')
@@ -244,10 +272,12 @@ var DDL = []string{
 	deploy_id text not null,
 	position int not null,
 	address text not null,
+	runs_here boolean not null default true,
 	completion text not null,
 	release_instances int not null default 0,
 	control_instances int not null default 0,
 	control_release_id text not null default '',
+	control_build_id text not null default '',
 	kept_instances int not null default 0,
 	replacement text not null default '',
 	reached_at text not null default '',
@@ -271,7 +301,7 @@ var DDL = []string{
 		(release_torn_down_at = '' or release_torn_down_at ~ '` + record.TimePattern + `')
 		and (control_torn_down_at = '' or control_torn_down_at ~ '` + record.TimePattern + `')
 		and (kept_torn_down_at = '' or kept_torn_down_at ~ '` + record.TimePattern + `')),
-	constraint replacement_known check (replacement in ('', 'drained', 'cut')),
+	constraint replacement_known check (replacement in ('', 'drained')),
 	constraint complete_names_its_replacement check (completion <> 'complete' or replacement <> ''),
 	constraint amount_names_its_rate check ((amount is null) = (rate is null)),
 	constraint instance_hours_not_negative check (
@@ -286,11 +316,20 @@ var DDL = []string{
 	deploy_id text not null,
 	began_at text not null,
 	ended_at text not null default '',
+	ended_actor_kind text not null default '',
+	ended_actor_key text not null default '',
+	ended_actor_key_basis text not null default '',
 	` + record.Constraints + `,
 	constraint operation_known check (operation in ('shift_traffic', 'set_instance_count')),
 	constraint address_present check (address <> ''),
 	constraint deploy_id_present check (deploy_id <> ''),
 	constraint began_at_is_time_layout check (began_at ~ '` + record.TimePattern + `'),
-	constraint ended_at_is_time_layout check (ended_at = '' or ended_at ~ '` + record.TimePattern + `')
+	constraint ended_at_is_time_layout check (ended_at = '' or ended_at ~ '` + record.TimePattern + `'),
+	constraint ended_by_a_human check (ended_actor_kind in ('', 'human')),
+	constraint ended_names_who_ended_it check (
+		(ended_at = '') = (ended_actor_key = '')
+		and (ended_actor_key = '') = (ended_actor_kind = '')
+		and (ended_actor_key = '') = (ended_actor_key_basis = '')),
+	constraint ended_actor_key_basis_known check (ended_actor_key_basis in ('', 'claimed', 'verified'))
 )`,
 }

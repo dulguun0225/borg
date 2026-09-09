@@ -8,6 +8,7 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -203,9 +204,9 @@ func TestARetirementCallsTheDeployersRemoval(t *testing.T) {
 		t.Errorf("retiring through a factory with no deployer composed = nil, want a refusal")
 	}
 
-	removed, from := "", "unset"
-	in.factory.Removal = func(_ context.Context, serviceID, environmentID string) error {
-		removed, from = serviceID, environmentID
+	removed, from, calledBy := "", "unset", ""
+	in.factory.Removal = func(_ context.Context, p principal.Principal, serviceID, environmentID string) error {
+		removed, from, calledBy = serviceID, environmentID, p.Actor.Key
 		return nil
 	}
 	if _, err := in.factory.RetireService(ctx, owner, in.service.ID, 0, 0, 0); err != nil {
@@ -216,6 +217,10 @@ func TestARetirementCallsTheDeployersRemoval(t *testing.T) {
 	}
 	if from != "" {
 		t.Errorf("the removal names environment %q, and a retirement reaches every persistent one", from)
+	}
+	if calledBy != owner.Key {
+		t.Errorf("the call reaching the seam carries %q, want the owner %q whose write called for it",
+			calledBy, owner.Key)
 	}
 	read, err := service.Get(ctx, in.pool, in.service.ID)
 	if err != nil {
@@ -236,24 +241,40 @@ func TestARetirementCallsTheDeployersRemoval(t *testing.T) {
 func TestARemovalForOneEnvironmentIsPerformedForThatOne(t *testing.T) {
 	ctx, in := newFactory(t)
 
-	if err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, in.prod.ID); err == nil {
+	if _, err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, in.prod.ID); err == nil {
 		t.Errorf("removing through a factory with no deployer composed = nil, want a refusal")
 	}
 
-	removed, from := "", ""
-	in.factory.Removal = func(_ context.Context, serviceID, environmentID string) error {
-		removed, from = serviceID, environmentID
+	removed, from, calledBy := "", "", ""
+	in.factory.Removal = func(_ context.Context, p principal.Principal, serviceID, environmentID string) error {
+		removed, from, calledBy = serviceID, environmentID, p.Actor.Key
 		return nil
 	}
-	if err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, ""); !errors.Is(err, policy.ErrEnvironmentIDEmpty) {
+	if _, err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, ""); !errors.Is(err, policy.ErrEnvironmentIDEmpty) {
 		t.Errorf("removing from no environment = %v, want ErrEnvironmentIDEmpty", err)
 	}
-	if err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, in.prod.ID); err != nil {
+	before := newestVersion(t, ctx, in)
+	version, err := in.factory.RemoveFromEnvironment(ctx, owner, in.service.ID, in.prod.ID)
+	if err != nil {
 		t.Fatalf("RemoveFromEnvironment: %v", err)
 	}
 	if removed != in.service.ID || from != in.prod.ID {
 		t.Errorf("the deployer was asked to remove %q from %q, want %q from %q",
 			removed, from, in.service.ID, in.prod.ID)
+	}
+	if calledBy != owner.Key {
+		t.Errorf("the call reaching the seam carries %q, want the owner %q whose write called for it",
+			calledBy, owner.Key)
+	}
+	// Every owner write at Factory appends a version, this one included: it
+	// authors nothing and records that an owner called for the removal.
+	if version.ID == before.ID || version.Action != policy.ActionRemoved {
+		t.Errorf("the removal appended version %s (%q), and the one before was %s",
+			version.ID, version.Action, before.ID)
+	}
+	if version.Scope.ID != in.prod.ID || version.Scope.Key != in.service.ID {
+		t.Errorf("the version names %s, want the environment %s and the service %s",
+			version.Scope, in.prod.ID, in.service.ID)
 	}
 	read, err := service.Get(ctx, in.pool, in.service.ID)
 	if err != nil {
@@ -269,7 +290,7 @@ func TestARemovalForOneEnvironmentIsPerformedForThatOne(t *testing.T) {
 // service in it still stands.
 func TestAProjectEndsOnceEveryServiceInItIsRetired(t *testing.T) {
 	ctx, in := newFactory(t)
-	in.factory.Removal = func(context.Context, string, string) error { return nil }
+	in.factory.Removal = func(context.Context, principal.Principal, string, string) error { return nil }
 
 	if _, err := in.factory.EndProject(ctx, owner, in.project.ID, 0); err == nil {
 		t.Errorf("ending a project holding a service that is not retired = nil, want a refusal")
@@ -289,5 +310,131 @@ func TestAProjectEndsOnceEveryServiceInItIsRetired(t *testing.T) {
 	}
 	if production.WithdrawnAt == "" {
 		t.Errorf("production's environment stands after the project ended: %+v", production)
+	}
+}
+
+// TestTheChannelsTwoRatesAreTwoParameters is
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md's
+// "the report channel's two rates, per service and factory-wide": one is a
+// field of the factory-wide settings record with one value per record and the
+// other a row of it keyed by the service. They were one parameter keyed by the
+// service, so the factory-wide rate was a value under an empty key that no
+// safeguard, no version and no re-derivation could name apart from a service's.
+func TestTheChannelsTwoRatesAreTwoParameters(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	factoryWide, err := in.factory.AuthorReportChannelRate(ctx, owner, 200)
+	if err != nil {
+		t.Fatalf("AuthorReportChannelRate: %v", err)
+	}
+	perService, err := in.factory.AuthorServiceReportChannelRate(ctx, owner, in.service.ID, 50)
+	if err != nil {
+		t.Fatalf("AuthorServiceReportChannelRate: %v", err)
+	}
+	if factoryWide.Parameter == perService.Parameter {
+		t.Errorf("both rates were authored as %q, and the design gives the channel two", factoryWide.Parameter)
+	}
+	if factoryWide.Scope.Key != "" || perService.Scope.Key != in.service.ID {
+		t.Errorf("the factory-wide rate is keyed %q and the per-service one %q",
+			factoryWide.Scope.Key, perService.Scope.Key)
+	}
+
+	both := newestVersion(t, ctx, in)
+	named := map[gatepolicy.Parameter]float64{}
+	for _, value := range both.Authored {
+		named[value.Parameter] = value.Number
+	}
+	if named[gatepolicy.ReportChannelRate] != 200 || named[gatepolicy.ServiceReportChannelRate] != 50 {
+		t.Errorf("the version names %v, want the factory-wide 200 beside the per-service 50", named)
+	}
+
+	inForce, err := in.reader.InForce(ctx, gatepolicy.ReportChannelRate, in.subjects("merge_to_master"))
+	if err != nil {
+		t.Fatalf("InForce: %v", err)
+	}
+	if inForce.Number != 200 {
+		t.Errorf("the factory-wide rate in force is %v against a read naming a service, want 200", inForce.Number)
+	}
+	inForce, err = in.reader.InForce(ctx, gatepolicy.ServiceReportChannelRate, in.subjects("merge_to_master"))
+	if err != nil {
+		t.Fatalf("InForce: %v", err)
+	}
+	if inForce.Number != 50 {
+		t.Errorf("the per-service rate in force is %v, want 50", inForce.Number)
+	}
+}
+
+// TestAnUnauthoredParameterReadsTheValueTheDesignFixes is what
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
+// and
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
+// fix rather than have the score supply: "the fraction's
+// default is all of them", "the hours' default is every hour", "no proof test
+// runs at all where an owner authors no rate", "both are kept for the life of
+// the install", "arrival is unbounded", and "a snapshot stands until an owner
+// deletes it". Each was a sentence in the parameter's unit and nothing read it,
+// so every one of them resolved to the number nothing.
+func TestAnUnauthoredParameterReadsTheValueTheDesignFixes(t *testing.T) {
+	ctx, in := newFactory(t)
+	subjects := in.subjects("merge_to_master")
+
+	numbers := []struct {
+		parameter gatepolicy.Parameter
+		want      float64
+	}{
+		{gatepolicy.KeptFraction, 1},
+		{gatepolicy.ProofTestRate, 0},
+	}
+	for _, n := range numbers {
+		inForce, err := in.reader.InForce(ctx, n.parameter, subjects)
+		if err != nil {
+			t.Fatalf("InForce(%s): %v", n.parameter, err)
+		}
+		if inForce.Number != n.want || inForce.Unbounded {
+			t.Errorf("an unauthored %s reads %v (unbounded %v), want %v",
+				n.parameter, inForce.Number, inForce.Unbounded, n.want)
+		}
+		if inForce.Source != policy.FromFactory {
+			t.Errorf("an unauthored %s reads from %s, want the factory's own", n.parameter, inForce.Source)
+		}
+	}
+
+	unbounded := []gatepolicy.Parameter{
+		gatepolicy.DecisionLogRetention, gatepolicy.ReportRetention, gatepolicy.SnapshotRetention,
+		gatepolicy.ReportChannelRate, gatepolicy.ServiceReportChannelRate, gatepolicy.PagingHours,
+		// C2269, C2298, C2283, C2289: authored outright with nothing supplied,
+		// so an unauthored read is the factory's own with nothing for the
+		// score to teach rather than whatever the supplied table happens to
+		// hold for that name.
+		gatepolicy.RemediationPeriod, gatepolicy.BackupRetention, gatepolicy.MaxConcurrentKeptFleets,
+		gatepolicy.Objective, gatepolicy.MaxConcurrentCandidateEnvironments, gatepolicy.ChangeFreeze,
+	}
+	for _, parameter := range unbounded {
+		inForce, err := in.reader.InForce(ctx, parameter, subjects)
+		if err != nil {
+			t.Fatalf("InForce(%s): %v", parameter, err)
+		}
+		if !inForce.Unbounded {
+			t.Errorf("an unauthored %s reads %v, and the design bounds it with nothing",
+				parameter, inForce.Number)
+		}
+		if inForce.Source != policy.FromFactory {
+			t.Errorf("an unauthored %s reads from %s, want the factory's own", parameter, inForce.Source)
+		}
+	}
+}
+
+// TestEveryParameterNotAmongTheElevenResolves: package gatepolicy defines a
+// parameter and package policy is what resolves one, so a name in that list the
+// reader cannot answer for is a value an owner authors and nothing reads back.
+func TestEveryParameterNotAmongTheElevenResolves(t *testing.T) {
+	ctx, in := newFactory(t)
+	subjects := in.subjects("merge_to_master")
+	subjects.Severity, subjects.SeverityNamed = 7, true
+
+	for _, d := range gatepolicy.NotAmongTheEleven {
+		if _, err := in.reader.InForce(ctx, d.Parameter, subjects); err != nil {
+			t.Errorf("InForce(%s): %v", d.Parameter, err)
+		}
 	}
 }

@@ -3,10 +3,12 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/project"
 )
@@ -36,6 +38,24 @@ func TestOnlyRunInstallsAndEveryOtherCompositionReadsTheProject(t *testing.T) {
 	}
 	if _, found, err := project.ByName(ctx, d.pool, "alpha"); err != nil || found {
 		t.Errorf("a composition that does not install created project alpha: found %v, %v", found, err)
+	}
+}
+
+// TestAdoptionRefusesAProductionPlatformThatCannotComposeOnDemand: an
+// environment per candidate is the shape the design admits and nothing else,
+// so a composition that adopts a project whose production environment
+// declares a platform that cannot compose one on demand is refused there and
+// not only where that record was created.
+func TestAdoptionRefusesAProductionPlatformThatCannotComposeOnDemand(t *testing.T) {
+	ctx, d, _ := newPath(t, "")
+
+	if _, err := d.pool.Exec(ctx, `update `+environment.Table+`
+		set can_compose_on_demand = false where kind = 'production'`); err != nil {
+		t.Fatalf("downgrading the platform: %v", err)
+	}
+
+	if _, err := compose(ctx, d); !errors.Is(err, environment.ErrCannotCompose) {
+		t.Errorf("adopting a project whose production platform cannot compose on demand = %v, want ErrCannotCompose", err)
 	}
 }
 

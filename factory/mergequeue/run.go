@@ -67,7 +67,7 @@ func (q *Queue) Run(ctx context.Context, serviceID string) (Pass, error) {
 		return pass, err
 	}
 
-	read, completed, held, err := q.readMaster(ctx, serviceID, m.Members)
+	read, completed, held, err := q.readMaster(ctx, serviceID)
 	if err != nil {
 		return pass, err
 	}
@@ -161,21 +161,27 @@ func (q *Queue) Run(ctx context.Context, serviceID string) (Pass, error) {
 	// what the discarded run said about it is not read at all.
 	merged := make([]item.Item, 0, len(pending))
 	for _, c := range pending {
-		// Master is read again before every mint, not only at the start: a commit
-		// that arrived while this pass was running is one the queue did not make,
-		// and the service is held on it rather than merged onto it.
-		kind, payload, err := q.beforeMint(ctx, serviceID)
+		// Master is read the same way again before every mint, not only at the
+		// start: a commit that arrived while this pass was running is one the
+		// queue did not make, and the service is held on it rather than merged
+		// onto it — unless it is a later candidate's own approved build, which
+		// this reading completes exactly as the start's would.
+		read, completed, held, err := q.readMaster(ctx, serviceID)
 		if err != nil {
 			return pass, err
 		}
-		if kind != "" {
-			row, err := q.openWait(ctx, payload)
-			if err != nil {
-				return pass, err
-			}
-			pass.Stopped, pass.StopWaitRow = string(kind), row.ID
-			stood = append(stood, payload.subject())
+		pass.Outcomes = append(pass.Outcomes, completed...)
+		if read.Stopped != "" {
+			pass.Stopped, pass.StopWaitRow = read.Stopped, read.WaitRow
+			stood = append(stood, held...)
 			break
+		}
+		if read.CompletedItemID == c.it.ID {
+			// This candidate's own commit was already on master, completed with
+			// the write its fast-forward already implied: it fast-forwards
+			// nothing more here.
+			merged = append(merged, c.it)
+			continue
 		}
 		if !sameItems(c.speculation, merged) {
 			c.verified, err = q.repo.Reverify(ctx, c.it, slices.Clone(merged))

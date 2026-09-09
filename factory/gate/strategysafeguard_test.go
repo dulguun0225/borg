@@ -108,13 +108,13 @@ func TestSafeguardTheStrategyPlacesTheSafeguardAndKeepsAControl(t *testing.T) {
 // writer for the safeguard.
 func TestSafeguardTheStrategyIsRefusedWhereThereIsNoControlToKeep(t *testing.T) {
 	s, p := &fakeScore{assessment: assessed(0.2)}, &fakePolicy{applied: applied(0.9)}
-	ctx, _, _, g := newGateWith(t, s, p, func(c *gate.Composition) {
+	ctx, pool, token, g := newGateWith(t, s, p, func(c *gate.Composition) {
 		c.StrategySafeguard = &keepsAControl{}
 	})
 
 	// A row that picks no strategy: a strategy attaches to a production deploy and
 	// to no other.
-	merged, err := g.Fire(ctx, mergeFiring)
+	merged, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}

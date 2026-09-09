@@ -53,6 +53,13 @@ type Extractor struct {
 	Version        string
 	Toolchain      string
 	FactoryVersion string
+	// Convention is where a build following this toolchain's convention states
+	// its declaration, and how — published with the extractor rather than left
+	// to be read out of its source, so a reader of the derivation sees the
+	// convention the extractor applied without opening it. It is empty where no
+	// extractor covers the toolchain, [CauseNoExtractor] naming nothing to
+	// publish a convention for.
+	Convention string
 }
 
 // Extractors is every extractor this factory version ships, one per toolchain

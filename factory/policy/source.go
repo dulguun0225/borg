@@ -10,15 +10,18 @@ const (
 	FromAuthored Source = "authored"
 	// FromSupplied is what the score supplies where an owner authored nothing.
 	FromSupplied Source = "supplied"
-	// FromNothing is neither an authored value nor a supplied one, which is a
-	// numeric parameter the score supplies nothing for. Nothing reaches it today.
+	// FromNothing is neither an authored value, nor one the design fixes, nor
+	// one the score supplies.
 	FromNothing Source = "neither"
-	// FromFactory is the factory's own value, which is what an owner extends
-	// rather than replaces. The list of allowed predicate kinds is the one
-	// parameter with this source: gate policy has an owner extend the list and a
-	// safeguard only add to it, which presupposes something to extend, and the
-	// score supplies none — no outcome teaches a kind of assertion. So the
-	// unauthored value is the kinds this factory can decide.
+	// FromFactory is the value the design fixes where an owner authored none —
+	// [gatepolicy.Definition.Unauthored] — rather than one an outcome teaches:
+	// all of a release's instances kept, every hour a paging hour, no proof test
+	// at all, the log and the report store kept for the life of the install,
+	// arrival unbounded, and a snapshot standing until an owner deletes it. The
+	// list of allowed predicate kinds is the same source read as a list, and it
+	// is a floor rather than a value replaced: gate policy has an owner extend
+	// the list and a safeguard only add to it, which presupposes something to
+	// extend.
 	FromFactory Source = "the factory's own"
 )
 

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/agentrun"
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
@@ -220,13 +221,12 @@ type On struct {
 	ProjectID string
 	ServiceID string
 	AreaID    string
-	// AreaChain is the item's own area and every area above it, up to the
-	// project the chain ends at. It is read by the caller, an area chain being
-	// package area's to walk and this package importing it not, and it is what
-	// a scope's area is matched against and what a hold row names. A caller
-	// that supplies none is matched on the item's own area alone, which
-	// [On.Areas] answers.
-	AreaChain []string
+	// areaChain is the item's own area and every area above it, up to the
+	// project the chain ends at. It is what a scope's area is matched against
+	// and what a hold row names, and it is followed here from AreaID rather
+	// than supplied: a caller that walked it wrongly would take an item in a
+	// finer area out of an entry drawn on a coarser one. [On.Areas] answers it.
+	areaChain []string
 
 	// Reentering says the stage is being entered again after a reject or a
 	// rework request sent the item back to it. [item.Dispatch.ReturnTo] counts
@@ -234,10 +234,10 @@ type On struct {
 	// stage just returned to from one just advanced into — so the caller that
 	// sent the item back says so.
 	Reentering bool
-	// CountedSoFar is what the attempt limit is compared against for a run on
-	// an intent, where there is no per-stage row to read: the interview counts
-	// its rounds against the same limit and the intent keeps that count. It is
-	// ignored on a run that names an item, whose count is the item's own.
+	// CountedSoFar is what the attempt limit is compared against for a run put
+	// on a project, which no record keeps a count for. It is ignored on a run
+	// that names an item, whose count is the item's own, and on one that names
+	// an intent, whose rounds are a field of the intent that intake writes.
 	CountedSoFar int
 }
 
@@ -265,6 +265,32 @@ type Run struct {
 	// it stands as, both empty where nothing held.
 	Held    string
 	HoldRow string
+}
+
+// following is this dispatch with the item's area chain read: the item's own
+// area and every area above it, up to the project the chain ends at. A
+// safeguard or a scope drawn on any area in that chain reaches the item, so
+// dispatch follows it from the item's area rather than matching whatever one
+// area the caller named.
+//
+// A dispatch naming no area has no chain, which only the empty scope covers —
+// an item decomposition placed under no declared area. An area no record holds
+// is an error and not an empty chain: an item naming one is a record disagreeing
+// with another, and matching it against nothing would quietly scope it to the
+// whole factory.
+func (d *Dispatch) following(ctx context.Context, on On) (On, error) {
+	if on.AreaID == "" {
+		return on, nil
+	}
+	chain, _, err := area.Chain(ctx, d.c.Pool, on.AreaID)
+	if err != nil {
+		return On{}, fmt.Errorf("dispatch: the chain above area %s: %w", on.AreaID, err)
+	}
+	on.areaChain = make([]string, 0, len(chain))
+	for _, one := range chain {
+		on.areaChain = append(on.areaChain, one.ID)
+	}
+	return on, nil
 }
 
 // state reads the intent's state, which dispatch reads before putting an agent
@@ -397,18 +423,18 @@ func (d *Dispatch) escalate(ctx context.Context, on On) error {
 // at this run, both copied onto the record rather than resolved through either
 // later: an owner may re-credential an entry or correct a rate without changing
 // what a past record says.
+//
+// The amount is worked out here from the same rates the record carries, and the
+// record recomputes it and refuses one that is not that sum. It is absent where
+// a kind the provider returned has no rate, which is the design's one cause;
+// the currency is the credential's own and stands wherever a rate does.
+//
+// The time the units are recorded at is the provider's and not the write's: the
+// client kept it off the reply, and [reporting.returnedAt] is what falls back
+// to the call's own end for a client that said nothing.
 func (d *Dispatch) recordRun(ctx context.Context, run Run, on On, sources []string, units map[string]int64,
-	paid paidFor, startedAt, finishedAt, outcome string) (string, error) {
-	amount, unpriced := people.Convert(paid.rates, run.Entry.ModelVersion, run.Entry.Effort, units)
-	// A run is priced where every kind it returned has a rate and the credential
-	// carries the currency those rates are authored in. Without a currency
-	// there is no amount to compare, and the currency is stored exactly where
-	// the amount is: a run with one and not the other is refused by the record.
-	priced := len(unpriced) == 0 && paid.currency != ""
-	currency := ""
-	if priced {
-		currency = paid.currency
-	}
+	paid paidFor, startedAt, unitsAt, finishedAt, outcome string) (string, error) {
+	amount, _ := people.Convert(paid.rates, run.Entry.ModelVersion, run.Entry.Effort, units)
 	recorded, err := d.c.Runs.Record(ctx, Actor, agentrun.New{
 		Role:                string(run.Role),
 		RolePromptVersionID: run.RolePromptVersionID,
@@ -424,11 +450,11 @@ func (d *Dispatch) recordRun(ctx context.Context, run Run, on On, sources []stri
 		ProjectID:           projectOf(on),
 		InputManifestID:     run.InputManifestID,
 		UnitsByKind:         units,
+		UnitsAt:             unitsAt,
 		Sources:             sources,
 		RatesByKind:         paid.ratesFor(run.Entry.ModelVersion, run.Entry.Effort, units),
 		ConvertedAmount:     amount,
-		Priced:              priced,
-		Currency:            currency,
+		Currency:            paid.currency,
 		StartedAt:           startedAt,
 		FinishedAt:          finishedAt,
 		Outcome:             outcome,

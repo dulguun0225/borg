@@ -44,6 +44,7 @@ func TestAHaltHoldsEveryItemButTheTwoExceptions(t *testing.T) {
 	raised = true
 	exception := firing
 	exception.ItemID = "it_0000000000000000000000000000000c"
+	approvedAbove(t, ctx, pool, token, gate.MergeToMaster, exception.ItemID)
 	passing, err := g.Fire(ctx, exception)
 	if err != nil {
 		t.Fatalf("Fire over an item the health monitor raised: %v", err)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
@@ -45,11 +46,19 @@ type abandonmentPayload struct {
 	Abandoned string `json:"abandoned"`
 }
 
-// Abandon ends a pending decision that will never receive a verdict, naming why.
-// The actor is the gate component, which is the component that ended the
-// decision.
-func (g *Gate) Abandon(ctx context.Context, opened Opened, why string) (decisionlog.Row, error) {
-	return g.abandon(ctx, opened, component(opened.Gate), why)
+// Abandon ends a pending decision that will never receive a verdict, naming why
+// and who ended it.
+//
+// The actor is the caller's because it is not always this component: an item
+// superseded by a re-decomposition or dropped ends its open rows with it,
+// written by the component that wrote that value onto the item. The gate
+// component is the actor only where the gate itself ended the decision, which
+// is what an Edit in place's own supersession does.
+func (g *Gate) Abandon(ctx context.Context, opened Opened, actor record.Actor, why string) (decisionlog.Row, error) {
+	if err := actor.Validate(); err != nil {
+		return decisionlog.Row{}, err
+	}
+	return g.abandon(ctx, opened, actor, why)
 }
 
 // abandon appends the abandonment.
@@ -71,12 +80,13 @@ func (g *Gate) abandon(ctx context.Context, opened Opened, actor record.Actor, w
 	})
 }
 
-// Escalated is what the attempt limit left: whether the item exceeded it, the
+// Escalated is what the attempt limit left: whether the count exceeded it, the
 // count and the limit it was compared against, and the rows abandoned with it.
 type Escalated struct {
 	Reached bool
-	// Attempts is the item's own count for the stage since the mark a cleared
-	// escalation left, which is what the limit is compared against.
+	// Attempts is the count the limit was compared against: an item's own count
+	// for the stage since the mark a cleared escalation left, or the intent's
+	// own count of re-decompositions at the Decomposition row.
 	Attempts int
 	Limit    int
 	// Abandoned is every pending row of the item this call ended.
@@ -128,6 +138,60 @@ func (g *Gate) EnforceAttemptLimit(ctx context.Context, actor record.Actor, item
 	}
 	for _, open := range pending {
 		if open.Subject.ItemID != itemID {
+			continue
+		}
+		row, err := g.abandon(ctx, open, component(open.Gate), AbandonedByTheAttemptLimit)
+		if err != nil {
+			return escalated, err
+		}
+		escalated.Abandoned = append(escalated.Abandoned, row)
+	}
+	return escalated, nil
+}
+
+// EnforceDecompositionRounds compares the intent's own count of
+// re-decompositions against the attempt limit and escalates the intent over it.
+// It is the second of the two counts the limit is compared against and the one
+// this row keeps: what the Decomposition row decides is a set, and the items of
+// a rejected round are superseded and their replacements start at nothing, so a
+// count kept on them would never reach a limit however many rounds were spent.
+//
+// Two things happen over the limit and in this order: intake writes the
+// escalation onto the intent, and every pending row of that intent is abandoned
+// naming the limit — the order [Gate.EnforceAttemptLimit] keeps for an item, and
+// for its reason.
+//
+// The limit is the caller's argument and is not read here, where an item's
+// stage limit is read from the policy. The two counts an intent keeps are
+// authored on the factory-wide settings record per subject rather than per
+// stage, which package policy's reader deliberately does not answer, so the
+// caller reads the value in force — the arrangement [intent.Intake.Escalate]
+// already takes for the same number.
+func (g *Gate) EnforceDecompositionRounds(ctx context.Context, actor record.Actor,
+	intentID string, limit int) (Escalated, error) {
+
+	if g.intake == nil {
+		return Escalated{}, fmt.Errorf("%w: %s", ErrIntakeNotComposed, intentID)
+	}
+	in, err := intent.Get(ctx, g.pool, intentID)
+	if err != nil {
+		return Escalated{}, fmt.Errorf("gate: reading what %s has spent on decomposition: %w", intentID, err)
+	}
+	escalated := Escalated{Attempts: in.ReDecompositions, Limit: limit}
+	if in.ReDecompositions <= limit {
+		return escalated, nil
+	}
+	escalated.Reached = true
+
+	if _, err := g.intake.Escalate(ctx, actor, intentID, limit); err != nil {
+		return escalated, fmt.Errorf("gate: escalating %s: %w", intentID, err)
+	}
+	pending, err := g.Pending(ctx)
+	if err != nil {
+		return escalated, err
+	}
+	for _, open := range pending {
+		if open.Subject.IntentID != intentID {
 			continue
 		}
 		row, err := g.abandon(ctx, open, component(open.Gate), AbandonedByTheAttemptLimit)

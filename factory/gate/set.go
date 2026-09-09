@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
@@ -42,6 +43,10 @@ const (
 	// is never a decomposition working as the design intends, and always one
 	// that left a member with nothing assigned.
 	AutoRejectedByItemAnsweringNoRequirement = "an item that answers no requirement of the set, whole or derived"
+	// AutoRejectedByACycle is a set whose dependencies form a cycle: two items
+	// each holding a deploy gate on the other, which is a wait nothing lifts
+	// and no instrument shows. [SetCycleRejection] is what computes it.
+	AutoRejectedByACycle = "a set whose dependencies form a cycle in what waits on what"
 )
 
 // DecompositionChecks is every check that rejects on its own terms at the
@@ -52,6 +57,7 @@ var DecompositionChecks = []string{
 	AutoRejectedByRequirementNamedByNoItem,
 	AutoRejectedByDerivedRequirementNamedByNoItem,
 	AutoRejectedByItemAnsweringNoRequirement,
+	AutoRejectedByACycle,
 }
 
 // SetMember is one item of a decomposition as the row decides over it: the item,
@@ -71,7 +77,15 @@ type SetMember struct {
 	// what the set answers is the caller's completeness reading, and a member
 	// answering none is [AutoRejectedByItemAnsweringNoRequirement] there.
 	Requirements int
-	WaitsOn      []string
+	// DerivedRequirements is every share the split wrote for this item: a
+	// requirement of its own, attached to the intent and pointing at the one it
+	// was derived from. The derived requirements are part of the set the gate
+	// decides, beside what waits on what, so they are named here and on the
+	// open event rather than being left to the count above — a share drawn
+	// wrong is a statement the requester never confirmed, and a human at this
+	// row is deciding over it.
+	DerivedRequirements []string
+	WaitsOn             []string
 }
 
 // SetFiring is what fires the Decomposition row: the intent decomposition was
@@ -81,6 +95,12 @@ type SetFiring struct {
 	IntentID      string
 	EnvironmentID string
 	Members       []SetMember
+	// ReDecomposition is whether this firing is a re-decomposition of work in
+	// progress rather than the first decomposition of the intent. One such
+	// always fires, whatever it yields, because what it decides is which
+	// existing items are superseded rather than how many are proposed; the
+	// one-item condition below is the first decomposition's alone.
+	ReDecomposition bool
 
 	// supersedes is the open event an Edit in place supersedes, set by
 	// [Gate.EditSetInPlace] and by nothing else: a caller cannot supersede a row
@@ -102,8 +122,11 @@ type SetMemberPayload struct {
 	AreaID    string `json:"area_id"`
 	// Requirements is how many of the intent's requirements this item answers,
 	// which is what the change group was computed from here.
-	Requirements int      `json:"requirements"`
-	WaitsOn      []string `json:"waits_on"`
+	Requirements int `json:"requirements"`
+	// DerivedRequirements is every share the split wrote for this item, which
+	// is part of the set this row decided.
+	DerivedRequirements []string `json:"derived_requirements,omitempty"`
+	WaitsOn             []string `json:"waits_on"`
 }
 
 // SetOpeningPayload is what the Decomposition row's open event says: the intent,
@@ -135,7 +158,10 @@ type SetOpeningPayload struct {
 	Resolutions      []score.Resolution `json:"resolutions,omitempty"`
 	HumanDecides     bool               `json:"human_decides"`
 	Marks            []Mark             `json:"marks,omitempty"`
-	WaitsOn          Waits              `json:"waits_on,omitzero"`
+	// ReDecomposition is whether this firing was a re-decomposition of work in
+	// progress, which is what says a one-member set was allowed to fire.
+	ReDecomposition bool  `json:"re_decomposition,omitempty"`
+	WaitsOn         Waits `json:"waits_on,omitzero"`
 	// Supersedes is the open event an Edit in place superseded, and is empty on
 	// every other firing. The superseded row is ended by an abandonment.
 	Supersedes string `json:"supersedes,omitempty"`
@@ -155,11 +181,14 @@ type SetOpeningPayload struct {
 // at the large one's number, which is the safe direction and is a real loss of
 // throughput.
 //
-// The intent's own state is not read here, where every other firing reads it.
-// This row is the one gate above a timeline rather than on it, and the state it
-// would refuse — re-decomposing — is the state this firing itself puts the
-// intent in: a row that refused it could never close the re-decomposition it was
-// opened for.
+// The intent's state is read here as it is at every other firing, and two of
+// the four states refuse the firing: dropped and escalated are ends, and a set
+// decided over an intent at either would decide work nobody is going to do.
+// The other two do not refuse it. Re-decomposing is the state this firing
+// itself is opened under — a row that refused it could never close the
+// re-decomposition it was opened for — and unrefined is the state an intent
+// sent back to the interview carries, which this row reaches only where the
+// caller decomposed against a reading it holds.
 //
 // The score's held-out sample is not asked here either, and that is the one
 // thing this row does not do that every row below it does. The sample selects an
@@ -173,9 +202,15 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 	if f.EnvironmentID == "" {
 		return Opened{}, fmt.Errorf("%w: it names no environment to read the threshold from", ErrSetIncomplete)
 	}
-	if len(f.Members) < 2 {
-		return Opened{}, fmt.Errorf("%w: it names %d item(s), and this row fires where decomposition yielded more than one",
+	if len(f.Members) == 0 {
+		return Opened{}, fmt.Errorf("%w: it names no item", ErrSetIncomplete)
+	}
+	if len(f.Members) < 2 && !f.ReDecomposition {
+		return Opened{}, fmt.Errorf("%w: it names %d item(s), and a first decomposition's row fires where it yielded more than one",
 			ErrSetIncomplete, len(f.Members))
+	}
+	if err := g.intentPermitsTheSet(ctx, f); err != nil {
+		return Opened{}, err
 	}
 	if f.supersedes == "" {
 		if err := g.noSetPending(ctx, f.IntentID); err != nil {
@@ -225,14 +260,20 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		}
 		members = append(members, SetMemberPayload{
 			ItemID: m.ItemID, ServiceID: m.ServiceID, AreaID: m.AreaID,
-			Requirements: m.Requirements, WaitsOn: m.WaitsOn,
+			Requirements:        m.Requirements,
+			DerivedRequirements: m.DerivedRequirements,
+			WaitsOn:             m.WaitsOn,
 		})
 	}
 
 	overThreshold := applied.Number >= policyApplied.Threshold
 	resolved := len(applied.Resolved) > 0
 	marks := marksOn(overThreshold, resolved, policyApplied.HumanBySafeguard, f.supersedes != "", false, false)
-	waits, err := g.waitsOn(ctx, Decomposition, nil, RoutedTo{NotHuman: f.editedBy})
+	safeguarded, err := g.routedBySafeguard(ctx, policyApplied)
+	if err != nil {
+		return Opened{}, err
+	}
+	waits, err := g.waitsOn(ctx, Decomposition, nil, RoutedTo{NotHuman: f.editedBy}, safeguarded)
 	if err != nil {
 		return Opened{}, err
 	}
@@ -266,6 +307,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		Resolutions:      applied.Resolved,
 		HumanDecides:     opened.HumanDecides,
 		Marks:            opened.Marks,
+		ReDecomposition:  f.ReDecomposition,
 		WaitsOn:          opened.WaitsOn,
 		Supersedes:       f.supersedes,
 	})
@@ -325,6 +367,28 @@ func (g *Gate) EditSetInPlace(ctx context.Context, superseded Opened, f SetFirin
 		return opened, err
 	}
 	return opened, nil
+}
+
+// intentPermitsTheSet refuses a firing over an intent that has ended. Dropped
+// and escalated are the two of the four states this row refuses: both are ends,
+// and a set decided over either would decide work nobody is going to do, with
+// no open event appended, nothing decided and nothing for the score to learn.
+//
+// The state is read through the same seam every firing on an item reads it
+// through, over the first member: the members of one set are the items of one
+// intent, so one read answers for all of them.
+func (g *Gate) intentPermitsTheSet(ctx context.Context, f SetFiring) error {
+	if g.intentState == nil {
+		return fmt.Errorf("%w: %s over %s", ErrIntentStateNotComposed, Decomposition, f.IntentID)
+	}
+	state, err := g.intentState(ctx, f.Members[0].ItemID)
+	if err != nil {
+		return fmt.Errorf("gate: reading the state of intent %s: %w", f.IntentID, err)
+	}
+	if state == intent.StateDropped || state == intent.StateEscalated {
+		return fmt.Errorf("%w: %s is %s", ErrIntentStops, f.IntentID, state)
+	}
+	return nil
 }
 
 // noSetPending refuses a second Decomposition firing over one intent while the

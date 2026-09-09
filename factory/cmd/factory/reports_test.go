@@ -129,7 +129,7 @@ func TestAReportArrives(t *testing.T) {
 	// narrowing one service's rate cannot be evaded by submitting under
 	// another's name. It reaches the entrance directly, which is what a way in
 	// the factory did not deploy would do.
-	refused := toTheEntrance(t, reports.url, "no-such-token", wayin.Shape, "from nowhere")
+	refused := toTheEntrance(t, reports.url, "no-such-token", wayin.Shape, "", "from nowhere")
 	if refused.Accepted || !strings.Contains(refused.Refusal, "no deploy") {
 		t.Errorf("a submission under an unknown token rendered %+v, want a refusal naming the deploy", refused)
 	}
@@ -142,19 +142,20 @@ func TestAReportArrives(t *testing.T) {
 	}
 
 	// A submission written under a shape this factory version does not read is
-	// counted per service, which is the loss the refused counter cannot see: a
-	// service serving a way in from a release this one is behind.
+	// itself a refusal — a service serving a way in from a release this one is
+	// behind — and counted the same counter as any other, on the service and
+	// on the whole channel.
 	unread := toTheEntrance(t, reports.url, placed.token, "submission/999",
-		"from a way in this version cannot read")
+		authored.ID, "from a way in this version cannot read")
 	if unread.Accepted || !strings.Contains(unread.Refusal, "shape") {
 		t.Errorf("a submission under an unknown shape rendered %+v, want a refusal naming the shape", unread)
 	}
-	onService := reports.counts(t, ctx, res.serviceID)
-	if onService.UnreadableShape != 1 {
-		t.Errorf("%s counted %d unreadable submissions, want one", res.serviceID, onService.UnreadableShape)
+	if onService := reports.counts(t, ctx, res.serviceID); onService.Refusals != 1 {
+		t.Errorf("%s counted %d refusals, want the unreadable shape counted as one", res.serviceID, onService.Refusals)
 	}
-	if onService.Refusals != 0 {
-		t.Errorf("an unreadable submission was counted as a refusal against %s as well", res.serviceID)
+	if channel := reports.counts(t, ctx, ""); channel.Refusals != 2 {
+		t.Errorf("the channel counted %d refusals, want the unknown token and the unreadable shape",
+			channel.Refusals)
 	}
 
 	// The factory-wide rate authored to zero closes the channel: the way in
@@ -164,18 +165,19 @@ func TestAReportArrives(t *testing.T) {
 		t.Fatalf("authoring the channel's rate: %v", err)
 	}
 	closed := submit(t, client, `{"kind":"complaint","text":"and this one arrives nowhere",`+
-		`"session":"`+shown.Session+`"}`)
+		`"session":"`+shown.Session+`","notice_id":"`+shown.NoticeID+`"}`)
 	if closed.Accepted || !strings.Contains(closed.Refusal, "the whole factory") {
 		t.Errorf("a submission with the channel closed rendered %+v, want the rate as the reason", closed)
 	}
 	if rows := reports.stored(t, ctx); len(rows) != 1 {
 		t.Errorf("the store holds %d reports, and the channel was closed after the first", len(rows))
 	}
-	if channel := reports.counts(t, ctx, ""); channel.Refusals != 2 {
-		t.Errorf("the channel counted %d refusals, want the unknown token and the closed channel", channel.Refusals)
+	if channel := reports.counts(t, ctx, ""); channel.Refusals != 3 {
+		t.Errorf("the channel counted %d refusals, want the unknown token, the unreadable shape and the closed channel",
+			channel.Refusals)
 	}
-	if onService := reports.counts(t, ctx, res.serviceID); onService.Refusals != 1 {
-		t.Errorf("%s counted %d refusals, want the one the closed channel refused under its token",
+	if onService := reports.counts(t, ctx, res.serviceID); onService.Refusals != 2 {
+		t.Errorf("%s counted %d refusals, want the unreadable shape and the closed channel refused under its token",
 			res.serviceID, onService.Refusals)
 	}
 }
@@ -236,7 +238,12 @@ func submit(t *testing.T, client *http.Client, body string) submitted {
 // deployed service's way in, under the token and the shape the caller names.
 // It is what a way in this factory did not deploy reaches, which is the one
 // thing a session at a deployed service cannot be made to do.
-func toTheEntrance(t *testing.T, address, token, shape, text string) submitted {
+//
+// noticeID is the session this call names: the entrance reads the notice
+// again under token and refuses a call naming a stale one rather than
+// reaching the store, so this is the identity the caller already knows is
+// the one in force for token, and never a session an open here minted.
+func toTheEntrance(t *testing.T, address, token, shape, noticeID, text string) submitted {
 	t.Helper()
 	// The fields the way in writes, which the entrance reads: the shape and
 	// the identity first, and what the reporter wrote after them.
@@ -245,7 +252,8 @@ func toTheEntrance(t *testing.T, address, token, shape, text string) submitted {
 		ShippedBundleIdentity string `json:"shipped_bundle_identity"`
 		Kind                  string `json:"kind"`
 		Text                  string `json:"text"`
-	}{shape, factoryVersion, string(reportstore.KindBug), text})
+		NoticeID              string `json:"notice_id"`
+	}{shape, factoryVersion, string(reportstore.KindBug), text, noticeID})
 	if err != nil {
 		t.Fatalf("marshalling the submission: %v", err)
 	}

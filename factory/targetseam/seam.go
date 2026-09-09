@@ -37,14 +37,33 @@ const (
 	// which is what a deploy does before it applies a change that destroys
 	// stored data.
 	OpSnapshot Op = "snapshot"
+	// OpDeleteSnapshot deletes a copy taken that way, which the deployer does
+	// at the end of the service's snapshot retention on its own pass or earlier
+	// at an owner's call.
+	OpDeleteSnapshot Op = "delete_snapshot"
 )
 
 // Ops is every operation [Target] declares, in the order the interface does.
 // TestOpsListsEveryOperation fails if the two stop agreeing.
 var Ops = []Op{
 	OpDeploy, OpStop, OpReadRunning, OpShiftTraffic,
-	OpSetInstanceCount, OpApplySchemaChange, OpSnapshot,
+	OpSetInstanceCount, OpApplySchemaChange, OpSnapshot, OpDeleteSnapshot,
 }
+
+// Mitigation is the named class of two operations a mitigation is at this
+// seam: shifting traffic off a target, and changing the instance count of a
+// release the factory deployed. It is two and not three — ending every
+// instance of a service on a target is [OpStop], which retirement calls for
+// outside a rollout and no human at Ops instructs.
+//
+// Both are keyed by the release the factory deployed, which crosses this seam
+// as the build that release is: [Shift.Build] and [InstanceCount.Build], for
+// the reason [Deployment] states. A shift naming no build is every build of
+// the service on that target, which is how traffic is shifted off one
+// altogether.
+//
+// TestTheMitigationIsAClassOfTwo fails if a third joins it.
+var Mitigation = []Op{OpShiftTraffic, OpSetInstanceCount}
 
 // Target is the whole of what the deployer may do to a deploy target. No agent
 // reaches one: deploying is not a stage an agent is dispatched to, so every
@@ -56,14 +75,19 @@ var Ops = []Op{
 // it beside what was asked for, deciding nothing on it.
 type Target interface {
 	// Deploy puts the build d names on the target, reaching it with the
-	// credential d references, and reports how the instances it replaced ended.
+	// credential d references, and reports how the instances it replaced ended:
+	// drained, no request dropped, which is what both rollout rows require. A
+	// platform unable to hold a request open across the replacement refuses
+	// with [ErrCannotDrain] rather than reporting a replacement that did not
+	// happen.
 	Deploy(ctx context.Context, p principal.Principal, d Deployment) (Placement, error)
 	// Stop ends every instance of the named service on the target, reaching it
 	// with the credential the reference names, and reports how those instances
-	// ended: drained where it stopped new requests reaching them and let the
-	// ones they held finish, cut where the platform could not. A removal writes
-	// what this reports on the deploy record, so a platform that cuts is
-	// recorded as cutting.
+	// ended: it stops new requests reaching them and lets the ones they hold
+	// finish, which is the one outcome [Replacements] holds. A removal writes
+	// what this reports on the deploy record. A platform unable to hold a
+	// request open across the replacement refuses with [ErrCannotDrain] rather
+	// than reporting one.
 	Stop(ctx context.Context, p principal.Principal, service string, credential secretref.Ref) (Placement, error)
 	// ReadRunning is what the target says is running for the named service, and
 	// the schema history where the target holds the service's store.
@@ -73,20 +97,36 @@ type Target interface {
 	// SetInstanceCount changes how many instances of one build the target runs.
 	SetInstanceCount(ctx context.Context, p principal.Principal, c InstanceCount) error
 	// ApplySchemaChange applies one change to the service's store through the
-	// environment's credential, and records it in the store's schema history.
+	// environment's credential, and records it in the store's schema history,
+	// one row naming the build it was applied under and the release that
+	// shipped it wherever one exists, written in the same transaction as the
+	// change where the engine allows one. A change that destroys stored
+	// data names the snapshot taken before it, which the implementation
+	// verifies against the copy it finds before it applies anything.
 	ApplySchemaChange(ctx context.Context, p principal.Principal, c SchemaChange) error
 	// Snapshot takes a whole copy of the service's store and verifies it. A
 	// snapshot it cannot take and verify is an error and never a Snapshot
 	// reporting itself unverified.
 	Snapshot(ctx context.Context, p principal.Principal, s SnapshotRequest) (Snapshot, error)
+	// DeleteSnapshot deletes the copy the request names, which is what the
+	// deployer performs at the end of the service's snapshot retention on its
+	// own pass and earlier at an owner's call from Ops. A copy that is already
+	// gone is not an error: what the operation promises is that the copy cannot
+	// be read afterwards, and that already holds.
+	DeleteSnapshot(ctx context.Context, p principal.Principal, s SnapshotRequest) error
 }
 
 // Deployment is what one deploy names: the service, the build, the credential
 // to reach the target with, the resolved configuration the build runs under,
-// the token the deployer minted for the way in with the entrance that token is
-// presented at, and the identity of the deploy record this deploy is. The
-// credential is a reference and there is no field on this struct that could
-// hold its value.
+// and the entrance the way in presents its token at. The credential is a
+// reference and there is no field on this struct that could hold its value.
+//
+// The token the deployer minted for the way in, and the deploy record's own
+// identity, are values of [Deployment.Configuration] and no fields of their
+// own: the deployer hands both to the service in its configuration beside the
+// service's own credentials, under [WayInTokenName] left to the caller and
+// [DeployIDName] here, so the target puts them in front of the process the
+// way it puts every other value there.
 //
 // What crosses the seam is the build and not the release. A release is the name a
 // build has on master, which is a fact of the store and not of the target, and a
@@ -100,28 +140,29 @@ type Deployment struct {
 	// environment record.
 	Credential secretref.Ref
 	// Configuration is the resolved value set the build runs under: the
-	// service's configuration file with its secrets resolved through seam 3.
-	// The deployer writes a digest of it on the deploy record and a rollback
+	// service's configuration file with its secrets resolved through seam 3,
+	// the way-in token the deployer minted for this deploy, and the deploy
+	// record's own identity under [DeployIDName] — the instance is told its
+	// deploy at placement, so the record carries it and no reader joins an
+	// instance to its deploy by time, which is what the health monitor's
+	// emission names to tell these instances from the ones of the same build
+	// an earlier deploy placed. The deployer writes a digest of the set
+	// resolved before either is appended on the deploy record, and a rollback
 	// restores the version so named.
 	Configuration ValueSet
-	// WayInToken is the token the deployer minted for the way in at this deploy
-	// and hands to the service in its configuration. The deploy record holds a
-	// digest of it and never the token, and this is the one field of the seam
-	// that carries a value rather than a reference: the token is minted here
-	// and stored nowhere, so there is no name to resolve it by.
-	WayInToken string
 	// WayInAddress is the entrance the way in inside the deployed service
 	// posts to, which is what makes the token above reach anything. It is
 	// empty where the factory serves no entrance, and a target hands the
 	// service nothing to reach then: the way in in its build listens nowhere
 	// and the service is unaffected.
 	WayInAddress string
-	// DeployID is the deploy record's own identity, handed to every instance
-	// the deploy places, which is what the health monitor's emission names to
-	// tell these instances from the ones of the same build an earlier deploy
-	// placed.
-	DeployID string
 }
+
+// DeployIDName is the name the deploy record's own identity is handed to the
+// service under, in [Deployment.Configuration] beside the way-in token's own
+// name. [Deployment.Validate] refuses a deployment whose configuration names
+// no deploy id.
+const DeployIDName = "BORG_DEPLOY"
 
 // ValueSet is one resolved configuration: the names and the values the build
 // runs under, in the order the caller assembled them. It crosses the seam
@@ -132,19 +173,20 @@ type ValueSet struct {
 	Values []string
 }
 
-// Replacement is how the instances a deploy replaced ended: drained, the new
-// requests stopped and the held ones finished, or cut, which is what a platform
-// unable to hold a request open across the replacement performs and the factory
-// records as a drain.
+// Replacement is how the instances a deploy replaced ended. There is one
+// value: the operation stops new requests reaching an instance and lets the
+// ones it holds finish before it ends, so neither rollout row drops a
+// request. A platform unable to hold one open across the replacement refuses
+// the operation with [ErrCannotDrain] instead of reporting a replacement that
+// did not happen, so a record never names a drain nothing performed.
 type Replacement string
 
-const (
-	// ReplacementDrained is the operation's contract kept: no request dropped.
-	ReplacementDrained Replacement = "drained"
-	// ReplacementCut is a platform that could not keep it, recorded as what
-	// happened rather than as a drain.
-	ReplacementCut Replacement = "cut"
-)
+// ReplacementDrained is the operation's contract kept: no request dropped.
+const ReplacementDrained Replacement = "drained"
+
+// Replacements is every outcome an implementation may report. The CHECK
+// constraint on the deploy record's own column lists the same one.
+var Replacements = []Replacement{ReplacementDrained}
 
 // Placement is what a deploy reports back: how the instances it replaced ended.
 // The deployer writes it on the deploy record's row for that target.
@@ -180,9 +222,13 @@ type SchemaChange struct {
 	// history is read against.
 	Change string
 	// Release is the release that ships the change, which the history row names
-	// beside it. It is empty on a deploy that has no release — a candidate's own
+	// beside it, and is empty on a deploy that names none — a candidate's own
 	// environment, and a build the search called for.
 	Release string
+	// Build is the build the change is applied under, which every history row
+	// names. It is what a row a deploy naming no release writes stands on, so a
+	// change naming neither is refused.
+	Build string
 	// Text is what performs the change.
 	Text string
 	// Destroys is whether the change destroys stored data, which the store rule
@@ -193,18 +239,26 @@ type SchemaChange struct {
 	// applied. It is the deploy of the adoption item's release that asks for it,
 	// on every environment, and no other deploy does.
 	FoundApplied bool
-	Credential   secretref.Ref
+	// Snapshot is the copy of the service's store taken and verified before a
+	// change that destroys stored data, which is required before one is applied
+	// and empty on every change that destroys none. A change found applied
+	// applies nothing and needs none.
+	Snapshot   Snapshot
+	Credential secretref.Ref
 }
 
 // SchemaChangeApplied is one row of the store's schema history, which is what
-// says which changes a store carries: the release that shipped the change, the
-// change's identity, a checksum of its text, whether it widened the store or
-// removed something from it, and whether the deployer applied it or took it on
-// the adoption's word.
+// says which changes a store carries: the build the change was applied under,
+// the release that shipped it wherever one exists, the change's identity, a
+// checksum of its text, whether it widened the store or removed something from
+// it, and whether the deployer applied it or took it on the adoption's word.
 type SchemaChangeApplied struct {
 	// Release is the release that shipped the change, and is empty where the
-	// deploy that wrote the row named none.
-	Release  string
+	// deploy that wrote the row named none — a candidate's, and the search's.
+	Release string
+	// Build is the build the change was applied under, which every row names:
+	// it is what a row a deploy naming no release wrote stands on.
+	Build    string
 	Change   string
 	Checksum string
 	Widened  bool
@@ -216,7 +270,8 @@ type SchemaChangeApplied struct {
 }
 
 // SnapshotRequest is a whole copy of the service's store, asked for before a
-// change that destroys stored data.
+// change that destroys stored data, and the same copy named again when the
+// deployer deletes it.
 type SnapshotRequest struct {
 	Service string
 	// Name is what the copy is to be called, so the deploy record can name where
@@ -248,6 +303,18 @@ var (
 	// ErrCountNegative is returned by [InstanceCount.Validate] for fewer than
 	// no instances.
 	ErrCountNegative = errors.New("targetseam: an instance count is not negative")
+	// ErrNoSnapshotBeforeIt is returned by [SchemaChange.Validate] for a change
+	// that destroys stored data and names no copy taken before it. The
+	// requirement is here rather than at the deployer alone, so a caller that
+	// forgot the copy reaches no store.
+	ErrNoSnapshotBeforeIt = errors.New("targetseam: a change that destroys stored data names the snapshot taken and verified before it")
+	// ErrCannotDrain is returned by [Target.Deploy] and [Target.Stop] where the
+	// platform cannot hold a request open across the replacement: neither
+	// operation may report [ReplacementDrained] without having kept that
+	// promise, so a platform that would otherwise cut a request refuses
+	// instead, and the caller marks the deploy failed at that target rather
+	// than recording a drain that did not happen.
+	ErrCannotDrain = errors.New("targetseam: the platform cannot hold a request open across the replacement")
 )
 
 // Validate reports whether the deployment may be attempted. An implementation
@@ -263,7 +330,21 @@ func (d Deployment) Validate() error {
 		return fmt.Errorf("%w: service %q names %d configuration values for %d names",
 			ErrIncomplete, d.Service, len(d.Configuration.Values), len(d.Configuration.Names))
 	}
+	if id, found := d.Configuration.value(DeployIDName); !found || id == "" {
+		return fmt.Errorf("%w: service %q names no deploy record", ErrIncomplete, d.Service)
+	}
 	return nil
+}
+
+// value is the value named under name, and false where the value set names
+// no such thing.
+func (v ValueSet) value(name string) (string, bool) {
+	for n, one := range v.Names {
+		if one == name && n < len(v.Values) {
+			return v.Values[n], true
+		}
+	}
+	return "", false
 }
 
 // Validate reports whether the shift may be attempted.
@@ -299,9 +380,13 @@ func (c SchemaChange) Validate() error {
 	if c.Change == "" {
 		return fmt.Errorf("%w: service %q names no change", ErrIncomplete, c.Service)
 	}
-	if c.FoundApplied && c.Release == "" {
-		return fmt.Errorf("%w: %s of service %q is found applied and names no release",
+	if c.Release == "" && c.Build == "" {
+		return fmt.Errorf("%w: %s of service %q names neither a release nor a build",
 			ErrIncomplete, c.Change, c.Service)
+	}
+	if c.Destroys && !c.FoundApplied && (c.Snapshot.Name == "" || c.Snapshot.Digest == "") {
+		return fmt.Errorf("%w: %s of service %q names %q with digest %q",
+			ErrNoSnapshotBeforeIt, c.Change, c.Service, c.Snapshot.Name, c.Snapshot.Digest)
 	}
 	return nil
 }

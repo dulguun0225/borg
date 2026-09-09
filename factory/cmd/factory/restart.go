@@ -4,12 +4,86 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
+
+// RunningBuild is what the deployer's restart asks each target of a record it
+// stopped in the middle of: which build that target is running for the service
+// the record names. It is [deploy.Reading].
+//
+// It is here and not in package deploy because reaching a target takes the
+// service's name and the environment's credential, and a deploy record read
+// back carries neither — it names a service by id, and the credential is the
+// environment record's, which this composition holds.
+func (p *path) RunningBuild(ctx context.Context, d deploy.Deploy, address string) (string, error) {
+	svc, err := p.serviceOf(ctx, d.ServiceID)
+	if err != nil {
+		return "", err
+	}
+	running, err := p.d.targets.at(address).ReadRunning(ctx, deployerPrincipal, svc.Name, p.d.credential)
+	if err != nil {
+		return "", err
+	}
+	return running.Build, nil
+}
+
+// Rebuild is [deploy.Rebuilding] for the restart: what nothing about a
+// stopped record holds on its own — the live seams, the credential and the
+// artifact a slow return path verifies — assembled the way [path.reaches] and
+// [path.RollBack] already assemble it for a fresh deploy and an ordinary
+// rollback.
+//
+// Found is false where the build this record deploys no longer has an
+// artifact on the target's directory to redeploy: [deploy.Resume] then takes
+// the return path over the same seams rather than finishing the record
+// forward. A service run on no target of production, or a build this
+// install's own record does not name, cannot be carried either way, which is
+// reported as found so [deploy.Resume] leaves the record exactly as it found
+// it rather than attempting a return path with nothing to verify a redeploy
+// against.
+func (p *path) Rebuild(ctx context.Context, d deploy.Deploy) (deploy.Rebuilt, bool, error) {
+	svc, err := p.serviceOf(ctx, d.ServiceID)
+	if err != nil {
+		return deploy.Rebuilt{}, true, err
+	}
+	addresses := serviceAddresses(p.production, svc)
+	if len(addresses) == 0 {
+		return deploy.Rebuilt{}, true, nil
+	}
+	made, err := build.Get(ctx, p.d.pool, d.BuildID)
+	if err != nil {
+		return deploy.Rebuilt{}, true, nil
+	}
+
+	performance := deploy.Performance{
+		Actor:              deployActor,
+		Principal:          deployerPrincipal,
+		ServiceID:          svc.ID,
+		ServiceName:        svc.Name,
+		EnvironmentID:      p.production.ID,
+		Credential:         p.d.credential,
+		WayInAddress:       p.d.wayInAddress,
+		Reaches:            p.reaches(p.production, svc),
+		EnvironmentTargets: environmentTargets(p.production),
+	}
+	rebuilt := deploy.Rebuilt{
+		Performance:    performance,
+		Artifacts:      artifactsOf{dir: addresses[0]},
+		RecordedDigest: made.ArtifactDigest,
+	}
+	if _, err := rebuilt.Artifacts.Digest(ctx, d.BuildID); err != nil {
+		// The build's artifact is gone: this deploy's own release can no
+		// longer be put on a target, but what was current before it still
+		// can be verified and returned to.
+		return rebuilt, false, nil
+	}
+	return rebuilt, true, nil
+}
 
 // restart is every component's restart, run once at the end of [compose] and
 // before the path it composed reads a record. [compose] is its one caller, so a
@@ -21,7 +95,7 @@ import (
 // each component's own records rather than anything kept between runs: the
 // merge queue reads master and writes the release record its own unfinished
 // merge left owing; the deployer completes or returns the deploy records no
-// target has finished; the health monitor evaluates again every window the
+// target has finished, which is the two dispositions [deploy.Resume] has; the health monitor evaluates again every window the
 // deploy records left open; the notifier delivers again per row still waiting;
 // Factory reads the newest policy version per scope and rewrites every
 // authored field that version names which does not already hold what it names;
@@ -60,12 +134,17 @@ func (p *path) restart(ctx context.Context) error {
 		}
 	}
 
-	resumed, err := deploy.Resume(ctx, p.deploys)
+	resumed, err := deploy.Resume(ctx, p.deploys, p, p)
 	if err != nil {
 		return err
 	}
 	for _, one := range resumed {
-		fmt.Fprintf(d.out, "The deployer's restart finished deploy %s, which no target had completed\n", one.ID)
+		owed, err := deploy.Partial(ctx, d.pool, one.ID)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(d.out, "The deployer's restart left deploy %s standing, with %d target(s) still owed and nothing to carry it forward or back with\n",
+			one.ID, len(owed))
 	}
 
 	// The health monitor's restart is the set of windows the deploy records

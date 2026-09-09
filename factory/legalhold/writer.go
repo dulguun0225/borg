@@ -113,7 +113,7 @@ func (w *Writer) Insert(ctx context.Context, actor record.Actor, subject Subject
 		return Hold{}, fmt.Errorf("legalhold: beginning: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	h, err := Insert(ctx, tx, w.token, actor, subject, reason)
+	h, err := Insert(ctx, tx, w.token, actor, record.NewID(IDPrefix), subject, reason)
 	if err != nil {
 		return Hold{}, err
 	}
@@ -130,7 +130,7 @@ func (w *Writer) InsertWithdrawal(ctx context.Context, actor record.Actor, holdI
 		return Withdrawal{}, fmt.Errorf("legalhold: beginning: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	wd, err := InsertWithdrawal(ctx, tx, w.token, actor, holdID)
+	wd, err := InsertWithdrawal(ctx, tx, w.token, actor, record.NewID(WithdrawalIDPrefix), holdID)
 	if err != nil {
 		return Withdrawal{}, err
 	}
@@ -157,9 +157,10 @@ func (w *Writer) ApproveWithdrawal(ctx context.Context, withdrawalID string) err
 }
 
 // Insert writes one legal hold inside tx. Its caller is package policy's
-// SetLegalHold, which appends the policy version in the same transaction.
-func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, subject Subject,
-	reason string) (Hold, error) {
+// SetLegalHold, which appends the policy version in the same transaction and
+// mints id, the version naming the hold and being appended before it.
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, id string,
+	subject Subject, reason string) (Hold, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Hold{}, err
 	}
@@ -178,7 +179,7 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 	if reason == "" {
 		return Hold{}, ErrReasonEmpty
 	}
-	h := Hold{ID: record.NewID(IDPrefix), Actor: actor, At: record.Now(), Subject: subject, Reason: reason}
+	h := Hold{ID: id, Actor: actor, At: record.Now(), Subject: subject, Reason: reason}
 	_, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, subject_kind, subject_id, reason)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -198,7 +199,7 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 // and [ApproveWithdrawal] are the two writes that row makes, through package
 // policy's WriteLegalHoldWithdrawal and ApproveLegalHoldWithdrawal.
 func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
-	holdID string) (Withdrawal, error) {
+	id, holdID string) (Withdrawal, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Withdrawal{}, err
 	}
@@ -208,7 +209,7 @@ func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor r
 	if holdID == "" {
 		return Withdrawal{}, ErrHoldIDEmpty
 	}
-	w := Withdrawal{ID: record.NewID(WithdrawalIDPrefix), Actor: actor, At: record.Now(), HoldID: holdID}
+	w := Withdrawal{ID: id, Actor: actor, At: record.Now(), HoldID: holdID}
 	_, err := tx.Exec(ctx, `insert into `+WithdrawalTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, legal_hold_id, approved, approved_at)
 		values ($1, $2, $3, $4, $5, $6, $7, false, null)`,

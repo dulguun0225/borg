@@ -39,6 +39,10 @@ var implementer = record.Actor{Kind: record.KindComponent, Key: "agent.implement
 // model the implementation stage ran on.
 var by = artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
 
+// theManifest is the input manifest the dispatch wrote before the run that
+// derived the contract, which a version an agent authored names.
+const theManifest = "im_1"
+
 func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *artifact.Store) {
 	t.Helper()
 	ctx := t.Context()
@@ -123,7 +127,7 @@ func TestTheStoreWritesTheVersionAndItsPredicatesTogether(t *testing.T) {
 	version, derivation, written, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "2 predicates derived from the build", declared(
 		draft("Health.Status", gatepolicy.PredicateRead, ""),
 		draft("Health.Status", gatepolicy.PredicatePopulated, ""),
-	), "")
+	), theManifest)
 	if err != nil {
 		t.Fatalf("SubmitConsumerContract: %v", err)
 	}
@@ -167,7 +171,7 @@ func TestAPredicateTheConsumerContractCannotDecideRollsTheVersionBack(t *testing
 	if _, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "one bad predicate", declared(
 		draft("Health.Status", gatepolicy.PredicateRead, ""),
 		draft("Health.Status", gatepolicy.PredicateRange, "not a range"),
-	), ""); err == nil {
+	), theManifest); err == nil {
 		t.Fatal("a range whose ends are not numbers was accepted")
 	}
 	newest, found, err := artifact.NewestOfKind(ctx, pool, itemID, artifact.KindConsumerContract)
@@ -192,13 +196,13 @@ func TestForItemsReadsTheNewestVersionOfEachItem(t *testing.T) {
 	if _, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "first derivation", declared(
 		draft("Health.Status", gatepolicy.PredicateRead, ""),
 		draft("Health.Detail", gatepolicy.PredicateRead, ""),
-	), ""); err != nil {
+	), theManifest); err != nil {
 		t.Fatalf("the first SubmitConsumerContract: %v", err)
 	}
 	// The second derivation finds the build reading one field fewer, which is a
 	// consumer that stopped reading it — and what stops seeing the old assertion is
 	// this read, with nobody withdrawing anything.
-	if _, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "second derivation", declared(draft("Health.Status", gatepolicy.PredicateRead, "")), ""); err != nil {
+	if _, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, itemID, theConsumer, "second derivation", declared(draft("Health.Status", gatepolicy.PredicateRead, "")), theManifest); err != nil {
 		t.Fatalf("the second SubmitConsumerContract: %v", err)
 	}
 
@@ -222,7 +226,7 @@ func TestOneVersionCannotIntroduceTheSameAssertionTwice(t *testing.T) {
 	_, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, record.NewID("it"), theConsumer, "twice", declared(
 		draft("Health.Status", gatepolicy.PredicateRead, ""),
 		draft("Health.Status", gatepolicy.PredicateRead, ""),
-	), "")
+	), theManifest)
 
 	if err == nil || !strings.Contains(err.Error(), "one_assertion_per_version") {
 		t.Fatalf("the same assertion twice = %v, want the store's refusal", err)
@@ -237,7 +241,7 @@ func TestAConsumerDeclaringAgainstAnUnpublishedInterfaceCarriesTheNameAlone(t *t
 
 	unresolved := draft("Health.Status", gatepolicy.PredicateRead, "")
 	unresolved.ProducerServiceID = ""
-	version, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, record.NewID("it"), theConsumer, "against nothing published", declared(unresolved), "")
+	version, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, record.NewID("it"), theConsumer, "against nothing published", declared(unresolved), theManifest)
 	if err != nil {
 		t.Fatalf("SubmitConsumerContract: %v", err)
 	}
@@ -256,7 +260,7 @@ func TestAgainstProducerAndConsumerServicesEverReadTheGraph(t *testing.T) {
 	ctx, pool, store := newStore(t)
 
 	for _, consumer := range []string{theConsumer, "svc_other", theProducer} {
-		if _, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, record.NewID("it"), consumer, "one predicate", declared(draft("Health.Status", gatepolicy.PredicateRead, "")), ""); err != nil {
+		if _, _, _, err := store.SubmitConsumerContract(ctx, implementer, by, record.NewID("it"), consumer, "one predicate", declared(draft("Health.Status", gatepolicy.PredicateRead, "")), theManifest); err != nil {
 			t.Fatalf("SubmitConsumerContract for %s: %v", consumer, err)
 		}
 	}

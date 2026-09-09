@@ -33,18 +33,7 @@ import (
 // process read it.
 type Local struct {
 	dir string
-	// DrainWait is how long [Local.Deploy] gives the instance it replaces to
-	// finish the requests it holds after it stops taking new ones. A process
-	// still alive at the end of it is ended outright, and the deploy reports a
-	// cut rather than a drain. It is a field so that a caller with a longer
-	// slowest request can say so.
-	DrainWait time.Duration
 }
-
-// DefaultDrainWait is what [New] sets [Local.DrainWait] to: long enough for a
-// request a local demonstration holds open, and short enough that a rollout
-// over several targets is not a wait per target.
-const DefaultDrainWait = 2 * time.Second
 
 var _ targetseam.Target = (*Local)(nil)
 
@@ -128,7 +117,7 @@ var (
 
 // New returns a target over dir, where the deployable binary for a build is
 // placed before Deploy is called, named exactly by the build string.
-func New(dir string) *Local { return &Local{dir: dir, DrainWait: DefaultDrainWait} }
+func New(dir string) *Local { return &Local{dir: dir} }
 
 // Dir is the directory this target runs in, which is the address the
 // environment record names it by.
@@ -144,18 +133,18 @@ func (l *Local) Dir() string { return l.dir }
 // presented at and the socket the way in listens on, and every value of the
 // resolved configuration.
 //
-// The instance it replaces is drained where it can be: it is asked to end, which
-// is what stops new requests reaching it, and given [Local.DrainWait] to finish
-// the ones it holds. One still alive at the end of that is ended outright and
-// the deploy reports a cut, which is what a platform unable to hold a request
-// open across the replacement performs and what the factory records as having
-// happened.
+// The instance it replaces is drained: it is asked to end, which is what stops
+// new requests reaching it, and waited on for as long as it takes to finish the
+// ones it holds. Nothing here ends it before it has, so the replacement takes as
+// long as the longest request it waits on and no request is dropped. A caller
+// that will not wait that long cancels ctx, which is an error and not a
+// replacement reported.
 //
 // A build or a service name that is not a local path is refused before the
 // replacement, so what runs is left running. A binary missing from dir is an
 // error from the start instead, with nothing left running for the service —
 // there the replacement has already happened.
-func (l *Local) Deploy(_ context.Context, p principal.Principal, d targetseam.Deployment) (targetseam.Placement, error) {
+func (l *Local) Deploy(ctx context.Context, p principal.Principal, d targetseam.Deployment) (targetseam.Placement, error) {
 	if err := targetseam.CheckPrincipal(p); err != nil {
 		return targetseam.Placement{}, err
 	}
@@ -172,7 +161,7 @@ func (l *Local) Deploy(_ context.Context, p principal.Principal, d targetseam.De
 	if !filepath.IsLocal(d.Service) {
 		return targetseam.Placement{}, fmt.Errorf("%w: %q", ErrServiceNotLocal, d.Service)
 	}
-	replacement, err := l.drain(d.Service)
+	replacement, err := l.drain(ctx, d.Service)
 	if err != nil {
 		return targetseam.Placement{}, err
 	}
@@ -182,17 +171,15 @@ func (l *Local) Deploy(_ context.Context, p principal.Principal, d targetseam.De
 		SignalEnv+"="+SignalFile(l.dir, d.Build),
 		ExchangeEnv+"="+ExchangeFile(l.dir, d.Build),
 		DeployEnv+"="+d.DeployID)
-	if d.WayInToken != "" {
-		cmd.Env = append(cmd.Env, wayin.TokenEnv+"="+d.WayInToken)
-		// The way in starts only where all three are set, so the entrance and
-		// the socket go together: a deployment carrying no address is a
-		// factory serving no entrance, and the way in in this build listens
-		// nowhere rather than dialling something that is not there.
-		if d.WayInAddress != "" {
-			cmd.Env = append(cmd.Env,
-				wayin.StoreEnv+"="+d.WayInAddress,
-				wayin.ListenEnv+"="+WayInSocket(l.dir, d.Service))
-		}
+	// The way in starts only where all three are set. The token is one of the
+	// configuration values below, handed to the service the way every other
+	// value is; these two are the platform's own, and a deployment carrying no
+	// entrance is a factory serving none, where the way in in this build
+	// listens nowhere rather than dialling something that is not there.
+	if d.WayInAddress != "" {
+		cmd.Env = append(cmd.Env,
+			wayin.StoreEnv+"="+d.WayInAddress,
+			wayin.ListenEnv+"="+WayInSocket(l.dir, d.Service))
 	}
 	for n, name := range d.Configuration.Names {
 		cmd.Env = append(cmd.Env, name+"="+d.Configuration.Values[n])
@@ -214,11 +201,13 @@ func (l *Local) Deploy(_ context.Context, p principal.Principal, d targetseam.De
 	return targetseam.Placement{Replacement: replacement}, nil
 }
 
-// drain asks the instance running for the service to end, waits
-// [Local.DrainWait] for it to finish what it holds, and ends it outright where
-// it does not. It reports a drain where nothing was running, there being no
-// request to drop.
-func (l *Local) drain(service string) (targetseam.Replacement, error) {
+// drain asks the instance running for the service to end and waits until it
+// has finished what it holds. It ends nothing itself: neither rollout row drops
+// a request, so the wait is as long as the longest request the instance is
+// serving, and a caller unwilling to wait cancels ctx and gets that error
+// rather than a replacement. It reports a drain where nothing was running,
+// there being no request to drop.
+func (l *Local) drain(ctx context.Context, service string) (targetseam.Replacement, error) {
 	build, pid, running, err := l.read(service)
 	if err != nil {
 		return "", err
@@ -227,27 +216,23 @@ func (l *Local) drain(service string) (targetseam.Replacement, error) {
 		return targetseam.ReplacementDrained, l.forget(service)
 	}
 
-	replacement := targetseam.ReplacementDrained
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !gone(err) {
 		return "", fmt.Errorf("localtarget: draining build %s of service %q: %w", build, service, err)
 	}
-	deadline := time.Now().Add(l.DrainWait)
 	for syscall.Kill(pid, syscall.Signal(0)) == nil {
-		if time.Now().After(deadline) {
-			replacement = targetseam.ReplacementCut
-			if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !gone(err) {
-				return "", fmt.Errorf("localtarget: ending build %s of service %q: %w", build, service, err)
-			}
-			break
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("localtarget: waiting for build %s of service %q to finish what it holds: %w",
+				build, service, ctx.Err())
+		case <-time.After(drainPoll):
 		}
-		time.Sleep(drainPoll)
 	}
-	return replacement, l.forget(service)
+	return targetseam.ReplacementDrained, l.forget(service)
 }
 
 // drainPoll is how often the drain asks whether the process it is waiting on
-// has ended. It is short against [DefaultDrainWait] and long enough that the
-// wait is not a spin.
+// has ended. It is long enough that the wait is not a spin and short against
+// the request it is waiting for.
 const drainPoll = 10 * time.Millisecond
 
 func gone(err error) bool {
@@ -258,36 +243,23 @@ func gone(err error) bool {
 // it runs. A service with nothing running is not an error: what Stop promises is
 // that nothing runs after it returns, and that already holds.
 //
-// It ends the process outright rather than draining it. Stop is the operation
-// that ends every instance — a mitigation, a removal, a teardown — and none of
-// the three is replacing what it ends with something that would serve the
-// requests it holds. So it reports a cut and never a drain: the deploy record of
-// a removal names what this reported, and a record naming a drain here would
-// assert a drain nothing performed.
-func (l *Local) Stop(_ context.Context, p principal.Principal, service string, credential secretref.Ref) (targetseam.Placement, error) {
+// It ends the instance the way a replacement does — asked to end, then waited
+// on until it has finished what it holds — and reports the drain that is. The
+// deploy record of a removal names what this reported, so nothing here may
+// report a request finished that was dropped; a caller unwilling to wait
+// cancels ctx.
+func (l *Local) Stop(ctx context.Context, p principal.Principal, service string, credential secretref.Ref) (targetseam.Placement, error) {
 	if err := targetseam.CheckPrincipal(p); err != nil {
 		return targetseam.Placement{}, err
 	}
 	if err := check(service, credential); err != nil {
 		return targetseam.Placement{}, err
 	}
-	if err := l.stop(service); err != nil {
+	ended, err := l.drain(ctx, service)
+	if err != nil {
 		return targetseam.Placement{}, err
 	}
-	return targetseam.Placement{Replacement: targetseam.ReplacementCut}, nil
-}
-
-func (l *Local) stop(service string) error {
-	build, pid, running, err := l.read(service)
-	if err != nil {
-		return err
-	}
-	if running && pid > 0 {
-		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !gone(err) {
-			return fmt.Errorf("localtarget: stopping build %s of service %q: %w", build, service, err)
-		}
-	}
-	return l.forget(service)
+	return targetseam.Placement{Replacement: ended}, nil
 }
 
 // forget removes what says a build runs for the service.

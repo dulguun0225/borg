@@ -132,9 +132,12 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 	}
 	deferred := false
 	if pages {
-		deferred, err = n.deferredToHours(ctx, w, time.Now())
-		if err != nil {
+		var pageAt string
+		if deferred, pageAt, err = n.deferredToHours(ctx, w, time.Now()); err != nil {
 			return nil, err
+		}
+		if deferred {
+			w.PageAt = pageAt
 		}
 	}
 
@@ -215,8 +218,10 @@ func sinceLastAnswer(events []Payload) []Payload {
 }
 
 // Acknowledge is a human saying they have the row: it stops only the
-// widening. It fails with [ErrAlreadyAnswered] over a wait already answered.
-// by is the acknowledging human's per-person key.
+// widening and delivers nothing — it is an act in the product and nothing
+// else, so it writes the page event alone and never reaches the
+// [Deliverer]. It fails with [ErrAlreadyAnswered] over a wait already
+// answered. by is the acknowledging human's per-person key.
 //
 // The same act on a row that is a decision appends an acknowledgement to
 // the decision as well — [decisionlog.Writer.AppendDecisionAcknowledgement],
@@ -249,13 +254,17 @@ func (n *Notifier) Acknowledge(ctx context.Context, w Wait, by string) (decision
 			return decisionlog.Row{}, fmt.Errorf("%w: %s", ErrAlreadyAnswered, w.Row)
 		}
 	}
-	return n.deliver(ctx, Delivery{Channel: ChannelPage, To: by, Wait: acknowledging, Event: EventAcknowledged})
+	return n.appendPageEvent(ctx, Delivery{Channel: ChannelPage, To: by, Wait: acknowledging, Event: EventAcknowledged})
 }
 
 // Answered is written when the wait stops waiting, naming who ended it. Its
-// caller is the component that ends the wait, at the same write it ends it with —
-// except for a mismatch cleared inside the drift detector's own store, which calls
-// nothing, so there the caller is whoever read that store and found it cleared.
+// caller is the component that ends the wait, at the same write it ends it
+// with — except for a mismatch cleared inside the drift detector's own
+// store, which calls nothing, so there the caller is whoever read that
+// store and found it cleared. It writes the page event alone and delivers
+// nothing: the row has already stopped waiting, so reaching the transport
+// again over the human who ended it would page somebody for a wait that is
+// already over.
 func (n *Notifier) Answered(ctx context.Context, w Wait, by string) (decisionlog.Row, error) {
 	if _, err := prepare(w); err != nil {
 		return decisionlog.Row{}, err
@@ -270,7 +279,7 @@ func (n *Notifier) Answered(ctx context.Context, w Wait, by string) (decisionlog
 	if err := reached(events, w.Row); err != nil {
 		return decisionlog.Row{}, err
 	}
-	return n.deliver(ctx, Delivery{Channel: ChannelPage, To: by, Wait: w, Event: EventAnswered})
+	return n.appendPageEvent(ctx, Delivery{Channel: ChannelPage, To: by, Wait: w, Event: EventAnswered})
 }
 
 // prepare validates the wait and answers whether it fires a page. Both calls are
@@ -282,12 +291,15 @@ func prepare(w Wait) (bool, error) {
 	return w.pages()
 }
 
-// routeTo is who the wait reaches: every per-person key holding its duty or
-// its obligation, and the owner where it belongs to neither or where nobody
-// holds it. A duty with no holder is a routing answer and not a missing
-// one — the page reaches the owner, who is the person that would have
-// written the row.
+// routeTo is who the wait reaches: the named human [Wait.Person] gives where
+// the raiser has one, otherwise every per-person key holding its duty or its
+// obligation, and the owner where it belongs to neither or where nobody holds
+// it. A duty with no holder is a routing answer and not a missing one — the
+// page reaches the owner, who is the person that would have written the row.
 func (n *Notifier) routeTo(ctx context.Context, w Wait) ([]string, error) {
+	if w.Person != "" {
+		return []string{w.Person}, nil
+	}
 	if w.Holding == (people.Holding{}) {
 		return []string{n.owner}, nil
 	}
@@ -309,6 +321,11 @@ func (n *Notifier) routeTo(ctx context.Context, w Wait) ([]string, error) {
 // same reason [Writer.deliver] always kept: the record says a page was
 // delivered, so writing it before the delivery failed would say something
 // that did not happen.
+//
+// It is the one path that reaches the [Deliverer]. [Notifier.Acknowledge] and
+// [Notifier.Answered] write a page event of their own without it: neither is
+// a delivery, and reaching the transport a second time over an event that
+// only records what already happened would send a page nobody asked for.
 func (n *Notifier) deliver(ctx context.Context, d Delivery) (decisionlog.Row, error) {
 	sendErr := n.deliverer.Deliver(ctx, d)
 	if err := n.recordDelivery(ctx, d, sendErr == nil); err != nil {
@@ -321,7 +338,14 @@ func (n *Notifier) deliver(ctx context.Context, d Delivery) (decisionlog.Row, er
 	if d.Channel != ChannelPage {
 		return decisionlog.Row{}, nil
 	}
+	return n.appendPageEvent(ctx, d)
+}
 
+// appendPageEvent is the one page event a delivery on the page channel
+// writes, or that [Notifier.Acknowledge] and [Notifier.Answered] write on
+// their own without a delivery: the row, which of the four events it is, who
+// it names, and whose wait it was.
+func (n *Notifier) appendPageEvent(ctx context.Context, d Delivery) (decisionlog.Row, error) {
 	holding := ""
 	if d.Wait.Holding != (people.Holding{}) {
 		holding = d.Wait.Holding.String()

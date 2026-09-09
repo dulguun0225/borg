@@ -29,7 +29,9 @@ const (
 	// SetRolePromptOrSkill is the row that decides a version of what an agent is
 	// told. The change group is replaced by three factors of its own, a role
 	// prompt having no code to have sized and no area to have churned; the
-	// author and context groups are unchanged.
+	// author and context groups are unchanged, which is every factor of them
+	// and not the ones a version of what an agent is told is likely to read
+	// something on.
 	SetRolePromptOrSkill FactorSet = "a role prompt or a skill"
 )
 
@@ -61,7 +63,8 @@ func definitionsOf(set FactorSet) []definition {
 		return []definition{
 			fleetShare, fleetDeparture, fleetReversibility,
 			authorPrior,
-			contextHazardSeverity, contextIntentSource, contextConsumers,
+			contextHazardSeverity, contextIntentSource, contextHarmMarkedReport,
+			contextConsumers, contextProtectionWithdrawn,
 		}
 	}
 	return nil
@@ -131,6 +134,7 @@ var shipped = map[FactorSet]Weights{
 		"fleet.departure": 0.40, "author.prior": 0.40, "context.intent_source": 0.20,
 		"fleet.share_working_from_it": 0.55,
 		"context.hazard_severity":     0.30, "context.consumers": 0.15,
+		"context.protection_withdrawn": 0.00, "context.harm_marked_report": 0.00,
 		"fleet.reversibility": 1.00,
 	},
 }

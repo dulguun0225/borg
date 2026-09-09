@@ -7,7 +7,7 @@
 //
 //	driftdetector pass -secrets <file>
 //	driftdetector show
-//	driftdetector clear <mismatch-id> -human <name>
+//	driftdetector clear <mismatch-id> -human <name> -why <reason>
 //	driftdetector install -address <address>
 //
 // pass runs three of the six comparisons: the first, over what each target
@@ -20,7 +20,8 @@
 // prints every mismatch and the last check per target, which is what makes
 // a stopped drift detector visible rather than silent — no mismatches is
 // not health if the last check is a week old. clear clears one mismatch on
-// a named human's say-so. install writes the one address, mail or chat, the
+// a named human's say-so, with the reason that human writes down being the
+// whole of what a later reader gets. install writes the one address, mail or chat, the
 // detector delivers its own page to — done once, installing the detector
 // beside the factory.
 //
@@ -28,16 +29,27 @@
 // together, and each subcommand's own flags. pass.go is the first
 // comparison: [pass] itself, [runsOn] — which of a production environment's
 // targets one service runs on, which is the set this pass reads and no other
-// for that service — [recordedFor], the release the deploy record marks for
-// one target, read per target and not once for the service — [excusedBuilds],
-// which is the rollout exemption per target, bounded by the window's own cap,
-// by the targets the deploy record marks complete, and by
-// [deployerLastCheckStale], and [report].
-// checks.go is the second and third comparisons: [chainCheck], [staleCheck]
-// with [raiseStale] and [holdsWhat], which is what a stopped component's
-// mismatch holds. The tests are pass_test.go, which opens both stores and
-// exercises pass directly; pertarget_test.go, the first comparison read per
-// target; and checks_test.go, the third comparison's own.
+// for that service — [recordedFor], which assembles the target's own row of
+// every one of the service's deploy records into the environment for package
+// driftdetector's own [driftdetector.RecordedRelease] to decide, read per
+// target and not once for the service — [openWindows], which assembles the
+// rollout exemption's inputs (the open windows, each one's own deploy
+// targets, control builds, and kept builds) for package driftdetector's own
+// [driftdetector.Excused] to decide, with [rollbackTargetBuildID] and
+// [tookTraffic] assembling the release a rollback would return to where a
+// target ran no control, and [report]. checks.go is the second and third
+// comparisons: [chainCheck], [staleCheck] with [raiseStale] and
+// [servicesOnProductionTargets], which assembles what package driftdetector's
+// own [driftdetector.Holds] and [driftdetector.MustDeliver] decide, and
+// [recordFreshAgain], which finds every uncleared stale-component mismatch
+// whose component this pass no longer finds stale and records the later
+// agreement on it through [driftdetector.Writer.RecordStaleComponentAgreement] —
+// [chainCheck] does the same for a chain mismatch through
+// [driftdetector.Writer.RecordChainAgreement] once the chain verifies sound.
+// The tests are pass_test.go, which opens both stores and exercises pass
+// directly; pertarget_test.go, the first comparison read per target;
+// rollback_test.go, the exemption's third case; and checks_test.go, the
+// second and third comparisons' own.
 //
 // What it reaches a target through is the same seam an agent does, and the read
 // operation is the one that changes nothing. It calls as itself, a component,

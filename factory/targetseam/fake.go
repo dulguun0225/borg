@@ -10,8 +10,9 @@ import (
 
 // Call is one operation performed on a [Fake]: which one, who made it, on what,
 // and with which credential reference. Credential is a reference, so a recorded
-// call cannot contain a secret value however the fake is used — the way-in
-// token a deployment carries is not recorded for the same reason.
+// call cannot contain a secret value however the fake is used — a deployment's
+// configuration, which carries the way-in token among its values, is not
+// recorded for the same reason.
 type Call struct {
 	Op        Op
 	Principal principal.Principal
@@ -35,9 +36,6 @@ type Fake struct {
 	calls   []Call
 	running map[string]string
 
-	// Drains is whether Deploy reports a drain. A fake platform that cuts is
-	// what the deploy record's per-target replacement field is read against.
-	Drains bool
 	// Instances is what ReadRunning reports as the capacity of every service,
 	// which is what a kept-instance count is computed from.
 	Instances int
@@ -53,6 +51,10 @@ type Fake struct {
 	// shift one answers, which is what makes the strategy performed differ from
 	// the one picked.
 	RefuseShift error
+	// RefuseDrain is what a platform unable to hold a request open across a
+	// replacement answers instead of reporting one: [Fake.Deploy] and
+	// [Fake.Stop] both return it rather than recording the call.
+	RefuseDrain error
 }
 
 var _ Target = (*Fake)(nil)
@@ -62,7 +64,6 @@ var _ Target = (*Fake)(nil)
 func NewFake() *Fake {
 	return &Fake{
 		running:         make(map[string]string),
-		Drains:          true,
 		SchemaHistory:   make(map[string][]SchemaChangeApplied),
 		ArtifactDigests: make(map[string]string),
 	}
@@ -78,20 +79,18 @@ func (f *Fake) Deploy(_ context.Context, p principal.Principal, d Deployment) (P
 	if err := d.Validate(); err != nil {
 		return Placement{}, err
 	}
+	if f.RefuseDrain != nil {
+		return Placement{}, f.RefuseDrain
+	}
 	f.calls = append(f.calls, Call{
 		Op: OpDeploy, Principal: p, Service: d.Service, Build: d.Build, Credential: d.Credential,
 	})
 	f.running[d.Service] = d.Build
-	if f.Drains {
-		return Placement{Replacement: ReplacementDrained}, nil
-	}
-	return Placement{Replacement: ReplacementCut}, nil
+	return Placement{Replacement: ReplacementDrained}, nil
 }
 
-// Stop records the call, forgets what was running for that service, and reports
-// how those instances ended — the same [Fake.Drains] a deploy's replacement is
-// reported by, a fake platform that cuts being what the deploy record's
-// per-target replacement field is read against.
+// Stop records the call, forgets what was running for that service, and
+// reports the drain that is the seam's one outcome: no request dropped.
 func (f *Fake) Stop(_ context.Context, p principal.Principal, service string, credential secretref.Ref) (Placement, error) {
 	if err := CheckPrincipal(p); err != nil {
 		return Placement{}, err
@@ -99,12 +98,12 @@ func (f *Fake) Stop(_ context.Context, p principal.Principal, service string, cr
 	if err := check(service, credential); err != nil {
 		return Placement{}, err
 	}
+	if f.RefuseDrain != nil {
+		return Placement{}, f.RefuseDrain
+	}
 	f.calls = append(f.calls, Call{Op: OpStop, Principal: p, Service: service, Credential: credential})
 	delete(f.running, service)
-	if f.Drains {
-		return Placement{Replacement: ReplacementDrained}, nil
-	}
-	return Placement{Replacement: ReplacementCut}, nil
+	return Placement{Replacement: ReplacementDrained}, nil
 }
 
 // ReadRunning records the call and answers with what Deploy last left for that
@@ -176,7 +175,7 @@ func (f *Fake) ApplySchemaChange(_ context.Context, p principal.Principal, c Sch
 		Change: c.Change, Credential: c.Credential,
 	})
 	f.SchemaHistory[c.Service] = append(f.SchemaHistory[c.Service], SchemaChangeApplied{
-		Release: c.Release, Change: c.Change, Checksum: fmt.Sprintf("%x", len(c.Text)),
+		Release: c.Release, Build: c.Build, Change: c.Change, Checksum: fmt.Sprintf("%x", len(c.Text)),
 		Widened: !c.Destroys, FoundApplied: c.FoundApplied,
 	})
 	return nil
@@ -197,6 +196,29 @@ func (f *Fake) Snapshot(_ context.Context, p principal.Principal, s SnapshotRequ
 	taken := Snapshot{Name: s.Name, Digest: fmt.Sprintf("%x", len(f.SchemaHistory[s.Service]))}
 	f.Snapshots = append(f.Snapshots, taken)
 	return taken, nil
+}
+
+// DeleteSnapshot records the call and forgets the copy the fake took, which is
+// what the deployer's retention pass and an owner's call from Ops both perform.
+// A copy the fake never took is not an error, the way it is not on a target.
+func (f *Fake) DeleteSnapshot(_ context.Context, p principal.Principal, s SnapshotRequest) error {
+	if err := CheckPrincipal(p); err != nil {
+		return err
+	}
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	f.calls = append(f.calls, Call{
+		Op: OpDeleteSnapshot, Principal: p, Service: s.Service, Change: s.Name, Credential: s.Credential,
+	})
+	kept := f.Snapshots[:0]
+	for _, taken := range f.Snapshots {
+		if taken.Name != s.Name {
+			kept = append(kept, taken)
+		}
+	}
+	f.Snapshots = kept
+	return nil
 }
 
 // Calls is every operation performed on the fake, in the order it was

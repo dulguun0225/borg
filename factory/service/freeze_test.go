@@ -86,3 +86,87 @@ func TestAChangeFreezeIsPeriodsAndAReadOfOne(t *testing.T) {
 		t.Errorf("AddFreezePeriod ending before it starts = %v, want ErrPeriodEndsBeforeItStarts", err)
 	}
 }
+
+// TestLengthenFreezePeriod: a safeguard may add a period or lengthen one, and
+// may never shorten one; an owner may shorten one.
+func TestLengthenFreezePeriod(t *testing.T) {
+	ctx, pool, w := newWriter(t)
+
+	created, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout", aProject)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	token := acquire(ctx, t, pool)
+
+	tx := begin(ctx, t, pool)
+	err = service.AddFreezePeriod(ctx, tx, token, owner, created.ID,
+		"2026-12-24T00:00:00.000000000Z", "2026-12-27T00:00:00.000000000Z")
+	if err != nil {
+		t.Fatalf("AddFreezePeriod: %v", err)
+	}
+	commit(ctx, t, tx)
+
+	// A safeguard may lengthen: start earlier, end later, or both.
+	tx = begin(ctx, t, pool)
+	err = service.LengthenFreezePeriod(ctx, tx, token, componentActor, created.ID,
+		"2026-12-24T00:00:00.000000000Z", "2026-12-27T00:00:00.000000000Z",
+		"2026-12-23T00:00:00.000000000Z", "2026-12-28T00:00:00.000000000Z")
+	if err != nil {
+		t.Fatalf("LengthenFreezePeriod (safeguard, lengthening): %v", err)
+	}
+	commit(ctx, t, tx)
+
+	periods, err := service.FreezePeriods(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("FreezePeriods: %v", err)
+	}
+	if len(periods) != 1 || periods[0].StartsAt != "2026-12-23T00:00:00.000000000Z" ||
+		periods[0].EndsAt != "2026-12-28T00:00:00.000000000Z" {
+		t.Errorf("FreezePeriods after a safeguard lengthened one = %+v, want the one period widened", periods)
+	}
+
+	// A safeguard may never shorten: neither bound may move inward.
+	tx = begin(ctx, t, pool)
+	err = service.LengthenFreezePeriod(ctx, tx, token, componentActor, created.ID,
+		"2026-12-23T00:00:00.000000000Z", "2026-12-28T00:00:00.000000000Z",
+		"2026-12-24T00:00:00.000000000Z", "2026-12-28T00:00:00.000000000Z")
+	if !errors.Is(err, service.ErrSafeguardDirection) {
+		t.Errorf("a safeguard moving the start inward = %v, want ErrSafeguardDirection", err)
+	}
+	err = service.LengthenFreezePeriod(ctx, tx, token, componentActor, created.ID,
+		"2026-12-23T00:00:00.000000000Z", "2026-12-28T00:00:00.000000000Z",
+		"2026-12-23T00:00:00.000000000Z", "2026-12-27T00:00:00.000000000Z")
+	if !errors.Is(err, service.ErrSafeguardDirection) {
+		t.Errorf("a safeguard moving the end inward = %v, want ErrSafeguardDirection", err)
+	}
+	commit(ctx, t, tx)
+
+	// An owner may shorten a period they authored too wide.
+	tx = begin(ctx, t, pool)
+	err = service.LengthenFreezePeriod(ctx, tx, token, owner, created.ID,
+		"2026-12-23T00:00:00.000000000Z", "2026-12-28T00:00:00.000000000Z",
+		"2026-12-24T00:00:00.000000000Z", "2026-12-27T00:00:00.000000000Z")
+	if err != nil {
+		t.Fatalf("LengthenFreezePeriod (owner, shortening): %v", err)
+	}
+	commit(ctx, t, tx)
+
+	periods, err = service.FreezePeriods(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("FreezePeriods: %v", err)
+	}
+	if len(periods) != 1 || periods[0].StartsAt != "2026-12-24T00:00:00.000000000Z" ||
+		periods[0].EndsAt != "2026-12-27T00:00:00.000000000Z" {
+		t.Errorf("FreezePeriods after an owner shortened one = %+v, want the one period narrowed", periods)
+	}
+
+	// A period nothing names is not found.
+	tx = begin(ctx, t, pool)
+	defer func() { _ = tx.Rollback(ctx) }()
+	err = service.LengthenFreezePeriod(ctx, tx, token, owner, created.ID,
+		"2030-01-01T00:00:00.000000000Z", "2030-01-02T00:00:00.000000000Z",
+		"2030-01-01T00:00:00.000000000Z", "2030-01-03T00:00:00.000000000Z")
+	if !errors.Is(err, service.ErrNotFound) {
+		t.Errorf("LengthenFreezePeriod naming a period nothing has = %v, want ErrNotFound", err)
+	}
+}

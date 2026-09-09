@@ -86,14 +86,15 @@ func runOnItem() agentrun.New {
 		Effort:             "high",
 		CredentialName:     "anthropic.owner",
 		ProcessingLocation: "anthropic/us",
+		LenderKey:          "pk_owner",
 		AccountKind:        agentrun.AccountPerson,
 		ItemID:             record.NewID("itm"),
 		Stage:              "implementation",
 		UnitsByKind:        map[string]int64{"input": 1000, "output": 200},
+		UnitsAt:            record.Now(),
 		Sources:            []string{"repo@abc123"},
 		RatesByKind:        map[string]float64{"input": 0.01, "output": 0.03},
 		ConvertedAmount:    16.0,
-		Priced:             true,
 		Currency:           "USD",
 		Outcome:            "advanced",
 	}
@@ -221,6 +222,10 @@ func TestAnIncompleteRunIsRefused(t *testing.T) {
 		{"outcome", func(n *agentrun.New) { n.Outcome = "" }, agentrun.ErrOutcomeEmpty},
 		{"currency", func(n *agentrun.New) { n.Currency = "" }, agentrun.ErrCurrencyEmpty},
 		{"account kind", func(n *agentrun.New) { n.AccountKind = "unheard-of" }, agentrun.ErrAccountKindUnknown},
+		{"an account kind at all", func(n *agentrun.New) { n.AccountKind = "" }, agentrun.ErrAccountKindUnknown},
+		{"processing location", func(n *agentrun.New) { n.ProcessingLocation = "" }, agentrun.ErrProcessingLocationEmpty},
+		{"lender key", func(n *agentrun.New) { n.LenderKey = "" }, agentrun.ErrLenderKeyEmpty},
+		{"the time the units were returned", func(n *agentrun.New) { n.UnitsAt = "" }, agentrun.ErrUnitsAtEmpty},
 	} {
 		n := runOnItem()
 		c.mut(&n)
@@ -254,9 +259,27 @@ func TestDDLListsEveryAccountKind(t *testing.T) {
 		}
 	}
 	n := runOnItem()
-	n.AccountKind = ""
-	if _, err := w.Record(ctx, dispatcher, n); err != nil {
-		t.Errorf("Record with an empty account kind was refused: %v", err)
+	n.AccountKind = "neither"
+	if _, err := w.Record(ctx, dispatcher, n); !errors.Is(err, agentrun.ErrAccountKindUnknown) {
+		t.Errorf("Record with an account kind outside the two = %v, want ErrAccountKindUnknown", err)
+	}
+}
+
+// TestTheStoreRefusesWhatTheWriterRefuses is the three CHECK constraints under
+// the writer: whatever reaches the store, a run carries the processing location
+// and the lender it ran on, and an account kind that is one of the two.
+func TestTheStoreRefusesWhatTheWriterRefuses(t *testing.T) {
+	ctx, pool, w := newTable(t)
+	recorded, err := w.Record(ctx, dispatcher, runOnItem())
+	if err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	for _, column := range []string{"account_kind", "lender_key", "processing_location"} {
+		_, err := pool.Exec(ctx, `update `+agentrun.Table+` set `+column+` = '' where id = $1`, recorded.ID)
+		if err == nil {
+			t.Errorf("the store took an empty %s on a run record, want the constraint to refuse it", column)
+		}
 	}
 }
 
@@ -309,49 +332,62 @@ func TestByAuthorModelIsByModelVersion(t *testing.T) {
 	}
 }
 
-func TestSpendByCredentialSinceSumsPricedRunsAndKeepsUnpricedApart(t *testing.T) {
+// TestTheAmountIsTheUnitsAtTheRatesTheRecordStores is the converted amount as
+// the design defines it: the sum over the kinds at the rates the record itself
+// carries, computed by the writer, so a caller that worked out another number
+// is refused rather than stored.
+func TestTheAmountIsTheUnitsAtTheRatesTheRecordStores(t *testing.T) {
 	ctx, pool, w := newTable(t)
-	credential := "anthropic.spend-test"
-	start := record.Now()
 
-	priced := runOnItem()
-	priced.CredentialName = credential
-	priced.ConvertedAmount = 10.0
-	priced.Priced = true
-	priced.Currency = "USD"
-	if _, err := w.Record(ctx, dispatcher, priced); err != nil {
-		t.Fatalf("Record: %v", err)
-	}
-
-	unpriced := runOnItem()
-	unpriced.CredentialName = credential
-	unpriced.RatesByKind = map[string]float64{"input": 0.01} // output has no rate
-	unpriced.ConvertedAmount = 0
-	unpriced.Priced = false
-	unpriced.Currency = ""
-	unpricedRun, err := w.Record(ctx, dispatcher, unpriced)
+	// The fixture returns 1000 input at 0.01 and 200 output at 0.03.
+	recorded, err := w.Record(ctx, dispatcher, runOnItem())
 	if err != nil {
 		t.Fatalf("Record: %v", err)
 	}
-	if kinds := unpricedRun.UnpricedKinds(); len(kinds) != 1 || kinds[0] != "output" {
-		t.Errorf("UnpricedKinds = %v, want [output]", kinds)
+	if recorded.ConvertedAmount != 16.0 || !recorded.Priced {
+		t.Errorf("Record converted to %v priced %v, want 16 and priced", recorded.ConvertedAmount, recorded.Priced)
+	}
+	read, err := agentrun.Get(ctx, pool, recorded.ID)
+	if err != nil || read.ConvertedAmount != 16.0 {
+		t.Errorf("Get = %v, %v, want the amount the units at the rates come to", read.ConvertedAmount, err)
 	}
 
-	spend, err := agentrun.SpendByCredentialSince(ctx, pool, credential, start)
-	if err != nil {
-		t.Fatalf("SpendByCredentialSince: %v", err)
-	}
-	if spend.Amount != 10.0 || spend.Currency != "USD" {
-		t.Errorf("SpendByCredentialSince amount = %v %s, want 10 USD", spend.Amount, spend.Currency)
-	}
-	if len(spend.Unpriced) != 1 || spend.Unpriced[0].ID != unpricedRun.ID {
-		t.Errorf("SpendByCredentialSince unpriced = %+v, want [%s]", spend.Unpriced, unpricedRun.ID)
+	another := runOnItem()
+	another.ConvertedAmount = 15.0
+	if _, err := w.Record(ctx, dispatcher, another); !errors.Is(err, agentrun.ErrAmountNotTheSum) {
+		t.Errorf("Record with an amount of its own = %v, want ErrAmountNotTheSum", err)
 	}
 }
 
-func TestSpendByCredentialSinceWithNoCredentialIsRefused(t *testing.T) {
-	ctx, pool, _ := newTable(t)
-	if _, err := agentrun.SpendByCredentialSince(ctx, pool, "", record.Now()); !errors.Is(err, agentrun.ErrCredentialNameEmpty) {
-		t.Errorf("SpendByCredentialSince with no credential = %v, want ErrCredentialNameEmpty", err)
+// TestARunAKindOfWhichHasNoRateCarriesNoAmount is what a spend ceiling fails
+// closed on: the amount is absent where a kind the run returned has no rate,
+// whatever the caller says, and the refusal names the kind that wants one.
+func TestARunAKindOfWhichHasNoRateCarriesNoAmount(t *testing.T) {
+	ctx, pool, w := newTable(t)
+
+	n := runOnItem()
+	n.RatesByKind = map[string]float64{"input": 0.01} // output has no rate
+	n.ConvertedAmount = 0
+	recorded, err := w.Record(ctx, dispatcher, n)
+	if err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if recorded.Priced || recorded.ConvertedAmount != 0 || recorded.Currency != "" {
+		t.Errorf("Record = %+v, want no amount and no currency on a run a kind of which has no rate", recorded)
+	}
+	if kinds := recorded.UnpricedKinds(); len(kinds) != 1 || kinds[0] != "output" {
+		t.Errorf("UnpricedKinds = %v, want [output]", kinds)
+	}
+	read, err := agentrun.Get(ctx, pool, recorded.ID)
+	if err != nil || read.Priced {
+		t.Errorf("Get = %+v, %v, want a run the ceiling has nothing to sum for", read, err)
+	}
+
+	claimed := runOnItem()
+	claimed.RatesByKind = map[string]float64{"input": 0.01}
+	claimed.ConvertedAmount = 10.0
+	_, err = w.Record(ctx, dispatcher, claimed)
+	if !errors.Is(err, agentrun.ErrAmountNotTheSum) || !strings.Contains(err.Error(), "output") {
+		t.Errorf("Record pricing a run whose output has no rate = %v, want ErrAmountNotTheSum naming output", err)
 	}
 }

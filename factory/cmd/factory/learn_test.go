@@ -142,7 +142,7 @@ func TestTheThresholdFallsAfterTheFactoryPassedSomethingThatWentWrong(t *testing
 	if err != nil || !found {
 		t.Fatalf("Newest = found %v, %v", found, err)
 	}
-	learned, err := score.Learn(ctx, d.pool, d.token, marksOf(d.pool))
+	learned, err := score.Learn(ctx, d.pool, d.token, marksOf(d.pool), before.Under())
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}
@@ -264,7 +264,11 @@ func TestAFactoryThatHasSampledNothingSaysSo(t *testing.T) {
 	}
 
 	printed := &bytes.Buffer{}
-	learned, err := score.Learn(ctx, d.pool, d.token, marksOf(d.pool))
+	inForce, _, err := score.Newest(ctx, d.pool, d.token)
+	if err != nil {
+		t.Fatalf("Newest: %v", err)
+	}
+	learned, err := score.Learn(ctx, d.pool, d.token, marksOf(d.pool), inForce.Under())
 	if err != nil {
 		t.Fatalf("Learn: %v", err)
 	}

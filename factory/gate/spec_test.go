@@ -147,7 +147,7 @@ func TestASpecCheckRejectsAtTheSpecRowAndNowhereElse(t *testing.T) {
 
 	// The merge row still rejects on its own checks, and the Spec row's are
 	// refused there.
-	merged, err := g.Fire(ctx, mergeFiring)
+	merged, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("firing the merge row: %v", err)
 	}

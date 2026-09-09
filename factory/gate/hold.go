@@ -153,9 +153,6 @@ type Subjects struct {
 	ServiceID     string
 	AreaID        string
 	EnvironmentID string
-	// ReleaseID is the release the deploy would put on the environment, and is
-	// empty at every row above the merge.
-	ReleaseID string
 }
 
 // Holds is what the composition supplies for computing the factory's own holds:

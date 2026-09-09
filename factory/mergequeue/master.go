@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -51,25 +54,39 @@ func (q *Queue) Restart(ctx context.Context, serviceID string) (Master, []Outcom
 	}
 	defer unlock()
 
-	m, err := q.membership(ctx, serviceID)
-	if err != nil {
-		return Master{}, nil, err
-	}
-	read, completed, _, err := q.readMaster(ctx, serviceID, m.Members)
+	read, completed, _, err := q.readMaster(ctx, serviceID)
 	return read, completed, err
 }
 
-// readMaster is that reading. Master's head being the commit the service's
-// newest release names is the ordinary case. The two readings that stop the
-// service are a commit master does not hold and a commit the queue did not put
-// there, and between them is the one the queue completes: a commit past the
-// newest release's that a build of a candidate approved at Merge to master
-// names, which is the queue's own unfinished merge.
+// readMaster is that reading, made at the start of a run, before every mint —
+// [beforeMint's former, separate implementation is gone; this is now the one
+// function both call — and at a restart, so the two never drift apart. Master's
+// head being the commit the service's newest release names is the ordinary
+// case. The two readings that stop the service are a commit master does not
+// hold and a commit the queue did not put there, and between them is the one
+// the queue completes: a commit past the newest release's that a build of a
+// candidate approved at Merge to master names, which is the queue's own
+// unfinished merge.
+//
+// The builds compared are every build the records hold naming this service and
+// this commit, through [build.ForServiceCommit] — not the ordered and
+// intent-filtered membership a pass computed for itself, and not only the
+// builds of an item still at [item.StageQueued]: an item the queue itself sent
+// back, or one a caller has already advanced past queued, still explains the
+// commit if its build names it and it was once approved at Merge to master.
+// That approval is read off the item's own stage history — reaching
+// [item.StageQueued] is what the gate's approval writes, and the row stands
+// whatever stage the item is at now.
+//
+// An item the intent's state stops is not completed even where its build
+// names the commit: its unfinished merge stands as a wait instead, the way the
+// halt's does — nothing is decided, and the record write is left owing until
+// the state clears.
 //
 // A service with no release yet is compared against nothing: what master holds
 // before the first merge is whatever created the repository, and no record says
 // otherwise.
-func (q *Queue) readMaster(ctx context.Context, serviceID string, members []item.Item) (Master, []Outcome, []subject, error) {
+func (q *Queue) readMaster(ctx context.Context, serviceID string) (Master, []Outcome, []subject, error) {
 	head, err := q.repo.Head(ctx, serviceID)
 	if err != nil {
 		return Master{}, nil, nil, fmt.Errorf("mergequeue: reading master of %s: %w", serviceID, err)
@@ -111,17 +128,48 @@ func (q *Queue) readMaster(ctx context.Context, serviceID string, members []item
 	}
 
 	// A commit on master past the newest release's, compared against the builds
-	// the records hold. It is told from a commit the queue did not make by the
-	// records and not by the queue's memory of its work.
-	for _, it := range members {
-		made, found, err := build.ForCommit(ctx, q.pool, it.ID, serviceID, head)
+	// the records hold — every build naming this service and this commit,
+	// whatever item it names and whatever stage that item is at now.
+	made, err := build.ForServiceCommit(ctx, q.pool, serviceID, head)
+	if err != nil {
+		return read, nil, nil, err
+	}
+	for _, b := range made {
+		if b.ItemID == "" {
+			// A search build names a service and no item, and decides nothing at
+			// Merge to master.
+			continue
+		}
+		approved, err := approvedAtMergeToMaster(ctx, q.pool, b.ItemID)
 		if err != nil {
 			return read, nil, nil, err
 		}
-		if !found {
+		if !approved {
 			continue
 		}
-		completed, err := q.complete(ctx, it, made, head)
+		it, err := item.Get(ctx, q.pool, b.ItemID)
+		if err != nil {
+			return read, nil, nil, err
+		}
+		in, err := intent.Get(ctx, q.pool, it.IntentID)
+		if err != nil {
+			return read, nil, nil, fmt.Errorf("mergequeue: reading the intent of %s: %w", it.ID, err)
+		}
+		if stops(in.State) {
+			// Its unfinished merge stands as a wait, the way the halt's does:
+			// nothing is decided, and the record write this commit already
+			// implies is left owing until the state clears.
+			payload := WaitPayload{
+				Kind: WaitIntentStops, ServiceID: serviceID, ItemID: it.ID, IntentState: string(in.State),
+			}
+			row, err := q.openWait(ctx, payload)
+			if err != nil {
+				return read, nil, nil, err
+			}
+			read.Stopped, read.WaitRow = string(payload.Kind), row.ID
+			return read, nil, []subject{payload.subject()}, nil
+		}
+		completed, err := q.complete(ctx, it, b, head)
 		if err != nil {
 			return read, nil, nil, err
 		}
@@ -142,6 +190,25 @@ func (q *Queue) readMaster(ctx context.Context, serviceID string, members []item
 	return read, nil, []subject{payload.subject()}, nil
 }
 
+// approvedAtMergeToMaster reports whether the item's stage history shows it
+// once reached [item.StageQueued]. That stage follows implementation only
+// because the Merge to master gate approved it, and the row [item.Stages]
+// reads back stands whatever stage the item is at now — sent back, escalated,
+// or already merged past it — so this is the read that tells a build the queue
+// once approved from one it never did.
+func approvedAtMergeToMaster(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool, error) {
+	stages, err := item.Stages(ctx, pool, itemID)
+	if err != nil {
+		return false, fmt.Errorf("mergequeue: reading the stage history of %s: %w", itemID, err)
+	}
+	for _, s := range stages {
+		if s.Stage == item.StageQueued {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // complete is the write the fast-forward already implied: the commit is on
 // master and no release names it, so the queue mints one in master's order.
 //
@@ -149,7 +216,10 @@ func (q *Queue) readMaster(ctx context.Context, serviceID string, members []item
 // publishes — master is already an ancestor of the candidate, so it names the
 // build already in force and rebuilds nothing — and it is asked for the forms
 // and not for a verdict: the commit is on master, so the item is merged and past
-// the point anything may be sent back from.
+// the point anything may be sent back from. This is the one re-verification the
+// design's rule that a re-verification is never a repeat of the run that passed
+// does not hold: nothing here decides pass or fail, so [ErrReverificationRepeats]
+// is never asked of it.
 func (q *Queue) complete(ctx context.Context, it item.Item, made build.Build, head string) (Outcome, error) {
 	verified, err := q.repo.Reverify(ctx, it, nil)
 	if err != nil {
@@ -161,45 +231,4 @@ func (q *Queue) complete(ctx context.Context, it item.Item, made build.Build, he
 			it.ID, head, made.ID, verified.Commit, verified.BuildID)
 	}
 	return q.mint(ctx, it.ServiceID, it.ID, verified)
-}
-
-// beforeMint is the same reading again, made before every mint rather than only
-// at the start: master's head being the commit the service's newest release names
-// is what a mint is made against, and a commit that arrived on master since this
-// pass began is one the queue did not make. It answers with the wait kind that
-// holds the service and the payload that wait stands as, and with an empty kind
-// where the reading found master and the records agreeing.
-//
-// A pass performs its own fast-forwards and mints each one before it reaches the
-// next candidate, so inside one pass this reading disagrees only where something
-// outside the queue moved master while the pass was running.
-func (q *Queue) beforeMint(ctx context.Context, serviceID string) (WaitKind, WaitPayload, error) {
-	newest, found, err := release.Highest(ctx, q.pool, serviceID)
-	if err != nil {
-		return "", WaitPayload{}, err
-	}
-	if !found {
-		return "", WaitPayload{}, nil
-	}
-	holds, err := q.repo.Holds(ctx, serviceID, newest.Commit)
-	if err != nil {
-		return "", WaitPayload{}, fmt.Errorf("mergequeue: reading whether master of %s holds %s: %w",
-			serviceID, newest.Commit, err)
-	}
-	if !holds {
-		return WaitAReleaseNamesACommitMasterDoesNotHold, WaitPayload{
-			Kind: WaitAReleaseNamesACommitMasterDoesNotHold, ServiceID: serviceID,
-			ReleaseID: newest.ID, Commit: newest.Commit,
-		}, nil
-	}
-	head, err := q.repo.Head(ctx, serviceID)
-	if err != nil {
-		return "", WaitPayload{}, fmt.Errorf("mergequeue: reading master of %s: %w", serviceID, err)
-	}
-	if head != newest.Commit {
-		return WaitMasterHoldsACommitTheQueueDidNotMake, WaitPayload{
-			Kind: WaitMasterHoldsACommitTheQueueDidNotMake, ServiceID: serviceID, Commit: head,
-		}, nil
-	}
-	return "", WaitPayload{}, nil
 }

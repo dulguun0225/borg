@@ -50,6 +50,11 @@
 // What defines it: a reference in place of a value, one resolver behind the
 // four kinds of credential above, and the principal this resolver takes on
 // every call, are seams 3 and 5 of "Security comes last",
-// ../../end-goal/deferred.md#security-comes-last (C0088, C0112, C0113), whose
-// seam 4 is where policy would attach and is package targetseam here.
+// ../../end-goal/deferred.md#security-comes-last (C0084, C0086, C0087, C0088,
+// C0112, C0113), whose seam 4 is where policy would attach and is package
+// targetseam here.
+//
+// [Load] reading the secrets file from disk is
+// ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
+// (C2359).
 package secretref

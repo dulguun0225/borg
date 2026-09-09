@@ -3,10 +3,13 @@ package policy
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
@@ -62,7 +65,7 @@ func (f *Factory) RetireService(ctx context.Context, actor record.Actor, service
 		return Version{}, err
 	}
 	// No environment is named, which is the removal over every persistent one.
-	if err := f.Removal(ctx, serviceID, ""); err != nil {
+	if err := f.Removal(ctx, principal.Principal{Actor: actor}, serviceID, ""); err != nil {
 		return version, fmt.Errorf("policy: removing %s from every persistent environment: %w", serviceID, err)
 	}
 	return version, nil
@@ -76,8 +79,9 @@ func (f *Factory) SetServiceTargets(ctx context.Context, actor record.Actor, ser
 	targets, environmentTargets []string) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "targets"},
-		list:  targets, authored: true,
+		parameter: gatepolicy.ServiceTargets,
+		scope:     Scope{Kind: ScopeService, ID: serviceID},
+		list:      targets, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.SetTargets(ctx, tx, serviceID, targets, environmentTargets)
 		},
@@ -90,7 +94,8 @@ func (f *Factory) AuthorObjective(ctx context.Context, actor record.Actor, servi
 	target, periodSeconds float64) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "objective"}, number: target, authored: true,
+		parameter: gatepolicy.Objective, scope: Scope{Kind: ScopeService, ID: serviceID},
+		number: target, list: []string{secondsKey(periodSeconds)}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.SetObjective(ctx, tx, serviceID, target, periodSeconds)
 		},
@@ -104,8 +109,8 @@ func (f *Factory) AuthorPagingHours(ctx context.Context, actor record.Actor, ser
 	hours service.PagingHours) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "paging_hours"},
-		list:  []string{hours.Start, hours.End, hours.Zone}, authored: true,
+		parameter: gatepolicy.PagingHours, scope: Scope{Kind: ScopeService, ID: serviceID},
+		list: []string{hours.Start, hours.End, hours.Zone}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.SetPagingHours(ctx, tx, serviceID, hours)
 		},
@@ -117,8 +122,8 @@ func (f *Factory) AuthorProductLicence(ctx context.Context, actor record.Actor,
 	serviceID, licence string) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "product_licence"},
-		list:  []string{licence}, authored: true,
+		parameter: gatepolicy.ProductLicence, scope: Scope{Kind: ScopeService, ID: serviceID},
+		list: []string{licence}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.SetProductLicence(ctx, tx, serviceID, licence)
 		},
@@ -147,7 +152,9 @@ func (f *Factory) AuthorMutantCap(ctx context.Context, actor record.Actor,
 func (f *Factory) AuthorFailureRecordKeyCap(ctx context.Context, actor record.Actor,
 	serviceID string, cap float64) (Version, error) {
 	return f.authorOnService(ctx, actor, gatepolicy.FailureRecordKeyCap, serviceID, cap,
-		service.SetFailureRecordKeyCap)
+		func(ctx context.Context, tx pgx.Tx, serviceID string, cap float64) error {
+			return service.SetFailureRecordKeyCap(ctx, tx, actor, serviceID, cap)
+		})
 }
 
 // AuthorUnreliableBound authors the rate of disagreement above which a
@@ -156,7 +163,9 @@ func (f *Factory) AuthorFailureRecordKeyCap(ctx context.Context, actor record.Ac
 func (f *Factory) AuthorUnreliableBound(ctx context.Context, actor record.Actor,
 	serviceID string, bound float64) (Version, error) {
 	return f.authorOnService(ctx, actor, gatepolicy.UnreliableBound, serviceID, bound,
-		service.SetUnreliableBound)
+		func(ctx context.Context, tx pgx.Tx, serviceID string, bound float64) error {
+			return service.SetUnreliableBound(ctx, tx, actor, serviceID, bound)
+		})
 }
 
 // AuthorIncidentItemBound authors how long an incident-raised item may be
@@ -172,21 +181,30 @@ func (f *Factory) AuthorIncidentItemBound(ctx context.Context, actor record.Acto
 // score supplies it, and a safeguard may raise it and never lower it.
 func (f *Factory) AuthorBakeVolume(ctx context.Context, actor record.Actor,
 	serviceID string, volume float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.BakeVolume, serviceID, volume, service.SetBakeVolume)
+	return f.authorOnService(ctx, actor, gatepolicy.BakeVolume, serviceID, volume,
+		func(ctx context.Context, tx pgx.Tx, serviceID string, volume float64) error {
+			return service.SetBakeVolume(ctx, tx, actor, serviceID, volume)
+		})
 }
 
 // AuthorBacklogCap authors how many releases may wait behind a rollback hold
 // before the merge queue stops fast-forwarding this service's candidates.
 func (f *Factory) AuthorBacklogCap(ctx context.Context, actor record.Actor,
 	serviceID string, releases float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.BacklogCap, serviceID, releases, service.SetBacklogCap)
+	return f.authorOnService(ctx, actor, gatepolicy.BacklogCap, serviceID, releases,
+		func(ctx context.Context, tx pgx.Tx, serviceID string, releases float64) error {
+			return service.SetBacklogCap(ctx, tx, actor, serviceID, releases)
+		})
 }
 
 // AuthorMutationFloor authors the mutation score below which Merge to master
 // rejects, which a safeguard may raise and never lower.
 func (f *Factory) AuthorMutationFloor(ctx context.Context, actor record.Actor,
 	serviceID string, floor float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.MutationFloor, serviceID, floor, service.SetMutationFloor)
+	return f.authorOnService(ctx, actor, gatepolicy.MutationFloor, serviceID, floor,
+		func(ctx context.Context, tx pgx.Tx, serviceID string, floor float64) error {
+			return service.SetMutationFloor(ctx, tx, actor, serviceID, floor)
+		})
 }
 
 // AuthorKeptFraction authors the fraction of its instances a release keeps
@@ -212,7 +230,9 @@ func (f *Factory) AuthorMaxConcurrentKeptFleets(ctx context.Context, actor recor
 func (f *Factory) AuthorRecentHistoryRunLength(ctx context.Context, actor record.Actor,
 	serviceID string, volume float64) (Version, error) {
 	return f.authorOnService(ctx, actor, gatepolicy.RecentHistoryRunLength, serviceID, volume,
-		service.SetRecentHistoryRunLength)
+		func(ctx context.Context, tx pgx.Tx, serviceID string, volume float64) error {
+			return service.SetRecentHistoryRunLength(ctx, tx, actor, serviceID, volume)
+		})
 }
 
 // AuthorRecentHistorySize authors the smallest change that reading has to
@@ -257,9 +277,10 @@ func (f *Factory) AuthorSearchBudget(ctx context.Context, actor record.Actor,
 	serviceID string, builds, seconds float64) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "search_budget"}, number: builds, authored: true,
+		parameter: gatepolicy.SearchBudget, scope: Scope{Kind: ScopeService, ID: serviceID},
+		number: builds, list: []string{secondsKey(seconds)}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
-			return service.SetSearchBudget(ctx, tx, serviceID, builds, seconds)
+			return service.SetSearchBudget(ctx, tx, actor, serviceID, builds, seconds)
 		},
 	})
 }
@@ -272,7 +293,7 @@ func (f *Factory) AuthorOperationCap(ctx context.Context, actor record.Actor,
 	serviceID string, operations float64, overflow string) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope:  Scope{Kind: ScopeService, ID: serviceID, Key: "operation_cap"},
+		parameter: gatepolicy.OperationCap, scope: Scope{Kind: ScopeService, ID: serviceID},
 		number: operations, list: []string{overflow}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.SetOperationCap(ctx, tx, serviceID, operations, overflow)
@@ -286,19 +307,47 @@ func (f *Factory) AuthorOperationCap(ctx context.Context, actor record.Actor,
 // version names the periods by key and no parameter, one write per period.
 func (f *Factory) AuthorChangeFreezePeriod(ctx context.Context, actor record.Actor,
 	serviceID, startsAt, endsAt string) (Version, error) {
+	// A period is added rather than edited, so the version names every period
+	// the record holds after this write and not the one it added: the version
+	// names one value per parameter and scope, and a version naming the last
+	// period alone would have the re-derivation restore one freeze where an
+	// owner authored several.
+	standing, err := service.FreezePeriods(ctx, f.pool, serviceID)
+	if err != nil {
+		return Version{}, err
+	}
+	periods := make([]string, 0, len(standing)+1)
+	for _, p := range standing {
+		periods = append(periods, freezeKey(p.StartsAt, p.EndsAt))
+	}
+	added := freezeKey(startsAt, endsAt)
+	if !slices.Contains(periods, added) {
+		periods = append(periods, added)
+	}
+	slices.Sort(periods)
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "change_freeze"},
-		list:  []string{startsAt, endsAt}, authored: true,
+		parameter: gatepolicy.ChangeFreeze, scope: Scope{Kind: ScopeService, ID: serviceID},
+		list: periods, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.AddFreezePeriod(ctx, tx, f.token, actor, serviceID, startsAt, endsAt)
 		},
 	})
 }
 
+// freezeKey is one change-freeze period as a version and the read of the value
+// in force both name it: the first moment, a space, and the last.
+func freezeKey(startsAt, endsAt string) string { return startsAt + " " + endsAt }
+
+// secondsKey is the second number of a write that sets two, as the version
+// names it beside the first. The pair is one write because a record whose own
+// CHECK requires both would refuse one of them alone, and the version carries
+// both so the re-derivation writes the pair.
+func secondsKey(seconds float64) string { return strconv.FormatFloat(seconds, 'g', -1, 64) }
+
 // A write on this record that sets a second value beside the first — the
 // objective and its period, the paging hours' three, the operation cap and its
-// overflow, the search budget's two, and a freeze period — names the field on
-// the version by its key and no parameter, because re-deriving one number of a
-// pair would leave the record in a state its own CHECK refuses. Every write of
-// one number names its parameter and is re-derived.
+// overflow, and the search budget's two — names both on the version, the first
+// as the number and the rest as the list, because the re-derivation writes the
+// pair: one number of a pair written alone would leave the record in a state
+// its own CHECK refuses. Every field a version names is re-derived.

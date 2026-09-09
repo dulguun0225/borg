@@ -73,11 +73,11 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, of Of, derived D
 	}
 	if _, err := tx.Exec(ctx, `insert into `+DerivationTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, artifact_id,
-		extractor, extractor_version, toolchain, factory_version, unfollowed, cause, reported)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		extractor, extractor_version, toolchain, factory_version, extractor_convention, unfollowed, cause, reported)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
 		d.ID, FormatVersionDerivation, string(d.Actor.Kind), d.Actor.Key, string(d.Actor.Basis), d.At,
 		d.ItemID, d.ServiceID, d.ArtifactID, d.Extractor.Name, d.Extractor.Version, d.Extractor.Toolchain,
-		d.Extractor.FactoryVersion, joinLines(d.Unfollowed), string(d.Cause), d.Reported,
+		d.Extractor.FactoryVersion, d.Extractor.Convention, joinLines(d.Unfollowed), string(d.Cause), d.Reported,
 	); err != nil {
 		return Derivation{}, nil, fmt.Errorf("consumercontract: writing the derivation of %s: %w", of.ArtifactID, err)
 	}

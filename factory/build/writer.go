@@ -259,6 +259,34 @@ func ForCommit(ctx context.Context, pool *pgxpool.Pool, itemID, serviceID, commi
 	return b, true, nil
 }
 
+// ForServiceCommit is every build naming one service and one commit, any item
+// included and none required, oldest first. The merge queue's reading of
+// master is compared against the builds the records hold and not against the
+// build of one item it already knows, so this is the query that answers it —
+// [ForCommit] answers for one item, and this is the same read widened to the
+// service.
+func ForServiceCommit(ctx context.Context, pool *pgxpool.Pool, serviceID, commitHash string) ([]Build, error) {
+	rows, err := pool.Query(ctx, selectBuild+` where service_id = $1 and commit_hash = $2 order by at, id`,
+		serviceID, commitHash)
+	if err != nil {
+		return nil, fmt.Errorf("build: reading the builds of %s at %s: %w", serviceID, commitHash, err)
+	}
+	defer rows.Close()
+
+	var all []Build
+	for rows.Next() {
+		b, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("build: reading the builds of %s at %s: %w", serviceID, commitHash, err)
+	}
+	return all, nil
+}
+
 // scanner is what [pgx.Row] and [pgx.Rows] share, so one scan reads either.
 type scanner interface {
 	Scan(dest ...any) error

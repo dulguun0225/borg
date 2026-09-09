@@ -55,6 +55,44 @@ func TestResumeDeliversARowStillWaitingAgain(t *testing.T) {
 	verifyLog(t, ctx, pool, token)
 }
 
+// TestResumeDeliversAKindThatPagesNeverAgain is finding 6's own fix: a row of
+// a kind that pages never carries no page event to rebuild the wait from,
+// and the delivery record itself is what redelivers it — mail and chat, both
+// again — rather than the row being left waiting because there was no page
+// event to read.
+func TestResumeDeliversAKindThatPagesNeverAgain(t *testing.T) {
+	ctx, pool, token, n, channels := newNotifier(t)
+
+	opened, err := decisionlog.NewWriter(pool, token).AppendWaitOpen(ctx, decisionlog.Entry{
+		Actor: testActor, Payload: `{"kind":"test"}`, FormatVersion: "wait/1",
+	})
+	if err != nil {
+		t.Fatalf("opening the wait: %v", err)
+	}
+	if _, err := n.Notify(ctx, notifier.Wait{
+		Row: opened.ID, Kind: notifier.KindGateDecision,
+		Waiting: "a human decides at the merge row", Holding: people.OfDuty(12),
+	}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if channels.on(notifier.ChannelPage) != 0 {
+		t.Fatal("a gate decision paged, and nothing live is worse until a human closes one")
+	}
+	before := len(channels.delivered)
+
+	delivered, err := n.Resume(ctx)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if len(delivered) != 1 || delivered[0] != opened.ID {
+		t.Fatalf("Resume delivered %v, want the row still waiting even though no page ever reached it", delivered)
+	}
+	if len(channels.delivered) != before+2 {
+		t.Errorf("the restart reached the deliverer %d time(s), want mail and chat delivered again",
+			len(channels.delivered)-before)
+	}
+}
+
 // TestResumeLeavesARowThatStoppedWaiting: a row a closing ended is not
 // delivered again, so a restart says nothing about work a human already
 // finished.

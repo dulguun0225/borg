@@ -14,7 +14,8 @@
 // # The files
 //
 // model.go is [Model] — one call, a principal, a system prompt and a user
-// message in, a [Reply] out — the unit kinds [UnitsInput], [UnitsOutput] and
+// message in, a [Reply] out, carrying the units per kind and the time the
+// provider returned them — the unit kinds [UnitsInput], [UnitsOutput] and
 // [UnitsCachedInput], and [ErrReply]. rules.go is [Rules]. criterion.go is
 // [Criterion] and the writer that puts the criteria in force into a prompt.
 //
@@ -146,8 +147,9 @@
 // record does.
 //
 // Who may write what: this package writes no record. The units a reply
-// carries, and the artifact the role produced, are recorded and submitted by
-// the component that dispatched the role, not here. There is no fleet record
+// carries, the time each provider client stamps them with where the answer was
+// read, and the artifact the role produced, are recorded and submitted by the
+// component that dispatched the role, not here. There is no fleet record
 // behind these roles: the model name is configuration and the scope is
 // wherever the caller points the role.
 //
@@ -183,7 +185,7 @@
 // a criterion's provenance, which the drafting stage names and the artifact
 // store writes in the same call, is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md
-// (C1042, C1043, C1044, C1045, C1048, C1049, C1050) beside it; and the screen's
+// (C1042, C1043, C1044, C1045, C1048, C1049) beside it; and the screen's
 // state machine, with the transition that leaves the screen, is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/04-the-screen-state-machine.md
 // (C1082, C1083, C1084, C1093, C1098).

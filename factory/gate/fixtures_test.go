@@ -352,11 +352,54 @@ func deployFiring(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token l
 	t.Helper()
 	f := mergeFiring
 	f.Row = gate.DeployToProduction
-	f.ReleaseID = "rel_000000000000000000000000000000a"
 	f.AreaID = ""
 	f.ServiceID = deployableService(t, ctx, pool, token)
 	f.EnvironmentID = deployableEnvironment(t, ctx, pool, token)
+	approvedAbove(t, ctx, pool, token, gate.MergeToMaster, f.ItemID)
 	return f
+}
+
+// approvedAbove writes the approval an event gate's firing waits on: the
+// decision at the row above, opened and closed as an approve. It is written
+// into the log directly rather than fired, because what a test of one row needs
+// from the row above is its verdict and nothing else — firing the whole path to
+// reach it would make every such test a test of the path.
+func approvedAbove(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token,
+	row gate.Row, itemID string) {
+
+	t.Helper()
+	payload, err := json.Marshal(gate.OpeningPayload{
+		OpenEvent: score.OpenEvent{ItemID: itemID, Gate: row.String()},
+	})
+	if err != nil {
+		t.Fatalf("marshalling the opening of %s: %v", row, err)
+	}
+	writer := decisionlog.NewWriter(pool, token)
+	opened, err := writer.AppendDecisionOpen(ctx, decisionlog.Entry{
+		Actor:         gate.Component(row),
+		Payload:       string(payload),
+		FormatVersion: "decision/1",
+		PolicyVersion: testPolicyVersion,
+		ScoreVersion:  testScoreVersion,
+	})
+	if err != nil {
+		t.Fatalf("opening the row above (%s): %v", row, err)
+	}
+	closing, err := json.Marshal(gate.ClosingPayload{
+		CloseEvent: score.CloseEvent{Verdict: string(gate.VerdictApprove)},
+	})
+	if err != nil {
+		t.Fatalf("marshalling the close of %s: %v", row, err)
+	}
+	if _, err := writer.AppendDecisionClose(ctx, decisionlog.Entry{
+		Actor:         gate.Component(row),
+		Payload:       string(closing),
+		FormatVersion: "decision/1",
+		Closes:        opened.ID,
+		Verdict:       string(gate.VerdictApprove),
+	}); err != nil {
+		t.Fatalf("approving the row above (%s): %v", row, err)
+	}
 }
 
 // deployableService writes a service with the deployer's four fields already
@@ -406,11 +449,47 @@ func deployableEnvironment(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	return e.ID
 }
 
+// unsharedEnvironment is a production environment whose one target moves
+// instances rather than traffic, which is the platform a control cannot run on.
+func unsharedEnvironment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) string {
+	t.Helper()
+	e, err := environment.NewWriter(pool, token).Create(ctx, owner, environment.Spec{
+		Kind:       environment.KindProduction,
+		ProjectID:  "prj_00000000000000000000000000000b",
+		Name:       environment.ProductionName,
+		Targets:    []environment.Target{{Address: "/srv/targets/unshared", ServesAShare: false}},
+		Credential: secretref.MustNew("deploy.local"),
+		Platform: environment.Platform{
+			Name: "local", Credential: secretref.MustNew("platform.local"), CanComposeOnDemand: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("creating the environment whose target serves no share: %v", err)
+	}
+	return e.ID
+}
+
 // candidateFiring is the same change at the candidate deploy row, where the
-// criteria are not yet decided.
-func candidateFiring() gate.Firing {
+// criteria are not yet decided. That row waits on Implementation being
+// approved, so the approval above it is written before the firing.
+func candidateFiring(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) gate.Firing {
+	t.Helper()
 	f := mergeFiring
 	f.Row = gate.DeployToCandidateEnvironment
 	f.Criteria = nil
+	approvedAbove(t, ctx, pool, token, gate.Implementation, f.ItemID)
+	return f
+}
+
+// mergeRowFiring is [mergeFiring] at the row it names, complete for a firing
+// there: the candidate deploy row above it approved, and the candidate's run
+// ended, which are the two things that fire an event gate at a merge. The
+// variable itself carries neither, so a test deriving another row from it does
+// not name a candidate's run at a row that decides none.
+func mergeRowFiring(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token) gate.Firing {
+	t.Helper()
+	f := mergeFiring
+	f.CandidateRunEnded = true
+	approvedAbove(t, ctx, pool, token, gate.DeployToCandidateEnvironment, f.ItemID)
 	return f
 }

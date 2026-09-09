@@ -78,20 +78,22 @@ func (f *Factory) WriteRetentionShortening(ctx context.Context, actor record.Act
 		return factorysettings.Shortening{}, Version{},
 			fmt.Errorf("%w: %d against the %v in force", ErrNotAShortening, seconds, held.Number)
 	}
+	id := record.NewID(factorysettings.ShorteningIDPrefix)
 	var written factorysettings.Shortening
 	version, err := f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionShorteningWritten,
 		parameter: gatepolicy.DecisionLogRetention,
 		scope:     Scope{Kind: ScopeFactorySettings, ID: settings.ID},
-		number:    float64(seconds),
-		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
-			written, err = factorysettings.InsertShortening(ctx, tx, f.token, actor, seconds)
-			if err != nil {
-				return Created{}, err
-			}
-			return Created{ShorteningID: written.ID}, nil
+		number:    float64(seconds), minted: Created{ShorteningID: id},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			written, err = factorysettings.InsertShortening(ctx, tx, f.token, actor, id, seconds)
+			return err
 		},
 	})
+	if err != nil || written.ID != "" {
+		return written, version, err
+	}
+	written, err = factorysettings.GetShortening(ctx, f.pool, version.ShorteningID)
 	return written, version, err
 }
 
@@ -201,10 +203,13 @@ func (f *Factory) AuthorReportChannelRate(ctx context.Context, actor record.Acto
 }
 
 // AuthorServiceReportChannelRate authors the same bound for one service, which
-// is a field of the factory-wide settings record keyed by the service.
+// is a field of the factory-wide settings record keyed by the service. It is
+// the second of the channel's two rates and a parameter of its own: the
+// factory-wide one has one value per record and this one has a value per
+// service, so a safeguard, a version and a re-derivation each name which.
 func (f *Factory) AuthorServiceReportChannelRate(ctx context.Context, actor record.Actor,
 	serviceID string, rate int64) (Version, error) {
-	return f.authorOnSettings(ctx, actor, gatepolicy.ReportChannelRate, serviceID, float64(rate),
+	return f.authorOnSettings(ctx, actor, gatepolicy.ServiceReportChannelRate, serviceID, float64(rate),
 		func(ctx context.Context, tx pgx.Tx, settingsID string) error {
 			return factorysettings.SetServiceReportChannelRate(ctx, tx, actor, settingsID, serviceID, rate)
 		})
@@ -214,10 +219,23 @@ func (f *Factory) AuthorServiceReportChannelRate(ctx context.Context, actor reco
 // may page per interval.
 func (f *Factory) AuthorHarmMarkPageCap(ctx context.Context, actor record.Actor,
 	serviceID string, pageCap int, intervalSeconds int64) (Version, error) {
-	return f.authorOnSettings(ctx, actor, gatepolicy.HarmMarkPageCap, serviceID, float64(pageCap),
-		func(ctx context.Context, tx pgx.Tx, settingsID string) error {
-			return factorysettings.SetHarmMarkPageCap(ctx, tx, actor, settingsID, serviceID, pageCap, intervalSeconds)
-		})
+	settings, err := factorysettings.Get(ctx, f.pool)
+	if err != nil {
+		return Version{}, err
+	}
+	// The interval is the second value of the pair and the version names it
+	// beside the count: a cap re-derived without its interval would be a cap
+	// counted over another period.
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionAuthored,
+		parameter: gatepolicy.HarmMarkPageCap,
+		scope:     Scope{Kind: ScopeFactorySettings, ID: settings.ID, Key: serviceID},
+		number:    float64(pageCap), list: []string{secondsKey(float64(intervalSeconds))},
+		authored: true,
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			return factorysettings.SetHarmMarkPageCap(ctx, tx, actor, settings.ID, serviceID, pageCap, intervalSeconds)
+		},
+	})
 }
 
 // SetHarmMarkPages writes whether a report marked as describing harm to a
@@ -239,8 +257,9 @@ func (f *Factory) SetSeam5Enforced(ctx context.Context, actor record.Actor) (Ver
 	}
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope:  Scope{Kind: ScopeFactorySettings, ID: settings.ID, Key: "seam_5_enforced"},
-		number: 1,
+		parameter: gatepolicy.Seam5Enforced,
+		scope:     Scope{Kind: ScopeFactorySettings, ID: settings.ID},
+		number:    1, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return factorysettings.SetSeam5Enforced(ctx, tx, settings.ID, true)
 		},

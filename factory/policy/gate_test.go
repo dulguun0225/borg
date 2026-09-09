@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/policy"
@@ -38,10 +39,32 @@ func TestAGateWithNoRecordsToReadFallsBackToWhatTheScoreSupplies(t *testing.T) {
 	}
 }
 
-// TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName: an open event requires
-// a policy version, so a factory nobody installed cannot fire a gate — which is
-// better than a firing naming an empty version.
-func TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName(t *testing.T) {
+// TestAFiringOnAFreshInstallNamesTheFirstVersion: every decision names the
+// policy version in force, which is what a name can point at only where one
+// exists — [Factory.Install] appends the first version before any firing can
+// reach [Reader.AtGate], so a freshly installed factory's first gate names it.
+func TestAFiringOnAFreshInstallNamesTheFirstVersion(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	newest, err := in.reader.Newest(ctx, ownerReading)
+	if err != nil {
+		t.Fatalf("Newest: %v", err)
+	}
+	applied, err := in.reader.AtGate(ctx, ownerReading, policy.Subjects{GateRow: "merge_to_master"})
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if applied.PolicyVersion != newest.ID {
+		t.Errorf("the firing names version %q, want the install's %q", applied.PolicyVersion, newest.ID)
+	}
+}
+
+// TestAGateBeforeTheFactoryIsInstalledRefusesWithNoVersion: a version is what
+// the name a decision carries can point at, so a factory nobody installed —
+// with no version in the log — refuses the firing rather than naming none.
+// [Factory.Install] is what stands between a fresh factory and this: every
+// path that can fire a gate installs first.
+func TestAGateBeforeTheFactoryIsInstalledRefusesWithNoVersion(t *testing.T) {
 	ctx := t.Context()
 
 	var suffix [8]byte
@@ -72,8 +95,9 @@ func TestAGateBeforeTheFactoryIsInstalledHasNoVersionToName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
-	if _, err := policy.NewReader(pool, token, score.Version{}).AtGate(ctx, ownerReading,
-		policy.Subjects{GateRow: "merge_to_master"}); !errors.Is(err, policy.ErrNoVersion) {
+	_, err = policy.NewReader(pool, token, score.Version{}).AtGate(ctx, ownerReading,
+		policy.Subjects{GateRow: "merge_to_master"})
+	if !errors.Is(err, policy.ErrNoVersion) {
 		t.Errorf("AtGate on a factory nobody installed = %v, want ErrNoVersion", err)
 	}
 }
@@ -141,5 +165,60 @@ func TestTheRowWithNoEnvironmentReadsTheThresholdOnTheSettingsRecord(t *testing.
 	}
 	if confirmed.Threshold != 0.2 {
 		t.Errorf("the threshold reads %v, want the re-authored 0.2", confirmed.Threshold)
+	}
+}
+
+// TestEveryRowButADeployIntoAPersistentEnvironmentReadsProductionsThreshold is
+// ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md's
+// "a deploy row into a persistent environment reads the environment it deploys
+// into, and every other row reads production's": a candidate's own environment
+// is created at the gate that decides its deploy and so cannot hold the
+// threshold that decides it, and a firing against one read that record's empty
+// field rather than production's.
+func TestEveryRowButADeployIntoAPersistentEnvironmentReadsProductionsThreshold(t *testing.T) {
+	ctx, in := newFactory(t)
+
+	// The candidate's project has a production environment of its own, written
+	// in the same event the project was, and that is the record the rows of an
+	// item in it read.
+	production, found, err := environment.Production(ctx, in.pool, in.project.ID)
+	if err != nil || !found {
+		t.Fatalf("production of the project = found %v, %v", found, err)
+	}
+	if _, err := in.factory.AuthorGateThreshold(ctx, owner, production.ID,
+		"deploy_to_candidate_environment", 0.42); err != nil {
+		t.Fatalf("AuthorGateThreshold: %v", err)
+	}
+	candidate, err := environment.NewCandidates(in.pool, in.token).Compose(ctx, decompositionActor,
+		"it_0000000000000000000000000000001", in.project.ID,
+		[]environment.Target{{Address: "/srv/candidate"}}, credential, environment.Composition{})
+	if err != nil {
+		t.Fatalf("composing the candidate environment: %v", err)
+	}
+
+	applied, err := in.reader.AtGate(ctx, ownerReading, policy.Subjects{
+		GateRow: "deploy_to_candidate_environment", EnvironmentID: candidate.ID,
+	})
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if applied.ThresholdFrom != policy.FromAuthored || applied.Threshold != 0.42 {
+		t.Errorf("a firing against the candidate's environment read %v from %s, want production's 0.42",
+			applied.Threshold, applied.ThresholdFrom)
+	}
+
+	// A row fired against a persistent environment reads that one, which is
+	// what a deploy into it does.
+	if _, err := in.factory.AuthorGateThreshold(ctx, owner, in.prod.ID, "deploy_to_production", 0.11); err != nil {
+		t.Fatalf("AuthorGateThreshold: %v", err)
+	}
+	applied, err = in.reader.AtGate(ctx, ownerReading, policy.Subjects{
+		GateRow: "deploy_to_production", EnvironmentID: in.prod.ID,
+	})
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	if applied.Threshold != 0.11 {
+		t.Errorf("a firing against production read %v, want the 0.11 authored there", applied.Threshold)
 	}
 }

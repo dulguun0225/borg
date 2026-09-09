@@ -57,6 +57,15 @@ var (
 	// ErrAlreadyClosed is returned by [Writer.Close] for a window that has an
 	// exit. A window closes once, at exactly one of four exits.
 	ErrAlreadyClosed = errors.New("window: the window is closed already, and a window closes once")
+	// ErrExitAlreadyBegun is returned by [Writer.Begin] for a window that
+	// already carries a begun exit. An exit begins once: a second begin would be
+	// a window with two exits under way and nothing that says which one the
+	// records after it belong to.
+	ErrExitAlreadyBegun = errors.New("window: an exit has begun on this window already")
+	// ErrExitNotTheOneBegun is returned by [Writer.Close] for a close at any
+	// exit other than the one begun. What a begun exit is for is that the
+	// interrupted exit is the one finished.
+	ErrExitNotTheOneBegun = errors.New("window: the window closes at the exit that began on it")
 	// ErrOpeningIncomplete is returned by [Writer.Open] for an opening missing
 	// something every window has.
 	ErrOpeningIncomplete = errors.New("window: the opening is missing something every window has")
@@ -160,6 +169,16 @@ type Window struct {
 	// quantity, which is what the score reads to decide the size in force: the
 	// size in force is the coarser of what the evidence asks for and this.
 	FinestSizeReached map[gatepolicy.Quantity]float64
+	// ExitBegun is the exit the health monitor started, written before the first
+	// record that exit writes and never rewritten. It is empty on a window whose
+	// exit has not started, and on a window that closed at an exit whose only
+	// durable record is the close itself.
+	//
+	// It is on the record because the close is the exit's last step: a stop
+	// between the first of an exit's records and its close would otherwise leave
+	// a window the factory had already failed to be decided again from a reading
+	// the rollback has since changed, and closed timed out.
+	ExitBegun Exit
 	// Exit is empty while the window is open.
 	Exit Exit
 	// ClosedAt is empty while the window is open, and moves with Exit.
@@ -217,11 +236,14 @@ func (w Window) Comparisons() int {
 	return targets * operations * quantities
 }
 
-// Boundary is the boundary one quantity of this window is read against: the size
-// and the power resolved at the open, the confidence held over
-// [Window.Comparisons], and the direction a regression moves that quantity. It
-// is false where the window carries no size for the quantity, which is a
-// quantity outside this window's set.
+// Boundary is the boundary one quantity of this window is read against: the
+// size resolved at the open, the confidence held over [Window.Comparisons],
+// and the direction a regression moves that quantity. The power resolved at
+// the open is [Window.Power], read beside it and passed to
+// [boundary.Boundary.FinestSize] and [boundary.Boundary.AtPower] as those ask
+// for it — [boundary.Boundary.Crossing]'s own doc says why it is not a field
+// here. Boundary is false where the window carries no size for the quantity,
+// which is a quantity outside this window's set.
 func (w Window) Boundary(q gatepolicy.Quantity) (boundary.Boundary, bool) {
 	size, carried := w.Size[q]
 	if !carried {

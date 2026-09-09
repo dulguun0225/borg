@@ -131,7 +131,12 @@ type BandOutcome struct {
 // window closed since since. It reads the held-out selections off the log's
 // open events and the window outcomes off [window.ClosedAtTheVersionInForce]
 // the way [Learn]'s own pass does, through [Evidence.bands] — the same bands
-// [bandWidth] divides the scale into — rather than restating that arithmetic.
+// that width divides the scale into — rather than restating that arithmetic.
+//
+// band is the width the score version in force names, which the caller reads
+// off the version it already holds, for the reason [ThresholdRealized]'s own
+// recorded rate is the caller's: this read is made for a screen, and a second
+// read of the log here would append a read event the screen did not ask for.
 //
 // It excludes a release a human marked as not caused by the release, the same
 // exclusion [Learn]'s own pass applies: the screen's number is read against
@@ -146,7 +151,7 @@ type BandOutcome struct {
 //
 // ../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md
 func HeldOutByBand(ctx context.Context, pool *pgxpool.Pool, token lease.Token,
-	p principal.Principal, since string) ([]BandOutcome, error) {
+	p principal.Principal, since string, band float64) ([]BandOutcome, error) {
 
 	firings, err := readClosedFirings(ctx, pool, token, p)
 	if err != nil {
@@ -180,7 +185,7 @@ func HeldOutByBand(ctx context.Context, pool *pgxpool.Pool, token lease.Token,
 	e.index()
 
 	var published []BandOutcome
-	for _, b := range e.bands() {
+	for _, b := range e.bands(band) {
 		if b.Service != "" {
 			// The per-service rows are [Evidence.bands]'s own breakdown, not
 			// asked for here: this report is factory-wide per factor set.

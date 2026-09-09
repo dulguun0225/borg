@@ -154,31 +154,54 @@
 // C1834, C1835, C1836, C1837, C1838, C1839, C1840, C1845, C1846, C1851); the
 // four items a breaking change is, five for a store, are
 // ../../end-goal/how-the-factory-works/07-contracts/02-no-single-item-may-break-a-contract.md
-// (C1771);
+// (C1771, C1772);
 //
 // the store's forward promise, its own past as the consumer, and its
 // migration's middle items are
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
-// (C1852, C1854, C1855, C1859, C1865, C1866, C1871, C1874, C1876, C1877, C1878,
-// C1879, C1880, C1881, C1882);
+// (C1852, C1854, C1855, C1856, C1857, C1858, C1859, C1865, C1866, C1871, C1873,
+// C1874, C1876, C1877, C1878, C1879, C1880, C1881, C1882);
 //
 // a schema change and its snapshot are
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
-// (C1669);
+// (C1668, C1669);
 //
 // the composition of a candidate's environment from what a consumer contract
 // names is
 // ../../end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md
-// (C1893, C1894, C1897);
+// (C1892, C1893, C1894, C1897);
 //
-// what a brownout's window runs to and reads is
-// ../../end-goal/how-the-factory-works/08-operations/02-the-analysis-window.md;
 // the last known-good release is
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
 // (C2046);
 //
+// the seventh detector, over the deprecation list, is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md
+// (C0509);
+//
+// the brownout and the removal decomposition does not write ahead of are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0715);
+//
 // and the shape every last check record has is
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md.
+//
+// [Check.ComposedFrom] deriving the producers a candidate is composed from is
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md
+// (C1523); an unexercised predicate reading as undecided, and undecided reading
+// as a failure, are
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md
+// (C1563); every cross-service check reading the current release is
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/README.md
+// (C1695); the candidate checked against every consumer contract, and the
+// undecided reading at the merge row, are
+// ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md
+// (C1792, C1795); [Check.Raise]'s brownout.go walking the evidence links back
+// to the intent is
+// ../../end-goal/how-the-factory-works/07-contracts/10-work-that-spans-services.md
+// (C1885); and [Unreadable] keeping a partial record's consumer on the list is
+// ../../end-goal/how-the-factory-works/07-contracts/12-what-the-derivation-records.md
+// (C1903).
 //
 // Also ../../end-goal/components.md (C0018).
 package contractcheck

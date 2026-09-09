@@ -1,6 +1,7 @@
 package mergequeue_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/build"
@@ -280,6 +281,48 @@ func TestAnUnchangedResolvedSetMerges(t *testing.T) {
 	}
 	if len(pass.Outcomes) != 1 || !pass.Outcomes[0].Merged {
 		t.Fatalf("the outcomes are %+v, want the candidate merged", pass.Outcomes)
+	}
+}
+
+// TestAReverificationThatNamesTheApprovedBuildAgainIsRefused: a re-verification
+// that decides a candidate's own merit is never a repeat of the run that
+// passed — the build is new and the environment is recomposed. One that names
+// the build already in force is refused with [mergequeue.ErrReverificationRepeats]
+// rather than read as nothing having moved.
+func TestAReverificationThatNamesTheApprovedBuildAgainIsRefused(t *testing.T) {
+	repo := newRepository()
+	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo})
+	it := queued(ctx, t, pool, token, 1)
+	made := built(ctx, t, pool, token, it, "commit-approved", "", nil)
+	repo.verify = func(it item.Item) mergequeue.Verified {
+		return mergequeue.Verified{Commit: "commit-approved", BuildID: made.ID, Passed: true}
+	}
+
+	if _, err := q.Run(ctx, serviceID); !errors.Is(err, mergequeue.ErrReverificationRepeats) {
+		t.Fatalf("Run = %v, want ErrReverificationRepeats", err)
+	}
+}
+
+// TestAReverificationThatNamesTheApprovedEnvironmentCycleAgainIsRefused: a new
+// build is not enough on its own — the environment is recomposed too, so one
+// naming the environment cycle already in force is refused the same way, even
+// where the build differs.
+func TestAReverificationThatNamesTheApprovedEnvironmentCycleAgainIsRefused(t *testing.T) {
+	repo := newRepository()
+	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo})
+	it := queued(ctx, t, pool, token, 1)
+	built(ctx, t, pool, token, it, "commit-approved", "", nil)
+	repo.verify = func(it item.Item) mergequeue.Verified {
+		reverified := built(ctx, t, pool, token, it, "commit-one", "", nil)
+		return mergequeue.Verified{
+			Commit: "commit-one", BuildID: reverified.ID, Passed: true,
+			ApprovedEnvironmentCycleID: "ecy_00000000000000000000000000000001",
+			EnvironmentCycleID:         "ecy_00000000000000000000000000000001",
+		}
+	}
+
+	if _, err := q.Run(ctx, serviceID); !errors.Is(err, mergequeue.ErrReverificationRepeats) {
+		t.Fatalf("Run = %v, want ErrReverificationRepeats", err)
 	}
 }
 

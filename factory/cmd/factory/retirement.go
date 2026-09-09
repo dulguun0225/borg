@@ -7,6 +7,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/screens"
 	"github.com/dulguun0225/borg/factory/service"
@@ -27,7 +28,12 @@ import (
 // knows are production's alone — a customer's is a record nothing here creates —
 // so an environment named that is not production's is refused rather than
 // reaching nothing and reading as a removal that happened.
-func (p *path) removeService(ctx context.Context, serviceID, environmentID string) error {
+//
+// caller is the owner whose write called for the removal, carried from the
+// entrance to seam 4: the deploy record's actor is the deployer, which is what
+// wrote it, and the principal on the call is who asked.
+func (p *path) removeService(ctx context.Context, caller principal.Principal,
+	serviceID, environmentID string) error {
 	svc, err := p.serviceOf(ctx, serviceID)
 	if err != nil {
 		return err
@@ -37,13 +43,14 @@ func (p *path) removeService(ctx context.Context, serviceID, environmentID strin
 	}
 	_, err = deploy.Remove(ctx, p.deploys, deploy.Removal{
 		Actor:       deployActor,
-		Principal:   deployerPrincipal,
+		Principal:   caller,
 		ServiceID:   svc.ID,
 		ServiceName: svc.Name,
 		From: []deploy.Environment{{
 			EnvironmentID: p.production.ID,
 			Credential:    p.d.credential,
 			Reaches:       p.reaches(p.production, svc),
+			Targets:       environmentTargets(p.production),
 		}},
 	})
 	return err
@@ -108,10 +115,12 @@ func (p *path) removeFromEnvironment(ctx context.Context, actor record.Actor,
 	if !env.Kind.Persistent() {
 		return fmt.Errorf("factory: %s is a candidate's environment, which is torn down and not withdrawn", env.Name)
 	}
-	if err := p.factory.RemoveFromEnvironment(ctx, actor, svc.ID, env.ID); err != nil {
+	version, err := p.factory.RemoveFromEnvironment(ctx, actor, svc.ID, env.ID)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(p.d.out, "Service %s is removed from environment %s by %s\n", svc.Name, env.Name, actor.Key)
+	fmt.Fprintf(p.d.out, "Service %s is removed from environment %s by %s; policy version %s\n",
+		svc.Name, env.Name, actor.Key, version.ID)
 	fmt.Fprintln(p.d.out, "  the service record is unwritten: it still stands, and the withdrawal of the environment is the owner's next act")
 	return nil
 }

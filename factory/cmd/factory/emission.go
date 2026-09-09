@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/localtarget"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // signalFiles is [healthmonitor.Emission] on this platform: the quantity read
@@ -162,13 +163,13 @@ func (signalFiles) FailureRecords(context.Context, healthmonitor.Reading) ([]hea
 	return nil, nil
 }
 
-// Spent is what the service consumed of its objective over a period, which this
-// platform cannot answer: nothing here keeps a series per service across builds,
-// so no period can be cut out of one. Covered is false, which is what leaves the
-// error budget uncomputed — package healthmonitor says an uncomputed budget holds
-// the way an exhausted one does.
-func (signalFiles) Spent(context.Context, string, time.Duration) (healthmonitor.Spend, error) {
-	return healthmonitor.Spend{}, nil
+// Spent is what the service consumed of its objective over a period, per
+// operation, which this platform cannot answer: nothing here keeps a series per
+// service across builds, so no period can be cut out of one. It answers no
+// series at all, which is a period the store does not cover — package
+// healthmonitor says an uncomputed budget holds the way an exhausted one does.
+func (signalFiles) Spent(context.Context, string, time.Duration) ([]healthmonitor.Spend, error) {
+	return nil, nil
 }
 
 // Shape is the emission version the store's records for one arm carry, and empty
@@ -281,7 +282,7 @@ func (e emitted) newest() string {
 	if e.version != emissionVersionTimed || len(e.units) == 0 {
 		return ""
 	}
-	return e.units[len(e.units)-1].at.UTC().Format(time.RFC3339Nano)
+	return record.FormatTime(e.units[len(e.units)-1].at)
 }
 
 // paired is the nth interval of one arm beside the nth of the other, ending at

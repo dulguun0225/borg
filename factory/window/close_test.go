@@ -116,7 +116,10 @@ func TestAHeldOutWindowCannotClosePassed(t *testing.T) {
 }
 
 // TestAWindowThatMeasuresNothingCarriesNoParameters is the window a service
-// missing one of the four fields the deployer populates opens.
+// missing one of the four fields the deployer populates opens: one write,
+// closed timed out at the open, there being nothing for the cap to wait on —
+// [Writer.Open] itself writes the exit and the closing time, and a caller
+// closing it again is refused the way a second close on any window is.
 func TestAWindowThatMeasuresNothingCarriesNoParameters(t *testing.T) {
 	ctx, _, w, _ := newTable(t)
 
@@ -137,9 +140,11 @@ func TestAWindowThatMeasuresNothingCarriesNoParameters(t *testing.T) {
 	if !opened.MeasuresNothing || opened.PassedAvailable || len(opened.Size) != 0 {
 		t.Errorf("the window = %+v, want one that records only that it measures nothing", opened)
 	}
-	past, err := opened.PastCap(time.Now())
-	if err != nil || !past {
-		t.Errorf("PastCap on a window that measures nothing = %v, %v, want true at once", past, err)
+	if opened.Open() || opened.Exit != window.ExitTimedOut || opened.ClosedAt == "" {
+		t.Errorf("the window = %+v, want it closed timed out by Open itself", opened)
+	}
+	if _, err := w.Close(ctx, opened.ID, window.ExitTimedOut, window.Closing{}); !errors.Is(err, window.ErrAlreadyClosed) {
+		t.Errorf("Close on a window Open already closed = %v, want ErrAlreadyClosed", err)
 	}
 
 	withParameters := o
@@ -203,10 +208,10 @@ func insertAround(ctx context.Context, pool *pgxpool.Pool, exit string) error {
 		 sizes, powers, confidence, cap_seconds, boundary_version, targets, operations_read_alone,
 		 emission_version_release, emission_version_control, quantities_outside,
 		 own_history_sizes, own_history_run_length, threshold_sizes, threshold_run_length,
-		 policy_version, score_version, exit, closed_at, closed_on, finest_size_reached)
+		 policy_version, score_version, exit, exit_begun, closed_at, closed_on, finest_size_reached)
 		values ($1, $2, 'component', 'health_monitor', 'claimed', $3, $4, $5, $6, $7, false, true, false,
 		 '{"error_rate":0.1}', '{"error_rate":0.8}', 0.95, 3600, $8, 'one.example', '',
-		 'emission/1', 'emission/1', '', '{}', 0, '{}', 0, 'pv_1', 'sv_1', $9, $10, '', '')`,
+		 'emission/1', 'emission/1', '', '{}', 0, '{}', 0, 'pv_1', 'sv_1', $9, '', $10, '', '')`,
 		record.NewID(window.IDPrefix), window.FormatVersion, record.Now(),
 		record.NewID("dep"), record.NewID("rel"), record.NewID("bld"), record.NewID("svc"),
 		boundary.Version, exit, record.Now())

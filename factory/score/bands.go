@@ -1,15 +1,21 @@
 package score
 
 import (
+	"math"
 	"sort"
 
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// bandWidth is how wide one band of the number is. Ten bands over the scale is
-// what makes a small install's bands hold anything at all, and the count beside
-// each is what says how thin one is.
-const bandWidth = 0.1
+// ShippedBandWidth is how wide one band of the number is as the product ships
+// it, and with it how far the risk threshold moves in one step: the two are one
+// number, so what is fitted here is what an owner reads on the version. Ten
+// bands over the scale is what makes a small install's bands hold anything at
+// all, and the count beside each is what says how thin one is.
+//
+// It is a field of the score version [Writer.EnterShipped] writes, read back
+// through [Version.BandWidthOrShipped]; this is the value that field starts at.
+const ShippedBandWidth = 0.10
 
 // Band is one band of the number with the share of held-out releases whose
 // windows failed inside it, and the count of resolved held-out windows behind
@@ -89,7 +95,16 @@ func (e *Evidence) heldOutReleases() []heldOutRelease {
 // of the number, per factor set and within each set per service and
 // factory-wide. A band with nothing in it is not published: an empty band is a
 // share of nothing, and printing one would read as a share of zero.
-func (e *Evidence) bands() []Band {
+//
+// The width is the version's, not this file's: it is the step the threshold
+// moves by as well, so a factory reading its bands at one width and stepping
+// its threshold at another would publish a reading of one thing and act on
+// another.
+func (e *Evidence) bands(width float64) []Band {
+	if width <= 0 {
+		width = ShippedBandWidth
+	}
+	top := int(math.Ceil(1/width)) - 1
 	type key struct {
 		set     FactorSet
 		service string
@@ -97,9 +112,9 @@ func (e *Evidence) bands() []Band {
 	}
 	counts := map[key]*Band{}
 	for _, r := range e.heldOutReleases() {
-		band := int(r.number / bandWidth)
-		if band > 9 {
-			band = 9
+		band := int(r.number / width)
+		if band > top {
+			band = top
 		}
 		scopes := []string{""}
 		if r.service != "" {
@@ -110,7 +125,7 @@ func (e *Evidence) bands() []Band {
 			if counts[k] == nil {
 				counts[k] = &Band{
 					FactorSet: r.set, Service: scope,
-					From: float64(band) * bandWidth, To: float64(band+1) * bandWidth,
+					From: float64(band) * width, To: float64(band+1) * width,
 				}
 			}
 			counts[k].Windows++

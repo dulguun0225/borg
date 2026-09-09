@@ -44,7 +44,7 @@ func learnCommand(args []string) error {
 			fmt.Println("No score version has been appended yet")
 		}
 
-		learned, err := score.Learn(ctx, pool, token, marksOf(pool))
+		learned, err := score.Learn(ctx, pool, token, marksOf(pool), inForce.Under())
 		if err != nil {
 			return err
 		}

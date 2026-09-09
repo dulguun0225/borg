@@ -98,17 +98,21 @@ func report(out io.Writer, opened gate.Opened, results []gate.CriterionResult) {
 }
 
 // whyHumanDecides is what put a human at the row, in words: every mark the
-// firing carried, and the two conditions that put one there without being a
-// mark — a mismatch the drift detector found, and a derivation that could not
-// derive. A row with a human at it and nothing to say would read as a row
-// nobody has to decide.
+// firing carried, and the conditions that put one there without being a mark —
+// a mismatch the drift detector found, an irreversible area no control can run
+// beside, and a derivation that could not derive. A row with a human at it and
+// nothing to say would read as a row nobody has to decide.
 func whyHumanDecides(opened gate.Opened) string {
-	reasons := make([]string, 0, len(opened.Marks)+1)
+	reasons := make([]string, 0, len(opened.Marks)+2)
 	for _, m := range opened.Marks {
 		reasons = append(reasons, string(m))
 	}
 	if opened.Mismatch != "" {
 		reasons = append(reasons, gate.HoldDriftMismatch)
+	}
+	if opened.IrreversibleWithoutAControl {
+		reasons = append(reasons,
+			"an irreversible area on a platform that serves no share, where no control can run beside the release")
 	}
 	if len(reasons) == 0 {
 		return "the firing read something it could not value"
@@ -332,8 +336,10 @@ func (p *path) firingFor(ctx context.Context, opened gate.Opened) (gate.Firing, 
 		ServiceID:                opened.Subject.ServiceID,
 		AreaID:                   opened.Subject.AreaID,
 		EnvironmentID:            opened.Subject.EnvironmentID,
-		ReleaseID:                opened.Subject.ReleaseID,
 		RevertWhileRollbackHolds: opened.RevertWhileRollbackHolds,
+		// A row re-fired at the merge is re-fired over a candidate whose run
+		// has already ended; that is what let the first firing happen.
+		CandidateRunEnded: opened.Gate.Kind == gate.KindMergeToMaster,
 	}
 	if f.ItemID == "" {
 		return f, nil

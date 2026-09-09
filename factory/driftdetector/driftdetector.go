@@ -29,6 +29,11 @@ var (
 	// ErrClearedByEmpty is returned by [Writer.Clear] naming no human. Clearing is a
 	// human's act at the drift detector and the record says whose.
 	ErrClearedByEmpty = errors.New("driftdetector: a mismatch is cleared by a named human")
+	// ErrClearedWhyEmpty is returned by [Writer.Clear] writing no reason.
+	// Clearing it is the record of the manual act and the only record there
+	// is, so what the human writes there is the whole of what a later reader
+	// gets — and an empty why would be a clearing with nothing behind it.
+	ErrClearedWhyEmpty = errors.New("driftdetector: a mismatch is cleared with a reason written down")
 )
 
 // Mismatch is one disagreement: either what a production target runs against
@@ -73,6 +78,10 @@ type Mismatch struct {
 	LaterAgreements int
 	ClearedAt       string
 	ClearedBy       string
+	// ClearedWhy is what the human clearing it wrote down: the record of the
+	// manual act and the only record there is, so it is the whole of what a
+	// later reader gets. Empty on a mismatch not yet cleared.
+	ClearedWhy string
 }
 
 // Cleared reports whether a human has cleared the mismatch. An uncleared one holds
@@ -172,7 +181,8 @@ type Pass struct {
 	RecordedDigest string
 	// Excused is a running build the caller says an open window accounts for, as the
 	// release under watch or as the control that window's deploy record names. Set, it
-	// makes a disagreement no mismatch. doc.go says why nothing sets it here.
+	// makes a disagreement no mismatch. [Excused] is where that decision is made,
+	// from the inputs its own caller assembles.
 	Excused bool
 	// Interval and LastPass are this pass's own last check fields: the
 	// interval the next pass is promised within, and whether the writer
@@ -332,10 +342,13 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 
 // StaleComponent is what the third comparison found: a factory component whose
 // last check is past the interval it names with a further pass owed, and what
-// its stopping holds. The health monitor's record is per service, so its
-// mismatch names that service and no target; the deployer's is per target of an
-// environment and holds that environment's production deploys, which is one
-// mismatch per service in it, each naming the target as well.
+// its stopping holds, as [Holds] decides it. The health monitor's record is
+// per service, so its mismatch names that service; the deployer's is per
+// production environment, so it holds that environment's production
+// deploys, which is one mismatch per service in it. Target is carried on the
+// row for a component that keeps its last check per target, and is empty on
+// both of these — the health monitor's holds a service and the deployer's an
+// environment, and neither is a target.
 //
 // ServiceID is empty where the stopped component reaches no deploy — a stopped
 // raise holds nothing, and the page is the whole of it. Such a mismatch is in
@@ -421,19 +434,25 @@ func (w *Writer) RaiseChainMismatch(ctx context.Context, why string) (string, er
 	return m.ID, nil
 }
 
-// Clear is a human at the drift detector clearing one mismatch. It is here
-// and there is no counterpart in the factory: clearing it from Ops would make
-// the factory a writer of the record that says the factory is wrong.
+// Clear is a human at the drift detector clearing one mismatch, writing why
+// beside who and when: clearing it is the record of the manual act and the
+// only record there is, so what that human writes there is the whole of what
+// a later reader gets. It is here and there is no counterpart in the
+// factory: clearing it from Ops would make the factory a writer of the
+// record that says the factory is wrong.
 //
 // What that costs is two actions in two places at the moment production is worst —
 // approve through at the gate, then clear here.
-func (w *Writer) Clear(ctx context.Context, id, by string) (Mismatch, error) {
+func (w *Writer) Clear(ctx context.Context, id, by, why string) (Mismatch, error) {
 	if by == "" {
 		return Mismatch{}, ErrClearedByEmpty
 	}
+	if why == "" {
+		return Mismatch{}, ErrClearedWhyEmpty
+	}
 	tag, err := w.pool.Exec(ctx, `update `+MismatchTable+`
-		set cleared_at = $1, cleared_by = $2 where id = $3 and cleared_at = ''`,
-		record.Now(), by, id)
+		set cleared_at = $1, cleared_by = $2, cleared_why = $3 where id = $4 and cleared_at = ''`,
+		record.Now(), by, why, id)
 	if err != nil {
 		return Mismatch{}, fmt.Errorf("driftdetector: clearing %s: %w", id, err)
 	}

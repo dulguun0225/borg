@@ -8,12 +8,14 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// The two refusals the log's writer cannot evaluate on its own, and one the
-// routing of a record adds. The writer refuses five closes: a reject with no
-// reason, a second close on one opening, and a close on an abandoned row are its
-// own; a refer with nobody left to refer to and a close by the author of the
-// version under decision are supplied from here, because both depend on the
-// People declaration and the artifact store.
+// The two refusals the log's writer cannot evaluate on its own. The writer
+// refuses five closes and nothing else: a reject with no reason, a second close
+// on one opening, and a close on an abandoned row are its own; a refer with
+// nobody left to refer to and a close by whoever wrote what is under decision
+// are supplied from here, because both depend on the People declaration and the
+// artifact store. The record's own routing is not a sixth: it is the same
+// refusal read off a record rather than off an artifact version, which is why
+// both raise [ErrSelfApproval].
 //
 // Everything compared here is a per-person key. The People declaration records
 // who holds a duty by key, an artifact version records the actor that wrote it
@@ -128,8 +130,8 @@ func (r closeRefusals) anotherHolderExists() bool {
 // own checks pass and before the insert.
 func (r closeRefusals) refuse(verdict Verdict) error {
 	if r.byTheWriter() && r.anotherDeciderExists() {
-		return fmt.Errorf("%w: %s wrote it, and %s could decide it",
-			ErrClosedByTheActor, r.actor, r.deciders())
+		return fmt.Errorf("%w: %s wrote the record it decides, and %s could decide it",
+			ErrSelfApproval, r.actor, r.deciders())
 	}
 	if r.byTheAuthor() && r.anotherDeciderExists() {
 		return fmt.Errorf("%w: %s authored it, and %s could decide it",

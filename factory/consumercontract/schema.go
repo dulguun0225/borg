@@ -73,6 +73,11 @@ const causes = `('no_extractor', 'extraction_failed')`
 // it could not run at all. A row with a cause and no predicates beside it is could
 // not derive; a row whose unfollowed list is not empty is partial; a row with
 // neither is complete.
+//
+// extractor_convention is where a build following the toolchain's convention
+// states its declaration and how, published beside the extractor that applied
+// it rather than left to be read out of that extractor's source. It is empty on
+// a [CauseNoExtractor] record, which names no extractor to publish one for.
 var DDL = []string{
 	`create table if not exists ` + Table + ` (
 	` + record.Columns + `,
@@ -107,6 +112,7 @@ var DDL = []string{
 	extractor_version text not null,
 	toolchain text not null,
 	factory_version text not null,
+	extractor_convention text not null default '',
 	unfollowed text not null default '',
 	cause text not null default '',
 	reported text not null default '',

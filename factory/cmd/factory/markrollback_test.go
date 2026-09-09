@@ -38,6 +38,7 @@ func TestTheMarkEndsTheRevertItemAndLiftsTheHold(t *testing.T) {
 	// monitor raised at the crossing, decomposed and not yet shipped.
 	revert, err := path.decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: rolled.revertIntentID, ServiceID: svc.ID, Branch: "revert/" + rolled.revertIntentID,
+		RequirementsAnswered: oneRequirement,
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("writing the revert item: %v", err)
@@ -100,6 +101,7 @@ func anotherItem(ctx context.Context, t *testing.T, path *path, serviceID string
 	}
 	it, err := path.decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: in.ID, ServiceID: serviceID, Branch: "the-next-change",
+		RequirementsAnswered: oneRequirement,
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("writing the next change's item: %v", err)

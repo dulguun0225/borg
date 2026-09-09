@@ -98,7 +98,10 @@ func TestTheNoticeIsRefusedWithoutAToken(t *testing.T) {
 // cookie, an agent, a name — and asserts that the token is what reached the
 // store and that none of the rest reached it or was rendered back.
 func TestASubmissionReachesTheStoreWithTheTokenAndNeverAPerson(t *testing.T) {
-	store := &fakeStore{result: wayin.Result{Accepted: true}}
+	store := &fakeStore{
+		notice: wayin.Notice{ID: "con_1"},
+		result: wayin.Result{Accepted: true},
+	}
 	entrance := wayin.NewEntrance(store)
 
 	body := `{"shape":"submission/1","shipped_bundle_identity":"factory/3","kind":"bug",` +
@@ -157,7 +160,7 @@ func TestARefusalRendersAsTheSubmitResult(t *testing.T) {
 	store := &fakeStore{result: wayin.Result{Refusal: refusal}}
 
 	code, body := submit(t, wayin.NewEntrance(store), "token-1",
-		`{"kind":"bug","text":"the save button does nothing","source_key":"`+derived+`"}`)
+		`{"kind":"bug","text":"the save button does nothing","source_key":"`+derived+`","notice_id":""}`)
 
 	if code != http.StatusOK {
 		t.Fatalf("a refused submission answered %d, want %d: %s", code, http.StatusOK, body)
@@ -197,7 +200,7 @@ func TestAStoreFailureRendersNothingOfItsOwn(t *testing.T) {
 
 	for _, answer := range []string{
 		mustBody(notice(t, entrance, "token-1")),
-		mustBody(submit(t, entrance, "token-1", `{"kind":"bug","text":"words"}`)),
+		mustBody(submit(t, entrance, "token-1", `{"kind":"bug","text":"words","notice_id":""}`)),
 	} {
 		if strings.Contains(answer, "10.0.0.4") || strings.Contains(answer, "reportstore:") {
 			t.Errorf("a failure rendered %q, want nothing of the store's own", answer)
@@ -226,7 +229,7 @@ func TestTheEntranceForwardsTheKeyAsReceived(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			store := &fakeStore{result: wayin.Result{Accepted: true}}
 			submit(t, wayin.NewEntrance(store), "token-1",
-				`{"kind":"bug","text":"the save button does nothing","source_key":"`+c.sent+`"}`)
+				`{"kind":"bug","text":"the save button does nothing","source_key":"`+c.sent+`","notice_id":""}`)
 
 			if len(store.submitted) != 1 {
 				t.Fatalf("the store took %d submissions, want one", len(store.submitted))
@@ -236,5 +239,129 @@ func TestTheEntranceForwardsTheKeyAsReceived(t *testing.T) {
 					c.name, store.submitted[0].SourceKey, c.want)
 			}
 		})
+	}
+}
+
+// TestASubmissionNamingNoSessionIsRefused: a submission whose notice_id key
+// is absent altogether — never opened, or the shipped source's own bug —
+// names no session at all, and is refused at the entrance itself, before the
+// store is ever reached to check it against anything.
+func TestASubmissionNamingNoSessionIsRefused(t *testing.T) {
+	store := &fakeStore{result: wayin.Result{Accepted: true}}
+
+	code, body := submit(t, wayin.NewEntrance(store), "token-1",
+		`{"kind":"bug","text":"the save button does nothing"}`)
+
+	if code != http.StatusOK {
+		t.Fatalf("a submission naming no session answered %d, want %d: %s", code, http.StatusOK, body)
+	}
+	var result struct {
+		Accepted bool   `json:"accepted"`
+		Refusal  string `json:"refusal"`
+	}
+	if err := json.NewDecoder(bytes.NewReader([]byte(body))).Decode(&result); err != nil {
+		t.Fatalf("reading the submit result %q: %v", body, err)
+	}
+	if result.Accepted || result.Refusal != wayin.RefusedNoSession {
+		t.Errorf("a submission naming no session rendered %+v, want %q", result, wayin.RefusedNoSession)
+	}
+	if len(store.noticeFor) != 0 || len(store.submitted) != 0 {
+		t.Errorf("the store was reached %d times for the notice and %d times to submit, want neither",
+			len(store.noticeFor), len(store.submitted))
+	}
+}
+
+// TestASubmissionWhoseNoticeMovedIsShownAgain: a session naming a notice no
+// longer the one in force is not refused — the fresh notice is rendered in
+// its place, and the store is never reached to submit under a stale one.
+func TestASubmissionWhoseNoticeMovedIsShownAgain(t *testing.T) {
+	store := &fakeStore{notice: wayin.Notice{ID: "con_2", Text: "a second notice an owner authored"}}
+
+	code, body := submit(t, wayin.NewEntrance(store), "token-1",
+		`{"kind":"bug","text":"the save button does nothing","notice_id":"con_1"}`)
+
+	if code != http.StatusOK {
+		t.Fatalf("a submission under a stale notice answered %d, want %d: %s", code, http.StatusOK, body)
+	}
+	var result struct {
+		Accepted bool   `json:"accepted"`
+		Refusal  string `json:"refusal"`
+		NoticeID string `json:"notice_id"`
+		Text     string `json:"text"`
+	}
+	if err := json.NewDecoder(bytes.NewReader([]byte(body))).Decode(&result); err != nil {
+		t.Fatalf("reading the submit result %q: %v", body, err)
+	}
+	if result.Accepted || result.Refusal != "" {
+		t.Errorf("a submission under a stale notice rendered %+v, want neither accepted nor refused", result)
+	}
+	if result.NoticeID != "con_2" || result.Text != "a second notice an owner authored" {
+		t.Errorf("the moved notice rendered %+v, want the one now in force", result)
+	}
+	if len(store.submitted) != 0 {
+		t.Errorf("a submission under a stale notice reached the store to submit, and it never should")
+	}
+}
+
+// TestTheSessionDigestsTheNoticeWhereItCarriesNoID: a notice with words but no
+// id of its own is still given a session, and two such notices are given
+// different ones — a digest of the words and not an empty string shared by
+// both.
+func TestTheSessionDigestsTheNoticeWhereItCarriesNoID(t *testing.T) {
+	first := &fakeStore{notice: wayin.Notice{Text: "words but no id of its own"}}
+	_, firstBody := notice(t, wayin.NewEntrance(first), "token-1")
+	var firstShown struct {
+		NoticeID string `json:"notice_id"`
+	}
+	if err := json.NewDecoder(bytes.NewReader([]byte(firstBody))).Decode(&firstShown); err != nil {
+		t.Fatalf("reading the notice %q: %v", firstBody, err)
+	}
+	if firstShown.NoticeID == "" || len(firstShown.NoticeID) != 64 {
+		t.Errorf("a notice with words and no id showed session %q, want a 64-character digest", firstShown.NoticeID)
+	}
+
+	second := &fakeStore{notice: wayin.Notice{Text: "different words and no id either"}}
+	_, secondBody := notice(t, wayin.NewEntrance(second), "token-1")
+	var secondShown struct {
+		NoticeID string `json:"notice_id"`
+	}
+	if err := json.NewDecoder(bytes.NewReader([]byte(secondBody))).Decode(&secondShown); err != nil {
+		t.Fatalf("reading the notice %q: %v", secondBody, err)
+	}
+	if secondShown.NoticeID == firstShown.NoticeID {
+		t.Errorf("two notices of different words showed the same session %q", firstShown.NoticeID)
+	}
+}
+
+// TestASubmissionMatchingADigestedIdentityReachesTheStore: a session shown a
+// notice with words and no id names that digest back, the entrance confirms
+// it against the notice again in force, and what is recorded on the
+// submission is the notice's own id — empty, here, because this notice
+// carries none — and never the digest the session was compared by.
+func TestASubmissionMatchingADigestedIdentityReachesTheStore(t *testing.T) {
+	store := &fakeStore{
+		notice: wayin.Notice{Text: "words but no id of its own"},
+		result: wayin.Result{Accepted: true},
+	}
+	entrance := wayin.NewEntrance(store)
+	_, shownBody := notice(t, entrance, "token-1")
+	var shown struct {
+		NoticeID string `json:"notice_id"`
+	}
+	if err := json.NewDecoder(bytes.NewReader([]byte(shownBody))).Decode(&shown); err != nil {
+		t.Fatalf("reading the notice %q: %v", shownBody, err)
+	}
+
+	code, body := submit(t, entrance, "token-1",
+		`{"kind":"bug","text":"the save button does nothing","notice_id":"`+shown.NoticeID+`"}`)
+	if code != http.StatusOK {
+		t.Fatalf("the submission answered %d, want %d: %s", code, http.StatusOK, body)
+	}
+	if len(store.submitted) != 1 {
+		t.Fatalf("the store took %d submissions, want one", len(store.submitted))
+	}
+	if store.submitted[0].NoticeID != "" {
+		t.Errorf("the recorded notice id is %q, want the notice's own empty id and not the digest",
+			store.submitted[0].NoticeID)
 	}
 }

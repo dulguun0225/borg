@@ -146,22 +146,23 @@
 //
 // What defines it: the criterion, its provenance and its stable id are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/01-the-record.md
-// (C1040, C1041, C1042, C1043, C1044, C1045, C1047, C1048, C1049, C1050,
+// (C1040, C1041, C1042, C1043, C1044, C1045, C1047, C1048, C1049,
 // C1051);
 //
 // in force, withdrawal, the withdrawal of a criterion whose provenance names an
 // authority, the outcome history and the unreliable bound are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md
-// (C1052, C1053, C1054, C1056, C1057, C1059, C1062);
+// (C1052, C1053, C1054, C1056, C1057, C1059, C1061, C1062, C1066);
 //
-// the six patterns, the requirement field and the sentence fitting no pattern
-// are
+// the six patterns, the requirement field, the sentence fitting no pattern,
+// opaque ids, a quality of behaviour and decidability are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md
-// (C1067, C1072, C1073, C1075);
+// (C1067, C1072, C1073, C1074, C1075, C1076);
 //
-// the encoding, the place it declares and the rejection directions are
+// the encoding, the place it declares, the rejection directions and only an
+// encoding declaring it reaching the candidate environment are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md
-// (C1117, C1118, C1119, C1122, C1123, C1124), and what the encoding rests on is
+// (C1117, C1118, C1119, C1122, C1123, C1124, C1126), and what the encoding rests on is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md
 // (C1134, C1136, C1137);
 //
@@ -179,6 +180,23 @@
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md
 // (C1158);
 //
-// the hazard-derived criterion and the Spec gate's mechanical rejection are
-// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md.
+// the outcome history read against a bound is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/README.md
+// (C0508);
+//
+// a withdrawal explicit at Spec and a criterion staying in force until then are
+// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md
+// (C1033, C1034);
+//
+// the build's mutation, derived and recorded, is
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md
+// (C1218).
+//
+// Each result copying the composition it ran against is
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1499); the encoding's place deciding which run decides it is
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md
+// (C1595); and [Patterns] as the closed set the factory owns is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/README.md
+// (C2330).
 package criterion

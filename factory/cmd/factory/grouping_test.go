@@ -173,7 +173,8 @@ func assertTheSourceResolvesAtSpec(t *testing.T, ctx context.Context, d deps, p 
 	serviceID, intentID string) {
 	t.Helper()
 	it, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
-		IntentID: intentID, ServiceID: serviceID, AreaID: p.areaID, Branch: "candidate/reports",
+		IntentID: intentID, ServiceID: serviceID, AreaChain: []string{p.areaID}, Branch: "candidate/reports",
+		RequirementsAnswered: oneRequirement,
 	}, p.projectID, p.projectID, nil)
 	if err != nil {
 		t.Fatalf("writing an item of the intent grouped from reports: %v", err)
@@ -184,7 +185,7 @@ func assertTheSourceResolvesAtSpec(t *testing.T, ctx context.Context, d deps, p 
 	}
 	assessed, err := score.New(score.Composition{
 		Pool: d.pool, Version: version, Draw: score.NeverDraw{},
-		Marks: marksOf(d.pool), Token: d.token, HarmMarks: harmMarkedReports{p: p},
+		Marks: marksOf(d.pool), Token: d.token, GroupedReports: groupedReports{p: p},
 	}).Assess(ctx, score.Change{
 		ItemID: it.ID, ServiceID: serviceID, AreaID: p.areaID,
 		FactorSet: score.SetAboveABuild, AtSpec: true,

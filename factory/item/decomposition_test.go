@@ -67,6 +67,25 @@ func TestDecompositionWritesOnceAtSpec(t *testing.T) {
 	}
 }
 
+// TestAnItemAnsweringNoRequirementIsRefused: every item decomposition writes
+// answers a requirement whole or carries a derived share of one, the item that
+// creates a service and each step of a migration included. An item answering
+// none is work nobody asked for, whose criteria at Spec would trace to
+// nothing.
+func TestAnItemAnsweringNoRequirementIsRefused(t *testing.T) {
+	ctx, _, decomposition, _ := newWriters(t)
+
+	none := item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/unasked"}
+	if _, err := decomposition.Create(ctx, decompositionActor, none, "", "", nil); !errors.Is(err, item.ErrAnswersNoRequirement) {
+		t.Errorf("Create answering no requirement = %v, want ErrAnswersNoRequirement", err)
+	}
+	answering := none
+	answering.RequirementsAnswered = []string{"rq_" + strings.Repeat("c", 32)}
+	if _, err := decomposition.Create(ctx, decompositionActor, answering, "", "", nil); err != nil {
+		t.Errorf("Create answering one requirement: %v", err)
+	}
+}
+
 // TestAnAreaOutsideTheServicesProjectIsRefused: decomposition writes only an
 // area inside the project of the service the item names, so the item's area and
 // its service agree by construction. The two projects are the caller's to read
@@ -75,7 +94,9 @@ func TestDecompositionWritesOnceAtSpec(t *testing.T) {
 func TestAnAreaOutsideTheServicesProjectIsRefused(t *testing.T) {
 	ctx, _, decomposition, _ := newWriters(t)
 
-	n := item.New{IntentID: "in_x", ServiceID: "svc_x", AreaID: "ar_x", Branch: "item/x"}
+	answers := []string{"rq_" + strings.Repeat("d", 32)}
+	n := item.New{IntentID: "in_x", ServiceID: "svc_x", AreaChain: []string{"ar_x"}, Branch: "item/x",
+		RequirementsAnswered: answers}
 	if _, err := decomposition.Create(ctx, decompositionActor, n, "pr_a", "pr_b", nil); !errors.Is(err, item.ErrAreaOutsideServiceProject) {
 		t.Errorf("Create with the area in another project = %v, want ErrAreaOutsideServiceProject", err)
 	}
@@ -84,9 +105,42 @@ func TestAnAreaOutsideTheServicesProjectIsRefused(t *testing.T) {
 	}
 
 	// An item may name no area, and then there is no project to compare.
-	noArea := item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/y"}
+	noArea := item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/y", RequirementsAnswered: answers}
 	if _, err := decomposition.Create(ctx, decompositionActor, noArea, "", "pr_b", nil); err != nil {
 		t.Errorf("Create with no area = %v, want no comparison at all", err)
+	}
+	if _, err := decomposition.Create(ctx, decompositionActor,
+		item.New{IntentID: "in_x", ServiceID: "svc_x", AreaChain: []string{""}, Branch: "item/z",
+			RequirementsAnswered: answers}, "pr_a", "pr_a", nil); !errors.Is(err, item.ErrAreaIDEmpty) {
+		t.Errorf("Create with an empty area in the chain = %v, want ErrAreaIDEmpty", err)
+	}
+}
+
+// TestTheAreaWrittenIsTheNarrowestOfTheChain: decomposition writes the
+// narrowest area in the chain whose declaration covers the work, and the chain
+// arrives narrowest first because walking it is package area's. Which area the
+// item names is decided here and is not whatever the caller passes.
+func TestTheAreaWrittenIsTheNarrowestOfTheChain(t *testing.T) {
+	ctx, pool, decomposition, _ := newWriters(t)
+
+	narrowest := "ar_" + strings.Repeat("1", 32)
+	chain := []string{narrowest, "ar_" + strings.Repeat("2", 32), "ar_" + strings.Repeat("3", 32)}
+	it, err := decomposition.Create(ctx, decompositionActor, item.New{
+		IntentID: "in_x", ServiceID: "svc_x", AreaChain: chain, Branch: "item/narrow",
+		RequirementsAnswered: []string{"rq_" + strings.Repeat("e", 32)},
+	}, oneProject, oneProject, nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if it.AreaID != narrowest {
+		t.Errorf("the item names area %s, want the narrowest of the chain %s", it.AreaID, narrowest)
+	}
+	read, err := item.Get(ctx, pool, it.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.AreaID != narrowest {
+		t.Errorf("the stored area is %s, want the narrowest of the chain %s", read.AreaID, narrowest)
 	}
 }
 
@@ -147,10 +201,11 @@ func TestCreateWritesTheItemUnderTheIdTheCallerMinted(t *testing.T) {
 
 	minted := item.NewID()
 	it, err := decomposition.Create(ctx, decompositionActor, item.New{
-		ID:        minted,
-		IntentID:  "in_" + strings.Repeat("0", 32),
-		ServiceID: "svc_" + strings.Repeat("0", 32),
-		Branch:    "item/minted",
+		ID:                   minted,
+		IntentID:             "in_" + strings.Repeat("0", 32),
+		ServiceID:            "svc_" + strings.Repeat("0", 32),
+		Branch:               "item/minted",
+		RequirementsAnswered: []string{"rq_" + strings.Repeat("0", 32)},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -173,6 +228,7 @@ func TestRepointMovesAStandingItemsWaitToTheReplacements(t *testing.T) {
 	replaced := oneItem(ctx, t, decomposition)
 	standing, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/standing", WaitsOn: []string{replaced.ID},
+		RequirementsAnswered: []string{"rq_" + strings.Repeat("f", 32)},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -214,15 +270,14 @@ func TestRepointMovesAStandingItemsWaitToTheReplacements(t *testing.T) {
 
 // TestAWriteThatWouldCloseACycleIsRefused: two items each holding a deploy gate
 // on the other is a wait nothing lifts and no instrument shows, so the write is
-// refused where the items are kept, naming the edge that closes it. The
-// relation checked is the union of what decomposition declared and what a
-// rollback hold imposes, which no record holds and the caller passes in.
+// refused where the items are kept, naming the edge that closes it.
 func TestAWriteThatWouldCloseACycleIsRefused(t *testing.T) {
 	ctx, _, decomposition, _ := newWriters(t)
 
 	first := oneItem(ctx, t, decomposition)
 	second, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/second", WaitsOn: []string{first.ID},
+		RequirementsAnswered: []string{"rq_" + strings.Repeat("g", 32)},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -238,93 +293,109 @@ func TestAWriteThatWouldCloseACycleIsRefused(t *testing.T) {
 	if !strings.Contains(err.Error(), first.ID) || !strings.Contains(err.Error(), second.ID) {
 		t.Errorf("the refusal is %q, and it names neither end of the edge that closes the cycle", err)
 	}
-
-	// The edges a rollback hold imposes are held by no record, so the caller
-	// passes them in and the check is over the union. A revert declaring a
-	// dependency on a sibling its own hold holds is what that refuses. The
-	// revert's own id is not known before it is created — [Decomposition.Create]
-	// mints it internally — so the hold naming it is exercised through
-	// [Decomposition.Repoint] instead, over the id Create actually returned.
-	sibling := oneItem(ctx, t, decomposition)
-	revert, err := decomposition.Create(ctx, decompositionActor, item.New{
-		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/revert",
-	}, "", "", nil)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	hold := []item.Edge{{From: sibling.ID, To: revert.ID}}
-	_, err = decomposition.Repoint(ctx, decompositionActor, revert.ID, []string{sibling.ID}, hold)
-	if !errors.Is(err, item.ErrWouldCloseACycle) {
-		t.Errorf("a revert waiting on a sibling its hold holds = %v, want ErrWouldCloseACycle", err)
-	}
-
-	// Without the hold's edges the same declaration is an ordinary dependency.
-	if _, err := decomposition.Repoint(ctx, decompositionActor, revert.ID, []string{sibling.ID}, nil); err != nil {
-		t.Errorf("the same declaration without the hold = %v, want no refusal", err)
-	}
 }
 
-// TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt: the decomposition's write
-// to an existing item. A rejected set is superseded rather than discarded, so
-// what was decomposed wrong is readable beside what replaced it.
-func TestSupersedeEndsAnItemAndPointsItAtWhatReplacedIt(t *testing.T) {
-	ctx, pool, decomposition, _ := newWriters(t)
-
-	replaced := oneItem(ctx, t, decomposition)
-	first := oneItem(ctx, t, decomposition)
-	second := oneItem(ctx, t, decomposition)
-
-	ended, err := decomposition.Supersede(ctx, decompositionActor, replaced.ID, []string{first.ID, second.ID})
-	if err != nil {
-		t.Fatalf("Supersede: %v", err)
-	}
-	if ended.Stage != item.StageSuperseded {
-		t.Fatalf("the superseded item is at %s", ended.Stage)
-	}
-	read, err := item.Get(ctx, pool, replaced.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if read.Stage != item.StageSuperseded {
-		t.Errorf("the stored stage is %s", read.Stage)
-	}
-	if len(read.SupersededBy) != 2 || read.SupersededBy[0] != first.ID || read.SupersededBy[1] != second.ID {
-		t.Fatalf("the item points at %v, want the two that replaced it", read.SupersededBy)
-	}
-
-	// A re-decomposition that replaced an item with nothing leaves the pointer unwritten, and
-	// what says why is the superseded stage beside the decision that rejected the set.
-	dropped := oneItem(ctx, t, decomposition)
-	if _, err := decomposition.Supersede(ctx, decompositionActor, dropped.ID, nil); err != nil {
-		t.Fatalf("superseding with no replacement: %v", err)
-	}
-	read, err = item.Get(ctx, pool, dropped.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if len(read.SupersededBy) != 0 || read.Stage != item.StageSuperseded {
-		t.Errorf("the dropped item reads back as %+v", read)
-	}
-}
-
-// TestSupersedingTwiceOrSupersedingAMergedItemIsRefused: superseding does not run
-// twice, and a merged item is out of a re-decomposition's reach.
-func TestSupersedingTwiceOrSupersedingAMergedItemIsRefused(t *testing.T) {
+// TestTheHoldsEdgesAreComputedHereAndNamedInTheRefusal: while a rollback hold
+// stands on a service, every unmerged item of that service other than the
+// revert waits on the revert item, and no record holds those edges. The caller
+// names the service and the intent the revert was decomposed from, which is
+// what the production deploy gate reads the hold from, and the edges are
+// computed at the write against the items standing then. What they refuse is a
+// revert declaring a dependency on a sibling its own hold holds, and the
+// refusal names the hold, nothing having declared the edge that closed the
+// cycle.
+func TestTheHoldsEdgesAreComputedHereAndNamedInTheRefusal(t *testing.T) {
 	ctx, _, decomposition, dispatch := newWriters(t)
 
-	once := oneItem(ctx, t, decomposition)
-	if _, err := decomposition.Supersede(ctx, decompositionActor, once.ID, nil); err != nil {
-		t.Fatalf("the first Supersede: %v", err)
+	const held = "svc_" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const revertIntent = "in_" + "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+	answers := []string{"rq_" + strings.Repeat("h", 32)}
+	sibling, err := decomposition.Create(ctx, decompositionActor, item.New{
+		IntentID: "in_x", ServiceID: held, Branch: "item/sibling", RequirementsAnswered: answers,
+	}, "", "", nil)
+	if err != nil {
+		t.Fatalf("Create the sibling: %v", err)
 	}
-	if _, err := decomposition.Supersede(ctx, decompositionActor, once.ID, nil); !errors.Is(err, item.ErrAlreadySuperseded) {
-		t.Errorf("superseding twice = %v, want ErrAlreadySuperseded", err)
+	hold := []item.Hold{{ServiceID: held, RevertIntentID: revertIntent}}
+
+	// The revert is decomposed while its own hold stands, so the hold's edges
+	// lead into an item that is not in the table until this write lands.
+	_, err = decomposition.Create(ctx, decompositionActor, item.New{
+		IntentID: revertIntent, ServiceID: held, Branch: "item/revert", WaitsOn: []string{sibling.ID},
+		RequirementsAnswered: answers,
+	}, "", "", hold)
+	if !errors.Is(err, item.ErrWouldCloseACycle) {
+		t.Fatalf("a revert waiting on a sibling its own hold holds = %v, want ErrWouldCloseACycle", err)
+	}
+	if !strings.Contains(err.Error(), held) || !strings.Contains(err.Error(), revertIntent) {
+		t.Errorf("the refusal is %q, and it names the hold neither by its service nor by its revert", err)
 	}
 
-	merged := advanceToQueued(ctx, t, decomposition, dispatch)
-	if _, err := dispatch.End(ctx, dispatchActor, merged.ID); err != nil {
-		t.Fatalf("End: %v", err)
+	// Without the hold the same declaration is an ordinary dependency, which is
+	// what says the refusal came from the edges the hold imposes.
+	revert, err := decomposition.Create(ctx, decompositionActor, item.New{
+		IntentID: revertIntent, ServiceID: held, Branch: "item/revert", WaitsOn: []string{sibling.ID},
+		RequirementsAnswered: answers,
+	}, "", "", nil)
+	if err != nil {
+		t.Fatalf("the same declaration without the hold: %v", err)
 	}
-	if _, err := decomposition.Supersede(ctx, decompositionActor, merged.ID, nil); !errors.Is(err, item.ErrMerged) {
-		t.Errorf("superseding a merged item = %v, want ErrMerged", err)
+
+	// An item of another service is no part of this hold, and one whose work is
+	// over is out of the graph: neither is an edge, so a wait on the revert
+	// closes no cycle through them.
+	elsewhere, err := decomposition.Create(ctx, decompositionActor, item.New{
+		IntentID: "in_x", ServiceID: "svc_y", Branch: "item/elsewhere", RequirementsAnswered: answers,
+	}, "", "", nil)
+	if err != nil {
+		t.Fatalf("Create the item elsewhere: %v", err)
+	}
+	if _, err := decomposition.Repoint(ctx, decompositionActor, elsewhere.ID, []string{revert.ID}, hold); err != nil {
+		t.Errorf("an item of another service waiting on the revert = %v, want no refusal", err)
+	}
+	if _, err := dispatch.Drop(ctx, workActor, sibling.ID); err != nil {
+		t.Fatalf("Drop the sibling: %v", err)
+	}
+	if _, err := decomposition.Repoint(ctx, decompositionActor, revert.ID, []string{sibling.ID}, hold); err != nil {
+		t.Errorf("the revert waiting on an item the hold no longer reaches = %v, want no refusal", err)
+	}
+
+	if _, err := decomposition.Repoint(ctx, decompositionActor, revert.ID, nil,
+		[]item.Hold{{ServiceID: held}}); !errors.Is(err, item.ErrHoldIncomplete) {
+		t.Errorf("a hold naming no revert intent = %v, want ErrHoldIncomplete", err)
+	}
+}
+
+// TestACycleThroughTwoHoldsNamesBoth: two reverts each declaring a dependency
+// on an item the other's hold holds is the second thing the union refuses, and
+// it runs through the holds of two services, neither of them the one the write
+// names. Both are named in the refusal, nothing having declared either edge.
+func TestACycleThroughTwoHoldsNamesBoth(t *testing.T) {
+	ctx, _, decomposition, _ := newWriters(t)
+
+	const heldA, heldB = "svc_" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "svc_" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const revertA, revertB = "in_" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "in_" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	holds := []item.Hold{{ServiceID: heldA, RevertIntentID: revertA}, {ServiceID: heldB, RevertIntentID: revertB}}
+
+	siblingA := itemOn(ctx, t, decomposition, "in_ordinary", heldA, "item/sibling-a")
+	siblingB := itemOn(ctx, t, decomposition, "in_ordinary", heldB, "item/sibling-b")
+	// The first revert waits on the other service's sibling, which is an
+	// ordinary declared dependency and closes nothing on its own.
+	if _, err := decomposition.Create(ctx, decompositionActor, item.New{
+		IntentID: revertA, ServiceID: heldA, Branch: "item/revert-a", WaitsOn: []string{siblingB.ID},
+		RequirementsAnswered: []string{"rq_" + strings.Repeat("i", 32)},
+	}, "", "", holds); err != nil {
+		t.Fatalf("decomposing the first revert: %v", err)
+	}
+	second := itemOn(ctx, t, decomposition, revertB, heldB, "item/revert-b")
+
+	_, err := decomposition.Repoint(ctx, decompositionActor, second.ID, []string{siblingA.ID}, holds)
+	if !errors.Is(err, item.ErrWouldCloseACycle) {
+		t.Fatalf("the second revert waiting on what the first hold holds = %v, want ErrWouldCloseACycle", err)
+	}
+	for _, named := range []string{heldA, heldB, revertA, revertB} {
+		if !strings.Contains(err.Error(), named) {
+			t.Errorf("the refusal is %q, and it does not name %s", err, named)
+		}
 	}
 }

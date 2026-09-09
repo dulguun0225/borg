@@ -70,6 +70,12 @@ var attemptLimit = func() int {
 // holding the deploy credential, a target per environment whose started processes
 // are stopped in cleanup — through the seam — and the deps the path runs over.
 // input is what the scripted human types.
+// oneRequirement is what an item a test decomposes answers. Every item
+// decomposition writes answers a requirement whole or carries a derived share
+// of one, so a fixture that needs no requirement record of its own still names
+// one.
+var oneRequirement = []string{"rq_" + "test"}
+
 func newPath(t *testing.T, input string) (context.Context, deps, *bytes.Buffer) {
 	t.Helper()
 	return newPathOn(t, input, theService)

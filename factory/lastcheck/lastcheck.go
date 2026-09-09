@@ -106,6 +106,13 @@ type LastCheck struct {
 	// and a record that silently owed no further pass would be a component that
 	// stopped and nothing read it.
 	LastPass bool
+	// NewestRecord is the newest time the store this component reads holds a
+	// record for the subject, in [record.TimeLayout], and empty where the
+	// component reads no such store or the store holds none for it. The health
+	// monitor writes the newest time the emission holds for the service, and a
+	// read whose newest record is older than [LastCheck.Interval] is read as no
+	// volume and never as a low one.
+	NewestRecord string
 	// Payload is what the pass reports, as the writer wrote it: the deployer's
 	// three counts for a platform, and whatever each other writer counts. This
 	// package stores the text and reads nothing inside it.
@@ -184,8 +191,8 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, check LastCheck
 	}
 
 	err = tx.QueryRow(ctx, `insert into `+Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, component, subject, checked_at, interval_seconds, further_pass_owed, payload)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, component, subject, checked_at, interval_seconds, further_pass_owed, newest_record, payload)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		on conflict (component, subject) do update set
 			actor_kind = excluded.actor_kind,
 			actor_key = excluded.actor_key,
@@ -194,11 +201,12 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, check LastCheck
 			checked_at = excluded.checked_at,
 			interval_seconds = excluded.interval_seconds,
 			further_pass_owed = excluded.further_pass_owed,
+			newest_record = excluded.newest_record,
 			payload = excluded.payload
 		returning id`,
 		record.NewID(IDPrefix), FormatVersion, string(actor.Kind), actor.Key, string(actor.Basis), written.At,
 		written.Component, written.Subject, written.CheckedAt, int64(written.Interval/time.Second),
-		written.FurtherPassOwed(), written.Payload,
+		written.FurtherPassOwed(), written.NewestRecord, written.Payload,
 	).Scan(&written.ID)
 	if err != nil {
 		return LastCheck{}, fmt.Errorf("lastcheck: recording the pass of %s over %q: %w", check.Component, check.Subject, err)
@@ -210,7 +218,7 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, check LastCheck
 }
 
 const selectCheck = `select id, actor_kind, actor_key, actor_key_basis, at, component, subject,
-	checked_at, interval_seconds, further_pass_owed, payload
+	checked_at, interval_seconds, further_pass_owed, newest_record, payload
 	from ` + Table
 
 // All is every last check in this store, ordered by component and then subject.
@@ -290,7 +298,7 @@ func scan(row pgx.Row) (LastCheck, error) {
 	var seconds int64
 	var furtherPassOwed bool
 	err := row.Scan(&c.ID, &actorKind, &c.Actor.Key, &actorBasis, &c.At, &c.Component, &c.Subject,
-		&c.CheckedAt, &seconds, &furtherPassOwed, &c.Payload)
+		&c.CheckedAt, &seconds, &furtherPassOwed, &c.NewestRecord, &c.Payload)
 	if err != nil {
 		return LastCheck{}, fmt.Errorf("lastcheck: reading a last check: %w", err)
 	}

@@ -34,7 +34,8 @@ func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 	// holds.
 	live, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_dependent", ServiceID: res.serviceID, Branch: "item/dependent-live",
-		WaitsOn: []string{shippedItem},
+		WaitsOn:              []string{shippedItem},
+		RequirementsAnswered: oneRequirement,
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the dependent item: %v", err)
@@ -51,13 +52,15 @@ func TestADeclaredDependencyThatIsNotLiveHolds(t *testing.T) {
 	// the condition rather than a verdict.
 	unshipped, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_dependent2", ServiceID: res.serviceID, Branch: "item/dependent-waiting",
+		RequirementsAnswered: oneRequirement,
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the item nothing shipped: %v", err)
 	}
 	waiting, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: "in_dependent3", ServiceID: res.serviceID, Branch: "item/dependent-held",
-		WaitsOn: []string{unshipped.ID},
+		WaitsOn:              []string{unshipped.ID},
+		RequirementsAnswered: oneRequirement,
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the held item: %v", err)

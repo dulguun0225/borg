@@ -7,6 +7,9 @@ import (
 	"io"
 	"time"
 
+	"github.com/dulguun0225/borg/factory/incident"
+	"github.com/dulguun0225/borg/factory/notifier"
+	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -21,18 +24,23 @@ import (
 // -every-<name>, and an error is reported against the same name. They are the
 // component's own words and not this file's invention — the path's advance, the
 // watch, the pending holds re-evaluated, the pages the paging hours held back,
-// the drift sweep, the deprecation list, the acceptance rounds, the score's own
-// pass over the outcomes, and the grouping of the reports that arrived.
+// the incident-raised items paged past their bound, the drift sweep, the
+// deprecation list, the acceptance rounds, the score's own pass over the
+// outcomes, the grouping of the reports that arrived, and the deployer's
+// deletion of the snapshots its deploys took, at the end of the retention each
+// service authors.
 const (
-	passAdvance      = "advance"
-	passWatch        = "watch"
-	passReevaluate   = "reevaluate"
-	passDeferred     = "deferred-pages"
-	passDrift        = "drift-sweep"
-	passDeprecations = "deprecations"
-	passAcceptance   = "acceptance"
-	passScore        = "score"
-	passGrouper      = "grouper"
+	passAdvance       = "advance"
+	passWatch         = "watch"
+	passReevaluate    = "reevaluate"
+	passDeferred      = "deferred-pages"
+	passIncidentBound = "incident-bound"
+	passDrift         = "drift-sweep"
+	passDeprecations  = "deprecations"
+	passAcceptance    = "acceptance"
+	passScore         = "score"
+	passGrouper       = "grouper"
+	passSnapshots     = "snapshots"
 )
 
 // The intervals each pass runs on where an owner sets none. They are this
@@ -41,17 +49,20 @@ const (
 // that move an item — the path's advance, which carries the merge queue and the
 // production deploys inside it — run oftenest; the readings that only report,
 // the grouping of what arrived among them, run on the minute; and the two that
-// walk every record of a class run on five.
+// walk every record of a class, the deletion of expired snapshots among them,
+// run on five.
 var defaultIntervals = map[string]time.Duration{
-	passAdvance:      5 * time.Second,
-	passWatch:        30 * time.Second,
-	passReevaluate:   10 * time.Second,
-	passDeferred:     60 * time.Second,
-	passDrift:        60 * time.Second,
-	passDeprecations: 300 * time.Second,
-	passAcceptance:   60 * time.Second,
-	passScore:        300 * time.Second,
-	passGrouper:      60 * time.Second,
+	passAdvance:       5 * time.Second,
+	passWatch:         30 * time.Second,
+	passReevaluate:    10 * time.Second,
+	passDeferred:      60 * time.Second,
+	passIncidentBound: 300 * time.Second,
+	passDrift:         60 * time.Second,
+	passDeprecations:  300 * time.Second,
+	passAcceptance:    60 * time.Second,
+	passScore:         300 * time.Second,
+	passGrouper:       60 * time.Second,
+	passSnapshots:     300 * time.Second,
 }
 
 // intervals is what each pass runs on, by name.
@@ -72,8 +83,9 @@ func intervalFlags(flags *flag.FlagSet) intervals {
 // the order the design lists the components in: the path first, then what
 // follows a deploy, then what walks a class of record.
 var passOrder = []string{
-	passAdvance, passWatch, passReevaluate, passDeferred,
+	passAdvance, passWatch, passReevaluate, passDeferred, passIncidentBound,
 	passDrift, passDeprecations, passAcceptance, passScore, passGrouper,
+	passSnapshots,
 }
 
 // pass is one component's pass: the name its interval flag and its errors are
@@ -128,13 +140,15 @@ func newPasses(p *path, every intervals, changed func(kind, id string)) *passes 
 			}
 			return moved, err
 		},
-		passWatch:        p.watchServices,
-		passReevaluate:   p.reevaluatePending,
-		passDeferred:     p.pagesHeldToTheHours,
-		passDrift:        p.driftDetectorPages,
-		passDeprecations: p.raiseRemovals,
-		passAcceptance:   p.acceptancePass,
-		passGrouper:      p.groupReports,
+		passWatch:         p.watchServices,
+		passReevaluate:    p.reevaluatePending,
+		passDeferred:      p.pagesHeldToTheHours,
+		passIncidentBound: p.pageOverdueIncidentItems,
+		passDrift:         p.driftDetectorPages,
+		passDeprecations:  p.raiseRemovals,
+		passAcceptance:    p.acceptancePass,
+		passGrouper:       p.groupReports,
+		passSnapshots:     p.deleteExpiredSnapshots,
 	}
 	for _, name := range passOrder {
 		interval := defaultIntervals[name]
@@ -231,7 +245,7 @@ func (ps *passes) announce(name string) {
 		ps.changed("ops", listAddressID)
 	case passAcceptance:
 		ps.changed("work", listAddressID)
-	case passScore, passDeferred:
+	case passScore, passDeferred, passIncidentBound:
 		ps.changed("factory", listAddressID)
 	case passGrouper:
 		// An intent raised from reports is a timeline in Work, and the reports
@@ -324,4 +338,64 @@ func (p *path) acceptancePass(ctx context.Context) (bool, error) {
 func (p *path) ensureScore(ctx context.Context) (string, error) {
 	version, err := score.NewWriter(p.d.pool, p.d.token, marksOf(p.d.pool)).Ensure(ctx, scoreActor)
 	return version.ID, err
+}
+
+// pageOverdueIncidentItems is [incident.OverdueItems] read against now and
+// paged through the notifier, one uncleared page per item the way
+// [path.pagesHeldToTheHours] and [path.driftDetectorPages] already page a
+// standing condition: the page events already on the item are read before
+// another is written, so the first pass that finds it pages, the next widens
+// it once to the owner where nobody has acknowledged it, and every pass after
+// that writes nothing.
+func (p *path) pageOverdueIncidentItems(ctx context.Context) (bool, error) {
+	if p.notifier == nil {
+		return false, nil
+	}
+	overdue, err := incident.OverdueItems(ctx, p.d.pool, time.Now())
+	if err != nil {
+		return false, err
+	}
+
+	var paged bool
+	for _, o := range overdue {
+		wait := notifier.Wait{
+			Row:  o.ItemID,
+			Kind: notifier.KindIncidentBoundExceeded,
+			Waiting: fmt.Sprintf("item %s is still being worked past the bound service %s's incident %s was raised against",
+				o.ItemID, o.ServiceID, o.IncidentID),
+			Holding: people.OfDuty(takeOverIssues),
+			Worse:   true,
+		}
+		events, err := p.notifier.EventsFor(ctx, o.ItemID)
+		if err != nil {
+			return paged, err
+		}
+		var reached, widened, acknowledged bool
+		for _, e := range events {
+			switch notifier.Event(e.Event) {
+			case notifier.EventReached:
+				reached = true
+			case notifier.EventWidened:
+				widened = true
+			case notifier.EventAcknowledged:
+				acknowledged = true
+			}
+		}
+		switch {
+		case !reached:
+			if _, err := p.notifier.Notify(ctx, wait); err != nil {
+				return paged, err
+			}
+		case !widened && !acknowledged:
+			if _, err := p.notifier.Widen(ctx, wait); err != nil {
+				return paged, err
+			}
+		default:
+			// The page stands and the row still waits; there is no second
+			// widening and nothing further to write.
+			continue
+		}
+		paged = true
+	}
+	return paged, nil
 }

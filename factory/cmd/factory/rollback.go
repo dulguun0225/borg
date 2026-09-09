@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // The deployer's side of the health monitor: what reaching a deploy target
@@ -82,18 +84,19 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	}
 	dep, err := deploy.Restore(ctx, p.deploys, deploy.Restoration{
 		Performance: deploy.Performance{
-			Actor:           deployActor,
-			Principal:       deployerPrincipal,
-			ServiceID:       r.ServiceID,
-			ServiceName:     r.ServiceName,
-			EnvironmentID:   r.EnvironmentID,
-			What:            deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
-			IntoProduction:  true,
-			StrategyPicked:  deploy.StrategyWithoutControl,
-			Credential:      p.d.credential,
-			WayInAddress:    p.d.wayInAddress,
-			Reaches:         p.reaches(p.production, svc),
-			UndoneDeployIDs: undone,
+			Actor:              deployActor,
+			Principal:          deployerPrincipal,
+			ServiceID:          r.ServiceID,
+			ServiceName:        r.ServiceName,
+			EnvironmentID:      r.EnvironmentID,
+			What:               deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
+			IntoProduction:     true,
+			StrategyPicked:     deploy.StrategyWithoutControl,
+			Credential:         p.d.credential,
+			WayInAddress:       p.d.wayInAddress,
+			Reaches:            p.reaches(p.production, svc),
+			EnvironmentTargets: environmentTargets(p.production),
+			UndoneDeployIDs:    undone,
 		},
 		Undoing: deploy.Undoing{
 			FailedReleaseID:   r.FailedReleaseID,
@@ -130,12 +133,82 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	return err
 }
 
+// deleteExpiredSnapshots is the deployer's own pass over the copies its deploys
+// took: for every service this install knows, the records naming a copy older
+// than the snapshot retention the service record authors have that copy deleted
+// through the seam and the deletion written on the record. A service that
+// authored no retention keeps its copies — a retention nobody authored is not a
+// retention of no time at all — and an owner's call from Ops deletes one
+// earlier, through the same [deploy.DeleteSnapshot] this pass performs.
+//
+// The copies are reached through the first production target the service runs
+// on: the store is one per service per environment, so every target of the
+// environment reaches the same store and the same copies.
+func (p *path) deleteExpiredSnapshots(ctx context.Context) (bool, error) {
+	moved := false
+	for _, name := range p.d.serviceNames() {
+		svc, found, err := service.ByName(ctx, p.d.pool, name)
+		if err != nil {
+			return moved, err
+		}
+		if !found || !svc.SnapshotRetentionSeconds.Present {
+			continue
+		}
+		targets := serviceTargets(p.production, svc)
+		if len(targets) == 0 {
+			continue
+		}
+		deleted, err := deploy.DeleteExpiredSnapshots(ctx, p.deploys, deploy.Pass{
+			Principal:   deployerPrincipal,
+			ServiceID:   svc.ID,
+			ServiceName: svc.Name,
+			Retention:   time.Duration(svc.SnapshotRetentionSeconds.Number * float64(time.Second)),
+			Target:      p.d.targets.at(targets[0].Address),
+			Credential:  p.d.credential,
+		})
+		if err != nil {
+			return moved, err
+		}
+		for _, id := range deleted {
+			moved = true
+			fmt.Fprintf(p.d.out, "The deployer deleted the snapshot deploy %s named, at the end of %s's retention\n",
+				id, svc.Name)
+		}
+	}
+	return moved, nil
+}
+
 // DeploySearch is refused: the search is not built. Package healthmonitor wires
 // the builder and never calls the search, so nothing reaches this, and a
 // deploy performed here would put a build that passed no gate in front of
 // production traffic on a path nothing bounds.
 func (p *path) DeploySearch(context.Context, healthmonitor.SearchDeploy) (string, error) {
 	return "", errors.New("factory: the search that deploys a build nothing has watched is not built")
+}
+
+// EndSearchDeploy ends nothing, there being no search deploy to end:
+// [path.DeploySearch] refuses every one, so no window over such a deploy is
+// ever opened here. It answers rather than refusing, for the reason
+// [path.TearDownControl] does — the health monitor asks at the close of a
+// window it is about to write, and a refusal there would stop that close.
+func (p *path) EndSearchDeploy(context.Context, healthmonitor.SearchDeployEnding) error { return nil }
+
+// pageRollbackNotComplete is the fifth page condition, read on the same pass
+// that reads the windows: a rollback the health monitor called for whose deploy
+// record is still not complete on every target at the deployer's next last
+// check for that environment. Production serves a release the factory has
+// already failed and the mechanism that would remove it did not finish.
+//
+// The condition and the page events on it are package healthmonitor's, which is
+// where the two records it is read from are already read; this reports what
+// went out.
+func (p *path) pageRollbackNotComplete(ctx context.Context, w healthmonitor.Watching) (bool, error) {
+	paged, err := p.healthMonitor.PageRollbackNotComplete(ctx, w)
+	if err != nil || paged == "" {
+		return false, err
+	}
+	fmt.Fprintf(p.d.out, "Rollback %s is not complete on every target and the deployer has passed since, and the page went out: production runs a release the factory failed\n", paged)
+	return true, nil
 }
 
 // undoneBy is every deploy this rollback undoes: the failed release's own

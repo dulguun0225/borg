@@ -89,6 +89,40 @@ type Version struct {
 	// what an owner disagreeing with a moved value argues with.
 	Rules           string
 	LearningVersion string
+	// BandWidth is how wide one band of the number is, and with it how far the
+	// risk threshold moves in one step: the two are one number, so a threshold
+	// that falls one band and a rise on the held-out sample take the same step
+	// and an owner reads that step off the record.
+	BandWidth float64
+	// ShippedPriors is the per-author prior the product ships for a model
+	// version, by model version. An author the factory has not seen starts at
+	// the prior shipped for its model version where one was shipped, and at the
+	// width its count of no closes supports where none was.
+	ShippedPriors map[string]float64
+	// Scale is the last step of each set's fit: what maps the weighted means'
+	// number onto the share of held-out windows that failed among decisions
+	// taken at that number on that set, which is the one scale the three sets
+	// share. It is fitted with the weights and counts as one of them: a
+	// recalibration moves it with the weights and moves nothing else. An
+	// unfitted set carries the zero scale, which is the identity.
+	Scale map[FactorSet]Scale
+	// RecalibratedThrough is the close time of the newest decision the last
+	// recalibration read, and is empty where none has run. The calibration
+	// readings are taken over the decisions after it: a recalibration is the
+	// only exit from a drift, so a reading that went on reading what the
+	// recalibration already answered would put the resolution back at the next
+	// pass and no resolution would ever end.
+	RecalibratedThrough string
+	// PriorRestarts is every author whose per-author prior restarted as an
+	// unseen author's, by the time it restarted at: a truncation of the log
+	// removed every held-out decision on an author whose prior stood drifted, so
+	// the drift's own evidence could no longer arrive and the resolution would
+	// otherwise stand forever. From that time on, [Score.prior] counts only what
+	// closed after it, so the level narrows again as new closes arrive. It is
+	// carried forward by every version this package appends: an author
+	// restarted once stays restarted, recalibration reading fresh evidence over
+	// it being a different thing from a restart.
+	PriorRestarts map[string]string
 	// Supplied is every value the score supplies: the starting value of each
 	// parameter and a row per subject an outcome has moved it for.
 	Supplied SuppliedValues
@@ -124,6 +158,11 @@ type versionPayload struct {
 	ControlBound          float64               `json:"control_bound"`
 	Rules                 string                `json:"rules"`
 	LearningVersion       string                `json:"learning_version"`
+	BandWidth             float64               `json:"band_width,omitempty"`
+	ShippedPriors         map[string]float64    `json:"shipped_priors,omitempty"`
+	Scale                 map[FactorSet]Scale   `json:"scale,omitempty"`
+	RecalibratedThrough   string                `json:"recalibrated_through,omitempty"`
+	PriorRestarts         map[string]string     `json:"prior_restarts,omitempty"`
 	Supplied              SuppliedValues        `json:"supplied"`
 	Bands                 []Band                `json:"bands"`
 	Drift                 []Drift               `json:"drift"`
@@ -163,6 +202,58 @@ func (v Version) ControlBoundOrShipped() float64 {
 		return ShippedControlBound
 	}
 	return v.ControlBound
+}
+
+// BandWidthOrShipped is the band width this version names, falling back to
+// [ShippedBandWidth] for a version appended before the width was a field of one.
+func (v Version) BandWidthOrShipped() float64 {
+	if v.BandWidth <= 0 {
+		return ShippedBandWidth
+	}
+	return v.BandWidth
+}
+
+// ShippedPrior is the prior the product shipped for one author's model version,
+// and false where it shipped none. An author with no shipped prior starts at the
+// width a count of no closes supports.
+func (v Version) ShippedPrior(author string) (float64, bool) {
+	level, shipped := v.ShippedPriors[author]
+	return level, shipped
+}
+
+// ScaleOf is the scale this version fits one set's number by, and the identity
+// for a set no recalibration has fitted.
+func (v Version) ScaleOf(set FactorSet) Scale { return v.Scale[set] }
+
+// Under is what one learning pass reads off the version in force: the band the
+// threshold steps by, the point the last recalibration read to, which authors'
+// priors stand drifted under it, and which have already restarted.
+func (v Version) Under() Under {
+	return Under{
+		BandWidth:           v.BandWidthOrShipped(),
+		RecalibratedThrough: v.RecalibratedThrough,
+		DriftedPriors:       v.driftedPriors(),
+		PriorRestarts:       v.PriorRestarts,
+	}
+}
+
+// driftedPriors is every author this version's own drift readings name.
+func (v Version) driftedPriors() []string {
+	var authors []string
+	for _, d := range v.Drift {
+		if d.Author != "" {
+			authors = append(authors, d.Author)
+		}
+	}
+	return authors
+}
+
+// RestartedAt is when this author's prior last restarted as an unseen
+// author's, and false where it never has. [Score.prior] reads it to count only
+// what closed after that time.
+func (v Version) RestartedAt(author string) (string, bool) {
+	at, ok := v.PriorRestarts[author]
+	return at, ok
 }
 
 // Drifted reports whether calibration found this factor drifted under this
@@ -220,22 +311,30 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token, marks Marks) *Writer {
 // that moved mid-process would leave two decisions of one run naming different
 // numbers.
 func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error) {
-	learned, err := Learn(ctx, w.pool, w.token, w.marks)
-	if err != nil {
-		return Version{}, err
-	}
-	return w.append(ctx, actor, func(newest Version, found bool) (Version, bool) {
+	return w.append(ctx, actor, func(newest Version, found bool) (Version, bool, error) {
+		// The pass reads under the version below it: the band it steps the
+		// threshold by, and the point the last recalibration read to, both of
+		// which are fields of that version and not of this source.
+		learned, err := Learn(ctx, w.pool, w.token, w.marks, newest.Under())
+		if err != nil {
+			return Version{}, false, err
+		}
 		next := Version{
-			FormulaVersion:  FormulaVersion,
-			Formula:         Formula,
-			Weights:         newestWeights(newest, found),
-			ControlBound:    ShippedControlBound,
-			Rules:           Rules,
-			LearningVersion: LearningVersion,
-			Supplied:        learned.Supplied,
-			Bands:           learned.Bands,
-			Drift:           learned.Drift,
-			FalseAlarms:     learned.FalseAlarms,
+			FormulaVersion:      FormulaVersion,
+			Formula:             Formula,
+			Weights:             newestWeights(newest, found),
+			ControlBound:        ShippedControlBound,
+			Rules:               Rules,
+			LearningVersion:     LearningVersion,
+			BandWidth:           newest.BandWidthOrShipped(),
+			ShippedPriors:       newest.ShippedPriors,
+			Scale:               newest.Scale,
+			RecalibratedThrough: newest.RecalibratedThrough,
+			PriorRestarts:       learned.PriorRestarts,
+			Supplied:            learned.Supplied,
+			Bands:               learned.Bands,
+			Drift:               learned.Drift,
+			FalseAlarms:         learned.FalseAlarms,
 		}
 		next.FactorSets = FactorSetsText(next.Weights)
 		next.Branch = BranchSupplied
@@ -243,7 +342,7 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 			newest.ControlBoundOrShipped() != next.ControlBound) {
 			next.Branch = BranchFormula
 		}
-		return next, !found || differs(newest, next)
+		return next, !found || differs(newest, next), nil
 	})
 }
 
@@ -258,36 +357,54 @@ func (w *Writer) Recalibrate(ctx context.Context, actor record.Actor) (Version, 
 		return Version{}, err
 	}
 	fitted := Fit(e)
-	return w.append(ctx, actor, func(newest Version, found bool) (Version, bool) {
-		next := newest
-		next.FormulaVersion = FormulaVersion
-		next.Formula = Formula
-		next.Rules = Rules
-		next.LearningVersion = LearningVersion
-		next.Weights = fitted
-		next.ControlBound = ShippedControlBound
-		next.FactorSets = FactorSetsText(fitted)
-		next.Branch = BranchRecalibration
-		if !found {
-			next.Supplied = StartingValues()
-		}
-		return next, !found || newest.FactorSets != next.FactorSets
+	scaled := FitScale(e, fitted)
+	read := e.newestClose()
+	return w.append(ctx, actor, func(newest Version, found bool) (Version, bool, error) {
+		next := recalibrated(newest, found, fitted, scaled, read)
+		return next, !found || differs(newest, next), nil
 	})
 }
 
+// recalibrated is the version a recalibration writes: newest with only the
+// weights, the scale fitted with them, the factor-set text they produce, the
+// branch, the drift a recalibration ends and the point it read to changed —
+// and, where nothing has been appended yet, the starting supplied values.
+// Nothing else moves: [Writer.Recalibrate]'s own comment says why. It is
+// separate from that method so the composition is testable without a store.
+func recalibrated(newest Version, found bool, fitted map[FactorSet]Weights, scaled map[FactorSet]Scale, readThrough string) Version {
+	next := newest
+	next.Weights = fitted
+	next.Scale = scaled
+	next.FactorSets = FactorSetsText(fitted)
+	next.Branch = BranchRecalibration
+	// The recalibration is the exit from every drift standing under the
+	// version below it: it read the held-out decisions those readings were
+	// made over, so the resolutions they put at the gates end here and the
+	// next pass reads the decisions after this one.
+	next.Drift = nil
+	next.RecalibratedThrough = readThrough
+	if !found {
+		next.Supplied = StartingValues()
+	}
+	return next
+}
+
 // EnterShipped appends the version install's first start writes, naming the
-// shipped-bundle identity the formula and the weights came from and nothing an
-// outcome moved. It is the one version no owner and no outcome authored.
+// shipped-bundle identity the formula, the weights, the band width and the
+// priors per model version came from, and nothing an outcome moved. It is the
+// one version no owner and no outcome authored.
 func (w *Writer) EnterShipped(ctx context.Context, actor record.Actor, shippedBundleIdentity string) (Version, error) {
 	if shippedBundleIdentity == "" {
 		return Version{}, fmt.Errorf("score: the shipped version names no release of the product")
 	}
-	return w.append(ctx, actor, func(newest Version, found bool) (Version, bool) {
+	return w.append(ctx, actor, func(newest Version, found bool) (Version, bool, error) {
 		next := Version{
 			FormulaVersion:        FormulaVersion,
 			Formula:               Formula,
 			Weights:               ShippedWeightsBySet(),
 			ControlBound:          ShippedControlBound,
+			BandWidth:             ShippedBandWidth,
+			ShippedPriors:         ShippedPriors(),
 			Rules:                 Rules,
 			LearningVersion:       LearningVersion,
 			Supplied:              StartingValues(),
@@ -295,7 +412,7 @@ func (w *Writer) EnterShipped(ctx context.Context, actor record.Actor, shippedBu
 			ShippedBundleIdentity: shippedBundleIdentity,
 		}
 		next.FactorSets = FactorSetsText(next.Weights)
-		return next, !found || newest.ShippedBundleIdentity != shippedBundleIdentity
+		return next, !found || newest.ShippedBundleIdentity != shippedBundleIdentity, nil
 	})
 }
 
@@ -308,39 +425,12 @@ func newestWeights(newest Version, found bool) map[FactorSet]Weights {
 	return newest.Weights
 }
 
-// differs is whether the version this pass computed says anything the newest
-// stored one does not. Nothing refuses two versions that say the same thing where
-// they are not adjacent — a learned value that moved and moved back is ordinary —
-// so what is compared is this version against the one below it and nothing else.
-func differs(newest, next Version) bool {
-	if newest.FormulaVersion != next.FormulaVersion || newest.Formula != next.Formula ||
-		newest.FactorSets != next.FactorSets || newest.Rules != next.Rules ||
-		newest.LearningVersion != next.LearningVersion ||
-		newest.ControlBoundOrShipped() != next.ControlBound {
-		return true
-	}
-	return !sameJSON(newest.Supplied, next.Supplied) || !sameJSON(newest.Bands, next.Bands) ||
-		!sameJSON(newest.Drift, next.Drift) || !sameJSON(newest.FalseAlarms, next.FalseAlarms)
-}
-
-func sameJSON(a, b any) bool {
-	left, err := json.Marshal(a)
-	if err != nil {
-		return false
-	}
-	right, err := json.Marshal(b)
-	if err != nil {
-		return false
-	}
-	return string(left) == string(right)
-}
-
 // append holds [AdvisoryLockKey] over the read of the newest version and the
 // append that supersedes it, so two processes ensuring at once append one
 // version and not two. The lock is session-level on a connection of its own
 // because the append is the log's own transaction and not this package's.
 func (w *Writer) append(ctx context.Context, actor record.Actor,
-	compose func(newest Version, found bool) (Version, bool)) (Version, error) {
+	compose func(newest Version, found bool) (Version, bool, error)) (Version, error) {
 
 	if err := actor.Validate(); err != nil {
 		return Version{}, err
@@ -361,7 +451,10 @@ func (w *Writer) append(ctx context.Context, actor record.Actor,
 	if err != nil {
 		return Version{}, err
 	}
-	next, changed := compose(newest, found)
+	next, changed, err := compose(newest, found)
+	if err != nil {
+		return Version{}, err
+	}
 	if !changed {
 		return newest, nil
 	}
@@ -371,6 +464,8 @@ func (w *Writer) append(ctx context.Context, actor record.Actor,
 		FormulaVersion: next.FormulaVersion, Formula: next.Formula, Weights: next.Weights,
 		FactorSets: next.FactorSets, ControlBound: next.ControlBound,
 		Rules: next.Rules, LearningVersion: next.LearningVersion,
+		BandWidth: next.BandWidth, ShippedPriors: next.ShippedPriors, Scale: next.Scale,
+		RecalibratedThrough: next.RecalibratedThrough, PriorRestarts: next.PriorRestarts,
 		Supplied: next.Supplied, Bands: next.Bands, Drift: next.Drift, FalseAlarms: next.FalseAlarms,
 		Branch: next.Branch, ShippedBundleIdentity: next.ShippedBundleIdentity, Supersedes: next.Supersedes,
 	})
@@ -387,73 +482,4 @@ func (w *Writer) append(ctx context.Context, actor record.Actor,
 	}
 	next.ID, next.Actor, next.At = row.ID, row.Actor, row.At
 	return next, nil
-}
-
-// versions is every score version in the log, oldest first.
-func versions(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]Version, error) {
-	rows, err := decisionlog.NewReader(pool, token).Read(ctx, componentPrincipal)
-	if err != nil {
-		return nil, err
-	}
-	return versionsIn(rows)
-}
-
-// versionsIn is every score version among rows already read, oldest first. It is
-// separate from [versions] so that a caller reading the log for two shapes at
-// once — [InForceAt], which also reads the confirmations off the policy version
-// rows — reads it once and appends one read event.
-func versionsIn(rows []decisionlog.Row) ([]Version, error) {
-	var read []Version
-	for _, row := range rows {
-		if row.Shape != decisionlog.ShapeScoreVersion {
-			continue
-		}
-		var payload versionPayload
-		if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
-			return nil, fmt.Errorf("score: reading the version in row %s: %w", row.ID, err)
-		}
-		read = append(read, Version{
-			ID: row.ID, Actor: row.Actor, At: row.At,
-			FormulaVersion: payload.FormulaVersion, Formula: payload.Formula, Weights: payload.Weights,
-			FactorSets: payload.FactorSets, ControlBound: payload.ControlBound,
-			Rules: payload.Rules, LearningVersion: payload.LearningVersion,
-			Supplied: payload.Supplied, Bands: payload.Bands, Drift: payload.Drift,
-			FalseAlarms: payload.FalseAlarms, Branch: payload.Branch,
-			ShippedBundleIdentity: payload.ShippedBundleIdentity, Supersedes: payload.Supersedes,
-		})
-	}
-	return read, nil
-}
-
-// Newest is the version in force, and false where none has been appended. The
-// order is the log's own: a row that came later in the chain is a later version.
-func Newest(ctx context.Context, pool *pgxpool.Pool, token lease.Token) (Version, bool, error) {
-	read, err := versions(ctx, pool, token)
-	if err != nil || len(read) == 0 {
-		return Version{}, false, err
-	}
-	return read[len(read)-1], true, nil
-}
-
-// Get is one version by id, which is what a reader of a decision follows to
-// what the score published when it was decided.
-func Get(ctx context.Context, pool *pgxpool.Pool, token lease.Token, id string) (Version, error) {
-	read, err := versions(ctx, pool, token)
-	if err != nil {
-		return Version{}, err
-	}
-	for _, v := range read {
-		if v.ID == id {
-			return v, nil
-		}
-	}
-	return Version{}, fmt.Errorf("%w: %s", ErrNoVersion, id)
-}
-
-// All is every version, oldest first. It is what a reader following a supplied
-// value's movement walks: each names the one it superseded, so the sequence is
-// readable from either end, and what makes a movement readable beside it is
-// every decision naming the version it was decided under.
-func All(ctx context.Context, pool *pgxpool.Pool, token lease.Token) ([]Version, error) {
-	return versions(ctx, pool, token)
 }

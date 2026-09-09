@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
@@ -180,6 +181,11 @@ func (a Anthropic) Complete(ctx context.Context, p principal.Principal, call Cal
 	if err != nil {
 		return Reply{}, fmt.Errorf("agent: reading the answer: %w", err)
 	}
+	// The moment the answer was read, which is the time the provider returned
+	// the units it carries. Every reply below is stamped with it rather than
+	// with the time the record is written, which is later by whatever the
+	// parse and the write cost.
+	returnedAt := record.Now()
 	if resp.StatusCode != http.StatusOK {
 		return Reply{}, &StatusError{Status: resp.StatusCode, Body: string(answer)}
 	}
@@ -210,5 +216,6 @@ func (a Anthropic) Complete(ctx context.Context, p principal.Principal, call Cal
 			UnitsInput:  parsed.Usage.InputTokens,
 			UnitsOutput: parsed.Usage.OutputTokens,
 		},
+		ReturnedAt: returnedAt,
 	}, nil
 }

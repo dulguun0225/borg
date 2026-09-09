@@ -10,7 +10,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"net/url"
 	"testing"
 	"time"
@@ -155,21 +154,20 @@ func verifyLog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token leas
 	}
 }
 
-// deliveryRow reads back one row of [notifier.DeliveryTable] directly, by row
-// and channel alone: [notifier.DeliveriesOf] reads every channel and
-// recipient of a row, and a direct select for one is the test's own business
-// rather than this package's public API.
+// deliveryRow is one row's delivery on one channel, read through
+// [notifier.DeliveriesOf]: the first record naming that channel, and false
+// where the row named it on none. A test that wants a specific recipient
+// among several holders reads [notifier.DeliveriesOf] directly instead.
 func deliveryRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, rowID string, channel notifier.Channel) (string, bool, bool) {
 	t.Helper()
-	var recipient string
-	var accepted bool
-	err := pool.QueryRow(ctx, `select recipient_key, transport_accepted from `+notifier.DeliveryTable+`
-		where row_id = $1 and channel = $2`, rowID, string(channel)).Scan(&recipient, &accepted)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, false
-	}
+	records, err := notifier.DeliveriesOf(ctx, pool, rowID)
 	if err != nil {
-		t.Fatalf("reading the delivery record for %s on %s: %v", rowID, channel, err)
+		t.Fatalf("DeliveriesOf(%s): %v", rowID, err)
 	}
-	return recipient, accepted, true
+	for _, r := range records {
+		if r.Channel == channel {
+			return r.RecipientKey, r.TransportAccepted, true
+		}
+	}
+	return "", false, false
 }

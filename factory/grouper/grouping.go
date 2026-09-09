@@ -32,9 +32,14 @@ import (
 // it.
 //
 // Two cases sit outside that. Where the group claims no intent it raises one,
-// which is the first report of a group raising it. Where the intent it claims
-// has finished, the fix shipped: what is not already in it is a new intent
-// linked to it as a recurrence and never a reopening.
+// which is the first report of a group raising it — unless a member the
+// decomposition boundary left behind names what this one was judged against:
+// a report that does not match work already decomposed still moves the group
+// no further, so the new intent it raises is linked to the one it was left
+// in as a recurrence, the same link a group naming a finished intent gets.
+// Where the intent it claims has finished, the fix shipped: what is not
+// already in it is a new intent linked to it as a recurrence and never a
+// reopening.
 //
 // An intent a split leaves holding no report names nothing — its statement
 // summarizes reports that are somewhere else — so it is ended through intake.
@@ -62,7 +67,7 @@ func (g *Grouper) apply(ctx context.Context, projectID string, reports []reports
 		}
 	}
 
-	joining, emptying, marked, serviceID, err := g.joining(ctx, members, named)
+	joining, emptying, blockedFrom, marked, serviceID, err := g.joining(ctx, members, named)
 	if err != nil {
 		return err
 	}
@@ -72,17 +77,24 @@ func (g *Grouper) apply(ctx context.Context, projectID string, reports []reports
 
 	// The group raises an intent where it claims none, and where the one it
 	// claims has finished — the recurrence, which carries the link back to it.
+	// A group claiming none that held a member the boundary blocked from
+	// joining is the other half of the same rule: decomposition stops the
+	// member moving, and what it was judged against — the decomposed intent it
+	// was left in — is what the new intent recurs on instead of naming nothing.
 	raises := named == ""
+	recurrenceOf := named
 	if !raises {
 		finished, err := g.finished(ctx, named)
 		if err != nil {
 			return err
 		}
 		raises = finished
+	} else if len(blockedFrom) > 0 {
+		recurrenceOf = blockedFrom[0]
 	}
 	intentID := named
 	if raises {
-		raised, err := g.raise(ctx, projectID, joining, named)
+		raised, err := g.raise(ctx, projectID, joining, recurrenceOf)
 		if err != nil {
 			return err
 		}
@@ -109,6 +121,13 @@ func (g *Grouper) apply(ctx context.Context, projectID string, reports []reports
 	if marked == 0 {
 		return nil
 	}
+	paged, err := g.alreadyPaged(ctx, intentID)
+	if err != nil {
+		return err
+	}
+	if paged {
+		return nil
+	}
 	if err := g.page(ctx, intentID, serviceID, marked); err != nil {
 		return err
 	}
@@ -118,17 +137,20 @@ func (g *Grouper) apply(ctx context.Context, projectID string, reports []reports
 
 // joining is what one group's members have to be written to put them in the
 // intent the group is: every member not already in it, the intents a move may
-// leave empty, how many of them mark harm, and the service the group is
-// against.
+// leave empty, the decomposed intents a member was left in rather than moved
+// out of, how many of them mark harm, and the service the group is against.
 //
-// A member whose own intent has been decomposed is left out: decomposition is
-// the boundary a split stops at, so it stays where it is. Reading that is one
-// query per intent a group names and none for a group that names none, which is
-// every group of arriving reports.
+// A member whose own intent has been decomposed is left out of joining:
+// decomposition is the boundary a split stops at, so it stays where it is.
+// Its intent is recorded on blockedFrom rather than emptying — it is not a
+// candidate to end, holding at least this one report still — so that a group
+// left with nothing of its own but this can still name what it was judged
+// against. Reading Decomposed is one query per intent a group names and none
+// for a group that names none, which is every group of arriving reports.
 func (g *Grouper) joining(ctx context.Context, members []reportstore.Report,
-	named string) ([]reportstore.Report, []string, int, string, error) {
+	named string) ([]reportstore.Report, []string, []string, int, string, error) {
 	var joining []reportstore.Report
-	var emptying []string
+	var emptying, blockedFrom []string
 	marked, serviceID := 0, ""
 	for _, report := range members {
 		if report.IntentID != "" && report.IntentID == named {
@@ -137,10 +159,13 @@ func (g *Grouper) joining(ctx context.Context, members []reportstore.Report,
 		if report.IntentID != "" {
 			decomposed, err := g.c.Decompositions.Decomposed(ctx, report.IntentID)
 			if err != nil {
-				return nil, nil, 0, "", fmt.Errorf(
+				return nil, nil, nil, 0, "", fmt.Errorf(
 					"grouper: reading whether %s has been decomposed: %w", report.IntentID, err)
 			}
 			if decomposed {
+				if !slices.Contains(blockedFrom, report.IntentID) {
+					blockedFrom = append(blockedFrom, report.IntentID)
+				}
 				continue
 			}
 			if !slices.Contains(emptying, report.IntentID) {
@@ -155,7 +180,7 @@ func (g *Grouper) joining(ctx context.Context, members []reportstore.Report,
 			serviceID = report.ServiceID
 		}
 	}
-	return joining, emptying, marked, serviceID, nil
+	return joining, emptying, blockedFrom, marked, serviceID, nil
 }
 
 // dropEmptied ends every intent a split left holding no report. Its statement
@@ -210,6 +235,21 @@ func (g *Grouper) raise(ctx context.Context, projectID string, reports []reports
 			len(reports), err)
 	}
 	return raised.ID, nil
+}
+
+// alreadyPaged reports whether intentID already carries a standing page: it
+// is one page per intent however many reports mark harm, and never per
+// report, so a later report attaching to an intent already paging raises
+// nothing further whichever pass reads it. The notifier keeps one delivery
+// record per row it has ever paged, [notifier.KindHarmMarkedReport] being the
+// only kind an intent grouped from reports pages under, so any record at all
+// against this row is that page.
+func (g *Grouper) alreadyPaged(ctx context.Context, intentID string) (bool, error) {
+	delivered, err := notifier.DeliveriesOf(ctx, g.c.Pool, intentID)
+	if err != nil {
+		return false, fmt.Errorf("grouper: reading whether %s already carries a page: %w", intentID, err)
+	}
+	return len(delivered) > 0, nil
 }
 
 // page is the page a harm-marked report fires, one per intent however many of

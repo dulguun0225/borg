@@ -70,4 +70,8 @@
 // C0998); the harm mark's page cap and its off switch are
 // ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2127,
 // C2129).
+//
+// held_out_sample_rate as a column of this record is
+// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md
+// (C1363).
 package factorysettings

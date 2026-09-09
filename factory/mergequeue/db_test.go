@@ -16,11 +16,13 @@ import (
 // service: a candidate that passes its re-verification fast-forwards and is
 // minted a release naming the build that re-verification produced; one that
 // fails is rejected with a rejection row saying why, which reading it was, and
-// that an attempt is counted at Implementation.
+// sent back to Implementation with an attempt counted there.
 //
-// Neither transition is written here. The queue's row in ../../end-goal/components.md names no
-// dispatch, so the item's advance to merged and its return to Implementation are
-// the caller's writes, and what the queue hands the caller is the outcome.
+// The merged item's advance to merged is not written here: the queue's row in
+// ../../end-goal/components.md names no dispatch, so that transition is the
+// caller's write. The rejected item's send-back is the queue's own: its row in
+// that same file names no dispatch either, but the rejection is the queue's to
+// act on, there being no gate firing for a caller to act on instead.
 func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 	repo := newRepository()
 	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo})
@@ -69,6 +71,9 @@ func TestRunMintsOnAPassAndRejectsOnAFailure(t *testing.T) {
 	if rejected.Rejection.ReturnsTo != gate.ReturnsToImplementation || !rejected.Rejection.CountsAnAttempt {
 		t.Errorf("the rejection returns the item to %q and counts an attempt %v, want Implementation and true",
 			rejected.Rejection.ReturnsTo, rejected.Rejection.CountsAnAttempt)
+	}
+	if read, err := item.Get(ctx, pool, fails.ID); err != nil || read.Stage != item.StageImplementation {
+		t.Errorf("the rejected item is at %v, %v — the queue sends it back itself", read.Stage, err)
 	}
 
 	// Only one release exists: the rejection mints none, which is what makes a
@@ -293,5 +298,103 @@ func TestAMemberThatAlreadyHasAReleaseIsFinishedNotReverified(t *testing.T) {
 	}
 	if releases != 1 {
 		t.Errorf("the item has %d releases, and one merge is one number", releases)
+	}
+}
+
+// TestAnUnreliableCriterionTeachesTheScoreNothing: a failure that repeats is
+// real, and what the score learns turns on the criterion and the two
+// compositions — an unreliable one teaches nothing, which the rejection reports
+// on itself and on the log row for the score to read.
+func TestAnUnreliableCriterionTeachesTheScoreNothing(t *testing.T) {
+	repo := newRepository()
+	ctx, pool, token, q := newQueue(t, mergequeue.Composition{
+		Repository: repo, Reliability: fakeReliability{"cr_a": true},
+	})
+	it := queued(ctx, t, pool, token, 1)
+	repo.verified[it.ID] = mergequeue.Verified{
+		Commit: "commit-one", BuildID: "bl_one", Why: "criterion cr_a failed",
+		FailedCriteria: []string{"cr_a"},
+	}
+	repo.confirmed[it.ID] = mergequeue.Confirmation{Repeated: []string{"cr_a"}}
+
+	pass, err := q.Run(ctx, serviceID)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	r := pass.Outcomes[0].Rejection
+	if !r.TeachesNothing {
+		t.Error("the rejection reports teaches nothing false, and the criterion is unreliable over these builds")
+	}
+
+	var payload mergequeue.RejectionPayload
+	found := false
+	for _, row := range readLog(t, ctx, pool, token) {
+		if row.Shape == decisionlog.ShapeQueueRejection {
+			if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+				t.Fatalf("reading the rejection payload: %v", err)
+			}
+			found = true
+		}
+	}
+	if !found || !payload.TeachesNothing {
+		t.Errorf("the row reports teaches nothing %v (found %v), want true", payload.TeachesNothing, found)
+	}
+}
+
+// TestAReliableCriterionTeachesTheScoreSomething is the other half: a factory
+// composed with no reader of the outcome history, [mergequeue.NoUnreliableCriterion],
+// never reports a repeated failure as teaching nothing.
+func TestAReliableCriterionTeachesTheScoreSomething(t *testing.T) {
+	repo := newRepository()
+	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo})
+	it := queued(ctx, t, pool, token, 1)
+	repo.verified[it.ID] = mergequeue.Verified{
+		Commit: "commit-one", BuildID: "bl_one", Why: "criterion cr_a failed",
+		FailedCriteria: []string{"cr_a"},
+	}
+	repo.confirmed[it.ID] = mergequeue.Confirmation{Repeated: []string{"cr_a"}}
+
+	pass, err := q.Run(ctx, serviceID)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if pass.Outcomes[0].Rejection.TeachesNothing {
+		t.Error("the rejection reports teaches nothing true with no reader of the outcome history composed")
+	}
+}
+
+// TestMembersExcludesAnItemThatAlreadyHasARelease: the membership is the items
+// whose fast-forward has not happened, and one that already has a release has
+// had its fast-forward happen whatever the caller's own advance to merged did.
+// [Queue.Members] is what a reader outside a run sees, and it does not list such
+// an item as still queued.
+func TestMembersExcludesAnItemThatAlreadyHasARelease(t *testing.T) {
+	repo := newRepository()
+	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo})
+	first := queued(ctx, t, pool, token, 1)
+	second := queued(ctx, t, pool, token, 2)
+
+	members, err := q.Members(ctx, serviceID)
+	if err != nil {
+		t.Fatalf("Members: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("Members before any release = %v, want both", ids(members))
+	}
+
+	// The state a failed advance leaves: a release for the first item, still at
+	// queued.
+	if _, err := release.NewWriter(pool, token).Mint(ctx, mergequeue.Actor, release.Minting{
+		ServiceID: serviceID, BuildID: "bl_one", Commit: "commit-one", ItemID: first.ID,
+	}); err != nil {
+		t.Fatalf("minting the release the advance did not follow: %v", err)
+	}
+
+	members, err = q.Members(ctx, serviceID)
+	if err != nil {
+		t.Fatalf("Members after the release: %v", err)
+	}
+	if len(members) != 1 || members[0].ID != second.ID {
+		t.Fatalf("Members = %v, want only %s — the first already has a release", ids(members), second.ID)
 	}
 }

@@ -38,7 +38,7 @@ type Reevaluated struct {
 // one open event however long the hold stood, and what keeps the score's join of
 // open row to close row free of unpaired rows.
 func (g *Gate) Reevaluate(ctx context.Context, opened Opened) (Reevaluated, error) {
-	standing, err := g.standingHolds(ctx, opened.Subject)
+	standing, _, err := g.standingHolds(ctx, opened.Subject)
 	if err != nil {
 		return Reevaluated{}, err
 	}

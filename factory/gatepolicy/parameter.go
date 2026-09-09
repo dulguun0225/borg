@@ -8,8 +8,8 @@ import (
 
 // Parameter is one value an owner may author, or one a safeguard binds without
 // anyone authoring it. Thirteen are authored across gate policy's eleven rows —
-// [Definitions] — thirty-one more are authored and are not among the eleven —
-// [NotAmongTheEleven] — and two are only ever a safeguard's, [SafeguardOnly].
+// [Definitions] — thirty-two more are authored and are not among the eleven —
+// [NotAmongTheEleven] — and four are only ever a safeguard's, [SafeguardOnly].
 type Parameter string
 
 const (
@@ -81,10 +81,16 @@ const (
 	// before the intent it raised pages. It is a field of the factory-wide settings
 	// record, keyed by [KeySeverity] and authored outright with nothing supplied.
 	RemediationPeriod Parameter = "remediation_period"
-	// ReportChannelRate is what bounds arrival at the way in, per service and
-	// factory-wide. It is a field of the factory-wide settings record, authored
-	// outright with nothing supplied.
+	// ReportChannelRate is what bounds arrival at the way in factory-wide. It is
+	// a field of the factory-wide settings record, authored outright with
+	// nothing supplied, and unauthored is unbounded.
 	ReportChannelRate Parameter = "report_channel_rate"
+	// ServiceReportChannelRate is the same bound for one service. The design
+	// gives the channel two rates, per service and factory-wide, so they are two
+	// parameters: one is a field of the factory-wide settings record with one
+	// value per record, the other a row of it keyed by the service, and a
+	// safeguard, a version and a re-derivation each name which of the two.
+	ServiceReportChannelRate Parameter = "service_report_channel_rate"
 	// HarmMarkPageCap is how many intents one service's reports marked as
 	// describing harm to a person may page per interval. It is a field of the
 	// factory-wide settings record, shipped with a default rather than supplied.
@@ -204,6 +210,18 @@ const (
 	// SnapshotRetention is how long a schema-change snapshot is kept. It is a
 	// field of the service record, authored outright with nothing supplied.
 	SnapshotRetention Parameter = "snapshot_retention"
+	// ServiceTargets is which of an environment's targets the service runs on,
+	// in the order a rollout reaches them. It is a field of the service record,
+	// authored outright with nothing supplied.
+	ServiceTargets Parameter = "service_targets"
+	// ProductLicence is the licence the service's own product is under. It is a
+	// field of the service record, authored outright with nothing supplied.
+	ProductLicence Parameter = "product_licence"
+	// Seam5Enforced is whether seam 5 is enforced. It is a field of the
+	// factory-wide settings record: an owner turns it on once and nothing turns
+	// it off again, and a safeguard does not reach it — only a constraint of the
+	// document kind may require that it be turned on.
+	Seam5Enforced Parameter = "seam_5_enforced"
 )
 
 // Kind is what a parameter's value is, which decides how a safeguard clamps it and
@@ -221,6 +239,14 @@ const (
 	// kind because the scale is the feed's and not the factory's: nothing here
 	// bounds it above, where a fraction is bounded at one.
 	KindSeverity Kind = "severity"
+	// KindAbsolute is a number in the quantity's own unit — seconds for a
+	// latency quantile, a share for an error rate, a count for a hazardous
+	// operation. The explicit health threshold is the one parameter that takes
+	// it, and it takes it because an explicit threshold is absolute where the
+	// comparison is relative: a fraction cannot carry the number a latency
+	// quantile is read against. Nothing here bounds it above, the unit being the
+	// quantity's rather than the factory's.
+	KindAbsolute Kind = "absolute"
 	// KindList is a list of names, clamped by union.
 	KindList Kind = "list"
 	// KindRate is a number per unit, the unit being the parameter's own: currency
@@ -338,8 +364,12 @@ type Definition struct {
 	// reader holding the document open.
 	Limits string
 	// Unit is what the number means, for a printer and for an owner typing
-	// one. A parameter of KindList has none.
+	// one. A parameter of KindList has none. It is prose and no resolution
+	// reads it: what an unauthored parameter is in force at is [Unauthored].
 	Unit string
+	// Unauthored is the value in force where an owner authored none and the
+	// design fixes one rather than having the score supply it.
+	Unauthored Unauthored
 	// ReaderAtThisMilestone says which mechanism reads the value in force, and
 	// is empty for a parameter nothing reads yet. It is here so that a printer can
 	// say so rather than leaving an owner to discover that what they authored

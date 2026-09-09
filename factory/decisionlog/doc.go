@@ -170,7 +170,7 @@
 //
 // The wait's two rows and the three kinds of hold are
 // ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md
-// (C0965, C0974, C0976, C0977, C0978).
+// (C0965, C0974, C0975, C0976, C0977, C0978, C0979, C0980).
 //
 // The read event a reading of stored report text appends, which is what makes
 // who had already read the words answerable after a redaction, is
@@ -193,4 +193,16 @@
 //
 // The fencing token and the head-conditioned append are
 // ../../end-goal/one-process.md (C2746, C2748, C2749).
+//
+// The rework request row, its owner and defect, the reason field it shares
+// with the reject, a backstopping human's row, and the log writing it with
+// the author as actor are
+// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1015,
+// C1016, C1017, C1018).
+//
+// The wait's open row carrying the meeting component as actor, Pending being
+// open with neither close nor abandonment, and the human's load being two
+// reads of the log, are
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2644, C2645).
 package decisionlog

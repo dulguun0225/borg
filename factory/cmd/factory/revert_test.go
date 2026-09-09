@@ -45,6 +45,7 @@ func TestARevertARequestNamesPassesTheEvidenceOn(t *testing.T) {
 
 	revertItem, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: revert.ID, ServiceID: svc.ID, Branch: "item/revert",
+		RequirementsAnswered: oneRequirement,
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the revert item: %v", err)
@@ -61,6 +62,7 @@ func TestARevertARequestNamesPassesTheEvidenceOn(t *testing.T) {
 	// carries no evidence and is not a revert.
 	ordinary, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
 		IntentID: res.decompositions[0].intentID, ServiceID: svc.ID, Branch: "item/ordinary",
+		RequirementsAnswered: oneRequirement,
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the ordinary item: %v", err)

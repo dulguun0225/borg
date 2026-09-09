@@ -38,8 +38,12 @@ type Threshold struct {
 // fences it with token first, the arrangement [SetWindowSize] already has.
 func SetExplicitThreshold(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
 	serviceID string, quantity gatepolicy.Quantity, threshold, size float64) error {
-	if threshold < 0 || threshold > 1 {
-		return fmt.Errorf("%w: the threshold %v is between 0 and 1", ErrShareOutOfRange, threshold)
+	// The threshold is absolute where the comparison is relative: it is in the
+	// quantity's own unit, so a latency quantile's is seconds and nothing
+	// bounds it above. The size beside it is a share, as the size of the
+	// reading against a service's own recent history is.
+	if threshold < 0 {
+		return fmt.Errorf("%w: the threshold %v is not below nothing", ErrNotPositive, threshold)
 	}
 	if size <= 0 || size > 1 {
 		return fmt.Errorf("%w: the threshold's size %v is above 0 and at most 1", ErrShareOutOfRange, size)
@@ -126,13 +130,25 @@ func SetEnvironmentHourRate(ctx context.Context, tx pgx.Tx, serviceID string, ra
 // SetSearchBudget writes what a search may spend before it stops: a maximum
 // count of builds and a maximum total time production spends on them. Each build
 // the search deploys puts a build that passed no gate in front of real traffic,
-// which is what the budget bounds; a safeguard may lower it and never raise it.
-func SetSearchBudget(ctx context.Context, tx pgx.Tx, serviceID string, builds, seconds float64) error {
+// which is what the budget bounds; a component actor may lower either figure and
+// never raise it, and a human actor may set either figure either way.
+func SetSearchBudget(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, builds, seconds float64) error {
 	if builds <= 0 {
 		return fmt.Errorf("%w: the search budget's build count %v", ErrNotPositive, builds)
 	}
 	if seconds <= 0 {
 		return fmt.Errorf("%w: the search budget's time %v", ErrNotPositive, seconds)
+	}
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if err := enforceDirection(ctx, tx, actor, serviceID, `search_budget_builds`,
+		"the search budget's build count", LowerOnly, builds, nil); err != nil {
+		return err
+	}
+	if err := enforceDirection(ctx, tx, actor, serviceID, `search_budget_seconds`,
+		"the search budget's time", LowerOnly, seconds, nil); err != nil {
+		return err
 	}
 	tag, err := tx.Exec(ctx, `update `+Table+`
 		set search_budget_builds = $1, search_budget_seconds = $2 where id = $3`, builds, seconds, serviceID)

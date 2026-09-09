@@ -145,4 +145,6 @@ jobs:
         working-directory: factory/client
         run: npm run e2e
 
-      - run: go test -count=1 ./...
+      # cmd/factory's end-to-end suite runs past go test's default of ten
+      # minutes per package, so the bound is set where the run is.
+      - run: go test -count=1 -timeout 30m ./...

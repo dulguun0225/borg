@@ -261,6 +261,43 @@ func TestForCommitAnswersWhichBuildIsAlreadyThere(t *testing.T) {
 	}
 }
 
+// TestForServiceCommitAnswersEveryBuildOfOneCommitWhateverItsItem: the merge
+// queue's reading of master is compared against the builds the records hold
+// and not against one item's build alone, so the read is by service and
+// commit, any item included and none required.
+func TestForServiceCommitAnswersEveryBuildOfOneCommitWhateverItsItem(t *testing.T) {
+	ctx, pool, w := newTable(t)
+	const serviceID, otherServiceID, commit = "svc_a", "svc_b", "8bd35e6a5b0f1ee5f0f2f6f39c5d0f0f6a2b1c3d"
+
+	if found, err := build.ForServiceCommit(ctx, pool, serviceID, commit); err != nil || len(found) != 0 {
+		t.Fatalf("ForServiceCommit before anything was built = %v, %v", found, err)
+	}
+
+	first, err := w.Create(ctx, dispatch, draftOf("it_a", serviceID, commit))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	second, err := w.Create(ctx, dispatch, draftOf("it_b", serviceID, commit))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// A build of another service at the same commit is not this service's.
+	if _, err := w.Create(ctx, dispatch, draftOf("it_c", otherServiceID, commit)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	found, err := build.ForServiceCommit(ctx, pool, serviceID, commit)
+	if err != nil {
+		t.Fatalf("ForServiceCommit: %v", err)
+	}
+	if len(found) != 2 {
+		t.Fatalf("ForServiceCommit = %d builds, want the two of %s", len(found), serviceID)
+	}
+	if !reflect.DeepEqual(found[0], first) || !reflect.DeepEqual(found[1], second) {
+		t.Errorf("ForServiceCommit = %+v, want %+v then %+v, oldest first", found, first, second)
+	}
+}
+
 // TestTheExposureListIsStoredAndAnEmptyOneIsNotNothing: what the build runner
 // derived from its own checkout is on the record, and a build no extractor ran
 // for is told from a diff that reached nothing new. The two call for opposite

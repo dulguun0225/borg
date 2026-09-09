@@ -49,11 +49,11 @@ type Entry struct {
 	// of [fleetentry.MaterialClasses]. A class it does not name is withheld
 	// before the run and recorded on the manifest as excluded.
 	MaterialClasses []string
-	// Operations narrows [Role.Operations]. The operations belong to the role
-	// and an owner may narrow them on the entry, which is not built: the record
-	// holds no column for a narrowed list, so every entry read from it runs
-	// under the role's whole list, and [Role.Narrow] is what an owner's
-	// narrowing would go through once there is one to read.
+	// Operations is the role's list as this entry runs under it: the whole of
+	// it where the owner narrowed nothing, and the narrowing where they did.
+	// The operations belong to the role — the record holds what an owner left
+	// out and never a list of its own — and [Role.Narrow] is what refuses one
+	// that widens.
 	Operations []string
 }
 
@@ -142,6 +142,7 @@ func (d *Dispatch) entryFor(ctx context.Context, role Role, on On) (Entry, bool,
 		ProcessingLocation: stored.ProcessingLocation,
 		ReadsAtOnce:        stored.ReadsAtOnce,
 		MaterialClasses:    stored.MaterialClasses,
+		Operations:         stored.Operations,
 	}, true, nil
 }
 

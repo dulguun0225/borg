@@ -30,6 +30,11 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 		if row != gate.MergeToMaster {
 			firing.ArtifactID = ""
 		}
+		// Each event gate waits on the row above it approved, and the merge row
+		// on the candidate's run having ended.
+		above, _ := gate.RowAbove(row)
+		approvedAbove(t, ctx, pool, token, above, itemID)
+		firing.CandidateRunEnded = row == gate.MergeToMaster
 		opened, err := g.Fire(ctx, firing)
 		if err != nil {
 			t.Fatalf("Fire at %s for %s: %v", row, itemID, err)

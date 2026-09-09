@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
@@ -11,13 +14,39 @@ import (
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/safeguard"
 )
 
-// The three small values the composition supplies a component that decides
-// events: what an item's intent is in, whether the health monitor raised it,
-// and how a gate reaches a human. Each is here rather than in the package that
-// takes it because each follows a record from one to the next, which a
-// component that decides events does not do.
+// The small values the composition supplies a component that decides events:
+// where a safeguard's rows route, what an item's intent is in, whether the
+// health monitor raised it, and how a gate reaches a human. Each is here rather
+// than in the package that takes it because each follows a record from one to
+// the next, which a component that decides events does not do.
+
+// safeguardRouting is where the safeguards that applied at one firing say their
+// rows route, which is the read [gate.SafeguardRouting] names. It is the
+// composition's because a safeguard is package policy's record at Factory and
+// the gate writes no record of its own.
+//
+// The first safeguard naming either a duty or a human is taken: a row waits on
+// one holder or one duty, and an owner who placed two safeguards over one gate
+// gets the routing of the first the read returns rather than a row waiting on
+// two people at once.
+func (p *path) safeguardRouting(ctx context.Context, safeguardIDs []string) (gate.RoutedTo, error) {
+	placed, err := safeguard.All(ctx, p.d.pool)
+	if err != nil {
+		return gate.RoutedTo{}, err
+	}
+	for _, one := range placed {
+		if !slices.Contains(safeguardIDs, one.ID) {
+			continue
+		}
+		if one.Routing.Duty != 0 || one.Routing.HumanKey != "" {
+			return gate.RoutedTo{Duty: people.Duty(one.Routing.Duty), Human: one.Routing.HumanKey}, nil
+		}
+	}
+	return gate.RoutedTo{}, nil
+}
 
 // intentState is [gate.IntentState]: the state of the intent an item was
 // decomposed from, read before every firing on that item. It is a function the
@@ -86,6 +115,7 @@ func (p *path) pagedFiring(ctx context.Context, opened gate.Opened) error {
 	if p.notifier == nil || !opened.Pages() {
 		return nil
 	}
+	holding, person := whoTheRowWaitsOn(opened.WaitsOn)
 	wait := notifier.Wait{
 		Row:       opened.Row.ID,
 		Worse:     true,
@@ -94,23 +124,25 @@ func (p *path) pagedFiring(ctx context.Context, opened gate.Opened) error {
 		Waiting: fmt.Sprintf(
 			"%s waits on a human to decide the revert, and until they do master still holds the defect the rollback removed",
 			opened.Gate),
-		Holding: whoTheRowWaitsOn(opened.WaitsOn),
+		Holding: holding,
+		Person:  person,
 	}
 	_, err := p.notifier.Notify(ctx, wait)
 	return err
 }
 
-// whoTheRowWaitsOn is whose wait a paging gate row is: the duty the row belongs to,
-// which is the routing that showed the row in Work, and the zero value where the
-// row belongs to none — which the notifier routes to the owner, the same answer
-// a duty nobody holds gets. The production deploy row names no duty of its own,
-// so a revert decided there reaches the owner until a safeguard's routing or a
-// hold puts a duty on it.
-func whoTheRowWaitsOn(w gate.Waits) people.Holding {
+// whoTheRowWaitsOn is whose wait a paging gate row is: the duty the row
+// belongs to, which is the routing that showed the row in Work, the named
+// human a safeguard's routing gave it where it belongs to no duty, and both
+// zero where it belongs to neither — which the notifier routes to the owner,
+// the same answer a duty nobody holds gets. The production deploy row names
+// no duty of its own, so a revert decided there reaches the owner until a
+// safeguard's routing or a hold puts a duty or a named human on it.
+func whoTheRowWaitsOn(w gate.Waits) (people.Holding, string) {
 	if w.Duty != 0 {
-		return people.OfDuty(w.Duty)
+		return people.OfDuty(w.Duty), ""
 	}
-	return people.Holding{}
+	return people.Holding{}, w.Human
 }
 
 // gateNotifier is [gate.Notifier]: the one call a gate makes on the component
@@ -214,8 +246,23 @@ func (g dispatchNotifier) NearingASpendCeiling(ctx context.Context, credentialNa
 		Kind: notifier.KindSpendCeilingFraction,
 		Waiting: fmt.Sprintf("%s has spent %.2f %s of the %.2f %s ceiling authored on it, in the period beginning %s",
 			credentialName, spent, currency, ceiling, currency, periodStart),
+		Person: lenderOf(ctx, g.path.d.pool, credentialName),
 	})
 	return err
+}
+
+// lenderOf is the per-person key of whoever People records as having lent
+// credentialName, and empty where that person took it back or where nobody
+// has lent one yet — the notice then reaching the owner, the same as a page
+// about a credential already widens to. A read this call cannot make is not
+// this notice's error to report: the ceiling is still delivered, to the
+// owner.
+func lenderOf(ctx context.Context, pool *pgxpool.Pool, credentialName string) string {
+	credential, found, err := people.CredentialNamed(ctx, pool, credentialName)
+	if err != nil || !found || !credential.Lent() {
+		return ""
+	}
+	return credential.Key
 }
 
 // intakeNotifier is [intent.Notifier]: the three calls intake makes on the
@@ -231,9 +278,10 @@ type intakeNotifier struct {
 	path *path
 }
 
-// Interviewed is the wait a question of the interview leaves. It routes to the
-// duty that answers the interview, and it pages nobody: an owner's silence
-// there consumes no compute, and nothing deployed is worse for it.
+// Interviewed is the wait a question of the interview leaves. It reaches the
+// requester where the intent has one, and whoever answers the interview
+// otherwise, and it pages nobody: an owner's silence there consumes no
+// compute, and nothing deployed is worse for it.
 func (n intakeNotifier) Interviewed(ctx context.Context, intentID, questionID, question string) error {
 	if n.notifier == nil {
 		return nil
@@ -243,15 +291,17 @@ func (n intakeNotifier) Interviewed(ctx context.Context, intentID, questionID, q
 		Kind:    notifier.KindInterview,
 		Waiting: fmt.Sprintf("the factory asks about intent %s: %s", intentID, question),
 		Holding: people.OfDuty(answerTheInterview),
+		Person:  requesterOf(ctx, n.path, intentID),
 	})
 	return err
 }
 
 // AcceptanceRound is the wait the round that follows production leaves. It
-// routes where a round of the interview does, which is the routing the design
-// gives it, and it pages nobody: everything the intent asked for is live and
-// nothing about the software is wrong, so what waits is a verdict and not a
-// repair.
+// routes where a round of the interview does — the requester where the
+// intent has one, and whoever answers the interview otherwise — which is the
+// routing the design gives it, and it pages nobody: everything the intent
+// asked for is live and nothing about the software is wrong, so what waits
+// is a verdict and not a repair.
 func (n intakeNotifier) AcceptanceRound(ctx context.Context, intentID, questionID, question string) error {
 	if n.notifier == nil {
 		return nil
@@ -261,8 +311,26 @@ func (n intakeNotifier) AcceptanceRound(ctx context.Context, intentID, questionI
 		Kind:    notifier.KindInterview,
 		Waiting: fmt.Sprintf("the factory asks whether intent %s had the effect it was for: %s", intentID, question),
 		Holding: people.OfDuty(answerTheInterview),
+		Person:  requesterOf(ctx, n.path, intentID),
 	})
 	return err
+}
+
+// requesterOf is the per-person key of the intent's requester — an owner's
+// request, and the actor that made it a human — and empty where the intent
+// has none: one the factory raised, one grouped from reports, whose reporter
+// is reachable by nothing, or one this read cannot find. A raiser with no
+// path to read the intent through, [intakeNotifier.Escalated]'s callers
+// before path composed one, answers empty the same way.
+func requesterOf(ctx context.Context, p *path, intentID string) string {
+	if p == nil {
+		return ""
+	}
+	in, err := intent.Get(ctx, p.d.pool, intentID)
+	if err != nil || in.Source != intent.SourceOwner || in.Actor.Kind != record.KindHuman {
+		return ""
+	}
+	return in.Actor.Key
 }
 
 // Escalated is the wait an intent that exceeded the attempt limit leaves, which

@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
 )
 
@@ -37,9 +38,10 @@ var ErrNoDeployer = errors.New("policy: retiring a service calls the deployer, a
 // At the milestone that builds the four screens, Factory the screen is what
 // calls this; until then the command-line interface does.
 type Factory struct {
-	pool  *pgxpool.Pool
-	token lease.Token
-	log   *decisionlog.Writer
+	pool       *pgxpool.Pool
+	token      lease.Token
+	log        *decisionlog.Writer
+	safeguards *safeguard.Writer
 
 	// Declaration is the People declaration in force, supplied by whatever
 	// composes the factory: every version names it by per-person key, and this
@@ -52,6 +54,8 @@ type Factory struct {
 	// Removal is what the deployer performs when a service is retired: it ends
 	// every instance of the service on every target of every persistent
 	// environment and writes a deploy record per environment naming no release.
+	// p is the owner whose write called for it, carried through to the seam the
+	// removal reaches rather than replaced there by the deployer's own name.
 	// environmentID bounds it to one environment, which is the same removal
 	// performed for that one and what an owner has done before an environment
 	// may be withdrawn; empty is every persistent environment, which is what a
@@ -61,7 +65,7 @@ type Factory struct {
 	// retirement with [ErrNoDeployer]: the design has the write call the
 	// deployer, so retiring through a factory with none composed would write
 	// retired and leave the service running.
-	Removal func(ctx context.Context, serviceID, environmentID string) error
+	Removal func(ctx context.Context, p principal.Principal, serviceID, environmentID string) error
 
 	// AutoPassRates is the realized auto-pass rate at a threshold, one per
 	// factor set, computed in the same call that appends the version and frozen
@@ -74,11 +78,19 @@ type Factory struct {
 
 // NewFactory returns the writer over pool, fencing every write with token.
 func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory {
-	return &Factory{pool: pool, token: token, log: decisionlog.NewWriter(pool, token)}
+	return &Factory{
+		pool: pool, token: token,
+		log:        decisionlog.NewWriter(pool, token),
+		safeguards: safeguard.NewWriter(pool, token),
+	}
 }
 
-// Created is what a write that creates a record hands back to the version that
-// names it: the scope the record is, and the id where the record is a
+// Created is the ids Factory mints for a write that creates a record, so the
+// version can name each of them before the record exists: the log appends the
+// version first and Factory writes the record second, which is only possible
+// where the id is not the record writer's to choose. Scope is the record a
+// creation's version names — the factory-wide settings record, a project, an
+// environment, an area — and the rest are the id where the record is a
 // safeguard, a halt, a legal hold, a withdrawal of one, a redaction, or a
 // shortening of decision-log retention written pending.
 type Created struct {
@@ -107,12 +119,17 @@ type write struct {
 	// parameter and set it false.
 	authored bool
 
-	// mint runs before the version is appended, for a write whose version names
-	// a record its own writer mints the id of. apply runs after the version, for
-	// every write that authors a field on a record that already exists: the log
-	// appends the version first and Factory writes the field second. Both run in
-	// the one transaction, so neither can be left without the other.
-	mint  func(ctx context.Context, tx pgx.Tx) (Created, error)
+	// minted is the ids this write hands the version for the records it is
+	// about to create, minted here rather than by the writers of those records:
+	// the version names them and the version is appended first.
+	minted Created
+
+	// apply is the record write, and it runs after the version is appended: the
+	// log appends the trail's copy first and Factory writes the value in force
+	// second, so a stop between them leaves a version naming what nothing yet
+	// reads rather than a value in force that no version records. It runs in
+	// the transaction the version was appended in, so neither can be left
+	// without the other.
 	apply func(ctx context.Context, tx pgx.Tx) error
 
 	// dropSafeguard, dropHalt and dropLegalHold are what an approved withdrawal
@@ -178,7 +195,11 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 	key := writeKey(w.caller, w.actor, w.action, w.parameter, w.scope, w.number, w.list,
 		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold+w.shortening+
 			w.confirmsScoreVersion+w.decision)
-	if w.mint == nil && previous.Key != "" && previous.Key == key {
+	// Every write is keyed, a creation included: the ids the version names are
+	// minted here and are not in the key, so a step taken again derives the key
+	// the version in force already carries and writes neither a second version
+	// nor a second record.
+	if previous.Key != "" && previous.Key == key {
 		return previous, nil
 	}
 
@@ -219,11 +240,7 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		ConfirmsScoreVersion: w.confirmsScoreVersion, Decision: w.decision,
 		Refusal: w.refusal,
 	}
-	if w.mint != nil {
-		created, err := w.mint(ctx, tx)
-		if err != nil {
-			return Version{}, err
-		}
+	if created := w.minted; created != (Created{}) {
 		if created.Scope.Kind != "" {
 			version.Scope = created.Scope
 		}

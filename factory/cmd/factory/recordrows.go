@@ -182,6 +182,18 @@ func (c *calls) decideRolePrompt(ctx context.Context, actor record.Actor, args s
 	// log's close events, so a decision written here is in force at the next
 	// read rather than at the next start.
 	c.p.prompts.forget()
+	// A version entering force is one of the records the design has dispatch
+	// re-match on, so the stages whose role had none are re-matched here, where
+	// the decision that put it in force is written. Nothing polls: a hold left
+	// to the next unrelated dispatch would outlive its condition.
+	lifted, err := c.p.dispatch.RematchOnRolePromptInForce(ctx)
+	if err != nil {
+		return err
+	}
+	if len(lifted) > 0 {
+		fmt.Fprintf(c.p.d.out, "The role prompt version in force lifted %d hold(s)\n", len(lifted))
+		c.changed("work", listAddressID)
+	}
 	c.changed("factory", listAddressID)
 	c.changed("home", listAddressID)
 	return nil

@@ -214,11 +214,11 @@ type ModelCost struct {
 // them — the services serving a way in older than this factory's, and the
 // services whose project has no notice for the way in to show.
 //
-// Refused and UnreadableShape are counters the report store keeps, and every
-// other number on this screen is a query at read time. They have to be: the
-// record a query would count is the write the rate exists to refuse. What
-// that costs is that a lost counter is lost, where Ungrouped is derived from
-// the reports again.
+// Refused is the one counter the report store keeps, and every other number
+// on this screen is a query at read time. It has to be: the record a query
+// would count is the write the rate exists to refuse. What that costs is
+// that a lost counter is lost, where Ungrouped is derived from the reports
+// again.
 type ReportChannel struct {
 	Ungrouped int64
 	// RefusedOverTheChannel is the refusals made against no service: a
@@ -236,9 +236,6 @@ type ServiceReportCounts struct {
 	ServiceID   string
 	ServiceName string
 	Refused     int64
-	// UnreadableShape is the submissions written under a shape the store does
-	// not read, which only a factory returned to an earlier release can meet.
-	UnreadableShape int64
 	// NoNoticeInForce is whether the project this service lies in has no
 	// notice, which is what the way in shows before a submission.
 	NoNoticeInForce bool

@@ -88,9 +88,17 @@
 // ../../end-goal/how-the-factory-works/07-contracts/02-no-single-item-may-break-a-contract.md
 // (C1775); the deprecation mark being derived from the build and minting a
 // minor is ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md
-// (C1830, C1831, C1832); the unit belonging to an element's name is
+// (C1829, C1830, C1832); the unit belonging to an element's name is
 // ../../end-goal/how-the-factory-works/07-contracts/05-what-a-diff-cannot-see.md
 // (C1788, C1789); and a version minted for a release naming no item is
 // ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
 // (C1614).
+//
+// What a release publishes, read as the release's inbound edge, is
+// ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md
+// (C1636).
+//
+// One contract per service, written only at its releases, is
+// ../../end-goal/how-the-factory-works/07-contracts/07-who-owns-a-contract.md
+// (C1824).
 package contract

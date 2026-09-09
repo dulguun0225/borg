@@ -4,11 +4,14 @@
 //
 // # The code
 //
-// factory.go is [Factory] and [NewFactory], the [Created] a write that mints a
-// record hands its version, and the one write path every method below takes:
-// the version in force is read, the write's key derived, and the version and
-// the record write put in one fenced transaction. A write whose key is the one
-// the version in force already carries writes nothing. [Factory.Declaration],
+// factory.go is [Factory] and [NewFactory], the [Created] ids Factory mints for
+// a write that creates a record, and the one write path every method below
+// takes: the version in force is read, the write's key derived, and the version
+// and the record write put in one fenced transaction, the version first. A
+// write whose key is the one the version in force already carries writes
+// nothing, a creation included — which is what the minted id is for, a record
+// writer that chose its own id being unable to hand it to a version already
+// appended. [Factory.Declaration],
 // [Factory.AutoPassRates] and [Factory.Removal] are the three functions the
 // composition supplies, for what this package may not read and may not reach —
 // a retirement through a factory composed with no deployer is [ErrNoDeployer].
@@ -26,7 +29,8 @@
 // event, [Factory.EndProject], which ends the two in one write once every
 // service in the project is retired, [Factory.CreateEnvironment],
 // [Factory.RemoveFromEnvironment], which performs the deployer's removal for one
-// environment and writes no record here,
+// environment, writes no record here and appends a version that authors
+// nothing,
 // [Factory.WithdrawEnvironment], [Factory.SetMaxConcurrentCandidateEnvironments],
 // [Factory.AuthorStrategyDefault] and [Factory.DeclareArea].
 // parameters.go is the thirteen parameters of gate policy's eleven rows, one
@@ -55,11 +59,14 @@
 // key redaction.Key derives is what a step taken again is recognised by —
 // this write finds the record the first performance wrote and appends
 // nothing. It is refused while a legal hold reaches the target, half of that
-// reading being the caller's, and [Factory.RecordRedactionRefusal] beside it
-// is what records that refusal: a version naming the target and why, with no
-// erasure-list row and no redaction record, which is the one write here that
-// performs nothing. people.go is [Factory.AppendPeopleVersion], the
-// append a write at People calls for.
+// reading being the caller's, and this same call records the refusal: a
+// version naming the target and why, with no erasure-list row and no
+// redaction record, which is the one write here that performs nothing.
+// [Factory.RecordRedactionRefusal] is the same write for a caller whose own,
+// narrower reading refuses an erasure before any erasure-list row has landed —
+// [Factory.WriteRedaction] cannot make it there, because calling it would
+// perform the redaction that row is meant to precede. people.go is
+// [Factory.AppendPeopleVersion], the append a write at People calls for.
 //
 // Four of those writes are decided at a gate row rather than authored — the
 // three withdrawals' approvals and the shortening of decision-log retention —
@@ -70,29 +77,42 @@
 //
 // rederive.go is [Factory.Rederive] and [Rederived]: the factory's start
 // rewrites every authored field the newest version names that does not hold
-// what it names, and appends no version. It re-derives the values whose
-// parameter package gatepolicy names; a field a version names by key and no
-// parameter is left as it stands. A write that sets a second value beside the
-// first — the objective and its period, the paging hours, the operation cap and
-// its overflow, the search budget's two numbers, and a change freeze period —
-// is one of those: re-deriving one number of a pair would leave the record in a
-// state its own CHECK refuses.
+// what it names, and appends no version. Every field a version names is
+// re-derived. A write that sets a second value beside the first — the objective
+// and its period, the paging hours, the operation cap and its overflow, the
+// search budget's two numbers, the page cap and its interval — names both on
+// the version, the first as the number and the rest as the list, so the pair is
+// written together: one number of a pair written alone would leave the record
+// in a state its own CHECK refuses. The People declaration a version names is
+// re-derived by package people, the direction between the two being People to
+// here.
 //
 // reader.go is [Reader], [NewReader] and [Subjects], the records a read is
 // performed against. A [Reader] holds one [score.Version] rather than reading
 // the newest at each answer, so every value one gate firing reads comes from
 // the version its own decision row names. effective.go is [Effective], one
-// parameter as it is in force: what an owner authored, what the score supplies
-// where the field is empty, and every safeguard reaching the subject clamping
-// the result, in that order. source.go is [Source] — [FromAuthored],
-// [FromSupplied], [FromNothing], and [FromFactory] for the list of allowed
-// predicate kinds, the one parameter with a fourth read under the other three.
+// parameter as it is in force: what an owner authored, the value the design
+// fixes where the field is empty, what the score supplies where the design
+// fixes none, and the newest safeguard on each subject clamping the result, in
+// that order. Decision-log retention takes one read more, the retention floor
+// no authored value and no safeguard may take it under. source.go is [Source] —
+// [FromAuthored], [FromSupplied], [FromNothing], and [FromFactory] for a value
+// the design fixes rather than has the score supply.
 //
 // gate.go is [Reader.AtGate], [RolePromptOrSkillRow] and [Applied], what a gate
 // firing writes onto its open event, carrying the threshold — read from the
 // environment record per row, or from the factory-wide settings record at the
 // one row with no environment — whether a safeguard adds a human, and the
-// score version in force at that row — the newest where nobody authored a
+// score version in force at that row. Which environment record is the row's is
+// read off the record's own kind: a deploy row into a persistent environment
+// reads the environment it deploys into and every other row reads production's,
+// a candidate's own environment being created at the gate that decides its
+// deploy and so unable to hold the threshold that decides it. The policy
+// version is named for the trail and never what the threshold is read from,
+// but a version is what that name can point at: [Factory.Install] guarantees
+// one stands before any firing, every path able to fire a gate installing
+// first, so [Reader.AtGate] refuses [ErrNoVersion] rather than naming none. The
+// score version in force at the row is the newest where nobody authored a
 // threshold there, and the last one confirmed at the scope where somebody did.
 // A firing computes its vector under [Applied.ScoreVersion], package gate
 // reading that version back and assessing under it, so the vector, the number
@@ -122,7 +142,8 @@
 // is appended by the log's own writer, this package being one of its callers.
 //
 // What defines it: the eleven rows, the scope of each, the score supplying what
-// an owner does not, a safeguard being a bound, the version as a row of the
+// an owner does not, a safeguard being a bound and the newest record for a
+// subject being the one in force, the version as a row of the
 // log, the order of the two writes and the re-derivation at the start are
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
 // (C2199, C2200, C2201, C2202, C2203, C2206, C2207, C2208, C2209, C2210, C2213,
@@ -148,7 +169,7 @@
 //
 // The legal hold is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/03-a-legal-hold.md
-// (C2322, C2325), and the halt is
+// (C2322, C2325, C2326), and the halt is
 // ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
 // (C2332, C2334, C2335, C2336, C2350, C2351, C2352).
 //
@@ -165,4 +186,11 @@
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
 // (C2572, C2612, C2614, C2615, C2618, C2619, C2643, C2663, C2664, C2665, C2666,
 // C2668).
+//
+// The policy version freezing the realized rate is
+// ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md
+// (C1293).
+//
+// [Factory.Rederive] rewriting fields the newest version names is
+// ../../end-goal/one-process.md (C2766).
 package policy

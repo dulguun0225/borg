@@ -53,10 +53,9 @@ const (
 // at once. A stale-component mismatch names the component whose last check is
 // past the interval it promised, and the service it holds: the health monitor's
 // record is per service and holds that service's production deploys, and the
-// deployer's is per target of an environment and holds that environment's, which
-// is one row per service in it naming the target as well. It names no service
-// where the stopped component reaches no deploy, which is the stopped raise
-// holding nothing.
+// deployer's is per production environment and holds that environment's, which
+// is one row per service in it. It names no service where the stopped component
+// reaches no deploy, which is the stopped raise holding nothing.
 const (
 	MismatchKindTarget         = "target"
 	MismatchKindChain          = "chain"
@@ -138,6 +137,11 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 //
 // cleared_together is what keeps a cleared mismatch from being half cleared: the
 // time and the human arrive together, and a mismatch with one of them is refused.
+// cleared_why is what that human wrote down — clearing it is the record of the
+// manual act and the only record there is, so this is the whole of what a later
+// reader gets, and [Writer.Clear] refuses an empty one with
+// [ErrClearedWhyEmpty]. It arrives together with the other two, which
+// cleared_together enforces alongside them.
 // later_agreements counts the passes that agreed after the mismatch was written, so a
 // human clearing one can see whether the disagreement persisted.
 //
@@ -180,6 +184,7 @@ var DDL = []string{
 	later_agreements int not null,
 	cleared_at text not null,
 	cleared_by text not null,
+	cleared_why text not null default '',
 	` + record.Constraints + `,
 	constraint mismatch_kind_known check (kind in ('` + MismatchKindTarget + `', '` + MismatchKindChain + `',
 		'` + MismatchKindStaleComponent + `')),
@@ -197,6 +202,11 @@ var DDL = []string{
 	constraint cleared_together check ((cleared_at <> '') = (cleared_by <> '')),
 	constraint cleared_at_is_time_layout check (cleared_at = '' or cleared_at ~ '` + record.TimePattern + `')
 )`,
+
+	// A store this package already applied before cleared_why existed has the
+	// table without the column; this is the same statement a fresh create
+	// already carries, added rather than assumed, so both paths agree.
+	`alter table ` + MismatchTable + ` add column if not exists cleared_why text not null default ''`,
 
 	`create table if not exists ` + LastCheckTable + ` (
 	` + record.Columns + `,

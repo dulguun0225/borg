@@ -1,11 +1,15 @@
 package healthmonitor
 
 import (
+	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/lastcheck"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/window"
 )
 
@@ -18,10 +22,13 @@ import (
 // combined share and no more.
 const PooledOperation = "pooled"
 
-// EmissionShape is one version of what the software the factory writes emits:
-// the names on a record, the outcome set, the interval resolution, the histogram
-// boundaries and the quantile, and — which is what the health monitor reads off
-// it — the quantities a series at that version carries.
+// EmissionShape is one version of what the software the factory writes emits
+// and what the store keeps: the names on a record, the outcome set, the
+// interval resolution, the histogram boundaries and the quantile, the failure
+// record's key set, and the unfinished deadline are one shape, carried here
+// together rather than the quantity list alone — which is, among them, what
+// the health monitor reads off it as the quantities a series at that version
+// carries.
 //
 // A build emits the version the factory that built it ships, so a service moves
 // to a new version on its next build and never by an item raised for the
@@ -29,9 +36,42 @@ const PooledOperation = "pooled"
 // comparison whose arms differ in version is read over the quantities both
 // carry.
 type EmissionShape struct {
-	Version    string
+	Version string
+	// Names is the names on a record at this version, in the order the record
+	// carries them.
+	Names []string
+	// Quantities is the quantities a series at this version carries.
 	Quantities []gatepolicy.Quantity
+	// OutcomeSet is every outcome the store itself adds to whatever the software
+	// names, unfinished among them — the software's own outcomes are open-ended
+	// and not part of this shape.
+	OutcomeSet []string
+	// IntervalResolution is the width of the interval the store assigns a record
+	// to, and zero at a version whose records carry no time to assign one by.
+	IntervalResolution time.Duration
+	// HistogramBoundaries is the latency histogram's own bucket edges in
+	// seconds, and Quantile is which quantile the software reports against
+	// them — both fixed at this version. The share of completions at or past
+	// the bucket the quantile currently falls in is data the traffic decides,
+	// so it arrives per read on [Series.LatencyBucketShare] rather than living
+	// here; this platform's own store does not yet keep a histogram, so both
+	// are empty on every version it has shipped.
+	HistogramBoundaries []float64
+	Quantile            float64
+	// FailureRecordKeySet is the field names composing a failure record's key
+	// at this version — [FailureRecord]'s own fields but the count.
+	FailureRecordKeySet []string
+	// UnfinishedDeadline is how long after an interval ends before an arrival
+	// with no completion counted against it is unfinished, and zero at a
+	// version whose records carry no time to hold a deadline against.
+	UnfinishedDeadline time.Duration
 }
+
+// failureRecordKeySet is [FailureRecord]'s own fields but the count, which
+// every version shares: the shape a version adds to is the record the store
+// keeps, and the incident's copy is this package's own and does not move with
+// it.
+var failureRecordKeySet = []string{"interval", "service", "failure_class", "code_location", "target", "build_id", "deploy_id"}
 
 // EmissionShapes is every emission version the factory has shipped, oldest
 // first. A version adds a name or a quantity beside what the version before
@@ -40,37 +80,57 @@ type EmissionShape struct {
 // removal and a version of its own.
 var EmissionShapes = []EmissionShape{{
 	Version: "emission/1",
+	// One line per unit of work, the outcome and nothing else: there is no time
+	// to assign a record to an interval by, so it carries one interval per unit
+	// of work and no resolution or deadline of its own.
+	Names:      []string{"outcome"},
+	OutcomeSet: []string{"unfinished"},
 	Quantities: []gatepolicy.Quantity{
 		gatepolicy.QuantityRequestRate, gatepolicy.QuantityErrorRate,
 		gatepolicy.QuantityLatency, gatepolicy.QuantityHazardousOperation,
 	},
+	FailureRecordKeySet: failureRecordKeySet,
 }, {
 	// The second adds the time of each unit of work, which is what the store
 	// assigns a record to an interval by. It is an addition and not a removal:
 	// the quantities are the same four, and a series kept at the version before
 	// is read as it was — one interval per unit of work, which is all a record
 	// with no time in it distinguishes.
-	Version: "emission/2",
+	Version:    "emission/2",
+	Names:      []string{"time", "outcome"},
+	OutcomeSet: []string{"unfinished"},
 	Quantities: []gatepolicy.Quantity{
 		gatepolicy.QuantityRequestRate, gatepolicy.QuantityErrorRate,
 		gatepolicy.QuantityLatency, gatepolicy.QuantityHazardousOperation,
 	},
+	IntervalResolution:  50 * time.Millisecond,
+	FailureRecordKeySet: failureRecordKeySet,
 }}
 
-// QuantitiesAt is what a series at one emission version carries, and false for a
-// version this factory never shipped — which is a series it cannot read.
-func QuantitiesAt(version string) ([]gatepolicy.Quantity, bool) {
+// ShapeAt is the whole versioned shape a series at one emission version
+// carries, and false for a version this factory never shipped — which is a
+// series it cannot read.
+func ShapeAt(version string) (EmissionShape, bool) {
 	for _, shape := range EmissionShapes {
 		if shape.Version == version {
-			return shape.Quantities, true
+			return shape, true
 		}
 	}
-	return nil, false
+	return EmissionShape{}, false
+}
+
+// QuantitiesAt is [ShapeAt]'s own quantities, which is the one part of the
+// shape a comparison across two versions is read over.
+func QuantitiesAt(version string) ([]gatepolicy.Quantity, bool) {
+	shape, known := ShapeAt(version)
+	return shape.Quantities, known
 }
 
 // ReadableAcross is the quantities both arms carry, and the quantities the newer
 // arm alone carries, which the window records as outside its set for that
-// reason. Where the two versions are equal the second list is empty.
+// reason. Where the two versions are equal the second list is empty. A version
+// naming no shape at all — the table [ShapeAt] reads lacking it — refuses the
+// read rather than answering with the quantity list alone.
 func ReadableAcross(release, baseline string) (both, outside []gatepolicy.Quantity, err error) {
 	ofRelease, known := QuantitiesAt(release)
 	if !known {
@@ -144,6 +204,71 @@ type Evaluated struct {
 	// whose newest record is older than the interval that check carries is read
 	// as no volume and never as a low one.
 	Newest string
+}
+
+// asRead is one read of the emission held to the rule the health monitor reads
+// the store by: a read whose newest record is older than the interval this
+// service's last check carries is no volume, and never a low one. It is what
+// every read of the emission in this package passes through, so the rule is in
+// one place rather than at four call sites able to disagree.
+//
+// What it costs is one read of the last check per series read, which is a
+// single row by its unique key beside a read of the store the emission keeps.
+func (h *HealthMonitor) asRead(ctx context.Context, serviceID string, series Series) (Series, error) {
+	interval, err := h.staleAfter(ctx, serviceID)
+	if err != nil {
+		return Series{}, err
+	}
+	return readAsNoVolume(series, interval, time.Now())
+}
+
+// staleAfter is how old the newest record a read carries may be before that
+// read is no volume: the interval the health monitor's own last check for this
+// service carries, which is the interval it promised its next pass within, and
+// the pass interval it is composed with where no last check has been written
+// yet.
+//
+// Nothing is held to an age where neither names an interval. An age against no
+// interval is not a reading, and a health monitor composed without one would
+// otherwise read every store as stopped.
+func (h *HealthMonitor) staleAfter(ctx context.Context, serviceID string) (time.Duration, error) {
+	check, found, err := lastcheck.Get(ctx, h.pool, lastcheck.ComponentHealthMonitor, serviceID)
+	if err != nil {
+		return 0, err
+	}
+	if found && check.Interval > 0 {
+		return check.Interval, nil
+	}
+	return h.readings.PassInterval, nil
+}
+
+// readAsNoVolume is one read with its series dropped where the newest record
+// the store holds for it is older than interval at now: the store stopped
+// keeping records, or the service went quiet, and either is no volume rather
+// than a low one. A window over no volume cannot pass, where a low volume read
+// on stale records would let one close on evidence nothing produced.
+//
+// The newest time survives the drop, that being what the pass writes onto its
+// last check whatever it read.
+//
+// A read naming no newest record at all is left as it is: an emission that
+// records no time per unit of work cannot be held to an age, and one that
+// carries a time this factory cannot read is an error rather than a silent no
+// volume.
+func readAsNoVolume(series Series, interval time.Duration, now time.Time) (Series, error) {
+	if interval <= 0 || series.Newest == "" {
+		return series, nil
+	}
+	newest, err := record.ParseTime(series.Newest)
+	if err != nil {
+		return Series{}, fmt.Errorf("healthmonitor: reading %q, the newest time the store holds a record for: %w",
+			series.Newest, err)
+	}
+	if now.Sub(newest) <= interval {
+		return series, nil
+	}
+	series.Operations = nil
+	return series, nil
 }
 
 // CrossingKind is which of the three readings crossed. An incident names it,

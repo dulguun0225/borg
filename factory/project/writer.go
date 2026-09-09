@@ -65,7 +65,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name string) (P
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	p, err := Insert(ctx, tx, w.token, actor, name)
+	p, err := Insert(ctx, tx, w.token, actor, record.NewID(IDPrefix), name)
 	if err != nil {
 		return Project{}, err
 	}
@@ -77,10 +77,12 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, name string) (P
 
 // Insert writes a project inside tx, fencing it with token first. Its caller is
 // package policy, which writes production's environment in the same
-// transaction. A name already taken is refused by the store's unique constraint
+// transaction and mints id: the policy version names the project and is
+// appended before it. A name already taken is refused by the store's unique constraint
 // and not by a pre-check here, a pre-check and an insert being two statements a
 // second creation can interleave.
-func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, name string) (Project, error) {
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	id, name string) (Project, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Project{}, err
 	}
@@ -91,7 +93,7 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 		return Project{}, ErrNameEmpty
 	}
 
-	p := Project{ID: record.NewID(IDPrefix), Actor: actor, At: record.Now(), Name: name}
+	p := Project{ID: id, Actor: actor, At: record.Now(), Name: name}
 	_, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, name, ended_at)
 		values ($1, $2, $3, $4, $5, $6, $7, '')`,

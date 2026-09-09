@@ -48,7 +48,10 @@
 # run, a candidate's store, and a backfill's completion — that a package test
 # has no repository, no process, and no deploy target for. It also names
 # targetseam, because completing a deploy target the way the deployer would is
-# what its fixtures ship a release through. postgres names record for one call
+# what its fixtures ship a release through. deploy's names wayin for one
+# assertion and no behaviour: the deployer hands the way-in token to the
+# service in its configuration under a name it spells itself, and the test that
+# the two spellings agree is the one place the two packages meet. postgres names record for one call
 # and no table: the schema history it keeps of itself writes its rows with the
 # same timestamp every record in the store is written with.
 #
@@ -168,7 +171,11 @@
 # write, and reads every version back through the log's reader. It imports score
 # for the value the score supplies where an owner authored nothing. It imports
 # project because the write that creates one writes production's environment in
-# the same event, an owner's request naming the project by name alone.
+# the same event, an owner's request naming the project by name alone. Its
+# test line adds erasurelist for the same reason redaction's does:
+# WriteRedaction takes appendErasure from its caller and only hands it on, so
+# its own tests build one the plain way, over a temporary file, to write a
+# redaction that needs one.
 #
 # mergequeue imports gate because the shape of a decision's two payloads is
 # gate's: the queue's order is the time of the merge approval in the log, and a
@@ -408,6 +415,17 @@
 # tx-taking insert inside the transaction that appends the policy version,
 # the arrangement halt, legalhold and safeguard already have.
 #
+# redaction imports no erasure-list package of its own: [Insert] takes an
+# appendErasure function from its caller and calls that, rather than reaching
+# for the list itself, so the one writer stays reportstore's AppendErasure —
+# package policy's WriteRedaction hands the function through unchanged, and
+# cmd/factory's own erasure hands it that store's method. Its test line adds
+# erasurelist: the package's own tests build the same appendErasure as a plain
+# call to erasurelist.Append over a temporary file — the call
+# reportstore.AppendErasure itself makes — and read the row back to check
+# that it lands before the record and carries the same key, which needs a
+# database and a file at once and is why the edge is test-only.
+#
 # cmd/factory -> erasurelist is a read and never a write: the report store is
 # the list's one writer and this composition appends through it, but People
 # holds no reader of its own, so serve reads the rows naming a mapping and
@@ -470,6 +488,22 @@
 # names decides whether an arriving report attaches to it or raises a
 # recurrence, and that state is a field of the intent record read the way every
 # other reader reads it.
+#
+# item -> deploy and item -> release are one reading and no write: an item is
+# live when a production deploy record names its release — as the one it
+# deployed, or in the list a revert's deploy delivered — and marks it complete
+# on every production target. Whether an item is live is a fact about the item,
+# so the rule is kept beside the record it is about; the deploy record is
+# deploy's and the release an item shipped in is release's, which names the
+# item in a column and imports nothing here. The two writers of the item stay
+# decomposition and dispatch, and neither edge reaches a writer.
+#
+# incident -> item and incident -> service are one reading and no write, the
+# same shape as the pair above: OverdueItems reads which items were decomposed
+# from the intent an incident raised, over item.ForIntent, and reads the
+# incident-item bound in force off the service each incident names, over
+# service.IncidentItemBoundSecondsInForce, rather than taking either as an
+# argument the caller must have read first. Neither edge reaches a writer.
 
 record
 gatepolicy
@@ -486,7 +520,7 @@ intent -> erasurelist record lease redaction
 constraint -> record lease
 project -> record lease
 service -> record gatepolicy lease secretref
-item -> record lease
+item -> deploy record lease release
 agentrun -> record lease
 inputmanifest -> record lease
 lastcheck -> record lease
@@ -506,7 +540,7 @@ halt -> record lease
 legalhold -> record lease service
 redaction -> record lease legalhold
 window -> boundary gatepolicy record lease
-incident -> record lease
+incident -> item lease record service
 people -> record lease legalhold policy principal
 fleetentry -> record lease
 driftdetector -> record decisionlog lastcheck
@@ -514,14 +548,14 @@ reportstore -> erasurelist principal record
 wayin
 score -> record gatepolicy area artifact consumercontract contract decisionlog deploy incident intent item lease principal release window
 policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold principal project redaction safeguard score secretref service
-dispatch -> agent agentrun artifact constraint decisionlog factorysettings fleetentry inputmanifest intent item lease people policy principal record
+dispatch -> agent agentrun area artifact constraint decisionlog factorysettings fleetentry inputmanifest intent item lease people policy principal record
 gate -> area artifact criterion decisionlog environment halt intent item lease people policy principal record score screenstatemachine service
 mergequeue -> build contract decisionlog environment gate halt intent item lease principal record release
 notifier -> decisionlog driftdetector factorysettings lastcheck lease people principal record service
 healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy principal record release service window
 contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item lastcheck policy record release service window
 grouper -> intent notifier principal record reportstore
-agent -> secretref principal
+agent -> record secretref principal
 localtarget -> principal secretref targetseam wayin
 screens -> principal record
 clientdist
@@ -537,7 +571,7 @@ test intent -> postgres lease legalhold redaction service
 test constraint -> postgres lease
 test project -> postgres lease
 test service -> postgres lease
-test item -> postgres lease
+test item -> postgres lease targetseam
 test agentrun -> postgres lease
 test inputmanifest -> postgres lease
 test criterion -> postgres lease
@@ -547,7 +581,7 @@ test artifact -> postgres lease legalhold service
 test build -> postgres exposure lease
 test screenstatemachine -> postgres lease record
 test release -> postgres lease
-test deploy -> postgres lease
+test deploy -> postgres lease wayin
 test area -> postgres lease
 test environment -> postgres lease
 test lastcheck -> postgres lease
@@ -556,7 +590,7 @@ test factorysettings -> postgres lease
 test safeguard -> postgres lease
 test halt -> postgres lease
 test legalhold -> postgres lease service
-test redaction -> postgres lease legalhold
+test redaction -> postgres lease legalhold erasurelist
 test window -> postgres lease
 test incident -> postgres lease
 test people -> postgres lease erasurelist legalhold policy score
@@ -565,7 +599,7 @@ test notifier -> postgres decisionlog driftdetector factorysettings lastcheck le
 test healthmonitor -> postgres boundary build deploy item lease notifier people record release targetseam window
 test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lastcheck lease policy record release safeguard secretref service targetseam window
 test score -> postgres area artifact boundary decisionlog intent item lease record release window
-test policy -> postgres area decisionlog environment factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service
+test policy -> postgres area decisionlog environment erasurelist factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service
 test gate -> postgres area artifact criterion decisionlog environment factorysettings halt intent item lease people policy project record safeguard score secretref service
 test mergequeue -> build decisionlog environment gate halt intent item lease postgres record release
 test cmd/driftdetector -> boundary build decisionlog gatepolicy lease project record

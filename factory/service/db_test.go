@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
@@ -136,6 +137,75 @@ func TestCreateAndGet(t *testing.T) {
 
 	if _, err := service.Get(ctx, pool, "svc_missing"); !errors.Is(err, service.ErrNotFound) {
 		t.Errorf("Get on a missing id = %v, want ErrNotFound", err)
+	}
+}
+
+// TestCreateStartsTheWindowLimitAtOne: a new service's window limit starts at
+// one, supplied and not authored, the way its size, confidence and power are.
+func TestCreateStartsTheWindowLimitAtOne(t *testing.T) {
+	ctx, pool, w := newWriter(t)
+
+	created, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout", aProject)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Parameters.WindowLimit.Present {
+		t.Errorf("a freshly created service's window limit = %+v, want nothing authored", created.Parameters.WindowLimit)
+	}
+	if got := service.WindowLimitInForce(created.Parameters.WindowLimit); got != 1 {
+		t.Errorf("WindowLimitInForce on a freshly created service = %v, want 1", got)
+	}
+
+	read, err := service.Get(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Parameters.WindowLimit.Present {
+		t.Errorf("the window limit read back = %+v, want nothing authored", read.Parameters.WindowLimit)
+	}
+
+	// An unauthored window limit is read as the one a new service starts at.
+	if got := service.WindowLimitInForce(gatepolicy.Authored{}); got != 1 {
+		t.Errorf("WindowLimitInForce on an unauthored window limit = %v, want %v", got, service.ShippedWindowLimit)
+	}
+}
+
+// TestCreateInWritesOnTheCallersTransaction: decomposition writes the service
+// record in the same write as the item that creates it, which needs a create
+// that runs on a transaction decomposition already holds open rather than one
+// this package opens and commits itself.
+func TestCreateInWritesOnTheCallersTransaction(t *testing.T) {
+	ctx, pool, w := newWriter(t)
+
+	tx := begin(ctx, t, pool)
+	created, err := w.CreateIn(ctx, tx, decomposition, "checkout", "/srv/repos/checkout", aProject)
+	if err != nil {
+		t.Fatalf("CreateIn: %v", err)
+	}
+	// Nothing is visible outside the transaction until it commits.
+	if _, found, err := service.ByName(ctx, pool, "checkout"); err != nil {
+		t.Fatalf("ByName before commit: %v", err)
+	} else if found {
+		t.Error("ByName before commit finds a service CreateIn wrote on an uncommitted transaction")
+	}
+	commit(ctx, t, tx)
+
+	read, err := service.Get(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Name != "checkout" || read.Repository != "/srv/repos/checkout" || read.ProjectID != aProject {
+		t.Errorf("CreateIn = %+v, want the name, repository and project as given", read)
+	}
+	if read.Parameters.WindowLimit.Present {
+		t.Errorf("CreateIn's window limit = %+v, want nothing authored, the same as Create's", read.Parameters.WindowLimit)
+	}
+
+	// The refusals Create makes are CreateIn's too.
+	tx = begin(ctx, t, pool)
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := w.CreateIn(ctx, tx, decomposition, "", "/srv/repos/billing", aProject); !errors.Is(err, service.ErrNameEmpty) {
+		t.Errorf("CreateIn with no name = %v, want ErrNameEmpty", err)
 	}
 }
 

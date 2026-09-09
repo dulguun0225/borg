@@ -13,7 +13,7 @@ func TestAnExposureListNobodyDerivedIsUnavailableAndNotNothing(t *testing.T) {
 	s := &Score{}
 	ctx := context.Background()
 
-	nobody, err := s.exposure(ctx, Change{})
+	nobody, err := s.exposure(ctx, Version{}, Change{})
 	if err != nil {
 		t.Fatalf("exposure: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestAnExposureListNobodyDerivedIsUnavailableAndNotNothing(t *testing.T) {
 		t.Errorf("an exposure evidence nobody derived read as %v, and it is unavailable", nobody.level)
 	}
 
-	empty, err := s.exposure(ctx, Change{Exposure: ExposureEvidence{Derived: true}})
+	empty, err := s.exposure(ctx, Version{}, Change{Exposure: ExposureEvidence{Derived: true}})
 	if err != nil {
 		t.Fatalf("exposure: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestAnExposureListNobodyDerivedIsUnavailableAndNotNothing(t *testing.T) {
 		t.Errorf("a derived list with nothing in it read as %q at %v, want nothing at 0", empty.unavailable, empty.level)
 	}
 
-	some, err := s.exposure(ctx, Change{Exposure: ExposureEvidence{
+	some, err := s.exposure(ctx, Version{}, Change{Exposure: ExposureEvidence{
 		Derived:           true,
 		DependencyChanges: []string{"pkg/one@2.0.0 (MIT)"},
 	}})
@@ -48,15 +48,15 @@ func TestTheFleetReadingsResolveWhereNothingReadTheFleetsRecords(t *testing.T) {
 	s := &Score{}
 	ctx := context.Background()
 
-	for _, read := range []func(context.Context, Change) (reading, error){s.fleetShare, s.fleetDeparture} {
-		unread, err := read(ctx, Change{})
+	for _, read := range []func(context.Context, Version, Change) (reading, error){s.fleetShare, s.fleetDeparture} {
+		unread, err := read(ctx, Version{}, Change{})
 		if err != nil {
 			t.Fatalf("reading a fleet factor: %v", err)
 		}
 		if unread.unavailable == "" {
 			t.Errorf("a fleet reading nobody took read as %v, and it is unavailable", unread.level)
 		}
-		taken, err := read(ctx, Change{Fleet: FleetChange{Derived: true, ShareWorkingFromIt: 0.5, Departure: 0.5}})
+		taken, err := read(ctx, Version{}, Change{Fleet: FleetChange{Derived: true, ShareWorkingFromIt: 0.5, Departure: 0.5}})
 		if err != nil {
 			t.Fatalf("reading a fleet factor: %v", err)
 		}

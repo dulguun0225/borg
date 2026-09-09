@@ -68,18 +68,21 @@ func (v *views) spendCeilings(ctx context.Context) ([]screens.SpendCeiling, erro
 			rows = append(rows, row)
 			continue
 		}
-		start, err := one.Ceiling.PeriodStartAt(now)
-		if err != nil {
-			return nil, err
-		}
-		spend, err := agentrun.SpendByCredentialSince(ctx, v.p.d.pool, one.Name, start)
+		// Which period a run falls in is derived at the read, so the period the
+		// owner authored is what the sum is asked for and not a start this
+		// computes: a period lengthened later re-buckets the runs already
+		// written.
+		spend, err := agentrun.SpendByCredentialIn(ctx, v.p.d.pool, one.Name, agentrun.Period{
+			StartDate: one.Ceiling.StartDate, StartZone: one.Ceiling.StartZone,
+			Length: one.Ceiling.Length, Unit: agentrun.PeriodUnit(one.Ceiling.Unit),
+		}, now)
 		if err != nil {
 			return nil, err
 		}
 		row.Ceiling, row.Currency = one.Ceiling.Amount, one.Ceiling.Currency
 		row.BurnRate = spend.Amount
 		row.UnpricedRuns = int64(len(spend.Unpriced))
-		if began, err := record.ParseTime(start); err == nil && spend.Amount > 0 {
+		if began, err := record.ParseTime(spend.PeriodStart); err == nil && spend.Amount > 0 {
 			elapsed := now.Sub(began)
 			if elapsed > 0 {
 				perSecond := spend.Amount / elapsed.Seconds()

@@ -270,6 +270,30 @@ func (p *path) tasksStage(ctx context.Context, c *candidate, returned agent.Retu
 	}
 }
 
+// criteriaTheBuildDecided is every result the build's own process wrote for one
+// build, which is what the Implementation row rejects over. A result from the
+// candidate environment is left out: that run has not happened when this row
+// fires, and what it decides is read at Merge to master.
+func (p *path) criteriaTheBuildDecided(ctx context.Context, buildID string) ([]gate.CriterionResult, error) {
+	if buildID == "" {
+		return nil, nil
+	}
+	latest, err := criterion.Latest(ctx, p.d.pool, buildID)
+	if err != nil {
+		return nil, err
+	}
+	var decided []gate.CriterionResult
+	for _, r := range latest {
+		if r.Place != criterion.PlaceBuild {
+			continue
+		}
+		decided = append(decided, gate.CriterionResult{
+			CriterionID: r.CriterionID, Outcome: r.Outcome, Place: r.Place,
+		})
+	}
+	return decided, nil
+}
+
 // itemGate fires one of the four rows an item's own artifact is decided at and
 // settles it, recording the firing on the candidate. The three rows above the
 // build name no build; the Implementation row names the build the stage made
@@ -330,6 +354,19 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 		if check == "" {
 			check, found, _ = gate.ScreenRejection(derivedScreens, derivedDrivers, screensInForce)
 		}
+
+		// What the build's own process decided. An encoding declares which of
+		// two places decides it, and the ones declaring the build ran while
+		// the build runner built, so their results are readable here — before
+		// any environment exists, which is what lets this row reject on them.
+		decided, err := p.criteriaTheBuildDecided(ctx, c.buildID)
+		if err != nil {
+			return settled{}, err
+		}
+		firing.Criteria = decided
+		if check == "" {
+			check, found, _ = gate.CriterionRejection(decided)
+		}
 	}
 	opened, err := p.gate.Fire(ctx, firing)
 	if err != nil {
@@ -365,10 +402,9 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 // against. reentering says the stage is being entered again after a reject,
 // which is what counts the attempt.
 //
-// The area chain goes with the area, because dispatch honours both halves of a
-// scope and an entry drawn on any area above the item's reaches it. This
-// interface declares one area per run inside the project, so the chain is that
-// area and nothing above it until an owner declares one.
+// The area is the one this interface declares per run and nothing above it:
+// dispatch follows the chain up to the project itself, an entry drawn on any
+// area above the item's reaching it.
 func (p *path) on(c *candidate, stage item.Stage, reentering bool) dispatch.On {
 	return dispatch.On{
 		ItemID:     c.itemID,
@@ -377,7 +413,6 @@ func (p *path) on(c *candidate, stage item.Stage, reentering bool) dispatch.On {
 		ProjectID:  p.projectID,
 		ServiceID:  c.svc.ID,
 		AreaID:     p.areaID,
-		AreaChain:  p.areaChain,
 		Reentering: reentering,
 	}
 }

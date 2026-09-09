@@ -52,7 +52,7 @@ func (p PlatformPass) Leaked() int {
 // It is the sole writer of that record. The pass is the deployer's, which lives
 // in the command-line interface, and the composition calls it once per
 // production environment record that declares a platform, on every production
-// deploy, beside deploy.RecordTargetCheck.
+// deploy, beside deploy.RecordEnvironmentCheck.
 func (w *Writer) RecordPlatformPass(ctx context.Context, actor record.Actor, platformName string,
 	interval time.Duration, pass PlatformPass) (LastCheck, error) {
 

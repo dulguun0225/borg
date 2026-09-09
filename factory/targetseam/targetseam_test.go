@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,6 +17,10 @@ import (
 // reaches a deploy target: deploying is not a stage an agent is dispatched to.
 var deployer = principal.OfComponent("deployer")
 
+// deployIDOnly is a configuration naming only the deploy record's own
+// identity, which [Deployment.Validate] requires of every deployment.
+var deployIDOnly = ValueSet{Names: []string{DeployIDName}, Values: []string{"dep_1"}}
+
 func TestFakeRecordsEveryNamedOperation(t *testing.T) {
 	ctx := context.Background()
 	credential := secretref.MustNew("deploy.staging")
@@ -23,7 +28,7 @@ func TestFakeRecordsEveryNamedOperation(t *testing.T) {
 
 	var target Target = fake
 	if _, err := target.Deploy(ctx, deployer, Deployment{
-		Service: "checkout", Build: "r-7", Credential: credential,
+		Service: "checkout", Build: "r-7", Credential: credential, Configuration: deployIDOnly,
 	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
@@ -44,14 +49,15 @@ func TestFakeRecordsEveryNamedOperation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SetInstanceCount: %v", err)
 	}
-	if _, err := target.Snapshot(ctx, deployer, SnapshotRequest{
+	taken, err := target.Snapshot(ctx, deployer, SnapshotRequest{
 		Service: "checkout", Name: "before-the-drop", Credential: credential,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
 	if err := target.ApplySchemaChange(ctx, deployer, SchemaChange{
-		Service: "checkout", Change: "0003-drop-the-old-column", Text: "drop", Destroys: true,
-		Credential: credential,
+		Service: "checkout", Change: "0003-drop-the-old-column", Release: "rel_7", Text: "drop",
+		Destroys: true, Snapshot: taken, Credential: credential,
 	}); err != nil {
 		t.Fatalf("ApplySchemaChange: %v", err)
 	}
@@ -105,12 +111,13 @@ func TestTheSchemaHistoryIsReadFromTheTarget(t *testing.T) {
 	fake.Instances = 4
 
 	if _, err := fake.Deploy(ctx, deployer, Deployment{
-		Service: "checkout", Build: "r-7", Credential: credential,
+		Service: "checkout", Build: "r-7", Credential: credential, Configuration: deployIDOnly,
 	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
 	if err := fake.ApplySchemaChange(ctx, deployer, SchemaChange{
-		Service: "checkout", Change: "0001-add-the-column", Text: "add", Credential: credential,
+		Service: "checkout", Change: "0001-add-the-column", Release: "rel_1", Text: "add",
+		Credential: credential,
 	}); err != nil {
 		t.Fatalf("ApplySchemaChange: %v", err)
 	}
@@ -130,24 +137,135 @@ func TestTheSchemaHistoryIsReadFromTheTarget(t *testing.T) {
 	}
 }
 
-// TestADeployReportsADrainOrACut: the operation that replaces an instance
-// reports whether it drained, and a platform that cannot hold a request open
-// performs a cut the factory records as one.
-func TestADeployReportsADrainOrACut(t *testing.T) {
+// TestAReplacementDropsNoRequest: neither rollout row drops a request, so the
+// operation that replaces an instance reports the drain and there is no second
+// outcome for a caller to write on a record.
+func TestAReplacementDropsNoRequest(t *testing.T) {
 	ctx := context.Background()
 	credential := secretref.MustNew("deploy.staging")
 
-	drained := NewFake()
-	placed, err := drained.Deploy(ctx, deployer, Deployment{Service: "checkout", Build: "r-7", Credential: credential})
+	fake := NewFake()
+	placed, err := fake.Deploy(ctx, deployer, Deployment{
+		Service: "checkout", Build: "r-7", Credential: credential, Configuration: deployIDOnly,
+	})
 	if err != nil || placed.Replacement != ReplacementDrained {
 		t.Fatalf("Deploy = %+v, %v, want a drain", placed, err)
 	}
+	ended, err := fake.Stop(ctx, deployer, "checkout", credential)
+	if err != nil || ended.Replacement != ReplacementDrained {
+		t.Fatalf("Stop = %+v, %v, want a drain", ended, err)
+	}
+	if len(Replacements) != 1 || Replacements[0] != ReplacementDrained {
+		t.Fatalf("Replacements = %v, want the drain alone", Replacements)
+	}
+}
 
-	cutting := NewFake()
-	cutting.Drains = false
-	cut, err := cutting.Deploy(ctx, deployer, Deployment{Service: "checkout", Build: "r-7", Credential: credential})
-	if err != nil || cut.Replacement != ReplacementCut {
-		t.Fatalf("Deploy = %+v, %v, want a cut", cut, err)
+// TestAPlatformThatCannotDrainRefusesRatherThanReportingOne: neither Deploy nor
+// Stop may report [ReplacementDrained] without having kept the promise, so a
+// platform unable to hold a request open across the replacement refuses with
+// [ErrCannotDrain] and records no call — a replacement that did not happen is
+// never written on the record.
+func TestAPlatformThatCannotDrainRefusesRatherThanReportingOne(t *testing.T) {
+	ctx := context.Background()
+	credential := secretref.MustNew("deploy.staging")
+	fake := NewFake()
+	fake.RefuseDrain = ErrCannotDrain
+
+	if _, err := fake.Deploy(ctx, deployer, Deployment{
+		Service: "checkout", Build: "r-7", Credential: credential, Configuration: deployIDOnly,
+	}); !errors.Is(err, ErrCannotDrain) {
+		t.Fatalf("Deploy on a platform that cannot drain = %v, want ErrCannotDrain", err)
+	}
+	if _, err := fake.Stop(ctx, deployer, "checkout", credential); !errors.Is(err, ErrCannotDrain) {
+		t.Fatalf("Stop on a platform that cannot drain = %v, want ErrCannotDrain", err)
+	}
+	if calls := fake.Calls(); len(calls) != 0 {
+		t.Fatalf("a refused replacement was recorded: %+v", calls)
+	}
+}
+
+// TestTheMitigationIsAClassOfTwo: a mitigation is a named class at this seam
+// with two operations and not three — ending every instance is retirement's and
+// no human at Ops instructs it.
+func TestTheMitigationIsAClassOfTwo(t *testing.T) {
+	want := []Op{OpShiftTraffic, OpSetInstanceCount}
+	if !reflect.DeepEqual(Mitigation, want) {
+		t.Fatalf("Mitigation = %v, want %v", Mitigation, want)
+	}
+	for _, op := range Mitigation {
+		if op == OpStop {
+			t.Fatalf("the class names %q, which is retirement's and not a mitigation's", op)
+		}
+		if !slices.Contains(Ops, op) {
+			t.Fatalf("the class names %q, which is no operation of the seam", op)
+		}
+	}
+}
+
+// TestAChangeThatDestroysNamesTheSnapshotTakenBeforeIt: the copy is required at
+// the seam, so a caller that forgot it reaches no store, and a change found
+// applied applies nothing and needs none.
+func TestAChangeThatDestroysNamesTheSnapshotTakenBeforeIt(t *testing.T) {
+	ctx := context.Background()
+	credential := secretref.MustNew("deploy.production")
+	fake := NewFake()
+
+	destroying := SchemaChange{
+		Service: "checkout", Change: "0004-drop-the-old-column", Release: "rel_9",
+		Text: "drop", Destroys: true, Credential: credential,
+	}
+	if err := fake.ApplySchemaChange(ctx, deployer, destroying); !errors.Is(err, ErrNoSnapshotBeforeIt) {
+		t.Fatalf("a destroying change with no copy = %v, want ErrNoSnapshotBeforeIt", err)
+	}
+	destroying.Snapshot = Snapshot{Name: "before-the-drop", Digest: "0f"}
+	if err := fake.ApplySchemaChange(ctx, deployer, destroying); err != nil {
+		t.Fatalf("a destroying change naming the copy: %v", err)
+	}
+
+	found := SchemaChange{
+		Service: "checkout", Change: "0005-drop-another", Release: "rel_9",
+		Text: "drop", Destroys: true, FoundApplied: true, Credential: credential,
+	}
+	if err := fake.ApplySchemaChange(ctx, deployer, found); err != nil {
+		t.Fatalf("a destroying change found applied: %v", err)
+	}
+}
+
+// TestAHistoryRowNamesTheBuildAndTheReleaseWhereThereIsOne: every row names the
+// build the change was applied under, and the release as well wherever one
+// exists — a candidate's deploy and the search's name a build and no release,
+// and their rows stand on it. A change naming neither is refused.
+func TestAHistoryRowNamesTheBuildAndTheReleaseWhereThereIsOne(t *testing.T) {
+	ctx := context.Background()
+	credential := secretref.MustNew("deploy.production")
+	fake := NewFake()
+
+	err := fake.ApplySchemaChange(ctx, deployer, SchemaChange{
+		Service: "checkout", Change: "0001-add-the-column", Text: "add", Credential: credential,
+	})
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("a change naming neither a release nor a build = %v, want ErrIncomplete", err)
+	}
+	if calls := fake.Calls(); len(calls) != 0 {
+		t.Fatalf("the refused change was recorded: %+v", calls)
+	}
+
+	// The search's deploy, and a candidate's: a build and no release.
+	if err := fake.ApplySchemaChange(ctx, deployer, SchemaChange{
+		Service: "checkout", Change: "0001-add-the-column", Build: "bl_7", Text: "add",
+		Credential: credential,
+	}); err != nil {
+		t.Fatalf("a change under a build and no release: %v", err)
+	}
+	running, err := fake.ReadRunning(ctx, deployer, "checkout", credential)
+	if err != nil {
+		t.Fatalf("ReadRunning: %v", err)
+	}
+	if len(running.SchemaHistory) != 1 {
+		t.Fatalf("the history holds %d row(s), want the one written", len(running.SchemaHistory))
+	}
+	if row := running.SchemaHistory[0]; row.Build != "bl_7" || row.Release != "" {
+		t.Errorf("the row is %+v, want the build it was applied under and no release", row)
 	}
 }
 
@@ -162,7 +280,8 @@ func TestARecordedCallHoldsAReferenceAndNoValue(t *testing.T) {
 	fake := NewFake()
 
 	if _, err := fake.Deploy(ctx, deployer, Deployment{
-		Service: "checkout", Build: "r-7", Credential: credential, WayInToken: value,
+		Service: "checkout", Build: "r-7", Credential: credential,
+		Configuration: ValueSet{Names: []string{"BORG_WAY_IN", DeployIDName}, Values: []string{value, "dep_1"}},
 	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
@@ -201,6 +320,12 @@ func TestTheSeamRefusesAnIncompleteOperation(t *testing.T) {
 			})
 			return err
 		},
+		"no deploy id": func() error {
+			_, err := fake.Deploy(ctx, deployer, Deployment{
+				Service: "checkout", Build: "r-7", Credential: credential,
+			})
+			return err
+		},
 		"stop with no credential": func() error {
 			_, err := fake.Stop(ctx, deployer, "checkout", secretref.Ref{})
 			return err
@@ -215,7 +340,8 @@ func TestTheSeamRefusesAnIncompleteOperation(t *testing.T) {
 			return err
 		},
 		"a schema change naming no change": func() error {
-			return fake.ApplySchemaChange(ctx, deployer, SchemaChange{Service: "checkout", Credential: credential})
+			return fake.ApplySchemaChange(ctx, deployer, SchemaChange{
+				Service: "checkout", Release: "rel_1", Credential: credential})
 		},
 		"a snapshot naming no copy": func() error {
 			_, err := fake.Snapshot(ctx, deployer, SnapshotRequest{Service: "checkout", Credential: credential})
@@ -243,7 +369,7 @@ func TestTheSeamRefusesACallWithNoPrincipal(t *testing.T) {
 	fake := NewFake()
 
 	if _, err := fake.Deploy(ctx, principal.Principal{}, Deployment{
-		Service: "checkout", Build: "r-7", Credential: credential,
+		Service: "checkout", Build: "r-7", Credential: credential, Configuration: deployIDOnly,
 	}); !errors.Is(err, ErrNoPrincipal) {
 		t.Fatalf("Deploy with no principal = %v, want ErrNoPrincipal", err)
 	}
@@ -292,7 +418,7 @@ func TestASchemaHistoryRowNamesItsReleaseAndWhetherItWasFoundApplied(t *testing.
 		t.Fatalf("the adoption's row: %v", err)
 	}
 	if err := fake.ApplySchemaChange(ctx, deployer, SchemaChange{
-		Service: "checkout", Change: "0002-add-the-column", Release: "rel_2", Text: "add",
+		Service: "checkout", Change: "0002-add-the-column", Release: "rel_2", Build: "bl_2", Text: "add",
 		Credential: credential,
 	}); err != nil {
 		t.Fatalf("ApplySchemaChange: %v", err)
@@ -308,7 +434,7 @@ func TestASchemaHistoryRowNamesItsReleaseAndWhetherItWasFoundApplied(t *testing.
 	if got := running.SchemaHistory[0]; got.Release != "rel_1" || !got.FoundApplied {
 		t.Errorf("the adoption's row is %+v, want rel_1 found applied", got)
 	}
-	if got := running.SchemaHistory[1]; got.Release != "rel_2" || got.FoundApplied {
-		t.Errorf("the applied row is %+v, want rel_2 applied by the deployer", got)
+	if got := running.SchemaHistory[1]; got.Release != "rel_2" || got.FoundApplied || got.Build != "bl_2" {
+		t.Errorf("the applied row is %+v, want rel_2's build applied by the deployer", got)
 	}
 }

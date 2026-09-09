@@ -47,7 +47,7 @@ func TestAConstraintOrHazardDerivedWithdrawalResolvesWithNoVersionHumanConfirmed
 				Sentence:      "When a report is asked for, the system shall answer it.",
 				RequirementID: "rq_drafted",
 			},
-		}, nil, nil, "")
+		}, nil, nil, "im_1")
 	if err != nil {
 		t.Fatalf("submitting the spec version that introduces them: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestAConstraintOrHazardDerivedWithdrawalResolvesWithNoVersionHumanConfirmed
 		withdrawn = append(withdrawn, one.ID)
 	}
 	withdrawing, _, _, err := p.store.SubmitSpec(ctx, p.specAuthorActor(), by,
-		"it_withdrawals", svc.ID, "the spec that withdraws them", nil, withdrawn, nil, "")
+		"it_withdrawals", svc.ID, "the spec that withdraws them", nil, withdrawn, nil, "im_1")
 	if err != nil {
 		t.Fatalf("submitting the withdrawing spec version: %v", err)
 	}

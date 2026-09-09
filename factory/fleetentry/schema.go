@@ -31,6 +31,13 @@ const FormatVersion = "fleet_entry/1"
 // a class named twice — nothing here checks either, the store taking whatever
 // text the writer sends.
 //
+// operations is joined the same way and is the owner's narrowing of the list
+// the role carries: empty is the role's whole list, and an operation the role
+// does not carry is refused where the role's list is known, which is package
+// dispatch and not here. It is not a tenth field of the design's nine: the
+// entry reaches the list by naming the role, and this column holds the
+// narrowing an owner may write over it and never a list of its own.
+//
 // reads_at_once and dispatches_between_evaluation_runs are bigint and each
 // carries a CHECK that it is positive: a bound of zero or less is not a value
 // either field's design gives a meaning to.
@@ -50,6 +57,7 @@ var DDL = []string{
 	credential_name text not null,
 	processing_location text not null,
 	material_classes text not null default '',
+	operations text not null default '',
 	reads_at_once bigint not null,
 	dispatches_between_evaluation_runs bigint not null,
 	withdrawn_at text,

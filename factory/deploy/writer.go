@@ -31,6 +31,13 @@ var (
 	// not into production, and for a production deploy naming none. A strategy
 	// attaches to a production deploy and to no other.
 	ErrStrategyNotProduction = errors.New("deploy: a strategy attaches to a production deploy and to no other")
+	// ErrNotTheDeployer is returned by [Writer.Start] for a record whose actor
+	// is not the deployer. No agent performs a deploy — deploying is not a stage
+	// an agent is dispatched to — and a human who called for one, the human at
+	// Ops whose rollback it is, is the record's source and never its actor: the
+	// actor stays the deployer that performed it, a program the factory runs and
+	// can check.
+	ErrNotTheDeployer = errors.New("deploy: the deploy record's actor is the deployer that performed it")
 	// ErrNotFound is returned where the named deploy does not exist.
 	ErrNotFound = errors.New("deploy: no deploy has that id")
 	// ErrTargetNotFound is returned where the deploy has no row for that
@@ -52,9 +59,21 @@ var (
 	// missing something every rollback names, or naming one release as both
 	// failed and skipped.
 	ErrUndoingIncomplete = errors.New("deploy: the rollback is missing something every rollback names")
-	// ErrNoSnapshot is returned by [Writer.DeleteSnapshot] for a record naming
-	// no copy. There is nothing for a deletion to stand beside.
+	// ErrNoSnapshot is returned by [DeleteSnapshot] and
+	// [Writer.MarkSnapshotDeleted] for a record naming no copy, or one whose
+	// deletion is already written. There is nothing for a deletion to stand
+	// beside, and nothing to reach on the target.
 	ErrNoSnapshot = errors.New("deploy: the deploy names no snapshot")
+	// ErrControlIncomplete is returned by [Writer.ControlStarted] for a control
+	// naming no release or no build. A control is defined by which release it
+	// runs, and the record names the build that release is beside it.
+	ErrControlIncomplete = errors.New("deploy: a control names the release it runs and the build that release is")
+	// ErrBackfillNotCopied is returned by [Writer.Complete] for a backfill's
+	// record whose copy has not finished. The deployer marks a backfill's deploy
+	// record complete only once every row the old form holds is present in the
+	// new, and that fact is what enforcement reads before it admits the item
+	// that moves reads to that element and the drop after it.
+	ErrBackfillNotCopied = errors.New("deploy: a backfill's record completes once every row the old form holds is present in the new")
 	// ErrBackfillIncomplete is returned by [Writer.Start] for a backfill naming
 	// some of the three. What a backfill declares is the element it fills and
 	// the element it fills from, on one store contract, and a pair missing a
@@ -80,8 +99,16 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 func (w *Writer) Pool() *pgxpool.Pool { return w.pool }
 
 // Complete advances the deploy from started to complete, and refuses a deploy
-// any target of which is not complete: the record as a whole is complete when
-// every target is, which is also when the release it names becomes current.
+// any target the service runs on is not complete on: the record as a whole is
+// complete when every one of those targets is, which is also when the release it
+// names becomes current. The rows for the environment's other targets are not
+// read here — the service runs on none of them, so nothing was ever going to
+// reach them.
+//
+// A backfill's record is refused until its copy has finished: the deployer marks
+// one complete only once every row the old form holds is present in the new, and
+// what says so is [Writer.MarkBackfillCopied]. A copy that runs for hours leaves
+// the deploy standing incomplete on Ops for as long as it runs.
 func (w *Writer) Complete(ctx context.Context, id string) error {
 	return w.inTransaction(ctx, "completing "+id, func(tx pgx.Tx) error {
 		status, err := lockStatus(ctx, tx, id)
@@ -91,9 +118,20 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 		if status != StatusStarted {
 			return fmt.Errorf("%w: %s is %s", ErrNotStarted, id, status)
 		}
+		var element string
+		var copied bool
+		err = tx.QueryRow(ctx, `select backfill_element, backfill_copied from `+Table+`
+			where id = $1`, id).Scan(&element, &copied)
+		if err != nil {
+			return err
+		}
+		if element != "" && !copied {
+			return fmt.Errorf("%w: %s of %s", ErrBackfillNotCopied, element, id)
+		}
 		var unfinished int
 		err = tx.QueryRow(ctx, `select count(*) from `+TargetTable+`
-			where deploy_id = $1 and completion <> $2`, id, string(CompletionComplete)).Scan(&unfinished)
+			where deploy_id = $1 and runs_here and completion <> $2`,
+			id, string(CompletionComplete)).Scan(&unfinished)
 		if err != nil {
 			return err
 		}
@@ -102,6 +140,25 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 		}
 		_, err = tx.Exec(ctx, `update `+Table+` set status = $1 where id = $2`, string(StatusComplete), id)
 		return err
+	})
+}
+
+// MarkBackfillCopied records that every row the old form holds is present in
+// the new, which is what [Writer.Complete] requires of a backfill's record
+// before it completes it. The copy is the release's own change, rerun from
+// where it stopped, so what marks it is a read of the store and never this
+// package: the caller that can see both forms writes it.
+func (w *Writer) MarkBackfillCopied(ctx context.Context, id string) error {
+	return w.inTransaction(ctx, "marking the backfill of "+id+" copied", func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `update `+Table+` set backfill_copied = true
+			where id = $1 and backfill_element <> ''`, id)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("%w: %s carries no backfill", ErrNotFound, id)
+		}
+		return nil
 	})
 }
 
@@ -198,7 +255,8 @@ func (w *Writer) inTransaction(ctx context.Context, doing string, write func(pgx
 	if err := write(tx); err != nil {
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrNotStarted) || errors.Is(err, ErrTargetNotFound) ||
 			errors.Is(err, ErrTargetsIncomplete) || errors.Is(err, ErrATargetCompleted) ||
-			errors.Is(err, ErrStrategyNotProduction) || errors.Is(err, ErrNoSnapshot) {
+			errors.Is(err, ErrStrategyNotProduction) || errors.Is(err, ErrNoSnapshot) ||
+			errors.Is(err, ErrBackfillNotCopied) {
 			return err
 		}
 		return fmt.Errorf("deploy: %s: %w", doing, err)

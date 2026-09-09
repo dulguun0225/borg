@@ -266,3 +266,6 @@ func (erroringTarget) ApplySchemaChange(context.Context, principal.Principal, ta
 func (erroringTarget) Snapshot(context.Context, principal.Principal, targetseam.SnapshotRequest) (targetseam.Snapshot, error) {
 	return targetseam.Snapshot{}, nil
 }
+func (erroringTarget) DeleteSnapshot(context.Context, principal.Principal, targetseam.SnapshotRequest) error {
+	return nil
+}

@@ -68,9 +68,15 @@ decisions name none — never withheld.
 
 ## What defines it
 
-[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2565, C2566, C2567, C2568, C2569, C2576, C2577, C2578, C2579, C2580, C2584, C2585, C2590, C2592, C2593, C2595);
+[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2565, C2566, C2567, C2568, C2569, C2570, C2576, C2577, C2578, C2579, C2580, C2583, C2584, C2585, C2590, C2592, C2593, C2595);
 [Three properties every screen needs](../../../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md) (C2678, C2679, C2680, C2683, C2686, C2688, C2690, C2691, C2693);
 [Reports](../../../../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md) (C0438, C0439, C0473);
 [The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2701, C2702, C2703, C2704, C2705, C2706, C2707, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994);
 [Actions at each gate](../../../../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md) (C0940);
-[What humans do](../../../../../end-goal/what-humans-do.md) (C2862, C2863, C2870, C2883, C2884).
+[What humans do](../../../../../end-goal/what-humans-do.md) (C2862, C2863, C2870, C2883, C2884);
+[The interview](../../../../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md) (C0536, C0581, C0599, C0609, C0614);
+[Decomposition](../../../../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md) (C0788);
+[Where a gate is, and what decides it](../../../../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md) (C0880, C0884);
+[Tasks](../../../../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/04-tasks.md) (C1106);
+[Implementation](../../../../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md) (C1141);
+[What an item names](../../../../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md) (C0665).

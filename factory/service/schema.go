@@ -249,10 +249,19 @@ var DDL = []string{
 	` + record.Constraints + `,
 	constraint service_id_present check (service_id <> ''),
 	constraint quantity_present check (quantity <> ''),
-	constraint threshold_is_a_share check (threshold >= 0 and threshold <= 1),
+	constraint threshold_is_not_negative check (threshold >= 0),
 	constraint threshold_size_is_a_share check (size > 0 and size <= 1),
 	constraint one_threshold_per_service_and_quantity unique (service_id, quantity)
 )`,
+
+	// An explicit threshold is absolute where the comparison is relative, so
+	// the number is in the quantity's own unit — seconds for a latency
+	// quantile — and nothing bounds it above. It was written as a share, which
+	// no latency threshold can be.
+	`alter table ` + ExplicitThresholdTable + ` drop constraint if exists threshold_is_a_share`,
+	`alter table ` + ExplicitThresholdTable + ` drop constraint if exists threshold_is_not_negative`,
+	`alter table ` + ExplicitThresholdTable +
+		` add constraint threshold_is_not_negative check (threshold >= 0)`,
 
 	`create table if not exists ` + RecentHistorySizeTable + ` (
 	` + record.Columns + `,

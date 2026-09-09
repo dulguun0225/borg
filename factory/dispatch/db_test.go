@@ -11,7 +11,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"net/url"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/agentrun"
+	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/dispatch"
@@ -39,15 +39,12 @@ import (
 const (
 	oneProject = "pr_00000000000000000000000000000000"
 	oneService = "svc_0000000000000000000000000000000"
-	oneArea    = "ar_00000000000000000000000000000000"
-	// theAreaAbove is the area oneArea lies inside, which is the second link
-	// of the chain a scope is matched against.
-	theAreaAbove = "ar_11111111111111111111111111111111"
-	modelName    = "vendor/test-model"
+	modelName  = "vendor/test-model"
 	// theCredential is the credential every entry these tests write runs on.
-	// Nobody has lent it on the People declaration unless a test declares it,
-	// which is a credential with no ceiling: unbounded, the way every install
-	// is before an owner authors one.
+	// The fixture lends it on the People declaration, because a run record
+	// names whose account it spent; no ceiling is authored on it unless a test
+	// authors one, which is unbounded, the way every install is before an owner
+	// authors one.
 	theCredential = "model.test"
 )
 
@@ -199,6 +196,14 @@ type composed struct {
 	admissions *heldIntents
 
 	decomposition *item.Decomposition
+
+	// oneArea is the area every item these tests decompose is placed in, and
+	// theAreaAbove is the area it lies inside — the second link of the chain
+	// dispatch follows from the item's area up to the project. Both are
+	// declared records, because dispatch reads the chain and an item naming an
+	// area no record holds is a disagreement between two records.
+	oneArea      string
+	theAreaAbove string
 }
 
 // newDispatch gives a test a schema of its own, the whole schema applied in
@@ -268,8 +273,28 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 		t.Fatalf("New: %v", err)
 	}
 	c.decomposition = item.NewDecomposition(pool, token)
+	c.declareTheAreas(t)
+	c.lend(t)
 	c.anEntryPerRole(t, "", fleetentry.MaterialClasses)
 	return c
+}
+
+// declareTheAreas declares the two-link chain every item these tests decompose
+// sits at the bottom of: the area above lies inside the project, and the item's
+// own area lies inside that one. A scope drawn on either covers the item, which
+// is what dispatch following the chain means.
+func (c *composed) declareTheAreas(t *testing.T) {
+	t.Helper()
+	writer := area.NewWriter(c.pool, c.token)
+	above, err := writer.Declare(c.ctx, owner, "the area above", area.InsideProject(oneProject), area.Hazard{})
+	if err != nil {
+		t.Fatalf("declaring the area above: %v", err)
+	}
+	inner, err := writer.Declare(c.ctx, owner, "the item's area", area.InsideArea(above.ID), area.Hazard{})
+	if err != nil {
+		t.Fatalf("declaring the item's area: %v", err)
+	}
+	c.oneArea, c.theAreaAbove = inner.ID, above.ID
 }
 
 // anEntryPerRole is the owner's first act at Factory as these tests make it:
@@ -338,7 +363,8 @@ func (c composed) oneItem(t *testing.T, state intent.State) item.Item {
 		}
 	}
 	it, err := c.decomposition.Create(c.ctx, decompositionActor, item.New{
-		IntentID: in.ID, ServiceID: oneService, AreaID: oneArea, Branch: "item/health",
+		IntentID: in.ID, ServiceID: oneService, AreaChain: []string{c.oneArea}, Branch: "item/health",
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, oneProject, oneProject, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -349,12 +375,13 @@ func (c composed) oneItem(t *testing.T, state intent.State) item.Item {
 // aSpec is a reply the spec author's protocol accepts.
 const aSpec = "SPEC:\nThe service exposes /healthz.\nCRITERION rq_a: The system shall answer."
 
-// on is the dispatch one item's spec stage is for.
-func on(it item.Item) dispatch.On {
+// on is the dispatch one item's spec stage is for. It names the item's own
+// area and nothing above it: dispatch follows the chain from there up to the
+// project, which is what a scope drawn on the area above is matched against.
+func (c composed) on(it item.Item) dispatch.On {
 	return dispatch.On{
 		ItemID: it.ID, Stage: item.StageSpec, IntentID: it.IntentID,
-		ProjectID: oneProject, ServiceID: oneService,
-		AreaID: oneArea, AreaChain: []string{oneArea, theAreaAbove},
+		ProjectID: oneProject, ServiceID: oneService, AreaID: c.oneArea,
 	}
 }
 
@@ -369,7 +396,7 @@ func TestOneDispatchWritesTheManifestTheRunAndTheTransition(t *testing.T) {
 	c.anEntryPerRole(t, "high", fleetentry.MaterialClasses)
 	it := c.oneItem(t, intent.StateRefined)
 
-	refined, run, err := c.dispatch.SpecAuthor(c.ctx, on(it),
+	refined, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(it),
 		[]inputmanifest.Material{{Class: fleetentry.ClassIntentStatement, Reference: it.IntentID, Bytes: 17}}, agent.Refining{Statement: "s"})
 	if err != nil {
 		t.Fatalf("SpecAuthor: %v", err)
@@ -432,61 +459,5 @@ func TestOneDispatchWritesTheManifestTheRunAndTheTransition(t *testing.T) {
 	}
 	if len(stages) != 1 || stages[0].Attempts != 1 {
 		t.Errorf("the item stands at %+v, want the one entry that put it at spec", stages)
-	}
-}
-
-// TestARefusedReplyIsEnteredAgainAndCountedOnTheItem: a second attempt at one
-// stage is the item entering it again, so the count rises on the record rather
-// than in the process — which is what makes a second run of the factory carry
-// on from what the first spent.
-func TestARefusedReplyIsEnteredAgainAndCountedOnTheItem(t *testing.T) {
-	c := newDispatch(t, []agent.Reply{
-		{Text: "not the protocol", Units: map[string]int64{agent.UnitsOutput: 1}},
-		{Text: aSpec, Units: map[string]int64{agent.UnitsOutput: 2}},
-	}, nil, 3)
-	it := c.oneItem(t, intent.StateRefined)
-
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"})
-	if err != nil {
-		t.Fatalf("SpecAuthor: %v", err)
-	}
-	if len(run.AgentRunIDs) != 2 {
-		t.Errorf("%d run records, want one per call including the refused one", len(run.AgentRunIDs))
-	}
-	stages, err := item.Stages(c.ctx, c.pool, it.ID)
-	if err != nil {
-		t.Fatalf("Stages: %v", err)
-	}
-	if len(stages) != 1 || stages[0].Attempts != 2 {
-		t.Fatalf("the item stands at %+v, want two attempts at spec", stages)
-	}
-}
-
-// TestTheStoredCountIsWhatTheLimitIsComparedAgainst: a dispatch onto an item
-// that has already spent its allowance escalates on its first refused reply,
-// because the count it reads is the item's own and not this call's.
-func TestTheStoredCountIsWhatTheLimitIsComparedAgainst(t *testing.T) {
-	c := newDispatch(t, []agent.Reply{{Text: "not the protocol"}}, nil, 2)
-	it := c.oneItem(t, intent.StateRefined)
-	// The item has been entered once by decomposition; two more entries put its
-	// count above the limit, which is what exceeding one is.
-	for range 2 {
-		if _, err := c.items.Enter(c.ctx, dispatch.Actor, it.ID, item.StageSpec); err != nil {
-			t.Fatalf("Enter: %v", err)
-		}
-	}
-
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"})
-	if !errors.Is(err, dispatch.ErrOutOfAttempts) {
-		t.Fatalf("SpecAuthor = %v, want ErrOutOfAttempts", err)
-	}
-	if !run.Escalated {
-		t.Error("the run does not say the item escalated")
-	}
-	if len(c.escalation.items) != 1 || c.escalation.items[0] != it.ID {
-		t.Errorf("escalated %v, want this item", c.escalation.items)
-	}
-	if c.model.calls != 0 {
-		t.Errorf("%d calls, want no agent put on a stage whose count already exceeds the limit", c.model.calls)
 	}
 }

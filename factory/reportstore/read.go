@@ -51,21 +51,20 @@ func (s *Store) Get(ctx context.Context, p principal.Principal, id string) (Repo
 	return report, nil
 }
 
-// Count is what one key of the counter table holds: the refusals made against
-// it, and the submissions written under a shape this store does not read. The
-// empty service is the whole channel.
+// Count is what one key of the counter table holds: the refusals made
+// against it, a submission of a shape this store does not read among them.
+// The empty service is the whole channel.
 type Count struct {
-	ServiceID       string
-	Refusals        int64
-	UnreadableShape int64
+	ServiceID string
+	Refusals  int64
 }
 
 // Counts is every counter this store keeps, the channel's first and then one
-// per service, which is what Factory reads beside the ungrouped count. They
-// are counters and not queries, and what that costs is that a lost counter is
+// per service, which is what Factory reads beside the ungrouped count. It is
+// a counter and not a query, and what that costs is that a lost counter is
 // lost: nothing here can be recomputed from the reports.
 func (s *Store) Counts(ctx context.Context) ([]Count, error) {
-	rows, err := s.pool.Query(ctx, `select service_id, refusals, unreadable_shape
+	rows, err := s.pool.Query(ctx, `select service_id, refusals
 		from `+CounterTable+` order by service_id`)
 	if err != nil {
 		return nil, fmt.Errorf("reportstore: reading the counters: %w", err)
@@ -75,7 +74,7 @@ func (s *Store) Counts(ctx context.Context) ([]Count, error) {
 	var read []Count
 	for rows.Next() {
 		var c Count
-		if err := rows.Scan(&c.ServiceID, &c.Refusals, &c.UnreadableShape); err != nil {
+		if err := rows.Scan(&c.ServiceID, &c.Refusals); err != nil {
 			return nil, fmt.Errorf("reportstore: reading a counter: %w", err)
 		}
 		read = append(read, c)

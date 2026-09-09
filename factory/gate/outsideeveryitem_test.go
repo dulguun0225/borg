@@ -23,14 +23,17 @@ func TestARolePromptRowIsPendingPerVersion(t *testing.T) {
 	ctx, pool, token, g := newGate(t, s, p)
 
 	store := artifact.NewStore(pool, token)
+	// theManifest is the manifest the dispatch wrote, which a version an agent
+	// authored names.
+	const theManifest = "im_1"
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
 	forSpecAuthor, err := store.SubmitFleet(ctx, author, by, artifact.KindRolePrompt,
-		"spec_author", "", "what the spec author is told", "")
+		"spec_author", "", "what the spec author is told", theManifest)
 	if err != nil {
 		t.Fatalf("submitting the spec author's role prompt: %v", err)
 	}
 	forImplementer, err := store.SubmitFleet(ctx, author, by, artifact.KindRolePrompt,
-		"implementer", "", "what the implementer is told", "")
+		"implementer", "", "what the implementer is told", theManifest)
 	if err != nil {
 		t.Fatalf("submitting the implementer's role prompt: %v", err)
 	}
@@ -93,6 +96,52 @@ func TestARowThatDecidesARecordIsPendingPerRecord(t *testing.T) {
 	}
 }
 
+// TestARowOutsideEveryItemRefusesAServiceBuildOrArea: the five rows outside
+// every item belong to no timeline, no service and no build, the way they
+// name no item — so a firing naming any of the three is refused before
+// anything is appended, the same way one naming an item is.
+func TestARowOutsideEveryItemRefusesAServiceBuildOrArea(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, token, g := newGate(t, s, p)
+
+	store := artifact.NewStore(pool, token)
+	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
+
+	// A version of its own per case, so a firing refused before anything is
+	// appended is not mistaken for one refused because another is pending over
+	// the same version.
+	forService, err := store.SubmitFleet(ctx, author, by, artifact.KindRolePrompt,
+		"spec_author", "", "what the spec author is told", "im_1")
+	if err != nil {
+		t.Fatalf("submitting the role prompt named on the service case: %v", err)
+	}
+	forBuild, err := store.SubmitFleet(ctx, author, by, artifact.KindRolePrompt,
+		"implementer", "", "what the implementer is told", "im_1")
+	if err != nil {
+		t.Fatalf("submitting the role prompt named on the build case: %v", err)
+	}
+	forArea, err := store.SubmitFleet(ctx, author, by, artifact.KindRolePrompt,
+		"reviewer", "", "what the reviewer is told", "im_1")
+	if err != nil {
+		t.Fatalf("submitting the role prompt named on the area case: %v", err)
+	}
+
+	named := gate.Firing{Row: gate.RolePromptOrSkill, ArtifactID: forService.ID, ServiceID: "svc_0000000000000000000000000000000a"}
+	if _, err := g.Fire(ctx, named); !errors.Is(err, gate.ErrFiringIncomplete) {
+		t.Errorf("a role prompt naming a service = %v, want ErrFiringIncomplete", err)
+	}
+
+	named = gate.Firing{Row: gate.RolePromptOrSkill, ArtifactID: forBuild.ID, BuildID: "bl_0000000000000000000000000000000a"}
+	if _, err := g.Fire(ctx, named); !errors.Is(err, gate.ErrFiringIncomplete) {
+		t.Errorf("a role prompt naming a build = %v, want ErrFiringIncomplete", err)
+	}
+
+	named = gate.Firing{Row: gate.RolePromptOrSkill, ArtifactID: forArea.ID, AreaID: "ar_0000000000000000000000000000000a"}
+	if _, err := g.Fire(ctx, named); !errors.Is(err, gate.ErrFiringIncomplete) {
+		t.Errorf("a role prompt naming an area = %v, want ErrFiringIncomplete", err)
+	}
+}
+
 // TestAWithdrawalRowDoesNotRouteToTheHumanWhoWroteIt: the actor on a withdrawal
 // is never the human its row waits on, so a close by them is refused where
 // another decider exists.
@@ -124,8 +173,12 @@ func TestAWithdrawalRowDoesNotRouteToTheHumanWhoWroteIt(t *testing.T) {
 
 	if _, err := g.Decide(ctx, opened, gate.Given{
 		Actor: author, Verdict: gate.VerdictApprove,
-	}); !errors.Is(err, gate.ErrClosedByTheActor) {
-		t.Fatalf("the writer closing their own withdrawal = %v, want ErrClosedByTheActor", err)
+		// The refusal is [gate.ErrSelfApproval] and not one of its own: the
+		// log's writer refuses five closes and nothing else, and a close by
+		// the human a record's routing bars is an instance of the fifth —
+		// the person who ends a check is not the person who decides it ends.
+	}); !errors.Is(err, gate.ErrSelfApproval) {
+		t.Fatalf("the writer closing their own withdrawal = %v, want ErrSelfApproval", err)
 	}
 	closed, err := g.Decide(ctx, opened, gate.Given{Actor: second, Verdict: gate.VerdictApprove})
 	if err != nil {
@@ -202,8 +255,9 @@ func TestALegalHoldsWithdrawalIsARowOfItsOwn(t *testing.T) {
 	}
 	if _, err := g.Decide(ctx, opened, gate.Given{
 		Actor: author, Verdict: gate.VerdictApprove,
-	}); !errors.Is(err, gate.ErrClosedByTheActor) {
-		t.Errorf("the writer closing their own withdrawal = %v, want ErrClosedByTheActor", err)
+		// One refusal and not two, for the reason above.
+	}); !errors.Is(err, gate.ErrSelfApproval) {
+		t.Errorf("the writer closing their own withdrawal = %v, want ErrSelfApproval", err)
 	}
 	if _, err := g.Decide(ctx, opened, gate.Given{Actor: second, Verdict: gate.VerdictApprove}); err != nil {
 		t.Errorf("the holder the row routes to closing it: %v", err)

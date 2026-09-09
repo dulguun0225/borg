@@ -35,11 +35,7 @@ var (
 	decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decomposition", Basis: record.BasisClaimed}
 	dispatchActor      = record.Actor{Kind: record.KindComponent, Key: "dispatch", Basis: record.BasisClaimed}
 	buildActor         = record.Actor{Kind: record.KindComponent, Key: "build", Basis: record.BasisClaimed}
-	// installActor is the install's first-start step, which is what enters the
-	// shipped role prompt versions: a call that authors nothing, with the
-	// factory's own start as the actor.
-	installActor = record.Actor{Kind: record.KindComponent, Key: "install", Basis: record.BasisClaimed}
-	deployActor  = record.Actor{Kind: record.KindComponent, Key: "deploy", Basis: record.BasisClaimed}
+	deployActor        = record.Actor{Kind: record.KindComponent, Key: "deploy", Basis: record.BasisClaimed}
 )
 
 // grouperPrincipal is who the grouper's pass reads a project's reports as, and
@@ -83,11 +79,6 @@ type path struct {
 	production environment.Environment
 	projectID  string
 	areaID     string
-	// areaChain is that area and every area above it, up to the project the
-	// chain ends at. It is what a fleet entry's scope is matched against, a
-	// scope drawn on any area in the chain reaching the item, and it is read
-	// once per run because this interface declares one area for the whole of it.
-	areaChain []string
 
 	policy        *policy.Reader
 	factory       *policy.Factory
@@ -118,6 +109,10 @@ type path struct {
 	// stores the two versions in force at its open and the health monitor does not append
 	// one of its own.
 	scoreVersion string
+	// scoreBand is that version's band width, held beside its id because
+	// Factory reads the bands of the number over a span of its own and the
+	// width is a field of the version rather than a constant in the score.
+	scoreBand float64
 	// The three of everything downstream of a deploy: the health monitor the run
 	// watches with, the notifier it tells a human through, and the reads of the
 	// drift detector's own store. The notifier is nil for no install and the
@@ -173,10 +168,12 @@ type path struct {
 // The seams this value implements. Every one of them is a thing the package
 // that declares it cannot do: reaching a repository, reaching a deploy target,
 // reading a checkout, observing a run, reading a candidate's own store, reading
-// a backfill's completion, and computing the factory's own holds.
+// a backfill's completion, reading which release is a brownout, and computing
+// the factory's own holds.
 var (
 	_ mergequeue.Repository    = (*path)(nil)
 	_ healthmonitor.Deployer   = (*path)(nil)
+	_ healthmonitor.Brownouts  = (*path)(nil)
 	_ contractcheck.Checkout   = (*path)(nil)
 	_ contractcheck.Exchanges  = (*path)(nil)
 	_ contractcheck.StoreState = (*path)(nil)

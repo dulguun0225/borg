@@ -2,9 +2,6 @@ package deploy
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -24,36 +21,28 @@ type Reach struct {
 	Address string
 	Target  targetseam.Target
 	// ReleaseInstances is how many instances of this deploy's own build run
-	// here, and ControlInstances how many the control runs, which is nothing on
-	// every target but the one the control runs on.
+	// here, and ControlInstances how many the control on this target runs —
+	// there is one control per production target the release has reached,
+	// started on that target when the rollout reaches it, and the deploy
+	// record names each.
 	ReleaseInstances int
 	ControlInstances int
-	// KeptInstances is the capacity the release being replaced had, times the
-	// fraction its owner authored.
+	// KeptInstances is the instances the build being replaced had, or the
+	// fraction of them an owner authored, kept here until the last window that
+	// could return to it closes: a rollback returns production to them, and a
+	// share is not a capacity.
 	KeptInstances int
-	// ServesAShare is what the environment record declares per target. A target
-	// declared as serving one that then refuses the shift is what makes the
-	// strategy performed differ from the one picked.
+	// ServesAShare is what the environment record declares per target. Where a
+	// service runs on a target whose platform serves no share, the row with a
+	// control is unavailable there, permanently rather than once — every deploy
+	// on that target is performed without one and the record says so, and
+	// nothing here is refused; a target declared as serving a share that then
+	// refuses the shift is what makes the strategy performed differ from the
+	// one picked in the same way.
 	ServesAShare bool
 	// Share is what a control's schedule asks this target to give the release at
 	// the start of the rollout, under a strategy with a control.
 	Share float64
-}
-
-// Bake is the hold between one target and the next: the traffic the targets
-// already reached have served, and whether the window's cap has run. The
-// deployer holds until the first reaches the volume or the second is true —
-// once the cap has run the window closes timed out and the remaining targets are
-// reached with no hold between them, since a quiet service that never serves the
-// bake volume would otherwise never complete a deploy.
-//
-// The health monitor is what can answer both, reading the emission and the
-// window it opened at this deploy. Nothing implements this yet; a rollout given
-// none holds nowhere, and doc.go says so.
-type Bake interface {
-	// Served is how much the targets reached so far have served since this
-	// deploy began, and whether the window's cap has run.
-	Served(ctx context.Context, deployID string) (volume int64, capRun bool, err error)
 }
 
 // Notifier is what the deployer pages through at the two exits that page: a
@@ -78,6 +67,11 @@ var (
 	// to apply. No target is marked complete and the previous release stays
 	// current.
 	ErrSchemaChangeRefused = errors.New("deploy: the build's schema change did not apply")
+	// ErrTargetNotOfTheEnvironment is returned where a target the deploy would
+	// reach is no target of the environment. The record holds a row beside each
+	// of the environment's targets, so a reach outside that list is a call with
+	// no row to mark.
+	ErrTargetNotOfTheEnvironment = errors.New("deploy: the deploy reaches a target the environment does not name")
 	// ErrTargetRefused is returned where a target refused what it was asked. The
 	// record stays started with the targets it reached marked complete, which is
 	// a recorded partial deploy, unless nothing completed at all — then it is
@@ -108,9 +102,13 @@ type Performance struct {
 	// ControlReleaseID is the release the control runs, under a strategy with
 	// one: the newest release below this one whose window closed without failing
 	// it, which is the release a rollback of this deploy would return to. A
-	// control is defined by which release it runs, so a deploy with a control and
-	// no release here is refused at the start.
+	// control is defined by which release it runs, and a deploy naming none here
+	// runs no control — a service's first release, which goes without one
+	// whatever the score picked.
 	ControlReleaseID string
+	// ControlBuildID is the build that release's control runs, which the record
+	// names beside the release and the instances running it.
+	ControlBuildID string
 	// DeliveredReleaseIDs is a revert's deploy listing the releases it delivers.
 	DeliveredReleaseIDs []string
 	// Backfill is what a backfill item's release copies between, and is empty on
@@ -153,10 +151,18 @@ type Performance struct {
 	SnapshotName string
 
 	// Reaches are the targets of the environment the service runs on, in that
-	// set's order. It is the service's set and not the environment's whole list:
-	// completion per target and the rollout's order are both over the targets
-	// the service record says it runs on, and the caller reads that field.
+	// set's order, which is the order the deployer reaches them in. It is the
+	// service's set and not the environment's whole list: the rollout's order
+	// and the release becoming current are both over the targets the service
+	// record says it runs on, and the caller reads that field.
 	Reaches []Reach
+	// EnvironmentTargets is every target the environment names, in the
+	// environment's order. The record holds a row beside each of them saying
+	// whether that target has this release yet, and the rows for the targets
+	// the service does not run on stay not reached. Where the caller supplies
+	// none it is [Performance.Reaches], the two being the same list on an
+	// environment every target of which the service runs on.
+	EnvironmentTargets []string
 	// Bake is the hold between one target and the next, and may be nil, which is
 	// no hold.
 	Bake Bake
@@ -172,12 +178,6 @@ type Performance struct {
 	// nowhere.
 	Notifier Notifier
 }
-
-// DefaultBakePoll is how often a rollout asks whether the targets already
-// reached have served the bake volume. A volume is not a period, so the hold
-// cannot be a sleep of a known length: it is a read repeated until the answer
-// changes.
-const DefaultBakePoll = time.Second
 
 // Perform is one deploy from its first step to its last: the record written,
 // the store's changes applied before any traffic moves, and then the targets
@@ -195,23 +195,61 @@ const DefaultBakePoll = time.Second
 // one is, the record stays started with the targets it reached marked complete,
 // which is a recorded partial deploy and what the restart reads.
 func Perform(ctx context.Context, w *Writer, p Performance) (Deploy, error) {
-	token, digest, err := mintWayInToken()
+	// The configuration digest is taken before the token is minted and
+	// appended: it is over the resolved set alone, and the token's own digest
+	// has its own field.
+	configDigest := DigestConfiguration(p.Configuration)
+	p, wayInDigest, err := p.mintingTheWayInToken()
 	if err != nil {
+		return Deploy{}, err
+	}
+	if err := p.check(); err != nil {
 		return Deploy{}, err
 	}
 
-	d, err := w.Start(ctx, p.Actor, p.beginning(digest))
+	d, err := w.Start(ctx, p.Actor, p.beginning(configDigest, wayInDigest))
 	if err != nil {
 		return Deploy{}, err
 	}
-	return perform(ctx, w, p, d, token)
+	return perform(ctx, w, p, d)
+}
+
+// check is what a deploy is refused for before any record is written: a target
+// no row would be written for. A row with a control the deploy cannot run is
+// not one of them — a service's first release and a service on a platform that
+// serves no share both go without a control, performed and written so rather
+// than refused, which [performed] is.
+func (p Performance) check() error {
+	if len(p.EnvironmentTargets) == 0 {
+		return nil
+	}
+	named := make(map[string]bool, len(p.EnvironmentTargets))
+	for _, address := range p.EnvironmentTargets {
+		named[address] = true
+	}
+	for _, reach := range p.Reaches {
+		if !named[reach.Address] {
+			return fmt.Errorf("%w: %s", ErrTargetNotOfTheEnvironment, reach.Address)
+		}
+	}
+	return nil
 }
 
 // perform is the whole of a deploy after its record exists, which is what
-// [Perform] and [Restore] share: they differ in what the record names and in
-// what is verified before it, and not in how a deploy is carried out.
-func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken string) (Deploy, error) {
+// [Perform] and [Restore] share, and what [Resume] calls again on a record it
+// stopped in the middle of: they differ in what the record names and in what
+// is verified before it, and not in how a deploy is carried out. A target
+// already marked complete on the record is skipped rather than reached again,
+// which is what makes calling this a second time over a record [Resume] is
+// finishing safe — the walk picks up where the record's own rows say it
+// stopped, and nothing already placed is placed twice.
+func perform(ctx context.Context, w *Writer, p Performance, d Deploy) (Deploy, error) {
 	if err := applyToTheStore(ctx, w, p, d); err != nil {
+		return d, err
+	}
+
+	already, err := completeAddresses(ctx, w, d.ID)
+	if err != nil {
 		return d, err
 	}
 
@@ -219,13 +257,14 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 		Service:       p.ServiceName,
 		Build:         p.What.BuildID,
 		Credential:    p.Credential,
-		Configuration: p.Configuration,
-		WayInToken:    wayInToken,
+		Configuration: addingTheDeployID(p.Configuration, d.ID),
 		WayInAddress:  p.WayInAddress,
-		DeployID:      d.ID,
 	}
 
 	for n, reach := range p.Reaches {
+		if already[reach.Address] {
+			continue
+		}
 		if n > 0 {
 			if err := hold(ctx, p, d.ID); err != nil {
 				return d, err
@@ -241,9 +280,11 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 		}
 
 		if p.What.Removal() {
-			// What goes on the record is what the seam reported: a platform that
-			// ends instances outright reports a cut, and a record naming a drain
-			// there would assert a drain nothing performed.
+			// What goes on the record is what the seam reported: the one outcome
+			// the operation may report is a drain, no request dropped, and a
+			// platform unable to keep that promise refuses instead — which
+			// [refused] below turns into a target refused rather than a record
+			// naming a replacement that did not happen.
 			ended, err := reach.Target.Stop(ctx, p.Principal, p.ServiceName, p.Credential)
 			if err != nil {
 				return d, refused(ctx, w, p, d, n, reach, err)
@@ -294,24 +335,34 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy, wayInToken
 
 // beginning is what [Writer.Start] is given, assembled from the performance so
 // that the record's fields and the calls that follow cannot disagree about what
-// this deploy is.
-func (p Performance) beginning(wayInDigest string) Beginning {
-	targets := make([]Reaching, 0, len(p.Reaches))
+// this deploy is. configDigest is [DigestConfiguration] of the resolved set
+// before the way-in token was appended to it, and wayInDigest is the digest of
+// the token itself — the two callers take separately, so a token minted fresh
+// at every deploy never moves the first.
+func (p Performance) beginning(configDigest, wayInDigest string) Beginning {
+	runsOn := make(map[string]Reach, len(p.Reaches))
+	addresses := make([]string, 0, len(p.Reaches))
 	for _, reach := range p.Reaches {
-		reaching := Reaching{
-			Address:          reach.Address,
+		runsOn[reach.Address] = reach
+		addresses = append(addresses, reach.Address)
+	}
+	if len(p.EnvironmentTargets) > 0 {
+		addresses = p.EnvironmentTargets
+	}
+
+	targets := make([]Reaching, 0, len(addresses))
+	for _, address := range addresses {
+		reach, runs := runsOn[address]
+		// The control is no part of what is written at the start: there is one
+		// per production target the release has reached, started on that target
+		// when the rollout reaches it, and [Writer.ControlStarted] is what names
+		// it there.
+		targets = append(targets, Reaching{
+			Address:          address,
+			NotRunHere:       !runs,
 			ReleaseInstances: reach.ReleaseInstances,
-			ControlInstances: reach.ControlInstances,
 			KeptInstances:    reach.KeptInstances,
-		}
-		if p.IntoProduction && p.StrategyPicked == StrategyWithControl && reach.ControlInstances > 0 {
-			// A control runs the release a rollback would return to, beside the
-			// release itself, on every target the rollout has reached that
-			// carries one — one control per production target and not one for
-			// the whole deploy.
-			reaching.ControlReleaseID = p.ControlReleaseID
-		}
-		targets = append(targets, reaching)
+		})
 	}
 	return Beginning{
 		ServiceID:           p.ServiceID,
@@ -323,7 +374,7 @@ func (p Performance) beginning(wayInDigest string) Beginning {
 		DeliveredReleaseIDs: p.DeliveredReleaseIDs,
 		SchemaChanges:       p.schemaChanges(),
 		Backfill:            p.Backfill,
-		ConfigurationDigest: DigestConfiguration(p.Configuration),
+		ConfigurationDigest: configDigest,
 		WayInTokenDigest:    wayInDigest,
 	}
 }
@@ -344,16 +395,26 @@ func (p Performance) schemaChanges() []string {
 // performed is what the deployer performed on one target, written when it has
 // performed it. On the row without a control the instances have just been
 // replaced with none of the build they replace left running, which is that row
-// performed. On the row with one it is the control's own share, asked of a
-// target the environment declared as serving one: a target that refuses it — or
-// one that was never declared as serving a share — is the deployer performing
-// the row without a control on this deploy and writing so, and a rollout that
-// ran no comparison is on the record as one.
+// performed.
+//
+// Three things put a deploy that picked the row with a control on the record as
+// having run without one, and none of them refuses the deploy. A service's
+// first release has no control whatever the score prefers: there is no build
+// being replaced, so nothing can keep serving beside it. A target whose platform
+// serves no share is one the row is unavailable on, permanently rather than
+// once, so every deploy there goes without a control. And a target declared as
+// serving a share that then refuses the shift is the deployer performing the row
+// without a control on that deploy and writing so. A rollout that ran no
+// comparison is on the record as one in all three.
+//
+// Where the shift returns, the control is running on that target and the record
+// names it there: one control per production target the release has reached,
+// started on that target when the rollout reaches it.
 func performed(ctx context.Context, w *Writer, p Performance, d Deploy, reach Reach) (Strategy, error) {
-	if p.StrategyPicked != StrategyWithControl {
-		return StrategyWithoutControl, w.PerformedWithoutControl(ctx, d.ID)
-	}
-	if !reach.ServesAShare {
+	switch {
+	case p.StrategyPicked != StrategyWithControl,
+		p.ControlReleaseID == "",
+		!reach.ServesAShare:
 		return StrategyWithoutControl, w.PerformedWithoutControl(ctx, d.ID)
 	}
 	err := reach.Target.ShiftTraffic(ctx, p.Principal, targetseam.Shift{
@@ -362,12 +423,35 @@ func performed(ctx context.Context, w *Writer, p Performance, d Deploy, reach Re
 	if err != nil {
 		return StrategyWithoutControl, w.PerformedWithoutControl(ctx, d.ID)
 	}
+	if err := w.ControlStarted(ctx, d.ID, reach.Address, Control{
+		ReleaseID: p.ControlReleaseID, BuildID: p.ControlBuildID, Instances: reach.ControlInstances,
+	}); err != nil {
+		return d.StrategyPerformed, err
+	}
 	if d.StrategyPerformed == StrategyWithoutControl {
 		// An earlier target refused the shift, so the deploy as a whole ran
 		// without a control whatever this one did.
 		return StrategyWithoutControl, nil
 	}
 	return StrategyWithControl, w.PerformedWithControl(ctx, d.ID)
+}
+
+// completeAddresses is the set of addresses the record already holds complete,
+// which is what lets [perform] skip a target on a second call over a record
+// [Resume] is finishing rather than reaching it, and placing something on it,
+// a second time.
+func completeAddresses(ctx context.Context, w *Writer, deployID string) (map[string]bool, error) {
+	targets, err := Targets(ctx, w.Pool(), deployID)
+	if err != nil {
+		return nil, err
+	}
+	complete := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		if target.Completion == CompletionComplete {
+			complete[target.Address] = true
+		}
+	}
+	return complete, nil
 }
 
 // undoTarget advances every deploy this one undoes on the target this one has
@@ -385,34 +469,6 @@ func undoTarget(ctx context.Context, w *Writer, p Performance, d Deploy, address
 		}
 	}
 	return nil
-}
-
-// hold is the bake volume between one target and the next. It returns as soon as
-// the targets already reached have served the volume, or as soon as the window's
-// cap has run, whichever comes first — and at once where the caller supplied no
-// way to ask.
-func hold(ctx context.Context, p Performance, deployID string) error {
-	if p.Bake == nil || p.BakeVolume <= 0 {
-		return nil
-	}
-	poll := p.BakePoll
-	if poll <= 0 {
-		poll = DefaultBakePoll
-	}
-	for {
-		served, capRun, err := p.Bake.Served(ctx, deployID)
-		if err != nil {
-			return fmt.Errorf("deploy: reading what %s has served: %w", deployID, err)
-		}
-		if capRun || served >= p.BakeVolume {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(poll):
-		}
-	}
 }
 
 // refused is what a target error leaves. With no target complete behind it the
@@ -440,40 +496,4 @@ func fail(ctx context.Context, w *Writer, p Performance, d Deploy, step string, 
 		}
 	}
 	return cause
-}
-
-// DigestConfiguration is the digest over a resolved value set: each name and
-// each value in the order the caller assembled them, separated so that two sets
-// differing only in where one value ends do not digest the same. It is what goes
-// on the deploy record beside the build's digest, and what a rollback restores
-// the configuration version by.
-func DigestConfiguration(values targetseam.ValueSet) string {
-	if len(values.Names) == 0 {
-		return ""
-	}
-	sum := sha256.New()
-	for n, name := range values.Names {
-		sum.Write([]byte(name))
-		sum.Write([]byte{0})
-		if n < len(values.Values) {
-			sum.Write([]byte(values.Values[n]))
-		}
-		sum.Write([]byte{0})
-	}
-	return hex.EncodeToString(sum.Sum(nil))
-}
-
-// mintWayInToken is the token the deployer mints for the way in at every deploy
-// and the digest it writes on the record. The token is handed to the service in
-// its configuration and stored nowhere, beside [Performance.WayInAddress],
-// which is where the way in presents it; the digest is what the report store
-// finds the deploy record by, through [ByWayInTokenDigest].
-func mintWayInToken() (token, digest string, err error) {
-	var bytes [32]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		return "", "", fmt.Errorf("deploy: minting the way-in token: %w", err)
-	}
-	token = hex.EncodeToString(bytes[:])
-	sum := sha256.Sum256([]byte(token))
-	return token, hex.EncodeToString(sum[:]), nil
 }

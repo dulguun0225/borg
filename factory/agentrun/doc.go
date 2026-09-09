@@ -4,8 +4,9 @@
 // agentrun.go holds [Run], [AccountKind] with [AccountKinds], and
 // [Run.UnpricedKinds]. schema.go holds [Table], [IDPrefix], and [DDL].
 // writer.go holds [Writer], [NewWriter], and [New] with [Writer.Record].
-// read.go holds [Get], [ForItem], [ForIntent], [ByAuthorModel], [Spend], and
-// [SpendByCredentialSince].
+// read.go holds [Get], [ForItem], [ForIntent], [ByAuthorModel], [Spend],
+// [Period] with [PeriodUnit], [PeriodUnits] and [DateLayout], and
+// [SpendByCredentialIn].
 //
 // A run carries four groups of fields: what ran — the role, the role prompt
 // version in force, the skill versions matched, the model version, and the
@@ -18,6 +19,17 @@
 // kind was converted at, and the amount that sums to, absent where a kind
 // returned has no rate.
 //
+// The amount is computed by [Writer.Record] from the units and the rates the
+// record stores, and an amount its caller supplies that is not that sum is
+// refused: what the record says a run cost is its own two fields multiplied
+// out. The time the provider returned the units is the caller's to supply and
+// its absence is refused, because the time the record was written is a
+// different fact and the sum a ceiling compares is over the first.
+//
+// The tests depart from the shape a record package takes: db_test.go holds the
+// record's own, and spend_test.go the sum a spend ceiling compares, split by
+// subject because the two together pass the 500-line bound.
+//
 // [Writer]'s caller is dispatch, the component that performs a run. What ran
 // and what it ran on are written straight onto the record rather than resolved
 // through the fleet entry or the People declaration, because the owner may
@@ -25,8 +37,11 @@
 //
 // What every run carries is what dispatch reads at the run: the model version,
 // the effort and the processing location off the fleet entry it matched, and
-// the lender's per-person key, the account kind, the rates per kind and the
-// amount they convert to off the People declaration naming the credential. The
+// the lender's per-person key, the account kind and the rates per kind off the
+// People declaration naming the credential. The processing location, the
+// lender's key and the account kind are required: a run missing one is a run
+// whose account or processing location no later reading can name, and a run
+// from before the fields existed is not a case this store holds. The
 // skill versions are the one field of the four groups still empty: a skill is a
 // record nothing writes.
 //
@@ -47,6 +62,15 @@
 // [Run.UnpricedKinds] is what a spend ceiling names in the hold it writes on
 // a credential that fails closed: a run whose converted amount is absent
 // because a kind it returned has no rate for that model version and effort.
+//
+// [SpendByCredentialIn] is the sum that ceiling compares, over one credential
+// and one currency, bounded at both ends of the period that contains the
+// instant it is asked for. Which period a run falls in is on no record: the
+// read derives it from the [Period] the owner authored — a start date, the zone
+// it was authored in, and a length — so a period lengthened or re-anchored
+// later re-buckets every run already written. That vocabulary is package
+// people's, repeated here rather than imported, the two packages being the
+// spend ceiling's two halves.
 //
 // item_id, intent_id, project_id, input_manifest_id, role_prompt_version_id,
 // and the ids in skill_version_ids are id fields and not foreign keys, like every link

@@ -74,9 +74,12 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		EnvironmentID:   p.production.ID,
 		CriteriaInForce: len(c.criteria),
 		Criteria:        c.criteria,
-		CouldNotDerive:  couldNotDerive(c, predicates),
-		Measurement:     c.measurement,
-		Exposure:        reached,
+		// The run this row decides over has ended: the encodings ran on the
+		// candidate environment and their results are the criteria above.
+		CandidateRunEnded: true,
+		CouldNotDerive:    couldNotDerive(c, predicates),
+		Measurement:       c.measurement,
+		Exposure:          reached,
 	}
 	opened, err := p.gate.Fire(ctx, firing)
 	if err != nil {

@@ -61,6 +61,11 @@ var (
 	// stands. Recording the refusal is the caller's, this package writing
 	// nothing where it refuses.
 	ErrLegalHoldReaches = errors.New("redaction: a legal hold reaches this target, so the words stand")
+	// ErrNoErasureList is returned by [Insert] for a call supplying no
+	// appendErasure. The erasure-list row is what says the words must not
+	// come back with a restore, so a redaction that cannot append one is
+	// refused rather than performed without it.
+	ErrNoErasureList = errors.New("redaction: an erasure appends an erasure-list row, and no appender was supplied")
 )
 
 // Target is what one redaction removes words from: a kind, and the id of the
@@ -126,10 +131,23 @@ func Key(actor record.Actor, w Writing) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// ErasureAppender appends one row of the erasure list: kind is the target's
+// kind, spelled the way the list spells its own rows — the same string
+// [TargetKind] already carries — key is the erasure key [Insert] derives
+// from the same actor and the same writing the record is about to carry, and
+// removed is the target's id and the bounds of each span, never a byte of
+// what stood there. The report store is the list's one writer and this
+// package does not import it, so [Insert] calls whatever its caller hands it
+// here rather than reaching in: package policy's own WriteRedaction takes one
+// from its caller and hands it through unchanged, and cmd/factory's own
+// erasure hands it the report store's AppendErasure, which this type matches.
+type ErasureAppender func(kind, key, removed string) error
+
 // Writer is the table's one writer: Factory. It wraps [Insert] with a pool
 // and a token for a caller that holds no transaction of its own — package
 // policy's own write calls [Insert] directly, inside the transaction that
-// appends the policy version.
+// appends the policy version. Nothing but a test composes one: it is what
+// the other two targets' own writers read a redaction against.
 type Writer struct {
 	pool  *pgxpool.Pool
 	token lease.Token
@@ -142,9 +160,10 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 
 // Insert writes one redaction in its own transaction, refusing it with
 // [ErrLegalHoldReaches] where a hold reaches the target. See [Writer] for why
-// a wrapper exists and [Reaching] for what the two halves of the refusal are.
+// a wrapper exists, [Reaching] for what the two halves of the refusal are,
+// and [Insert] for what appendErasure is and when it is called.
 func (w *Writer) Insert(ctx context.Context, actor record.Actor, writing Writing,
-	reaches func(ctx context.Context) (bool, error)) (Redaction, error) {
+	reaches func(ctx context.Context) (bool, error), appendErasure ErasureAppender) (Redaction, error) {
 	held, err := Reaching(ctx, w.pool, reaches)
 	if err != nil {
 		return Redaction{}, err
@@ -157,7 +176,7 @@ func (w *Writer) Insert(ctx context.Context, actor record.Actor, writing Writing
 		return Redaction{}, fmt.Errorf("redaction: beginning: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	r, err := Insert(ctx, tx, w.token, actor, writing)
+	r, err := Insert(ctx, tx, w.token, actor, record.NewID(IDPrefix), writing, appendErasure)
 	if err != nil {
 		return Redaction{}, err
 	}
@@ -167,17 +186,32 @@ func (w *Writer) Insert(ctx context.Context, actor record.Actor, writing Writing
 	return r, nil
 }
 
-// Insert writes one redaction inside tx. Its caller is package policy's
-// WriteRedaction, which appends the policy version in the same transaction,
-// and which makes the legal hold's refusal before it opens one.
+// Insert writes one redaction inside tx, appending the erasure-list row
+// through appendErasure first. Its caller is package policy's WriteRedaction,
+// which appends the policy version in the same transaction, and which makes
+// the legal hold's refusal before it opens one. id is minted by that caller:
+// the version names the redaction and is appended before it.
 //
-// The erasure-list row of this erasure has already been appended when this
-// runs: [Key] over the same fields is what it was keyed under, and the column
-// is written from that derivation rather than from an argument, so the record
-// and the row cannot be keyed differently. That the row was appended at all is
-// the caller's, which is the step before this one.
+// The row and the record are keyed the same way: [Key] over the same actor
+// and the same writing is derived once, here, and handed to appendErasure
+// and written into the column both, so the two cannot be keyed differently.
+// The row lands first — appendErasure is called before the record's own
+// insert, so a stop between the two (this returning before its caller's
+// transaction commits) leaves a row saying words were removed and no record
+// saying they were, which is the event visibly owing rather than visibly
+// done, and the row is what a restore replays. appendErasure is the caller's,
+// because the erasure list has one writer and it is the report store, which
+// this package does not import; a call supplying none is [ErrNoErasureList].
+//
+// The keyed repeat is a no-op here rather than left to the unique index or to
+// appendErasure's own idempotence: this finds the record the first
+// performance wrote, by the same key, before appendErasure is even called,
+// and returns it, appending no second row and writing no second record. A
+// caller ahead of this one may check first — package policy's own
+// WriteRedaction does, to skip appending a second version too — but a caller
+// that does not still writes nothing twice.
 func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
-	w Writing) (Redaction, error) {
+	id string, w Writing, appendErasure ErasureAppender) (Redaction, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Redaction{}, err
 	}
@@ -202,11 +236,27 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 		}
 	}
 
-	r := Redaction{
-		ID: record.NewID(IDPrefix), Actor: actor, At: record.Now(),
-		Target: w.Target, Reason: w.Reason, Spans: w.Spans, ErasureKey: Key(actor, w),
+	key := Key(actor, w)
+	found, ok, err := byErasureKeyTx(ctx, tx, key)
+	if err != nil {
+		return Redaction{}, err
 	}
-	_, err := tx.Exec(ctx, `insert into `+Table+`
+	if ok {
+		return found, nil
+	}
+
+	if appendErasure == nil {
+		return Redaction{}, fmt.Errorf("%w: %s", ErrNoErasureList, w.Target)
+	}
+	if err := appendErasure(string(w.Target.Kind), key, removed(w)); err != nil {
+		return Redaction{}, fmt.Errorf("redaction: appending the erasure-list row for %s: %w", w.Target, err)
+	}
+
+	r := Redaction{
+		ID: id, Actor: actor, At: record.Now(),
+		Target: w.Target, Reason: w.Reason, Spans: w.Spans, ErasureKey: key,
+	}
+	_, err = tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at,
 		 target_kind, target_id, spans, reason, erasure_key)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -247,6 +297,21 @@ func Reaching(ctx context.Context, pool *pgxpool.Pool,
 		return false, fmt.Errorf("redaction: checking whether a legal hold reaches the target: %w", err)
 	}
 	return held, nil
+}
+
+// removed is what the erasure-list row says was removed: the target's id and
+// the bounds of each span, and never a byte of what stood there. Every other
+// writer of the list spells this the same way over its own rows — the report
+// store, and cmd/factory's own replay before that, read any of them back the
+// one way — so this is the same spelling kept once more, for the row [Insert]
+// hands appendErasure.
+func removed(w Writing) string {
+	parts := make([]string, 0, len(w.Spans)+1)
+	parts = append(parts, w.Target.ID)
+	for _, span := range w.Spans {
+		parts = append(parts, strconv.Itoa(span.Start)+"-"+strconv.Itoa(span.End))
+	}
+	return strings.Join(parts, " ")
 }
 
 // encodeSpans is the spans as the column holds them: each span as its start,

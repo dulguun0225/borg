@@ -6,7 +6,8 @@
 // environment.go is [Environment] with [Environment.Live], [Environment.Addresses]
 // and [Environment.EveryTargetServesAShare], [Kind] with [Kinds] and
 // [ProductionName], [Target], [Platform] and [Spec], and the reads [Get], [ByName],
-// [Production], [ForItem], [CountLiveCandidates] and [TornDownCandidates]. writer.go is the persistent
+// [Production], [RefuseUnlessComposable], [ForItem], [CountLiveCandidates] and
+// [TornDownCandidates]. writer.go is the persistent
 // kinds' writer: [Writer] and [NewWriter] with [Writer.Create], [Writer.Withdraw],
 // [Writer.AddTarget] and [Writer.RemoveTarget], the transaction-taking functions
 // beside each ([Insert], [Withdraw], [AddTarget], [RemoveTarget]),
@@ -37,7 +38,8 @@
 // [Environment.EveryTargetServesAShare] takes the service's own set of this
 // environment's targets — the service record's field — and reads the whole list
 // where that set is empty, which is what an unwritten field means. Package
-// gate passes that set when it picks a strategy.
+// gate reads it over that set and hands the fact to the score, which picks
+// the strategy.
 //
 // The targets are an ordered list of an address and whether the platform behind
 // it serves a share, and they are a field rather than records of their own:
@@ -51,16 +53,19 @@
 // The credential a deploy is performed with is a [secretref.Ref], so the record
 // names it and holds no value. The two persistent kinds also declare a
 // [Platform]: its name, the credential a candidate environment is composed
-// through, and whether it can compose one on demand — [Insert] refuses a
-// production environment whose platform cannot, an environment per candidate
-// being the shape the design admits and nothing else. A candidate's environment
-// declares no platform of its own: it is composed on the platform its item's
-// production environment declares. [SetMaxConcurrentCandidateEnvironments]
-// authors the ceiling on production's record beside the platform it declares,
-// one per platform, and [CountLiveCandidates] is scoped to the production
-// environment named — an install whose projects run on two platforms adds
-// neither count across them. The project is required of a persistent kind and
-// empty on a candidate's, which belongs to the item rather than the project;
+// through, and whether it can compose one on demand. Creation writes the record
+// as declared whichever way that reads; [RefuseUnlessComposable] is the refusal
+// for a project whose production environment declares a platform that cannot,
+// called by the command-line interface at adoption and at decomposition for its
+// services rather than at creation, an environment per candidate being the
+// shape the design admits and nothing else. A candidate's environment declares
+// no platform of its own: it is composed on the platform its item's production
+// environment declares. [SetMaxConcurrentCandidateEnvironments] authors the
+// ceiling on production's record beside the platform it declares, one per
+// platform, and [CountLiveCandidates] is scoped to the production environment
+// named — an install whose projects run on two platforms adds neither count
+// across them. The project is required of a persistent kind and empty on a
+// candidate's, which belongs to the item rather than the project;
 // production is one record per project, enforced by a unique index on the
 // project where the kind is production.
 //
@@ -70,7 +75,7 @@
 // The strategy default is production's record alone, a field rather than a row
 // because there is one per record: a strategy decides whether a control runs,
 // and a control is a comparison against organic traffic, which no other kind
-// has. [SetStrategyDefault] is the write and package gate makes the pick.
+// has. [SetStrategyDefault] is the write and the score makes the pick.
 //
 // Three fields are a candidate's alone and empty on a persistent kind. The item
 // is what the environment belongs to — the item and not the build, because the
@@ -94,8 +99,11 @@
 // service's rate was in force at the write — fixed there and never repriced.
 // [Reason.ForGood] tells the three teardown-for-good events apart from a
 // reclamation, which the deployer performs on an item running nothing so that
-// the platform's room is not consumed by an item waiting on a human; a
-// reclamation ends the cycle and leaves the environment row standing, and
+// the platform's room is not consumed by an item waiting on a human —
+// [CountLiveCandidates] is what reads that room freed: it excludes an
+// environment whose newest cycle is reclaimed, its row still standing with
+// [Environment.Live] true, from an environment with an open cycle composed
+// right now. A reclamation ends the cycle and leaves the environment row standing, and
 // [Candidates.Recompose] opens the next cycle when the item next reaches
 // [Deploy to candidate environment]. An environment has at most one open cycle,
 // which the partial unique index in [DDL] enforces. [EnvironmentHours] sums
@@ -147,5 +155,17 @@
 // (C1503, C1513, C1514, C1515, C1517) for the compose timestamps, the
 // platform's room, and environment-hours; and the threshold's scope is
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
-// (C2233, C2234, C2246, C2253).
+// (C2233, C2234, C2246, C2253, C2254).
+//
+// An environment reclaimed and composed again is
+// ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1037);
+// the concurrent-environment count on the environment record is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/06-deploy-to-candidate-environment.md
+// (C1147).
+//
+// [Reason.ForGood] telling the three teardown-for-good events apart from a
+// reclamation, and an escalated item's environment being reclaimed and
+// kept, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md
+// (C0667, C0668).
 package environment

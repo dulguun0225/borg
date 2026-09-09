@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,6 +82,9 @@ func checkHazard(h Hazard) error {
 	}
 	if h.Bound <= 0 {
 		return fmt.Errorf("%w: the bound is %v", ErrIrreversibleNeedsItsBound, h.Bound)
+	}
+	if h.Bound != math.Trunc(h.Bound) {
+		return fmt.Errorf("%w: the bound is a count of the operation and %v is not one", ErrIrreversibleNeedsItsBound, h.Bound)
 	}
 	if h.BoundPeriodSeconds <= 0 {
 		return fmt.Errorf("%w: the bound's period is %v", ErrIrreversibleNeedsItsBound, h.BoundPeriodSeconds)

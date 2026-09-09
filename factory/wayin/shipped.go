@@ -227,11 +227,16 @@ type borgWayInForwarded struct {
 }
 
 // borgWayInResult is the submit result, rendered in the session that
-// submitted: accepted, or refused with the bound that refused it as the
-// reason. Nothing else is rendered and nothing about the session outlives it.
+// submitted: accepted, refused with the bound that refused it as the reason,
+// or — where the notice moved between the open and this submit — neither,
+// with the fresh notice carried instead so the session can be shown it again
+// rather than refused silently. Nothing else is rendered and nothing about
+// the session outlives it.
 type borgWayInResult struct {
 	Accepted bool   ` + "`" + `json:"accepted"` + "`" + `
 	Refusal  string ` + "`" + `json:"refusal,omitempty"` + "`" + `
+	NoticeID string ` + "`" + `json:"notice_id,omitempty"` + "`" + `
+	Text     string ` + "`" + `json:"text,omitempty"` + "`" + `
 }
 
 // borgWayInNotice shows the notice in force and mints the session key the

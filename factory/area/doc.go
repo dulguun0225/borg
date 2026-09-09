@@ -60,7 +60,12 @@
 //
 // the target it holds and its unit are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
-// (C0742, C0748) and the row in
+// (C0748) and the row in
 // ../../end-goal/how-the-factory-works/09-gate-policy/01-what-is-in-it.md
-// (C2191).
+// (C2191);
+//
+// the hazard severity and [SeverityInForce] as authored fields the eleven
+// criterion patterns do not cover are
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
+// (C2291, C2292).
 package area

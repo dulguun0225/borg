@@ -134,12 +134,13 @@ func TestAReferWidensToTheOwnerAndIsThenRefused(t *testing.T) {
 	declares(t, ctx, pool, token, owner, author.Key, gate.DutyUAT)
 	declares(t, ctx, pool, token, owner, second.Key, gate.DutyUAT)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	merging := mergeRowFiring(t, ctx, pool, token)
+	opened, err := g.Fire(ctx, merging)
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	first, err := g.Refer(ctx, opened, author, "I cannot judge this myself", mergeFiring)
+	first, err := g.Refer(ctx, opened, author, "I cannot judge this myself", merging)
 	if err != nil {
 		t.Fatalf("the first holder referring: %v", err)
 	}
@@ -148,7 +149,7 @@ func TestAReferWidensToTheOwnerAndIsThenRefused(t *testing.T) {
 			first.Reopened.WaitsOn.Holders)
 	}
 
-	last, err := g.Refer(ctx, first.Reopened, second, "nor can I", mergeFiring)
+	last, err := g.Refer(ctx, first.Reopened, second, "nor can I", merging)
 	if err != nil {
 		t.Fatalf("the last holder referring: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestAReferWidensToTheOwnerAndIsThenRefused(t *testing.T) {
 			last.Reopened.WaitsOn)
 	}
 
-	if _, err := g.Refer(ctx, last.Reopened, owner, "and neither can I", mergeFiring); !errors.Is(err,
+	if _, err := g.Refer(ctx, last.Reopened, owner, "and neither can I", merging); !errors.Is(err,
 		gate.ErrNobodyLeftToReferTo) {
 		t.Errorf("a refer at the widened row = %v, want ErrNobodyLeftToReferTo", err)
 	}
@@ -180,7 +181,7 @@ func TestAnAcknowledgementIsRefusedOnceTheDecisionHasEnded(t *testing.T) {
 
 	declares(t, ctx, pool, token, owner, author.Key, gate.DutyUAT)
 
-	opened, err := g.Fire(ctx, mergeFiring)
+	opened, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}

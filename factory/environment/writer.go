@@ -32,7 +32,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, spec Spec) (Env
 	var created Environment
 	err := w.inTransaction(ctx, "creating "+spec.Name, func(tx pgx.Tx) error {
 		var err error
-		created, err = Insert(ctx, tx, w.token, actor, spec)
+		created, err = Insert(ctx, tx, w.token, actor, record.NewID(IDPrefix), spec)
 		return err
 	})
 	return created, err
@@ -83,17 +83,18 @@ func (w *Writer) inTransaction(ctx context.Context, doing string, write func(pgx
 // is refused with [ErrNotAnOwnersKind]: the kind is the seam between this writer
 // and [Candidates], and neither writes a record of the other's.
 //
-// A production environment whose platform cannot compose an environment on
-// demand is refused here, which is the refusal the design makes at adoption and
-// at decomposition for its services: an environment per candidate is the shape
-// admitted, and a platform that cannot compose one leaves that shape with no
-// implementation.
+// Creation writes the record as declared, whatever its platform composes: the
+// refusal for a production environment whose platform cannot compose one on
+// demand is [RefuseUnlessComposable], called where the design makes it — at
+// adoption and at decomposition for its services — and not here.
 //
 // token fences this write the way every write transaction in the module does: tx
 // is begun by the caller — package policy's version transaction, or
 // [Writer.Create] — so this is where the fence is called rather than at a Begin
-// of this package's own.
-func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, spec Spec) (Environment, error) {
+// of this package's own. id is minted by the caller for the same reason: the
+// policy version names the environment and is appended before it.
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	id string, spec Spec) (Environment, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Environment{}, err
 	}
@@ -118,12 +119,9 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 	if spec.Platform.Name == "" || spec.Platform.Credential.Name() == "" {
 		return Environment{}, fmt.Errorf("%w: %s", ErrPlatformIncomplete, spec.Name)
 	}
-	if spec.Kind == KindProduction && !spec.Platform.CanComposeOnDemand {
-		return Environment{}, fmt.Errorf("%w: %s declares %s", ErrPlatformCannotComposeOnDemand, spec.Name, spec.Platform.Name)
-	}
 
 	e := Environment{
-		ID:         record.NewID(IDPrefix),
+		ID:         id,
 		Actor:      actor,
 		At:         record.Now(),
 		Kind:       spec.Kind,

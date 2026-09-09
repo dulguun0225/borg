@@ -33,7 +33,7 @@ func TestWithdrawingAProtectedCriterionResolvesAtSpec(t *testing.T) {
 	}}}
 
 	s := &Score{withdrawals: withdrawn}
-	r, err := s.protectionWithdrawn(ctx, Change{ArtifactID: "art_a", AtSpec: true})
+	r, err := s.protectionWithdrawn(ctx, Version{}, Change{ArtifactID: "art_a", AtSpec: true})
 	if err != nil {
 		t.Fatalf("protectionWithdrawn: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestWithdrawingAProtectedCriterionResolvesAtSpec(t *testing.T) {
 	s = &Score{withdrawals: fakeWithdrawals{removed: []ProtectionRemoved{{
 		What: RemovedScreenTransition, SubjectID: "ssm_a", Provenance: ProvenanceHumanConfirmed,
 	}}}}
-	r, err = s.protectionWithdrawn(ctx, Change{ArtifactID: "art_a", AtSpec: true})
+	r, err = s.protectionWithdrawn(ctx, Version{}, Change{ArtifactID: "art_a", AtSpec: true})
 	if err != nil {
 		t.Fatalf("protectionWithdrawn over a screen revision: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestWithdrawingAProtectedCriterionResolvesAtSpec(t *testing.T) {
 	// whose composition supplies no reader — an empty input and never an
 	// unavailable one, which would resolve every Spec row there is.
 	s = &Score{withdrawals: NoWithdrawals{}}
-	r, err = s.protectionWithdrawn(ctx, Change{ArtifactID: "art_a", AtSpec: true})
+	r, err = s.protectionWithdrawn(ctx, Version{}, Change{ArtifactID: "art_a", AtSpec: true})
 	if err != nil {
 		t.Fatalf("protectionWithdrawn with no reader: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestAScreenTheTransitionCheckCouldNotDeriveResolvesAtImplementation(t *test
 	s := &Score{withdrawals: NoWithdrawals{}}
 	notDerived := "could not derive for ssm_a: 1 construct(s) the analysis could not follow: [screen.ssm_a.go:9 — a dispatch through a table]"
 
-	r, err := s.protectionWithdrawn(ctx, Change{AtImplementation: true, ScreensNotDerived: []string{notDerived}})
+	r, err := s.protectionWithdrawn(ctx, Version{}, Change{AtImplementation: true, ScreensNotDerived: []string{notDerived}})
 	if err != nil {
 		t.Fatalf("protectionWithdrawn: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestAScreenTheTransitionCheckCouldNotDeriveResolvesAtImplementation(t *test
 	// A build every screen derived from reads as nothing removed, which is the
 	// reading at every other row: could not derive and nothing to derive are
 	// opposite answers.
-	r, err = s.protectionWithdrawn(ctx, Change{AtImplementation: true})
+	r, err = s.protectionWithdrawn(ctx, Version{}, Change{AtImplementation: true})
 	if err != nil {
 		t.Fatalf("protectionWithdrawn over a build that derived: %v", err)
 	}
@@ -115,16 +115,30 @@ func TestAScreenTheTransitionCheckCouldNotDeriveResolvesAtImplementation(t *test
 func TestADiffNobodyCouldReadForWhatItDestroysResolvesReversibility(t *testing.T) {
 	s := &Score{}
 	why := "whether the diff against master destroys stored data could not be read"
-	r, err := s.reversibility(t.Context(), Change{
-		AtImplementation: true,
-		Measurement:      Measurement{DestroysStoredDataUnavailable: why},
-	})
-	if err != nil {
-		t.Fatalf("reversibility: %v", err)
+	unread := Measurement{DestroysStoredDataUnavailable: why}
+
+	// It binds every row with a build and not Implementation alone: an input
+	// nothing could read is unavailable wherever there is a diff, and only the
+	// diff that destroys stored data is the resolution Implementation owns.
+	for _, c := range []Change{
+		{FactorSet: SetWithABuild, AtImplementation: true, Measurement: unread},
+		{FactorSet: SetWithABuild, Measurement: unread},
+		{FactorSet: SetWithABuild, AtDeployToProduction: true, Measurement: unread},
+	} {
+		r, err := s.reversibility(t.Context(), Version{}, c)
+		if err != nil {
+			t.Fatalf("reversibility: %v", err)
+		}
+		if r.unavailable != why {
+			t.Errorf("the reading at %+v is %+v, want it unavailable with the reason on it", c, r)
+		}
 	}
-	if r.unavailable != why {
-		t.Errorf("the reading is %+v, want it unavailable with the reason on it", r)
-	}
+
+	// A row above a build is not among them, and the set is what says so: the
+	// change group there is computed from the set decomposition proposed, so
+	// there is no diff to have failed to read. It is not exercised here because
+	// the reading then falls through to a read of the store for what the
+	// service has to return to, which these arithmetic tests hold no pool for.
 }
 
 // TestAnIrreversibleAreaWithNoControlResolvesTheProductionDeploy: where the

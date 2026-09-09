@@ -13,9 +13,9 @@ import (
 func TestReevaluateWaitsWhileAHoldStandsThenClosesOnceItLifts(t *testing.T) {
 	holds := &fakeHolds{standing: []string{gate.HoldDependencyNotLive}}
 	s, p := &fakeScore{assessment: assessed(0.2)}, &fakePolicy{applied: applied(0.5)}
-	ctx, _, _, g := newGateWith(t, s, p, func(c *gate.Composition) { c.Holds = holds })
+	ctx, pool, token, g := newGateWith(t, s, p, func(c *gate.Composition) { c.Holds = holds })
 
-	opened, err := g.Fire(ctx, candidateFiring())
+	opened, err := g.Fire(ctx, candidateFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}

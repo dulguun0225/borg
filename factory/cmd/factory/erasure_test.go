@@ -117,14 +117,15 @@ func quotedInAVersion(t *testing.T, ctx context.Context, d deps, p *path,
 	t.Helper()
 	svc := onlyService(t, ctx, d)
 	it, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
-		IntentID: intentID, ServiceID: svc, AreaID: p.areaID, Branch: "candidate/erasure",
+		IntentID: intentID, ServiceID: svc, AreaChain: []string{p.areaID}, Branch: "candidate/erasure",
+		RequirementsAnswered: oneRequirement,
 	}, p.projectID, p.projectID, nil)
 	if err != nil {
 		t.Fatalf("writing an item of the intent grouped from reports: %v", err)
 	}
 	version, _, _, err := p.store.SubmitSpec(ctx, p.specAuthorActor(),
 		artifact.By{Authorship: artifact.AuthorshipAgent, Author: d.modelName},
-		it.ID, svc, "the spec authored against: "+statement, []criterion.Draft{}, nil, nil, "")
+		it.ID, svc, "the spec authored against: "+statement, []criterion.Draft{}, nil, nil, "im_1")
 	if err != nil {
 		t.Fatalf("submitting the spec version quoting the report: %v", err)
 	}

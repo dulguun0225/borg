@@ -57,10 +57,31 @@ func TestTheExplicitThresholdIsPerQuantityAndCarriesItsSize(t *testing.T) {
 		t.Errorf("after re-authoring, the thresholds = %+v, want the one row updated", read.ExplicitThreshold)
 	}
 
+	// The number is absolute where the comparison is relative, so nothing
+	// bounds it above: a latency quantile's threshold is seconds and no share
+	// could carry it.
 	tx = begin(ctx, t, pool)
 	if err := service.SetExplicitThreshold(ctx, tx, token, owner, created.ID,
-		gatepolicy.QuantityErrorRate, 2, 0.01); !errors.Is(err, service.ErrShareOutOfRange) {
-		t.Errorf("a threshold above one = %v, want ErrShareOutOfRange", err)
+		gatepolicy.QuantityLatency, 0.25, 0.01); err != nil {
+		t.Fatalf("a latency threshold of 250 milliseconds: %v", err)
+	}
+	if err := service.SetExplicitThreshold(ctx, tx, token, owner, created.ID,
+		gatepolicy.QuantityRequestRate, 1500, 0.01); err != nil {
+		t.Fatalf("a request-rate threshold of 1500 per second: %v", err)
+	}
+	commit(ctx, t, tx)
+	if read, err = service.Get(ctx, pool, created.ID); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.ExplicitThreshold[gatepolicy.QuantityRequestRate].Number != 1500 {
+		t.Errorf("the request-rate threshold = %+v, want the absolute 1500",
+			read.ExplicitThreshold[gatepolicy.QuantityRequestRate])
+	}
+
+	tx = begin(ctx, t, pool)
+	if err := service.SetExplicitThreshold(ctx, tx, token, owner, created.ID,
+		gatepolicy.QuantityErrorRate, -1, 0.01); !errors.Is(err, service.ErrNotPositive) {
+		t.Errorf("a threshold below nothing = %v, want ErrNotPositive", err)
 	}
 	_ = tx.Rollback(ctx)
 }
@@ -106,7 +127,7 @@ func TestTheHostingRatesAndTheSearchBudget(t *testing.T) {
 	if err := service.SetEnvironmentHourRate(ctx, tx, created.ID, 0.4); err != nil {
 		t.Fatalf("SetEnvironmentHourRate: %v", err)
 	}
-	if err := service.SetSearchBudget(ctx, tx, created.ID, 5, 3600); err != nil {
+	if err := service.SetSearchBudget(ctx, tx, owner, created.ID, 5, 3600); err != nil {
 		t.Fatalf("SetSearchBudget: %v", err)
 	}
 	commit(ctx, t, tx)
@@ -127,7 +148,7 @@ func TestTheHostingRatesAndTheSearchBudget(t *testing.T) {
 	if err := service.SetEnvironmentHourRate(ctx, tx, created.ID, -1); !errors.Is(err, service.ErrRateNegative) {
 		t.Errorf("SetEnvironmentHourRate(-1) = %v, want ErrRateNegative", err)
 	}
-	if err := service.SetSearchBudget(ctx, tx, created.ID, 0, 3600); !errors.Is(err, service.ErrNotPositive) {
+	if err := service.SetSearchBudget(ctx, tx, owner, created.ID, 0, 3600); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("a search budget of no builds = %v, want ErrNotPositive", err)
 	}
 	_ = tx.Rollback(ctx)

@@ -35,7 +35,7 @@ func approvedBy(itemID, artifactID, at string) Firing {
 func TestARejectionMovesNothingUntilItHasResolved(t *testing.T) {
 	unresolved := newEvidence()
 	unresolved.firings = []Firing{rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z")}
-	unresolved.digests = map[string]string{"av_1": "digest-one"}
+	unresolved.contents = map[string]string{"av_1": "the missing check is absent"}
 	unresolved.index()
 	if got := unresolved.resolvedRejections()[0].Resolution; got != "" {
 		t.Errorf("a rejection nothing has answered resolved as %q", got)
@@ -47,7 +47,7 @@ func TestARejectionMovesNothingUntilItHasResolved(t *testing.T) {
 	for _, c := range []struct {
 		what     string
 		firings  []Firing
-		digests  map[string]string
+		contents map[string]string
 		want     string
 		moves    bool
 		newLimit bool
@@ -58,17 +58,38 @@ func TestARejectionMovesNothingUntilItHasResolved(t *testing.T) {
 				rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
 				approvedBy("it_a", "av_2", "2026-08-20T01:00:00Z"),
 			},
-			digests: map[string]string{"av_1": "digest-one", "av_2": "digest-two"},
-			want:    ResolvedReAuthoredApproved, moves: true,
+			contents: map[string]string{
+				"av_1": "the missing check is absent\nand the rest stands",
+				"av_2": "the missing check is written\nand the rest stands",
+			},
+			want: ResolvedReAuthoredApproved, moves: true,
 		},
 		{
+			// The re-authored version differs — the whole version's digest
+			// moved — and the part the rejection named reads the same, which is
+			// the false alarm the whole digest could not have found.
 			what: "approval without differing there",
 			firings: []Firing{
 				rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
-				approvedBy("it_a", "av_1", "2026-08-20T01:00:00Z"),
+				approvedBy("it_a", "av_2", "2026-08-20T01:00:00Z"),
 			},
-			digests: map[string]string{"av_1": "digest-one"},
-			want:    ResolvedApprovedUnchanged, moves: false,
+			contents: map[string]string{
+				"av_1": "the missing check is absent\nand the rest stands",
+				"av_2": "the missing check is absent\nand the rest was rewritten",
+			},
+			want: ResolvedApprovedUnchanged, moves: false,
+		},
+		{
+			// A trail the store no longer holds the words of leaves the
+			// rejection unresolved: it moves nothing, and reading it as a false
+			// alarm would publish one against the human on nothing.
+			what: "a re-authored version the store no longer holds",
+			firings: []Firing{
+				rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
+				approvedBy("it_a", "av_2", "2026-08-20T01:00:00Z"),
+			},
+			contents: map[string]string{"av_1": "the missing check is absent"},
+			want:     "", moves: false,
 		},
 		{
 			what: "a second rejection",
@@ -76,13 +97,13 @@ func TestARejectionMovesNothingUntilItHasResolved(t *testing.T) {
 				rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
 				rejected("it_a", "av_2", "the missing check", "2026-08-20T01:00:00Z"),
 			},
-			digests: map[string]string{"av_1": "digest-one", "av_2": "digest-two"},
-			want:    ResolvedRejectedAgain, moves: true,
+			contents: map[string]string{"av_1": "one", "av_2": "two"},
+			want:     ResolvedRejectedAgain, moves: true,
 		},
 	} {
 		e := newEvidence()
 		e.firings = c.firings
-		e.digests = c.digests
+		e.contents = c.contents
 		e.index()
 		got := e.resolvedRejections()[0]
 		if got.Resolution != c.want {
@@ -100,7 +121,7 @@ func TestARejectionMovesNothingUntilItHasResolved(t *testing.T) {
 	limit, _ := Starting(gatepolicy.AttemptLimit)
 	stalled := newEvidence()
 	stalled.firings = []Firing{rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z")}
-	stalled.digests = map[string]string{"av_1": "digest-one"}
+	stalled.contents = map[string]string{"av_1": "the missing check is absent"}
 	stalled.items = []item.Item{{ID: "it_a", AreaID: "ar_a", Stage: item.StageImplementation}}
 	stalled.stages = []item.StageTotals{{ItemID: "it_a", Stage: item.StageImplementation, Attempts: int(limit.Value)}}
 	stalled.index()
@@ -116,11 +137,16 @@ func TestAFalseAlarmIsPublishedPerHumanAndMovesNothing(t *testing.T) {
 	e := newEvidence()
 	e.firings = []Firing{
 		rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
-		approvedBy("it_a", "av_1", "2026-08-20T01:00:00Z"),
+		approvedBy("it_a", "av_2", "2026-08-20T01:00:00Z"),
 		rejected("it_b", "av_3", "the missing check", "2026-08-20T02:00:00Z"),
 		approvedBy("it_b", "av_4", "2026-08-20T03:00:00Z"),
 	}
-	e.digests = map[string]string{"av_1": "one", "av_3": "three", "av_4": "four"}
+	e.contents = map[string]string{
+		"av_1": "the missing check is absent",
+		"av_2": "the missing check is absent\nand the rest was rewritten",
+		"av_3": "the missing check is absent",
+		"av_4": "the missing check is written",
+	}
 	e.index()
 
 	published := e.falseAlarms()

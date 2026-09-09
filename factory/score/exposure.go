@@ -29,7 +29,7 @@ import (
 // nothing, and above the bound gate policy sets it is resolved: a human at
 // Implementation, with the list beside the diff, and the held-out sample barred
 // from selecting past it.
-func (s *Score) exposure(_ context.Context, c Change) (reading, error) {
+func (s *Score) exposure(_ context.Context, _ Version, c Change) (reading, error) {
 	if c.Exposure.Unavailable != "" {
 		return reading{unavailable: c.Exposure.Unavailable}, nil
 	}

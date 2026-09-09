@@ -9,7 +9,7 @@ const Table = "last_check"
 const IDPrefix = "lc"
 
 // FormatVersion is written into format_version on every insert.
-const FormatVersion = "last_check/1"
+const FormatVersion = "last_check/2"
 
 // DDL is this package's schema, in the order the statements are applied.
 // [record.Columns] and [record.Constraints] are composed rather than restated.
@@ -30,6 +30,13 @@ const FormatVersion = "last_check/1"
 // record older than the interval it names has missed a pass, and a record naming
 // no interval is one no reader can hold against a clock.
 //
+// newest_record is the newest time the store the component reads holds a record
+// for its subject, empty where the component reads no such store or the store
+// holds none. It is a column and not a line in the payload because the pass
+// that writes it reads it: the health monitor writes the newest time the
+// emission holds for a service, and a read whose newest record is older than
+// the interval this record carries is no volume rather than a low one.
+//
 // The unique constraint is what [Writer.Record]'s insert conflicts on, so a
 // component's pass over one subject is one row overwritten and never a history.
 var DDL = []string{
@@ -40,6 +47,7 @@ var DDL = []string{
 	checked_at text not null,
 	interval_seconds bigint not null,
 	further_pass_owed boolean not null,
+	newest_record text not null,
 	payload text not null,
 	` + record.Constraints + `,
 	constraint actor_is_a_component check (actor_kind = 'component'),
@@ -48,6 +56,7 @@ var DDL = []string{
 		(component in ('notifier', 'constraints_pass', 'advisory_pass', 'deprecation_pass', 'dispatch')) = (subject = '')
 	),
 	constraint checked_at_is_time_layout check (checked_at ~ '` + record.TimePattern + `'),
+	constraint newest_record_is_time_layout check (newest_record = '' or newest_record ~ '` + record.TimePattern + `'),
 	constraint interval_positive check (interval_seconds > 0),
 	constraint one_row_per_component_and_subject unique (component, subject)
 )`,

@@ -21,8 +21,11 @@ import (
 // an erasure still deletes it alone. This package neither reads nor writes the
 // declaration: the direction between the two is People to here.
 //
-// Nothing calls it yet — package people writes no version — and what remains
-// for that caller is the call itself.
+// Its caller is package people's writer, which calls it before each of its own writes —
+// a holding declared or withdrawn, a credential lent, its ceiling authored, the
+// credential taken back, and a rate authored — and hands the declaration as it
+// will stand once that write lands. A writer composed with no [Factory] appends
+// no version, which is a factory whose People screen is not built.
 func (f *Factory) AppendPeopleVersion(ctx context.Context, actor record.Actor,
 	declaration DeclarationSnapshot) (Version, error) {
 	body, err := json.Marshal(declaration)

@@ -101,7 +101,7 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Mismatch, error) {
 }
 
 const selectMismatch = `select id, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, component,
-	running_build, recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by
+	running_build, recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by, cleared_why
 	from ` + MismatchTable
 
 func scanMismatch(row pgx.Row) (Mismatch, error) {
@@ -109,7 +109,7 @@ func scanMismatch(row pgx.Row) (Mismatch, error) {
 	var actorKind, basis string
 	err := row.Scan(&m.ID, &actorKind, &m.Actor.Key, &basis, &m.At, &m.Kind, &m.ServiceID, &m.Target, &m.Component,
 		&m.RunningBuild, &m.RecordedReleaseID, &m.RecordedBuildID, &m.Detail, &m.LaterAgreements,
-		&m.ClearedAt, &m.ClearedBy)
+		&m.ClearedAt, &m.ClearedBy, &m.ClearedWhy)
 	if err != nil {
 		return Mismatch{}, err
 	}

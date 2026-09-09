@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
@@ -44,12 +43,12 @@ func (p *path) acceptanceRounds(ctx context.Context, sets []*decompositionSet) (
 		if in.State != intent.StateRefined {
 			continue
 		}
-		live, of, err := p.liveItems(ctx, in.ID)
+		live, of, addresses, err := p.liveItems(ctx, in.ID)
 		if err != nil {
 			return moved, err
 		}
 		if of == 0 || len(live) != of {
-			partly, err := item.PartlyDelivered(ctx, p.d.pool, in.ID, live)
+			partly, err := item.PartlyDelivered(ctx, p.d.pool, in.ID, p.production.ID, addresses)
 			if err != nil {
 				return moved, err
 			}
@@ -112,36 +111,35 @@ func (p *path) acceptanceQuestion(ctx context.Context, in intent.Intent) (string
 		in.Statement, in.IntendedEffect, strings.Join(shipped, ", ")), nil
 }
 
-// liveItems is the ids of the intent's items that are live and how many items
-// it has. An item is live where a production deploy record names its release
-// and is complete, which is the reading every other reader of what shipped
-// makes.
-func (p *path) liveItems(ctx context.Context, intentID string) ([]string, int, error) {
+// liveItems is the ids of the intent's items that are live, how many items it
+// has, and the production targets each of their services runs on. Which of
+// them are live is [item.Live]'s reading off the production deploy records,
+// and the addresses are what that reading needs and package item does not
+// hold: the environment's targets are package environment's and which of them
+// a service runs on is package service's. They are returned rather than read
+// again because the caller asking whether the intent is partly delivered makes
+// the same reading over the same targets.
+func (p *path) liveItems(ctx context.Context, intentID string) ([]string, int, map[string][]string, error) {
 	items, err := item.ForIntent(ctx, p.d.pool, intentID)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
-	live := make([]string, 0, len(items))
+	addresses := map[string][]string{}
 	for _, it := range items {
-		rel, minted, err := release.ForItem(ctx, p.d.pool, it.ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		if !minted {
+		if _, read := addresses[it.ServiceID]; read {
 			continue
 		}
-		deploys, err := deploy.ByRelease(ctx, p.d.pool, p.production.ID, rel.ID)
+		of, err := p.addressesOf(ctx, it.ServiceID)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
-		for _, one := range deploys {
-			if one.Status == deploy.StatusComplete {
-				live = append(live, it.ID)
-				break
-			}
-		}
+		addresses[it.ServiceID] = of
 	}
-	return live, len(items), nil
+	live, err := item.Live(ctx, p.d.pool, items, p.production.ID, addresses)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return live, len(items), addresses, nil
 }
 
 // outstandingRound is the acceptance round waiting to be answered: the intent's

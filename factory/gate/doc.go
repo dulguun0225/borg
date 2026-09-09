@@ -7,8 +7,8 @@
 // row.go is the vocabulary of a row: [Kind] with [Kinds], [Row] with [Of],
 // [DeployTo], [Row.String], [RowFrom] and [Row.Validate], the eight rows of the
 // default path and the five outside every item as values, [Row.ArtifactGate],
-// [Row.DecidesAnItem], [Row.DecidesARecord], [Row.ReadsAThreshold],
-// [Row.Deploys], [FactorSetAt],
+// [Row.OffersEditInPlace], [Row.DecidesAnItem], [Row.DecidesARecord],
+// [Row.ReadsAThreshold], [Row.Deploys], [FactorSetAt],
 // [Verdict] with its four values, [Actions], [ReturnsTo] with
 // [ReturnsToTargets] and [DefaultReturnsTo], and [ErrEditInPlaceRefused].
 //
@@ -23,16 +23,25 @@
 // them, and [ChecksAt], the checks a row rejects on. implementation.go is the
 // Implementation row's: [ImplementationChecks] and [ScreenRejection], the
 // rejection made from what the transition check and the drivers derived over
-// the build, and [AutoRejectedByCompile], the third check, over a build the
+// the build, [AutoRejectedByCompile], the third check, over a build the
 // build runner refused outright — computed by the caller from that refusal
-// directly, the way the caller computes the other two from what it derived.
+// directly, the way the caller computes the other two from what it derived —
+// and [CriterionRejection], the fourth, over a criterion the build's own
+// process decided against.
+// above.go is what an event gate's firing waits on: [RowAbove],
+// [Gate.ApprovalStands] — the read "nothing below the target stands as
+// approved" comes to — and the two refusals [ErrRowAboveNotApproved] and
+// [ErrCandidateRunNotEnded]. cycle.go is the Decomposition row's third
+// mechanical rejection: [SetCycleRejection] over the set's own waits-on graph,
+// which names [AutoRejectedByACycle].
 // strategy.go is [Strategy], [Schedule], [Whys]
 // and [Pick] with [Pick.Validate], the shape the pick is stored in; the score
 // picks it. waits.go is [Waits],
 // [RoutedTo], and the three duties the design names for a row.
 //
 // gate.go is [Gate], [Composition] and [New], the [Score], [Policy],
-// [DriftDetector], [Holds], [IntentState], [RaisedByTheHealthMonitor] and
+// [DriftDetector], [Holds], [IntentState], [RaisedByTheHealthMonitor],
+// [SafeguardRouting] and
 // [Notifier] a gate is composed from with [NoDriftDetector] and [NoNotifier],
 // plus the errors every call shares and [Component], the actor a row's open
 // event is written as.
@@ -69,8 +78,11 @@
 // declaration holds a duty by key, an artifact version records the actor that
 // wrote it by key, and a record's own routing names the human it bars. acknowledge.go is
 // [Gate.Acknowledge]. abandon.go is
-// [Gate.Abandon] with the three reasons a decision is ended, and
-// [Gate.EnforceAttemptLimit] with [Escalated]. reevaluate.go is [Gate.Reevaluate]
+// [Gate.Abandon] with the three reasons a decision is ended, and the two
+// enforcements of the attempt limit with [Escalated]:
+// [Gate.EnforceAttemptLimit] over an item's own per-stage count and
+// [Gate.EnforceDecompositionRounds] over the intent's own count of
+// re-decompositions. reevaluate.go is [Gate.Reevaluate]
 // and [Gate.ReevaluatePending], which re-test the holds on a pending row.
 // approval.go is [ApprovalTimes], the read of when each item's merge approval
 // closed.
@@ -78,10 +90,12 @@
 // # Who may write what
 //
 // This package owns no table. It appends into the decision log through
-// [decisionlog.Writer], which owns that table. The one record it writes outside
-// the log is the escalation onto an item, and it writes that through
-// [item.Dispatch], which owns the item's stage: a gate decides an event and edits
-// nothing else. The safeguard the production deploy row's fourth action places
+// [decisionlog.Writer], which owns that table. The two records it writes
+// outside the log are the escalation onto an item, written through
+// [item.Dispatch], which owns the item's stage, and the escalation onto an
+// intent whose re-decompositions exceeded the limit, written through
+// [intent.Intake], which owns the intent's state: a gate decides an event and
+// edits nothing else. The safeguard the production deploy row's fourth action places
 // is written through [StrategySafeguard], which the composition supplies, so the
 // writer of that record is still Factory.
 //
@@ -96,6 +110,12 @@
 // a service's maximum concurrent kept fleets, an advisory match, and the
 // producing release of a contract migration. [Notifier] reaches
 // a human, and the one call made on it is the page's acknowledged event.
+// [SafeguardRouting] is the composition's for the reason [Holds] is: a
+// safeguard is package policy's record at Factory and this package writes none
+// of its own, so where a safeguarded row routes is handed over rather than
+// read. A gate composed without it routes nothing, and a safeguarded row that
+// names no duty widens to the owner, which is the default the routing field
+// exists to replace.
 // [SpecRejection] is computed here and read by the caller: what the two lists
 // it compares are read from is the requirement record and the criterion
 // record, and the Spec row's firing path is what hands them over. The third
@@ -138,11 +158,12 @@
 // abandonment, the acknowledgement, refer, the five refusals, the marks, the
 // review sample, and the read of the intent's state are
 // ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md
-// (C0826, C0827, C0829, C0830, C0831, C0833, C0836, C0837, C0838, C0839, C0842,
-// C0843, C0844, C0845, C0846, C0847, C0848, C0850, C0851, C0852, C0853, C0854,
-// C0855, C0857, C0858, C0859, C0860, C0861, C0863, C0867, C0868, C0869, C0870,
-// C0871, C0872, C0875, C0876, C0878, C0879, C0881, C0882, C0883, C0885, C0886,
-// C0887, C0888, C0889, C0890, C0891, C0893, C0897, C0898, C0899, C0900, C0901).
+// (C0826, C0827, C0829, C0830, C0831, C0833, C0834, C0835, C0836, C0837, C0838,
+// C0839, C0842, C0843, C0844, C0845, C0846, C0847, C0848, C0849, C0850, C0851,
+// C0852, C0853, C0854, C0855, C0856, C0857, C0858, C0859, C0860, C0861, C0863,
+// C0867, C0868, C0869, C0870, C0871, C0872, C0875, C0876, C0877, C0878, C0879,
+// C0881, C0882, C0883, C0885, C0886, C0887, C0888, C0889, C0890, C0891, C0893,
+// C0897, C0898, C0899, C0900, C0901).
 //
 // The actions per row and the row a further environment gets are
 // ../../end-goal/how-the-factory-works/03-gates/03-actions-at-each-gate.md
@@ -150,39 +171,43 @@
 // C0952). The three kinds of hold, the approve that names the set, and the
 // re-evaluation of a pending row are
 // ../../end-goal/how-the-factory-works/03-gates/04-what-a-gate-may-change.md
-// (C0953, C0955, C0956, C0957, C0958, C0959, C0960, C0961, C0962, C0963, C0964,
-// C0965, C0966, C0967, C0968, C0969, C0970, C0971, C0972, C0973, C0982, C0983,
-// C0984, C0985, C0986, C0987, C0988, C0989, C0990, C0991, C0992, C0993).
+// (C0953, C0954, C0955, C0956, C0957, C0958, C0959, C0960, C0961, C0962, C0963,
+// C0964, C0965, C0966, C0967, C0968, C0969, C0970, C0971, C0972, C0973, C0982,
+// C0983, C0984, C0985, C0986, C0987, C0988, C0989, C0990, C0991, C0992, C0993).
 //
 // The attempt limit and the escalation are
 // ../../end-goal/how-the-factory-works/03-gates/05-the-attempt-limit.md (C0994,
 // C0995, C0996), and what a reject may name is
 // ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1004,
-// C1005, C1006, C1007, C1008, C1009, C1010, C1011, C1012, C1013). The strategy
-// and its schedules are
+// C1005, C1006, C1007, C1008, C1009, C1010, C1011, C1012, C1013, C1031,
+// C1032). The strategy and its schedules are
 // ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
-// (C0910, C0911, C0912, C0918, C0936).
+// (C0910, C0911, C0912, C0918, C0922, C0936).
 //
 // The rows themselves are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/README.md,
 // each with a file of its own there: the Spec row's rejection in both
 // directions over the requirement a criterion names is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/03-the-six-patterns.md
-// (C1069), the Implementation row's rejection over the screens is
+// (C1069, C1071), the Implementation row is made when the stage finishes and
+// offers no Edit in place, in
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/README.md
+// (C1139, C1140), its rejection over the screens is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/01-the-transition-check.md
-// (C1110, C1111, C1113) and
+// (C1110, C1111, C1113) and, over a criterion the build decided, is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md
-// (C1128), the candidate deploy row's holds are
+// (C1125, C1128), the candidate deploy row's holds are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/06-deploy-to-candidate-environment.md
 // (C1143, C1144, C1145, C1146, C1148, C1149, C1150, C1151, C1152, C1153), the
 // merge row's mechanical rejections and its derivations are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md
 // (C1155, C1156, C1157, C1158, C1160, C1161, C1162), the production deploy
-// row's holds and the four fields a service must have to auto-pass are
+// row's holds, the budget hold, the change freeze, current meaning complete
+// everywhere, and the four fields a service must have to auto-pass are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md
-// (C1163, C1165, C1167, C1168, C1169, C1170, C1172, C1173, C1174, C1175, C1176,
-// C1177, C1179, C1180, C1182, C1183, C1184), and the three rows outside every
-// item that file names are
+// (C1163, C1165, C1166, C1167, C1168, C1169, C1170, C1171, C1172, C1173, C1174,
+// C1175, C1176, C1177, C1179, C1180, C1181, C1182, C1183, C1184), and the
+// three rows outside every item that file names are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/09-a-role-prompt-or-a-skill.md
 // (C1186, C1188, C1189, C1190, C1194, C1195),
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/10-a-safeguards-withdrawal.md
@@ -198,7 +223,7 @@
 // exceptions it takes, is
 // ../../end-goal/how-the-factory-works/09-gate-policy/04-stopping-the-factory.md
 // (C2335, C2337, C2338, C2339, C2340, C2341, C2344, C2346, C2347, C2349, C2354,
-// C2356).
+// C2355, C2356).
 //
 // The vector, the resolution that puts a human at a row whatever the number,
 // and the factor set per row are
@@ -218,8 +243,47 @@
 // (C2569, C2584, C2585, C2586, C2587, C2588, C2589, C2652, C2653, C2668)
 // describes. What Decomposition decides is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
-// (C0727, C0751, C0761, C0768, C0769, C0773, C0774, C0775, C0778, C0789, C0791,
-// C0796), and the states an intent may be in are
+// (C0727, C0751, C0756, C0761, C0762, C0766, C0768, C0769, C0773, C0774, C0775,
+// C0778, C0781, C0789, C0791, C0796), and the states an intent may be in are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
 // (C0576).
+//
+// The open payload naming the artifact version and its digest is seam 2 of
+// ../../end-goal/deferred.md (C0052);
+//
+// [Gate.FireSet] deciding one row over a set of items, and refusing a set of
+// fewer than two members, are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/01-decomposition.md
+// (C1038, C1039);
+//
+// a row per further deploy environment as one decision, and merge and deploy
+// as separate rows of the path, are
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1418, C1425, C1438);
+//
+// every row being score-gated with a safeguard adding a human, the held-out
+// sample auto-passing with the payload saying why, and a safeguard or a
+// resolved factor marking the row regardless, are
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/02-the-verdict.md
+// (C1579, C1591, C1592); a failed criterion rejecting at Merge to master is
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md
+// (C1600);
+//
+// [HoldDependencyNotCurrent] holding until the fourth target lands is
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/README.md
+// (C1715);
+//
+// [HoldRollbackAwaitingRevert] standing at every production deploy row, the
+// hold's own rule with the revert exempt from it, the revert deploying
+// unheld before what is held, and the one hold routed to duty 10 with its
+// reason, are
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2063, C2064, C2075);
+//
+// [Gate.Acknowledge] appending the decision row and calling the notifier is
+// ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2116);
+//
+// the mismatch hold paging nobody, with the revert decision paging, is
+// ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md
+// (C2179).
 package gate

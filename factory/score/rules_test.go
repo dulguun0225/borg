@@ -27,8 +27,8 @@ func TestThePublishedRuleStatesWhatStopsTheThresholdsRise(t *testing.T) {
 		autoPassed(row, 0.9, AutoPassSample, "it_c"),
 	}
 	rose := firingEvidence(t, held)
-	if got := valueOf(t, rose, gatepolicy.RiskThreshold, row); !near(got, start.Value+thresholdBand) {
-		t.Fatalf("three held-out releases whose windows passed supply %v, want %v", got, start.Value+thresholdBand)
+	if got := valueOf(t, rose, gatepolicy.RiskThreshold, row); !near(got, start.Value+ShippedBandWidth) {
+		t.Fatalf("three held-out releases whose windows passed supply %v, want %v", got, start.Value+ShippedBandWidth)
 	}
 	stopped := fail(firingEvidence(t, append(append([]Firing{}, held...),
 		autoPassed(row, 0.9, AutoPassSample, "it_d"))), "it_d")
@@ -62,7 +62,7 @@ func TestTheRiseIsStillOnThePassedWindowsAlone(t *testing.T) {
 		autoPassed(row, 0.9, AutoPassSample, "it_d"),
 	}
 	e := exitOf(firingEvidence(t, held), "it_d", window.ExitTimedOut)
-	if got := valueOf(t, e, gatepolicy.RiskThreshold, row); !near(got, start.Value+thresholdBand) {
+	if got := valueOf(t, e, gatepolicy.RiskThreshold, row); !near(got, start.Value+ShippedBandWidth) {
 		t.Errorf("a fourth held-out release whose window timed out leaves %v, want the one band the other three raised", got)
 	}
 }

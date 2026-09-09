@@ -10,6 +10,7 @@ package notifier_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -84,8 +85,9 @@ func TestARefusedChatDoesNotStopThePage(t *testing.T) {
 }
 
 // TestADeliveryRecordIsWrittenPerHolder is what tells "a row no delivery was
-// ever accepted for" from "one of two holders was reached": the recipient is
-// part of the record's key.
+// ever accepted for" from "one of two holders was reached": each holder's own
+// attempt on each channel is kept, even though the record itself is one per
+// waiting row and not one per channel and recipient.
 func TestADeliveryRecordIsWrittenPerHolder(t *testing.T) {
 	ctx, pool, token, n, _ := newNotifier(t)
 
@@ -105,24 +107,64 @@ func TestADeliveryRecordIsWrittenPerHolder(t *testing.T) {
 	if _, err := n.Notify(ctx, waiting); err != nil {
 		t.Fatalf("Notify: %v", err)
 	}
+	records, err := notifier.DeliveriesOf(ctx, pool, waiting.Row)
+	if err != nil {
+		t.Fatalf("DeliveriesOf: %v", err)
+	}
 	for _, channel := range notifier.Channels {
 		var recipients []string
-		rows, err := pool.Query(ctx, `select recipient_key from `+notifier.DeliveryTable+`
-			where row_id = $1 and channel = $2 order by recipient_key`, waiting.Row, string(channel))
-		if err != nil {
-			t.Fatalf("reading the delivery records on %s: %v", channel, err)
-		}
-		for rows.Next() {
-			var key string
-			if err := rows.Scan(&key); err != nil {
-				t.Fatalf("reading a delivery record: %v", err)
+		for _, r := range records {
+			if r.Channel == channel {
+				recipients = append(recipients, r.RecipientKey)
 			}
-			recipients = append(recipients, key)
 		}
-		rows.Close()
+		sort.Strings(recipients)
 		if len(recipients) != 2 || recipients[0] != "hk_ada" || recipients[1] != "hk_grace" {
 			t.Errorf("the delivery records on %s name %v, want one per holder", channel, recipients)
 		}
+	}
+}
+
+// TestTheDeliveryIsOneRecordPerWaitingRow is finding 2's own fix: however
+// many channels and recipients a row was attempted on, the store keeps one
+// row for it in [notifier.DeliveryRowTable] and not one per attempt.
+func TestTheDeliveryIsOneRecordPerWaitingRow(t *testing.T) {
+	ctx, pool, token, n, _ := newNotifier(t)
+
+	holding := people.OfDuty(12)
+	writer := peopleWriter(pool, token)
+	for _, key := range []string{"hk_ada", "hk_grace"} {
+		if _, err := writer.Declare(ctx, theHumanOwner, key, holding); err != nil {
+			t.Fatalf("declaring that %s holds %s: %v", key, holding, err)
+		}
+	}
+
+	waiting := notifier.Wait{
+		Row: "it_one_row_per_waiting_row", Kind: notifier.KindItemEscalated,
+		Waiting: "the factory gave up on a defect that is live",
+		Holding: holding, Worse: true,
+	}
+	if _, err := n.Notify(ctx, waiting); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+
+	var rowCount int
+	if err := pool.QueryRow(ctx, `select count(*) from `+notifier.DeliveryRowTable+` where row_id = $1`,
+		waiting.Row).Scan(&rowCount); err != nil {
+		t.Fatalf("counting the rows of %s: %v", notifier.DeliveryRowTable, err)
+	}
+	if rowCount != 1 {
+		t.Errorf("%s holds %d row(s) for %s, want one however many channels and holders it reached",
+			notifier.DeliveryRowTable, rowCount, waiting.Row)
+	}
+
+	records, err := notifier.DeliveriesOf(ctx, pool, waiting.Row)
+	if err != nil {
+		t.Fatalf("DeliveriesOf: %v", err)
+	}
+	if len(records) != len(notifier.Channels)*2 {
+		t.Errorf("DeliveriesOf returned %d record(s), want %d: one per channel and holder",
+			len(records), len(notifier.Channels)*2)
 	}
 }
 
@@ -164,8 +206,11 @@ func TestAWaitOfTheSecondKindWaitsForTheServicesHours(t *testing.T) {
 
 // TestAPageHeldToTheHoursGoesOutWhenTheyComeRound is the rest of that split: a
 // wait of the second kind arising outside a service's hours goes out by mail
-// and chat at once and pages at the next hour the service allows, which is what
-// [notifier.Notifier.PageDeferred] delivers rather than the page being dropped.
+// and chat at once and pages once the instant [notifier.Wait.PageAt] names has
+// passed, which is what [notifier.Notifier.PageDeferred] delivers rather than
+// the page being dropped. The instant is frozen at the deferral, so this test
+// moves it into the past directly on the delivery record rather than by
+// widening the service's hours, which the deferral has already read.
 func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
 	ctx, pool, token, n, channels := newNotifier(t)
 	serviceID := aServiceWithNoPagingHoursNow(t, ctx, pool, token)
@@ -182,7 +227,7 @@ func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
 		t.Fatalf("the wait paged outside the service's hours")
 	}
 
-	// A pass while the hours are still closed delivers nothing.
+	// A pass while the computed instant is still ahead delivers nothing.
 	paged, err := n.PageDeferred(ctx, nil)
 	if err != nil {
 		t.Fatalf("PageDeferred outside the hours: %v", err)
@@ -191,7 +236,7 @@ func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
 		t.Fatalf("PageDeferred paged %v while the service's hours are closed", paged)
 	}
 
-	authorHoursCovering(t, ctx, pool, token, serviceID, time.Now())
+	pageAtHasPassed(t, ctx, pool, held.Row)
 
 	paged, err = n.PageDeferred(ctx, nil)
 	if err != nil {
@@ -219,6 +264,18 @@ func TestAPageHeldToTheHoursGoesOutWhenTheyComeRound(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Errorf("a second pass paged %v, want nothing left held", again)
+	}
+}
+
+// pageAtHasPassed moves row's stored [notifier.Wait.PageAt] into the past
+// directly, which is what the instant the deferral computed doing so on its
+// own looks like from this package's own record: the frozen instant, and not
+// the service's hours, is what [notifier.Notifier.PageDeferred] reads.
+func pageAtHasPassed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, row string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `update `+notifier.DeliveryRowTable+` set page_at = $1 where row_id = $2`,
+		record.FormatTime(time.Now().Add(-time.Hour)), row); err != nil {
+		t.Fatalf("moving %s's page_at into the past: %v", row, err)
 	}
 }
 

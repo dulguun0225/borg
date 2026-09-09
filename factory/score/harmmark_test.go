@@ -19,21 +19,21 @@ import (
 	"github.com/dulguun0225/borg/factory/score"
 )
 
-// marks is [score.HarmMarks] a test sets: whether a report grouped into the
-// intent carries the mark, and the failure a reader that could not answer
-// leaves.
-type marks struct {
-	marked map[string]bool
-	fails  bool
-	asked  []string
+// groups is [score.GroupedReports] a test sets: how many reports are grouped
+// into an intent and the ids of the ones marking harm, and the failure a
+// reader that could not answer leaves.
+type groups struct {
+	group map[string]score.ReportGroup
+	fails bool
+	asked []string
 }
 
-func (m *marks) Marked(_ context.Context, intentID string) (bool, error) {
-	m.asked = append(m.asked, intentID)
-	if m.fails {
-		return false, errors.New("the report store could not be reached")
+func (g *groups) Grouped(_ context.Context, intentID string) (score.ReportGroup, error) {
+	g.asked = append(g.asked, intentID)
+	if g.fails {
+		return score.ReportGroup{}, errors.New("the report store could not be reached")
 	}
-	return m.marked[intentID], nil
+	return g.group[intentID], nil
 }
 
 // TestAHarmMarkedReportResolvesAtSpecBesideTheSource: the mark is recorded on
@@ -55,14 +55,15 @@ func TestAHarmMarkedReportResolvesAtSpecBesideTheSource(t *testing.T) {
 	}
 	it, err := item.NewDecomposition(pool, token).Create(ctx, marking, item.New{
 		IntentID: grouped.ID, ServiceID: "svc_marked", Branch: "item/marked",
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("writing the item: %v", err)
 	}
 
-	read := &marks{marked: map[string]bool{grouped.ID: true}}
+	read := &groups{group: map[string]score.ReportGroup{grouped.ID: {Reports: 1, Marked: []string{"rep_1"}}}}
 	scored := score.New(score.Composition{
-		Pool: pool, Draw: score.NeverDraw{}, HarmMarks: read, Token: token,
+		Pool: pool, Draw: score.NeverDraw{}, GroupedReports: read, Token: token,
 	})
 	at := func(spec bool) score.Assessment {
 		t.Helper()
@@ -107,7 +108,7 @@ func TestAHarmMarkedReportResolvesAtSpecBesideTheSource(t *testing.T) {
 	// An intent no report of which marks harm reads as nothing marked and not
 	// as a factor that could not be computed: no report is not an unreadable
 	// report.
-	read.marked = map[string]bool{}
+	read.group = map[string]score.ReportGroup{}
 	unmarked := at(true)
 	if resolvedOn(unmarked, "context.harm_marked_report") {
 		t.Errorf("an unmarked group resolved the mark: %v", unmarked.Resolved)

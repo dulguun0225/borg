@@ -96,7 +96,7 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 		}
 		// The error budget, read at the firing the way every hold here is, and
 		// raising the objective's own intent on the same reading. The two items
-		// that pass it are [path.passesTheBudgetHold]'s, so an item that passes
+		// that pass it are [healthmonitor.Budget.Admits]'s, so an item that passes
 		// is not reported as held here either.
 		spent, err := p.objectiveHold(ctx, svc, it)
 		if err != nil {
@@ -294,9 +294,12 @@ func (p *path) budgetHold(ctx context.Context, svc service.Service, it item.Item
 	if !budget.Holds() {
 		return "", nil
 	}
-	passes, err := p.passesTheBudgetHold(ctx, svc, it)
-	if err != nil || passes {
+	source, raisedOnThisService, revert, err := p.itemAgainstTheBudget(ctx, svc, it)
+	if err != nil {
 		return "", err
+	}
+	if budget.Admits(source, raisedOnThisService, revert) {
+		return "", nil
 	}
 	if !budget.Covered {
 		return fmt.Sprintf("%s — the store does not cover the objective's period of %.0f seconds, so the budget is uncomputed and holds the way a spent one does",
@@ -306,39 +309,35 @@ func (p *path) budgetHold(ctx context.Context, svc service.Service, it item.Item
 		gate.HoldErrorBudgetExhausted, budget.Remaining*100, budget.PeriodSeconds), nil
 }
 
-// passesTheBudgetHold is the two items the design lets past it: a revert, which
-// passes the hold a rollback leaves for the same reason, and an item whose intent
-// a detector raised on that service — the health monitor's at a crossing, or the
-// objective's own. Without the second the hold would stand hardest exactly where
-// production is worst, no item on a service that crossed nothing being able to
-// lift it.
-//
-// A request an owner raised on that service does not pass; the route is the
-// objective's intent, which exists whenever the budget is exhausted.
-func (p *path) passesTheBudgetHold(ctx context.Context, svc service.Service, it item.Item) (bool, error) {
+// itemAgainstTheBudget is the three facts about one item that
+// [healthmonitor.Budget.Admits] decides on: what raised the intent the item was
+// decomposed from, whether that intent's evidence names this service, and
+// whether the item is the revert of the rollback outstanding on it. Which of
+// them passes the hold is the objective's rule and lives with the objective;
+// what is here is the read of the records, which is this path's.
+func (p *path) itemAgainstTheBudget(ctx context.Context, svc service.Service,
+	it item.Item) (intent.Source, bool, bool, error) {
 	if it.IntentID == "" {
-		return false, nil
+		return "", false, false, nil
 	}
 	_, revertIntentID, outstanding, err := p.outstandingRevert(ctx, svc)
 	if err != nil {
-		return false, err
+		return "", false, false, err
 	}
-	if outstanding && it.IntentID == revertIntentID {
-		return true, nil
-	}
+	revert := outstanding && it.IntentID == revertIntentID
 	raised, err := intent.Get(ctx, p.d.pool, it.IntentID)
 	if err != nil {
-		return false, err
+		return "", false, false, err
 	}
-	if raised.Source != intent.SourceDetector || raised.Evidence == "" {
-		return false, nil
+	if raised.Evidence == "" {
+		return raised.Source, false, revert, nil
 	}
 	// The evidence is stored as the key package intent composes, and the service
-	// it names is what says the detector raised this on this service and not on
+	// it names is what says the intent was raised on this service and not on
 	// another.
 	var evidence intent.Evidence
 	if err := json.Unmarshal([]byte(raised.Evidence), &evidence); err != nil {
-		return false, fmt.Errorf("factory: reading the evidence on intent %s: %w", raised.ID, err)
+		return "", false, false, fmt.Errorf("factory: reading the evidence on intent %s: %w", raised.ID, err)
 	}
-	return evidence.ServiceID == svc.ID, nil
+	return raised.Source, evidence.ServiceID == svc.ID, revert, nil
 }

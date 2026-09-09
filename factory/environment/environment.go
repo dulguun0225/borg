@@ -68,10 +68,11 @@ var (
 	// ErrPlatformIncomplete is returned for a persistent environment declaring
 	// no platform name or no platform credential.
 	ErrPlatformIncomplete = errors.New("environment: a persistent environment declares a platform and the credential it is composed through")
-	// ErrPlatformCannotComposeOnDemand is returned by [Insert] for a production
-	// environment whose platform cannot compose an environment on demand. An
-	// environment per candidate is the shape the design admits and nothing else.
-	ErrPlatformCannotComposeOnDemand = errors.New("environment: a production environment's platform composes an environment on demand")
+	// ErrCannotCompose is returned by [RefuseUnlessComposable] for a project
+	// whose production environment declares a platform that cannot compose an
+	// environment on demand. An environment per candidate is the shape the
+	// design admits and nothing else.
+	ErrCannotCompose = errors.New("environment: a production environment's platform composes an environment on demand")
 	// ErrNotFound is returned where no environment has the id or the name.
 	ErrNotFound = errors.New("environment: no environment has that id")
 	// ErrThresholdOutOfRange is returned by [SetGateThreshold] for a threshold
@@ -273,6 +274,27 @@ func Production(ctx context.Context, pool *pgxpool.Pool, projectID string) (Envi
 	return ByName(ctx, pool, projectID, ProductionName)
 }
 
+// RefuseUnlessComposable is [ErrCannotCompose] for the named project's
+// production environment where its platform cannot compose an environment on
+// demand, and nil where it can. Creation writes a persistent environment as
+// declared, whatever its platform composes; this is the refusal the design
+// makes instead — at adoption, before the factory can compose anything for the
+// project, and at decomposition for each of its services — an environment per
+// candidate being the shape the design admits and nothing else.
+func RefuseUnlessComposable(ctx context.Context, pool *pgxpool.Pool, projectID string) error {
+	production, found, err := Production(ctx, pool, projectID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("%w: project %s", ErrNotFound, projectID)
+	}
+	if !production.Platform.CanComposeOnDemand {
+		return fmt.Errorf("%w: %s declares %s", ErrCannotCompose, production.Name, production.Platform.Name)
+	}
+	return nil
+}
+
 // ForItem is the candidate environment of one item, and false where the item has
 // none — which is every item until the candidate deploy gate approves. A
 // torn-down one is still returned, the row being kept: a caller that wants a
@@ -290,10 +312,19 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Environmen
 	return e, true, nil
 }
 
-// CountLiveCandidates is how many candidate environments of one project stand.
-// It is scoped to the production environment named, because the ceiling and the
-// platform's own room are both that record's: an install whose projects run on
-// two platforms adds neither count across them.
+// CountLiveCandidates is how many candidate environments of one project are
+// composed right now. It is scoped to the production environment named,
+// because the ceiling and the platform's own room are both that record's: an
+// install whose projects run on two platforms adds neither count across them.
+//
+// An environment torn down for good on one of the three events is excluded by
+// torn_down_at; an environment reclaimed meanwhile from an item running
+// nothing is excluded too, though its row still stands — a reclamation closes
+// the environment's cycle and opens none, so its newest cycle is not open,
+// which is what the exists clause reads. [Candidates.Recompose] opens a cycle
+// again when the item next reaches Deploy to candidate environment, and the
+// environment counts as live again from there. So the room a reclaimed
+// environment held is not consumed by an item waiting on a human.
 func CountLiveCandidates(ctx context.Context, pool *pgxpool.Pool, productionEnvironmentID string) (int, error) {
 	production, err := Get(ctx, pool, productionEnvironmentID)
 	if err != nil {
@@ -303,8 +334,9 @@ func CountLiveCandidates(ctx context.Context, pool *pgxpool.Pool, productionEnvi
 		return 0, fmt.Errorf("%w: %s is %s", ErrNotAProductionEnvironment, productionEnvironmentID, production.Kind)
 	}
 	var count int
-	err = pool.QueryRow(ctx, `select count(*) from `+Table+`
-		where kind = $1 and project_id = $2 and torn_down_at = ''`,
+	err = pool.QueryRow(ctx, `select count(*) from `+Table+` e
+		where e.kind = $1 and e.project_id = $2 and e.torn_down_at = ''
+		and exists (select 1 from `+CycleTable+` c where c.environment_id = e.id and c.torn_down_at = '')`,
 		string(KindCandidate), production.ProjectID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("environment: counting the live candidate environments of %s: %w", production.ProjectID, err)

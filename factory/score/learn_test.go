@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
@@ -25,7 +26,9 @@ func TestRulesStateEveryBound(t *testing.T) {
 		what  string
 		value string
 	}{
-		{"the threshold's band", "0.05"},
+		// The threshold's step is one band and the two are one number, so what
+		// the text states is the band's own width and not a step of its own.
+		{"the band's width the product ships", "0.10"},
 		{"the threshold's floor", "0.05"},
 		{"the threshold's ceiling", "0.90"},
 		{"how many held-out firings raise it a band", "3"},
@@ -92,18 +95,18 @@ func ruleName(p gatepolicy.Parameter) string {
 // learn.go's own comment names this test.
 func TestLearningIsIdempotent(t *testing.T) {
 	e := someEvidence(t)
-	first, err := LearnFrom(e)
+	first, err := LearnFrom(e, asShipped)
 	if err != nil {
 		t.Fatalf("LearnFrom: %v", err)
 	}
-	second, err := LearnFrom(e)
+	second, err := LearnFrom(e, asShipped)
 	if err != nil {
 		t.Fatalf("LearnFrom again: %v", err)
 	}
 	if encode(t, first) != encode(t, second) {
 		t.Errorf("two passes over one graph supply two tables:\n%s\n%s", encode(t, first), encode(t, second))
 	}
-	third, err := LearnFrom(someEvidence(t))
+	third, err := LearnFrom(someEvidence(t), asShipped)
 	if err != nil {
 		t.Fatalf("LearnFrom a second reading: %v", err)
 	}
@@ -225,8 +228,8 @@ func TestTheThresholdRisesOnlyOnAHeldOutWindowThatPassed(t *testing.T) {
 		autoPassed(row, 0.9, AutoPassSample, "it_c"),
 	}
 	rose := firingEvidence(t, held)
-	if got := valueOf(t, rose, gatepolicy.RiskThreshold, row); !near(got, start.Value+thresholdBand) {
-		t.Errorf("three held-out releases whose windows passed supply %v, want %v", got, start.Value+thresholdBand)
+	if got := valueOf(t, rose, gatepolicy.RiskThreshold, row); !near(got, start.Value+ShippedBandWidth) {
+		t.Errorf("three held-out releases whose windows passed supply %v, want %v", got, start.Value+ShippedBandWidth)
 	}
 
 	timedOut := firingEvidence(t, held)
@@ -242,8 +245,8 @@ func TestTheThresholdRisesOnlyOnAHeldOutWindowThatPassed(t *testing.T) {
 	// a rise.
 	fell := fail(firingEvidence(t, append(append([]Firing{}, held...),
 		autoPassed(row, 0.20, AutoPassThreshold, "it_bad"))), "it_bad")
-	if got := valueOf(t, fell, gatepolicy.RiskThreshold, row); !near(got, 0.20-thresholdBand) {
-		t.Errorf("the threshold reads %v after a bad auto-pass at 0.20, want %v", got, 0.20-thresholdBand)
+	if got := valueOf(t, fell, gatepolicy.RiskThreshold, row); !near(got, 0.20-ShippedBandWidth) {
+		t.Errorf("the threshold reads %v after a bad auto-pass at 0.20, want %v", got, 0.20-ShippedBandWidth)
 	}
 
 	// A fourth held-out firing whose release the window failed stops the rise: the
@@ -446,11 +449,17 @@ func TestAResolvedRejectionLowersTheRowTheHumanWasAt(t *testing.T) {
 		rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
 		approvedBy("it_a", "av_2", "2026-08-20T01:00:00Z"),
 	}
-	e.digests = map[string]string{"av_1": "digest-one", "av_2": "digest-two"}
+	// The words the rejection named, and the re-authored version differing in
+	// them: the digest the resolution turns on is the digest of that part and
+	// not of the whole version.
+	e.contents = map[string]string{
+		"av_1": "the missing check is absent\nand the rest stands",
+		"av_2": "the missing check is written\nand the rest stands",
+	}
 	e.index()
 
 	// "implementation" is the row rejected and approvedBy both fire at.
-	if got := valueOf(t, e, gatepolicy.RiskThreshold, "implementation"); !near(got, start.Value-thresholdBand) {
+	if got := valueOf(t, e, gatepolicy.RiskThreshold, "implementation"); !near(got, start.Value-ShippedBandWidth) {
 		t.Errorf("the threshold of the row the human was at reads %v, want one band below the starting %v", got, start.Value)
 	}
 	row := rowFor(t, e, gatepolicy.RiskThreshold, "implementation")
@@ -462,11 +471,105 @@ func TestAResolvedRejectionLowersTheRowTheHumanWasAt(t *testing.T) {
 	alarm := newEvidence()
 	alarm.firings = []Firing{
 		rejected("it_a", "av_1", "the missing check", "2026-08-20T00:00:00Z"),
-		approvedBy("it_a", "av_1", "2026-08-20T01:00:00Z"),
+		approvedBy("it_a", "av_2", "2026-08-20T01:00:00Z"),
 	}
-	alarm.digests = map[string]string{"av_1": "digest-one"}
+	// A re-authored version that changed something else: the part the rejection
+	// named reads the same, which is the false alarm.
+	alarm.contents = map[string]string{
+		"av_1": "the missing check is absent\nand the rest stands",
+		"av_2": "the missing check is absent\nand the rest was rewritten",
+	}
 	alarm.index()
 	if got := rowFor(t, alarm, gatepolicy.RiskThreshold, "implementation"); got != nil {
 		t.Errorf("a false alarm moved the threshold to %v", got.Value)
 	}
+}
+
+// TestTheThresholdStepsByTheBandTheVersionNames: the threshold's step and the
+// width of a band of the reading over the number are one number, a field of the
+// score version rather than a constant here, so an owner reads on the record
+// the step every movement takes.
+func TestTheThresholdStepsByTheBandTheVersionNames(t *testing.T) {
+	start, _ := Starting(gatepolicy.RiskThreshold)
+	const row = "merge_to_master"
+	held := []Firing{
+		autoPassed(row, 0.9, AutoPassSample, "it_a"),
+		autoPassed(row, 0.9, AutoPassSample, "it_b"),
+		autoPassed(row, 0.9, AutoPassSample, "it_c"),
+	}
+
+	for _, band := range []float64{ShippedBandWidth, 0.2} {
+		learned, err := LearnFrom(firingEvidence(t, held), Under{BandWidth: band})
+		if err != nil {
+			t.Fatalf("LearnFrom at a band of %v: %v", band, err)
+		}
+		supplied, _ := learned.Supplied.Value(gatepolicy.RiskThreshold, row)
+		if !near(supplied.Value, start.Value+band) {
+			t.Errorf("three held-out releases raised the threshold to %v at a band of %v, want %v",
+				supplied.Value, band, start.Value+band)
+		}
+		for _, b := range learned.Bands {
+			if !near(b.To-b.From, band) {
+				t.Errorf("a band of the number is %v wide at a band width of %v", b.To-b.From, band)
+			}
+		}
+	}
+}
+
+// TestARollbackWithNoIncidentMovesTheParameterItsExitNames: which parameter a
+// rollback or an undo moves is a fact of the record — the exit its release's
+// window took — and not of whether an incident record happens to exist beside
+// it. The health monitor's own rollback, which can follow a crossing found
+// after the window already closed, raises no incident every time and still
+// says the same thing about the same release.
+func TestARollbackWithNoIncidentMovesTheParameterItsExitNames(t *testing.T) {
+	size, _ := Starting(gatepolicy.WindowSize)
+	power, _ := Starting(gatepolicy.WindowPower)
+	subject := QuantitySubject("svc_a", gatepolicy.QuantityErrorRate)
+
+	// A window that closed passed and a rollback that then failed the release:
+	// the exit that rules a regression out cleared one it should have caught,
+	// which is evidence about the power.
+	falsePass := undo(evidenceFor("svc_a", closes(1, window.ExitPassed), nil), "rel_svc_a_0")
+	want := 1 - (1-power.Value)/2
+	if got := valueOf(t, falsePass, gatepolicy.WindowPower, subject); !near(got, want) {
+		t.Errorf("a rollback on a window that passed supplies a power of %v, want %v", got, want)
+	}
+	if got := valueOf(t, falsePass, gatepolicy.WindowSize, subject); got != size.Value {
+		t.Errorf("a rollback on a window that passed moved the size to %v", got)
+	}
+
+	// A window that timed out and a rollback that then failed the release:
+	// nothing was ruled out at all, which is evidence about the size. The undo
+	// names no quantity, so it moves every quantity's size.
+	miss := undo(evidenceFor("svc_a", closes(1, window.ExitTimedOut), nil), "rel_svc_a_0")
+	if got := valueOf(t, miss, gatepolicy.WindowSize, subject); got != size.Value/2 {
+		t.Errorf("a rollback on a window that timed out supplies a size of %v, want %v", got, size.Value/2)
+	}
+	if got := valueOf(t, miss, gatepolicy.WindowPower, subject); got != power.Value {
+		t.Errorf("a rollback on a window that timed out moved the power to %v", got)
+	}
+
+	// A rollback a human marked as not caused by the release still teaches
+	// nothing: what crossed the boundary was not the change.
+	marked := withMark(undo(evidenceFor("svc_a", closes(1, window.ExitPassed), nil), "rel_svc_a_0"), "rel_svc_a_0")
+	if got := valueOf(t, marked, gatepolicy.WindowPower, subject); got != power.Value {
+		t.Errorf("a marked rollback supplied a power of %v, want the starting %v", got, power.Value)
+	}
+}
+
+// undo is one release the health monitor's own rollback undid, raising no
+// incident. Its source, and not a human's reason of their own, is what makes
+// it traceable to the health monitor whatever exit its release's window
+// closed at — [TestWentWrongOnlyCountsARollbackTraceableToTheHealthMonitor]
+// is where a human's own undo, with no failed window behind it, is held to
+// teach the window's own learning nothing.
+func undo(e *Evidence, releaseID string) *Evidence {
+	e.rollbacks = append(e.rollbacks, deploy.Deploy{
+		ID: "dep_undo", ServiceID: "svc_a",
+		At:      record.FormatTime(time.Date(2026, 8, 20, 2, 0, 0, 0, time.UTC)),
+		Undoing: deploy.Undoing{FailedReleaseID: releaseID, Source: deploy.SourceHealthMonitorAtFailed},
+	})
+	e.index()
+	return e
 }

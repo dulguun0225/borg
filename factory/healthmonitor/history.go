@@ -81,6 +81,9 @@ func (h *HealthMonitor) ownHistory(ctx context.Context, w Watching, win window.W
 		if err != nil {
 			return nil, fmt.Errorf("healthmonitor: reading %s against its own recent history on %s: %w", w.Name, target, err)
 		}
+		if series, err = h.asRead(ctx, w.ID, series); err != nil {
+			return nil, err
+		}
 		if err := evaluate(boundaryFor, win.Power, target, series, kind, &read); err != nil {
 			return nil, err
 		}
@@ -136,6 +139,9 @@ func (h *HealthMonitor) threshold(ctx context.Context, w Watching, svc service.S
 		})
 		if err != nil {
 			return nil, fmt.Errorf("healthmonitor: reading %s against its threshold on %s: %w", w.Name, target, err)
+		}
+		if series, err = h.asRead(ctx, w.ID, series); err != nil {
+			return nil, err
 		}
 		if err := evaluate(boundaryFor, win.Power, target, against(series, allowed),
 			KindExplicitThreshold, &read); err != nil {

@@ -84,16 +84,17 @@ func AllowedPredicateKindNames() []string {
 }
 
 // ErrPredicateKindUnknown is returned by [DecidablePredicate] for a kind this
-// factory has no decider for. A list an owner widened admits the name; what
-// refuses it is the derivation, which is where the design's cost of a wide
-// list — an assertion that cannot be decided against one observed exchange —
-// actually falls on this platform.
+// factory has no decider for. It is what refuses the name where the list is
+// widened rather than where a consumer contract is derived: a predicate
+// decidable against one observed exchange is a floor no authored value and no
+// safeguard goes below, and the kinds this factory can decide are the whole of
+// what it can hold to that.
 var ErrPredicateKindUnknown = errors.New("gatepolicy: this factory has no decider for that kind of predicate")
 
 // DecidablePredicate is the kind by that name, and an error for a name outside
-// [PredicateKinds]. A caller that took the name from a list an owner extended
-// calls this rather than casting, so a kind nothing can decide is refused where
-// the consumer contract is derived and not where it is read.
+// [PredicateKinds]. Package policy calls it for every name an owner authors
+// onto the list and for every name a safeguard adds to it, so a kind nothing
+// can decide never reaches the list at all.
 func DecidablePredicate(name string) (PredicateKind, error) {
 	kind := PredicateKind(name)
 	if !slices.Contains(PredicateKinds, kind) {
@@ -123,6 +124,35 @@ func (k PredicateKind) TakesAnArgument() bool {
 	default:
 		return false
 	}
+}
+
+// AuthoredPredicateKind is one entry an owner's authoring or a safeguard's
+// floor adds to the list of allowed predicate kinds: a name and the shape —
+// one of [PredicateKinds] — the factory decides it by. Each of the nine
+// shipped kinds is its own shape, and an owner extends the list past them by
+// pairing a name of their own with a shape the factory already implements
+// rather than inventing a kind of assertion nothing can decide.
+type AuthoredPredicateKind struct {
+	Name  string
+	Shape PredicateKind
+}
+
+// DecidableAuthoredKind is name paired with shape, admitted where shape is one
+// of [PredicateKinds] and name is not empty, and [ErrPredicateKindUnknown]
+// otherwise. It is what makes "the list of allowed predicate kinds is one
+// list the factory owns and an owner extends" true past the nine shipped
+// names while keeping "a name no decider exists for is refused by the
+// derivation": the check is on the shape an entry names rather than on the
+// name matching one of the nine, so an owner's own name is admitted the
+// moment it names a decider and refused the moment it does not.
+func DecidableAuthoredKind(name string, shape PredicateKind) (AuthoredPredicateKind, error) {
+	if name == "" {
+		return AuthoredPredicateKind{}, fmt.Errorf("%w: an authored kind names no name", ErrPredicateKindUnknown)
+	}
+	if _, err := DecidablePredicate(string(shape)); err != nil {
+		return AuthoredPredicateKind{}, err
+	}
+	return AuthoredPredicateKind{Name: name, Shape: shape}, nil
 }
 
 // DecidableAgainstAForm is whether the kind can be decided against a contract's

@@ -26,6 +26,16 @@ var (
 	// area and its service agree by construction, and this is where the
 	// construction is enforced.
 	ErrAreaOutsideServiceProject = errors.New("item: the area is not inside the project of the item's service")
+	// ErrAreaIDEmpty is returned by [Decomposition.Create] for an empty id in
+	// the chain of areas covering the work. record's doc.go states what a link
+	// is checked for.
+	ErrAreaIDEmpty = errors.New("item: the area id is empty")
+	// ErrAnswersNoRequirement is returned by [Decomposition.Create] for an item
+	// answering no requirement, whole or derived. Work nobody asked for has
+	// criteria at Spec that trace to nothing, so the item that creates a
+	// service and each step of a migration carry a requirement like every
+	// other item.
+	ErrAnswersNoRequirement = errors.New("item: the item answers no requirement, whole or derived")
 )
 
 // Decomposition is the writer of the item's three writes: creating one,
@@ -34,11 +44,34 @@ var (
 type Decomposition struct {
 	pool  *pgxpool.Pool
 	token lease.Token
+	// dispatch is where the stage of a superseded item is written. The stage is
+	// dispatch's field wherever it is written from, so decomposition reports
+	// that transition here like every other rather than writing the column
+	// itself.
+	dispatch *Dispatch
+	// Holds is where Create, CreateTx, Repoint, and RepointTx read every
+	// rollback hold standing, at each write, since no record holds them. It is
+	// nil until a caller wires it — cmd/factory's own composition does, over
+	// path.rollbackHolds, the same reading the production deploy gate makes —
+	// and nil is a decomposition checked against no hold standing, which is
+	// every composition of this writer but cmd/factory's own.
+	Holds RollbackHolds
 }
 
 // NewDecomposition returns the writer over pool, fencing every write with token.
+// Holds is nil until the caller sets it.
 func NewDecomposition(pool *pgxpool.Pool, token lease.Token) *Decomposition {
-	return &Decomposition{pool: pool, token: token}
+	return &Decomposition{pool: pool, token: token, dispatch: NewDispatch(pool, token)}
+}
+
+// standingHolds is every rollback hold standing, read through Holds where a
+// caller has wired one and nothing where it is nil: a decomposition composed
+// with no seam onto the gate's own reading is checked against no hold.
+func (c *Decomposition) standingHolds(ctx context.Context) ([]Hold, error) {
+	if c.Holds == nil {
+		return nil, nil
+	}
+	return c.Holds.Standing(ctx)
 }
 
 // NewID mints an item id, which is what [New.ID] takes. It is exported so that
@@ -58,23 +91,41 @@ type New struct {
 	ID        string
 	IntentID  string
 	ServiceID string
-	// AreaID is the narrowest area whose declaration covers the work, and is empty
-	// where no area covers it. Empty is stored: an item with no area is one a
-	// safeguard drawn on an area does not reach and one the score cannot read a
-	// context factor for, which puts a human at its gates rather than being
-	// refused here.
-	AreaID string
-	Branch string
+	// AreaChain is the areas whose declarations cover the work, narrowest
+	// first: the chain package area walks from the area the work is in up to
+	// the project, every area of which covers the work the narrowest one
+	// covers. Decomposition writes the narrowest of them, which is the head,
+	// and an empty chain is an item with no area — one a safeguard drawn on an
+	// area does not reach and one the score cannot read a context factor for,
+	// which puts a human at its gates rather than being refused here.
+	//
+	// What the head costs is that the chain arrives ordered: an area chain is
+	// package area's to walk and this package imports neither it nor the
+	// project the chain ends at, so the order is the caller's and the choice
+	// among the covering areas is this package's.
+	AreaChain []string
+	Branch    string
 	// WaitsOn is the items this one cannot be verified until they have shipped.
 	// Decomposition records the order, so this is where a dependency is declared and
 	// not something discovered at deploy time.
 	WaitsOn []string
 	// RequirementsAnswered is the ids of the intent's requirements this item
 	// answers — rows of package intent's requirement table, written by intake
-	// at the confirming round and at decomposition's own split. It is empty on
-	// an item that answers none, and the ids are checked for being present and
-	// never for pointing at anything.
+	// at the confirming round and at decomposition's own split. Every item
+	// answers a requirement whole or carries a derived share of one, so an
+	// empty list is [ErrAnswersNoRequirement]; the ids are checked for being
+	// present and never for pointing at anything.
 	RequirementsAnswered []string
+}
+
+// narrowestArea is the area an item names: the head of the chain whose
+// declarations cover the work, the chain arriving narrowest first, and nothing
+// where no declared area covers it.
+func narrowestArea(chain []string) string {
+	if len(chain) == 0 {
+		return ""
+	}
+	return chain[0]
 }
 
 // Create writes an item at stage spec, where every item starts, with the
@@ -82,54 +133,29 @@ type New struct {
 // and never decomposition — and counts the item's first attempt at spec, spec
 // being entered to author the moment the item exists.
 //
-// areaProjectID and serviceProjectID are the project the item's area lies in
-// and the project the item's service is in, read by the caller: an area chain
-// is package area's to walk and a service's project is package service's
-// field, and this package imports neither. They are compared rather than
-// stored, the project being no field of the item. Where the item names no
-// area there is nothing to compare and neither is read.
+// The area written is the narrowest of [New.AreaChain], and only an area
+// inside the project of the item's service: areaProjectID and serviceProjectID
+// are the project the chain ends at and the project the item's service is in,
+// read by the caller because an area chain is package area's to walk and a
+// service's project is package service's field, and this package imports
+// neither. They are compared rather than stored, the project being no field of
+// the item. Where no declared area covers the work there is no chain, nothing
+// to compare, and neither is read.
 //
-// holdEdges is what a rollback hold imposes: while one stands on a service,
-// every unmerged item of that service other than the revert waits on the
-// revert item, and no record holds those edges. The caller reads them off what
-// the production deploy gate reads the hold from and passes them here, so the
-// acyclic check is over the union of the declared edges and those.
+// The rollback holds standing are read through [Decomposition.Holds], which no
+// record holds: while one stands on a service, every unmerged item of that
+// service other than the revert waits on the revert item, and the edges it
+// imposes are computed here at this write, so the acyclic check is over the
+// union of the declared edges and those.
 func (c *Decomposition) Create(ctx context.Context, actor record.Actor, n New,
-	areaProjectID, serviceProjectID string, holdEdges []Edge) (Item, error) {
-	if err := actor.Validate(); err != nil {
-		return Item{}, err
-	}
-	if n.IntentID == "" {
-		return Item{}, ErrIntentIDEmpty
-	}
-	if n.ServiceID == "" {
-		return Item{}, ErrServiceIDEmpty
-	}
-	if n.Branch == "" {
-		return Item{}, ErrBranchEmpty
-	}
-	if n.AreaID != "" && areaProjectID != serviceProjectID {
-		return Item{}, fmt.Errorf("%w: area %s is in %q and service %s is in %q",
-			ErrAreaOutsideServiceProject, n.AreaID, areaProjectID, n.ServiceID, serviceProjectID)
-	}
-	for _, on := range n.WaitsOn {
-		if on == "" {
-			return Item{}, fmt.Errorf("%w: one of the items it waits on", ErrItemIDEmpty)
-		}
-	}
-	for _, id := range n.RequirementsAnswered {
-		if id == "" {
-			return Item{}, fmt.Errorf("%w: one of the requirements it answers", ErrRequirementIDEmpty)
-		}
-	}
-
+	areaProjectID, serviceProjectID string) (Item, error) {
 	tx, err := c.pool.Begin(ctx)
 	if err != nil {
 		return Item{}, fmt.Errorf("item: beginning a decomposition's write: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	it, err := c.CreateTx(ctx, tx, actor, n, areaProjectID, serviceProjectID, holdEdges)
+	it, err := c.CreateTx(ctx, tx, actor, n, areaProjectID, serviceProjectID)
 	if err != nil {
 		return Item{}, err
 	}
@@ -145,7 +171,41 @@ func (c *Decomposition) Create(ctx context.Context, actor record.Actor, n New,
 // elsewhere, the way every write of this module fences inside its own
 // transaction.
 func (c *Decomposition) CreateTx(ctx context.Context, tx pgx.Tx, actor record.Actor, n New,
-	areaProjectID, serviceProjectID string, holdEdges []Edge) (Item, error) {
+	areaProjectID, serviceProjectID string) (Item, error) {
+	if err := actor.Validate(); err != nil {
+		return Item{}, err
+	}
+	if n.IntentID == "" {
+		return Item{}, ErrIntentIDEmpty
+	}
+	if n.ServiceID == "" {
+		return Item{}, ErrServiceIDEmpty
+	}
+	if n.Branch == "" {
+		return Item{}, ErrBranchEmpty
+	}
+	for _, id := range n.AreaChain {
+		if id == "" {
+			return Item{}, fmt.Errorf("%w: one of the areas whose declaration covers the work", ErrAreaIDEmpty)
+		}
+	}
+	if len(n.AreaChain) > 0 && areaProjectID != serviceProjectID {
+		return Item{}, fmt.Errorf("%w: area %s is in %q and service %s is in %q",
+			ErrAreaOutsideServiceProject, narrowestArea(n.AreaChain), areaProjectID, n.ServiceID, serviceProjectID)
+	}
+	for _, on := range n.WaitsOn {
+		if on == "" {
+			return Item{}, fmt.Errorf("%w: one of the items it waits on", ErrItemIDEmpty)
+		}
+	}
+	if len(n.RequirementsAnswered) == 0 {
+		return Item{}, fmt.Errorf("%w: %s on service %s", ErrAnswersNoRequirement, n.Branch, n.ServiceID)
+	}
+	for _, id := range n.RequirementsAnswered {
+		if id == "" {
+			return Item{}, fmt.Errorf("%w: one of the requirements it answers", ErrRequirementIDEmpty)
+		}
+	}
 	if err := lease.Fence(ctx, tx, c.token); err != nil {
 		return Item{}, err
 	}
@@ -160,7 +220,7 @@ func (c *Decomposition) CreateTx(ctx context.Context, tx pgx.Tx, actor record.Ac
 		At:                   record.Now(),
 		IntentID:             n.IntentID,
 		ServiceID:            n.ServiceID,
-		AreaID:               n.AreaID,
+		AreaID:               narrowestArea(n.AreaChain),
 		Branch:               n.Branch,
 		Stage:                StageSpec,
 		WaitsOn:              n.WaitsOn,
@@ -171,11 +231,23 @@ func (c *Decomposition) CreateTx(ctx context.Context, tx pgx.Tx, actor record.Ac
 	if err != nil {
 		return Item{}, err
 	}
-	proposed := make([]Edge, 0, len(it.WaitsOn))
-	for _, on := range it.WaitsOn {
-		proposed = append(proposed, Edge{From: it.ID, To: on})
+	// The item being created is one of the held service's unmerged items the
+	// moment this write lands, and a revert decomposed while its own hold
+	// stands is what that hold's edges lead into, so the edges are computed
+	// with it among them rather than against the rows already there.
+	holds, err := c.standingHolds(ctx)
+	if err != nil {
+		return Item{}, err
 	}
-	if err := checkAcyclic(standing, holdEdges, proposed); err != nil {
+	held, err := heldEdges(ctx, tx, holds, it)
+	if err != nil {
+		return Item{}, err
+	}
+	proposed := make([]edge, 0, len(it.WaitsOn))
+	for _, on := range it.WaitsOn {
+		proposed = append(proposed, edge{From: it.ID, To: on})
+	}
+	if err := checkAcyclic(standing, held, proposed); err != nil {
 		return Item{}, err
 	}
 
@@ -215,6 +287,34 @@ var ErrMerged = errors.New("item: a merged item is out of a re-decomposition's r
 // superseded stage with no pointer and no replacement is a state no reader can
 // tell from one a re-decomposition dropped.
 func (c *Decomposition) Supersede(ctx context.Context, actor record.Actor, itemID string, replacedBy []string) (Item, error) {
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return Item{}, fmt.Errorf("item: beginning the supersede of %s: %w", itemID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	it, err := c.SupersedeTx(ctx, tx, actor, itemID, replacedBy)
+	if err != nil {
+		return Item{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Item{}, fmt.Errorf("item: committing the supersede of %s: %w", itemID, err)
+	}
+	return it, nil
+}
+
+// SupersedeTx is [Decomposition.Supersede] on a transaction the caller began,
+// so a rejected item points at its replacements in the write that creates
+// them: what was decomposed wrong is readable beside what replaced it from the
+// first moment either row exists, and no reader sees a superseded item whose
+// pointer names items that are not there.
+//
+// The stage is reported to [Dispatch] and the pointer is written here, which
+// is the seam the record keeps everywhere: decomposition writes the item's own
+// fields and dispatch writes the stage, in one transaction because superseding
+// is one event.
+func (c *Decomposition) SupersedeTx(ctx context.Context, tx pgx.Tx, actor record.Actor,
+	itemID string, replacedBy []string) (Item, error) {
 	if err := actor.Validate(); err != nil {
 		return Item{}, err
 	}
@@ -226,37 +326,18 @@ func (c *Decomposition) Supersede(ctx context.Context, actor record.Actor, itemI
 			return Item{}, fmt.Errorf("%w: one of the items that replaced it", ErrItemIDEmpty)
 		}
 	}
-
-	tx, err := c.pool.Begin(ctx)
-	if err != nil {
-		return Item{}, fmt.Errorf("item: beginning the supersede of %s: %w", itemID, err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lease.Fence(ctx, tx, c.token); err != nil {
 		return Item{}, err
 	}
 
-	it, err := scanItem(tx.QueryRow(ctx, `select `+columns+` from `+Table+` where id = $1 for update`, itemID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, itemID)
-	} else if err != nil {
-		return Item{}, fmt.Errorf("item: reading %s: %w", itemID, err)
+	it, err := c.dispatch.superseded(ctx, tx, itemID)
+	if err != nil {
+		return Item{}, err
 	}
-	switch it.Stage {
-	case StageSuperseded:
-		return Item{}, fmt.Errorf("%w: %s", ErrAlreadySuperseded, itemID)
-	case StageMerged:
-		return Item{}, fmt.Errorf("%w: %s", ErrMerged, itemID)
+	if _, err := tx.Exec(ctx, `update `+Table+` set superseded_by = $1 where id = $2`,
+		joinIDs(replacedBy), itemID); err != nil {
+		return Item{}, fmt.Errorf("item: pointing %s at what replaced it: %w", itemID, err)
 	}
-
-	if _, err := tx.Exec(ctx, `update `+Table+` set stage = $1, superseded_by = $2 where id = $3`,
-		string(StageSuperseded), joinIDs(replacedBy), itemID); err != nil {
-		return Item{}, fmt.Errorf("item: superseding %s: %w", itemID, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Item{}, fmt.Errorf("item: committing the supersede of %s: %w", itemID, err)
-	}
-	it.Stage = StageSuperseded
 	it.SupersededBy = replacedBy
 	return it, nil
 }
@@ -271,14 +352,14 @@ func (c *Decomposition) Supersede(ctx context.Context, actor record.Actor, itemI
 // item that has ended — merged, dropped, or superseded — there being nothing
 // left to wait for.
 func (c *Decomposition) Repoint(ctx context.Context, actor record.Actor, itemID string,
-	waitsOn []string, holdEdges []Edge) (Item, error) {
+	waitsOn []string) (Item, error) {
 	tx, err := c.pool.Begin(ctx)
 	if err != nil {
 		return Item{}, fmt.Errorf("item: beginning the repoint of %s: %w", itemID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	it, err := c.RepointTx(ctx, tx, actor, itemID, waitsOn, holdEdges)
+	it, err := c.RepointTx(ctx, tx, actor, itemID, waitsOn)
 	if err != nil {
 		return Item{}, err
 	}
@@ -295,7 +376,7 @@ var ErrEnded = errors.New("item: the item has ended and waits on nothing")
 // the replacements and the repointing of what waited on the item they replaced
 // are one write.
 func (c *Decomposition) RepointTx(ctx context.Context, tx pgx.Tx, actor record.Actor, itemID string,
-	waitsOn []string, holdEdges []Edge) (Item, error) {
+	waitsOn []string) (Item, error) {
 	if err := actor.Validate(); err != nil {
 		return Item{}, err
 	}
@@ -326,11 +407,19 @@ func (c *Decomposition) RepointTx(ctx context.Context, tx pgx.Tx, actor record.A
 	if err != nil {
 		return Item{}, err
 	}
-	proposed := make([]Edge, 0, len(waitsOn))
-	for _, on := range waitsOn {
-		proposed = append(proposed, Edge{From: itemID, To: on})
+	holds, err := c.standingHolds(ctx)
+	if err != nil {
+		return Item{}, err
 	}
-	if err := checkAcyclic(standing, holdEdges, proposed); err != nil {
+	held, err := heldEdges(ctx, tx, holds, it)
+	if err != nil {
+		return Item{}, err
+	}
+	proposed := make([]edge, 0, len(waitsOn))
+	for _, on := range waitsOn {
+		proposed = append(proposed, edge{From: itemID, To: on})
+	}
+	if err := checkAcyclic(standing, held, proposed); err != nil {
 		return Item{}, err
 	}
 

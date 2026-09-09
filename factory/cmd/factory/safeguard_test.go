@@ -34,7 +34,9 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 			SubjectName: "deploy_to_production", ServiceName: theService},
 		{Parameter: "window_limit", SubjectKind: "service", SubjectName: theService, Bound: "2"},
 		{Parameter: "item_size_target", SubjectKind: "area", SubjectName: "billing", Bound: "300"},
-		{Parameter: "allowed_predicate_kinds", SubjectKind: "factory_settings", Bound: "status,schema"},
+		// A kind this factory has no decider for is refused where the list is
+		// widened, so the bound names kinds it can decide.
+		{Parameter: "allowed_predicate_kinds", SubjectKind: "factory_settings", Bound: "range,sent_range"},
 	} {
 		if s.mustCall(t, "placeSafeguard", args) == "" {
 			t.Fatalf("placeSafeguard %+v answered with no id", args)
@@ -81,8 +83,11 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	}
 
 	// The safeguard on the allowed predicate kinds reaches the parameter it was
-	// drawn on: what an owner reads afterwards is the union, which is the whole of
-	// what a safeguard on a list does.
+	// drawn on: what an owner reads afterwards is the union, which is the whole
+	// of what a safeguard on a list does. The union is over kinds this factory
+	// can decide against one observed exchange — the floor the list's own rule
+	// sets, which no safeguard goes below — so a bound naming two of them adds
+	// nothing the floor did not already hold.
 	allowed, err := policy.NewReader(d.pool, d.token, score.Version{}).All(ctx, policy.Subjects{
 		GateRow: "merge_to_master", Stage: item.StageImplementation,
 	})
@@ -93,12 +98,16 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 		if e.Parameter != gatepolicy.AllowedPredicateKinds {
 			continue
 		}
-		// The factory's own kinds are the floor an owner extends, so the safeguard's
-		// two names are added to them rather than replacing them.
-		want := len(gatepolicy.PredicateKinds) + 2
-		if len(e.List) != want || !e.Clamped {
-			t.Errorf("the allowed reads %v clamped %v, want the factory's own %d plus the two the safeguard added",
-				e.List, e.Clamped, len(gatepolicy.PredicateKinds))
+		// The factory's own kinds are the floor an owner extends, and a
+		// safeguard adds to them and replaces none.
+		if len(e.List) != len(gatepolicy.PredicateKinds) {
+			t.Errorf("the allowed reads %v, want the factory's own %d",
+				e.List, len(gatepolicy.PredicateKinds))
+		}
+		for _, name := range e.List {
+			if _, err := gatepolicy.DecidablePredicate(name); err != nil {
+				t.Errorf("the list in force holds %q, which nothing can decide", name)
+			}
 		}
 	}
 

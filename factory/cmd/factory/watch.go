@@ -188,7 +188,8 @@ func (p *path) watchWindows(ctx context.Context, svc service.Service) (bool, err
 	for _, id := range paged {
 		fmt.Fprintf(p.d.out, "Incident %s still crosses with no window open, and the page went out: production is worse until a human ends it\n", id)
 	}
-	return moved || len(paged) > 0, nil
+	stalled, err := p.pageRollbackNotComplete(ctx, w)
+	return moved || len(paged) > 0 || stalled, err
 }
 
 // pagesHeldToTheHours is the notifier's own pass over the pages a service's

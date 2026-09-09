@@ -34,9 +34,6 @@ type Firing struct {
 	ServiceID     string
 	AreaID        string
 	EnvironmentID string
-	// ReleaseID is the release a deploy row would put on the environment, and is
-	// empty at every row above the merge.
-	ReleaseID string
 	// ReplacesReleaseID is the release this deploy replaces, and is empty on a
 	// service's first release — which has no control whatever the score prefers,
 	// there being no build being replaced.
@@ -51,6 +48,11 @@ type Firing struct {
 	// Criteria is what deciding each of them produced, and is empty at the
 	// candidate deploy row.
 	Criteria []CriterionResult
+	// CandidateRunEnded is whether the run on the item's candidate environment
+	// has ended. It is what fires the merge row beside the row above being
+	// approved, is required there, and is refused at every other row: what that
+	// row decides is the candidate's own run.
+	CandidateRunEnded bool
 	// CouldNotDerive is every derivation that produced no result, each one of
 	// [Derivations] and each putting a human at the merge row.
 	CouldNotDerive []string
@@ -107,7 +109,7 @@ func (f Firing) Subjects() Subjects {
 	return Subjects{
 		Row: f.Row, RecordID: f.RecordID,
 		ItemID: f.ItemID, BuildID: f.BuildID, ServiceID: f.ServiceID,
-		AreaID: f.AreaID, EnvironmentID: f.EnvironmentID, ReleaseID: f.ReleaseID,
+		AreaID: f.AreaID, EnvironmentID: f.EnvironmentID,
 	}
 }
 
@@ -127,6 +129,9 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, err
 	}
 	if err := g.nothingPending(ctx, f); err != nil {
+		return Opened{}, err
+	}
+	if err := g.eventIsNext(ctx, f); err != nil {
 		return Opened{}, err
 	}
 
@@ -160,11 +165,13 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		return Opened{}, err
 	}
 
-	mismatch, err := g.mismatch(ctx, f)
+	holds, mismatch, err := g.standingHolds(ctx, f.Subjects())
 	if err != nil {
 		return Opened{}, err
 	}
-	holds, err := g.standingHolds(ctx, f.Subjects())
+	// A safeguard adding a human names who its rows route to, so the check
+	// reaches the person who authored it rather than the owner by default.
+	safeguarded, err := g.routedBySafeguard(ctx, applied)
 	if err != nil {
 		return Opened{}, err
 	}
@@ -182,7 +189,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 	if routed.Human == "" {
 		routed.Human = routedByAResolution(assessment.Resolved)
 	}
-	waits, err := g.waitsOn(ctx, f.Row, holds, routed)
+	waits, err := g.waitsOn(ctx, f.Row, holds, routed, safeguarded)
 	if err != nil {
 		return Opened{}, err
 	}
@@ -217,12 +224,15 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		Subject:    f.Subjects(),
 		Assessment: assessment,
 		Applied:    applied,
-		// A mismatch, a derivation that could not derive, and a service missing
-		// one of the deployer's four each put a human at the row without being
-		// a mark: the first two are read for what they are, and the third is
-		// what says the measurement those fields exist for cannot be read.
+		// A mismatch, a derivation that could not derive, a service missing one
+		// of the deployer's four, and an irreversible area on a platform that
+		// serves no share each put a human at the row without being a mark: the
+		// first two are read for what they are, the third is what says the
+		// measurement those fields exist for cannot be read, and the fourth is
+		// a deploy no control can be run beside.
 		HumanDecides: len(marks) > 0 || mismatch != "" ||
-			len(f.CouldNotDerive) > 0 || unmeasured != "",
+			len(f.CouldNotDerive) > 0 || unmeasured != "" ||
+			irreversibleWithoutAControl(f, rollout),
 		Marks:                    marks,
 		HeldOut:                  selection.HeldOut,
 		WhyHeldOut:               selection.Why,
@@ -234,6 +244,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		ArtifactID:               version,
 		Referrers:                f.referrers,
 	}
+	opened.IrreversibleWithoutAControl = irreversibleWithoutAControl(f, rollout)
 	if !opened.HumanDecides {
 		opened.WaitsOn = Waits{}
 	}
@@ -262,8 +273,8 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		ServiceID:                f.ServiceID,
 		AreaID:                   f.AreaID,
 		EnvironmentID:            f.EnvironmentID,
-		ReleaseID:                f.ReleaseID,
 		Criteria:                 f.Criteria,
+		CandidateRunEnded:        f.CandidateRunEnded,
 		CriteriaInForce:          f.CriteriaInForce,
 		CriteriaFailed:           blocked(f.Criteria),
 		CouldNotDerive:           f.CouldNotDerive,
@@ -285,9 +296,11 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		Mismatch:                 opened.Mismatch,
 		RevertWhileRollbackHolds: opened.RevertWhileRollbackHolds,
 		Unmeasured:               unmeasured,
-		Supersedes:               f.supersedes,
-		ReferredFrom:             f.referredFrom,
-		Referrers:                f.referrers,
+
+		IrreversibleWithoutAControl: opened.IrreversibleWithoutAControl,
+		Supersedes:                  f.supersedes,
+		ReferredFrom:                f.referredFrom,
+		Referrers:                   f.referrers,
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload: %w", err)
@@ -323,6 +336,10 @@ func (g *Gate) EditInPlace(ctx context.Context, superseded Opened, f Firing) (Op
 	}
 	if !superseded.Gate.ArtifactGate() {
 		return Opened{}, fmt.Errorf("%w: %s decides no document", ErrEditInPlaceRefused, superseded.Gate)
+	}
+	if !superseded.Gate.OffersEditInPlace() {
+		return Opened{}, fmt.Errorf("%w: %s is the one artifact gate with no Edit in place",
+			ErrEditInPlaceRefused, superseded.Gate)
 	}
 	f.supersedes = superseded.Row.ID
 	opened, err := g.Fire(ctx, f)
@@ -408,6 +425,16 @@ func (g *Gate) scoreVersion(ctx context.Context, applied policy.Applied) (score.
 		return score.Version{}, fmt.Errorf("gate: reading the score version in force at this row: %w", err)
 	}
 	return inForce, nil
+}
+
+// irreversibleWithoutAControl reports whether this firing is a production
+// deploy of an irreversible area onto a platform that serves no share. Where
+// the platform serves no share there is no schedule to pick and every deploy
+// there goes without a control, so such a deploy is a human's whatever the
+// formula returns, and what that human accepts is an exposure the platform
+// gives the factory no way to limit.
+func irreversibleWithoutAControl(f Firing, r score.Rollout) bool {
+	return f.Row.Kind == KindDeployToProduction && r.Irreversible && !r.EveryTargetServesAShare
 }
 
 // blocked is how many of the criteria decided against the build stop it at the

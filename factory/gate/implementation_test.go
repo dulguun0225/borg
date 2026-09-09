@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/artifact"
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/screenstatemachine"
 )
@@ -161,5 +162,68 @@ func TestAScreenThatCouldNotBeDerivedRejectsNothingAndResolvesInstead(t *testing
 	outside.Screens = notDerived
 	if _, err := g.Fire(ctx, outside); err == nil {
 		t.Errorf("a row that decides no build accepted a screen derivation")
+	}
+}
+
+// TestTheImplementationRowRejectsOnACriterionTheBuildDecidedAgainst: an
+// encoding declares which of two places decides it, and one deciding a
+// criterion over the code alone is run by the build runner in the build's own
+// process. So this row rejects on it, as it rejects a build that does not
+// compile, and a human reading the diff here reads those results beside it.
+func TestTheImplementationRowRejectsOnACriterionTheBuildDecidedAgainst(t *testing.T) {
+	if !slices.Contains(gate.ImplementationChecks, gate.AutoRejectedByACriterionTheBuildDecided) {
+		t.Fatal("the criterion the build decided is not one of the checks this row rejects on")
+	}
+
+	passed := []gate.CriterionResult{
+		{CriterionID: "cr_a", Outcome: criterion.OutcomePassed, Place: criterion.PlaceBuild},
+	}
+	if check, _, rejects := gate.CriterionRejection(passed); rejects {
+		t.Errorf("a criterion the build passed rejected with %q", check)
+	}
+
+	// The candidate environment decides only the encodings declaring it, and
+	// this row fires before that run exists, so a failure from there is not
+	// read here — Merge to master is where it rejects.
+	elsewhere := []gate.CriterionResult{
+		{CriterionID: "cr_b", Outcome: criterion.OutcomeFailed, Place: criterion.PlaceCandidateEnvironment},
+	}
+	if check, _, rejects := gate.CriterionRejection(elsewhere); rejects {
+		t.Errorf("a criterion the candidate environment decided rejected here with %q", check)
+	}
+
+	failed := []gate.CriterionResult{
+		{CriterionID: "cr_a", Outcome: criterion.OutcomePassed, Place: criterion.PlaceBuild},
+		{CriterionID: "cr_c", Outcome: criterion.OutcomeFailed, Place: criterion.PlaceBuild},
+	}
+	check, found, rejects := gate.CriterionRejection(failed)
+	if !rejects || check != gate.AutoRejectedByACriterionTheBuildDecided {
+		t.Fatalf("a criterion the build decided against rejected %v by %q", rejects, check)
+	}
+	if !strings.Contains(found, "cr_c") {
+		t.Errorf("the rejection reads %q and names no criterion", found)
+	}
+
+	// It rejects before a verdict is asked for, the way the compile check does.
+	s, p := &fakeScore{assessment: assessed(0.1)}, &fakePolicy{applied: applied(0.9)}
+	ctx, pool, token, g := newGate(t, s, p)
+	built, err := artifact.NewStore(pool, token).SubmitImplementation(ctx, owner,
+		artifact.By{Authorship: artifact.AuthorshipHuman, Author: "the implementer"},
+		mergeFiring.ItemID, "what was built", "")
+	if err != nil {
+		t.Fatalf("submitting the implementation version: %v", err)
+	}
+	f := mergeFiring
+	f.Row, f.ArtifactID, f.Criteria = gate.Implementation, built.ID, failed
+	opened, err := g.Fire(ctx, f)
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	closing, err := g.AutoReject(ctx, opened, check, found)
+	if err != nil {
+		t.Fatalf("AutoReject: %v", err)
+	}
+	if closing.Verdict != string(gate.VerdictReject) {
+		t.Errorf("the close event's verdict is %q", closing.Verdict)
 	}
 }

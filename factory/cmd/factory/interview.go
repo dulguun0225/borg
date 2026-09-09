@@ -81,8 +81,13 @@ func (p *path) confirmTheReading(ctx context.Context, actor record.Actor,
 		confirmation.Requirements = append(confirmation.Requirements,
 			intent.NewRequirement{Statement: statement, EscapeReason: escapeReason})
 	}
-	_, err := p.intake.Confirm(ctx, intakeActor, confirmation)
-	return err
+	if _, err := p.intake.Confirm(ctx, intakeActor, confirmation); err != nil {
+		return err
+	}
+	// Refined is the intent leaving the state that stopped every item
+	// decomposed from it, so the holds that state opened are re-matched here,
+	// where it was written.
+	return p.intentLeftItsStop(ctx)
 }
 
 // servicesFor is which services an intent's statement says its decomposition

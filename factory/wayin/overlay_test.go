@@ -297,7 +297,8 @@ func submitUnder(t *testing.T, client *http.Client, session string) {
 	var result struct {
 		Accepted bool `json:"accepted"`
 	}
-	post(t, client, `{"kind":"bug","text":"the save button does nothing","session":"`+session+`"}`, &result)
+	post(t, client, `{"kind":"bug","text":"the save button does nothing","session":"`+session+
+		`","notice_id":""}`, &result)
 	if !result.Accepted {
 		t.Fatalf("a submission in session %q was not accepted", session)
 	}

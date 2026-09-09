@@ -42,6 +42,7 @@ func TestACandidatesEnvironmentIsComposedFromWhatItsConsumerContractNames(t *tes
 	// producer alone.
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: newIntent(t, ctx, g), ServiceID: g.consumer.ID, Branch: "item/" + record.NewID("in"),
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the candidate's item: %v", err)
@@ -50,7 +51,7 @@ func TestACandidatesEnvironmentIsComposedFromWhatItsConsumerContractNames(t *tes
 		"derived from the build", consumercontract.Derived{
 			Extractor: consumercontract.GoExtractor("test"),
 			Drafts:    []consumercontract.Draft{draft(g.producer, theInterface, "Status", gatepolicy.PredicateRead, "")},
-		}, ""); err != nil {
+		}, theManifest); err != nil {
 		t.Fatalf("submitting the candidate's consumer contract: %v", err)
 	}
 
@@ -83,6 +84,7 @@ func TestACandidateComposesNothingForItsOwnStoreOrAProducerRunningNothing(t *tes
 
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: newIntent(t, ctx, g), ServiceID: g.consumer.ID, Branch: "item/" + record.NewID("in"),
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("decomposing the candidate's item: %v", err)
@@ -94,7 +96,7 @@ func TestACandidateComposesNothingForItsOwnStoreOrAProducerRunningNothing(t *tes
 				draft(g.consumer, theStore, "Row", gatepolicy.PredicateRead, ""),
 				draft(g.producer, theInterface, "Status", gatepolicy.PredicateRead, ""),
 			},
-		}, ""); err != nil {
+		}, theManifest); err != nil {
 		t.Fatalf("submitting the candidate's consumer contract: %v", err)
 	}
 

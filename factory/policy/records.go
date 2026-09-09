@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -46,11 +48,13 @@ func (f *Factory) Install(ctx context.Context, actor record.Actor, projectName s
 
 	settings, err := factorysettings.Get(ctx, f.pool)
 	if errors.Is(err, factorysettings.ErrNotFound) {
+		settingsID := record.NewID(factorysettings.IDPrefix)
 		_, err = f.append(ctx, write{
 			caller: CallerFactory, actor: actor, action: ActionCreated,
-			mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
-				settings, err = factorysettings.Insert(ctx, tx, f.token, actor)
-				return Created{Scope: Scope{Kind: ScopeFactorySettings, ID: settings.ID}}, err
+			minted: Created{Scope: Scope{Kind: ScopeFactorySettings, ID: settingsID}},
+			apply: func(ctx context.Context, tx pgx.Tx) error {
+				settings, err = factorysettings.Insert(ctx, tx, f.token, actor, settingsID)
+				return err
 			},
 		})
 	}
@@ -103,20 +107,24 @@ type Project struct {
 // which is there before the item is.
 func (f *Factory) CreateProject(ctx context.Context, actor record.Actor, name string,
 	targets []string, credential secretref.Ref) (Project, Version, error) {
+	projectID := record.NewID(project.IDPrefix)
+	productionID := record.NewID(environment.IDPrefix)
 	var created Project
 	version, err := f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionCreated,
-		scope: Scope{Kind: ScopeProject, ID: name},
-		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
-			proj, err := project.Insert(ctx, tx, f.token, actor, name)
+		scope:    Scope{Kind: ScopeProject, ID: name},
+		keyExtra: strings.Join(targets, "\n") + "\n" + credential.Name(),
+		minted:   Created{Scope: Scope{Kind: ScopeProject, ID: projectID}},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			proj, err := project.Insert(ctx, tx, f.token, actor, projectID, name)
 			if err != nil {
-				return Created{}, err
+				return err
 			}
 			envTargets := make([]environment.Target, len(targets))
 			for n, address := range targets {
 				envTargets[n] = environment.Target{Address: address}
 			}
-			production, err := environment.Insert(ctx, tx, f.token, actor, environment.Spec{
+			production, err := environment.Insert(ctx, tx, f.token, actor, productionID, environment.Spec{
 				Kind:       environment.KindProduction,
 				ProjectID:  proj.ID,
 				Name:       environment.ProductionName,
@@ -129,13 +137,36 @@ func (f *Factory) CreateProject(ctx context.Context, actor record.Actor, name st
 				},
 			})
 			if err != nil {
-				return Created{}, err
+				return err
 			}
 			created = Project{Project: proj, Production: production}
-			return Created{Scope: Scope{Kind: ScopeProject, ID: proj.ID}}, nil
+			return nil
 		},
 	})
+	if err != nil || created.Project.ID != "" {
+		return created, version, err
+	}
+	// A step taken again wrote nothing, and the project the first performance
+	// wrote is what the version in force names.
+	created, err = f.projectAndProduction(ctx, version.Scope.ID)
 	return created, version, err
+}
+
+// projectAndProduction is one project and the production environment written
+// with it, which is what a repeated creation reads back.
+func (f *Factory) projectAndProduction(ctx context.Context, projectID string) (Project, error) {
+	proj, err := project.Get(ctx, f.pool, projectID)
+	if err != nil {
+		return Project{}, err
+	}
+	production, found, err := environment.Production(ctx, f.pool, projectID)
+	if err != nil {
+		return Project{}, err
+	}
+	if !found {
+		return Project{}, fmt.Errorf("policy: project %s has no production environment", projectID)
+	}
+	return Project{Project: proj, Production: production}, nil
 }
 
 // EndProject ends one project and withdraws its production environment in the
@@ -200,19 +231,23 @@ func (f *Factory) AuthorStrategyDefault(ctx context.Context, actor record.Actor,
 // not written here: it is written with the project, in the same event.
 func (f *Factory) CreateEnvironment(ctx context.Context, actor record.Actor,
 	spec environment.Spec) (environment.Environment, Version, error) {
+	id := record.NewID(environment.IDPrefix)
 	var created environment.Environment
 	version, err := f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionCreated,
-		scope: Scope{Kind: ScopeEnvironment, ID: spec.Name},
-		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
+		scope:    Scope{Kind: ScopeEnvironment, ID: spec.Name},
+		keyExtra: string(spec.Kind) + "\n" + spec.ProjectID + "\n" + spec.Credential.Name(),
+		minted:   Created{Scope: Scope{Kind: ScopeEnvironment, ID: id}},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
 			var err error
-			created, err = environment.Insert(ctx, tx, f.token, actor, spec)
-			if err != nil {
-				return Created{}, err
-			}
-			return Created{Scope: Scope{Kind: ScopeEnvironment, ID: created.ID}}, nil
+			created, err = environment.Insert(ctx, tx, f.token, actor, id, spec)
+			return err
 		},
 	})
+	if err != nil || created.ID != "" {
+		return created, version, err
+	}
+	created, err = environment.Get(ctx, f.pool, version.Scope.ID)
 	return created, version, err
 }
 
@@ -228,25 +263,38 @@ func (f *Factory) CreateEnvironment(ctx context.Context, actor record.Actor,
 // reaches every persistent one. A factory composed with no deployer refuses it
 // with [ErrNoDeployer], for the reason a retirement does.
 //
-// It appends no version. Every owner write at Factory that authors a value or
-// changes a record of this package's does; this authors nothing and writes no
-// record here — what it writes is a deploy record, whose writer is the
-// deployer — so a version naming it would name no change to the authored state.
+// It appends a version, every owner write at Factory being one, naming the
+// environment the removal was performed for and the service it reached. The
+// version authors nothing: what the removal writes is a deploy record, whose
+// writer is the deployer, so the version records that an owner called for it
+// and changes no authored value.
+//
+// The removal runs after the version commits, the order [Factory.RetireService]
+// takes for the same reason, and it runs whether or not the version was
+// appended: a step taken again writes no second version and performs the
+// removal again, which is what finishes one that stopped.
 func (f *Factory) RemoveFromEnvironment(ctx context.Context, actor record.Actor,
-	serviceID, environmentID string) error {
+	serviceID, environmentID string) (Version, error) {
 	if err := ownerOnly(actor); err != nil {
-		return err
+		return Version{}, err
 	}
 	if f.Removal == nil {
-		return fmt.Errorf("%w: %s", ErrNoDeployer, serviceID)
+		return Version{}, fmt.Errorf("%w: %s", ErrNoDeployer, serviceID)
 	}
 	if environmentID == "" {
-		return ErrEnvironmentIDEmpty
+		return Version{}, ErrEnvironmentIDEmpty
 	}
-	if err := f.Removal(ctx, serviceID, environmentID); err != nil {
-		return fmt.Errorf("policy: removing %s from environment %s: %w", serviceID, environmentID, err)
+	version, err := f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionRemoved,
+		scope: Scope{Kind: ScopeEnvironment, ID: environmentID, Key: serviceID},
+	})
+	if err != nil {
+		return Version{}, err
 	}
-	return nil
+	if err := f.Removal(ctx, principal.Principal{Actor: actor}, serviceID, environmentID); err != nil {
+		return version, fmt.Errorf("policy: removing %s from environment %s: %w", serviceID, environmentID, err)
+	}
+	return version, nil
 }
 
 // ErrEnvironmentIDEmpty is returned by [Factory.RemoveFromEnvironment] for a
@@ -286,8 +334,9 @@ func (f *Factory) SetMaxConcurrentCandidateEnvironments(ctx context.Context, act
 	productionID string, count int) (Version, error) {
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
-		scope:  Scope{Kind: ScopeEnvironment, ID: productionID, Key: "max_concurrent_candidate_environments"},
-		number: float64(count),
+		parameter: gatepolicy.MaxConcurrentCandidateEnvironments,
+		scope:     Scope{Kind: ScopeEnvironment, ID: productionID},
+		number:    float64(count), authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return environment.SetMaxConcurrentCandidateEnvironments(ctx, tx, f.token, actor, productionID, count)
 		},
@@ -299,18 +348,22 @@ func (f *Factory) SetMaxConcurrentCandidateEnvironments(ctx context.Context, act
 // observes says what harm the software can do.
 func (f *Factory) DeclareArea(ctx context.Context, actor record.Actor, name string,
 	inside area.Inside, hazard area.Hazard) (area.Area, Version, error) {
+	id := record.NewID(area.IDPrefix)
 	var declared area.Area
 	version, err := f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionCreated,
-		scope: Scope{Kind: ScopeArea, ID: name},
-		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
+		scope:    Scope{Kind: ScopeArea, ID: name},
+		keyExtra: inside.AreaID + "\n" + inside.ProjectID + "\n" + string(hazard.Grade) + "\n" + hazard.Operation,
+		minted:   Created{Scope: Scope{Kind: ScopeArea, ID: id}},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
 			var err error
-			declared, err = area.Insert(ctx, tx, f.token, actor, name, inside, hazard)
-			if err != nil {
-				return Created{}, err
-			}
-			return Created{Scope: Scope{Kind: ScopeArea, ID: declared.ID}}, nil
+			declared, err = area.Insert(ctx, tx, f.token, actor, id, name, inside, hazard)
+			return err
 		},
 	})
+	if err != nil || declared.ID != "" {
+		return declared, version, err
+	}
+	declared, err = area.Get(ctx, f.pool, version.Scope.ID)
 	return declared, version, err
 }

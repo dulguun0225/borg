@@ -114,13 +114,16 @@ func setUnderDecision(opened Opened) (SetFiring, error) {
 	for _, m := range opening.Set {
 		members = append(members, SetMember{
 			ItemID: m.ItemID, ServiceID: m.ServiceID, AreaID: m.AreaID,
-			Requirements: m.Requirements, WaitsOn: m.WaitsOn,
+			Requirements:        m.Requirements,
+			DerivedRequirements: m.DerivedRequirements,
+			WaitsOn:             m.WaitsOn,
 		})
 	}
 	return SetFiring{
-		IntentID:      opening.IntentID,
-		EnvironmentID: opened.Subject.EnvironmentID,
-		Members:       members,
+		IntentID:        opening.IntentID,
+		EnvironmentID:   opened.Subject.EnvironmentID,
+		Members:         members,
+		ReDecomposition: opening.ReDecomposition,
 	}, nil
 }
 

@@ -50,7 +50,25 @@ func ForTarget(ctx context.Context, pool *pgxpool.Pool, target Target) ([]Redact
 // the event: the erasure performed again derives the key of the row already
 // appended, finds the record already written, and writes nothing.
 func ByErasureKey(ctx context.Context, pool *pgxpool.Pool, key string) (Redaction, bool, error) {
-	r, err := scan(pool.QueryRow(ctx, `select `+redactionColumns+` from `+Table+`
+	return byErasureKey(ctx, pool, key)
+}
+
+// byErasureKeyTx is [ByErasureKey] read inside a transaction, which is what
+// [Insert] checks before it writes: the keyed repeat it finds this way is
+// returned rather than left to reach the unique index [DDL] carries on the
+// column.
+func byErasureKeyTx(ctx context.Context, tx pgx.Tx, key string) (Redaction, bool, error) {
+	return byErasureKey(ctx, tx, key)
+}
+
+// querier is the read [pgxpool.Pool] and [pgx.Tx] share, so one query can run
+// against either.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func byErasureKey(ctx context.Context, q querier, key string) (Redaction, bool, error) {
+	r, err := scan(q.QueryRow(ctx, `select `+redactionColumns+` from `+Table+`
 		where erasure_key = $1`, key))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Redaction{}, false, nil

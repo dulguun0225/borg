@@ -12,6 +12,40 @@ import (
 // its bands say so.
 const fitEvidence = 10
 
+// Scale is the last step of one set's fit: what carries the number the weighted
+// means reduce to onto the one scale every set shares, where the number
+// estimates the share of held-out windows that failed among decisions taken at
+// that number on that set.
+//
+// The weights alone cannot do it. Each term of the published formula is a
+// weighted mean, so multiplying a term's weights through changes no number, and
+// what a fit of the weights decides is which factors rank a change against
+// another and never where the ranking sits against a failure share. So the
+// shares of separation are the shape and this is the scale, and both are
+// fitted by the same recalibration over the same held-out decisions.
+//
+// The zero value is the identity: a set no recalibration has fitted returns the
+// weighted means' own number, which is where the product's own calibration put
+// it.
+type Scale struct {
+	Intercept float64 `json:"intercept"`
+	Slope     float64 `json:"slope"`
+}
+
+// Fitted reports whether this scale came out of a fit. A slope of nothing or
+// below is a number that did not rank the held-out releases at all, which the
+// bands report and the scale does not paper over.
+func (s Scale) Fitted() bool { return s.Slope > 0 }
+
+// Apply carries one raw number onto the fitted scale, held to the range every
+// factor level shares. An unfitted scale returns the raw number.
+func (s Scale) Apply(raw float64) float64 {
+	if !s.Fitted() {
+		return raw
+	}
+	return math.Min(1, math.Max(0, s.Intercept+s.Slope*raw))
+}
+
 // Fit refits each factor set's weights on the held-out decisions taken on that
 // set alone, to the one scale every set shares: within each term of the formula
 // a factor's weight is its own separation — how far its mean level on held-out
@@ -131,6 +165,69 @@ func fitSet(e *Evidence, set FactorSet) Weights {
 		}
 	}
 	return weights
+}
+
+// FitScale fits each set's scale over the held-out decisions taken on that set:
+// the least-squares line from the number the fitted weights give a recorded
+// vector to whether that release's window failed, which is what makes the
+// number an estimate of the share of held-out windows that failed at it.
+//
+// The number it fits from is recomputed under the weights handed in and not the
+// number the decision recorded: the decision was taken under the weights in
+// force then, and a scale fitted onto those would be a scale for a formula this
+// recalibration is replacing.
+//
+// A set with too few held-out decisions, or one whose numbers all read the
+// same, keeps the identity: there is nothing to fit a line through, and a scale
+// invented over one point would move every number in the factory.
+func FitScale(e *Evidence, weights map[FactorSet]Weights) map[FactorSet]Scale {
+	fitted := map[FactorSet]Scale{}
+	for _, set := range FactorSets {
+		fitted[set] = fitScaleOf(e, set, weights[set])
+	}
+	return fitted
+}
+
+func fitScaleOf(e *Evidence, set FactorSet, weights Weights) Scale {
+	var numbers, failed []float64
+	for _, f := range e.firings {
+		if !f.OpenEvent.HeldOut || f.OpenEvent.FactorSet != set {
+			continue
+		}
+		r, released := e.releaseOfItem[f.OpenEvent.ItemID]
+		if !released || e.marked[r.ID] {
+			continue
+		}
+		w, watched := e.windowOfRelease[r.ID]
+		if !watched || (w.Exit != window.ExitPassed && w.Exit != window.ExitFailed) {
+			continue
+		}
+		vector := append([]Factor{}, f.OpenEvent.Vector...)
+		for i := range vector {
+			vector[i].Weight = weights.Of(vector[i].Name)
+		}
+		_, _, _, number := reduce(vector, Scale{})
+		numbers = append(numbers, number)
+		if w.Exit == window.ExitFailed {
+			failed = append(failed, 1)
+		} else {
+			failed = append(failed, 0)
+		}
+	}
+	if len(numbers) < fitEvidence {
+		return Scale{}
+	}
+	meanNumber, meanFailed := mean(numbers), mean(failed)
+	covariance, variance := 0.0, 0.0
+	for i, n := range numbers {
+		covariance += (n - meanNumber) * (failed[i] - meanFailed)
+		variance += (n - meanNumber) * (n - meanNumber)
+	}
+	if variance == 0 || covariance <= 0 {
+		return Scale{}
+	}
+	slope := covariance / variance
+	return Scale{Intercept: meanFailed - slope*meanNumber, Slope: slope}
 }
 
 // factorsOf is the names of one set's factors in one term of the formula.

@@ -101,14 +101,18 @@ func (c *calls) StartMitigation(ctx context.Context, who principal.Principal, ar
 // back to a service — so Ops alone would leave every open per-service view
 // showing a mitigation that has ended.
 func (c *calls) EndMitigation(ctx context.Context, who principal.Principal, args screens.EndMitigationArgs) error {
-	if _, err := c.acting(ctx, who); err != nil {
+	ending, err := c.acting(ctx, who)
+	if err != nil {
 		return err
 	}
 	serviceID, err := c.serviceMitigated(ctx, args.MitigationID)
 	if err != nil {
 		return err
 	}
-	if err := c.p.deploys.EndMitigation(ctx, args.MitigationID); err != nil {
+	// A mitigation stands until a human ends it at Ops, and the record names
+	// which human: the caller at the screen, who is the actor every call from
+	// here is made as.
+	if err := c.p.deploys.EndMitigation(ctx, ending, args.MitigationID); err != nil {
 		return err
 	}
 	c.changed("ops", listAddressID)

@@ -22,7 +22,6 @@
       <tr>
         <th scope="col">Service</th>
         <th scope="col">Refused</th>
-        <th scope="col">Submissions the store could not read</th>
         <th scope="col">Notice</th>
       </tr>
     </thead>
@@ -31,7 +30,6 @@
         <tr>
           <td>{{ one.ServiceName }}</td>
           <td>{{ one.Refused }}</td>
-          <td>{{ one.UnreadableShape }}</td>
           <td>
             @if (one.NoNoticeInForce) {
               <span class="marked">none in force, so the way in shows none</span>

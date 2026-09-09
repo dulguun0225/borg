@@ -29,12 +29,12 @@ func TestACeilingReachedHoldsEveryFurtherItemAndRoutesToTheOwner(t *testing.T) {
 	// of two: nothing reserved it beforehand, so the run happens and the sum is
 	// what stops the next dispatch.
 	spent := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the run that spends the ceiling: %v", err)
 	}
 
 	next := c.oneItem(t, intent.StateRefined)
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(next), nil, agent.Refining{Statement: "s"})
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(next), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldCredentialAtCeiling {
 		t.Fatalf("SpecAuthor onto a credential at its ceiling = %v holding %q, want the ceiling hold",
 			err, run.Held)
@@ -68,7 +68,7 @@ func TestAnUnpricedKindFailsClosed(t *testing.T) {
 	c.authorCeiling(t, 1000.0, today(), 1)
 
 	spent := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the run whose output kind has no rate: %v", err)
 	}
 	runs, err := agentrun.ForItem(c.ctx, c.pool, spent.ID)
@@ -80,7 +80,7 @@ func TestAnUnpricedKindFailsClosed(t *testing.T) {
 	}
 
 	next := c.oneItem(t, intent.StateRefined)
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(next), nil, agent.Refining{Statement: "s"})
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(next), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldCredentialAtCeiling {
 		t.Fatalf("SpecAuthor under a ceiling with an unpriced run = %v holding %q, want the ceiling hold, failing closed",
 			err, run.Held)
@@ -108,11 +108,11 @@ func TestAClearAuthorisesAnOverageForThatPeriodAlone(t *testing.T) {
 	c.authorCeiling(t, 2.0, today(), 1)
 
 	spent := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the run that spends the ceiling: %v", err)
 	}
 	held := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(held), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(held), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) {
 		t.Fatalf("the item the ceiling declined = %v, want ErrHeld", err)
 	}
 
@@ -127,7 +127,7 @@ func TestAClearAuthorisesAnOverageForThatPeriodAlone(t *testing.T) {
 	if _, found := c.holdOn(t, held.ID, dispatch.HoldCredentialAtCeiling); found {
 		t.Error("the ceiling hold still stands after the owner cleared it")
 	}
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(held), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(held), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the dispatch after the clear: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestAClearAuthorisesAnOverageForThatPeriodAlone(t *testing.T) {
 	// read rather than storing on a record.
 	c.authorCeiling(t, 2.0, yesterday(), 2)
 	next := c.oneItem(t, intent.StateRefined)
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(next), nil, agent.Refining{Statement: "s"})
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(next), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldCredentialAtCeiling {
 		t.Fatalf("SpecAuthor in the next period = %v holding %q, want the ceiling holding again",
 			err, run.Held)
@@ -160,7 +160,7 @@ func TestTheCeilingIsComparedAtEachReport(t *testing.T) {
 	c.authorCeiling(t, 2.0, today(), 1)
 
 	it := c.oneItem(t, intent.StateRefined)
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"})
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(it), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldCredentialAtCeiling {
 		t.Fatalf("SpecAuthor whose first report spent the ceiling = %v holding %q, want the ceiling hold",
 			err, run.Held)
@@ -188,11 +188,11 @@ func TestAClearDoesNotLiftTheUnpricedHold(t *testing.T) {
 	c.authorCeiling(t, 1000.0, today(), 1)
 
 	spent := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the run whose output kind has no rate: %v", err)
 	}
 	held := c.oneItem(t, intent.StateRefined)
-	if _, run, err := c.dispatch.SpecAuthor(c.ctx, on(held), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) ||
+	if _, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(held), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) ||
 		run.Held != dispatch.HoldCredentialAtCeiling {
 		t.Fatalf("the dispatch under an unpriced run = %v holding %q, want the ceiling hold, failing closed", err, run.Held)
 	}
@@ -201,7 +201,7 @@ func TestAClearDoesNotLiftTheUnpricedHold(t *testing.T) {
 		t.Fatalf("ClearCeiling: %v", err)
 	}
 	next := c.oneItem(t, intent.StateRefined)
-	_, run, err := c.dispatch.SpecAuthor(c.ctx, on(next), nil, agent.Refining{Statement: "s"})
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(next), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldCredentialAtCeiling {
 		t.Fatalf("the dispatch after an overage was authorised = %v holding %q, want the unpriced run holding still",
 			err, run.Held)
@@ -227,11 +227,11 @@ func TestAClearNamesThePeriodInForceAndNotAPastOne(t *testing.T) {
 	c.authorCeiling(t, 2.0, today(), 1)
 
 	spent := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the run that spends the ceiling: %v", err)
 	}
 	held := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(held), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(held), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) {
 		t.Fatalf("the item the ceiling declined = %v, want ErrHeld", err)
 	}
 
@@ -247,7 +247,7 @@ func TestAClearNamesThePeriodInForceAndNotAPastOne(t *testing.T) {
 	// The dispatch that meets the ceiling in the new period writes that
 	// period's own row, and the clear reaches it.
 	next := c.oneItem(t, intent.StateRefined)
-	if _, run, err := c.dispatch.SpecAuthor(c.ctx, on(next), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) ||
+	if _, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(next), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) ||
 		run.Held != dispatch.HoldCredentialAtCeiling {
 		t.Fatalf("the dispatch in the new period = %v holding %q, want the ceiling holding again", err, run.Held)
 	}
@@ -258,7 +258,7 @@ func TestAClearNamesThePeriodInForceAndNotAPastOne(t *testing.T) {
 	if err := c.dispatch.ClearCeiling(c.ctx, owner, theCredential); err != nil {
 		t.Fatalf("ClearCeiling in the period in force: %v", err)
 	}
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(next), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(next), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the dispatch after the clear: %v", err)
 	}
 }
@@ -277,7 +277,7 @@ func TestTheFractionIsNotifiedOncePerCredentialAndPeriod(t *testing.T) {
 	// One unit at a rate of one is a tenth of the ceiling, which is under the
 	// fraction: the first dispatch reads the sum and says nothing.
 	first := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(first), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(first), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the first run: %v", err)
 	}
 	if len(c.told.nearing) != 0 {
@@ -288,11 +288,11 @@ func TestTheFractionIsNotifiedOncePerCredentialAndPeriod(t *testing.T) {
 	c.model.replies = []agent.Reply{{Text: aSpec, Units: map[string]int64{agent.UnitsOutput: 8}}}
 	c.model.calls = 0
 	second := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(second), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(second), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the run that passes the fraction: %v", err)
 	}
 	third := c.oneItem(t, intent.StateRefined)
-	if _, _, err := c.dispatch.SpecAuthor(c.ctx, on(third), nil, agent.Refining{Statement: "s"}); err != nil {
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(third), nil, agent.Refining{Statement: "s"}); err != nil {
 		t.Fatalf("the run after the fraction was passed: %v", err)
 	}
 	if len(c.told.nearing) == 0 {
@@ -302,5 +302,86 @@ func TestTheFractionIsNotifiedOncePerCredentialAndPeriod(t *testing.T) {
 	if told.credential != theCredential || told.periodStart == "" || told.ceiling != 10.0 ||
 		told.currency != "USD" || told.spent < dispatch.NotifiedAtFraction*10.0 {
 		t.Errorf("the notice is %+v, want the credential, the period, the amount authored and the sum past the fraction", told)
+	}
+}
+
+// TestACallThatSucceededIsAReportTheCeilingIsComparedAt: the ceiling is
+// compared at each report and not only at a stage's start and on the retry
+// path, so the call that put the sum past it leaves the credential's own row
+// and the notice before it at once — not at whatever the next dispatch onto
+// that credential is. The stage that finished is not held for it: it proceeded,
+// and what the row is about is the credential.
+func TestACallThatSucceededIsAReportTheCeilingIsComparedAt(t *testing.T) {
+	c := newDispatch(t, []agent.Reply{{Text: aSpec, Units: map[string]int64{agent.UnitsOutput: 5}}}, nil, 3)
+	c.lend(t)
+	c.authorRate(t, agent.UnitsOutput, 1.0)
+	c.authorCeiling(t, 2.0, today(), 1)
+
+	it := c.oneItem(t, intent.StateRefined)
+	_, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(it), nil, agent.Refining{Statement: "s"})
+	if err != nil {
+		t.Fatalf("the run that spends the ceiling: %v", err)
+	}
+	if run.Held != "" {
+		t.Errorf("the run that authored held on %q, and a stage that proceeded is not held", run.Held)
+	}
+	standing := c.credentialRowsOf(t, dispatch.KindCredentialAtCeiling)
+	if len(standing) != 1 || standing[0].PeriodStart == "" {
+		t.Fatalf("the ceiling rows standing after the report are %+v, want one naming the period's start", standing)
+	}
+	if len(c.told.nearing) == 0 {
+		t.Error("the notifier was told nothing at the report that took the sum past the ceiling")
+	}
+	if _, found := c.holdOn(t, it.ID, dispatch.HoldCredentialAtCeiling); found {
+		t.Error("the item whose stage authored carries a ceiling hold, and nothing about it could not proceed")
+	}
+}
+
+// TestARematchClosesACeilingRowWhoseConditionHasEnded: a hold ends when its
+// condition ends, and the credential's own ceiling row is the one no component
+// is left to close. A re-match writes its second row where the ceiling no
+// longer holds — and the close is not an overage authorised for the period, so
+// the same credential holds again the moment the sum passes the amount in
+// force.
+func TestARematchClosesACeilingRowWhoseConditionHasEnded(t *testing.T) {
+	c := newDispatch(t, []agent.Reply{{Text: aSpec, Units: map[string]int64{agent.UnitsOutput: 5}}}, nil, 3)
+	c.lend(t)
+	c.authorRate(t, agent.UnitsOutput, 1.0)
+	c.authorCeiling(t, 2.0, today(), 1)
+
+	spent := c.oneItem(t, intent.StateRefined)
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(spent), nil, agent.Refining{Statement: "s"}); err != nil {
+		t.Fatalf("the run that spends the ceiling: %v", err)
+	}
+	held := c.oneItem(t, intent.StateRefined)
+	if _, _, err := c.dispatch.SpecAuthor(c.ctx, c.on(held), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) {
+		t.Fatalf("the item the ceiling declined = %v, want ErrHeld", err)
+	}
+	if standing := c.credentialRowsOf(t, dispatch.KindCredentialAtCeiling); len(standing) != 1 {
+		t.Fatalf("%d ceiling rows stand before the ceiling is raised, want one", len(standing))
+	}
+
+	// The owner raises the ceiling over what has been spent, which ends the
+	// condition without authorising anything.
+	c.authorCeiling(t, 100.0, today(), 1)
+	if _, err := c.dispatch.Rematch(c.ctx); err != nil {
+		t.Fatalf("Rematch: %v", err)
+	}
+	if standing := c.credentialRowsOf(t, dispatch.KindCredentialAtCeiling); len(standing) != 0 {
+		t.Fatalf("the ceiling rows standing after the raise are %+v, want none", standing)
+	}
+	if _, found := c.holdOn(t, held.ID, dispatch.HoldCredentialAtCeiling); found {
+		t.Error("the item's own ceiling hold stands after the ceiling was raised over the sum")
+	}
+
+	// The close said the condition ended and never that an overage was
+	// authorised for the period: the same period stops the credential again at
+	// the amount now in force.
+	c.authorCeiling(t, 2.0, today(), 1)
+	next := c.oneItem(t, intent.StateRefined)
+	if _, run, err := c.dispatch.SpecAuthor(c.ctx, c.on(next), nil, agent.Refining{Statement: "s"}); !errors.Is(err, dispatch.ErrHeld) ||
+		run.Held != dispatch.HoldCredentialAtCeiling {
+		t.Fatalf("the dispatch under the ceiling in force again = %v holding %q, want the ceiling hold",
+			err, run.Held)
 	}
 }

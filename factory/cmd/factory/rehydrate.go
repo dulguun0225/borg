@@ -395,7 +395,9 @@ func (p *path) criteriaOf(ctx context.Context, c *candidate) ([]gate.CriterionRe
 		if isUndecided[cr.ID] {
 			outcome = criterion.OutcomeUndecided
 		}
-		results = append(results, gate.CriterionResult{CriterionID: cr.ID, Outcome: outcome})
+		results = append(results, gate.CriterionResult{
+			CriterionID: cr.ID, Outcome: outcome, Place: criterion.PlaceCandidateEnvironment,
+		})
 	}
 	for i, result := range results {
 		reliability, err := criterion.Unreliable(ctx, p.d.pool, result.CriterionID, c.buildHistory, c.svc.UnreliableBound)

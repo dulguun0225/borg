@@ -82,7 +82,9 @@ func (AdmitsEverything) HoldsArrivingReports(context.Context) (bool, error) { re
 // required.
 type Composition struct {
 	// Pool is the factory's own store, read for the state of an intent a group
-	// already names. The reports are in a store of their own, behind Reports.
+	// already names and for whether an intent already carries the page a
+	// harm-marked report fires, which is the notifier's own record on the same
+	// store. The reports are in a store of their own, behind Reports.
 	Pool *pgxpool.Pool
 	// Reports is the report store: the reads this pass makes, and the link it
 	// writes on a report it grouped.
@@ -188,20 +190,32 @@ func (g Grouped) Wrote() bool {
 	return len(g.Raised) > 0 || g.Linked > 0 || g.Moved > 0 || len(g.Dropped) > 0
 }
 
-// Pass groups one project's reports once.
+// Pass groups one project's reports once. Arrival is the trigger and not an
+// interval: what hands each accepted report to this at once is the
+// composition's own, since that is what puts an entrance in front of the
+// report store this pass reads — a call this package does not make and does
+// not need to, because grouping the one project a report arrived under reads
+// every report of it regardless of how many arrived since the last call. A
+// composition that also runs this on an interval gets the catch-up a restart
+// needs: a report accepted while the factory was down reaches this no other
+// way, and a call that finds nothing left ungrouped is what that catch-up
+// costs once arrival has already handled everything.
 //
 // It reads how many of that project's reports are linked to no intent before
 // it reads any words: a pass with nothing to group makes no model call and no
-// read event, so the interval it runs on costs nothing on a project nobody has
-// reported against. Where there is something, every report of the project is
-// read — the grouped ones beside the ungrouped ones, because a report that
-// arrived after a group was raised can only be matched against the reports of
-// that group — and the role is dispatched over all of them.
+// read event, so a call that finds nothing new — whether the tick behind the
+// interval above or a second arrival racing the first — costs nothing.
+// Where there is something, every report of the project is read — the
+// grouped ones beside the ungrouped ones, because a report that arrived
+// after a group was raised can only be matched against the reports of that
+// group — and the role is dispatched over all of them.
 //
 // Nothing waits for a batch or a count: the first report of a group raises its
 // intent and later matching ones attach. Where the role answers with a group
 // the last pass got wrong, the reports of it move — up to decomposition, which
-// is where the boundary is and after which a matching report attaches instead.
+// is where the boundary is and after which a matching report attaches instead
+// and one that does not becomes a new intent linked to the first as a
+// recurrence.
 func (g *Grouper) Pass(ctx context.Context, projectID string) (Grouped, error) {
 	var did Grouped
 	if projectID == "" {

@@ -31,6 +31,10 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 // rather than by this method: the rule is "one per production deploy of a
 // release its service has not watched before", and a caller that asked twice
 // gets the store's answer.
+//
+// A window that measures nothing closes timed out in this same write: there is
+// nothing for the cap to wait on, so it is written already closed rather than
+// left open for a caller to close.
 func (w *Writer) Open(ctx context.Context, actor record.Actor, o OpenEvent) (Window, error) {
 	if err := actor.Validate(); err != nil {
 		return Window{}, err
@@ -67,6 +71,14 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o OpenEvent) (Win
 		PolicyVersion:          o.PolicyVersion,
 		ScoreVersion:           o.ScoreVersion,
 	}
+	if o.MeasuresNothing {
+		// There is nothing for the cap to wait on, so this is not a window the
+		// health monitor goes on to decide: it closes timed out in the same write
+		// that opens it, and stays what a window closed timed out stays below — a
+		// rollback's target — without ever being read as open.
+		win.Exit = ExitTimedOut
+		win.ClosedAt = record.Now()
+	}
 	sizes, err := encodeShares(win.Size)
 	if err != nil {
 		return Window{}, err
@@ -99,9 +111,9 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o OpenEvent) (Win
 		 sizes, powers, confidence, cap_seconds, boundary_version, targets, operations_read_alone,
 		 emission_version_release, emission_version_control, quantities_outside,
 		 own_history_sizes, own_history_run_length, threshold_sizes, threshold_run_length,
-		 policy_version, score_version, exit, closed_at, closed_on, finest_size_reached)
+		 policy_version, score_version, exit, exit_begun, closed_at, closed_on, finest_size_reached)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-		 $21, $22, $23, $24, $25, $26, $27, $28, $29, '', '', '', '')`,
+		 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, '', $31, '', '')`,
 		win.ID, FormatVersion, string(win.Actor.Kind), win.Actor.Key, string(win.Actor.Basis), win.At,
 		win.DeployID, win.ReleaseID, win.BuildID, win.ServiceID,
 		win.MeasuresNothing, win.PassedAvailable, win.HeldOut,
@@ -109,7 +121,7 @@ func (w *Writer) Open(ctx context.Context, actor record.Actor, o OpenEvent) (Win
 		encodeNames(win.Targets), encodeNames(win.OperationsReadAlone),
 		win.EmissionVersionRelease, win.EmissionVersionControl, encodeQuantities(win.QuantitiesOutside),
 		ownHistorySizes, win.OwnHistoryRunLength, thresholdSizes, win.ThresholdRunLength,
-		win.PolicyVersion, win.ScoreVersion,
+		win.PolicyVersion, win.ScoreVersion, string(win.Exit), win.ClosedAt,
 	)
 	if err != nil {
 		return Window{}, fmt.Errorf("window: opening %s over deploy %s: %w", win.ID, o.DeployID, err)
@@ -130,6 +142,52 @@ type Closing struct {
 	// in force is the coarser of what the evidence asks for and what the traffic
 	// can rule anything out at.
 	FinestSizeReached map[gatepolicy.Quantity]float64
+}
+
+// Begin records that an exit has started on the window, before the first record
+// that exit writes. It is the health monitor's own note to its next pass: the
+// close is the exit's last step, so an exit interrupted between the two is
+// finished at the exit that began rather than decided again.
+//
+// A second begin is [ErrExitAlreadyBegun] and a begin on a closed window is
+// [ErrAlreadyClosed]. The row is locked while it is read, so two passes racing
+// are one begin and one error.
+func (w *Writer) Begin(ctx context.Context, id string, exit Exit) (Window, error) {
+	if !slices.Contains(Exits, exit) {
+		return Window{}, fmt.Errorf("%w: %q", ErrExitUnknown, exit)
+	}
+
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return Window{}, fmt.Errorf("window: beginning the %s exit of %s: %w", exit, id, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
+		return Window{}, err
+	}
+
+	win, err := scan(tx.QueryRow(ctx, selectWindow+` where id = $1 for update`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Window{}, fmt.Errorf("%w: id %s", ErrNotFound, id)
+	} else if err != nil {
+		return Window{}, fmt.Errorf("window: reading %s: %w", id, err)
+	}
+	if !win.Open() {
+		return Window{}, fmt.Errorf("%w: %s closed %s at %s", ErrAlreadyClosed, id, win.Exit, win.ClosedAt)
+	}
+	if win.ExitBegun != "" {
+		return Window{}, fmt.Errorf("%w: %s began %s", ErrExitAlreadyBegun, id, win.ExitBegun)
+	}
+
+	win.ExitBegun = exit
+	if _, err := tx.Exec(ctx, `update `+Table+` set exit_begun = $1 where id = $2`,
+		string(exit), id); err != nil {
+		return Window{}, fmt.Errorf("window: recording that %s began on %s: %w", exit, id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Window{}, fmt.Errorf("window: committing the begin of %s on %s: %w", exit, id, err)
+	}
+	return win, nil
 }
 
 // Close writes the exit and the time together, once. A window that already has
@@ -184,6 +242,9 @@ func (w *Writer) Close(ctx context.Context, id string, exit Exit, closing Closin
 	}
 	if exit == ExitPassed && !win.PassedAvailable {
 		return Window{}, fmt.Errorf("%w: %s", ErrPassedUnavailable, id)
+	}
+	if win.ExitBegun != "" && win.ExitBegun != exit {
+		return Window{}, fmt.Errorf("%w: %s began %s and is closing %s", ErrExitNotTheOneBegun, id, win.ExitBegun, exit)
 	}
 
 	win.Exit = exit

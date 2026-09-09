@@ -201,6 +201,85 @@ func TestRaiseChainMismatchLeavesAStandingOneAlone(t *testing.T) {
 	}
 }
 
+// TestRecordChainAgreementMarksTheStandingMismatchAndLeavesItUncleared is the
+// second comparison's later agreement: the chain found sound again does not
+// clear the mismatch it raised, it is recorded on it as the evidence the
+// human clearing reads, the way a later agreeing target pass already does.
+func TestRecordChainAgreementMarksTheStandingMismatchAndLeavesItUncleared(t *testing.T) {
+	ctx, own := newTableCtx(t)
+	writer := driftdetector.NewWriter(own)
+
+	// With nothing standing, recording an agreement finds nothing to mark.
+	none, err := writer.RecordChainAgreement(ctx)
+	if err != nil || none != "" {
+		t.Fatalf("RecordChainAgreement with nothing standing = %q, %v, want none", none, err)
+	}
+
+	raised, err := writer.RaiseChainMismatch(ctx, "the chain no longer holds the recorded head")
+	if err != nil || raised == "" {
+		t.Fatalf("RaiseChainMismatch: %q, %v", raised, err)
+	}
+
+	agreed, err := writer.RecordChainAgreement(ctx)
+	if err != nil {
+		t.Fatalf("RecordChainAgreement: %v", err)
+	}
+	if agreed != raised {
+		t.Errorf("RecordChainAgreement = %q, want it recording the agreement on %s", agreed, raised)
+	}
+
+	standing, err := driftdetector.Get(ctx, own, raised)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if standing.LaterAgreements != 1 || standing.Cleared() {
+		t.Errorf("standing = %+v, want LaterAgreements 1 and still uncleared", standing)
+	}
+}
+
+// TestRecordStaleComponentAgreementMarksTheStandingMismatchAndLeavesItUncleared
+// is the third comparison's own version of the same rule: a component's last
+// check answering fresh again does not clear the mismatch its staleness
+// raised, it is recorded on the standing row as evidence.
+func TestRecordStaleComponentAgreementMarksTheStandingMismatchAndLeavesItUncleared(t *testing.T) {
+	ctx, own := newTableCtx(t)
+	writer := driftdetector.NewWriter(own)
+
+	none, err := writer.RecordStaleComponentAgreement(ctx, "health_monitor", "svc_one", "")
+	if err != nil || none != "" {
+		t.Fatalf("RecordStaleComponentAgreement with nothing standing = %q, %v, want none", none, err)
+	}
+
+	raised, err := writer.RaiseStaleComponent(ctx, driftdetector.StaleComponent{
+		Component: "health_monitor", ServiceID: "svc_one",
+		Why: "the health monitor's own last check for this service is stale",
+	})
+	if err != nil || raised == "" {
+		t.Fatalf("RaiseStaleComponent: %q, %v", raised, err)
+	}
+
+	agreed, err := writer.RecordStaleComponentAgreement(ctx, "health_monitor", "svc_one", "")
+	if err != nil {
+		t.Fatalf("RecordStaleComponentAgreement: %v", err)
+	}
+	if agreed != raised {
+		t.Errorf("RecordStaleComponentAgreement = %q, want it recording the agreement on %s", agreed, raised)
+	}
+
+	standing, err := driftdetector.Get(ctx, own, raised)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if standing.LaterAgreements != 1 || standing.Cleared() {
+		t.Errorf("standing = %+v, want LaterAgreements 1 and still uncleared", standing)
+	}
+
+	held, _, err := driftdetector.NewStore(own).Mismatch(ctx, "svc_one")
+	if err != nil || !held {
+		t.Errorf("Mismatch = %v, %v, want true — a mismatch remains even where a later comparison agrees", held, err)
+	}
+}
+
 // TestMismatchFoldsInAnUnclearedChainMismatch is the gate's own read: a
 // chain mismatch holds every service's production deploys, so [Store.Mismatch]
 // must answer true for a service with no target mismatch of its own while one

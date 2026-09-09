@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/dispatch"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // heldIntents is [dispatch.Admissions] a test sets: whether the safeguard on
@@ -61,12 +62,13 @@ func TestAReportDerivedIntentWaitsForAHumansAdmission(t *testing.T) {
 	// An item decomposed from it is held the same way, so nothing below the
 	// intent is spent either.
 	it, err := c.decomposition.Create(c.ctx, decompositionActor, item.New{
-		IntentID: in.ID, ServiceID: oneService, AreaID: oneArea, Branch: "item/save",
+		IntentID: in.ID, ServiceID: oneService, AreaChain: []string{c.oneArea}, Branch: "item/save",
+		RequirementsAnswered: []string{record.NewID("rq")},
 	}, oneProject, oneProject, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, run, err = c.dispatch.SpecAuthor(c.ctx, on(it), nil, agent.Refining{Statement: "s"})
+	_, run, err = c.dispatch.SpecAuthor(c.ctx, c.on(it), nil, agent.Refining{Statement: "s"})
 	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldIntentAwaitsAdmission {
 		t.Errorf("SpecAuthor on an item of an unadmitted intent = %v, held %q", err, run.Held)
 	}

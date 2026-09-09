@@ -13,15 +13,15 @@
 // neighbours, the five interfaces the composition implements — [Deploys],
 // [Settings], [Holds], [ReadEvents] and [Redactions] — and [Store] with
 // [NewStore]. submit.go is arrival: [Store.Submit], [RatePeriod],
-// [HarmMarkedShare] and [SourceShare], and the counters a refusal and an
-// unreadable submission are counted on. read.go is [Store.Get], [Count] with
+// [HarmMarkedShare] and [SourceShare], and the counter a refusal is counted
+// on. read.go is [Store.Get], [Count] with
 // [Store.Counts], [BeforeAndAfter] with [Store.CountsAround], and the two
 // reads the pass that groups reports makes —
 // [Store.UngroupedIn], which says whether it has anything to group, and
 // [Store.Reports], which answers with the words — and [Store.AwaitingAdmission],
 // the reports Work renders while the safeguard holding one stands. grouping.go
 // is [Store.Link], [Store.Relink], [Store.Admit], [Store.ByIntent], [Group]
-// with [Store.Grouped] and [Store.Ungrouped]. retention.go is
+// with [Store.Grouped], [Store.MarkedIn] and [Store.Ungrouped]. retention.go is
 // [Retired] and [Store.Retire]. redact.go is [Store.AppendErasure],
 // [Store.Redact], [Store.RedactionPass] and [Store.Replay].
 //
@@ -67,12 +67,15 @@
 // opaque key may spend, both fixed rather than authored. [RatePeriod] is what
 // a rate is counted over, which the design leaves to the store.
 //
-// The counters are the two numbers Factory reads that no query can produce:
-// the refusals, because the record a query would count is the write the rate
-// exists to refuse, and the submissions written under a shape this store does
-// not read, because a submission that could not be read is the loss the
-// refused counter cannot see. Both are lost if the counter is lost, where
-// [Store.Ungrouped] and every other number are derived from the reports.
+// The refused count is the one number Factory reads that no query can
+// produce: the record a query would count is the write the rate exists to
+// refuse, and a row per refusal is the unbounded write the bound was placed
+// to prevent. A submission written under a shape this store does not read is
+// itself a refusal and is counted the same counter — which bound refused a
+// given submission is on the result the way in renders and not on the
+// counter, which counts only how many. It is lost if the counter is lost,
+// where [Store.Ungrouped] and every other number are derived from the
+// reports.
 //
 // # Erasure
 //
@@ -140,4 +143,10 @@
 // from those counts is the same file (C0392); the component and the record it
 // writes are
 // ../../end-goal/components.md (C0004) and ../../end-goal/records.md (C2792).
+//
+// The token digest finding the deploy record is seam 5 of
+// ../../end-goal/deferred.md (C0120); and the refused counter this store
+// keeps is
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2642).
 package reportstore

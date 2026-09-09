@@ -111,9 +111,14 @@ func (e ExposureEvidence) List() []string {
 }
 
 // FleetChange is what a version of what an agent is told is scored on where the
-// change group cannot be computed: the share of the factory working from the
-// version in force this one replaces, and how far this version departs from it.
-// Both are the caller's, the fleet's records being the row's own.
+// change group cannot be computed: the share of the factory that works from
+// this version, and how far it departs from the version in force. Both are the
+// caller's, the fleet's records being the row's own.
+//
+// The share is this version's own reach and not its predecessor's: what a bad
+// version of what an agent is told costs is how much of the factory works from
+// it, and a version replacing one nearly nobody used can still be put on every
+// role.
 // Derived is whether the fleet's records were read for this firing, and carries
 // what it carries on [ExposureEvidence]: a share of nothing and a departure of
 // nothing are what a caller that read no record hands over, and reading them as
@@ -260,14 +265,15 @@ const (
 // version — the one in force when the process started, which every decision it
 // produces names.
 type Score struct {
-	pool        *pgxpool.Pool
-	version     Version
-	draw        Draw
-	marks       Marks
-	authorship  Authorship
-	withdrawals Withdrawals
-	harmMarks   HarmMarks
-	token       lease.Token
+	pool           *pgxpool.Pool
+	version        Version
+	draw           Draw
+	marks          Marks
+	authorship     Authorship
+	withdrawals    Withdrawals
+	groupedReports GroupedReports
+	complaints     ReportsAndAdvisories
+	token          lease.Token
 }
 
 // Composition is what [New] is handed. It is a struct and not a list of
@@ -291,10 +297,15 @@ type Composition struct {
 	// Withdrawals is what a spec version under decision removes. A nil one is
 	// [NoWithdrawals].
 	Withdrawals Withdrawals
-	// HarmMarks is whether a report grouped into the item's intent says a
-	// person is being harmed by the software. A nil one is [NoHarmMarks].
-	HarmMarks HarmMarks
-	Token     lease.Token
+	// GroupedReports is whether the intent an item answers has reports
+	// grouped into it, and which of them mark harm. A nil one is
+	// [NoGroupedReports].
+	GroupedReports GroupedReports
+	// ReportsAndAdvisories is the releases a later advisory or report arrived
+	// on, which the per-author prior reads as an outcome on that author's own
+	// work. A nil one is [NoReportsAndAdvisories].
+	ReportsAndAdvisories ReportsAndAdvisories
+	Token                lease.Token
 }
 
 // New returns the score over the composition, computing every vector under the
@@ -313,13 +324,16 @@ func New(c Composition) *Score {
 	if c.Withdrawals == nil {
 		c.Withdrawals = NoWithdrawals{}
 	}
-	if c.HarmMarks == nil {
-		c.HarmMarks = NoHarmMarks{}
+	if c.GroupedReports == nil {
+		c.GroupedReports = NoGroupedReports{}
+	}
+	if c.ReportsAndAdvisories == nil {
+		c.ReportsAndAdvisories = NoReportsAndAdvisories{}
 	}
 	return &Score{
 		pool: c.Pool, version: c.Version, draw: c.Draw, marks: c.Marks,
-		authorship: c.Authorship, withdrawals: c.Withdrawals, harmMarks: c.HarmMarks,
-		token: c.Token,
+		authorship: c.Authorship, withdrawals: c.Withdrawals, groupedReports: c.GroupedReports,
+		complaints: c.ReportsAndAdvisories, token: c.Token,
 	}
 }
 
@@ -357,7 +371,7 @@ func (s *Score) AssessUnder(ctx context.Context, version Version, c Change) (Ass
 	vector := make([]Factor, 0, len(definitions))
 	var resolutions []Resolution
 	for _, d := range definitions {
-		r, err := d.read(s, ctx, c)
+		r, err := d.read(s, ctx, version, c)
 		if err != nil {
 			return Assessment{}, fmt.Errorf("score: reading %s: %w", d.name, err)
 		}
@@ -392,6 +406,6 @@ func (s *Score) AssessUnder(ctx context.Context, version Version, c Change) (Ass
 		Authored:       authored,
 		ControlBound:   version.ControlBoundOrShipped(),
 	}
-	a.Likelihood, a.Impact, a.DiscountedImpact, a.Number = reduce(vector)
+	a.Likelihood, a.Impact, a.DiscountedImpact, a.Number = reduce(vector, version.ScaleOf(c.FactorSet))
 	return a, nil
 }

@@ -34,6 +34,19 @@ var deployerPrincipal = principal.OfComponent("deployer")
 // No instances are kept: this platform moves a process rather than traffic, so
 // there is no second fleet to keep and a rollback is a redeploy of a binary
 // still on disk.
+// environmentTargets is every target one environment names, in the
+// environment's order, which is what the deploy record holds a row beside each
+// of. It is the whole list where [path.reaches] is the service's own subset of
+// it, so a target the service does not run on has a row saying it never had the
+// release.
+func environmentTargets(env environment.Environment) []string {
+	addresses := make([]string, 0, len(env.Targets))
+	for _, target := range env.Targets {
+		addresses = append(addresses, target.Address)
+	}
+	return addresses
+}
+
 func (p *path) reaches(env environment.Environment, svc service.Service) []deploy.Reach {
 	targets := serviceTargets(env, svc)
 	reaching := make([]deploy.Reach, 0, len(targets))
@@ -82,17 +95,18 @@ func (p *path) intoCandidate(ctx context.Context, c *candidate, buildID string) 
 // package deploy's doc.go says that caller is not built.
 func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick) (deploy.Deploy, error) {
 	return deploy.Perform(ctx, p.deploys, deploy.Performance{
-		Actor:          deployActor,
-		Principal:      deployerPrincipal,
-		ServiceID:      c.svc.ID,
-		ServiceName:    c.svc.Name,
-		EnvironmentID:  p.production.ID,
-		What:           deploy.OfRelease(c.releaseID, c.reverifiedBuildID),
-		IntoProduction: true,
-		StrategyPicked: strategyOf(pick),
-		Credential:     p.d.credential,
-		WayInAddress:   p.d.wayInAddress,
-		Reaches:        p.reaches(p.production, c.svc),
+		Actor:              deployActor,
+		Principal:          deployerPrincipal,
+		ServiceID:          c.svc.ID,
+		ServiceName:        c.svc.Name,
+		EnvironmentID:      p.production.ID,
+		What:               deploy.OfRelease(c.releaseID, c.reverifiedBuildID),
+		IntoProduction:     true,
+		StrategyPicked:     strategyOf(pick),
+		Credential:         p.d.credential,
+		WayInAddress:       p.d.wayInAddress,
+		Reaches:            p.reaches(p.production, c.svc),
+		EnvironmentTargets: environmentTargets(p.production),
 	})
 }
 

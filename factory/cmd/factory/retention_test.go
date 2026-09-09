@@ -183,7 +183,7 @@ func TestTheRowNamesThePriorsTheCutWouldRestart(t *testing.T) {
 	store := artifact.NewStore(pool, token)
 	by := artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
 	version, err := store.SubmitFleet(ctx, decompositionActor, by, artifact.KindRolePrompt,
-		"spec_author", "", "what the spec author is told", "")
+		"spec_author", "", "what the spec author is told", "im_1")
 	if err != nil {
 		t.Fatalf("submitting the version: %v", err)
 	}

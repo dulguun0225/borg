@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,23 +31,58 @@ var ErrNotDecidedAtARow = errors.New("policy: this write is decided at a gate ro
 // meaningful only where the direction adds a human at a gate.
 func (f *Factory) AddSafeguard(ctx context.Context, actor record.Actor, parameter gatepolicy.Parameter,
 	subject safeguard.Subject, bound safeguard.Bound, routing safeguard.Routing) (safeguard.Safeguard, Version, error) {
+	if parameter == gatepolicy.AllowedPredicateKinds {
+		if err := decidableKinds(bound.List); err != nil {
+			return safeguard.Safeguard{}, Version{}, err
+		}
+	}
+	id := record.NewID(safeguard.IDPrefix)
 	var placed safeguard.Safeguard
 	version, err := f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionSafeguardAdded, parameter: parameter,
-		scope: Scope{Kind: string(subject.Kind), ID: subject.ID, Key: subject.Key},
-		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
+		scope:    Scope{Kind: string(subject.Kind), ID: subject.ID, Key: subject.Key},
+		keyExtra: boundKey(bound, routing),
+		minted:   Created{SafeguardID: id},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
 			var err error
-			placed, err = safeguard.Insert(ctx, tx, f.token, actor, parameter, subject, bound, routing)
+			placed, err = f.safeguards.Insert(ctx, tx, actor, id, parameter, subject, bound, routing)
 			if err != nil {
-				return Created{}, err
+				return err
 			}
-			if err := f.writeExplicitThreshold(ctx, tx, actor, parameter, subject, bound); err != nil {
-				return Created{}, err
-			}
-			return Created{SafeguardID: placed.ID}, nil
+			return f.writeExplicitThreshold(ctx, tx, actor, parameter, subject, bound)
 		},
 	})
+	if err != nil || placed.ID != "" {
+		return placed, version, err
+	}
+	// A step taken again: the version in force already carries this write's
+	// key, so nothing was written and the safeguard in hand is the one the
+	// first performance placed.
+	placed, err = f.safeguardByID(ctx, version.SafeguardID)
 	return placed, version, err
+}
+
+// boundKey is the part of a safeguard's key the bound and the routing make.
+// Two safeguards on one subject differing in what they bound, or in whose rows
+// they route to, are two writes and not one step taken twice.
+func boundKey(bound safeguard.Bound, routing safeguard.Routing) string {
+	return strconv.FormatFloat(bound.Number, 'g', -1, 64) + "\n" +
+		strings.Join(bound.List, "\n") + "\n" +
+		string(bound.Predicate.Kind) + "\n" + bound.Predicate.Argument + "\n" +
+		strconv.Itoa(routing.Duty) + "\n" + routing.HumanKey
+}
+
+// decidableKinds refuses a predicate kind this factory cannot decide against
+// one observed exchange. It is the floor no authored value and no safeguard
+// goes below: a wider list is coverage added, and a name nothing can decide
+// would take the mechanical enforcement out of the list's own cell.
+func decidableKinds(names []string) error {
+	for _, name := range names {
+		if _, err := gatepolicy.DecidablePredicate(name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeExplicitThreshold is the one place a safeguard writes a field rather
@@ -103,20 +140,23 @@ func (f *Factory) WriteSafeguardWithdrawal(ctx context.Context, actor record.Act
 	if err != nil {
 		return safeguard.Withdrawal{}, Version{}, err
 	}
+	id := record.NewID(safeguard.WithdrawalIDPrefix)
 	var written safeguard.Withdrawal
 	version, err := f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionWithdrawalWritten,
 		parameter: withdrawing.Parameter,
 		scope:     Scope{Kind: "safeguard", ID: safeguardID},
-		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
+		minted:    Created{SafeguardID: safeguardID, WithdrawalID: id},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
 			var err error
-			written, err = safeguard.InsertWithdrawal(ctx, tx, f.token, actor, safeguardID)
-			if err != nil {
-				return Created{}, err
-			}
-			return Created{SafeguardID: safeguardID, WithdrawalID: written.ID}, nil
+			written, err = f.safeguards.InsertWithdrawal(ctx, tx, actor, id, safeguardID)
+			return err
 		},
 	})
+	if err != nil || written.ID != "" {
+		return written, version, err
+	}
+	written, err = safeguard.GetWithdrawal(ctx, f.pool, version.WithdrawalID)
 	return written, version, err
 }
 
@@ -138,10 +178,9 @@ func (f *Factory) ApproveSafeguardWithdrawal(ctx context.Context, actor record.A
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionWithdrawalApproved,
 		scope: Scope{Kind: "safeguard", ID: safeguardID}, dropSafeguard: safeguardID,
-		decision: decision,
-		mint: func(ctx context.Context, tx pgx.Tx) (Created, error) {
-			return Created{WithdrawalID: withdrawalID},
-				safeguard.ApproveWithdrawal(ctx, tx, f.token, withdrawalID)
+		decision: decision, minted: Created{WithdrawalID: withdrawalID},
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			return f.safeguards.ApproveWithdrawal(ctx, tx, withdrawalID)
 		},
 	})
 }

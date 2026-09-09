@@ -10,7 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/release"
 )
 
 // columns is every column of the item table, in the order [scanItem] reads
@@ -18,7 +20,7 @@ import (
 // four here, and the row lock each write takes — and a column added to one of
 // several select lists is a bug the compiler cannot see.
 const columns = `id, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id, branch, stage,
-	waits_on, requirements_answered, superseded_by, priority`
+	escalated_from_stage, waits_on, requirements_answered, superseded_by, priority`
 
 // Three columns hold one id per line: the items this one waits on, the
 // requirements it answers, and the items that replaced it. An id is
@@ -38,15 +40,16 @@ func splitIDs(stored string) []string {
 // scanItem reads one item row in [columns] order.
 func scanItem(row pgx.Row) (Item, error) {
 	var it Item
-	var kind, basis, stage, waitsOn, requirementsAnswered, supersededBy string
+	var kind, basis, stage, escalatedFrom, waitsOn, requirementsAnswered, supersededBy string
 	err := row.Scan(&it.ID, &kind, &it.Actor.Key, &basis, &it.At, &it.IntentID, &it.ServiceID,
-		&it.AreaID, &it.Branch, &stage, &waitsOn, &requirementsAnswered, &supersededBy, &it.Priority)
+		&it.AreaID, &it.Branch, &stage, &escalatedFrom, &waitsOn, &requirementsAnswered, &supersededBy, &it.Priority)
 	if err != nil {
 		return Item{}, err
 	}
 	it.Actor.Kind = record.Kind(kind)
 	it.Actor.Basis = record.Basis(basis)
 	it.Stage = Stage(stage)
+	it.EscalatedFromStage = Stage(escalatedFrom)
 	it.WaitsOn = splitIDs(waitsOn)
 	it.RequirementsAnswered = splitIDs(requirementsAnswered)
 	it.SupersededBy = splitIDs(supersededBy)
@@ -254,6 +257,67 @@ func scanStage(row pgx.Row) (StageTotals, error) {
 	return s, nil
 }
 
+// Live is the ids of the items that are live, in the order they were given. An
+// item is live when a production deploy record names its release — as the one
+// it deployed, or in the list of releases a revert's deploy delivered — and
+// marks it complete on every production target, and not before. An item with
+// no release, and one whose release only some targets are running, are not
+// live.
+//
+// production is the id of the production environment and addresses are the
+// production targets each service runs on, keyed by service: an environment's
+// targets and which of them a service runs on are package environment's and
+// package service's records, and this package imports neither. A service with
+// no addresses is a service nothing can be complete on every target of, so its
+// items are not live.
+//
+// The environment's deploys are read once and indexed by the release each
+// names, so an intent whose items span services costs one read of them however
+// many items it has. The release an item shipped in is read per item: a
+// release names the item and package release does not import this one, so the
+// walk from the item to its release is made there.
+func Live(ctx context.Context, pool *pgxpool.Pool, items []Item, production string,
+	addresses map[string][]string) ([]string, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	deploys, err := deploy.ForEnvironment(ctx, pool, production)
+	if err != nil {
+		return nil, err
+	}
+	naming := map[string][]string{}
+	for _, d := range deploys {
+		if d.ReleaseID != "" {
+			naming[d.ReleaseID] = append(naming[d.ReleaseID], d.ID)
+		}
+		for _, delivered := range d.DeliveredReleaseIDs {
+			naming[delivered] = append(naming[delivered], d.ID)
+		}
+	}
+
+	var live []string
+	for _, it := range items {
+		rel, minted, err := release.ForItem(ctx, pool, it.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !minted {
+			continue
+		}
+		for _, deployID := range naming[rel.ID] {
+			complete, err := deploy.CompleteOnEvery(ctx, pool, deployID, addresses[it.ServiceID])
+			if err != nil {
+				return nil, err
+			}
+			if complete {
+				live = append(live, it.ID)
+				break
+			}
+		}
+	}
+	return live, nil
+}
+
 // PartlyDelivered reports whether an intent's items did not all ship: at least
 // one of them stopped without reaching production, and at least one sibling is
 // live. Nothing writes it down, so it is a reading and not a field — a human
@@ -266,13 +330,17 @@ func scanStage(row pgx.Row) (StageTotals, error) {
 // stopped either, which is why an intent whose items are all still moving is in
 // progress rather than partly delivered.
 //
-// Whether an item is live is not a fact this package holds — a production
-// deploy record naming the item's release, complete on every production target,
-// is — so live is the ids the caller read as live. Handing this an empty list
-// is an intent none of whose items shipped, which is stopped rather than partly
-// delivered, and the answer is false.
-func PartlyDelivered(ctx context.Context, pool *pgxpool.Pool, intentID string, live []string) (bool, error) {
+// Which of them are live is [Live]'s reading off the production deploy
+// records, over the same environment and the same addresses. An intent none of
+// whose items reached production is stopped rather than partly delivered, and
+// the answer is false.
+func PartlyDelivered(ctx context.Context, pool *pgxpool.Pool, intentID, production string,
+	addresses map[string][]string) (bool, error) {
 	items, err := ForIntent(ctx, pool, intentID)
+	if err != nil {
+		return false, err
+	}
+	live, err := Live(ctx, pool, items, production, addresses)
 	if err != nil {
 		return false, err
 	}

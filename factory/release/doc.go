@@ -72,15 +72,26 @@
 //
 // What defines it: the release record in
 // ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md
-// (C1632, C1633, C1634, C1635, C1639, C1641, C1642, C1645) — its two write
-// occasions, its single writer, and the authorship rollup as a query — one item
+// (C1632, C1633, C1634, C1635, C1637, C1639, C1641, C1642, C1645) — its two
+// write occasions, its single writer, deploys naming the release and never
+// decisions, and the authorship rollup as a query — one item
 // per release in
 // ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md
 // (C1626), the release number in
 // ../../end-goal/how-the-factory-works/06-releases/04-the-release-number.md
 // (C1651, C1652, C1653, C1654, C1655, C1656, C1657, C1658), an ordinal per
-// service that orders builds and names rollback targets, and what the queue
-// reads before it mints, in
+// service that orders builds and names rollback targets, the number as the
+// release's field and not a row, in
+// ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md
+// (C1649), and what the queue reads before it mints, in
 // ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
-// (C1601, C1602, C1614, C1615, C1621).
+// (C1601, C1602, C1614, C1615).
+//
+// The number read as a query under a lock is
+// ../../end-goal/how-the-factory-works/05-environments/03-the-merge-queue.md
+// (C1557); the release and its number minted there are
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/02-the-verdict.md
+// (C1577); and the release number ordering one service's builds is
+// ../../end-goal/how-the-factory-works/07-contracts/01-two-versioned-things.md
+// (C1768).
 package release

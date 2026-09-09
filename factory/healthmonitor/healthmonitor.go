@@ -33,10 +33,20 @@ var componentPrincipal = principal.OfComponent("health_monitor")
 // the revert intent's statement is written with, a statement naming an id being
 // one no human reads — and the production environment the health monitor exists
 // in and nowhere else.
+//
+// NamesAHazardousOperation is whether the service's area chain grades a hazard
+// severity naming a hazardous operation, which is the area record's own fact
+// and not this package's: healthmonitor does not import area, so the caller —
+// cmd/factory, off area's own hazard reading — hands it over as a plain input.
+// The health monitor sizes the fourth quantity, the count of times the
+// software performed that operation, for such a service and for no other; a
+// store keeping no count for one is then an unavailable quantity at the read,
+// not a narrower, three-quantity watch.
 type Watching struct {
-	ID            string
-	Name          string
-	EnvironmentID string
+	ID                       string
+	Name                     string
+	EnvironmentID            string
+	NamesAHazardousOperation bool
 }
 
 func (w Watching) validate() error {
@@ -69,6 +79,13 @@ type Reading struct {
 	ServiceName string
 	Target      string
 	Release     Arm
+	// OperationsReadAlone is the operations this window reads a series of their
+	// own for, decided at the open and copied off the window. Every other
+	// operation is pooled by the store into one series per quantity per target
+	// under [PooledOperation] and read as one, so a regression among them still
+	// crosses, diluted by their combined share and no more. An empty set pools
+	// every operation.
+	OperationsReadAlone []string
 	// Baseline is the control the deployer started beside the release under this
 	// same deploy, or — where the strategy kept no control — the release below
 	// this one on the target, which is the weak fallback. It is unnamed where
@@ -86,13 +103,21 @@ type History struct {
 	Of          Arm
 }
 
-// Spend is what one service consumed of its objective over one period: the work
-// counted and how much of it was good. The error budget is what is left of the
-// objective over that, and the burn rate is the share of the budget spent per
-// hour.
+// Spend is what one of a service's operations consumed of its objective over
+// one period: the work counted and how much of it was good. The error budget is
+// what is left of the objective over that, and the burn rate is the share of
+// the budget spent per hour.
+//
+// It is per operation because the objective stays authored per service and is
+// read per operation, one value against each series, the way the size and the
+// explicit threshold are. Read over the service as one, an operation failing
+// its objective is diluted by every operation that is not failing.
 type Spend struct {
-	Units int64
-	Good  int64
+	// Operation is the series this spend was counted over, [PooledOperation] for
+	// the series every operation not read alone was pooled into.
+	Operation string
+	Units     int64
+	Good      int64
 	// Covered is whether the store covers the whole period asked for. A period
 	// the store does not cover leaves the budget uncomputed, and an uncomputed
 	// budget holds the way an exhausted one does.
@@ -100,10 +125,23 @@ type Spend struct {
 }
 
 // FailureRecord is one kept count of failures: how often a failure class was
-// raised from one point in the code, for one service, build, deploy and target.
+// raised from one point in the code, in one interval, for one service, build,
+// deploy and target. Those seven names are the key the store keeps the count
+// under, and every one of them is here, because the incident carries a copy of
+// the record rather than a link to the store and a copy missing part of the key
+// is a count a reader cannot place.
+//
 // The health monitor copies these onto an incident at the crossing, a field of
 // it rather than a link to the store.
 type FailureRecord struct {
+	// Interval is the interval the count is over, named by the time that
+	// interval starts at in [record.TimeLayout]. The store keeps a count per
+	// interval, so two records differing only here are two counts and never one.
+	Interval string `json:"interval"`
+	// ServiceName is the service the failures were raised in. It is in the key
+	// because the store holds every service's records, and a reader handed a
+	// copy has nothing else that says which service it is about.
+	ServiceName  string `json:"service"`
 	FailureClass string `json:"failure_class"`
 	CodeLocation string `json:"code_location"`
 	Target       string `json:"target"`
@@ -126,9 +164,11 @@ type Emission interface {
 	// FailureRecords is what the store keeps of one service's failures for one
 	// release and target, which the incident carries a copy of.
 	FailureRecords(ctx context.Context, r Reading) ([]FailureRecord, error)
-	// Spent is what the service consumed of its objective over the period, and
-	// over the last hour where that is the period asked for.
-	Spent(ctx context.Context, serviceName string, period time.Duration) (Spend, error)
+	// Spent is what the service consumed of its objective over the period, one
+	// spend per operation, and over the last hour where that is the period asked
+	// for. A store that holds nothing for the service returns nothing, which is a
+	// period it does not cover.
+	Spent(ctx context.Context, serviceName string, period time.Duration) ([]Spend, error)
 	// Shape is the emission version the store's records for one arm carry, and
 	// empty where the store holds none for it yet — which is what a window over a
 	// deploy just written reads before any record has arrived.
@@ -215,6 +255,29 @@ type Deployer interface {
 	// the deploy record's id. The record names the build and no release, so the
 	// service's current release stays the rollback's target throughout.
 	DeploySearch(ctx context.Context, s SearchDeploy) (string, error)
+	// EndSearchDeploy ends one: the instances the search put in front of traffic
+	// are removed and that deploy's record is advanced. The health monitor calls
+	// it at the exit of the window that measured the deploy, whatever the exit,
+	// and traffic returns to the instances of the rollback's target, which the
+	// search never tears down.
+	EndSearchDeploy(ctx context.Context, s SearchDeployEnding) error
+}
+
+// SearchDeployEnding is a search's deploy ended at the exit of the window that
+// measured it. Each such deploy is measured by a window of its own and ends
+// with that window, so the fields are what says which deploy and where.
+type SearchDeployEnding struct {
+	ServiceID     string
+	ServiceName   string
+	EnvironmentID string
+	DeployID      string
+	BuildID       string
+	// Targets is the set the window was allocated over, which is where the
+	// search's instances are.
+	Targets []string
+	// Exit is how the window that measured the deploy closed, which the deployer
+	// records against it: the exit is the search's answer about that build.
+	Exit string
 }
 
 // Builder makes the builds a search measures. It is an interface for the reason
@@ -249,6 +312,19 @@ type Pager interface {
 // While a mismatch stands on a service, no rollback is performed.
 type Mismatches interface {
 	Mismatch(ctx context.Context, serviceID string) (bool, string, error)
+}
+
+// Brownouts is which release is a brownout of a marked contract element. It is
+// an interface because what says a release is one is a walk over the contracts
+// in force and the intent's evidence, which is the enforcement component's and
+// not this package's.
+//
+// A brownout's window is the one window that reads more than the producer's own
+// numbers: a disabled operation still called errs in the producer's error rate,
+// which the window already reads, but a field a consumer parses and now fails
+// on errs in that consumer's numbers alone.
+type Brownouts interface {
+	IsBrownout(ctx context.Context, releaseID string) (bool, error)
 }
 
 var (
@@ -317,6 +393,7 @@ type HealthMonitor struct {
 	deployer   Deployer
 	builder    Builder
 	mismatches Mismatches
+	brownouts  Brownouts
 	readings   Readings
 }
 
@@ -331,17 +408,19 @@ type HealthMonitor struct {
 // failed exit there closes the window, writes the incident, and raises the revert
 // intent without a rollback, which is what the design does where a failed exit
 // finds no release to return to. A nil mismatches store reads as no mismatch
-// standing, which is what an install with no drift detector composed has.
+// standing, which is what an install with no drift detector composed has, and a
+// nil brownouts reader as no release being a brownout, which is what an install
+// with no contract enforcement composed has.
 func New(pool *pgxpool.Pool, windows *window.Writer, incidents *incident.Writer,
 	checks *lastcheck.Writer, intake *intent.Intake, p *policy.Reader, pager Pager,
 	emission Emission, deployer Deployer, builder Builder, mismatches Mismatches,
-	readings Readings) (*HealthMonitor, error) {
+	brownouts Brownouts, readings Readings) (*HealthMonitor, error) {
 	if emission == nil {
 		return nil, ErrNoEmission
 	}
 	return &HealthMonitor{
 		pool: pool, windows: windows, incidents: incidents, checks: checks, intake: intake,
 		policy: p, pager: pager, emission: emission, deployer: deployer, builder: builder,
-		mismatches: mismatches, readings: readings,
+		mismatches: mismatches, brownouts: brownouts, readings: readings,
 	}, nil
 }

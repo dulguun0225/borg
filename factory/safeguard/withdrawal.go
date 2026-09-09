@@ -12,13 +12,13 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// ErrAlreadyApproved is returned by [ApproveWithdrawal] for a withdrawal
-// already approved: a second approval is a second decision on the same row,
-// which the gate that decides it never makes twice.
+// ErrAlreadyApproved is returned by [Writer.ApproveWithdrawal] for a
+// withdrawal already approved: a second approval is a second decision on the
+// same row, which the gate that decides it never makes twice.
 var ErrAlreadyApproved = errors.New("safeguard: this withdrawal is already approved")
 
-// ErrWithdrawalNotFound is returned by [ApproveWithdrawal] where no withdrawal
-// has the id.
+// ErrWithdrawalNotFound is returned by [Writer.ApproveWithdrawal] where no
+// withdrawal has the id.
 var ErrWithdrawalNotFound = errors.New("safeguard: no withdrawal has that id")
 
 // Withdrawal is a safeguard's withdrawal as it is stored: a second record
@@ -37,14 +37,18 @@ type Withdrawal struct {
 }
 
 // InsertWithdrawal writes a pending withdrawal naming safeguardID, inside tx.
-// It is not in force until [ApproveWithdrawal] marks it: the gate row A
+// It is a method of [Writer], the record's one writer, so no other holder of a
+// transaction and a token can call it. id is minted by package policy, the
+// version naming the withdrawal and being appended before it.
+//
+// It is not in force until [Writer.ApproveWithdrawal] marks it: the gate row A
 // safeguard's withdrawal decides it, held by a human always and routed to the
-// human the safeguard's own [Routing] names. This and [ApproveWithdrawal] are
-// the two writes that row makes, in two separate transactions around the
+// human the safeguard's own [Routing] names. This and [Writer.ApproveWithdrawal]
+// are the two writes that row makes, in two separate transactions around the
 // human's decision.
-func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
-	safeguardID string) (Withdrawal, error) {
-	if err := lease.Fence(ctx, tx, token); err != nil {
+func (w *Writer) InsertWithdrawal(ctx context.Context, tx pgx.Tx, actor record.Actor,
+	id, safeguardID string) (Withdrawal, error) {
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
 		return Withdrawal{}, err
 	}
 	if err := actor.Validate(); err != nil {
@@ -53,8 +57,8 @@ func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor r
 	if safeguardID == "" {
 		return Withdrawal{}, ErrSubjectIDEmpty
 	}
-	w := Withdrawal{
-		ID:          record.NewID(WithdrawalIDPrefix),
+	wd := Withdrawal{
+		ID:          id,
 		Actor:       actor,
 		At:          record.Now(),
 		SafeguardID: safeguardID,
@@ -62,22 +66,23 @@ func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor r
 	_, err := tx.Exec(ctx, `insert into `+WithdrawalTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, safeguard_id, approved, approved_at)
 		values ($1, $2, $3, $4, $5, $6, $7, false, null)`,
-		w.ID, FormatVersionWithdrawal, string(w.Actor.Kind), w.Actor.Key, string(w.Actor.Basis), w.At, safeguardID,
+		wd.ID, FormatVersionWithdrawal, string(wd.Actor.Kind), wd.Actor.Key, string(wd.Actor.Basis), wd.At, safeguardID,
 	)
 	if err != nil {
 		return Withdrawal{}, fmt.Errorf("safeguard: writing a withdrawal of %s: %w", safeguardID, err)
 	}
-	return w, nil
+	return wd, nil
 }
 
-// ApproveWithdrawal marks one withdrawal approved, inside tx. Its caller is
-// the gate row that decides it, at its close, reached through
-// policy.Factory.ApproveSafeguardWithdrawal: this package does not fire that
-// row and takes no verdict. A withdrawal already approved is refused with
-// [ErrAlreadyApproved], the same rule the log's own close events take against
-// a second ending.
-func ApproveWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, withdrawalID string) error {
-	if err := lease.Fence(ctx, tx, token); err != nil {
+// ApproveWithdrawal marks one withdrawal approved, inside tx. It is a method
+// of [Writer], the record's one writer, so no other holder of a transaction
+// and a token can call it. Its caller is the gate row that decides it, at its
+// close, reached through policy.Factory.ApproveSafeguardWithdrawal: this
+// package does not fire that row and takes no verdict. A withdrawal already
+// approved is refused with [ErrAlreadyApproved], the same rule the log's own
+// close events take against a second ending.
+func (w *Writer) ApproveWithdrawal(ctx context.Context, tx pgx.Tx, withdrawalID string) error {
+	if err := lease.Fence(ctx, tx, w.token); err != nil {
 		return err
 	}
 	var approved bool

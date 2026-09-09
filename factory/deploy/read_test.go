@@ -322,7 +322,7 @@ func TestAFailedRecordNamesTheStepAndMovesNoReader(t *testing.T) {
 
 	partial := begin()
 	completeOn(t, ctx, w, partial.ID, "/srv/one")
-	if err := w.MarkFailed(ctx, partial.ID, deploy.StepStopped); !errors.Is(err, deploy.ErrATargetCompleted) {
+	if err := w.MarkFailed(ctx, partial.ID, deploy.StepSchemaChangeNotComplete); !errors.Is(err, deploy.ErrATargetCompleted) {
 		t.Errorf("MarkFailed with a target complete = %v, want ErrATargetCompleted", err)
 	}
 }

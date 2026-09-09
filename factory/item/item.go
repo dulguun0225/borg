@@ -75,6 +75,11 @@ type Item struct {
 	AreaID string
 	Branch string
 	Stage  Stage
+	// EscalatedFromStage is the stage the item stood at when [Dispatch.Escalate]
+	// wrote escalated, empty on an item that has never escalated.
+	// [Dispatch.ClearEscalation] refuses returning the item any later than this
+	// stage: [ErrEscalationBypass].
+	EscalatedFromStage Stage
 	// WaitsOn is the items this one cannot be verified until they have shipped,
 	// declared by decomposition. Both deploy gates hold on each of them: the candidate
 	// deploy until the dependency is live, the production deploy if it has

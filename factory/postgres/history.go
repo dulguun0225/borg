@@ -160,9 +160,149 @@ var Changes = []Change{
 	},
 	{
 		Version: 1,
+		ID:      "the agent run record requires what it ran on",
+		Text: "agent_run requires processing_location and lender_key, and its account_kind_known " +
+			"check admits person and organisation and not the empty third: the three are read " +
+			"off the fleet entry and the People declaration at the run and every run records them",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
 		ID:      "the redaction record",
 		Text: "redaction carries the target a redaction names, the spans it removes, its reason " +
 			"and the key of the erasure-list row appended before it",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the artifact version keeps the digest of the words as written",
+		Text: "artifact carries redacted_content_digest, the digest of what a redaction left, " +
+			"written beside content_digest rather than over it, so a decision that recorded " +
+			"the digest of the words it decided still names them after the erasure",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the artifact version an agent authored names its input manifest",
+		Text: "artifact's input_manifest_names_the_dispatch check refuses a version of " +
+			"authorship agent that names no input manifest",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the score version carries what the product ships and what a recalibration fits",
+		Text: "the score version row of the decision log carries band_width, the width of a band of " +
+			"the number and the step the risk threshold moves by; shipped_priors, the per-author " +
+			"prior the product ships per model version; scale, the last step of each factor set's " +
+			"fit; and recalibrated_through, the newest decision the last recalibration read, which " +
+			"is what ends a drift. A row written before them holds none, and the score reads the " +
+			"value the product ships for each",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the consumer contract the first-start step derives again",
+		Text: "artifact's unauthored_item_kind_is_a_consumer_contract check admits a version " +
+			"nobody authored on an item's chain where the kind is consumer_contract, the record " +
+			"the install's first-start step derives again at an upgrade that changed the extractor",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the deploy record holds a row beside each of the environment's targets",
+		Text: "deploy_target carries runs_here, whether the service runs on that target: the " +
+			"rows are the environment's and the rollout is the service's set, so the record " +
+			"completes when every row that runs here is",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "a replacement drops no request",
+		Text: "deploy_target's replacement_known check admits the drain alone: neither rollout " +
+			"row drops a request, and a platform unable to hold one open across the " +
+			"replacement is one whose cut the factory records as a drain",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "a backfill's record names whether the copy finished",
+		Text: "deploy carries backfill_copied, whether every row the old form holds is present " +
+			"in the new, which the deployer requires before it marks a backfill's record " +
+			"complete",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the deploy record names the build the control runs",
+		Text: "deploy_target carries control_build_id, the build the control on that target " +
+			"runs, written with control_release_id and control_instances when the rollout " +
+			"reaches the target and not at the start",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "an explicit threshold is absolute",
+		Text: "service_explicit_threshold's threshold column is bounded below at nothing and " +
+			"not above: an explicit threshold is absolute where the comparison is relative, " +
+			"in the quantity's own unit, and no latency quantile is a share",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "a mitigation names the human who ended it",
+		Text: "mitigation carries ended_actor_kind, ended_actor_key and ended_actor_key_basis, " +
+			"written with ended_at: a mitigation stands until a human ends it at Ops, and the " +
+			"record says which human",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the analysis window records the exit that began on it",
+		Text: "analysis_window carries exit_begun, the exit the health monitor started before " +
+			"the first record that exit writes, with exit_begun_is_the_exit_reached refusing a " +
+			"close at any other: the close is the exit's last step, so an exit a stop " +
+			"interrupted is finished at the one that began",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the last check names the newest record the store holds",
+		Text: "last_check carries newest_record, the newest time the store a component reads " +
+			"holds a record for its subject: the health monitor writes the emission's newest " +
+			"time per service, and a read older than the interval the same record carries is " +
+			"read as no volume",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the items of an intent are indexed by the intent",
+		Text: "item carries the item_by_intent index over intent_id: whether an intent's items " +
+			"all shipped is read through that inbound edge for every intent a screen lists, " +
+			"and the reading is only as cheap as the edge is indexed",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the item records the stage it escalated from",
+		Text: "item carries escalated_from_stage, the stage Escalate wrote the item stood at, and " +
+			"ClearEscalation refuses returning it any later than that stage: ErrEscalationBypass",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the consumer contract derivation names its extractor's convention",
+		Text: "consumer_contract_derivation carries extractor_convention, where a build following " +
+			"the toolchain's convention states its declaration and how, published beside the " +
+			"extractor that applied it so a reader of the derivation sees it",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the notifier keeps one delivery record per waiting row",
+		Text: "notifier_delivery_row carries one record per waiting row, with the wait's own fields " +
+			"and the attempt on every channel and recipient kept inside it as JSON, overwritten at " +
+			"each attempt; notifier_delivery stays declared and applied, since a removal is not a " +
+			"change this store's forward promise can declare yet, and nothing writes it any longer",
 		Effect: EffectWidening,
 	},
 }

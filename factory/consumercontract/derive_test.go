@@ -296,4 +296,7 @@ func TestWhichToolchainsHaveAnExtractorIsPublished(t *testing.T) {
 	if _, found := consumercontract.ExtractorFor("rust", "test"); found {
 		t.Error("a toolchain no extractor covers reads as covered")
 	}
+	if consumercontract.GoExtractor("test").Convention == "" {
+		t.Error("the Go extractor publishes no convention, and a reader of a derivation cannot see what it applied")
+	}
 }

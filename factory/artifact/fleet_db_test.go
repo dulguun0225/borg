@@ -19,11 +19,11 @@ import (
 func TestSubmitFleetChainsByRoleAndBySubject(t *testing.T) {
 	ctx, _, s := newStore(t)
 
-	first, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version one", "")
+	first, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version one", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitFleet: %v", err)
 	}
-	second, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version two", "")
+	second, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version two", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitFleet again: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestSubmitFleetChainsByRoleAndBySubject(t *testing.T) {
 		t.Errorf("the second role prompt version is %+v, want version 2 superseding %s", second, first.ID)
 	}
 
-	otherRole, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "implementer", "", "a different role", "")
+	otherRole, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "implementer", "", "a different role", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitFleet for another role: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestSubmitFleetChainsByRoleAndBySubject(t *testing.T) {
 		t.Errorf("a new role's chain starts at %d, want 1", otherRole.Version)
 	}
 
-	skill, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSkill, "", "svc_a", "a procedure for svc_a", "")
+	skill, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSkill, "", "svc_a", "a procedure for svc_a", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitFleet for a skill: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestSubmitFleetChainsByRoleAndBySubject(t *testing.T) {
 		t.Errorf("the skill is %+v, want subject svc_a and no role", skill)
 	}
 
-	rule, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSelectionRule, "", "", "the one selection rule", "")
+	rule, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSelectionRule, "", "", "the one selection rule", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitFleet for the selection rule: %v", err)
 	}
@@ -59,13 +59,13 @@ func TestSubmitFleetChainsByRoleAndBySubject(t *testing.T) {
 func TestSubmitFleetRefusesAMissingDiscriminator(t *testing.T) {
 	ctx, _, s := newStore(t)
 
-	if _, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "", "", "text", ""); !errors.Is(err, artifact.ErrRoleEmpty) {
+	if _, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "", "", "text", theManifest); !errors.Is(err, artifact.ErrRoleEmpty) {
 		t.Errorf("SubmitFleet for a role prompt naming no role = %v, want ErrRoleEmpty", err)
 	}
-	if _, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSkill, "", "", "text", ""); !errors.Is(err, artifact.ErrSubjectEmpty) {
+	if _, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSkill, "", "", "text", theManifest); !errors.Is(err, artifact.ErrSubjectEmpty) {
 		t.Errorf("SubmitFleet for a skill naming no subject = %v, want ErrSubjectEmpty", err)
 	}
-	if _, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSpec, "", "", "text", ""); !errors.Is(err, artifact.ErrFleetKindUnknown) {
+	if _, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSpec, "", "", "text", theManifest); !errors.Is(err, artifact.ErrFleetKindUnknown) {
 		t.Errorf("SubmitFleet for an item kind = %v, want ErrFleetKindUnknown", err)
 	}
 }
@@ -76,7 +76,7 @@ func TestSubmitFleetRefusesAMissingDiscriminator(t *testing.T) {
 func TestEnterShippedWritesTheEmptyAuthorPair(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	shipped, err := s.EnterShipped(ctx, factoryStart, artifact.KindRolePrompt, "spec_author", "",
+	shipped, err := s.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, "spec_author", "",
 		"the shipped role prompt", artifact.EnteredByInstall, "bundle-2026.1")
 	if err != nil {
 		t.Fatalf("EnterShipped: %v", err)
@@ -102,15 +102,122 @@ func TestEnterShippedWritesTheEmptyAuthorPair(t *testing.T) {
 
 func TestEnterShippedRefusesAnEmptyShippedBundleIdentity(t *testing.T) {
 	ctx, _, s := newStore(t)
-	_, err := s.EnterShipped(ctx, factoryStart, artifact.KindRolePrompt, "spec_author", "", "text",
+	_, err := s.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, "spec_author", "", "text",
 		artifact.EnteredByInstall, "")
 	if !errors.Is(err, artifact.ErrShippedBundleIdentityEmpty) {
 		t.Errorf("EnterShipped with no shipped bundle identity = %v, want ErrShippedBundleIdentityEmpty", err)
 	}
-	_, err = s.EnterShipped(ctx, factoryStart, artifact.KindRolePrompt, "spec_author", "", "text",
+	_, err = s.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, "spec_author", "", "text",
 		"a later start", "bundle-2026.1")
 	if !errors.Is(err, artifact.ErrEnteredByUnknown) {
 		t.Errorf("EnterShipped with an event outside the two = %v, want ErrEnteredByUnknown", err)
+	}
+}
+
+// TestAHumanBackstopsAStageAndTheseRecordsBelongToNone: a role prompt, a
+// skill and the selection rule reach past any one stage, so the writers are
+// the agent that authors a version and the gate where a human takes Edit in
+// place. A human backstopping a stage authors none of the three.
+func TestAHumanBackstopsAStageAndTheseRecordsBelongToNone(t *testing.T) {
+	ctx, _, s := newStore(t)
+
+	byHuman := artifact.By{Authorship: artifact.AuthorshipHuman, Author: "the owner"}
+	for _, of := range []struct {
+		kind          artifact.Kind
+		role, subject string
+	}{
+		{artifact.KindRolePrompt, "spec_author", ""},
+		{artifact.KindSkill, "", "svc_a"},
+		{artifact.KindSelectionRule, "", ""},
+	} {
+		if _, err := s.SubmitFleet(ctx, specAuthor, byHuman, of.kind, of.role, of.subject,
+			"words a human wrote", ""); !errors.Is(err, artifact.ErrHumanAuthorsNoFleetVersion) {
+			t.Errorf("SubmitFleet of a %s authored by a human = %v, want ErrHumanAuthorsNoFleetVersion", of.kind, err)
+		}
+	}
+
+	// The gate is the path a human's words take, and it is admitted.
+	atTheGate := artifact.By{Authorship: artifact.AuthorshipGate, Author: "gate.role_prompt_or_skill"}
+	if _, err := s.SubmitFleet(ctx, specAuthor, atTheGate, artifact.KindRolePrompt, "spec_author", "",
+		"what the human wrote at the gate", ""); err != nil {
+		t.Errorf("SubmitFleet of a version edited in place at the gate: %v", err)
+	}
+}
+
+// TestOnlyTheFactorysOwnStartEntersWhatShipped: the entry names no authorship
+// and no author, so the actor is the whole of who wrote it, and the install's
+// half of it enters in force with nothing decided. An actor the caller chose
+// would let any component write such a row.
+func TestOnlyTheFactorysOwnStartEntersWhatShipped(t *testing.T) {
+	ctx, _, s := newStore(t)
+
+	_, err := s.EnterShipped(ctx, specAuthor, artifact.KindRolePrompt, "spec_author", "",
+		"words a component entered", artifact.EnteredByInstall, "bundle-1")
+	if !errors.Is(err, artifact.ErrNotTheFactorysStart) {
+		t.Errorf("EnterShipped as a component other than the start = %v, want ErrNotTheFactorysStart", err)
+	}
+	almost := artifact.FactoryStart
+	almost.Basis = record.BasisVerified
+	if _, err := s.EnterShipped(ctx, almost, artifact.KindRolePrompt, "spec_author", "",
+		"words", artifact.EnteredByInstall, "bundle-1"); !errors.Is(err, artifact.ErrNotTheFactorysStart) {
+		t.Errorf("EnterShipped as an actor that is the start's key on another basis = %v, want ErrNotTheFactorysStart", err)
+	}
+	if _, err := s.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, "spec_author", "",
+		"the words that shipped", artifact.EnteredByInstall, "bundle-1"); err != nil {
+		t.Errorf("EnterShipped as the factory's own start: %v", err)
+	}
+}
+
+// TestTheFleetReadsAreBoundToOneChain: the three reads answer for a role's, a
+// subject's or the factory's chain, which is what a kind outside [FleetKinds]
+// names none of. Given an item kind they would otherwise answer with the
+// newest row of that kind across every item.
+func TestTheFleetReadsAreBoundToOneChain(t *testing.T) {
+	ctx, pool, s := newStore(t)
+
+	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_a", "svc_a", "the spec of one item",
+		nil, nil, nil, theManifest); err != nil {
+		t.Fatalf("SubmitSpec: %v", err)
+	}
+	if _, _, _, err := s.SubmitSpec(ctx, specAuthor, byAgent, "it_b", "svc_a", "the spec of another",
+		nil, nil, nil, theManifest); err != nil {
+		t.Fatalf("SubmitSpec of a second item: %v", err)
+	}
+
+	for name, read := range map[string]func() (artifact.Artifact, bool, error){
+		"Newest": func() (artifact.Artifact, bool, error) {
+			return artifact.Newest(ctx, pool, artifact.KindSpec, "", "")
+		},
+		"NewestShipped": func() (artifact.Artifact, bool, error) {
+			return artifact.NewestShipped(ctx, pool, artifact.KindSpec, "", "")
+		},
+		"InForce": func() (artifact.Artifact, bool, error) {
+			return artifact.InForce(ctx, pool, artifact.KindSpec, "", "", nil)
+		},
+	} {
+		found, ok, err := read()
+		if !errors.Is(err, artifact.ErrFleetKindUnknown) {
+			t.Errorf("%s of an item kind = %+v, %v, %v; want ErrFleetKindUnknown and no row of any item",
+				name, found, ok, err)
+		}
+	}
+
+	// A role prompt chain and a skill chain are named, and the read that names
+	// neither is the one selection rule's.
+	if _, _, err := artifact.Newest(ctx, pool, artifact.KindRolePrompt, "", ""); !errors.Is(err, artifact.ErrRoleEmpty) {
+		t.Errorf("Newest of a role prompt naming no role = %v, want ErrRoleEmpty", err)
+	}
+	if _, _, err := artifact.InForce(ctx, pool, artifact.KindSkill, "", "", nil); !errors.Is(err, artifact.ErrSubjectEmpty) {
+		t.Errorf("InForce of a skill naming no subject = %v, want ErrSubjectEmpty", err)
+	}
+	rule, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindSelectionRule, "", "",
+		"the one selection rule", theManifest)
+	if err != nil {
+		t.Fatalf("SubmitFleet of the selection rule: %v", err)
+	}
+	head, ok, err := artifact.Newest(ctx, pool, artifact.KindSelectionRule, "", "")
+	if err != nil || !ok || head.ID != rule.ID {
+		t.Errorf("Newest of the selection rule = %+v, %v, %v; want %s", head, ok, err, rule.ID)
 	}
 }
 
@@ -120,10 +227,10 @@ func TestDDLRefusesAnAuthorWithNoAuthorship(t *testing.T) {
 	ctx, pool, _ := newStore(t)
 	_, err := pool.Exec(ctx, `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
-		input_manifest_id)
-		values ($1, $2, 'component', 'factory.start', 'claimed', $3, '', 'spec_author', '', 'role_prompt', 1,
-		'', '', 'claude-opus-5', 'text', 'x', 'bundle-1', 'install', '')`,
+		supersedes, authorship, author, content, content_digest, redacted_content_digest,
+		shipped_bundle_identity, entered_by, input_manifest_id)
+		values ($1, $2, 'component', 'install', 'claimed', $3, '', 'spec_author', '', 'role_prompt', 1,
+		'', '', 'claude-opus-5', 'text', 'x', '', 'bundle-1', 'install', '')`,
 		record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now())
 	if err == nil || !strings.Contains(err.Error(), "author_pair_together") {
 		t.Errorf("inserting an author with no authorship = %v, want a violation of author_pair_together", err)
@@ -136,11 +243,11 @@ func TestDDLRefusesAnAuthorWithNoAuthorship(t *testing.T) {
 func TestInForceReadsTheNewestApprovedVersion(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	first, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version one", "")
+	first, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version one", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitFleet: %v", err)
 	}
-	second, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version two", "")
+	second, err := s.SubmitFleet(ctx, specAuthor, byAgent, artifact.KindRolePrompt, "spec_author", "", "version two", theManifest)
 	if err != nil {
 		t.Fatalf("SubmitFleet again: %v", err)
 	}
@@ -176,7 +283,7 @@ func TestInForceReadsTheNewestApprovedVersion(t *testing.T) {
 func TestTheInstallsEntryIsInForceUngatedAndAnUpgradesIsNot(t *testing.T) {
 	ctx, pool, s := newStore(t)
 
-	installed, err := s.EnterShipped(ctx, factoryStart, artifact.KindRolePrompt, "spec_author", "",
+	installed, err := s.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, "spec_author", "",
 		"the shipped role prompt", artifact.EnteredByInstall, "bundle-2026.1")
 	if err != nil {
 		t.Fatalf("EnterShipped at install: %v", err)
@@ -188,7 +295,7 @@ func TestTheInstallsEntryIsInForceUngatedAndAnUpgradesIsNot(t *testing.T) {
 		t.Fatalf("InForce with nothing approved = %+v, %v, %v; want the install's entry %s", found, ok, err, installed.ID)
 	}
 
-	upgraded, err := s.EnterShipped(ctx, factoryStart, artifact.KindRolePrompt, "spec_author", "",
+	upgraded, err := s.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, "spec_author", "",
 		"the shipped role prompt, reworded", artifact.EnteredByUpgradeFirstStart, "bundle-2026.2")
 	if err != nil {
 		t.Fatalf("EnterShipped at an upgrade's first start: %v", err)
@@ -210,7 +317,7 @@ func TestTheInstallsEntryIsInForceUngatedAndAnUpgradesIsNot(t *testing.T) {
 	}
 
 	// A chain an upgrade started has nothing in force until its gate decides.
-	started, err := s.EnterShipped(ctx, factoryStart, artifact.KindRolePrompt, "reviewer", "",
+	started, err := s.EnterShipped(ctx, artifact.FactoryStart, artifact.KindRolePrompt, "reviewer", "",
 		"a role the upgrade adds", artifact.EnteredByUpgradeFirstStart, "bundle-2026.2")
 	if err != nil {
 		t.Fatalf("EnterShipped for a chain the upgrade starts: %v", err)
@@ -229,10 +336,10 @@ func TestTheEnteredEventIsRefusedAroundTheWriter(t *testing.T) {
 
 	const insert = `insert into artifact
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, role, subject, kind, version,
-		supersedes, authorship, author, content, content_digest, shipped_bundle_identity, entered_by,
-		input_manifest_id)
-		values ($1, $2, 'component', 'factory.start', 'claimed', $3, '', 'spec_author', '', 'role_prompt', 1,
-		'', $4, $5, 'text', 'x', $6, $7, '')`
+		supersedes, authorship, author, content, content_digest, redacted_content_digest,
+		shipped_bundle_identity, entered_by, input_manifest_id)
+		values ($1, $2, 'component', 'install', 'claimed', $3, '', 'spec_author', '', 'role_prompt', 1,
+		'', $4, $5, 'text', 'x', '', $6, $7, '')`
 
 	// An entry nobody wrote, naming no event.
 	_, err := pool.Exec(ctx, insert, record.NewID(artifact.IDPrefix), artifact.FormatVersion, record.Now(),

@@ -143,6 +143,56 @@ func TestWriteAndReadBackAllNineFields(t *testing.T) {
 	}
 }
 
+// TestTheOwnersNarrowingOfTheOperationsReadsBack: the operations belong to the
+// role and an owner may narrow them on the entry, so the narrowing is a column
+// of this record. An entry that narrows nothing reads back naming none, which
+// is the role's whole list.
+func TestTheOwnersNarrowingOfTheOperationsReadsBack(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	w := fleetentry.NewWriter(pool, token)
+
+	narrowed := aNew()
+	narrowed.Operations = []string{"read the repository", "run the build"}
+	set, err := w.Write(ctx, owner, narrowed)
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := fleetentry.Get(ctx, pool, set.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Operations) != 2 ||
+		got.Operations[0] != narrowed.Operations[0] || got.Operations[1] != narrowed.Operations[1] {
+		t.Fatalf("Operations = %v, want %v", got.Operations, narrowed.Operations)
+	}
+
+	whole, err := w.Write(ctx, owner, aNew())
+	if err != nil {
+		t.Fatalf("Write narrowing nothing: %v", err)
+	}
+	read, err := fleetentry.Get(ctx, pool, whole.ID)
+	if err != nil {
+		t.Fatalf("Get narrowing nothing: %v", err)
+	}
+	if len(read.Operations) != 0 {
+		t.Fatalf("Operations of an entry that narrows nothing = %v, want none", read.Operations)
+	}
+}
+
+// TestADuplicateOperationIsRefused: an operation named twice is a mistake and
+// not a narrowing. Which operations a role carries is package dispatch's
+// vocabulary, so a widening is refused there and a repeat here.
+func TestADuplicateOperationIsRefused(t *testing.T) {
+	ctx, pool, token := newTable(t)
+	w := fleetentry.NewWriter(pool, token)
+
+	twice := aNew()
+	twice.Operations = []string{"read the repository", "read the repository"}
+	if _, err := w.Write(ctx, owner, twice); !errors.Is(err, fleetentry.ErrOperationDuplicate) {
+		t.Fatalf("Write with an operation named twice = %v, want ErrOperationDuplicate", err)
+	}
+}
+
 // TestAComponentActorIsRefused: the one writer is an owner at Factory, and no
 // component in the pipeline writes back to this record.
 func TestAComponentActorIsRefused(t *testing.T) {

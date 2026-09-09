@@ -70,13 +70,13 @@ var credential = secretref.MustNew("target.local")
 // itself.
 var deployer = principal.OfComponent("deployer")
 
-func TestDeployRunsAndStopKills(t *testing.T) {
+func TestDeployRunsAndStopEndsWhatRuns(t *testing.T) {
 	ctx := t.Context()
 	local, dir := newTarget(t, "checkout")
 	buildProgram(t, dir, "rel_one", sleeperSource)
 
 	placed, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential,
+		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
 	})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
@@ -96,8 +96,8 @@ func TestDeployRunsAndStopKills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if ended.Replacement != targetseam.ReplacementCut {
-		t.Errorf("Stop reports %q, want the cut this platform performs", ended.Replacement)
+	if ended.Replacement != targetseam.ReplacementDrained {
+		t.Errorf("Stop reports %q, want the drain: nothing here drops a request", ended.Replacement)
 	}
 	running, err = local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
@@ -121,12 +121,12 @@ func TestASecondDeployReplacesTheFirst(t *testing.T) {
 	buildProgram(t, dir, "rel_two", sleeperSource)
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential,
+		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
 	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_two", Credential: credential,
+		Service: "checkout", Build: "rel_two", Credential: credential, DeployID: "dep_2",
 	}); err != nil {
 		t.Fatalf("Deploy rel_two: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestADeadProcessReadsAsNothingRunning(t *testing.T) {
 	buildProgram(t, dir, "rel_dies", exiterSource)
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_dies", Credential: credential,
+		Service: "checkout", Build: "rel_dies", Credential: credential, DeployID: "dep_1",
 	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 	buildProgram(t, outside, "planted", sleeperSource)
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential,
+		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
 	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 		"",
 	} {
 		_, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-			Service: "checkout", Build: build, Credential: credential,
+			Service: "checkout", Build: build, Credential: credential, DeployID: "dep_2",
 		})
 		if build == "" {
 			// An empty build is the seam's own refusal, before this one.
@@ -231,8 +231,14 @@ func TestTheSeamsChecksHold(t *testing.T) {
 	if !errors.Is(err, targetseam.ErrIncomplete) {
 		t.Errorf("Deploy with no build = %v, want %v", err, targetseam.ErrIncomplete)
 	}
-	_, err = local.Deploy(ctx, principal.Principal{}, targetseam.Deployment{
+	_, err = local.Deploy(ctx, deployer, targetseam.Deployment{
 		Service: "checkout", Build: "rel_one", Credential: credential,
+	})
+	if !errors.Is(err, targetseam.ErrIncomplete) {
+		t.Errorf("Deploy with no deploy id = %v, want %v", err, targetseam.ErrIncomplete)
+	}
+	_, err = local.Deploy(ctx, principal.Principal{}, targetseam.Deployment{
+		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
 	})
 	if !errors.Is(err, targetseam.ErrNoPrincipal) {
 		t.Errorf("Deploy with no principal = %v, want %v", err, targetseam.ErrNoPrincipal)
@@ -247,7 +253,7 @@ func TestTheSeamsChecksHold(t *testing.T) {
 	// A build whose binary was never placed in dir fails at the start, and
 	// nothing runs for the service afterwards.
 	_, err = local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_missing", Credential: credential,
+		Service: "checkout", Build: "rel_missing", Credential: credential, DeployID: "dep_1",
 	})
 	if err == nil {
 		t.Error("Deploy of a build with no binary succeeded")

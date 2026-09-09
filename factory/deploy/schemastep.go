@@ -15,7 +15,8 @@ import (
 // record reports what this step did.
 
 // applyToTheStore is every step before traffic: the snapshot before a change
-// that destroys stored data, and the changes the store's history lacks, applied
+// that destroys stored data — named on that change, so the target verifies the
+// copy before it applies it — and the changes the store's history lacks, applied
 // in order through the environment's credential. The store is one per service
 // per environment, so the changes are applied once — through the first target,
 // every target of the environment holding the same credential and reaching the
@@ -60,23 +61,35 @@ func applyToTheStore(ctx context.Context, w *Writer, p Performance, d Deploy) er
 		return w.MarkSchemaChangesComplete(ctx, d.ID)
 	}
 
+	var taken targetseam.Snapshot
 	if destructive {
 		if p.SnapshotName == "" {
 			return fail(ctx, w, p, d, StepSnapshot, fmt.Errorf("%w: it names no copy", ErrSnapshotRefused))
 		}
-		taken, err := through.Target.Snapshot(ctx, p.Principal, targetseam.SnapshotRequest{
+		copied, err := through.Target.Snapshot(ctx, p.Principal, targetseam.SnapshotRequest{
 			Service: p.ServiceName, Name: p.SnapshotName, Credential: p.Credential,
 		})
 		if err != nil {
 			return fail(ctx, w, p, d, StepSnapshot, fmt.Errorf("%w: %w", ErrSnapshotRefused, err))
 		}
+		taken = copied
 		if err := w.NameSnapshot(ctx, d.ID, taken.Name, taken.Digest); err != nil {
 			return err
 		}
 	}
 
 	for _, change := range owed {
+		// Every history row names the build the change was applied under, and
+		// the release as well wherever one exists: a candidate's deploy and the
+		// search's name a build and no release, and their rows stand on it.
 		change.Release = p.What.ReleaseID
+		change.Build = p.What.BuildID
+		if change.Destroys {
+			// The copy the seam requires before a change that destroys stored
+			// data, named on the change so the target verifies it against what
+			// it finds before it applies anything.
+			change.Snapshot = taken
+		}
 		if err := through.Target.ApplySchemaChange(ctx, p.Principal, change); err != nil {
 			return fail(ctx, w, p, d, StepSchemaChange, fmt.Errorf("%w: %s: %w",
 				ErrSchemaChangeRefused, change.Change, err))
@@ -106,6 +119,7 @@ func writeFoundApplied(ctx context.Context, w *Writer, p Performance, d Deploy, 
 	}
 	for _, change := range p.SchemaChanges {
 		change.Release = p.What.ReleaseID
+		change.Build = p.What.BuildID
 		change.FoundApplied = true
 		if err := through.Target.ApplySchemaChange(ctx, p.Principal, change); err != nil {
 			return fail(ctx, w, p, d, StepSchemaChange, fmt.Errorf("%w: writing %s into the history as found applied: %w",

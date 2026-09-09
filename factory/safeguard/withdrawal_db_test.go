@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/gatepolicy"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/safeguard"
 )
 
@@ -34,7 +35,8 @@ func TestAWithdrawalIsPendingUntilApproved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	withdrawal, err := safeguard.InsertWithdrawal(ctx, tx, token, owner, placed.ID)
+	w := safeguard.NewWriter(pool, token)
+	withdrawal, err := w.InsertWithdrawal(ctx, tx, owner, record.NewID(safeguard.WithdrawalIDPrefix), placed.ID)
 	if err != nil {
 		t.Fatalf("InsertWithdrawal: %v", err)
 	}
@@ -58,7 +60,7 @@ func TestAWithdrawalIsPendingUntilApproved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if err := safeguard.ApproveWithdrawal(ctx, tx, token, withdrawal.ID); err != nil {
+	if err := w.ApproveWithdrawal(ctx, tx, withdrawal.ID); err != nil {
 		t.Fatalf("ApproveWithdrawal: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -85,10 +87,10 @@ func TestAWithdrawalIsPendingUntilApproved(t *testing.T) {
 		t.Fatalf("Begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := safeguard.ApproveWithdrawal(ctx, tx, token, withdrawal.ID); !errors.Is(err, safeguard.ErrAlreadyApproved) {
+	if err := w.ApproveWithdrawal(ctx, tx, withdrawal.ID); !errors.Is(err, safeguard.ErrAlreadyApproved) {
 		t.Errorf("approving an already-approved withdrawal = %v, want ErrAlreadyApproved", err)
 	}
-	if err := safeguard.ApproveWithdrawal(ctx, tx, token, "sfgw_nothing"); !errors.Is(err, safeguard.ErrWithdrawalNotFound) {
+	if err := w.ApproveWithdrawal(ctx, tx, "sfgw_nothing"); !errors.Is(err, safeguard.ErrWithdrawalNotFound) {
 		t.Errorf("approving a withdrawal that does not exist = %v, want ErrWithdrawalNotFound", err)
 	}
 }
@@ -106,7 +108,8 @@ func TestNothingHereWithdrawsInOneCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	written, err := safeguard.InsertWithdrawal(ctx, tx, token, owner, placed.ID)
+	w := safeguard.NewWriter(pool, token)
+	written, err := w.InsertWithdrawal(ctx, tx, owner, record.NewID(safeguard.WithdrawalIDPrefix), placed.ID)
 	if err != nil {
 		t.Fatalf("InsertWithdrawal: %v", err)
 	}
@@ -148,7 +151,8 @@ func TestWithdrawalsAwaitingADecisionAreWhatFactoryLists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	written, err := safeguard.InsertWithdrawal(ctx, tx, token, owner, placed.ID)
+	w := safeguard.NewWriter(pool, token)
+	written, err := w.InsertWithdrawal(ctx, tx, owner, record.NewID(safeguard.WithdrawalIDPrefix), placed.ID)
 	if err != nil {
 		t.Fatalf("InsertWithdrawal: %v", err)
 	}
@@ -172,7 +176,7 @@ func TestWithdrawalsAwaitingADecisionAreWhatFactoryLists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if err := safeguard.ApproveWithdrawal(ctx, tx, token, written.ID); err != nil {
+	if err := w.ApproveWithdrawal(ctx, tx, written.ID); err != nil {
 		t.Fatalf("ApproveWithdrawal: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

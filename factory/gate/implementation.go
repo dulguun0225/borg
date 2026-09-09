@@ -2,7 +2,9 @@ package gate
 
 import (
 	"errors"
+	"fmt"
 
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/screenstatemachine"
 )
 
@@ -31,11 +33,44 @@ const (
 	// runner's own error, the way the caller computes it for the two checks
 	// above from what it derived over the checkout.
 	AutoRejectedByCompile = "a build that does not compile"
+	// AutoRejectedByACriterionTheBuildDecided is an acceptance criterion the
+	// build's own process decided against. An encoding declares which of two
+	// places decides it, and one deciding a criterion over the code alone is
+	// run by the build runner in the build's own process, its result written
+	// onto the build. So this row rejects on it as it rejects a build that
+	// does not compile, before any environment exists, and a human reading the
+	// diff here reads those results beside it.
+	AutoRejectedByACriterionTheBuildDecided = "an acceptance criterion the build's own process decided against"
 )
 
 // ImplementationChecks is every check that rejects on its own terms at the
 // Implementation row, in the order the design names them.
-var ImplementationChecks = []string{AutoRejectedByForbiddenTransition, AutoRejectedByADriver, AutoRejectedByCompile}
+var ImplementationChecks = []string{
+	AutoRejectedByForbiddenTransition, AutoRejectedByADriver, AutoRejectedByCompile,
+	AutoRejectedByACriterionTheBuildDecided,
+}
+
+// CriterionRejection is the Implementation row's rejection over what the build
+// decided: a criterion whose encoding declared the build as its place and whose
+// result stops the build. The candidate environment decides only the encodings
+// declaring it, so a result from there is passed over here and read at
+// [_Merge to master_] instead.
+//
+// An undecided criterion is read the way a failure is and one the service's own
+// unreliable bound marks unreliable reads as absent, which is what
+// [criterion.Outcome.Blocks] already decides — the same reading the merge row
+// makes of the same results.
+func CriterionRejection(criteria []CriterionResult) (check, found string, rejects bool) {
+	for _, c := range criteria {
+		if c.Place != criterion.PlaceBuild || !c.Outcome.Blocks(c.Unreliable) {
+			continue
+		}
+		return AutoRejectedByACriterionTheBuildDecided,
+			fmt.Sprintf("criterion %s was decided %s in the build's own process", c.CriterionID, c.Outcome),
+			true
+	}
+	return "", "", false
+}
 
 // ScreenRejection is that rejection, over what the caller derived from the
 // build: the transition check's derivation, the drivers', and the machines in

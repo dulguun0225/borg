@@ -3,8 +3,13 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/dulguun0225/borg/factory/agent"
+	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/intent"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/service"
 )
 
@@ -38,5 +43,77 @@ func TestDecompositionReachesAnExistingService(t *testing.T) {
 	}
 	if services != 1 {
 		t.Errorf("%d services are named %q, decomposition writes a service's identity once", services, theService)
+	}
+}
+
+// TestDecompositionRefusesAServiceWhoseProductionPlatformCannotComposeOnDemand:
+// an environment per candidate is the shape the design admits and nothing
+// else, so decomposition refuses to write an item for a service whose
+// project's production environment declares a platform that cannot compose
+// one on demand, and not only where that record was created.
+func TestDecompositionRefusesAServiceWhoseProductionPlatformCannotComposeOnDemand(t *testing.T) {
+	ctx, d, _ := newPath(t, "")
+	p, err := compose(ctx, d)
+	if err != nil {
+		t.Fatalf("composing the path: %v", err)
+	}
+
+	const otherProject = "prj_cccccccccccccccccccccccccccccccc"
+	if _, err := environment.NewWriter(d.pool, d.token).Create(ctx,
+		owner(t, ctx, d.pool, d.token, d.human), environment.Spec{
+			Kind:       environment.KindProduction,
+			ProjectID:  otherProject,
+			Name:       environment.ProductionName,
+			Targets:    []environment.Target{{Address: t.TempDir()}},
+			Credential: d.credential,
+			Platform: environment.Platform{
+				Name:               "local",
+				Credential:         d.credential,
+				CanComposeOnDemand: false,
+			},
+		}); err != nil {
+		t.Fatalf("creating the second project's production: %v", err)
+	}
+
+	const otherService = "other-service"
+	if _, err := service.NewWriter(d.pool, d.token).Create(ctx, decompositionActor,
+		otherService, t.TempDir(), otherProject); err != nil {
+		t.Fatalf("creating the second project's service: %v", err)
+	}
+
+	in := intent.Intent{ID: "in_second"}
+	requirements := []agent.Requirement{{ID: "rq_second", Statement: "test"}}
+	if _, err := p.decomposeItems(ctx, in, []string{otherService}, requirements); !errors.Is(err, environment.ErrCannotCompose) {
+		t.Errorf("decomposing a service whose production platform cannot compose on demand = %v, want ErrCannotCompose", err)
+	}
+}
+
+// TestDecompositionLeavesNoServiceBehindWhenTheItemWriteFails is C0717 and
+// C0718: the service record decomposition creates and the item naming it are
+// one write, so a failure writing the item leaves no service record behind
+// either. The item write is refused here by answering no requirement at all,
+// which [item.Decomposition.Create] refuses on its own terms.
+func TestDecompositionLeavesNoServiceBehindWhenTheItemWriteFails(t *testing.T) {
+	ctx, d, _ := newPath(t, "")
+	p, err := compose(ctx, d)
+	if err != nil {
+		t.Fatalf("composing the path: %v", err)
+	}
+
+	// A service the run was never told about beforehand, so it does not exist
+	// when decomposeItems reaches for it — the branch [service.ByName] answers
+	// false on, unlike theService the fixture already wrote.
+	const newService = "brand-new-service"
+	p.d.services = append(p.d.services, serviceRepo{name: newService, repo: t.TempDir()})
+
+	in := intent.Intent{ID: "in_no_requirement"}
+	if _, err := p.decomposeItems(ctx, in, []string{newService}, nil); !errors.Is(err, item.ErrAnswersNoRequirement) {
+		t.Fatalf("decomposing with no requirement answered = %v, want item.ErrAnswersNoRequirement", err)
+	}
+
+	if _, found, err := service.ByName(ctx, d.pool, newService); err != nil {
+		t.Fatalf("reading the service after the failed decomposition: %v", err)
+	} else if found {
+		t.Errorf("service %q stands even though the item write naming it failed", newService)
 	}
 }

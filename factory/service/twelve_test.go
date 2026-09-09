@@ -43,7 +43,7 @@ func TestTheFiveRemainingOfTheTwelve(t *testing.T) {
 	}
 
 	tx := begin(ctx, t, pool)
-	if err := service.SetMutationFloor(ctx, tx, created.ID, 0.8); err != nil {
+	if err := service.SetMutationFloor(ctx, tx, owner, created.ID, 0.8); err != nil {
 		t.Fatalf("SetMutationFloor: %v", err)
 	}
 	if err := service.SetKeptFraction(ctx, tx, created.ID, 0.5); err != nil {
@@ -52,7 +52,7 @@ func TestTheFiveRemainingOfTheTwelve(t *testing.T) {
 	if err := service.SetMaxConcurrentKeptFleets(ctx, tx, created.ID, 3); err != nil {
 		t.Fatalf("SetMaxConcurrentKeptFleets: %v", err)
 	}
-	if err := service.SetRecentHistoryRunLength(ctx, tx, created.ID, 20000); err != nil {
+	if err := service.SetRecentHistoryRunLength(ctx, tx, owner, created.ID, 20000); err != nil {
 		t.Fatalf("SetRecentHistoryRunLength: %v", err)
 	}
 	if err := service.SetProofTestRate(ctx, tx, created.ID, 0.25); err != nil {
@@ -74,7 +74,7 @@ func TestTheFiveRemainingOfTheTwelve(t *testing.T) {
 
 	tx = begin(ctx, t, pool)
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := service.SetMutationFloor(ctx, tx, created.ID, 1.5); !errors.Is(err, service.ErrShareOutOfRange) {
+	if err := service.SetMutationFloor(ctx, tx, owner, created.ID, 1.5); !errors.Is(err, service.ErrShareOutOfRange) {
 		t.Errorf("SetMutationFloor(1.5) = %v, want ErrShareOutOfRange", err)
 	}
 	// The fraction is a share of a release's own instances: nothing kept is not a

@@ -37,6 +37,7 @@ func (c *calls) WriteFleetEntry(ctx context.Context, who principal.Principal, ar
 		CredentialName:                  args.Credential,
 		ProcessingLocation:              args.ProcessingLocation,
 		MaterialClasses:                 args.MaterialClasses,
+		Operations:                      args.Operations,
 		ReadsAtOnce:                     args.ReadAtOnceBound,
 		DispatchesBetweenEvaluationRuns: args.DispatchesBetweenEvalRuns,
 	})

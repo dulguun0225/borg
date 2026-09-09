@@ -149,10 +149,14 @@ func Apply(ctx context.Context, pool *pgxpool.Pool) error {
 // arrived, which the row says as much as it says which one was.
 //
 // The counter table is keyed by service, the empty key being the whole
-// channel. It holds counts and not rows, because the record a query would
-// count is the write the rate exists to refuse: a row per refusal is the
-// unbounded write the bound was placed to prevent. What that costs is that
-// neither count can be recomputed — a lost counter is lost.
+// channel. It holds one count and not a row per submission, because the
+// record a query would count is the write the rate exists to refuse: a row
+// per refusal is the unbounded write the bound was placed to prevent. A
+// submission written under a shape this store does not read is refused the
+// same way and counted the same counter — which bound refused a given
+// submission is on the result the way in renders and not on the counter,
+// which counts only how many. What that costs is that the count cannot be
+// recomputed — a lost counter is lost.
 var DDL = []string{
 	`create table if not exists ` + ReportTable + ` (
 	id text not null primary key,
@@ -188,7 +192,14 @@ var DDL = []string{
 	`create table if not exists ` + CounterTable + ` (
 	service_id text not null primary key,
 	refusals bigint not null default 0,
-	unreadable_shape bigint not null default 0,
-	constraint counts_not_negative check (refusals >= 0 and unreadable_shape >= 0)
+	constraint counts_not_negative check (refusals >= 0)
 )`,
+
+	// unreadable_shape was folded into refusals: a submission of an unreadable
+	// shape is itself a refusal, and the counter counts how many and never
+	// which bound refused one. Dropped rather than left stranded on a store
+	// already created with it, the way driftdetector adds a column after the
+	// fact — this is the same arrangement in reverse, and idempotent for a
+	// store that never had the column.
+	`alter table ` + CounterTable + ` drop column if exists unreadable_shape`,
 }

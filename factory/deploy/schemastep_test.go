@@ -7,6 +7,7 @@ package deploy_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/targetseam"
@@ -223,5 +224,94 @@ func TestAnAdoptionsChangesAreWrittenIntoTheHistoryAndAppliedToNothing(t *testin
 	if !read.SchemaChangesCompleted || len(read.SchemaChanges) != 2 {
 		t.Errorf("the record says %v completed %v, want both changes on the record and complete",
 			read.SchemaChanges, read.SchemaChangesCompleted)
+	}
+}
+
+// TestTheDeployerDeletesTheSnapshotAtTheEndOfTheRetention: the copy taken before
+// a destructive change is deleted by the deployer on its own pass at the end of
+// the retention the service record authors, through the seam, and the deletion
+// is written on the record that named it — so the record says where what the
+// change destroyed could be read and, after that, that it no longer can.
+func TestTheDeployerDeletesTheSnapshotAtTheEndOfTheRetention(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+	reaches, fakes := twoFakes(false)
+
+	p := performance(serviceID, r, reaches)
+	p.SnapshotName = "before-the-drop"
+	p.SchemaChanges = []targetseam.SchemaChange{{
+		Service: "checkout", Change: "0003-drop-the-old-column", Text: "drop", Destroys: true,
+		Credential: credential,
+	}}
+	d, err := deploy.Perform(ctx, w, p)
+	if err != nil {
+		t.Fatalf("Perform: %v", err)
+	}
+	if len(fakes[0].Snapshots) != 1 {
+		t.Fatalf("the target holds %d copy(ies), want the one taken before the change", len(fakes[0].Snapshots))
+	}
+
+	pass := deploy.Pass{
+		Principal: deployerCalls, ServiceID: serviceID, ServiceName: "checkout",
+		Target: fakes[0], Credential: credential,
+	}
+
+	// A copy inside the retention is kept, and a service that authored none
+	// keeps every copy it has.
+	pass.Retention = time.Hour
+	if deleted, err := deploy.DeleteExpiredSnapshots(ctx, w, pass); err != nil || len(deleted) != 0 {
+		t.Fatalf("the pass deleted %v (%v) inside the retention, want nothing", deleted, err)
+	}
+	none := pass
+	none.Retention = 0
+	if deleted, err := deploy.DeleteExpiredSnapshots(ctx, w, none); err != nil || len(deleted) != 0 {
+		t.Fatalf("the pass deleted %v (%v) with no retention authored, want nothing", deleted, err)
+	}
+
+	pass.Retention = time.Nanosecond
+	deleted, err := deploy.DeleteExpiredSnapshots(ctx, w, pass)
+	if err != nil {
+		t.Fatalf("DeleteExpiredSnapshots: %v", err)
+	}
+	if len(deleted) != 1 || deleted[0] != d.ID {
+		t.Fatalf("the pass deleted %v, want the record naming the copy past its retention", deleted)
+	}
+
+	asked := false
+	for _, call := range fakes[0].Calls() {
+		if call.Op == targetseam.OpDeleteSnapshot && call.Change == "before-the-drop" {
+			asked = true
+		}
+	}
+	if !asked {
+		t.Errorf("the seam was asked %+v, want the copy deleted through it", fakes[0].Calls())
+	}
+	if len(fakes[0].Snapshots) != 0 {
+		t.Errorf("the target still holds %+v, want the copy gone", fakes[0].Snapshots)
+	}
+	read, err := deploy.Get(ctx, pool, d.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if read.Snapshot.Name != "before-the-drop" || read.Snapshot.DeletedAt == "" {
+		t.Errorf("the record reads %+v, want the copy it named and when it was deleted", read.Snapshot)
+	}
+
+	// A second pass deletes nothing: the deletion is on the record.
+	if deleted, err := deploy.DeleteExpiredSnapshots(ctx, w, pass); err != nil || len(deleted) != 0 {
+		t.Errorf("the second pass deleted %v (%v), want nothing", deleted, err)
+	}
+	// And a record naming no copy has nothing to delete.
+	bare, err := deploy.Perform(ctx, w, performance(serviceID, r, reaches))
+	if err != nil {
+		t.Fatalf("a deploy carrying no change: %v", err)
+	}
+	err = deploy.DeleteSnapshot(ctx, w, deploy.Deleting{
+		Principal: deployerCalls, DeployID: bare.ID, ServiceName: "checkout",
+		Target: fakes[0], Credential: credential,
+	})
+	if !errors.Is(err, deploy.ErrNoSnapshot) {
+		t.Errorf("deleting the copy of a record naming none = %v, want ErrNoSnapshot", err)
 	}
 }

@@ -51,7 +51,7 @@
 // What defines it: the actor on every gate decision, edit, approval, and undo
 // of a shipped change, its key never a name, and the basis beside it, are seam
 // 1 of "Security comes last", ../../end-goal/deferred.md#security-comes-last
-// (C0037, C0038, C0040, C0045, C0046).
+// (C0037, C0038, C0039, C0040, C0045, C0046).
 //
 // The format version every record carries is
 // ../../end-goal/what-the-factory-does/01-tight-integration.md (C2893).

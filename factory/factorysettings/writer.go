@@ -105,7 +105,7 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Settings, erro
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := Insert(ctx, tx, w.token, actor); err != nil {
+	if _, err := Insert(ctx, tx, w.token, actor, record.NewID(IDPrefix)); err != nil {
 		return Settings{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -116,10 +116,11 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Settings, erro
 
 // Insert creates the record inside tx, fencing it with token first, and returns
 // it whether this call created it or found it. Its caller is package policy,
-// which appends the policy version in the same transaction. It is idempotent
+// which appends the policy version in the same transaction and mints id: the
+// version names the record and is appended before it. It is idempotent
 // the way [Writer.Ensure] is: the insert does nothing on the singleton
 // conflict, so two callers at once leave one record.
-func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor) (Settings, error) {
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, id string) (Settings, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Settings{}, err
 	}
@@ -130,7 +131,7 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, only_row, allowed_predicate_kinds)
 		values ($1, $2, $3, $4, $5, $6, true, '')
 		on conflict (only_row) do nothing`,
-		record.NewID(IDPrefix), FormatVersion, string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
+		id, FormatVersion, string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
 	)
 	if err != nil {
 		return Settings{}, fmt.Errorf("factorysettings: creating the record: %w", err)

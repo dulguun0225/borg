@@ -90,6 +90,32 @@ func (q *Queue) AcceptCommit(ctx context.Context, human record.Actor, serviceID,
 	}
 	accepted.WaitRow = wait.ID
 
+	// What it reads is master against the service's release records, the same
+	// way it reads before every other mint: a build that explains the commit may
+	// have appeared after the wait was opened, in which case the commit is the
+	// queue's own unfinished merge and not a human's to accept, and it is
+	// completed the way the queue always completes one.
+	read, completed, _, err := q.readMaster(ctx, serviceID)
+	if err != nil {
+		return accepted, err
+	}
+	if read.CompletedItemID != "" {
+		out := completed[0]
+		accepted.Release, accepted.Published = out.Release, out.Published
+		accepted.BuildID, accepted.SkippedNumbers = out.BuildID, out.SkippedNumbers
+		if _, err := q.log.AppendWaitClose(ctx, decisionlog.Entry{
+			Actor: human, Payload: wait.Payload, FormatVersion: waitFormatVersion, Closes: wait.ID,
+		}); err != nil {
+			return accepted, err
+		}
+		return accepted, nil
+	}
+	if read.Stopped != "" && read.WaitRow != wait.ID {
+		return accepted, fmt.Errorf(
+			"mergequeue: accepting %s of %s: master now reads %q at %s, not the commit accepted",
+			commit, serviceID, read.Stopped, read.Head)
+	}
+
 	verified, err := q.repo.VerifyCommit(ctx, serviceID, commit)
 	if err != nil {
 		return accepted, fmt.Errorf("mergequeue: re-verifying the accepted commit %s of %s: %w",

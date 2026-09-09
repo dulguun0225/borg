@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
@@ -119,17 +120,12 @@ func (p *path) runQueue(ctx context.Context, svc service.Service) ([]*candidate,
 	return adopted, nil
 }
 
-// returnRejected is what a rejection causes on the item: it goes back to the
-// stage the rejection names, with an attempt counted there. The queue writes
-// neither — its row in ../../../end-goal/components.md names the gate component, the build runner
-// and the log and names no dispatch — so the transition is the composition's,
-// and the actor is the queue, which is what the rejection row already says.
-//
-// The attempt is not incremented here either: an attempt is counted when a
-// stage is entered to author, so what this does is send the item back to be
-// entered again. The rejection's CountsAnAttempt is what says it will be, and
-// it is on the row for a reader.
-func (p *path) returnRejected(ctx context.Context, outcome mergequeue.Outcome) error {
+// returnRejected reports what a rejection caused on the item: the queue sends
+// it back to the stage the rejection names itself — its row in
+// ../../../end-goal/components.md now dispatches item, and the rejection is the
+// queue's to act on, there being no gate firing for a caller to act on instead —
+// so this only prints what already happened.
+func (p *path) returnRejected(_ context.Context, outcome mergequeue.Outcome) error {
 	r := outcome.Rejection
 	fmt.Fprintf(p.d.out, "The queue rejected item %s on its own merits: %s\n", outcome.ItemID, outcome.Why)
 	fmt.Fprintf(p.d.out, "  it read the failure as %s, and learns from it as from a %s (the per-author prior moves: %v)\n",
@@ -140,9 +136,6 @@ func (p *path) returnRejected(ctx context.Context, outcome mergequeue.Outcome) e
 	if r.ReturnsTo == "" {
 		fmt.Fprintf(p.d.out, "  rejection row %s written as the queue; the item is sent back to nothing\n", r.Row)
 		return nil
-	}
-	if _, err := p.items.ReturnTo(ctx, mergequeue.Actor, outcome.ItemID, item.Stage(r.ReturnsTo)); err != nil {
-		return err
 	}
 	fmt.Fprintf(p.d.out, "  rejection row %s written as the queue; the item is back at %s with an attempt counted there, and keeps its environment\n",
 		r.Row, r.ReturnsTo)
@@ -203,4 +196,20 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 	c.tornDown = true
 	fmt.Fprintf(p.d.out, "Candidate environment %s torn down; the record is kept\n", c.environmentID)
 	return nil
+}
+
+// Unreliable is [mergequeue.Reliability], implemented over [criterion.Unreliable]
+// with the service's own authored bound — the reading [markUnreliable] already
+// makes at a candidate run's own recording, asked again here for a rejection
+// that repeats at the queue.
+func (p *path) Unreliable(ctx context.Context, serviceID, criterionID string, buildIDs []string) (bool, error) {
+	svc, err := p.serviceOf(ctx, serviceID)
+	if err != nil {
+		return false, err
+	}
+	reliability, err := criterion.Unreliable(ctx, p.d.pool, criterionID, buildIDs, svc.UnreliableBound)
+	if err != nil {
+		return false, err
+	}
+	return reliability.Unreliable, nil
 }

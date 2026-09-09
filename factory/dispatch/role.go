@@ -155,9 +155,9 @@ func (r Role) Operations() ([]string, error) {
 	}
 }
 
-// Narrow is a fleet entry's own list checked against the role's: an owner may
-// leave an operation out and may never add one. It returns the list the entry
-// runs under, which is the role's where the entry names none.
+// Narrow is a fleet entry's narrowing checked against the role's list: an owner
+// may leave an operation out and may never add one. It returns the list the
+// entry runs under, which is the role's where the entry narrows nothing.
 func (r Role) Narrow(entry []string) ([]string, error) {
 	full, err := r.Operations()
 	if err != nil {
@@ -218,18 +218,10 @@ func (s Scope) Covers(on On) bool {
 }
 
 // Areas is what a scope's area is matched against and what a hold row names:
-// the item's area chain where the caller supplied one, and the item's own area
-// alone where it did not. An item with no area at all is matched against
-// nothing, which only the empty scope covers.
-func (o On) Areas() []string {
-	if len(o.AreaChain) > 0 {
-		return o.AreaChain
-	}
-	if o.AreaID == "" {
-		return nil
-	}
-	return []string{o.AreaID}
-}
+// the item's area chain, its own area first, as [Dispatch.following] read it
+// off the records. An item with no area at all is matched against nothing,
+// which only the empty scope covers.
+func (o On) Areas() []string { return o.areaChain }
 
 // String is the scope as the principal carries it, so a call made under it
 // says where the agent was put. The empty scope reads as the whole factory.

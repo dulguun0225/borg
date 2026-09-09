@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,9 +42,29 @@ type reportChannel struct {
 	// token names and the notice in force over the project that deploy's
 	// service lies in. The store's own pool is behind store.
 	pool *pgxpool.Pool
+
+	// mu guards groupNow, which newGrouper sets once and Submit reads on
+	// every accepted report.
+	mu sync.Mutex
+	// groupNow is the composition's own pass, wired in by newGrouper once the
+	// path that owns it exists: serve opens the report store before it
+	// composes the path that reads it, so this channel is built before the
+	// pass is. It is nil until that wiring runs, and in every composition
+	// that opens a report store but composes no grouper, which is every one
+	// but the process that serves the entrance — a report Submit takes
+	// before then, or through such a composition, is left for the periodic
+	// pass to find.
+	groupNow func(ctx context.Context) (bool, error)
 }
 
 var _ wayin.Store = (*reportChannel)(nil)
+
+// theChannel is the channel [openReportStore] most recently composed, held so
+// that [newGrouper] — built a moment later, on the same goroutine, by the
+// same call to serve — can hand it the pass it just built. Only serve opens a
+// report store, and it opens at most one, so the single slot names the one
+// channel there ever is to wire.
+var theChannel *reportChannel
 
 // openReportStore opens the report store, applies its schema, and composes the
 // channel over it. It returns what closes the store's pool.
@@ -72,7 +93,36 @@ func openReportStore(ctx context.Context, url, erasureList string,
 		holdsOverAService{pool: pool},
 		readEventsOfAReport{log: decisionlog.NewReader(pool, token)},
 		redactionsOverReports{pool: pool})
-	return &reportChannel{store: store, pool: pool}, reports.Close, nil
+	channel := &reportChannel{store: store, pool: pool}
+	theChannel = channel
+	return channel, reports.Close, nil
+}
+
+// wireGrouper hands this channel the composition's own pass, so that Submit
+// can hand each accepted report to it at once instead of leaving every one
+// for the periodic tick. newGrouper calls it once, after the path that owns
+// the pass is composed.
+func (c *reportChannel) wireGrouper(groupNow func(ctx context.Context) (bool, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.groupNow = groupNow
+}
+
+// handOffToTheGrouper hands the report just accepted to the grouper's own
+// pass at once: the first of a group raises its intent and a later matching
+// one attaches without waiting for the periodic tick, which stays only as the
+// catch-up a restart needs, for what arrived while the factory was down.
+//
+// A failure here is not the submission's: the report is already written, and
+// the periodic pass reads it again whatever this call could not finish.
+func (c *reportChannel) handOffToTheGrouper(ctx context.Context) {
+	c.mu.Lock()
+	groupNow := c.groupNow
+	c.mu.Unlock()
+	if groupNow == nil {
+		return
+	}
+	_, _ = groupNow(ctx)
 }
 
 // NoticeInForce is the notice in force over the project the way-in token's
@@ -102,6 +152,11 @@ func (c *reportChannel) NoticeInForce(ctx context.Context, token string) (wayin.
 // report counts against are the deploy record's, resolved inside the store
 // from the token, and this crossing carries the fields of the submission and
 // no more.
+//
+// An accepted report is handed to the grouper at once, through
+// [reportChannel.handOffToTheGrouper], rather than left for the periodic
+// tick: that is what makes arrival the trigger a group's first report raises
+// its intent on, and the tick behind it the catch-up a restart needs.
 func (c *reportChannel) Submit(ctx context.Context, sub wayin.Submission,
 	collectedAt time.Time) (wayin.Result, error) {
 	result, err := c.store.Submit(ctx, reportstore.Submission{
@@ -116,6 +171,9 @@ func (c *reportChannel) Submit(ctx context.Context, sub wayin.Submission,
 	}, collectedAt)
 	if err != nil {
 		return wayin.Result{}, err
+	}
+	if result.Accepted {
+		c.handOffToTheGrouper(ctx)
 	}
 	return wayin.Result{Accepted: result.Accepted, Refusal: string(result.Refusal)}, nil
 }

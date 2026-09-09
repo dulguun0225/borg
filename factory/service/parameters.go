@@ -165,25 +165,35 @@ func SetExposureBound(ctx context.Context, tx pgx.Tx, serviceID string, bound fl
 // SetBakeVolume writes the traffic the targets a rollout has already reached
 // serve before the next is reached. It is a volume and not a period, because the
 // analysis window is a volume condition and a period on a quiet service measures
-// nothing. Where an owner authors none the score supplies it, and a safeguard may
-// raise it and never lower it.
-func SetBakeVolume(ctx context.Context, tx pgx.Tx, serviceID string, volume float64) error {
+// nothing. Where an owner authors none the score supplies it, and a component
+// actor — a safeguard's write — may raise it and never lower it; a human actor
+// may set it either way.
+func SetBakeVolume(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, volume float64) error {
 	if volume <= 0 {
 		return fmt.Errorf("%w: the bake volume %v", ErrNotPositive, volume)
 	}
-	return set(ctx, tx, serviceID, `bake_volume`, volume)
+	return setDirectional(ctx, tx, actor, serviceID, `bake_volume`, "the bake volume", RaiseOnly, volume, nil)
 }
 
 // SetBacklogCap writes how many releases may wait behind a rollback hold — the
 // ones the rollback skipped and the ones merged while it stands alike — before
 // the merge queue stops fast-forwarding this service's candidates. Where an owner
 // authors none it is the window limit, so both halves of the exception are
-// bounded by one number until an owner separates them.
-func SetBacklogCap(ctx context.Context, tx pgx.Tx, serviceID string, cap float64) error {
+// bounded by one number until an owner separates them. A component actor may
+// lower it and never raise it; a human actor may set it either way.
+func SetBacklogCap(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, cap float64) error {
 	if cap <= 0 {
 		return fmt.Errorf("%w: the backlog cap %v", ErrNotPositive, cap)
 	}
-	return set(ctx, tx, serviceID, `backlog_cap`, cap)
+	var fallback *float64
+	if actor.Kind == record.KindComponent {
+		windowLimit, err := backlogCapFallback(ctx, tx, serviceID)
+		if err != nil {
+			return err
+		}
+		fallback = &windowLimit
+	}
+	return setDirectional(ctx, tx, actor, serviceID, `backlog_cap`, "the backlog cap", LowerOnly, cap, fallback)
 }
 
 // SetInstanceHourRate writes what one instance-hour converts to, in the currency
@@ -199,12 +209,13 @@ func SetInstanceHourRate(ctx context.Context, tx pgx.Tx, serviceID string, rate 
 
 // SetMutationFloor writes the mutation score below which Merge to master
 // rejects, as a share. Where an owner authors none the score supplies it, and a
-// safeguard may raise it and never lower it, as with the bake volume.
-func SetMutationFloor(ctx context.Context, tx pgx.Tx, serviceID string, floor float64) error {
+// component actor may raise it and never lower it, as with the bake volume; a
+// human actor may set it either way.
+func SetMutationFloor(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, floor float64) error {
 	if floor < 0 || floor > 1 {
 		return fmt.Errorf("%w: the mutation floor %v is between 0 and 1", ErrShareOutOfRange, floor)
 	}
-	return set(ctx, tx, serviceID, `mutation_floor`, floor)
+	return setDirectional(ctx, tx, actor, serviceID, `mutation_floor`, "the mutation floor", RaiseOnly, floor, nil)
 }
 
 // SetKeptFraction writes the fraction of its instances a release keeps while a
@@ -230,13 +241,14 @@ func SetMaxConcurrentKeptFleets(ctx context.Context, tx pgx.Tx, serviceID string
 
 // SetRecentHistoryRunLength writes the average run length the reading against
 // this service's own recent history is taken at: the mean volume a service whose
-// behaviour has not changed runs before that reading crosses once. A safeguard
-// may only shorten it, which adds a check rather than removing one.
-func SetRecentHistoryRunLength(ctx context.Context, tx pgx.Tx, serviceID string, volume float64) error {
+// behaviour has not changed runs before that reading crosses once. A component
+// actor may only shorten it, which adds a check rather than removing one; a
+// human actor may set it either way.
+func SetRecentHistoryRunLength(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, volume float64) error {
 	if volume <= 0 {
 		return fmt.Errorf("%w: the average run length %v", ErrNotPositive, volume)
 	}
-	return set(ctx, tx, serviceID, `recent_history_run_length`, volume)
+	return setDirectional(ctx, tx, actor, serviceID, `recent_history_run_length`, "the average run length", LowerOnly, volume, nil)
 }
 
 // SetProofTestRate writes how often the deployer, inside an open window, shifts
@@ -264,23 +276,27 @@ func SetMutantCap(ctx context.Context, tx pgx.Tx, serviceID string, cap float64)
 }
 
 // SetFailureRecordKeyCap writes how many distinct keys a release may hold open
-// per interval for its failure records.
-func SetFailureRecordKeyCap(ctx context.Context, tx pgx.Tx, serviceID string, cap float64) error {
+// per interval for its failure records. A component actor may lower it and
+// never raise it; a human actor may set it either way.
+func SetFailureRecordKeyCap(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, cap float64) error {
 	if cap <= 0 {
 		return fmt.Errorf("%w: the failure-record key cap %v", ErrNotPositive, cap)
 	}
-	return set(ctx, tx, serviceID, `failure_record_key_cap`, cap)
+	shipped := float64(ShippedFailureRecordKeyCap)
+	return setDirectional(ctx, tx, actor, serviceID, `failure_record_key_cap`, "the failure-record key cap", LowerOnly, cap, &shipped)
 }
 
 // SetUnreliableBound writes the rate of disagreement above which a criterion of
 // this service is unreliable. It is a rate, so it is between nothing and one,
 // and nothing is a real value: every disagreement takes a criterion out of the
-// gate.
-func SetUnreliableBound(ctx context.Context, tx pgx.Tx, serviceID string, bound float64) error {
+// gate. A component actor may raise it and never lower it, lowering being what
+// takes a criterion out of the gate; a human actor may set it either way.
+func SetUnreliableBound(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, bound float64) error {
 	if bound < 0 || bound > 1 {
 		return fmt.Errorf("%w: the unreliable bound %v is between 0 and 1", ErrShareOutOfRange, bound)
 	}
-	return set(ctx, tx, serviceID, `unreliable_bound`, bound)
+	shipped := float64(ShippedUnreliableBound)
+	return setDirectional(ctx, tx, actor, serviceID, `unreliable_bound`, "the unreliable bound", RaiseOnly, bound, &shipped)
 }
 
 // SetIncidentItemBound writes how long an incident-raised item may be worked

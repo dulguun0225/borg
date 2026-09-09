@@ -42,7 +42,9 @@ type Shortening struct {
 	ApprovedAt string
 }
 
-// InsertShortening writes a pending shortening, inside tx. It is not in force
+// InsertShortening writes a pending shortening, inside tx, under the id package
+// policy minted for it: the policy version names the shortening and is appended
+// before it. It is not in force
 // until [ApproveShortening] marks it: the gate row that decides a shortening of
 // decision-log retention decides it, held by a human always and routed away
 // from the actor on this record. This and [ApproveShortening] are the two writes
@@ -50,7 +52,7 @@ type Shortening struct {
 // through package policy's WriteRetentionShortening and
 // ApproveRetentionShortening.
 func InsertShortening(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
-	seconds int64) (Shortening, error) {
+	id string, seconds int64) (Shortening, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Shortening{}, err
 	}
@@ -61,7 +63,7 @@ func InsertShortening(ctx context.Context, tx pgx.Tx, token lease.Token, actor r
 		return Shortening{}, fmt.Errorf("%w: %d", ErrRetentionNotPositive, seconds)
 	}
 	s := Shortening{
-		ID:      record.NewID(ShorteningIDPrefix),
+		ID:      id,
 		Actor:   actor,
 		At:      record.Now(),
 		Seconds: seconds,

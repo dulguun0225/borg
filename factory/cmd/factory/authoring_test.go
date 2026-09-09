@@ -129,8 +129,10 @@ func TestEachParameterReadsTheSubjectItsScopeNames(t *testing.T) {
 		},
 		{
 			// The allowed predicate kinds are the one list, and they are
-			// authored as one.
-			screens.AuthorParameterArgs{Parameter: "allowed_predicate_kinds", Value: "status,schema"}, 2,
+			// authored as one. Each has to be a kind this factory can decide
+			// against one observed exchange, which is the floor the list's own
+			// rule sets.
+			screens.AuthorParameterArgs{Parameter: "allowed_predicate_kinds", Value: "range,sent_range"}, 2,
 			func() (float64, bool) {
 				fp, err := factorysettings.Get(ctx, d.pool)
 				if err != nil {

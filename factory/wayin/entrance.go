@@ -2,6 +2,8 @@ package wayin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -20,6 +22,23 @@ const bodyLimit = 64 << 10
 type Notice struct {
 	ID   string
 	Text string
+}
+
+// identity is what a session compares a notice by: [Notice.ID], the
+// constraint version id it carries, or a digest of its words where it
+// carries none — so a notice authored with no id of its own is never taken
+// for another one just because both carry none. Where there is no notice at
+// all, ID and Text are both empty and identity is empty too, which is what
+// says a session opened then was shown none.
+func identity(n Notice) string {
+	if n.ID != "" {
+		return n.ID
+	}
+	if n.Text == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(n.Text))
+	return hex.EncodeToString(sum[:])
 }
 
 // Submission is one report as it arrives at the entrance. Nothing on it says
@@ -42,7 +61,10 @@ type Submission struct {
 	// person, and it is empty where the way in supplied none or supplied
 	// something that is no key.
 	SourceKey string
-	NoticeID  string
+	// NoticeID is the notice in force at the submit, read again from the
+	// store under the token and confirmed against the session the submission
+	// named — never what the submission itself said the notice was.
+	NoticeID string
 }
 
 // Result is what one submission did, and the whole of what a session is
@@ -52,6 +74,12 @@ type Result struct {
 	Accepted bool
 	Refusal  string
 }
+
+// RefusedNoSession is the refusal for a submission naming no session: a
+// submission names the session it followed — the notice it was shown at the
+// open — and one naming none is refused here, before it ever reaches the
+// store.
+const RefusedNoSession = "the submission names no session it followed"
 
 // Store is what the entrance reaches, implemented by the composition over the
 // report store. The entrance holds no store of its own and writes nothing.
@@ -91,7 +119,8 @@ func NewEntrance(store Store) *Entrance {
 func (e *Entrance) ServeHTTP(w http.ResponseWriter, r *http.Request) { e.mux.ServeHTTP(w, r) }
 
 // noticeBody is the notice on the wire, in the field names the shipped source
-// reads it under.
+// reads it under. NoticeID carries the session: [identity] of the notice
+// shown, which a submission names back.
 type noticeBody struct {
 	NoticeID string `json:"notice_id"`
 	Text     string `json:"text"`
@@ -102,20 +131,30 @@ type noticeBody struct {
 // which is where the way in puts it and where nothing renders it back. Nor is
 // the session the source key was derived from: that is the deployed
 // software's own and never leaves it.
+//
+// NoticeID is a pointer so that a submission naming no session — the key
+// absent rather than present and empty — reads as nil: the shipped source
+// always writes the key, even where it was shown no notice, so nil is what a
+// call that never opened a session looks like.
 type submissionBody struct {
-	Shape                 string `json:"shape"`
-	ShippedBundleIdentity string `json:"shipped_bundle_identity"`
-	Kind                  string `json:"kind"`
-	Text                  string `json:"text"`
-	HarmMarked            bool   `json:"harm_marked"`
-	SourceKey             string `json:"source_key"`
-	NoticeID              string `json:"notice_id"`
+	Shape                 string  `json:"shape"`
+	ShippedBundleIdentity string  `json:"shipped_bundle_identity"`
+	Kind                  string  `json:"kind"`
+	Text                  string  `json:"text"`
+	HarmMarked            bool    `json:"harm_marked"`
+	SourceKey             string  `json:"source_key"`
+	NoticeID              *string `json:"notice_id"`
 }
 
-// resultBody is the submit result on the wire.
+// resultBody is the submit result on the wire. NoticeID and Text carry the
+// notice again where it moved between the open and the submit: Accepted
+// false and Refusal empty together are what say the session was shown a
+// fresh notice rather than refused.
 type resultBody struct {
 	Accepted bool   `json:"accepted"`
 	Refusal  string `json:"refusal,omitempty"`
+	NoticeID string `json:"notice_id,omitempty"`
+	Text     string `json:"text,omitempty"`
 }
 
 func (e *Entrance) handleNotice(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +168,7 @@ func (e *Entrance) handleNotice(w http.ResponseWriter, r *http.Request) {
 		plain(w, http.StatusServiceUnavailable, "the report store could not be reached")
 		return
 	}
-	writeJSON(w, noticeBody{NoticeID: notice.ID, Text: notice.Text})
+	writeJSON(w, noticeBody{NoticeID: identity(notice), Text: notice.Text})
 }
 
 func (e *Entrance) handleSubmit(w http.ResponseWriter, r *http.Request) {
@@ -143,9 +182,25 @@ func (e *Entrance) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		plain(w, http.StatusBadRequest, "the submission could not be read")
 		return
 	}
+	if body.NoticeID == nil {
+		writeJSON(w, resultBody{Refusal: RefusedNoSession})
+		return
+	}
+	notice, err := e.store.NoticeInForce(r.Context(), token)
+	if err != nil {
+		plain(w, http.StatusServiceUnavailable, "the report store could not be reached")
+		return
+	}
+	if *body.NoticeID != identity(notice) {
+		// The notice moved between the open and this submit: shown again,
+		// not refused silently, and the store never reached.
+		writeJSON(w, resultBody{NoticeID: notice.ID, Text: notice.Text})
+		return
+	}
 	// What reaches the store is these fields and nothing else the request
 	// carried: no address, no header beyond the token, and no field a person
-	// could be recovered from.
+	// could be recovered from. NoticeID is what this entrance just confirmed
+	// is in force and never what the submission said.
 	sub := Submission{
 		Shape:                 body.Shape,
 		ShippedBundleIdentity: body.ShippedBundleIdentity,
@@ -154,7 +209,7 @@ func (e *Entrance) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		Text:                  body.Text,
 		HarmMarked:            body.HarmMarked,
 		SourceKey:             opaqueKey(body.SourceKey),
-		NoticeID:              body.NoticeID,
+		NoticeID:              notice.ID,
 	}
 	result, err := e.store.Submit(r.Context(), sub, time.Now())
 	if err != nil {

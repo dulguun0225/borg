@@ -54,12 +54,13 @@ func (v *views) Item(ctx context.Context, who principal.Principal, id string) (s
 				return screens.Item{}, err
 			}
 		}
-		live, of, err := v.p.liveItems(ctx, in.ID)
+		_, of, addresses, err := v.p.liveItems(ctx, in.ID)
 		if err != nil {
 			return screens.Item{}, err
 		}
 		if of > 1 {
-			if view.PartlyDelivered, err = item.PartlyDelivered(ctx, v.p.d.pool, in.ID, live); err != nil {
+			if view.PartlyDelivered, err = item.PartlyDelivered(ctx, v.p.d.pool, in.ID,
+				v.p.production.ID, addresses); err != nil {
 				return screens.Item{}, err
 			}
 		}

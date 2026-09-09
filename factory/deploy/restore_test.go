@@ -1,6 +1,6 @@
-// The slow rollback and the restart: what the rollback verifies before it puts
-// anything back, what it advances as it completes on each target, and what the
-// deployer's restart does with the records it stopped in the middle of.
+// The two rollbacks: what the slow one verifies before it puts anything back,
+// what each advances as it completes on a target, and what the fast one
+// shifts traffic onto. The restart is resume_test.go.
 package deploy_test
 
 import (
@@ -157,75 +157,190 @@ func TestARollbackAdvancesTheDeploysItUndoesTargetByTarget(t *testing.T) {
 	}
 }
 
-// TestTheRestartCompletesFinishesAndReturnsWhatItStoppedInTheMiddleOf: every
-// component's restart is a read of its own records, and the deployer's is the
-// deploy records no target has finished — one every target of which is complete
-// is completed, one no target reached is marked failed at the step that says the
-// deployer stopped, and one in between stays started as the recorded partial
-// deploy it is.
-func TestTheRestartCompletesFinishesAndReturnsWhatItStoppedInTheMiddleOf(t *testing.T) {
+// TestTheConfigurationDigestIsStableAndTheFastRollbackCarriesItNamed: the
+// configuration digest is over the resolved value set alone — the token
+// minted fresh at every deploy is not among it — so an unchanged configuration
+// digests the same at the deploy that first ran it and at the slow rollback
+// that resolves it again; and the fast rollback mints nothing, carrying the
+// digests the deploy record that placed the kept instances already named.
+func TestTheConfigurationDigestIsStableAndTheFastRollbackCarriesItNamed(t *testing.T) {
 	ctx, pool, w, token := newTableWithToken(t)
 	const serviceID = "svc_a"
-	r := mintRelease(t, ctx, pool, token, serviceID)
+	below := mintRelease(t, ctx, pool, token, serviceID)
+	failed := mintRelease(t, ctx, pool, token, serviceID)
+	reaches, _ := twoFakes(true)
 
-	begin := func() deploy.Deploy {
-		t.Helper()
-		d, err := w.Start(ctx, deployer, deploy.Beginning{
-			ServiceID: serviceID, EnvironmentID: productionID,
-			What: deploy.OfRelease(r.ID, r.BuildID), Targets: twoTargets,
-			IntoProduction: true, StrategyPicked: deploy.StrategyWithoutControl,
-		})
-		if err != nil {
-			t.Fatalf("Start: %v", err)
+	configuration := targetseam.ValueSet{
+		Names:  []string{"DATABASE_URL"},
+		Values: []string{"postgres://one"},
+	}
+
+	first := performance(serviceID, below, reaches)
+	first.Configuration = configuration
+	firstDeploy, err := deploy.Perform(ctx, w, first)
+	if err != nil {
+		t.Fatalf("the first deploy: %v", err)
+	}
+
+	replacing := performance(serviceID, failed, reaches)
+	replacing.Configuration = configuration
+	shipped, err := deploy.Perform(ctx, w, replacing)
+	if err != nil {
+		t.Fatalf("the deploy that replaced it, keeping its instances: %v", err)
+	}
+
+	wantDigest := deploy.DigestConfiguration(configuration)
+	firstRead, err := deploy.Get(ctx, pool, firstDeploy.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	shippedRead, err := deploy.Get(ctx, pool, shipped.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if firstRead.ConfigurationDigest != wantDigest || shippedRead.ConfigurationDigest != wantDigest {
+		t.Fatalf("the digests read %q and %q, want both %q — the same unchanged configuration at both deploys",
+			firstRead.ConfigurationDigest, shippedRead.ConfigurationDigest, wantDigest)
+	}
+	if firstRead.WayInTokenDigest == shippedRead.WayInTokenDigest {
+		t.Error("two deploys minted the same way-in token digest, want a fresh one each time")
+	}
+
+	// The slow rollback: a deploy of below again, over the same unchanged
+	// configuration, digests the same too.
+	returning := performance(serviceID, below, reaches)
+	returning.Configuration = configuration
+	slow, err := deploy.Restore(ctx, w, deploy.Restoration{
+		Performance:    returning,
+		Undoing:        deploy.Undoing{FailedReleaseID: failed.ID, Source: deploy.SourceHealthMonitorAtFailed},
+		RecordedDigest: "the digest the build recorded",
+		Artifacts:      artifacts{below.BuildID: "the digest the build recorded"},
+	})
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	slowRead, err := deploy.Get(ctx, pool, slow.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if slowRead.ConfigurationDigest != wantDigest {
+		t.Errorf("the slow rollback's digest reads %q, want %q — the same unchanged configuration",
+			slowRead.ConfigurationDigest, wantDigest)
+	}
+
+	// The fast rollback: it mints nothing, and carries the digests named on
+	// the deploy record that placed the kept instances.
+	fast, err := deploy.ShiftBack(ctx, w, deploy.Returning{
+		Performance: performance(serviceID, below, reaches),
+		Undoing:     deploy.Undoing{FailedReleaseID: failed.ID, Source: deploy.SourceHealthMonitorAtFailed},
+		KeptBy:      shipped.ID,
+	})
+	if err != nil {
+		t.Fatalf("ShiftBack: %v", err)
+	}
+	fastRead, err := deploy.Get(ctx, pool, fast.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if fastRead.ConfigurationDigest != shippedRead.ConfigurationDigest {
+		t.Errorf("the fast rollback's configuration digest reads %q, want %q named on %s",
+			fastRead.ConfigurationDigest, shippedRead.ConfigurationDigest, shipped.ID)
+	}
+	if fastRead.WayInTokenDigest != shippedRead.WayInTokenDigest {
+		t.Errorf("the fast rollback's way-in token digest reads %q, want %q named on %s",
+			fastRead.WayInTokenDigest, shippedRead.WayInTokenDigest, shipped.ID)
+	}
+}
+
+// TestTheFastRollbackShiftsTrafficOntoTheKeptInstances: a rollback is a deploy
+// event and not a version event — where the deploy that replaced a release kept
+// its instances, returning to it is a traffic shift onto instances already
+// running, with nothing put on a target and no number minted.
+func TestTheFastRollbackShiftsTrafficOntoTheKeptInstances(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	below := mintRelease(t, ctx, pool, token, serviceID)
+	failed := mintRelease(t, ctx, pool, token, serviceID)
+	reaches, fakes := twoFakes(true)
+	addresses := addressesOf(twoTargets)
+
+	// The deploy that replaced the release below, keeping its instances.
+	replacing := performance(serviceID, failed, reaches)
+	shipped, err := deploy.Perform(ctx, w, replacing)
+	if err != nil {
+		t.Fatalf("the deploy that replaced it: %v", err)
+	}
+
+	returning := deploy.Returning{
+		Performance: performance(serviceID, below, reaches),
+		Undoing: deploy.Undoing{
+			FailedReleaseID: failed.ID,
+			Source:          deploy.SourceHealthMonitorAtFailed,
+		},
+		KeptBy: shipped.ID,
+	}
+	returning.UndoneDeployIDs = []string{shipped.ID}
+
+	rolled, err := deploy.ShiftBack(ctx, w, returning)
+	if err != nil {
+		t.Fatalf("ShiftBack: %v", err)
+	}
+	if rolled.Status != deploy.StatusComplete {
+		t.Fatalf("the rollback is %s, want complete", rolled.Status)
+	}
+
+	for n, fake := range fakes {
+		var shifted, deployed int
+		for _, call := range fake.Calls() {
+			switch call.Op {
+			case targetseam.OpShiftTraffic:
+				shifted++
+				if call.Build != below.BuildID || call.Share != 1 {
+					t.Errorf("target %d was shifted onto build %q at %v, want all of it onto the release returned to",
+						n+1, call.Build, call.Share)
+				}
+			case targetseam.OpDeploy:
+				deployed++
+			}
 		}
-		return d
+		if shifted != 1 {
+			t.Errorf("target %d took %d shift(s), want the one the rollback is", n+1, shifted)
+		}
+		if deployed != 1 {
+			t.Errorf("target %d was deployed to %d time(s), want the one the rollout did and nothing from the rollback",
+				n+1, deployed)
+		}
 	}
 
-	finished := begin()
-	completeOn(t, ctx, w, finished.ID, "/srv/one", "/srv/two")
-	partial := begin()
-	completeOn(t, ctx, w, partial.ID, "/srv/one")
-	stopped := begin()
-
-	carryOn, err := deploy.Resume(ctx, w)
+	// The deploy it undoes is rolled back on every target it reached, and the
+	// release below is current again.
+	undone, err := deploy.Targets(ctx, pool, shipped.ID)
 	if err != nil {
-		t.Fatalf("Resume: %v", err)
+		t.Fatalf("Targets: %v", err)
 	}
-	if len(carryOn) != 1 || carryOn[0].ID != partial.ID {
-		t.Fatalf("the restart returned %+v, want the one recorded partial deploy", carryOn)
+	for _, target := range undone {
+		if target.Completion != deploy.CompletionRolledBack {
+			t.Errorf("%s of the undone deploy is %s, want rolled back", target.Address, target.Completion)
+		}
+	}
+	current, found, err := deploy.Current(ctx, pool, serviceID, productionID, addresses)
+	if err != nil || !found || current.ReleaseID != below.ID {
+		t.Errorf("Current = %+v, found %v, %v, want the release the rollback returned to", current, found, err)
 	}
 
-	read, err := deploy.Get(ctx, pool, finished.ID)
+	// A target keeping nothing is the slow rollback's, and this refuses before
+	// it writes a record.
+	nothingKept, _ := twoFakes(true)
+	for n := range nothingKept {
+		nothingKept[n].KeptInstances = 0
+	}
+	bare := performance(serviceID, failed, nothingKept)
+	cold, err := deploy.Perform(ctx, w, bare)
 	if err != nil {
-		t.Fatalf("Get: %v", err)
+		t.Fatalf("a deploy keeping nothing: %v", err)
 	}
-	if read.Status != deploy.StatusComplete {
-		t.Errorf("a record every target of which finished is %s, want complete", read.Status)
-	}
-	if read, err = deploy.Get(ctx, pool, stopped.ID); err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if read.Status != deploy.StatusFailed || read.FailedStep != deploy.StepStopped {
-		t.Errorf("a record no target reached is %s at %q, want failed at the step that says the deployer stopped",
-			read.Status, read.FailedStep)
-	}
-	if read, err = deploy.Get(ctx, pool, partial.ID); err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if read.Status != deploy.StatusStarted {
-		t.Errorf("the recorded partial deploy is %s, want started", read.Status)
-	}
-
-	owed, err := deploy.Partial(ctx, pool, partial.ID)
-	if err != nil {
-		t.Fatalf("Partial: %v", err)
-	}
-	if len(owed) != 1 || owed[0].Address != "/srv/two" {
-		t.Errorf("the targets still owed are %+v, want the one the deployer never reached", owed)
-	}
-
-	// A second restart leaves the failed record alone.
-	if _, err := deploy.Resume(ctx, w); err != nil {
-		t.Fatalf("a second Resume: %v", err)
+	returning.KeptBy = cold.ID
+	if _, err := deploy.ShiftBack(ctx, w, returning); !errors.Is(err, deploy.ErrNothingKeptToReturnTo) {
+		t.Errorf("a rollback onto a target keeping nothing = %v, want ErrNothingKeptToReturnTo", err)
 	}
 }

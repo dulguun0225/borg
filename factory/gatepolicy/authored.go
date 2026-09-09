@@ -27,3 +27,22 @@ func (a Authored) Or(supplied float64) float64 {
 	}
 	return supplied
 }
+
+// Unauthored is the value in force where an owner authored none: the value the
+// design fixes for the parameter rather than one the score supplies, because no
+// outcome teaches it. A parameter the score supplies has [Unauthored.Given]
+// false and the score's own value stands there instead, which is what makes a
+// fixed value a field here rather than a sentence in [Definition.Unit] a reader
+// has to parse.
+type Unauthored struct {
+	// Given is whether the design fixes one at all.
+	Given bool
+	// Unbounded is the fixed value that places no bound: the decision log and
+	// the report store kept for the life of the install, arrival at the way in
+	// unbounded, a schema-change snapshot standing until an owner deletes it,
+	// and every hour a paging hour. Number is nothing where it is set, there
+	// being no number that means no bound.
+	Unbounded bool
+	Number    float64
+	List      []string
+}

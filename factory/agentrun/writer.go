@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -25,8 +27,19 @@ var (
 	// ceiling's sum is over it.
 	ErrCredentialNameEmpty = errors.New("agentrun: the credential name is empty")
 	// ErrAccountKindUnknown is returned for an account kind that is neither of
-	// [AccountKinds] and not empty.
+	// [AccountKinds], the empty one included: the account behind a credential
+	// is a person's own or an organisation's, and the run reads which off the
+	// People declaration.
 	ErrAccountKindUnknown = errors.New("agentrun: the account kind is unknown")
+	// ErrProcessingLocationEmpty is returned for a run naming no processing
+	// location. It is the provider and the region the credential resolved to,
+	// read off the fleet entry at the run, and a run without one names no party
+	// the material was sent to.
+	ErrProcessingLocationEmpty = errors.New("agentrun: the processing location is empty")
+	// ErrLenderKeyEmpty is returned for a run naming no lender. It is the
+	// per-person key the People declaration maps to whoever lent the credential,
+	// read off that declaration at the run.
+	ErrLenderKeyEmpty = errors.New("agentrun: the lender's per-person key is empty")
 	// ErrServedNothing is returned for a run naming no item, no intent and no
 	// project. What a run served is one of the five the design names and never
 	// none; doc.go says which three of the five have a record to name.
@@ -39,10 +52,33 @@ var (
 	// ErrUnitsNegative is returned for a negative count of units. A provider
 	// returns what it counted, and taking units back is not a run.
 	ErrUnitsNegative = errors.New("agentrun: a count of units is negative")
+	// ErrUnitsAtEmpty is returned for a run naming no time the units were
+	// returned at. It is the time the provider returned them, which is the
+	// caller's to supply: the time the record was written is a different fact,
+	// and the sum a spend ceiling compares is over this one.
+	ErrUnitsAtEmpty = errors.New("agentrun: the time the provider returned the units is empty")
 	// ErrCurrencyEmpty is returned for a converted amount with no currency. The
 	// amount is in the currency the owner's rates are authored in, and one
 	// without a currency bounds nothing.
 	ErrCurrencyEmpty = errors.New("agentrun: the converted amount has no currency")
+	// ErrAmountNotTheSum is returned for a converted amount that is not what the
+	// units the caller supplied come to at the rates it supplied — a run priced
+	// on a kind that has no rate included. The amount is computed here from the
+	// two fields the record stores, so an amount the caller worked out
+	// differently is a disagreement about what the run cost and not a value to
+	// store.
+	ErrAmountNotTheSum = errors.New("agentrun: the converted amount is not the units at the rates")
+	// ErrPeriodUnknown is returned by [SpendByCredentialIn] for a period whose
+	// length is not above zero or whose unit is outside [PeriodUnits].
+	ErrPeriodUnknown = errors.New("agentrun: a period is a length above zero in one of the units")
+	// ErrStartDateUnknown is returned by [SpendByCredentialIn] for a start date
+	// that is not a date in [DateLayout] or that names no time zone.
+	ErrStartDateUnknown = errors.New("agentrun: a start date is a date and the zone it was authored in")
+	// ErrCurrenciesDiffer is returned by [SpendByCredentialIn] where the priced
+	// runs of one period are in two currencies. One credential is one account at
+	// one provider and one invoice, and what the ceiling compares is a sum in
+	// one currency, so there is no total to report.
+	ErrCurrenciesDiffer = errors.New("agentrun: the runs of the period are in two currencies")
 	// ErrNotFound is returned where no run record has the id.
 	ErrNotFound = errors.New("agentrun: no run record has that id")
 )
@@ -81,16 +117,19 @@ type New struct {
 	ProjectID       string
 	InputManifestID string
 
+	// UnitsByKind is what the provider returned per kind and UnitsAt the time it
+	// returned them, which the caller supplies: it is not the time this record
+	// is written.
 	UnitsByKind map[string]int64
 	UnitsAt     string
 	Sources     []string
 	RatesByKind map[string]float64
-	// ConvertedAmount is the sum over the kinds at the rates, and Priced says
-	// whether there is one: a run a kind of which has no rate carries none, and
-	// the ceiling fails closed on it rather than summing a number that is not
-	// there.
+	// ConvertedAmount is what the caller worked the amount out to be. The
+	// amount stored is computed here from UnitsByKind and RatesByKind, and one
+	// supplied that is not that sum is refused rather than stored: a run a kind
+	// of which has no rate carries no amount at all, and the ceiling fails
+	// closed on it rather than summing a number that is not there.
 	ConvertedAmount float64
-	Priced          bool
 	Currency        string
 
 	StartedAt  string
@@ -116,7 +155,13 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 	if n.CredentialName == "" {
 		return Run{}, ErrCredentialNameEmpty
 	}
-	if n.AccountKind != "" && !slices.Contains(AccountKinds, n.AccountKind) {
+	if n.ProcessingLocation == "" {
+		return Run{}, ErrProcessingLocationEmpty
+	}
+	if n.LenderKey == "" {
+		return Run{}, ErrLenderKeyEmpty
+	}
+	if !slices.Contains(AccountKinds, n.AccountKind) {
 		return Run{}, fmt.Errorf("%w: %q", ErrAccountKindUnknown, n.AccountKind)
 	}
 	if n.Stage != "" && n.ItemID == "" {
@@ -128,13 +173,17 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 	if n.Outcome == "" {
 		return Run{}, ErrOutcomeEmpty
 	}
+	if n.UnitsAt == "" {
+		return Run{}, ErrUnitsAtEmpty
+	}
 	for kind, units := range n.UnitsByKind {
 		if units < 0 {
 			return Run{}, fmt.Errorf("%w: %s returned %d", ErrUnitsNegative, kind, units)
 		}
 	}
-	if n.Priced && n.Currency == "" {
-		return Run{}, ErrCurrencyEmpty
+	amount, unpriced, err := amountOf(n)
+	if err != nil {
+		return Run{}, err
 	}
 
 	r := Run{
@@ -159,15 +208,23 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 		UnitsAt:             n.UnitsAt,
 		Sources:             n.Sources,
 		RatesByKind:         n.RatesByKind,
-		ConvertedAmount:     n.ConvertedAmount,
-		Priced:              n.Priced,
-		Currency:            n.Currency,
-		StartedAt:           n.StartedAt,
-		FinishedAt:          n.FinishedAt,
-		Outcome:             n.Outcome,
+		ConvertedAmount:     amount,
+		// A run on a credential naming no currency is stored unpriced even
+		// where every kind it returned has a rate, the store holding an
+		// amount only beside its currency. Nothing fails closed on that: a
+		// ceiling is authored in a currency, so no ceiling stands on such a
+		// credential and no sum is asked of its runs.
+		Priced:     len(unpriced) == 0 && n.Currency != "",
+		Currency:   n.Currency,
+		StartedAt:  n.StartedAt,
+		FinishedAt: n.FinishedAt,
+		Outcome:    n.Outcome,
 	}
-	if r.UnitsAt == "" {
-		r.UnitsAt = r.At
+	if !r.Priced {
+		// The currency stands exactly where the amount does: a currency beside
+		// an absent amount names the currency of nothing, and the store refuses
+		// the pair.
+		r.ConvertedAmount, r.Currency = 0, ""
 	}
 	if r.StartedAt == "" {
 		r.StartedAt = r.At
@@ -176,7 +233,7 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 		r.FinishedAt = r.At
 	}
 
-	units, err := marshalUnits(r.UnitsByKind)
+	stored, err := marshalUnits(r.UnitsByKind)
 	if err != nil {
 		return Run{}, err
 	}
@@ -184,9 +241,9 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 	if err != nil {
 		return Run{}, err
 	}
-	var amount any
+	var converted any
 	if r.Priced {
-		amount = r.ConvertedAmount
+		converted = r.ConvertedAmount
 	}
 
 	tx, err := w.pool.Begin(ctx)
@@ -211,7 +268,7 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 		r.Role, r.RolePromptVersionID, joinLines(r.SkillVersionIDs), r.ModelVersion, r.Effort,
 		r.CredentialName, r.ProcessingLocation, r.LenderKey, string(r.AccountKind),
 		r.ItemID, r.Stage, r.IntentID, r.ProjectID, r.InputManifestID,
-		units, r.UnitsAt, joinLines(r.Sources), rates, amount, r.Currency,
+		stored, r.UnitsAt, joinLines(r.Sources), rates, converted, r.Currency,
 		r.StartedAt, r.FinishedAt, r.Outcome,
 	)
 	if err != nil {
@@ -221,6 +278,38 @@ func (w *Writer) Record(ctx context.Context, actor record.Actor, n New) (Run, er
 		return Run{}, fmt.Errorf("agentrun: committing %s: %w", r.ID, err)
 	}
 	return r, nil
+}
+
+// amountOf is the converted amount the record stores and the kinds that have no
+// rate. The amount is computed from the units and the rates the record itself
+// stores rather than taken from the caller, so what the record says a run cost
+// is the record's own two fields multiplied out; an amount the caller supplied
+// that is not that sum is refused, and so is one supplied for a run a kind of
+// which has no rate — that run's amount is absent, which is what a credential
+// under a spend ceiling fails closed on.
+func amountOf(n New) (float64, []string, error) {
+	computed, unpriced := convert(n.UnitsByKind, n.RatesByKind)
+	if len(unpriced) > 0 && n.ConvertedAmount != 0 {
+		return 0, nil, fmt.Errorf("%w: %v, and no rate prices %s",
+			ErrAmountNotTheSum, n.ConvertedAmount, strings.Join(unpriced, ", "))
+	}
+	if n.ConvertedAmount != 0 && n.Currency == "" {
+		return 0, nil, ErrCurrencyEmpty
+	}
+	if len(unpriced) == 0 && differs(n.ConvertedAmount, computed) {
+		return 0, nil, fmt.Errorf("%w: the caller gave %v and the units at the rates come to %v",
+			ErrAmountNotTheSum, n.ConvertedAmount, computed)
+	}
+	return computed, unpriced, nil
+}
+
+// differs is how the caller's amount is compared against the computed one. Both
+// are sums of float64 products over the same kinds, and a sum in another order
+// lands within an ulp or two of this one, so the comparison is to a tolerance
+// that scales with the amount rather than to the bit.
+func differs(supplied, computed float64) bool {
+	scale := math.Max(math.Abs(computed), 1)
+	return math.Abs(supplied-computed) > 1e-9*scale
 }
 
 // unmarshalUnits and unmarshalRates read the two JSON columns back. They are

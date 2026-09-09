@@ -70,7 +70,7 @@ func (w *Writer) Insert(ctx context.Context, actor record.Actor, reason string) 
 		return Halt{}, fmt.Errorf("halt: beginning: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	h, err := Insert(ctx, tx, w.token, actor, reason)
+	h, err := Insert(ctx, tx, w.token, actor, record.NewID(IDPrefix), reason)
 	if err != nil {
 		return Halt{}, err
 	}
@@ -88,7 +88,7 @@ func (w *Writer) InsertWithdrawal(ctx context.Context, actor record.Actor, haltI
 		return Withdrawal{}, fmt.Errorf("halt: beginning: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	wd, err := InsertWithdrawal(ctx, tx, w.token, actor, haltID)
+	wd, err := InsertWithdrawal(ctx, tx, w.token, actor, record.NewID(WithdrawalIDPrefix), haltID)
 	if err != nil {
 		return Withdrawal{}, err
 	}
@@ -116,8 +116,10 @@ func (w *Writer) ApproveWithdrawal(ctx context.Context, withdrawalID string) err
 }
 
 // Insert writes one halt inside tx. Its caller is package policy's SetHalt,
-// which appends the policy version in the same transaction.
-func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, reason string) (Halt, error) {
+// which appends the policy version in the same transaction and mints id, the
+// version naming the halt and being appended before it.
+func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	id, reason string) (Halt, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Halt{}, err
 	}
@@ -127,7 +129,7 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 	if reason == "" {
 		return Halt{}, ErrReasonEmpty
 	}
-	h := Halt{ID: record.NewID(IDPrefix), Actor: actor, At: record.Now(), Reason: reason}
+	h := Halt{ID: id, Actor: actor, At: record.Now(), Reason: reason}
 	_, err := tx.Exec(ctx, `insert into `+Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, reason)
 		values ($1, $2, $3, $4, $5, $6, $7)`,
@@ -148,7 +150,7 @@ func Insert(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Acto
 // transactions around the human's decision, through package policy's
 // WriteHaltWithdrawal and ApproveHaltWithdrawal.
 func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
-	haltID string) (Withdrawal, error) {
+	id, haltID string) (Withdrawal, error) {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return Withdrawal{}, err
 	}
@@ -158,7 +160,7 @@ func InsertWithdrawal(ctx context.Context, tx pgx.Tx, token lease.Token, actor r
 	if haltID == "" {
 		return Withdrawal{}, ErrHaltIDEmpty
 	}
-	w := Withdrawal{ID: record.NewID(WithdrawalIDPrefix), Actor: actor, At: record.Now(), HaltID: haltID}
+	w := Withdrawal{ID: id, Actor: actor, At: record.Now(), HaltID: haltID}
 	_, err := tx.Exec(ctx, `insert into `+WithdrawalTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, halt_id, approved, approved_at)
 		values ($1, $2, $3, $4, $5, $6, $7, false, null)`,

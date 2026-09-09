@@ -315,7 +315,9 @@ func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 		if isUndecided[cr.ID] {
 			outcome = criterion.OutcomeUndecided
 		}
-		results = append(results, gate.CriterionResult{CriterionID: cr.ID, Outcome: outcome})
+		results = append(results, gate.CriterionResult{
+			CriterionID: cr.ID, Outcome: outcome, Place: criterion.PlaceCandidateEnvironment,
+		})
 	}
 	if err := p.markUnreliable(ctx, c, buildID, results); err != nil {
 		return nil, err
