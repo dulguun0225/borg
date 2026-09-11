@@ -1,5 +1,37 @@
 # CLAUDE.md
 
+## Working across assistants
+
+This file holds the shared repository rules for Claude Code and Codex.
+`AGENTS.md` directs Codex here. Keep shared rules here and directory-specific
+design rules in `end-goal/CLAUDE.md`.
+
+The role definitions in `.claude/agents/` are shared task instructions. Claude
+Code uses their frontmatter to launch agents. In Codex, read the chosen role's
+body and give it to a native subagent with the task's scope; the frontmatter's
+model, effort, and tool settings apply only to Claude Code. The delegation section
+below supplies the model and reasoning effort policy for each assistant. References
+to Opus elsewhere in the repository use the judgment-role model and effort policy
+below in Codex.
+
+Use the current assistant's available tools and installed skills. A Claude
+plugin enabled in `.claude/settings.json` is not thereby installed in Codex.
+When a referenced skill is unavailable, follow readable task instructions with
+native tools and state any required check that could not be performed. Never
+report an independent review as completed by a self-review.
+
+On a new or resumed task, read `HANDOFF.md` if present, then inspect the working
+tree, its diff, and recent commits. The handoff records only the current task:
+the user's request and constraints, the base commit, completed work, outstanding
+work, and commands run with their results. Separate observed facts from inferences.
+Update it before yielding unfinished work or switching assistants, and replace
+stale entries instead of accumulating a session log. Keep secrets and transcripts
+out of it. Checkpoints help resume work; they do not authorize a new task or a push.
+
+`HANDOFF.md` is temporary working state, not another place for design decisions.
+The design and roadmap keep the authority described below. Clear completed tasks
+from the handoff; delete the file when no work remains to hand over.
+
 ## What this repository is
 
 Monorepo for the software factory [README.md](README.md) describes. `end-goal/` holds the
@@ -123,22 +155,64 @@ wherever the answer would differ by row. The list staffs nothing.
 - Use established terms of art normally; they are not considered borrowed terminology.
 - Be concise. Prefer the fewest words needed to convey the meaning accurately.
 
-## Delegate by default
+## Delegation and usage
 
-Route work to the agents in `.claude/agents/` instead of doing it in the main context,
-without being asked. The session is the orchestrator; workers run on two tiers, set by
-each definition's `model:` line. Workers that judge — `cold-reader`, `discipline-reviewer`,
+In both assistants, minimize total usage needed to finish correct, verified work,
+including context, reasoning, retries, and coordination. Work in the main session
+when it already has the needed context or the task is small. Delegate without
+asking when a bounded worker can avoid a large context expansion, perform required
+independent review, or handle a separate substantial task without duplicating work.
+Use the fewest workers that serve those purposes, usually zero or one. Parallel
+agents save elapsed time, not necessarily usage; use them only for independent work.
+
+Use the roles in `.claude/agents/`; each `description:` names its scope. Give a
+worker a precise question or deliverable, relevant paths, constraints, and acceptance
+checks. Reuse a worker for related follow-up work; keep required cold reviews fresh.
+Request concise findings, changed files, verification results, and unresolved points.
+The coordinator checks the result and its integration without repeating the whole
+investigation. Avoid overlapping searches, duplicate edits, and speculative audits.
+
+Preserve required checks and independent reviews. Run each check at the appropriate
+scope, and repeat it when changes or new evidence invalidate its result. Increase
+effort or obtain focused review when uncertainty threatens correctness; do not spend
+multiple weak attempts on a task whose difficulty is already apparent. Use observed
+usage when available; do not claim exact quota savings from effort levels or batching.
+
+In Claude Code, workers that judge — `cold-reader`, `discipline-reviewer`,
 `reviewer`, `drift-reviewer` — run on Opus. Workers that execute a decided task —
-`coder`, `editor`, `scout` — run on Sonnet. A doubt between the two resolves upward, and
-Opus is the cap. A type not in the roster (`general-purpose`, `Explore`, an ad-hoc
-dispatch) inherits the session model, so pass `model:` explicitly on every such launch:
-`"opus"` for judgment, `"sonnet"` for execution. `fork` ignores the override and is not
-used. The routing table is the `description:` line of each agent file. Decisions stay in
-the session; a worker returns what it found or did and what it could not resolve.
+`coder`, `editor`, `scout` — run on Sonnet. A doubt resolves upward, and Opus is the
+cap. For a type outside the roster, pass `model:` explicitly: `"opus"` for
+judgment, `"sonnet"` for execution. Do not use a history fork that ignores this
+override.
 
-Stays in the main context: triage and routing itself, anything the user must decide,
-conversation-spanning work an agent cannot see, and answers so small that dispatch costs
-more than it saves.
+In Codex, the coordinator stays on `gpt-6-astra`; subagents may use any available
+model. Choose the model and effort expected to consume the least total usage while
+meeting the task's quality requirements. Use a less expensive model for bounded,
+well-understood work when its reliability is sufficient; use a stronger model for
+ambiguous, sensitive, or difficult work. Prefer observed usage and results over
+assumed quota discounts. When savings or capability are uncertain, use a model
+known to handle the task reliably. Price alone does not establish usage-limit cost.
+
+Choose reasoning effort by task, within the selected model's supported levels:
+
+| Task and usual roles | Starting reasoning effort |
+|---|---|
+| Lookup or mechanical edit: `scout`, `editor` | `low` |
+| Bounded implementation or substantive prose: `coder`, `editor` | `medium` |
+| Uncertain logic, sensitive changes, or independent review: `coder`, review roles | `high` |
+| Difficult interactions or unresolved reasoning after focused investigation | `xhigh` |
+
+These are starting points, not a requirement to try lower effort first. Use higher
+effort or a stronger model immediately when the evidence calls for it. Pass the
+chosen `model` and `reasoning_effort` explicitly on every Codex spawn. Use `fork_turns: "none"`,
+or bounded history for tasks that do not require a cold context; full-history
+forks ignore model and effort overrides. A cold review always uses
+`fork_turns: "none"`, with only the role instructions and the inputs its rule names.
+
+Both assistants use the same role boundaries and review requirements. Batches
+never exceed available worker slots, even where a workflow below permits six.
+If independent review is unavailable, continue the implementation and mechanical
+checks, and record that review as outstanding.
 
 Agents run sequentially when dependent, in parallel only when genuinely independent and
 few. [_The review pass_](#the-review-pass) sets its own batch size, and its review agents
@@ -276,7 +350,7 @@ or a bounded path — must not speak for the whole design: its report names whic
 and what they read, and a design those agents found sound is not a design found sound.
 Every stance is one dispatch of `discipline-reviewer` from `.claude/agents/`, the field or
 stance named in the dispatch text; it runs on Opus, the judgment tier
-[_Delegate by default_](#delegate-by-default) sets.
+[_Delegation and usage_](#delegation-and-usage) sets.
 
 **Each review agent is dispatched cold**, in its own subagent, and told two things in its
 dispatch text: to judge what it reads on its own and ignore anything it was told about
